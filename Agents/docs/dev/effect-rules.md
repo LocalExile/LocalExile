@@ -133,6 +133,19 @@ would need (`fx_stats.fit`), and ranks the needs.
 a unique's lines (`"unique"`), Mods rows (`"mod"`) or listed stats (`"stats"`: a number, `[min, max]`, or
 `{"from":"roll"}` for the giving line's own rolled value); stats that describe the item itself are left out. `roll`
 (where in its ranges the bundle sits, 100 unless said) and `effect` (a percent of all of it) are values like any other.
+A bundle can also be one of the game's aura templates (`"template"`: a BuffTemplates Id, or `"line"` for the giving
+line's own, Mods `BuffTemplate1`): its buff's `GrantedStats` with the line's rolled numbers, its `AuraRadius` as the
+reach, its BuffDefinitions row as the buff its carriers are shown with (`"shows"` names one by hand). That is where
+"nearby" is a number: 60 cells for the stat auras, 35 for Blind, 25 for Intimidate, 30 for the other debuff auras.
+Given to a monster, a stat that `fx_reads_as` names another for is given as that one (elemental damage taken is the
+three elements' on a monster). To `self` a grant stands, or lasts for the duration timer from an event (a timed buff);
+to `players_area` every player in the area has it while the rule is active.
+
+An area gives too. Modifier rows with the target `players_area` count an area's stat as a stat its players act on
+(`AddAreaStatsForPlayer`, in the stat sources), as `enemies_area` rows do for its monsters; a rule whose source is of
+kind `area` gives the area's monsters or players a bundle (`FxRules.AreaGrants`; flat life is not counted for
+monsters there, their life is worked out when they are made).
+
 To `enemies_area` or `enemies_near` (`radius` in cells) the grant stands while its rule is active: a step every 200 ms
 puts it on the living enemies it names, the ones that arrive later too, and takes it off when the rule ends or they
 leave the radius. To `enemy` it lasts for the duration timer on the event's monster. A monster carries it as a temporary
@@ -201,7 +214,7 @@ by code, 8,902 by nothing); later updates correct rows and never regenerate the 
 | `buff` | a timed buff | `seconds`, `effect`, and `template` or `buff` + `values` |
 | `skill` | releases the carrier's granted skill through its executor | `at`: `monster` or `self` |
 | `stats` | stats the actor has while a `worn` rule stands | `stats`: name to value; `percent` of them (a value) |
-| `grant` | a bundle of stats for other actors, standing or timed | `bundle`, `to`, `roll`, `effect`, `radius`, `seconds` |
+| `grant` | a bundle of stats for the actor or others, standing or timed | `bundle`, `to`, `roll`, `effect`, `radius`, `seconds` |
 
 A kind is registered with `EffectRules.Register(new Kind(...))`; a mod can add its own. A kind that can stand has
 `Stand`; one that only stands has `StandOnly`.
@@ -284,5 +297,7 @@ The reverse-engineering behind the art and buff choices is in
 Real projectiles for the skills that are a volley (Bone Nova, Icicle Burst, Molten Burst, Starfall are one-hit
 stand-ins), ground effects, the "with this weapon" and "socketed in this item" facts, the four elemental aegises, minion
 and monster hits as events, areas and ground patches as carriers, and moving the charge rules over. For grants:
-monsters carrying rules and granted skills of their own (a bundle is stats only), bundles for players and allies,
-flasks, maps and scarabs as givers, a debuff as part of a bundle, and an icon on the monster for what it was given.
+monsters carrying rules and granted skills of their own (a bundle is stats only), allies and minions as receivers,
+flasks and scarabs as givers, a line without a stat of its own as a rule's source (an aura line whose only stat is
+the one it gives), and the debuff auras of `generic_buff_aura` templates (Crushed, Scorched, Chilled, Covered in Ash,
+Malediction, Debilitated: the template's second list names the debuff).

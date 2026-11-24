@@ -1,3 +1,5 @@
+using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 using System.Text.Json;
 
 public static partial class Game
@@ -15,6 +17,12 @@ public static partial class Game
     ///   "stats":  stat name to a number, to [min, max], or to {"from": "roll", "scale": n}: the rolled value of the
     ///             line that gives the bundle (times the scale, 1 unless said), so "Nearby Enemies have -9% to Fire
     ///             Resistance" gives the -9 its own item rolled.
+    ///   "template": one of the game's aura and buff templates (a BuffTemplates Id): the stats its buff grants, the
+    ///             buff it shows as and its reach. "line" takes the template of the item line that gives the bundle
+    ///             (Mods BuffTemplate1): that is how the game's data itself says what "Nearby Enemies have -9% to Fire
+    ///             Resistance" gives, to whom and how far (60 cells). A template stat without a number of its own
+    ///             takes the line's.
+    ///   "shows":  a BuffDefinitions Id: the buff whoever carries the bundle is shown with (a template brings its own).
     ///   "name":   what to call it in logs and keys (otherwise the unique's or the mod's own name).
     /// A stat that describes the item itself (a local stat: "Has no Sockets", an armour piece's own armour) is left out:
     /// there is no item for it to describe. An unscalable number (ModScaling: "Cannot be Knocked Back" is 1 and stays
@@ -22,6 +30,13 @@ public static partial class Game
     /// </summary>
     public sealed record StatBundle(string Name, (uint Stat, int Min, int Max, double PerOwn, ModCatalog.Mod? Line, int Index)[] Stats, int LeftOut)
     {
+        /// <summary>The BuffDefinitions row its carrier is shown with; null for none.</summary>
+        public ushort? Shows { get; init; }
+        /// <summary>Its own reach in cells, when a template says one (0: none said).</summary>
+        public int Radius { get; init; }
+        /// <summary>"template": "line": read from the giving line when the rule starts (<see cref="LineBundle"/>).</summary>
+        public bool OfLine { get; init; }
+
         /// <summary>How a list of live rules shows it.</summary>
         public override string ToString() => $"\"{Name}\" ({Stats.Length} stat(s))";
 
@@ -50,7 +65,9 @@ public static partial class Game
         if (written.ValueKind != JsonValueKind.Object) throw new FormatException("a bundle is an object: \"unique\", \"mod\" or \"stats\"");
         var stats = new List<(uint, int, int, double, ModCatalog.Mod?, int)>();
         string? name = null;
-        int leftOut = 0;
+        int leftOut = 0, radius = 0;
+        ushort? shows = null;
+        bool ofLine = false;
         void Mod(string id, UniqueCatalog.Definition? of, bool isImplicit)
         {
             var mod = Program.Items.Mods.ById(id) ?? throw new FormatException($"a bundle names the mod \"{id}\", which Mods does not have");
@@ -67,6 +84,24 @@ public static partial class Game
             switch (part.Name)
             {
                 case "name": name = part.Value.GetString(); break;
+                case "shows":
+                {
+                    string wanted = part.Value.GetString() ?? "";
+                    shows = (ushort)(ClientRowById("BuffDefinitions", wanted)?.Index
+                        ?? throw new FormatException($"a bundle shows as the buff \"{wanted}\", which BuffDefinitions does not have"));
+                    break;
+                }
+                case "template" when part.Value.GetString() == "line": ofLine = true; name ??= "the line's own"; break;
+                case "template":
+                {
+                    string wanted = part.Value.GetString() ?? "";
+                    var template = ClientRowById("BuffTemplates", wanted)
+                        ?? throw new FormatException($"a bundle names the template \"{wanted}\", which BuffTemplates does not have");
+                    var read = TemplateBundle(template, null, null);
+                    stats.AddRange(read.Stats);
+                    (name, shows, radius) = (name ?? read.Name, shows ?? read.Shows, read.Radius);
+                    break;
+                }
                 case "variant": break;
                 case "unique":
                 {
@@ -122,7 +157,51 @@ public static partial class Game
                     break;
                 default: throw new FormatException($"a bundle has no \"{part.Name}\"");
             }
-        if (stats.Count == 0) throw new FormatException("the bundle has no stats to give" + (leftOut > 0 ? $" ({leftOut} describe the item itself)" : ""));
-        return new(name ?? "stats", [.. stats], leftOut);
+        if (stats.Count == 0 && !ofLine) throw new FormatException("the bundle has no stats to give" + (leftOut > 0 ? $" ({leftOut} describe the item itself)" : ""));
+        return new(name ?? "stats", [.. stats], leftOut) { Shows = shows, Radius = radius, OfLine = ofLine };
+    }
+
+    static ClientRow? ClientRowById(string table, string id)
+    {
+        foreach (var row in ClientTables.Table(table))
+            if (row.Text("Id") == id) return row;
+        return null;
+    }
+
+    // One of the game's templates as a bundle: its buff's granted stats, each with the template's own number, or the
+    // line's rolled number for that stat when the template leaves it to the line (0), or the giving line's own roll.
+    static StatBundle TemplateBundle(ClientRow template, ModCatalog.Mod? line, IReadOnlyList<int>? rolled)
+    {
+        string id = template.Text("Id") ?? "";
+        var definition = ClientTables.Table("BuffDefinitions").Row((int)template.Long("BuffDefinitionsKey"))
+            ?? throw new FormatException($"the template \"{id}\" names no buff");
+        int[] granted = definition.Ints("GrantedStats"), values = template.Ints("Buff_StatValues");
+        var names = ClientTables.Table("Stats");
+        var stats = new List<(uint, int, int, double, ModCatalog.Mod?, int)>();
+        for (int i = 0; i < granted.Length; i++)
+        {
+            if (names.Row(granted[i])?.Text("Id") is not { } stat || Program.Stats.Key(stat) is not uint key) continue;
+            int value = i < values.Length ? values[i] : 0;
+            int at = -1;
+            if (line is not null)
+                for (int n = 0; n < line.Stats.Count; n++)
+                    if (line.Stats[n].Id == key) { at = n; break; }
+            if (value == 0 && at >= 0 && rolled is not null && at < rolled.Count) value = rolled[at];
+            // No number anywhere: the giving line's own roll.
+            stats.Add(value != 0 ? (key, value, value, 0, at >= 0 ? line : null, Math.Max(0, at)) : (key, 0, 0, 1, null, 0));
+        }
+        return new(id, [.. stats], 0) { Shows = (ushort)definition.Index, Radius = template.Int("AuraRadius") };
+    }
+
+    /// <summary>The bundle of a worn line's own template ("template": "line"): the line of <paramref name="item"/> that
+    /// has <paramref name="stat"/> and a template. Null when the item has no such line.</summary>
+    public static StatBundle? LineBundle(Item item, uint stat, ModCatalog mods)
+    {
+        var templates = ClientTables.Table("BuffTemplates");
+        foreach (var mod in item.Mods)
+            if (mods.ByHash(mod.Hash) is { BuffTemplate: int row } line && line.Stats.Any(s => s.Id == stat)
+                && templates.Row(row) is { } template)
+                return TemplateBundle(template, line, mod.Values);
+        return null;
     }
 }

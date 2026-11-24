@@ -140,6 +140,40 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>The enabled fx_modifiers rows whose target is the area's players ("players_area"), in order: the area's
+    /// stat, the player's stat (the row's quantity) and how many of it one point gives.</summary>
+    public IReadOnlyList<FxAreaMonsterRow> LoadFxAreaPlayerRows()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_modifiers'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, quantity, scale FROM fx_modifiers WHERE enabled = 1 AND target = 'players_area' ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxAreaMonsterRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetDouble(2)));
+            return result;
+        }
+    }
+
+    /// <summary>One fx_reads_as row: a stat as a bundle writes it, and the stat an actor of this kind reads for it.</summary>
+    public sealed record FxReadsAsRow(string Actor, string Stat, string Reads, double Scale);
+
+    /// <summary>The fx_reads_as rows, in order. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxReadsAsRow> LoadFxReadsAs()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_reads_as'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT actor, stat, reads, scale FROM fx_reads_as ORDER BY actor, stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxReadsAsRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
     /// <summary>The "unscalable" flags of the fx tables: per stat (fx_stats.unscalable, every row) and per item line
     /// (fx_lines, a Mods Id). Empty when the column or the table is not there (an older world.db in a test).</summary>
     public (IReadOnlyDictionary<string, bool> Stats, IReadOnlyDictionary<string, bool> Lines) LoadFxUnscalable()

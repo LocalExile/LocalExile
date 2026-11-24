@@ -33,6 +33,9 @@ public static class FxRules
             if (row.Status == "not built") continue;
             // A rule on a timer is not an event rule: the system that keeps the timers reads it (Periodics).
             if (row.When.Count == 1 && row.When[0].Trigger == "interval") continue;
+            // A rule of the area's is not an actor's rule: the area gives it where its monsters are made and where its
+            // players' stats are built (AreaGrants).
+            if (row.Sources.Any(s => s.Kind == "area")) continue;
             try
             {
                 var rule = Engine(row);
@@ -117,6 +120,55 @@ public static class FxRules
                     };
                 }
                 result.Add(new(stat, type, condition, value => (seconds(value), (int)Math.Round(count(value)))));
+            }
+            catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
+            {
+                refused?.Invoke(row.Id, e.Message);
+            }
+        }
+        return result;
+    }
+
+    /// <summary>One thing an area gives because of a stat of its own (a map modifier): a bundle for its monsters or for
+    /// its players. The bundle's roll and effect are a fixed number plus so much for each point of the area's stat.</summary>
+    public sealed record AreaGrant(string Rule, uint Stat, Game.StatBundle Bundle, bool Players,
+        double Roll, double RollPerPoint, double Effect, double EffectPerPoint);
+
+    /// <summary>
+    /// The rules whose source is the area (kind "area", key: a stat the area has, a map modifier's): active, with one
+    /// "grant" to enemies_area (the area's monsters) or players_area (its players). Read when the game data loads.
+    /// </summary>
+    public static List<AreaGrant> AreaGrants(IReadOnlyList<GameDataStore.FxRuleRow> rows, Action<string, string>? refused = null)
+    {
+        var result = new List<AreaGrant>();
+        foreach (var row in rows)
+        {
+            if (row.Status == "not built" || !row.Sources.Any(s => s.Kind == "area")) continue;
+            try
+            {
+                if (row.Sources.Any(s => s.Kind != "area")) throw new FormatException("an area's rule has only \"area\" sources");
+                if (row.When.Count != 1 || row.When[0].Trigger != "active") throw new FormatException("an area's rule is \"active\": it holds while the area has the stat");
+                if (row.If.Count > 0) throw new FormatException("an area's rule has no conditions yet");
+                if (row.Do.Count != 1 || row.Do[0].Action != "grant") throw new FormatException("an area's rule does one \"grant\" so far");
+                var (_, text, target, _, _, _) = row.Do[0];
+                if (target is not ("enemies_area" or "players_area")) throw new FormatException($"an area gives to \"enemies_area\" or \"players_area\", not to \"{target}\"");
+                var with = Object(text);
+                var bundle = Game.BundleOf(JsonDocument.Parse((with["bundle"] ?? throw new FormatException("the action \"grant\" needs \"bundle\"")).ToJsonString()).RootElement);
+                if (bundle.OfLine) throw new FormatException("an area has no line: name the template");
+                // A number: fixed, or the area's own value for the stat ({"from":"roll"}) times a scale.
+                (double Fixed, double PerPoint) Number(string name, double byDefault)
+                {
+                    if (with[name] is not { } node) return (byDefault, 0);
+                    if (node is not JsonObject written) return (node.GetValue<double>(), 0);
+                    if (written["fixed"] is { } value) return (value.GetValue<double>(), 0);
+                    if (written["from"]?.GetValue<string>() is "roll" or "stat") return (0, written["scale"]?.GetValue<double>() ?? 1);
+                    throw new FormatException($"the \"{name}\" of an area's grant is a number or {{\"from\":\"roll\"}}");
+                }
+                var (roll, rollPer) = Number("roll", 100);
+                var (effect, effectPer) = Number("effect", 100);
+                foreach (var (_, key) in row.Sources)
+                    result.Add(new(row.Id, Program.Stats.Key(key) ?? throw new FormatException($"unknown stat \"{key}\""), bundle,
+                        target == "players_area", roll, rollPer, effect, effectPer));
             }
             catch (Exception e) when (e is FormatException or JsonException or InvalidOperationException or KeyNotFoundException)
             {
@@ -305,14 +357,18 @@ public static class FxRules
                     effect["own"] = new JsonObject { ["from"] = "stat" };
                     switch (target)
                     {
-                        case "enemies_area" or "enemies_near" when when != "worn":
+                        case "enemies_area" or "enemies_near" or "players_area" when when != "worn":
                             throw new FormatException($"a grant to \"{target}\" stands while its rule does: its trigger is \"active\"");
-                        case "enemies_area": break;
+                        case "enemies_area" or "players_area": break;
                         case "enemies_near":
-                            effect["radius"] = Value(Object(targetArgs)["radius"]) ?? throw new FormatException("a grant to \"enemies_near\" needs a \"radius\" in its target_args");
+                            // The reach: the row's own, or the bundle's (a template says how far its aura goes).
+                            if (Value(Object(targetArgs)["radius"]) is { } reach) effect["radius"] = reach;
+                            else if (with["bundle"]?["template"] is null) throw new FormatException("a grant to \"enemies_near\" needs a \"radius\" in its target_args, or a template that has one");
                             break;
                         case "enemy" when when == "worn": throw new FormatException("a grant to \"enemy\" is for an event: an active rule has no enemy");
                         case "enemy": effect["seconds"] = Duration() ?? throw new FormatException("a grant to the event's enemy needs a \"duration\" timer"); break;
+                        case "self" when when == "worn": break;
+                        case "self": effect["seconds"] = Duration() ?? throw new FormatException("a grant to the actor from an event needs a \"duration\" timer"); break;
                         default: throw new FormatException($"the action \"grant\" cannot target \"{target}\" yet");
                     }
                     break;

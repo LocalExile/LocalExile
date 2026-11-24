@@ -109,14 +109,14 @@ public static partial class Game
         {
             if (!alive || now >= buff.Until)
             {
-                player.Area.Buffs.Clear(player.Id, buff.Spec.Row, player.Id);
+                if (buff.Spec.Row != NoBuffRow) player.Area.Buffs.Clear(player.Id, buff.Spec.Row, player.Id);
                 (ended ??= []).Add(id);
                 Console.WriteLine($"[gateway] buff {id} ended (timed buff)");
                 continue;
             }
             if (buff.Applied && buff.Until - buff.SentUntil < TimedBuffRepresentSeconds) continue;
             if (!buff.Applied) Console.WriteLine($"[gateway] buff {id} started (timed buff)");
-            player.Area.Buffs.Set(player.Id, new(buff.Spec.Row, player.Id, U68: Buff.Seconds(buff.Until - now)));
+            if (buff.Spec.Row != NoBuffRow) player.Area.Buffs.Set(player.Id, new(buff.Spec.Row, player.Id, U68: Buff.Seconds(buff.Until - now)));
             buff.SentUntil = buff.Until;
             // Its end is a change of state nothing else announces: the presentations run again then.
             PresentIn(player, buff.Until - now);
@@ -145,6 +145,7 @@ public static partial class Game
 
     static Dictionary<uint, int> WithTimedBuffs(Player player, Dictionary<uint, int> sources)
     {
+        AddAreaStatsForPlayer(player, sources);
         if (StandingStats.TryGetValue(player, out var standing))
             foreach (var (stats, on) in Volatile.Read(ref standing.All))
                 if (on())

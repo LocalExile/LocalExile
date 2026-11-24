@@ -112,6 +112,8 @@ public static class EffectRules
     /// still there and this actor is still in its area); the effect asks it every step and ends when it is false.</summary>
     public sealed record Standing(Player Conn, Kind Kind, double[] Values, string?[] Names, object? Data, Source? Source, Func<bool> On)
     {
+        /// <summary>The stat that turned the rule on (its id).</summary>
+        public uint Stat { get; init; }
         public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
 
@@ -160,6 +162,8 @@ public static class EffectRules
     {
         /// <summary>The carrier whose stat turned the rule on, for a rule that has one.</summary>
         public Source? Source { get; init; }
+        /// <summary>The stat that turned the rule on (its id).</summary>
+        public uint Stat { get; init; }
         public double Number(string name) => Values[Array.IndexOf(Kind.Values, name)];
         public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
@@ -196,7 +200,13 @@ public static class EffectRules
             return true;
         }
     }
-    sealed record Table(int Revision, Rule[] Rules, HashSet<uint> Stats, Dictionary<string, Rule[]> ByCarrier);
+    sealed record Table(int Revision, Rule[] Rules, HashSet<uint> Stats, Dictionary<string, Rule[]> ByCarrier)
+    {
+        public FxRules.AreaGrant[] AreaGrants { get; init; } = [];
+    }
+
+    /// <summary>What areas give because of their own stats (FxRules.AreaGrants), while the rules are on.</summary>
+    public static IReadOnlyList<FxRules.AreaGrant> AreaGrants => Enabled ? Current().AreaGrants : [];
 
     static readonly LiveRule[][] NoRules = [.. WhatNames.Select(_ => Array.Empty<LiveRule>())];
     static readonly RuleTable<Player, Live> Lives = new();
@@ -325,8 +335,10 @@ public static class EffectRules
                 { Console.WriteLine($"[rules] refused the rule of {row.Stat} #{row.Ord}: {e.Message}"); }
             }
             Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {tables} of them from the fx tables, {Kinds.Count} effect kind(s) (game data revision {revision})");
+            var areaGrants = FxRules.AreaGrants(rows, (rule, why) => Console.WriteLine($"[rules] left out the area's fx rule {rule}: {why}"));
+            if (areaGrants.Count > 0) Console.WriteLine($"[rules] {areaGrants.Count} thing(s) areas give from the fx tables");
             Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).SelectMany(r => r.Sum is { } terms ? terms.Select(t => t.Key) : [r.Key])],
-                rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())));
+                rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())) { AreaGrants = [.. areaGrants] });
             return _table;
         }
     }
@@ -527,7 +539,7 @@ public static class EffectRules
             if (before.Contains(key)) continue;
             bool On() => Enabled && !player.Closed && !player.LeavingArea && Volatile.Read(ref live.Standing).Contains(key);
             foreach (var effect in rule.Do)
-                effect.Kind.Stand?.Invoke(new(player, effect.Kind, effect.Values, effect.Names, effect.Data, rule.Source, On));
+                effect.Kind.Stand?.Invoke(new(player, effect.Kind, effect.Values, effect.Names, effect.Data, rule.Source, On) { Stat = rule.Rule.Key });
         }
         // A rule that is gone took stats with it, perhaps: the sources are read again.
         if (before.Any(key => !now.Contains(key))) Game.MarkPlayerStats(player, PlayerStatStep.Sources);
@@ -569,7 +581,7 @@ public static class EffectRules
                 lock (live)
                     if (!live.TakeUse(rule, now)) continue;
             foreach (var effect in rule.Do)
-                try { effect.Kind.Run(new(player, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source }); }
+                try { effect.Kind.Run(new(player, e, now, effect.Kind, effect.Values, effect.Names, effect.Data) { Source = rule.Source, Stat = rule.Rule.Key }); }
                 catch (Exception ex) { Console.WriteLine($"[rules] {rule.Rule.Stat}: the effect {effect.Kind.Name} failed: {ex.Message}"); }
             if (Fired.Any)
             {

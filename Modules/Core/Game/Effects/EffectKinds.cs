@@ -59,14 +59,15 @@ public static partial class Game
             StandOnly = true,
         });
 
-        // A bundle of stats (Bundles.cs) for OTHER actors (Grants.cs). "to": enemies_area or enemies_near ("radius", in
-        // cells) for a "worn" rule, which holds while the rule stands; enemy for an event's rule (the one hit, or the
-        // one that hit the actor), which lasts "seconds". "roll": where in its ranges the bundle sits, 0 to 100 (100,
+        // A bundle of stats (Bundles.cs) for an actor, the rule's own or others (Grants.cs). "to": enemies_area,
+        // enemies_near ("radius", in cells; the bundle's own reach when 0) or players_area for a "worn" rule, which
+        // holds while the rule stands; enemy for an event's rule (the one hit, or the one that hit the actor), which
+        // lasts "seconds"; self for either. "roll": where in its ranges the bundle sits, 0 to 100 (100,
         // the best roll, unless said); "effect": a percent of the whole bundle (100 unless said). Both are values, so
         // either can be the line's own roll: an item line that rolls 50 to 100 can give 50 to 100% of the bundle.
         // "own": the giving line's rolled value, for a bundle stat that takes it ({"from": "roll"}).
         EffectRules.Register(new("grant", ["roll", "effect", "radius", "seconds", "own"], ["to"], GrantOnEvent,
-            (_, word) => word is "enemies_area" or "enemies_near" or "enemy")
+            (_, word) => word is "enemies_area" or "enemies_near" or "enemy" or "self" or "players_area")
         {
             Defaults = new Dictionary<string, double> { ["roll"] = 100, ["effect"] = 100, ["radius"] = 0, ["seconds"] = 0, ["own"] = 0 },
             Extra = ["bundle"],

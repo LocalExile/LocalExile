@@ -39,6 +39,13 @@ public static class GameData
     /// <summary>The area modifiers the fx tables turn into stats of the area's monsters (fx_modifiers rows with the
     /// target enemies_area).</summary>
     public static IReadOnlyList<GameDataStore.FxAreaMonsterRow> FxAreaMonsterStats => Volatile.Read(ref _fxAreaMonsterStats);
+    /// <summary>Area modifiers that give the area's players a stat they already act on (fx_modifiers, target
+    /// players_area; the row's MonsterStat is the player's stat here).</summary>
+    public static IReadOnlyList<GameDataStore.FxAreaMonsterRow> FxAreaPlayerStats => Volatile.Read(ref _fxAreaPlayerStats);
+    static IReadOnlyList<GameDataStore.FxAreaMonsterRow> _fxAreaPlayerStats = [];
+    /// <summary>What an actor of another kind reads for a stat a bundle gives it (fx_reads_as).</summary>
+    public static IReadOnlyList<GameDataStore.FxReadsAsRow> FxReadsAs => Volatile.Read(ref _fxReadsAs);
+    static IReadOnlyList<GameDataStore.FxReadsAsRow> _fxReadsAs = [];
     static IReadOnlyList<GameDataStore.FxAreaMonsterRow> _fxAreaMonsterStats = [];
     static IReadOnlyList<GameDataStore.EffectBuffRow> _effectBuffs = [];
     public static Snapshot Current => Volatile.Read(ref _snapshot);
@@ -109,6 +116,8 @@ public static class GameData
         Volatile.Write(ref _effectBuffs, effectBuffs);
         Volatile.Write(ref _fxRules, fxRules);
         Volatile.Write(ref _fxAreaMonsterStats, fxAreaMonsterStats);
+        Volatile.Write(ref _fxReadsAs, store.LoadFxReadsAs());
+        Volatile.Write(ref _fxAreaPlayerStats, store.LoadFxAreaPlayerRows());
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);
         ModScaling.LoadTable(fxUnscalable.Stats, fxUnscalable.Lines);
