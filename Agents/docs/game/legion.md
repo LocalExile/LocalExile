@@ -22,8 +22,8 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   Frozen is `breakout` 0, `activated` 0; broken out is `breakout` 1 (crystal off, freed glow); fighting is `activated` 1.
   A general still frozen carries the about-to-flee effect; `fleeing=1` plays its flee animation.
 - Buff 1311 `frozen_in_time` (flags: cannot be knocked back, minions take no actions) holds the monster while it is frozen.
-  Its default visual is BuffVisuals 1082 `legion_petrify`; the faction ones 1099-1103 `legion_time_lock_*` are used by no
-  buff row and could only be sent as a visual override. The server uses 1082.
+  Its default visual 1082 `legion_petrify` draws big purple spikes; the server sends it with the faction's visual as the
+  AddBuff override (BuffVisuals 1099 Karui, 1100 Maraketh, 1101 Vaal, 1102 Templar, 1103 Eternal; Faridun uses the Maraketh one, a guess).
 - The client keeps no damage for the stasis: `GameEvents.OutgoingDamage` zeroes a hit on a frozen member and lowers its life on the server instead (the area writes the new life to every life bar).
 - A broken war chest (`LegionChestTypes`: the chest monster, and the `Chests` row it becomes) is replaced by that chest object.
 
@@ -66,7 +66,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - Tier rarity (elite Magic, sergeant Rare, general Unique) is a guess.
 - Is the swap of a broken-out monster for a fresh fighting one visible, and does a hit on a frozen monster show a number or a flinch?
 - Does the joiner's life bar match the lowered life? At break-out the member's life is refilled to its maximum (the bar must not stay near 0: live test), so its bar disappears.
-- Does buff 1311 with visual 1082 look right, or the faction visual?
+- Does the faction visual (1099-1103) draw a thin coloured coat on the soldier's own model (Faridun with the Maraketh one)?
 - Does the animation stay paused after the buff is removed, and does a fleeing general play its animation?
 - With two players, does the one who enters during the timer see the army frozen? The area gives a joiner the monsters
   (`JoinArea`, at the end of the joiner's first frame); their buff 1311 and 0x1b2 pause are sent to it alone at

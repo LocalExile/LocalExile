@@ -23,9 +23,16 @@ static class LegionStasis
     const double SectorHalfWidth = Math.PI / 3;
     /// <summary>How many random spots are tried for one member before it is skipped.</summary>
     const int Tries = 8;
-    /// <summary>BuffDefinitions frozen_in_time, with its default visual 1082 legion_petrify. The faction's own
-    /// BuffVisuals 1099-1103 as an override are a live-check question.</summary>
+    /// <summary>BuffDefinitions frozen_in_time, with its default visual 1082 legion_petrify; the faction visual overrides it (TimeLockVisual).</summary>
     const ushort FrozenBuff = 1311;
+
+    /// <summary>The faction's BuffVisuals row (1099-1103 legion_time_lock_*), sent as the AddBuff visual override of 1311 so the soldier is drawn
+    /// under a thin faction-coloured coat instead of the default 1082 legion_petrify (big purple spikes). Faridun (Afarud) has no
+    /// row of its own: it uses the Maraketh one (GUESS: the same desert faction). An unknown id keeps the default.</summary>
+    static ushort? TimeLockVisual(string? faction) => faction switch
+    {
+        "Karui" => 1099, "Maraketh" or "Faridun" => 1100, "Vaal" => 1101, "Templar" => 1102, "EternalEmpire" => 1103, _ => null,
+    };
 
     /// <summary>The spot of one member: army 0 on one side of the axis through the monolith and army 1 on the opposite side,
     /// its depth a random percent inside the member's band. The whole geometry is here, to be tuned after the live check.</summary>
@@ -63,7 +70,7 @@ static class LegionStasis
             uint id = await SpawnMonster(player, variety, areaLevel, rarity, at.X, at.Y,
                 friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false);
             if (id == 0) { skipped++; return; }
-            ushort buff = await Freeze(player, id, variety.Id);
+            ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id));
             if (!keep(new Member(id, buff, faction, tier, chest, hoard))) { stopped = true; await Remove(player, [new Member(id, buff, faction, tier, chest, hoard)]); return; }
             counts[faction]++;
             if (chest) chests++; else if (tier == 2) sergeants++; else if (tier == 3) generals++;
@@ -86,7 +93,7 @@ static class LegionStasis
     }
 
     /// <summary>The stasis of one spawned monster: held like the Essence's encased previews (EssenceEncased.cs).</summary>
-    static async Task<ushort> Freeze(Player player, uint id, string variety)
+    static async Task<ushort> Freeze(Player player, uint id, string variety, ushort? visual)
     {
         // No EncounterStats[BaseCannotBeDamaged]: the break-out counts hits through GameEvents.OutgoingDamage (LegionMonolith.Breakout.cs).
         // EntranceGrace makes the monster Invulnerable: damage over time and auras end in TakeDamageLocked, which then takes no life.
@@ -98,20 +105,20 @@ static class LegionStasis
             monster.BusyUntil = double.PositiveInfinity;
         }
         ushort buff = player.NextBuff++;
-        await LegionOutput.ToArea(player, p => SendStasis(p, id, buff, variety, true));
+        await LegionOutput.ToArea(player, p => SendStasis(p, id, buff, variety, true, visual));
         return buff;
     }
 
-    static async Task SendStasis(Player player, uint id, ushort buff, string variety, bool withBuff)
+    static async Task SendStasis(Player player, uint id, ushort buff, string variety, bool withBuff, ushort? visual)
     {
-        if (withBuff) await global::Game.SendWorldRecord(player, id, InstanceEntities.AddBuff(id, buff, FrozenBuff), $"legion stasis {variety}");
+        if (withBuff) await global::Game.SendWorldRecord(player, id, InstanceEntities.AddBuff(id, buff, FrozenBuff, visual: visual), $"legion stasis {variety}");
         // Pause the actor: 0x1b2 kind 0 plays animation 0 at speed 0.
         await global::Game.SendWorldRecord(player, id, InstanceProtocol.AnimationUpdate(id, 0, 0, 0), $"legion freeze {variety}");
     }
 
     /// <summary>A player who enters later: the area gives its client the monsters with their states (MonsterOrigins), but not
     /// the buff and the paused animation sent at spawn, so these go to that player alone (only the pause for one that broke out).</summary>
-    public static async Task Present(Player player, Member[]? army)
+    public static async Task Present(Player player, Member[]? army, LegionArmy.ArmyPlan? plan)
     {
         if (army is not { Length: > 0 }) return;
         await LegionOutput.ToOne(player, async () =>
@@ -119,7 +126,8 @@ static class LegionStasis
             foreach (var member in army)
             {
                 if (!player.Area.Monsters.TryGetValue(member.Id, out var m) || m.Dead) continue;
-                await SendStasis(player, member.Id, member.Buff, "member", !member.Broken);   // a broken-out one is still paused, without the buff
+                await SendStasis(player, member.Id, member.Buff, "member", !member.Broken,
+                    plan is not null && member.Faction < plan.Factions.Length ? TimeLockVisual(plan.Factions[member.Faction].Id) : null);   // a broken-out one is still paused, without the buff
             }
         });
     }

@@ -139,7 +139,7 @@ static partial class LegionMonolith
     {
         if (Of(player) is not { } e) return;
         await Show(player, e);
-        await LegionStasis.Present(player, e.Army);
+        await LegionStasis.Present(player, e.Army, e.Plan);
         await ShowBoxes(player, e);
     }
 
