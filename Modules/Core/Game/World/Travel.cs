@@ -204,9 +204,11 @@ public static partial class Game
         return supported.Effect >= 0 && (IsTotemSkill(player, skillId) || PlacedKind(supported) is (true, _) or (_, true));
     }
 
-    static (int X, int Y) ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
+    static (int X, int Y)? ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
     {
         if (monster is not null) return monster.Walk.Position(now);
+        if (targetId == player.Id) return player.Walk.Position(now);
+        if (player.Instance.Player(targetId) is { } peer) return peer.Walk.Position(now);
         if (player.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } totem) return totem.At;
         if (player.Placed.All.TryGetValue(targetId, out var placed)) return placed.At;
         if (player.Instance.Ground.Get(targetId) is { } ground) return (ground.GridX, ground.GridY);
@@ -216,7 +218,21 @@ public static partial class Game
         if (npc is not null) return (npc.X, npc.Y);
         if (player.Layout.AreaTransitions.FirstOrDefault(e => e.Id == targetId).Transition is { } transition)
             return (transition.GridX, transition.GridY);
-        return player.Walk.Position(now);
+        if (player.StationaryPosition(targetId) is { } stationary) return stationary;
+        lock (player.QuestObjects)
+            if (player.QuestObjects.TryGetValue(targetId, out var quest)) return (quest.At.X, quest.At.Y);
+        lock (player.MapPortals)
+            if (player.MapPortals.TryGetValue(targetId, out var map)) return (map.X, map.Y);
+        if (player.ReturnPortal is { } portal && portal.Id == targetId) return (portal.X, portal.Y);
+        if (player.BackPortal is { } back && back.Id == targetId) return (back.X, back.Y);
+        if (player.Area.Objects.StaticPosition(targetId, StationaryCollision.StaticPositionedTypes) is { } scenery) return scenery;
+        foreach (var owner in player.Instance.PlayersExcept(player.Id))
+        {
+            if (!ReferenceEquals(owner.Area, player.Area)) continue;
+            if (owner.Placed.All.TryGetValue(targetId, out var otherPlaced)) return otherPlaced.At;
+            if (owner.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } otherTotem) return otherTotem.At;
+        }
+        return null;
     }
 
     static async Task CastGroundPlaceableOnObject(Player player,
@@ -231,7 +247,7 @@ public static partial class Game
         if (!ProjectilePathAvailable(player, use.SkillId, gem.Effect)) return;
         int action = 0;
         (int px, int py) = (0, 0);
-        (int X, int Y) aim = default;
+        if (ResolveObjectAimCell(player, use.TargetId, target, requestedAt) is not { } aim) return;
         CooldownUseTicket? cooldownUse = null;
         void StartAction()
         {
@@ -242,7 +258,7 @@ public static partial class Game
             CancelMeleeRepeats(player, at);
             action = Interlocked.Increment(ref player.ActionCount);
             (px, py) = player.Walk.Position(actionAt);
-            aim = ResolveObjectAimCell(player, use.TargetId, target, actionAt);
+            if (target is not null) aim = target.Walk.Position(actionAt);
             if (lockstep) player.Walk.Cancel(actionAt);
             else player.Walk.Order(px, py, at);
             player.ChannelSkill = use.SkillId;

@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class MinionPathRecoveryTests
@@ -58,5 +60,21 @@ public sealed class MinionPathRecoveryTests
         ushort fireTrap = f.Equip(("Fire Trap", 1)).Single();
         var gem = Game.GemSkillEffects(f.Player).Single(g => g.Id == fireTrap);
         Assert.Equal(16, Game.SkillRadius(f.Player, new Dictionary<uint, int>(), spell: true, gem.Effect));
+
+        // A strongbox is a stationary blocker. The same held Fire Trap press after removal queues no throw.
+        f.Player.SetBlocker(904, 120, 100, 1);
+        byte[] press = [1, 0x8f, 0, 0, 3, 0x88, (byte)(fireTrap >> 8), (byte)fireTrap, 4, 0, 0];
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.True(f.Player.LockstepSkill.Pending);
+        Assert.Equal((120, 100), f.Player.LockstepSkill.Aim);
+        f.Player.RemoveBlocker(904);
+        var shrine = InstanceEntities.CreateObject(904, InstanceEntities.ObjectTypeHash("Metadata/Shrines/Shrine"),
+            new ShrineObject(105, 123).Blob());
+        f.Player.Area.Objects.RecordDirect(904, shrine, AreaDelta.Kind.Create, f.Player);
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.Equal((105, 123), f.Player.LockstepSkill.Aim);
+        f.Player.Area.Objects.RecordDirect(904, InstanceProtocol.RemoveObject(904), AreaDelta.Kind.Remove, f.Player);
+        Game.OnLockstepRequest(f.Player, InstanceProtocol.LockstepUseOnObjectId, press);
+        Assert.False(f.Player.LockstepSkill.Pending);
     }
 }
