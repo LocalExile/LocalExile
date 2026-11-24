@@ -194,7 +194,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   travelling and repeat_fight states).
 
 - Legion (partial): the Timeless Monolith, its timer, the two armies around it (hidden, then revealed and held by the client's own LegionBreakout action, not yet live-checked) and their break-out and release.
-  The army's rewards are rolled, their symbols and minimap icons shown, and the fighters drop their reward items and Timeless Splinters (sergeants and the general) and the opened chests by their reward type with splinters (all guesses, not yet live-checked); the Domain and the Atlas stats are not built. Docs: [Legion](../docs/game/legion.md).
+  Rewards (symbols, icons, drops, splinters, chests) are built, not checked in the client yet.
+  The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

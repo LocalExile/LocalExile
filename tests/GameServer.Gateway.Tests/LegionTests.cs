@@ -59,4 +59,51 @@ public sealed class LegionTests
         Assert.Equal((byte[])[0x02, 0xc8, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0xd8, 0xfe, 0x18, 0xfe, 0x00, 0x07, 0x00, 0x00, 0x05, 2, 100, 0, 0, 0],
             InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
     }
+
+    [Fact]
+    public void The_reward_plan_uses_only_the_allowed_rows_gives_hoards_two_or_three_and_is_the_same_for_a_seed()
+    {
+        var data = LegionData.Current;
+        Assert.NotEmpty(data.RewardTypes);
+        var stats = new Dictionary<uint, int>();
+        int sergeants = 0, rewarded = 0, chests = 0, hoards = 0;
+        for (int seed = 1; seed <= 60; seed++)
+        {
+            var plan = LegionArmy.Plan(data, 75, "MapWorldsReef", stats, new Random(seed));
+            Assert.Equal(plan.Factions.Select(f => (f.Id, f.Squads.Length, f.Chests.Length)),
+                LegionArmy.Plan(data, 75, "MapWorldsReef", stats, new Random(seed)).Factions.Select(f => (f.Id, f.Squads.Length, f.Chests.Length)));
+            foreach (var f in plan.Factions)
+            {
+                foreach (var squad in f.Squads)
+                {
+                    if (squad.Tier != 2) { Assert.Null(squad.Rewards); continue; }
+                    Assert.Equal(squad.Count, squad.Rewards!.Length);
+                    foreach (var r in squad.Rewards) { sergeants++; Assert.True(r.Length <= 1); rewarded += r.Length; Assert.DoesNotContain(r, row => row is 11 or 17); }
+                }
+                foreach (var chest in f.Chests)
+                {
+                    chests++;
+                    Assert.NotNull(chest.Rewards);
+                    Assert.DoesNotContain(chest.Rewards, row => row is 11 or 17);
+                    Assert.Equal(chest.Rewards.Length, chest.Rewards.Distinct().Count());
+                    if (chest.WarHoard) { hoards++; Assert.InRange(chest.Rewards.Length, 2, 3); }
+                    else Assert.Single(chest.Rewards);
+                }
+            }
+        }
+        Assert.True(sergeants > 0 && rewarded > 0 && chests > 0);
+        Assert.True(rewarded < sergeants, "a sergeant carries a reward with a chance, not always");
+    }
+
+    [Fact]
+    public void Every_reward_row_has_a_kind_and_the_pool_kinds_have_items_with_the_mirror_shard_the_rarest_harbinger_drop()
+    {
+        var catalog = Program.Items;
+        foreach (int row in LegionRewards.RewardRows)
+            if (LegionRewards.Pool(catalog, row, 100) is { } pool) Assert.NotEmpty(pool);
+        var harbinger = LegionRewards.Pool(catalog, 8, 100)!;
+        var mirror = Assert.Single(harbinger, t => t.Id.EndsWith("/CurrencyDuplicateShard", StringComparison.Ordinal));
+        Assert.All(harbinger.Where(t => t != mirror), t => Assert.True(LegionRewards.HarbingerWeight(t) > LegionRewards.HarbingerWeight(mirror)));
+        Assert.Contains(harbinger, t => t.Id.EndsWith("/CurrencyUpgradeMapTier", StringComparison.Ordinal));
+    }
 }

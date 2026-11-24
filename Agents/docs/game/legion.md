@@ -97,4 +97,16 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
 - The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general; the early end breaks out every monster still frozen (patch 3.29.0), which then fights.
   At either end each broken member is swapped for a new fighting monster; at the timer the others vanish and an unbroken general flees.
-- Rewards drop by type from the fighters (`LegionRewards.cs`, all numbers guesses): each reward row gives 2 items of its class; Timeless Splinters drop only from sergeants, the general (with a chance of its Enshrouding Crystal in maps and a Timeless Jewel) and chests, never from normal soldiers. An opened chest drops 3 items per reward type (a War Hoard 4) plus its faction's splinters (60% for 4..10, a War Hoard always 10..20); a chest from an old save without rewards keeps the generic container roll. A general that flees drops nothing.
+
+## Rewards
+
+- The symbol over a sergeant or war chest is buff 1328 `legion_reward_display`, its value list `[LegionRewardTypeVisuals row, hidden, height, index, count]`
+  (always 5 entries; the client reads them unchecked in `0x1417c5d00`). Several rewards are several instances (one `Tag` each), `index` of `count`, side by
+  side 60 units apart; `hidden` 1 removes the effect (`0x1415d1d50` registers the behaviour). The row is the table's row index, not `IntId`.
+- The minimap icon is not part of the buff: stat 2494 `monster_minimap_icon` = the row's `MinimapIconsKey` + 1, read once when the client builds the entry
+  (`0x142191100`), and stat 10006 `monster_hide_minimap_icon` non-zero hides it (`0x142191200`), so the server creates the member with both and sets 10006 to 0 at the reveal.
+- The opened chest object has no Buffs component, so it shows only the icon. No client table links a reward type to items: what a type drops is the server's own
+  (`LegionRewards.cs`, the row -> kind table). Incubators (row 17) no longer drop in 3.29, and row 11 repeats row 10 (Essences): neither is rolled.
+- Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal and jewel, the Harbinger weights) is a
+  guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers.
+- 100 splinters become an emblem through the generic `FullStack` row of the item, with no Legion code.

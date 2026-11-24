@@ -134,6 +134,21 @@ static class LegionRewards
         return made;
     }
 
+    /// <summary>The kinds picked from the catalog's own pool, not rolled by a container (the tests read them).</summary>
+    static readonly HashSet<string> PoolKinds = ["gems", "abyss", "harbinger", "breach", "essences", "fragments", "fossils"];
+
+    /// <summary>The items a reward row can give at a level when it is picked from a catalog pool; null for the kinds that are rolled otherwise.</summary>
+    internal static IReadOnlyList<ItemCatalog.BaseType>? Pool(ItemCatalog catalog, int row, int level)
+    {
+        string kind = Kinds.GetValueOrDefault(row, "generic");
+        return PoolKinds.Contains(kind) ? [.. PoolsOf.GetValue(catalog, _ => new Pools()).Of(catalog, kind).Where(t => t.DropLevel <= level)] : null;
+    }
+
+    /// <summary>The Harbinger pool's weight of an item (the Mirror Shard's is the smallest).</summary>
+    internal static int HarbingerWeight(ItemCatalog.BaseType t) => Weight("harbinger", t);
+
+    internal static IEnumerable<int> RewardRows => Kinds.Keys;
+
     static bool warned;
 
     /// <summary>GameEvents.MonsterKilled: a fighter's reward symbols end at its death (the area's Buffs end them only at removal). Only reads the entry:
