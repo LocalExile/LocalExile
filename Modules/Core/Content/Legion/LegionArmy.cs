@@ -144,10 +144,14 @@ static class LegionArmy
         bool hoard = rng.Next(100) < hoardPct;
         int hoardAt = hoard && n > 0 ? rng.Next(n) : 0;
         if (hoard && n == 0) n = 1;
+        // A faction has two chest monsters (LegionChestTypes, in row order): the plain chest (MonsterChestKarui1) and the
+        // War Hoard (MonsterChestKarui2, the "Epic" one, 3x the life). The War Hoard roll picks the second.
+        types.Sort((a, b) => a.Row.CompareTo(b.Row));
         for (int i = 0; i < n; i++)
         {
-            var type = types[rng.Next(types.Count)];
-            chests.Add(new ChestPlan(type.Col0, type.Chest, hoard && i == hoardAt, main.Col4, main.Col5));
+            bool isHoard = hoard && i == hoardAt;
+            var type = isHoard && types.Count > 1 ? types[1] : types[0];
+            chests.Add(new ChestPlan(type.Col0, type.Chest, isHoard, main.Col4, main.Col5));
         }
         return chests;
     }

@@ -196,7 +196,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Legion (partial, not checked in the client): the Timeless Monolith stands at the Legion room locator.
   Using it charges and shatters it and starts the Legion timer (from `LegionBalancePerLevel`: 30 s at level 1
   to 15 s from level 68, times `map_legion_duration_+%`; not checked in the client), and the monolith locks at
-  the end. The two factions and the army composition are chosen and logged on use, not spawned yet.
+  the end. The two factions and the army composition are chosen on use and the two armies spawn frozen (stasis
+  buff, paused) around the monolith, the general shown by the monolith's bolts; the break-out is not built yet
+  (a frozen monster can be killed, drops nothing; the armies are removed at the timer's end), not checked in the client.
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
   combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.

@@ -28,7 +28,7 @@ static class LegionMonolith
 
     enum Phase { Idle, Charging, Running, Finished }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -41,7 +41,9 @@ static class LegionMonolith
         public float Rotation = saved.Rotation;
         public float? Z = saved.Z;
         public LegionArmy.ArmyPlan? Plan = saved.Plan;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan);
+        /// <summary>The spawned army (kept in the save); null until it was spawned.</summary>
+        public LegionStasis.Member[]? Army = saved.Army;
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army);
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
@@ -111,15 +113,20 @@ static class LegionMonolith
     /// <summary>GameEvents.PlayerEntered: a later player, or a returning one, is shown the monolith as it is now.</summary>
     static async Task Enter(Player player)
     {
-        if (Of(player) is { } e) await Show(player, e);
+        if (Of(player) is not { } e) return;
+        await Show(player, e);
+        await LegionStasis.Present(player, e.Army);
     }
 
-    static StateMachineData StatesOf(Phase phase)
+    static StateMachineData StatesOf(Phase phase, Encounter? e = null)
     {
         var states = Defaults!;
         if (phase >= Phase.Charging) states = states.Set("charging", 1);
         if (phase >= Phase.Running) states = states.Set("shattered", 1);
         if (phase >= Phase.Finished) states = states.Set("locked", 1);
+        // TODO(E5): the bolts stay on if the general is killed while frozen; E5 turns them off on break-out or kill.
+        // The general indicator: bolts from the monolith towards the general while it stands frozen (R3 section 4).
+        if (e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest)) states = states.Set("spawn_lightning", 1);
         return states;
     }
 
@@ -130,7 +137,7 @@ static class LegionMonolith
         lock (e) (phase, pulse, endsAt) = (e.Phase, e.Pulse, e.EndsAt);
         lock (shown) if (!shown.Add(e.Id)) return;
         var modPlayer = PlayerOf(player);
-        var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model) { StateMachine = StatesOf(phase) };
+        var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model) { StateMachine = StatesOf(phase, e) };
         if (!await global::Game.SendWorldCreate(modPlayer, e.Id, InstanceEntities.CreateObject(e.Id, InstanceEntities.ObjectTypeHash(InitiatorType), obj.Blob()),
             $"0x02bb Legion monolith 0x{e.Id:x} at ({e.X}, {e.Y}) phase {phase}"))
         {
@@ -197,7 +204,7 @@ static class LegionMonolith
         }
         module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
         module.Log($"{PlayerOf(player).Character}: {plan}");
-        await ToAll(player, e, StatesOf(Phase.Charging), "charging=1");
+        await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1");
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
         foreach (var member in Members(player))
             await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)seconds), $"0x0163 mission timer Legion: {seconds} s");
@@ -222,14 +229,14 @@ static class LegionMonolith
         }
         if (step == 1)
         {
-            await ToAll(player, e, StatesOf(Phase.Running), "shattered=1");
+            await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
             foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(e.Id))) await ShowPulse(member, e, pulse);
         }
         else if (step == 2)
         {
             foreach (var member in Members(player))
                 await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
-            await ToAll(player, e, StatesOf(Phase.Finished), "locked=1");
+            await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1");
             if (pulse != 0) foreach (var member in Members(player).Where(m => Shown.TryGetValue(m, out var s) && s.Contains(pulse))) await global::Game.SendWorldRemoval(member, pulse);
             module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} timer ended");
             await ReleaseArmy(module, player);
@@ -246,9 +253,40 @@ static class LegionMonolith
         }
     }
 
-    /// <summary>Hand-over point for the army tasks: the monolith was used and the timer runs; the two armies are built here.</summary>
-    static Task BeginArmy(IModuleContext module, Player player) => Task.CompletedTask;
+    /// <summary>The monolith was used and the timer runs: the two armies stand up frozen around it (LegionStasis.cs).</summary>
+    static async Task BeginArmy(IModuleContext module, Player player)
+    {
+        if (Of(player) is not { } e) return;
+        LegionArmy.ArmyPlan? plan;
+        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; e.Army = []; }
+        // Each member joins e.Army as soon as it stands, so a timer that ends meanwhile (ReleaseArmy) removes it too;
+        // once the encounter is Finished a new member is refused and Spawn removes it itself.
+        bool Keeps(LegionStasis.Member m)
+        {
+            lock (e)
+            {
+                if (e.Phase == Phase.Finished) return false;
+                e.Army = [.. e.Army ?? [], m];
+                return true;
+            }
+        }
+        await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Members(player));
+        Phase phase;
+        lock (e) { phase = e.Phase; Keep(player, e); }
+        // The general indicator is part of the monolith's states: the bolts show where the general stands.
+        if (phase != Phase.Finished && e.Army!.Any(m => m.Tier == 3 && !m.Chest)) await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=1");
+    }
 
-    /// <summary>Hand-over point for the army tasks: the timer ended; the broken-out monsters wake and the others go.</summary>
-    static Task ReleaseArmy(IModuleContext module, Player player) => Task.CompletedTask;
+    /// <summary>The timer ended. MINIMAL until the break-out exists (E5/E6 refine this): every member still standing is
+    /// removed, and the general indicator goes out with it.</summary>
+    static async Task ReleaseArmy(IModuleContext module, Player player)
+    {
+        if (Of(player) is not { } e) return;
+        LegionStasis.Member[]? army;
+        lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
+        if (army is not { Length: > 0 }) return;
+        int removed = await LegionStasis.Remove(player, army, Members(player));
+        module.Log($"{PlayerOf(player).Character}: army released: {removed} of {army.Length} members removed");
+        await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");
+    }
 }
