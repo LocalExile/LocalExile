@@ -31,7 +31,7 @@ public static partial class Game
     }
 
     static Item? SkeletonWeaponContactSource(Player player, AttackHand hand, IReadOnlyDictionary<uint, int>? local) =>
-        local?.GetValueOrDefault(Stat.LocalGrantSkeletonWarriorsTripleDamageOnHit) > 0
+        (local?.GetValueOrDefault(Stat.LocalGrantSkeletonWarriorsTripleDamageOnHit) > 0 || local?.GetValueOrDefault(Stat.LocalUseSkillOnCritPct) > 0)
             ? (hand == AttackHand.Off ? ActiveOffHand(player) : ActiveMainHand(player))?.Item : null;
 
     static void RecordWeaponContactLocked(Player player, double now, Item? source, Item? second = null)

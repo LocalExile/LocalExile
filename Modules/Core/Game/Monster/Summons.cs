@@ -295,10 +295,10 @@ public static partial class Game
         if (variety is not { Supported: true }) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);
         if (actorLevel <= 0 && (definition.Family.StartsWith("Dominating", StringComparison.Ordinal)
-            || definition.Family is "VaalDomination" or "HolyArmament" || definition.Id == GuardianWeaponEffect))
+            || definition.Family is "VaalDomination" or "HolyArmament" or "Spider" || definition.Id == GuardianWeaponEffect))
             actorLevel = SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level);
         byte level = spectreChild?.Parent.Monster.Level ?? (byte)Math.Clamp(actorLevel, 1, 100);
-        if (inheritedMods is null && (definition.Family == "RagingSpirit"
+        if (inheritedMods is null && (definition.Family is "RagingSpirit" or "Spider"
             || definition.Family == "Spectre" && ItemisedCorpses.Bodies.Contains(variety.Row) || spectreChild is not null))
             inheritedMods = MonsterModRolls.Create(MonsterModRolls.Species(variety.SpeciesModsOrEmpty, Random.Shared),
                 [], MonsterRarity.Normal, level);
@@ -350,10 +350,10 @@ public static partial class Game
             && (!g.Monster.Dead || double.IsFinite(g.ReviveAt))
             && (spectreChild is null || g.Monster.SummonerId == spectreChild.Parent.Id)
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
-        bool holyArmament = definition.Family == "HolyArmament";
+        bool damageImmune = definition.Family is "HolyArmament" or "Spider";
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false,
-            extraStats: holyArmament ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
+            extraStats: damageImmune ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
                 : LivingZombieCorpse(fighter, playerStats) ? [.. MinionStats, (Stat.IsUsableAsCorpseWhenAlive, 1)] : MinionStats,
             ownedSkills: fighter.Skills, ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield,
@@ -395,7 +395,7 @@ public static partial class Game
                 var retainedAura = replacement is null ? null
                     : player.Minions.All.FirstOrDefault(minion => minion.Id == replacement.Old.Id)?.OwnerAura;
                 fighter.Id = id; fighter.Monster = monster;
-                monster.DamageImmune = holyArmament;
+                monster.DamageImmune = damageImmune;
                 if (replacement is not null)
                     TransferIncomingReplacementStateLocked(replacement.Old, fighter, committed);
                 if (replacement is not null) RetireReplacementLocked(player, replacement, committed);

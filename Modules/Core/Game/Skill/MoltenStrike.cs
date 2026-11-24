@@ -396,6 +396,7 @@ public static partial class Game
                 if (applied is not { } hit) continue;
                 if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, now, weaponContactSource);
+                if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, now);
                 if (hit.Life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
                 // Cruelty, as AreaSkillHit's hit grants it: this pipeline is a copy of that one.
                 CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, now);

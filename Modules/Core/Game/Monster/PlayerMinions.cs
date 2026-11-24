@@ -63,6 +63,8 @@ public static partial class Game
             await tick(player, now);
             if (!Current()) return;
         }
+        await TickWeaponMinionTriggers(player, now);
+        if (!Current()) return;
         await TickBeastCompanions(player, now, rules);
         if (!Current()) return;
         await TickEssenceSummons(player, now);

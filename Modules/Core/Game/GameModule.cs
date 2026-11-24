@@ -300,6 +300,8 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(global::AtlasBosses.CleanupOnUnload());
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.ItemMinionStatSources);
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Slayer.Tick(player)));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.SpreadPoisonOnKill);
