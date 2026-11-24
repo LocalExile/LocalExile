@@ -103,16 +103,16 @@ public partial class Program
         Func<WorldAdmission, OutputBatch?> atGate, Func<bool>? still, IWorldAdmissionRules? rules)
     {
         var output = player.Connection.WorldOutput;
-        if (player.Closed || player.LeavingArea || output.Closed) return false;
-        foreach (var target in dependencies)
-            if (target.State == WorldObject.BirthState.Retired || target.RemovalRequested) return false;
-        if (rules is not null && (!ReferenceEquals(GameLogicOrNull, rules) || !rules.WorldAdmissionActive)) return false;
-        if (ProjectileOutputGuard.Value is { } guard && !guard()) return false;
-        if (still is not null && !still()) return false;
         var admission = new WorldAdmission(output, reservations);
         bool admitted = false;
         try
         {
+            if (player.Closed || player.LeavingArea || output.Closed) return false;
+            foreach (var target in dependencies)
+                if (target.State == WorldObject.BirthState.Retired || target.RemovalRequested) return false;
+            if (rules is not null && (!ReferenceEquals(GameLogicOrNull, rules) || !rules.WorldAdmissionActive)) return false;
+            if (ProjectileOutputGuard.Value is { } guard && !guard()) return false;
+            if (still is not null && !still()) return false;
             if (atGate(admission) is not { } batch) return false;
             if (!output.TryShared(batch, admission)) return false;
             var delta = player.Area.Delta;

@@ -78,6 +78,24 @@ public static class BossMods
     /// <summary>Whether the monster's death gives no items (its experience may still be rolled).</summary>
     public static bool GivesNoItems(MonsterCatalog.Variety? variety) => Has(variety, NoDropsOrExperience) || Has(variety, NoDrops);
 
+    /// <summary>Whether the variety carries any <c>MonsterActBoss*</c> species mod (Acts 1–10 Act Bosses).</summary>
+    public static bool IsActBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterActBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>Whether the variety carries any <c>MonsterQuestBoss*</c> species mod (campaign quest bosses).</summary>
+    public static bool IsQuestBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterQuestBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
     static Dictionary<string, Row> Load()
     {
         if (!ClientTables.Has("MonsterVarieties") || !ClientTables.Has("Mods")) return [];
@@ -97,7 +115,7 @@ public static class BossMods
     static readonly string[] StatsKeyColumns = ["StatsKey1", "StatsKey2", "StatsKey3", "StatsKey4", "StatsKey5", "StatsKey6", "StatsKey7", "StatsKey8"];
     static readonly string[] StatMinColumns = ["Stat1Min", "Stat2Min", "Stat3Min", "Stat4Min", "Stat5Min", "Stat6Min", "Stat7Min", "Stat8Min"];
     static readonly string[] StatMaxColumns = ["Stat1Max", "Stat2Max", "Stat3Max", "Stat4Max", "Stat5Max", "Stat6Max", "Stat7Max", "Stat8Max"];
-    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys"];
+    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys", "Part1_ModsKeys", "Part2_ModsKeys", "Endgame_ModsKeys"];
 
     /// <summary>From the MonsterVarieties, Mods and (for the stat values) Stats client tables: each variety's mod ids, how
     /// long it cannot be stunned after a stun, and the floor under its action speed, both its own keys into Mods.</summary>
