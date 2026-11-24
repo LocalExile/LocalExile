@@ -620,7 +620,7 @@ public static partial class Game
                     if (!m.Invulnerable)
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
-                            AreaRng(player), poison: poison, sourceSkill: skillId);
+                            AreaRng(player), poison: poison, sourceSkill: skillId, proxyHit: true);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
                             && IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) is { } ign)
                             dotPackets.AddRange(ign);

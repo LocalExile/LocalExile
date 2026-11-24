@@ -37,6 +37,8 @@ public static partial class Game
 
     public static string? TriggerOnlyReason(SupportedGem gem)
     {
+        if (gem.WornGrant is { } grant && ItemEffectRules.MarkFamily(grant.EffectId) is not null)
+            return "this mark is triggered by the granting item";
         if (GolemStat(gem.Stats, Stat.CastOnLoseCatsStealth) != 0)
             return "this skill can only trigger when Cat's Stealth is lost";
         if (gem.Supports.Any(s => s.Effect.Id == "SupportCastWhenDamageTaken"))

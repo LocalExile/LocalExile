@@ -366,7 +366,7 @@ public class ArrowRainAndMirageTests
         }
     }
 
-    sealed class Battle : IDisposable
+    internal sealed class Battle : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;
         readonly GameServer.Modding.IModuleLifetime? previousLifetime = Game.CombatLifetime;

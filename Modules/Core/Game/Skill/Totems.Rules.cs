@@ -666,7 +666,7 @@ public static partial class Game
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
-                    blind: blind, hitOrigin: totem.At, attackerSize: totem.BodySize, attackerHasReversedStat: false);
+                    blind: blind, hitOrigin: totem.At, attackerSize: totem.BodySize, attackerHasReversedStat: false, proxyHit: true);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);

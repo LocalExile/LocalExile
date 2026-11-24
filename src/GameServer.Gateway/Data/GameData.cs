@@ -9,7 +9,10 @@ public static class GameData
 {
     public sealed record Snapshot(int Revision,
         IReadOnlyDictionary<(string ModId, int Index), (int Min, int Max)> ModRanges,
-        IReadOnlyDictionary<string, int> Limits);
+        IReadOnlyDictionary<string, int> Limits)
+    {
+        public IReadOnlyList<IReadOnlyDictionary<string, object?>> ItemEffectRules { get; init; } = [];
+    }
 
     static readonly Snapshot Empty = new(0,
         new Dictionary<(string, int), (int, int)>(),
@@ -66,7 +69,10 @@ public static class GameData
             .ToDictionary(row => (row.ModId, row.StatIndex), row => (row.Minimum, row.Maximum));
         var limits = store.LoadLimits()
             .ToDictionary(row => row.Key, row => row.Value, StringComparer.OrdinalIgnoreCase);
-        var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits);
+        var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits)
+        {
+            ItemEffectRules = store.LoadRows("item_effect_rules", "id")
+        };
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);

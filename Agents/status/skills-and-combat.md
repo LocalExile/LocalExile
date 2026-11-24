@@ -272,13 +272,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
-- Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Hexes and marks. Assassin's Mark and Poacher's Mark rings share one world rule. A player hit against a rare or
+  unique enemy triggers the ring's mark if the player has no living marked enemy. [Skill details](../docs/protocol/11-skills.md)
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing.
 - Holy Flame Totem places without channelling on its owner, creates Consecrated Ground, and fires piercing bolts.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
+- Onslaught on kill reads its chances and durations from world rules. Restarting with `Game_EFFECT_RULES=0` restores
+  the original Onslaught rolls and disables the ring trigger. Silver Flask Onslaught uses the flask system. [Item details](../docs/protocol/13-items.md)
 - Rampage and Soul Eater from item stats, with Soul Ascension's souls from hits on rare and unique enemies.
   Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Stats: the client's stat keys and the player's base pools, plus item-requirement stats (`main_hand_weapon_type`,

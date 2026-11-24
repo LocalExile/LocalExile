@@ -99,7 +99,7 @@ public static partial class Game
         if (aura && monster.Curses.All.GetValueOrDefault((player.Id, effect)) is { Aura: true } existing
             && existing.Skill == skill && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         if (definition.Mark)
-            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster)))
+            foreach (var m in player.Area.Monsters.Values.Where(m => m.HasCurses && !ReferenceEquals(m, monster)))
                 foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
                 { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         var curse = new MonsterCurses.Curse(player.Id, effect, skill, definition.Buff, player.NextBuff++, now,
