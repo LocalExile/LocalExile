@@ -89,7 +89,8 @@ public static partial class Game
             player.NextBuff++, row, 0, 0, source.Level, source.Quality, SourceBuff: player.NextBuff++,
             SkillStats: [.. source.Stats.Select(p => (p.Key, p.Value))],
             SupportEffectPct: support.EffectPct, AffectsSelf: support.AffectsSelf,
-            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
+            PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(family, CharacterStatSources(player).Stats));
         state.Active[id] = new(aura, AreaTime(player) + seconds, source, blessing);
         state.StatsPending = false; // The activation publishes its new character snapshot itself.
         player.Auras[id] = aura;
@@ -158,7 +159,7 @@ public static partial class Game
         int value = (aura.SkillStats ?? Skills.EffectStats(aura.Effect, aura.Level, aura.Quality))
             .FirstOrDefault(s => s.Item1 == stat).Item2;
         return (int)Math.Clamp(decimal.Truncate(value * (100m + Math.Max(-100,
-            aura.ExternalEffectPct ?? effect + aura.SupportEffectPct)) / 100m), int.MinValue, int.MaxValue);
+            (aura.ExternalEffectPct ?? effect + aura.SupportEffectPct) + aura.PerAuraEffectPct)) / 100m), int.MinValue, int.MaxValue);
     }
 
     static CharacterStats.Bonus WithTemporaryAuraBonus(IEnumerable<AuraCatalog.Aura> auras, int effect, CharacterStats.Bonus bonus)

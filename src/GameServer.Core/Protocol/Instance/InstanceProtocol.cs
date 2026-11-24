@@ -939,11 +939,12 @@ public static class InstanceProtocol
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null)
+    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
+    IReadOnlyDictionary<uint, int>? DisplayStats = null)
 {
     public byte[] Encode()
     {
-        bool hasStats = LeagueStats is { Count: > 0 };
+        bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
         bool hasReturnArea = ReturnAreaHash is > 0;
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
@@ -965,13 +966,20 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
         writer.U16(0); // vec16<u16> +0xe0
         if (hasStats)
         {
-            InstanceProtocol.CompactUInt(writer, (uint)LeagueStats!.Count);
-            foreach (var (key, value) in LeagueStats.OrderBy(p => p.Key))
+            var first = LeagueStats ?? new Dictionary<uint, int>();
+            InstanceProtocol.CompactUInt(writer, (uint)first.Count);
+            foreach (var (key, value) in first.OrderBy(p => p.Key))
             {
                 InstanceProtocol.CompactUInt(writer, key);
                 InstanceProtocol.CompactInt(writer, value);
             }
-            InstanceProtocol.CompactUInt(writer, 0); // second compact pair list (+0x120)
+            var second = DisplayStats ?? new Dictionary<uint, int>();
+            InstanceProtocol.CompactUInt(writer, (uint)second.Count);
+            foreach (var (key, value) in second.OrderBy(p => p.Key))
+            {
+                InstanceProtocol.CompactUInt(writer, key);
+                InstanceProtocol.CompactInt(writer, value);
+            }
             writer.U8(0); // third list (+0x138), u8 count, no entries
         }
         if (TerrainData is { } terrain)
