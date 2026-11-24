@@ -71,6 +71,8 @@ public static partial class Game
     public static Dictionary<uint, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
+        if (mods.Get(Stat.MapMonstersStealCharges) is > 0 and var steal)
+            extra[Stat.MapMonstersStealCharges] = steal;
         foreach (var (map, atlas) in AtlasPairs)
             if (mods.Get(map) is int more and not 0) extra[atlas] = more;
         if (mods.Get(Stat.MapMonstersCannotBeStunned) != 0)
