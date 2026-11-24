@@ -248,6 +248,7 @@ public static partial class Game
         player.ChannelGeneration++;
         player.PaidChannel = null;
         player.ChannelMovement = default;
+        EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);

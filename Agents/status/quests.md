@@ -97,8 +97,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   the gem), a2q8 (the Ancient Seal, the Dark Altar, the Vaal Oversoul, the pyramid's exit), a3q1–a3q5, a3q8, a3q9,
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
-  Act 2/3 quest log at "Quest Complete". In the Crematorium, Piety retreats at half life. Once the room guards
-  are gone each character can take Tolman's Bracelet, including before rescuing Clarissa.
+  Act 2/3 quest log at "Quest Complete".
+  In the Crematorium, Piety retreats through a portal at half life with `AudioEventDrivenOffPiety`.
+  Once the room guards are gone each character can take Tolman's Bracelet.
+  Greust unlocks via `a2b-StartNewQuests` (quest items also read `extra_flag2`), `ClarissaTown` gates on
+  `a3q1-RescuedGirl` with legacy save recovery, and Docks Fairgraves runs his `Script2` timer/counter death transition.
   The tower legionnaires now precede the miscreations, then Dominus appears at the roof's boss point.
   Multi-item hand-ins take every item in one click (Eramir's amulets, Hargan's busts, Siosa's pages, Fairgraves' plum
   and decanter).
@@ -134,7 +137,8 @@ Part of [Status](../Status.md); what to build next in this area is in
    A party member can finish while the instance host stays at the entrance or dies; late joins retain valid packets.
   The Belly side door and the four arena entrances open (the doors go when used or their guardian dies). Malachai's
   first form retreats at 70% life. His second form starts at 92% in the next arena, and his portal returns to Highgate.
-  The Ossuary lever opens the passage after the Sign is taken.
+  The Ossuary `PurityBox` triggers a skeleton ambush and its lever opens the passage after the Sign is taken.
+  Control Blocks spawns `DestroyedOriathObstructions` after `a5q4-KilledBoss`.
   Original-server timing and damage comparison remain pending. Driver: `scripts/dev/campaign/quests/a[456]q*.py`.
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
@@ -208,14 +212,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - In Act 2, solo and party players talk to a bandit leader to open the native Help or Kill vote (S→C 0xbe / C→S 0xbd),
   tracking in-area voters and out-of-area party members (`WaitingToEnterArea`) until all eligible voters answer.
   An allied leader accepts both rivals' amulets for the reward, then offers the Apex; killing all three leads to Eramir.
+  Bandit respec uses the Book of Reform recipe (20 Regrets + amulet) and right-click flag, stat and passive swap.
 - Characters whose activated waypoints carry a quest flag as an access flag (a1q1's Hillock for the Coast) skip that
   flag's world changes: with OfflineWitch, The Twilight Strand's wall was not created and its gate stood open.
 - Merveil's Caverns Trick Chests (`AmarissaTrickChest` in `1_1_11_1`, `AmbrosiaTrickChest` in `1_1_11_2`) spawn in
   their chambers, open with loot and ambush with risen targetable Amarissa/Ambrosia plus Slimy Bloodsuckers
   (not checked live). Code: `Rules.TrickChests.cs`, `Act1.cs`.
-- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*` via post-`0x2bb` `0x2bc` diff,
-  Act 4 mines, first Atlas map), campaign and pinnacle boss kills and first NPC meetings trigger natively via
-  `PlayerQuestFlagsUpdate` `0x2bc` (not checked live). Docs: [12](../docs/protocol/12-quests.md).
+- Player character voice lines (`CharacterAudioEvents`): area entry (`Visited-*`, `FirstEntry_NPCTextAudioKey`,
+  `WashedUp`, Act 4 mines, Atlas), boss kills (including `ZombieBite`), lore reactions and NPC meets (not checked live).
+  Docs: [12](../docs/protocol/12-quests.md).
 
 ## Not working yet
 

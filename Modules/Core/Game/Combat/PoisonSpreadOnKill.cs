@@ -144,8 +144,7 @@ public static partial class Game
 
     /// <summary>The spread starts a fresh default-duration poison, with global duration modifiers. Its copied DPS
     /// already includes faster-poison modifiers; applying those a second time would shorten the new poison twice.</summary>
-    public static double SpreadPoisonSeconds(Func<uint, int> get) => Ailments.PoisonDurationSeconds
-        * Math.Max(0, 1 + ((double)get(Stat.PoisonDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100);
+    public static double SpreadPoisonSeconds(Func<uint, int> get) => MonsterPoisons.BaseSeconds(get);
 
     /// <summary>The regeneration's Life per minute while it applies (CharacterStatSources).</summary>
     static Dictionary<uint, int> WithSpreadPoisonRegeneration(Player player, Dictionary<uint, int> sources)

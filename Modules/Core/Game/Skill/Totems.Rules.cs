@@ -358,7 +358,7 @@ public static partial class Game
                 TotemsDiedLocked(player, now, playerStats);
             }
             // A totem blocks paths on the client as any body does.
-            if (bodySize >= 0) player.SetBlocker(objectId, place.X, place.Y, bodySize);
+            if (bodySize >= 0) player.SetObjectBlocker(objectId, place.X, place.Y, bodySize, true);
             if (NativeProjectileTotem(player, effect) && seconds > 0)
             {
                 var groundStats = SkillAreaStats(player, own, effect, playerStats);
@@ -661,7 +661,8 @@ public static partial class Game
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
-            if (ApplyMonsterHitLocked(player, m, damage, allyAt: totem.At) is not { } accepted) continue;
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
+            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: totem.At, default, null, chaosDamage) is not { } accepted) continue;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
