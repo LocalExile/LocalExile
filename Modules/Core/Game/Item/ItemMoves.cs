@@ -485,18 +485,43 @@ public static class ItemMoves
             bool there(Spot s) => s.Tab is int t ? t >= 0 && t < stash.Count && stash.Inventory(t).Items.Any(i => i.Id == s.Id)
                 : items.Items(s.Row).Any(i => i.Id == s.Id);
             if (!there(used) || !there(target)) return null;
-            InventoryItem? left = null;
-            if (used.Tab is int tab)
-            {
-                var stack = stash.Inventory(tab).Items.First(i => i.Id == used.Id);
-                if (stack.Item.StackSize <= 1) { if (stash.Take(tab, used.Id) is null) return null; }
-                else if ((left = stash.Shrink(tab, used.Id, 1)) is null) return null;
-            }
-            else if (items.ConsumeOne(used.Row, used.Id) is { } consumed) left = consumed.Left;
-            else return null;
+            if (!TakeOne(items, stash, used, out var left)) return null;
             var changed = target.Tab is int targetTab ? stash.Change(targetTab, target.Id, change) : items.Change(target.Row, target.Id, change);
             return changed is null ? null : (left, changed);
         });
+
+    /// <summary>A Mirror of Kalandra used on an item, each in a character inventory or a stash tab: one leaves the Mirror's
+    /// stack (the last one removes it) and <paramref name="mirror"/>(target) goes onto the empty cursor as a new character
+    /// item, together. The target is not changed. Returns the Mirror's stack as it is now (null when it is gone) and the held
+    /// copy, or null (nothing changes) when something is held, either item is gone or the target is refused.</summary>
+    public static (InventoryItem? Left, InventoryItem Held)? MirrorAcross(PlayerInventories items, AccountStash stash, Spot used, Spot target,
+        Func<Item, Item?> mirror) =>
+        Saves.Atomically<(InventoryItem?, InventoryItem)?>(() =>
+        {
+            if (items.Items(Cursor).Count > 0) return null;
+            var source = target.Tab is int t
+                ? (t >= 0 && t < stash.Count ? stash.Inventory(t).Items.FirstOrDefault(i => i.Id == target.Id) : null)
+                : items.Items(target.Row).FirstOrDefault(i => i.Id == target.Id);
+            if (source is null || mirror(source.Item) is not { } copy) return null;
+            if (!TakeOne(items, stash, used, out var left)) return null;
+            return (left, items.Add(Cursor, 0, 0, copy));
+        });
+
+    // One currency item leaves its stack, in a stash tab or a character inventory row (the last one removes the stack).
+    // False when the stack is gone or offered in a trade; nothing changes then.
+    static bool TakeOne(PlayerInventories items, AccountStash stash, Spot used, out InventoryItem? left)
+    {
+        left = null;
+        if (used.Tab is int tab)
+        {
+            if (tab < 0 || tab >= stash.Count || stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == used.Id) is not { } stack) return false;
+            if (stack.Item.StackSize <= 1) return stash.Take(tab, used.Id) is not null;
+            return (left = stash.Shrink(tab, used.Id, 1)) is not null;
+        }
+        if (items.ConsumeOne(used.Row, used.Id) is not { } consumed) return false;
+        left = consumed.Left;
+        return true;
+    }
 
     /// <summary>
     /// A purchase (C→S 0x88): the price (<paramref name="price"/>: currency type and amount, or null when free) paid from the

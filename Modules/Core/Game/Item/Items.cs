@@ -1740,8 +1740,7 @@ public static partial class Game
         bool isEssence = type is not null && EssencesFor(player).Contains(type.Hash);
         if (type?.Id == CurrencyEffects.MirrorOfKalandra)
         {
-            if (stashTab is not null || targetTab is not null) { Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra with the stash: not handled, use it in the inventory"); return; }
-            await MirrorItem(player, items, RollsFor(player), usedRow, used, target);
+            await MirrorItem(player, items, stash, RollsFor(player), new(stashTab, usedRow, used.Id), new(targetTab, targetRow, target.Id), target);
             return;
         }
         // What the currency makes of the target, or null (nothing happens, nothing is spent).
@@ -1836,24 +1835,36 @@ public static partial class Game
     }
 
     // Mirror of Kalandra (C→S 0x71 / Shift 0x72): a mirrored copy of the target goes onto the (empty) cursor, as if picked
-    // up, for the player to place; the target stays as it was. One mirror and the copy are saved together.
-    public static async Task MirrorItem(Player player, PlayerInventories items,
-        ItemRolls rolls, byte usedRow, InventoryItem used, InventoryItem target)
+    // up, for the player to place; the target stays as it was. The Mirror and the target can each be in a stash tab
+    // (ItemMoves.MirrorAcross). One mirror and the copy are saved together; the target's place gets no message.
+    public static async Task MirrorItem(Player player, PlayerInventories items, AccountStash stash,
+        ItemRolls rolls, ItemMoves.Spot used, ItemMoves.Spot target, InventoryItem targetItem)
     {
-        if (CurrencyEffects.Mirror(target.Item, rolls) is not { } copy || items.Items(PlayerInventories.Cursor).Count > 0)
+        string where = (used.Tab is int ut ? $" (currency in stash tab {ut})" : "") + (target.Tab is int tt ? $" (target in stash tab {tt})" : "");
+        if (CurrencyEffects.Mirror(targetItem.Item, rolls) is null || items.Items(PlayerInventories.Cursor).Count > 0)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (corrupted / mirrored / unique / unsupported class or map tier / unmodifiable / no mods / cursor not empty){where}");
             return;
         }
-        var done = Saves.Atomically<(PlayerInventories.Consumption, InventoryItem)?>(() =>
-            items.ConsumeOne(usedRow, used.Id) is { } taken ? (taken, items.Add(PlayerInventories.Cursor, 0, 0, copy)) : null);
-        if (done is not var (taken, held)) return;
-        uint usedInventory = PlayerInventories.InventoryId(usedRow), cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
-        await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(usedRow), [used.Id],
-            taken.Left is { } left ? [left] : []), $"0x00bf inventory {usedInventory}: Mirror of Kalandra used");
+        if (ItemMoves.MirrorAcross(items, stash, used, target, i => CurrencyEffects.Mirror(i, rolls)) is not var (left, held))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra on item {target.Id}: refused (the Mirror or the target is gone){where}");
+            return;
+        }
+        List<InventoryItem> usedNow = left is { } l ? [l] : [];
+        if (used.Tab is int tab)
+            await SendTabChange(player, stash, tab, [used.Id], usedNow,
+                $"0x00bf stash tab {tab}: Mirror of Kalandra used" + (left is null ? ", stack gone" : $", {left.Item.StackSize} left"));
+        else
+        {
+            uint usedInventory = PlayerInventories.InventoryId(used.Row);
+            await Send(player, InstanceItems.InventoryChange(usedInventory, items.NextRevision(used.Row), [used.Id], usedNow),
+                $"0x00bf inventory {usedInventory}: Mirror of Kalandra used");
+        }
+        uint cursor = PlayerInventories.InventoryId(PlayerInventories.Cursor);
         await Send(player, InstanceItems.InventoryChange(cursor, items.NextRevision(PlayerInventories.Cursor), [], [held]),
             $"0x00bf cursor: mirrored copy {held.Id}");
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 Mirror of Kalandra ({used.Id}) on item {target.Id}: copy {held.Id} on the cursor{where}");
     }
 
     // C→S 0x4a: the held item clicked on an item. A stack of the same type with room takes what fits (PlayerInventories.MergeOnto,

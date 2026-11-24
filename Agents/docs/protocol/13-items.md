@@ -1109,7 +1109,8 @@ identification and name); the copy is **mirrored** and goes onto the cursor (Sâ†
 the player to place, the original stays unchanged. A held item, a corrupted or mirrored target, a unique item, a
 different item class (including jewels and currency), a map outside tiers 1â€“16, an unmodifiable base or an item without mods is refused and
 nothing is spent. A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil is not
-modelled. Using a Mirror from a stash tab is a local limitation, not a game rule.
+modelled. The Mirror and the target can each be in a stash tab (`ItemMoves.MirrorAcross`): 0xbf on the Mirror's tab
+or inventory, then on the cursor; the target's place gets none.
 
 `Item.Mirrored` (saved) is sent as the Mods component's u16 flags bit 1 (`+0x2df`, a plain bool with no data after
 it): the client's crafting check refuses an item with it (`0x141d6c62b`); the tooltip shows

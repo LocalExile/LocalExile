@@ -125,7 +125,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md).
 - **Fracturing Orb** (verified live). Docs: [13](../docs/protocol/13-items.md), "Fracturing Orb",
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps. Docs: [13](../docs/protocol/13-items.md).
+- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps, from and onto stash tabs too. Docs: [13](../docs/protocol/13-items.md).
 - **Hinekora's Lock** (server rules verified live). Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock",
   [evidence](../docs/re/hinekora-lock.md).
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
