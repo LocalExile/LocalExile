@@ -23,8 +23,8 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
     public Func<int, int, int>? Sight { get; init; }
 
     /// <summary>A generated layout's named entrance point for a player arriving from an area
-    /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), used when no exit leads back there (a one-way entrance).</summary>
-    public Func<ushort, (int X, int Y)?>? EntranceFrom { get; init; }
+    /// (<see cref="AreaTransitionCatalog.EntrancePoint"/>), preferring the room's authored entrance slot.</summary>
+    public Func<ushort, int?, (int X, int Y, bool NamedPoint)?>? EntranceFrom { get; init; }
 
     /// <summary>Every cell's ground height, row by row (GridW × GridH), when the Gateway generated the layout itself
     /// (<see cref="ServerLevels"/>); null for a capture.</summary>
@@ -55,16 +55,25 @@ public sealed record AreaLayout(ushort Hash, string Id, int GridW, int GridH, in
         [(AreaLayouts.LioneyesWatch, 0xf00a /* 1_1_1 The Twilight Strand */)] = (123, 308),
     };
 
-    /// <summary>Where a player entering this area appears: next to the exit leading back to <paramref name="cameFrom"/>
-    /// (the area they left through an exit), else the spawn (logins, Resurrect in Town, no exit back).</summary>
+    /// <summary>Where a player entering this area appears: the room's authored entrance point for
+    /// <paramref name="cameFrom"/> when available, else next to the exit leading back to <paramref name="cameFrom"/>,
+    /// else the spawn (logins, Resurrect in Town, no exit back).</summary>
     public (int X, int Y) Arrival(ushort? cameFrom, int? entrance = null)
     {
         if (cameFrom is not { } from) return (SpawnX, SpawnY);
         if (OneWayArrivals.TryGetValue((Hash, from), out var point)) return point;
+        if (EntranceFrom?.Invoke(from, entrance) is { } authored)
+        {
+            var pt = (authored.X, authored.Y);
+            bool onTransition = AreaTransitions.Any(t => t.Transition.DestinationHash16 == from && t.Transition.TeleportTo is null
+                && Math.Abs(t.Transition.GridX - pt.X) <= 4 && Math.Abs(t.Transition.GridY - pt.Y) <= 4);
+            if (authored.NamedPoint && !onTransition && (Walkable is null || Walkable(pt.X, pt.Y)))
+                return pt;
+            return Near(pt);
+        }
         foreach (var (_, t) in AreaTransitions)
             if (t.DestinationHash16 == from && t.TeleportTo is null
                 && (entrance is null || t.Entrance == entrance)) return Near((t.GridX, t.GridY));
-        if (EntranceFrom?.Invoke(from) is { } pointEntrance) return Near(pointEntrance);
         return (SpawnX, SpawnY);
     }
 
@@ -176,7 +185,7 @@ public static class AreaLayouts
                 SightOf(generated.Projectile, generated.Width, generated.Height), generated.Start) with
             {
                 CellHeights = generated.Heights,
-                EntranceFrom = from => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from),
+                EntranceFrom = (from, entrance) => AreaTransitionCatalog.EntrancePoint(hash, generated.Entrances, from, entrance),
                 Level = generated,
             };
             // A map's layout start room — the one the game marks "default", where it puts a player entering the map (Strand's
@@ -267,16 +276,21 @@ public static class AreaLayouts
             return new AreaLayout(hash, id, 690, 414, 197, 261, fits ? Walkable(cells!, w, h) : null, transitions)
             { Clearance = fits ? Clearance(cells!, w, h) : null };
         }
-        if (cells is not null && start is { } s)
-            return new AreaLayout(hash, id, w, h, s.X, s.Y, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = s.Angle };
         if (cells is not null)
         {
             // The area's start point (a room's "default", e.g. The Twilight Strand's beach), else the deepest cell.
-            var point = AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default");
-            var (sx, sy) = point is null ? DeepestCell(cells, w, h) : (point.X, point.Y);
-            return new AreaLayout(hash, id, w, h, sx, sy, Walkable(cells, w, h), transitions)
-                { Clearance = Clearance(cells, w, h), SpawnRotation = point?.Angle ?? 0 };
+            if (start is null && AreaPopulation.LoadPoints(id, seed, []).FirstOrDefault(p => p.Name == "default") is { } point)
+                start = (point.X, point.Y, point.Angle);
+            var walkable = Walkable(cells, w, h);
+            (int X, int Y) spawn;
+            if (start is { } marker)
+            {
+                spawn = (marker.X, marker.Y);
+                if (!walkable(spawn.X, spawn.Y)) spawn = NearestWalkableSpawn(cells, w, h, spawn);
+            }
+            else spawn = DeepestCell(cells, w, h);
+            return new AreaLayout(hash, id, w, h, spawn.X, spawn.Y, walkable, transitions)
+                { Clearance = Clearance(cells, w, h), SpawnRotation = start?.Angle ?? 0 };
         }
         // No walk map yet: a position inside any grid; the client may place the player on unwalkable ground.
         return new AreaLayout(hash, id, 0, 0, 197, 261, null, transitions);
@@ -399,6 +413,29 @@ public static class AreaLayouts
     static Func<int, int, bool> Walkable(byte[] cells, int w, int h) =>
         (x, y) => x >= 0 && y >= 0 && x < w && y < h && cells[y * w + x] >= 2;
 
+
+    // A room's default marker can be farther from the floor than the walk-up search for waypoints and transitions.
+    // Search the grid only for a blocked marker, preserving the marker as a fallback if the grid has no floor at all.
+    static (int X, int Y) NearestWalkableSpawn(byte[] cells, int w, int h, (int X, int Y) marker)
+    {
+        var nearest = marker;
+        long distance = long.MaxValue;
+        for (int y = 0; y < h; y++)
+        {
+            long dy = (long)y - marker.Y;
+            if (dy * dy >= distance) continue;
+            for (int x = 0; x < w; x++)
+            {
+                if (cells[y * w + x] < 2) continue;
+                long dx = (long)x - marker.X;
+                long squared = dx * dx + dy * dy;
+                if (squared >= distance) continue;
+                distance = squared;
+                nearest = (x, y);
+            }
+        }
+        return nearest;
+    }
 
     /// <summary>The walkable cell farthest from any blocked cell (multi-source BFS from blocked cells).</summary>
     /// <summary>Per cell, its distance to the nearest cell that is not open floor (0 there).</summary>

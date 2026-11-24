@@ -6,7 +6,8 @@ public static partial class Game
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
     static void AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
-        IReadOnlyDictionary<uint, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, bool appliesToPlayer,
+        IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
         var state = Automation(player);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
@@ -17,6 +18,10 @@ public static partial class Game
             $"instantly {recovery.InstantLife:0.#} life, {recovery.InstantMana:0.#} mana{(recovery.ManaAtEnd > 0 ? $", {recovery.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(recovery.RemovesLife + recovery.RemovesMana > 0 ? $", removes {recovery.RemovesLife:0.#} life, {recovery.RemovesMana:0.#} mana" : "")}" +
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
+        double now = AreaTime(player);
+        if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
+        ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
+        if (!appliesToPlayer) return;
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
@@ -25,8 +30,6 @@ public static partial class Game
         TrimLeechLocked(player); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
-        double now = AreaTime(player);
-        if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
         if (recovery.ExtraLife > 0)
             player.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
@@ -50,7 +53,7 @@ public static partial class Game
             if (FlaskBuffs)
             {
                 player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, effect.Buff, effect.BuffRow, (byte)slot,
-                    withDuration ? duration : null, [perMinute]));
+                    withDuration ? duration : null, [perMinute], FlaskEffectVisual(player, (byte)slot)));
                 Note($"player buff {effect.Buff}: {(effect.BuffRow == FlaskEffectLifeBuffRow ? "flask_effect_life" : "flask_effect_mana")} " +
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }

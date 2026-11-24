@@ -9,7 +9,7 @@ public static partial class Game
     /// not (or the connection closed). A run still sending skips the next.
     /// </summary>
     static void EveryAsPlayer(Player player, int ms, Func<bool> keep,
-        Func<Player, Task> work)
+        Func<Player, Task> work, Func<bool>? needsWork = null)
     {
         int interval = Math.Max(1, (int)Math.Round(ms / (double)Program.FrameMs));
         Task pass = Task.CompletedTask;
@@ -17,7 +17,8 @@ public static partial class Game
         {
             if (player.Closed || !keep()) { timer.Cancel(); return; }
             if (!pass.IsCompleted || !CurrentGameWork || player.LeavingArea || player.Paused
-                || player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)) return;
+                || player.PlayerUpdatesState is not PlayerUpdatesState updates || !PlayerUpdatesCurrent(player, updates)
+                || needsWork?.Invoke() == false) return;
             pass = AsPlayer(player, updates, () => work(player));
         }, source: CombatLifetime));
     }
@@ -25,7 +26,7 @@ public static partial class Game
     /// <summary>The player's work of every frame of the area (the fixed update): <paramref name="work"/> runs as the player
     /// each frame while <paramref name="keep"/> holds. The work reads the elapsed game time itself.</summary>
     static void EveryFrameAsPlayer(Player player, Func<bool> keep,
-        Func<Player, Task> work) => EveryAsPlayer(player, Program.FrameMs, keep, work);
+        Func<Player, Task> work, Func<bool>? needsWork = null) => EveryAsPlayer(player, Program.FrameMs, keep, work, needsWork);
 
     /// <summary>One frame of the area, in seconds.</summary>
     static double FrameSeconds => Program.FrameMs / 1000.0;

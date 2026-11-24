@@ -102,6 +102,20 @@ public static class InstanceNpcs
     public static int? BuyLength(ReadOnlySpan<byte> data) =>
         data.Length < 15 ? null : 14 + CompactUIntLength(data[14]) is int n && data.Length >= n ? n : null;
 
+    public const ushort BuyAndSocketId = 0x89;
+    public const int BuyAndSocketLength = 20;
+
+    /// <summary>C→S 0x89 (20 bytes, class 0x1435cadb0, write 0x141f9c300, sent by 0x140314a90 when clicking a quest
+    /// reward or vendor gem directly onto an item's socket): u32 BE offer item id, u32 BE destination inventory id
+    /// (masked &amp; 0xc01fffff), u32 BE target host item id, u32 BE 0-based socket index, u8 tab, u8 flag.</summary>
+    public sealed record BuyAndSocket(uint OfferItemId, uint InventoryId, uint TargetItemId, uint Socket, byte U8, byte Flag);
+
+    public static BuyAndSocket ReadBuyAndSocket(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32() & 0xc01fffff, r.U32(), r.U32(), r.U8(), r.U8());
+    }
+
     public const ushort CtrlBuyId = 0x8a;
 
     /// <summary>C→S 0x8a: Ctrl + click on an item in an open shop tab: buy it into the main inventory (the server picks the

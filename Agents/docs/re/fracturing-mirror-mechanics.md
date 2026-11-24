@@ -75,10 +75,9 @@ Local rule (`ItemRolls.Mirror`): the item must be non-unique, not corrupted, not
 base with `Mods`, not be `Unmodifiable`, and its class must have `CanBeMirrored` or be a flask or tier 1–16 map.
 Flask/map admission is a LocalExile extension to the equipment rule above. The copy keeps every property
 (mods and values, fractured mods, quality, sockets, links, socketed gems, rarity, identification and name) and sets
-`Item.Mirrored`; the original is unchanged. `Game.MirrorItem` puts the copy on the cursor and spends one Mirror.
+`Item.Mirrored`; the original is unchanged. `Game.UseItemOn` puts the copy on the cursor and spends one Mirror.
 A mirrored item takes no currency at all, including a Scroll of Wisdom; Reflective Oil, Split and Sanctified items
-are not modelled. Using a Mirror from a stash tab is a separate local limitation (`MirrorItem` still requires the
-inventory), not a game rule.
+are not modelled. The Mirror and its target can each be in a stash tab; the copy still goes onto the cursor.
 
 ## Native acceptance
 

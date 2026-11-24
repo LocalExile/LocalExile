@@ -129,14 +129,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null)
     {
-        Func<uint, int> get;
-        if (capturedInputs is null)
-        {
-            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
-            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
-        }
-        else
-            get = capturedInputs.Get;
+        var get = SupportedAilmentStats(player, skillId, playerStats, capturedInputs);
         string hand = spell ? "spell" : "main_hand";
         NoteIgniteArt(player, skillId);
         var rows = capturedInputs is null
@@ -149,8 +142,7 @@ public static partial class Game
         {
             int cap = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
             int recent = RecentlyIgnitedCount(player, ProjectileWorldTime(player));
-            long added = Math.Min((long)per * recent, cap > 0 ? cap : long.MaxValue);
-            double more = Math.Max(0, 1 + added / 100.0);
+            double more = ControlledBlazeIgniteFactor(per, cap, recent);
             settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
                 CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
         }
@@ -175,14 +167,20 @@ public static partial class Game
     /// skill's stats, grown by the hit's area modifier as a chill's or shock's is (MonsterElementalAilments.SpreadRadius).
     /// </summary>
     public static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
-        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand)
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand) =>
+        WithIgniteSpread(settings, player, skill, spell, hand, includeActorBaseArea: false);
+
+    static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand,
+        bool includeActorBaseArea)
     {
         if (settings.Seconds <= 0) return settings;
         int Player(uint key) => player.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
         if (radius <= 0) return settings;
-        double area = AilmentArea(Player, Skill, spell);
+        double area = includeActorBaseArea ? SkillArea.Modifier(name => Player(name) + Skill(name), spell)
+            : AilmentArea(Player, Skill, spell);
         return settings with { Spread = (int)Math.Floor(radius * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100) };
     }
 
@@ -240,14 +238,7 @@ public static partial class Game
         player.Area.ActiveIgniteMonsters.Add(id);
         player.Area.RecentlyIgnitedMonsters.Add(id);
         InflictedLocked(player, target, AilmentType.Ignite, now + settings.Seconds);
-        // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
-        if (settings.FireExposure < 0)
-        {
-            double until = target.Ignites.Until;
-            var key = (DamageType.Fire, settings.FireExposure);
-            target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.PresentationChanged?.Invoke(); }
-        }
+        ApplyIgniteFirePenaltyLocked(target, settings, now);
         if (playerIgnite && target.Hostile)
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
@@ -256,6 +247,16 @@ public static partial class Game
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         return [];
+    }
+
+    static void ApplyIgniteFirePenaltyLocked(SpawnedMonster target, MonsterIgnites.Settings settings, double now)
+    {
+        if (settings.FireExposure >= 0) return;
+        double until = now + settings.Seconds;
+        var key = (DamageType.Fire, settings.FireExposure);
+        target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
+        target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+        target.PresentationChanged?.Invoke();
     }
 
     public static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>
@@ -328,11 +329,14 @@ public static partial class Game
                 if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);
                 if (set.Idle) (done ??= []).Add(id);
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
+                int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: false, AreaTime(player));
+                bool stageStarts = false;
+                if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
+                    CleanupDeadMonsterLocked(player.Area, id, m);
                     CollectVaalSoulAtDeathLocked(player, m);
                     EndDot(player, id, ref set.Buff, set.BuffSource);
                     set.Clear(burnt: true);

@@ -58,6 +58,7 @@ public static class PlayerHitDamage
             (History: DamageTypes.HistoryOf(type), Increased: get(TypedIncreased[(int)type]))).ToArray();
         int elemental = get(Stat.ElementalDamagePlusPct)
             + (attack ? get(Stat.ElementalDamageWithAttackSkillsPlusPct) : 0), meleePhysical = melee ? get(Stat.MeleePhysicalDamagePlusPct) : 0;
+        int physicalAttack = attack ? get(Stat.PhysicalAttackDamagePlusPct) : 0;
         int attackFire = attack ? get(Stat.FireDamageWithAttackSkillsPlusPct) : 0,
             attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
             attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
@@ -78,7 +79,7 @@ public static class PlayerHitDamage
             if (attackLightning != 0 && (path.History & DamageTypeHistory.Lightning) != 0) increased += attackLightning;
             if ((path.History & DamageTypeHistory.Elemental) != 0) increased += elemental + additional.Elemental;
             if ((path.History & DamageTypeHistory.Physical) != 0)
-                increased += meleePhysical + additional.Physical
+                increased += (double)physicalAttack + meleePhysical + additional.Physical
                     + (!melee && !spell && projectile && get(Stat.KeystoneStrongBowman) != 0 ? strength : 0)
                     + (lifeLeech ? (double)get(Stat.PhysicalDamagePlusPctWhileLifeLeeching) : 0);
             if (additional.Typed is { } extra)
@@ -93,7 +94,10 @@ public static class PlayerHitDamage
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
             if ((path.History & DamageTypeHistory.Physical) != 0)
+            {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
+                if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+            }
             if (melee && area)
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
                     ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance

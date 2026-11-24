@@ -1,7 +1,9 @@
 /// <summary>
-/// Where a town's Stash stands (Agents/docs/protocol/18-stash.md §1). The client files do not place it (Stash.ot has only
-/// its model; the town tiles' .tmd records hold the waypoint and doodads), so the cells are ours, as for the NPCs. A
-/// hideout's comes from its decoration (HideoutCatalog).
+/// Where a town's Stash stands (Agents/docs/protocol/18-stash.md §1). In most towns the client files do not place it
+/// (Stash.ot has only its model; the town tiles' .tmd records hold the waypoint and doodads), so the cells are ours, as
+/// for the NPCs. The three rooms that do name it as a server object line -- Oriath Docks, Kingsmarch and the Monastery
+/// of the Keepers -- stand it at the room's own cell instead, through the room placement in TownNpcs. A hideout's comes
+/// from its decoration (HideoutCatalog).
 /// </summary>
 public static class StashCatalog
 {
@@ -26,14 +28,20 @@ public static class StashCatalog
         [OriathDocks] = new(532, 296, -0.800368f),
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): by the waypoint (126, 149), to be placed live with /stash_place.
         [SanctumHub] = new(116, 160, 0),
-        // Kingsmarch: the room's own object line puts the stash at (420, 611) and the guild stash at (420, 641); the room
-        // sits at (138, 138) in the area, so the cells are (558, 749) and (558, 779), offsets from the arrival (590, 655)
-        // (the cells the client's kingsmarch.arm places, FromArrival).
-        [Kingsmarch] = new(-32, 94, -MathF.PI / 2),
-        // The Rogue Harbour: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
-        [HeistHub] = new(6, 8, 0),
-        // The Monastery of the Keepers: next to the arrival (an offset, FromArrival), to be placed live with /stash_place.
-        [ChayulaHub] = new(6, 8, 0),
+        // Kingsmarch: kingsmarch.arm's own object line, at its room cell. The room is placed with code 0 at (138, 138)
+        // (TownNpcs), so its line (420, 611) -1.5708 is the cell (558, 749) and the angle 2 * MathF.PI - 1.5708 = 4.71239,
+        // by the tavern with the guild stash. No capture of ours enters Kingsmarch, so the room file is the only source.
+        // The room has a second Stash line, (214, 533) -1.5708 = the cell (352, 671) by Isla and the recombinator; the
+        // server creates one stash per town (Stash.SpawnTownStash), so the pair by the tavern is the one placed.
+        [Kingsmarch] = new(558, 749, 2 * MathF.PI - 1.5708f),
+        // The Rogue Harbour: hub_1.arm's own object line (174, 298, -1.07947), placed at (92, 92) with code 0 (TownNpcs), so
+        // the cell is (266, 390) and the angle 2 pi - 1.07947. The official server creates its stash at that cell and angle.
+        [HeistHub] = new(266, 390, 2 * MathF.PI - 1.07947f),
+        // The Monastery of the Keepers: hub.arm's own object line, at its room cell. The room is placed with code 0 at
+        // (0, 0) (TownNpcs), so the line (341, 202) 1.95822 is the cell itself -- which is what the official capture
+        // creates there, byte for byte (an official capture of the Monastery: the stash's body `55010000 ca000000
+        // f4a6fa3f`, the guild stash's `5e010000 ba000000 ec690f40`).
+        [ChayulaHub] = new(341, 202, 1.95822f),
         // The Sovereign (DeepwaterHub): hub.arm's own object line (306, 218, -0.261801), placed at (0, 276) with code 0 by
         // hub.dgr on every seed, so area cell = room cell + (0, 276). The guild stash is its line (293, 219, 0.0799581).
         [DeepwaterHub] = new(306, 494, -0.261801f),
@@ -47,9 +55,12 @@ public static class StashCatalog
         DelveHub => new(344, 295, MathF.PI),
         MenagerieHub => new(440, 480, 0),
         SanctumHub => new(106, 166, 0),
-        Kingsmarch => new(-32, 124, -MathF.PI / 2),
-        HeistHub => new(-6, 8, 0),
-        ChayulaHub => new(-6, 8, 0),
+        // Kingsmarch: kingsmarch.arm's guild stash line (420, 641) -1.5708, the room cell (558, 779).
+        Kingsmarch => new(558, 779, 2 * MathF.PI - 1.5708f),
+        // The Rogue Harbour: hub_1.arm's guild stash line (174, 287, -1.56009), the cell (266, 379).
+        HeistHub => new(266, 379, 2 * MathF.PI - 1.56009f),
+        // The Monastery of the Keepers: hub.arm's guild stash line (350, 186) 2.24084, the room cell itself.
+        ChayulaHub => new(350, 186, 2.24084f),
         AreaLayouts.LioneyesWatch => new(317, 270, 0),
         OriathDocks => new(542, 276, -MathF.PI),
         SarnEncampment => new(285, 418, 28 * MathF.PI / 180),
@@ -79,8 +90,10 @@ public static class StashCatalog
     /// <summary>HASH16 of Kingsmarch (WorldAreas KalguuranSettlersLeague).</summary>
     public const ushort Kingsmarch = 0x8f53;
 
-    /// <summary>Areas whose stash, guild stash and NPC places are offsets from the arrival cell: not placed live yet.</summary>
-    public static bool FromArrival(ushort areaHash) => areaHash is Kingsmarch or HeistHub or ChayulaHub;
+    /// <summary>Areas whose stash, guild stash and NPC places are offsets from the arrival cell: not placed live yet.
+    /// No town is on it now: Kingsmarch, the Rogue Harbour and the Monastery of the Keepers are placed from their
+    /// rooms' lines (TownNpcs).</summary>
+    public static bool FromArrival(ushort areaHash) => false;
 
     /// <summary>HASH16 of the Monastery of the Keepers (WorldAreas ChayulaLeague).</summary>
     public const ushort ChayulaHub = 0xcb44;
@@ -95,4 +108,3 @@ public static class StashCatalog
         Towns.GetValueOrDefault(areaHash)
         ?? (HideoutCatalog.ByArea(areaHash)?.First(GameServer.Core.Protocol.Instance.StashObject.MetadataPath) is { } d ? new(d.X, d.Y, d.Rotation) : null);
 }
-

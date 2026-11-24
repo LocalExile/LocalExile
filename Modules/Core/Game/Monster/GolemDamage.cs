@@ -16,13 +16,24 @@ public static partial class Game
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
         {
-            if (enemy.LastTarget is { } old && Dist(old, to) < 5 && now < enemy.Walk.ArrivesAt) return true;
             double factor = golem.Distance > 0 ? Math.Max(1, attack.Range - 1) / golem.Distance : 0;
             var aim = ((int)Math.Round(to.X + (here.X - to.X) * factor), (int)Math.Round(to.Y + (here.Y - to.Y) * factor));
+            if (enemy.LastTarget is { } old && (Dist(old, to) < 5 || Dist(old, aim) < 5) && now < enemy.Walk.ArrivesAt) return true;
+            if (player.Connection.LockstepClient)
+            {
+                if (!LockstepTakesMove(here, aim)) aim = to;
+                if (!LockstepTakesMove(here, aim)) return true;
+                if (InAreaFrame(player))
+                {
+                    int gen = ++enemy.ActionGeneration;
+                    player.Minions.OutputQueue.Add(new([], null, id, enemy, Action: gen, At: aim, WorldId: id));
+                    return true;
+                }
+            }
             int generation = ++enemy.ActionGeneration; enemy.LastTarget = to;
             enemy.Walk.Order(aim.Item1, aim.Item2, now);
             player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(id, here.X, here.Y, aim.Item1, aim.Item2,
-                0x2909, player.NextActionSequence(), 0x0408), null, id, enemy, Action: generation, WorldId: id));
+                0x2909, NextMonsterMoveSequence(player, enemy), player.MonsterOrderFlags), null, id, enemy, Action: generation, WorldId: id));
             return true;
         }
         int action = ++enemy.ActionGeneration;
@@ -47,13 +58,14 @@ public static partial class Game
     {
         var hit = player.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
-        double now = AreaTime(player); var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
+        double now = LockstepOrderStart(player, AreaTime(player));
+        var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
         hit.Started = true;
-        hit.ContactAt = now + hit.Attack.Seconds * (hit.Monster.Variety?.Id == EssenceExplosiveInsect ? 1 : hit.Attack.Release?.Fraction ?? .5);
+        hit.ContactAt = now + hit.Attack.Seconds * (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id) ? 1 : hit.Attack.Release?.Fraction ?? .5);
         hit.Monster.BusyUntil = now + hit.Attack.Seconds;
         hit.Monster.Walk.Order(from.X, from.Y, now);
         return InstanceProtocol.ActionStarted(hit.Enemy, from.X, from.Y, to.X, to.Y, hit.Attack.SkillId,
-            0xffff, 0x0408, targetObjectId: hit.Target.Id);
+            0xffff, player.MonsterOrderFlags, targetObjectId: hit.Target.Id);
     }
 
     static void GolemIncomingContactsLocked(Player player, double now)
@@ -71,7 +83,7 @@ public static partial class Game
             if (!hit.Started || now < hit.ContactAt) continue;
             player.Golems.IncomingHits.Remove(hit);
             if (MonsterActionFactor(hit.Monster, now) == 0) continue;
-            if (hit.Monster.Variety?.Id == EssenceExplosiveInsect)
+            if (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id))
             {
                 QueueEssenceInsectContactLocked(player, hit.Enemy, hit.Monster, hit.Attack, hit.Generation);
                 continue;
@@ -95,8 +107,9 @@ public static partial class Game
         if (GolemIgnoresDots(g)) return false;
         using var scope = new PlayerStatScope(player, fresh: true);
         var currentPlayer = CharacterPlayerStats(player);
+        ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
-        if (g.Monster.Dead || g.Monster.Life == 0) return false;
+        if (g.Monster.Dead || g.Monster.Life == 0 || g.Monster.Effects[Stat.BaseCannotBeDamaged] != 0) return false;
         var m = g.Monster; var effects = m.Effects;
         var random = player.IncomingHitRandom;
         int Player(uint name) => GolemStat(g.Player, name);
@@ -109,53 +122,125 @@ public static partial class Game
         }
         int block = attack.Spell ? Player(Stat.MinionAdditionalSpellBlockPct) + effects[Stat.BaseSpellBlockPct]
             : Player(Stat.MinionBlockPct) + effects[Stat.MonsterBaseBlockPct];
-        if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, 75))
+        var link = ActiveMinionLink(player, g, now);
+        bool protective = link?.EffectId == "ProtectiveLink";
+        int maximumBlock = Math.Clamp(DamageModel.DefaultMaxBlockChance
+            + effects[attack.Spell ? Stat.BaseMaximumSpellBlockPct : Stat.MaximumBlockPct], 0, DamageModel.BlockChanceCap);
+        if (protective && !attack.Spell)
+        {
+            maximumBlock = Math.Clamp(player.Pools.BlockChanceMax, 0, DamageModel.BlockChanceCap);
+            block = player.Pools.AttackBlockAtMaximum ? maximumBlock : player.Pools.BlockChance;
+        }
+        if (!attack.Spell && effects[Stat.CannotBlockAttacks] != 0) block = 0;
+        if (!attack.Secondary && random.Next(100) < Math.Clamp(block, 0, maximumBlock))
         {
             g.BlockedAt = now;
-            m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player(Stat.MinionRecoverPctOfMaximumLifeOnBlock) / 100
-                + Player(Stat.MinionRecoverXLifeOnBlock));
+            int linkedRecovery = protective
+                ? ScaledLinkStat(link!, Stat.BulwarkLinkGrantsRecoverXLifeOnBlock, LinkBuffPercent(g, currentPlayer)) : 0;
+            if (m.Life < m.MaxLife && !LifeRecovery.NonLeechBlocked(name => effects[name]))
+            {
+                long recovery = m.MaxLife * (long)effects[Stat.RecoverPctOfMaximumLifeOnBlock] / 100
+                    + effects[Stat.RecoverXLifeOnBlock] + effects[Stat.LifeGainedOnBlock] + linkedRecovery;
+                m.Life = (uint)Math.Min(m.MaxLife, m.Life + Math.Max(0, recovery));
+            }
+            if (g.Shield < g.MaximumShield && effects[Stat.CannotRecoverEnergyShield] == 0 && effects[Stat.NoEnergyShieldRecovery] == 0)
+            {
+                int fromArmour = effects[Stat.EnergyShieldPctOfArmourRatingGainedOnBlock];
+                double recovery = effects[Stat.EnergyShieldGainedOnBlock]
+                    + (fromArmour > 0 ? GolemArmour(g) * fromArmour / 100 : 0);
+                if (recovery >= 1)
+                {
+                    g.ShieldPool.Recover((uint)Math.Min(recovery, uint.MaxValue));
+                    if (g.ShieldPool.Full) MinionShieldLeeches.Remove(g);
+                    PublishEnergyShieldLocked(player, g);
+                }
+            }
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical, now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack))
-            .Scale(SappedDamageFactor(source, now));
+        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical,
+            now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
+            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
+        bool spellHit = attack.Spell && !attack.Secondary;
+        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
+            + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationHitFactor(player, g, now)
+            * CompanionshipDamageTaken(player, g, now) * HallowedMonarchDamageTaken(link, currentPlayer);
+        int prevented = 0;
+        if (spellHit)
+        {
+            long chance = effects[Stat.BaseSpellSuppressionChancePct];
+            if (Player(Stat.MinionsGainYourSpellSuppressionChance) != 0)
+                chance += SpellDefences(player, currentPlayer, now).Suppression;
+            if (chance > 0 && RandomRolls.Chance((int)Math.Min(chance, 100), 100, random))
+                prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + effects[Stat.BaseSpellDamagePctSuppressed], 0, 100);
+        }
         long damage = 0;
         var mitigated = DamagePacket.Empty;
+        int interceptedPct = 0;
+        double soulDamageTaken = 1;
+        long interceptedCarry = 0;
+        if (link is { EffectId: "SoulLink" })
+        {
+            long effect = LinkBuffPercent(g, currentPlayer);
+            soulDamageTaken = SoulLinkDamageTaken(link, effect);
+            interceptedPct = Math.Clamp(ScaledLinkStat(link, Stat.SoulLinkGrantsTakePctOfHitDamageFromSoulLinkSourceEnergyShieldBeforeYou,
+                effect), 0, 100);
+        }
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
-            var resistance = MonsterHitResistance(m, type, default);
+            var resistance = MonsterHitResistance(m, type, default, now);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
                     + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
-                double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
-                    + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
-                    + effects[Stat.BasePhysicalDamageReductionRating])
-                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
-                double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
+                double armour = GolemArmour(g);
+                double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value)
+                    + (effects.PhysicalReduction - CrushReduction(m, now)) / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
-            value = (int)Math.Round(value * effects.DamageTaken(attack.Spell && !attack.Secondary)
-                // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
-                * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
+            else if (DamageTypes.IsElemental(type))
+                value = (int)Math.Round(value * GolemElementalReductionFactor(effects));
+            value = (int)Math.Round(value * taken
+                * GolemMeatShieldDamageFactor(g)
+                * soulDamageTaken
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+                * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1));
+            if (prevented != 0) value = DamageModel.Suppress(value, prevented);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
+                if (interceptedPct > 0 && player.EnergyShield.Current > 0)
+                {
+                    long share = interceptedCarry + (long)value * interceptedPct;
+                    int intercept = (int)(share / 100);
+                    interceptedCarry = share % 100;
+                    value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
+                }
                 damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
             }
         }
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
+        StealMapChargesLocked(player, attacker, source, g, now, random);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
-        if (m.Life > 0) GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now);
+        if (m.Life > 0)
+        {
+            if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
+            GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
+                (100 - prevented) / 100d);
+            if (!attack.Secondary && mitigated.MinTotal > 0)
+            {
+                int Source(uint name) => source.Effects[name];
+                ApplyContactDebuffsLocked(m, Source, spellHit, critical, now, random);
+                AlternateAilmentsOnHitLocked(m, mitigated, critical, now, Source, random);
+            }
+        }
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
@@ -171,7 +256,9 @@ public static partial class Game
             if (g.Abilities.FirstOrDefault(a => a.Effect == 4839) is { } death)
                 GolemReserveLocked(player, g, death, 0, null, m.Walk.Position(now), now);
         }
-        else if (HitReaction.TryFlinch(m, new((int)Math.Min(int.MaxValue, damage)), now, random))
+        else if (!attack.Secondary && source.Effects[Stat.CannotStun] == 0
+            && !(critical && mitigated[DamageType.Cold].Min > 0)
+            && HitReaction.TryFlinch(m, MinionIncomingStun(source, attack, damage, mitigated), now, random))
         {
             g.Pending = null; g.Pulses.RemoveAll(p => p.Follows);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Flinch, Until: m.FlinchUntil, Action: m.ActionGeneration));
@@ -179,10 +266,49 @@ public static partial class Game
         return true;
     }
 
-    internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true)
+    static StunHit MinionIncomingStun(SpawnedMonster source, MonsterAttack attack, long damage, DamagePacket taken)
+    {
+        bool melee = !attack.Spell && !attack.Ranged;
+        return new(HitReaction.StunningDamage(damage, taken[DamageType.Physical].Min / Math.Max(1, taken.MinTotal), melee),
+            source.Effects[Stat.BaseStunThresholdReductionPlusPct], source.Effects[Stat.BaseStunDurationPlusPct], Melee: melee);
+    }
+
+    static double GolemArmour(GolemState.Golem minion)
+    {
+        var effects = minion.Monster.Effects;
+        if (effects[Stat.MinionsHaveNoArmourOrEnergyShield] != 0) return 0;
+        return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
+            + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
+            + effects[Stat.BasePhysicalDamageReductionRating])
+            * Math.Max(0, 1 + effects[Stat.PhysicalDamageReductionRatingPlusPct] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.BasaltFlaskArmourPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
+    }
+
+    internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool canReform = true)
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        OwnedMinionDeathEffectsLocked(player, g, now);
+        ClearSharedMinionAuras(player, g.Id);
+        ClearMinionFlasksLocked(player, g, now);
+        ReconcileLinkedMinionModifiersLocked(player, g, now, dead: true);
+        MinionLifeLeeches.Remove(g);
+        MinionShieldLeeches.Remove(g);
+        ClearSpectreArcaneSurgeLocked(player, g);
+        if (g.DevouredSouls is not null)
+        {
+            g.DevouredSouls = null;
+            player.Area.Buffs.Clear(g.Id, SoulEaterBuffRow, g.Id);
+        }
+        MinionFortification.Remove(g);
+        player.Area.Buffs.Clear(g.Id, FortificationBuffRow, g.Id);
+        if (g.Definition.Kind == "Phantasm")
+        {
+            player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, g.Id);
+            player.Minions.StatRevision++;
+        }
         ReconcileGuardianBlessingLocked(player);
         if (g.Definition.Kind == "AnimatedGuardian") RecordAnimatedGuardianDeath(player);
         g.ShieldPool.Empty();
@@ -192,12 +318,25 @@ public static partial class Game
         EndDot(player, g.Id, ref g.Monster.Ignites.Buff, g.Monster.Ignites.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Bleeds.Buff, g.Monster.Bleeds.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Poisons.Buff, g.Monster.Poisons.BuffSource);
+        if (g.SpectreBuff != 0)
+        {
+            player.Area.Buffs.Clear(g.Id, SpectreBuffRowValue(), g.Id);
+            g.SpectreBuff = 0;
+        }
         g.Monster.Ignites.Clear();
         g.Monster.Bleeds.Clear();
         g.Monster.Poisons.Clear();
         g.Hazards.Clear(); g.Pulses.Clear();
         // Local gameplay rule: a successfully activated golem returns after two game seconds while its source remains valid.
         g.ReviveAt = g.Definition.IsGolem ? now + 2 : double.PositiveInfinity;
+        // Marionette reformation also follows a lethal Infernal Legion tick or a Minion Instability explosion.
+        if (canReform && g.Definition.Kind == "Spectre"
+            && g.Monster.Mods.Effects[Stat.ReviveSpectreIfKilledByEnemiesMs] is int delay and > 0)
+        {
+            g.ReviveAt = now + delay / 1000d;
+            player.Summons.RefreshAt = 0;
+            player.Minions.StatRevision++;
+        }
         player.Golems.RefreshAt = 0;
         if (emitLife)
             player.Minions.OutputQueue.Add(new([], "golem died", g.Id, g.Monster, PlayerMinions.OutputKind.Life));

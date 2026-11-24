@@ -41,6 +41,18 @@ public sealed partial class ReservationCurseSummonTests
         Assert.Equal(20, original.Resistance(DamageType.Fire));
         curses.Expire(20);
         Assert.Empty(curses.All); Assert.Empty(curses.Stats);
+        curses.Put(Curse(3, "TemporalChains", -10, 21) with { Aura = true, ExpandedCapacity = 6, Until = 60 }, 1);
+        curses.Put(Curse(1, "Flammability", -20, 22) with { Until = 60 }, 1);
+        curses.Put(Curse(1, "ElementalWeakness", -30, 23) with { Until = 60 }, 1);
+        Assert.Equal(2, curses.All.Count);
+        Assert.Contains((3u, "TemporalChains"), curses.All.Keys);
+        Assert.Contains((1u, "ElementalWeakness"), curses.All.Keys);
+        Assert.DoesNotContain((1u, "Flammability"), curses.All.Keys);
+        curses.Clear();
+        curses.Put(Curse(1, "Flammability", -20, 22) with { Until = 60 }, 2);
+        curses.Put(Curse(1, "ElementalWeakness", -30, 23) with { Until = 60 }, 2);
+        curses.Put(Curse(3, "TemporalChains", -10, 24) with { Aura = true, ExpandedCapacity = 6, Until = 60 }, 1);
+        Assert.Equal(3, curses.All.Count);
         Assert.Equal(14, CurseCatalog.All.Count); Assert.False(CurseCatalog.Hex("AssassinsMark"));
         var skitter = new GolemState.Golem(1, null!, new(10825, "SummonSkitterbots", "SkitterCold", "", 0, [], false, false, false), 1)
             { Own = Program.Skills.EffectStats(10825, 20).ToDictionary(p => p.Item1, p => p.Item2) };

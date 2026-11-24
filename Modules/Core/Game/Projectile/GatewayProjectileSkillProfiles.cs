@@ -14,7 +14,7 @@ public static class GatewayProjectileSkillProfiles
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
             "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
-            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem", "SpiritBurst" });
+            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem", "HolyFlameTotemAltX", "SpiritBurst" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
@@ -30,6 +30,7 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
     public static bool IsCausticArrow(string? effect) =>
@@ -113,7 +114,7 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("volcanic-fissure", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
-        else if (effect == "HolyFlameTotem")
+        else if (IsHolyFlameTotem(effect))
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
         else if (IsCausticArrow(effect))
             p = p with
@@ -164,6 +165,13 @@ public static class GatewayProjectileSkillProfiles
         }
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
+        if (effect == "HolyFlameTotemAltX")
+        {
+            if (get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+                p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
+            if (get(Stat.ActiveSkillProjectileSpeedPlusPctFinal) is int speedFinal and not 0)
+                p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
+        }
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (effect == "Twister") p = p with { Pierce = -1 };
