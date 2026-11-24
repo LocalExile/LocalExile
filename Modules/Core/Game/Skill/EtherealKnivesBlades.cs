@@ -11,6 +11,7 @@ public static partial class Game
         {
             if (knifeBlades is not { } blades) return;
             Player.LingeringBladeSources.Remove(blades);
+            foreach (var blade in blades.Blades) Player.ProjectileObjects.Remove(blade.Id);
             blades.Blades.Clear();
             knifeBlades = null;
         }
@@ -42,7 +43,7 @@ public static partial class Game
             {
                 uint oldest = state.Blades[0].Id;
                 state.Blades.RemoveAt(0);
-                World(oldest, InstanceProtocol.RemoveObject(oldest), null);
+                RemoveKnifeBlade(oldest);
             }
             uint id = Player.TakeObjectId();
             long expires = value.At + spec.Lifetime;
@@ -50,15 +51,22 @@ public static partial class Game
             float rotation = (float)Math.Atan2(flight.Direction.X, -flight.Direction.Y);
             int bladeType = value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain ? 1 : 2;
             var blade = new GroundBladeObject(at.X, at.Y, rotation, (uint)art, bladeType);
-            World(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()), null);
-            World(id, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()), null);
+            Player.ProjectileObjects.Add(id);
+            Create(id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()));
+            World(id, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()));
             Runtime.Schedule(expires, () =>
             {
                 if (state.Blades.RemoveAll(entry => entry.Id == id) > 0)
-                    World(id, InstanceProtocol.RemoveObject(id), null);
+                    RemoveKnifeBlade(id);
                 if (ReferenceEquals(knifeBlades, state) && state.Blades.Count == 0)
                     ClearKnifeBlades();
             });
+        }
+
+        void RemoveKnifeBlade(uint id)
+        {
+            Player.ProjectileObjects.Remove(id);
+            WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], remove: true);
         }
     }
 }

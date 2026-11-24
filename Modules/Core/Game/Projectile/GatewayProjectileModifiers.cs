@@ -86,11 +86,13 @@ public static class GatewayProjectileModifiers
             p = p with { Range = Math.Min(p.Range, maximum) };
         double chainRangeFactor = Math.Max(0, 1 + get(Stat.ChainingRangePlusPct) / 100d);
         double forkAngleFactor = Math.Max(0, 1 + get(Stat.ForkingAnglePlusPct) / 100d);
+        bool stopOnEnemy = get(Stat.ProjectileObjectCollisionBehaviourOnlyExplode) != 0;
         ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
             SplitRange = target.SplitRange ?? target.ChainRange,
             ChainRange = target.ChainRange * chainRangeFactor,
             ForkAngleRadians = Math.Min(Math.PI, target.ForkAngleRadians * forkAngleFactor),
+            StopOnEnemy = target.StopOnEnemy || stopOnEnemy,
             PierceAllAfterFork = target.PierceAllAfterFork || arrows && get(Stat.ArrowsAlwaysPierceAfterForking) != 0,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get(Stat.ProjectileReturnPctChance), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get(Stat.ReturningProjectilesAlwaysPierce) != 0,
@@ -101,7 +103,6 @@ public static class GatewayProjectileModifiers
         {
             SpeedVariationPercent = Math.Clamp(get(Stat.ProjectileSpeedVariationPlusPct)
                 + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99),
-            StopOnEnemy = p.StopOnEnemy || get(Stat.ProjectileObjectCollisionBehaviourOnlyExplode) != 0,
             SplitOnTerrain = p.SplitOnTerrain || get(Stat.ProjectilesCanSplitFromTerrain) != 0,
             SplitAtEndOfRange = p.SplitAtEndOfRange || get(Stat.ProjectilesCanSplitAtEndOfRange) != 0
         };
