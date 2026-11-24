@@ -143,8 +143,10 @@ public static partial class Game
             value = (int)Math.Round(value * effects.DamageTaken(attack.Spell && !attack.Secondary)
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
-                * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+                * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d));
+            // The area-hit damage-taken factor was dropped: damage_taken_+%_from_area_hits is not a Stats
+            // row (no damage_taken_+%_from_area* row exists at all), so it was always x1. The `area`
+            // parameter is kept for the call sites that mark area hits.
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));

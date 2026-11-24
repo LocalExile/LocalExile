@@ -213,8 +213,10 @@ public static partial class Game
         {
             string variant = definition.Id.EndsWith("AltX", StringComparison.Ordinal) ? "RainOfArrows"
                 : definition.Id.EndsWith("AltY", StringComparison.Ordinal) ? "ElementalShot" : "";
+            // The Duelist base row is DuelistCloneImmobile_ (MonsterVarieties 3964, trailing DAT disambiguation
+            // underscore); the other classes' base rows have no suffix.
             path = "Metadata/Monsters/Clone/" + (player.Character.ClassRow switch { 0 => "Marauder", 1 => "Witch", 2 => "Scion", 3 => "Ranger", 4 => "Duelist", 5 => "Shadow", _ => "Templar" })
-                + "CloneImmobile" + variant + (player.Character.ClassRow == 2 && variant.Length > 0 ? "__" : "");
+                + "CloneImmobile" + variant + (player.Character.ClassRow switch { 2 when variant.Length > 0 => "__", 4 when variant.Length == 0 => "_", _ => "" });
         }
         if (Monsters.Find(path) is not { Supported: true } variety) return 0;
         int actorLevel = GolemStat(gem.Stats, definition.Family == "Spectre" ? Stat.RaisedSpectreLevel : Stat.BaseDisplayMinionActorLevel);

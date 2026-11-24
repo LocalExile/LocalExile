@@ -139,7 +139,9 @@ public static partial class Game
         string family = golem.Definition.Kind == "Carrion" ? "bone" : golem.Definition.Kind.ToLowerInvariant();
         int recent = GolemSummonedInPastEightSeconds(golem, at)
             ? Get(Stat.GolemDamagePlusPctIfSummonedInPast8Seconds) : 0;
-        values[Stat.DamagePlusPct] = values.GetValueOrDefault(Stat.DamagePlusPct) + Get(Stat.Of("golem_damage_+%")) + Get(Stat.Of(family + "_golem_damage_+%"))
+        // golem_damage_+% is not a Stats row, so the term was always 0; the family golem_damage_+% stats and the
+        // per-golem / per-type stats below are the real golem damage sources.
+        values[Stat.DamagePlusPct] = values.GetValueOrDefault(Stat.DamagePlusPct) + Get(Stat.Of(family + "_golem_damage_+%"))
             + Get(Stat.GolemDamagePlusPctPerActiveGolemType) * Math.Max(1, Get(Stat.VirtualCurrentNumberOfGolemTypes))
             + Get(Stat.GolemDamagePlusPctPerActiveGolem) * Get(Stat.VirtualTotalNumberOfActiveGolems) + recent;
         values[Stat.AttackAndCastSpeedPlusPct] = values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) + Get(Stat.GolemAttackAndCastSpeedPlusPct);
@@ -300,7 +302,8 @@ public static partial class Game
                 * Math.Max(0, 1 + Own(Stat.VaalUpgradeMinionDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.ActiveSkillMinionDamagePlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + Own(Stat.SupportMinionDamagePlusPctFinal) / 100.0)
-                * Math.Max(0, 1 + Own(Stat.Of("minion_damage_+%_final")) / 100.0)
+                // minion_damage_+%_final is not a Stats row, so the factor was always 1; the chain already carries
+                // the active-skill, support, necromancer and non-Reaper finals.
                 * MindlessAggressionDamage(playerStats)
                 * Math.Max(0, 1 + Raw(Stat.ActiveSkillDamagePlusPctFinal) / 100.0)
                 * (golem.Definition.IsGolem ? Math.Max(0, 1 + GolemTether(playerStats, "damage") / 100.0) : 1);
