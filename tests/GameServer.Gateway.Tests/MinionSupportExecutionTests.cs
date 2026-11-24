@@ -62,7 +62,7 @@ public sealed class MinionSupportExecutionTests
             double Poison(GolemState.Ability hit)
             {
                 var target = new SpawnedMonster("poison target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
-                Invoke("MinionAilmentsLocked", f.Player, hit, 998u, target, false, time.Time, 1d);
+                Invoke("MinionAilmentsLocked", f.Player, fighter, hit, fighter.Own, 998u, target, false, time.Time, 1d, false, 0);
                 return target.Poisons.TotalDps(time.Time);
             }
             double originalPoison = Poison(ability);
