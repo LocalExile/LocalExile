@@ -205,6 +205,8 @@ public sealed class MinionSupportExecutionTests
                         session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.01));
                         foreach (var shot in session.Runtime.Projectiles.Where(p => p.CreatedAt >= GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time)))
                         {
+                            if (shots.Count == 0)
+                                Assert.Equal(-20, Math.Atan2(shot.Direction.Y, shot.Direction.X) * 180 / Math.PI, 5);
                             Assert.True(shot.Profile.Returns);
                             shots.TryAdd(shot.Id, shot.CreatedAt);
                         }
