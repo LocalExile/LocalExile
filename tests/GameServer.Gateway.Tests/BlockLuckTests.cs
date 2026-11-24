@@ -12,7 +12,6 @@ public sealed class BlockLuckTests
         var oldLifetime = Game.CombatLifetime;
         var lifetime = new ModuleLifetime("Game");
         Game.CombatLifetime = lifetime;
-        Saves.Open(path);
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
         var player = new Player(new(1, "blockluck", 1000, 1000, 100, 100, null, []), 1, 1)
         {
@@ -31,22 +30,25 @@ public sealed class BlockLuckTests
         };
         player.Clock.Stop();
         TestRequirements.Waive(player);
-        using var reqHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
-        {
-            if (ReferenceEquals(p, player))
-            {
-                s[Stat.VirtualStrengthForRequirements] = 1000;
-                s[Stat.VirtualDexterityForRequirements] = 1000;
-                s[Stat.VirtualIntelligenceForRequirements] = 1000;
-            }
-            return s;
-        });
+        IDisposable? reqHook = null;
         try
         {
+            Saves.Open(path);
+            reqHook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+            {
+                if (ReferenceEquals(p, player))
+                {
+                    s[Stat.VirtualStrengthForRequirements] = 1000;
+                    s[Stat.VirtualDexterityForRequirements] = 1000;
+                    s[Stat.VirtualIntelligenceForRequirements] = 1000;
+                }
+                return s;
+            });
             body(player);
         }
         finally
         {
+            reqHook?.Dispose();
             PlayerInventories.Forget(player.Character.Name!);
             lifetime.Stop(_ => { });
             Game.CombatLifetime = oldLifetime;
@@ -58,8 +60,7 @@ public sealed class BlockLuckTests
     [Fact]
     public void Svalinn_and_Gladiator_More_Than_Skill_grant_lucky_block_panel_stats()
     {
-        var items = new ItemCatalog("data");
-        var uniques = new UniqueCatalog(items);
+        var uniques = new UniqueCatalog(Program.Items);
         var svalinn = uniques.Create("Svalinn", new Random(17));
         Assert.NotNull(svalinn);
 
@@ -78,9 +79,35 @@ public sealed class BlockLuckTests
             var panelAttrs = Game.ClassAttributes(player.Character.ClassRow, player.Pools).ToDictionary(p => p.Item1, p => p.Item2);
             Assert.Equal(1, panelAttrs[Stat.AttackBlockLuck]);
             Assert.Equal(1, panelAttrs[Stat.SpellBlockLuck]);
+
+            // Unlucky emits -1; simultaneous lucky and unlucky cancel to 0 matching DamageModel.EffectiveBlockChance.
+            var unluckyAttrs = Game.ClassAttributes(player.Character.ClassRow,
+                player.Pools with { AttackBlockLucky = false, AttackBlockUnlucky = true, SpellBlockLucky = true, SpellBlockUnlucky = true })
+                .ToDictionary(p => p.Item1, p => p.Item2);
+            Assert.Equal(-1, unluckyAttrs[Stat.AttackBlockLuck]);
+            Assert.Equal(0, unluckyAttrs[Stat.SpellBlockLuck]);
         });
 
-        // Gladiator "More Than Skill": spell_and_attack_block_chance_is_lucky_if_blocked_recently
+        // Gladiator "More Than Skill" (PassiveSkillGraphId 2598): end-to-end PoolsFor + ClassAttributes before/after blocking.
+        WithTestCharacter(player =>
+        {
+            player.Character.Passives.Add(2598);
+            player.MarkStatsDirty(StatInput.Passives);
+            player.Pools = Game.PoolsFor(player, 80);
+            Assert.False(player.Pools.AttackBlockLucky);
+            Assert.False(player.Pools.SpellBlockLucky);
+
+            player.RecentEvents.Record(StatConditions.Blocked, Game.AreaTime(player));
+            player.MarkStatsDirty(StatInput.Passives);
+            player.Pools = Game.PoolsFor(player, 80);
+            Assert.True(player.Pools.AttackBlockLucky);
+            Assert.True(player.Pools.SpellBlockLucky);
+            var attrs = Game.ClassAttributes(player.Character.ClassRow, player.Pools).ToDictionary(p => p.Item1, p => p.Item2);
+            Assert.Equal(1, attrs[Stat.AttackBlockLuck]);
+            Assert.Equal(1, attrs[Stat.SpellBlockLuck]);
+        });
+
+        // StatConditions unit verification for spell_and_attack_block_chance_is_lucky_if_blocked_recently.
         bool Exists(string name) => Program.Stats.Key(name) is not null;
         var recentEmpty = new StatConditions.Subject(Recent: new HashSet<string>());
         Assert.Equal(StatConditions.State.Fails,
