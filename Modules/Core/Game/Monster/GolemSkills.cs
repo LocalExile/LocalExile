@@ -41,6 +41,11 @@ public static partial class Game
         GolemStat(stats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently) != 0
         && player.RecentEvents.Happened(UsedMinionSkillRecently, now);
 
+    static int MinionHeraldCount(Player player, IReadOnlyDictionary<uint, int> stats) =>
+        GolemStat(stats, Stat.MinionDamagePlusPctWhileAffectedByAHerald) == 0
+        && GolemStat(stats, Stat.MinionMovementVelocityPlusPctForEachHeraldAffectingYou) == 0 ? 0
+        : player.Auras.Values.Count(a => a.AffectsSelf && a.EffectId.StartsWith("HeraldOf", StringComparison.Ordinal));
+
     public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
     static GolemOwnerResistances GolemOwnerResistancesFor(Player player)
@@ -114,15 +119,21 @@ public static partial class Game
                 values[Stat.BaseCannotBeDamaged] = 1;
         }
         var link = MinionLinkOffenceAt(player, golem, playerStats, now);
-        void AddLinkStat(uint stat, int value)
+        void AddStat(uint stat, int value)
         {
             if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
         }
-        AddLinkStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
-        AddLinkStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
-        AddLinkStat(Stat.BaseChanceToIgnitePct, link.Ignite);
-        AddLinkStat(Stat.BaseCriticalStrikeMultiplierPlus, link.CritMultiplier);
-        AddLinkStat(Stat.AccuracyRatingPlusPct, link.Accuracy);
+        AddStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
+        AddStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
+        AddStat(Stat.BaseChanceToIgnitePct, link.Ignite);
+        AddStat(Stat.BaseCriticalStrikeMultiplierPlus, link.CritMultiplier);
+        AddStat(Stat.AccuracyRatingPlusPct, link.Accuracy);
+        if (MinionHeraldCount(player, playerStats) is > 0 and int heralds)
+        {
+            AddStat(Stat.DamagePlusPct, GolemStat(playerStats, Stat.MinionDamagePlusPctWhileAffectedByAHerald));
+            AddStat(Stat.BaseMovementVelocityPlusPct, ActorScale.Saturate((long)heralds
+                * GolemStat(playerStats, Stat.MinionMovementVelocityPlusPctForEachHeraldAffectingYou)));
+        }
         if (link.MainHandCrit is int linkedCrit)
         {
             values[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] = 1;
@@ -557,6 +568,7 @@ public static partial class Game
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
         hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
+        hash.Add(MinionHeraldCount(player, playerStats));
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
