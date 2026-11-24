@@ -148,7 +148,7 @@ public static partial class Game
             // range, the game's is not in the data (RelicTeleport has no stats).
             if (minion.Teleports && player.PlayerLife > 0 && Dist(m.Walk.Position(now), here) > m.AggroRange)
             {
-                var (x, y) = NextToPlayer(player);
+                var (x, y) = NextToPlayer(player, LivingCollision.Size(m), minion.Id);
                 m.Walk = player.NewMonsterWalk(minion.Id, x, y, m.Walk.Speed, LivingCollision.Size(m), false);
                 m.LastTarget = null;
                 bytes.AddRange(InstanceProtocol.Teleport(minion.Id, x, y));
@@ -220,12 +220,12 @@ public static partial class Game
         level = (byte)Math.Clamp(Math.Min(player.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100);
         lifePct = Own(Stat.GuardianRelicExplodeOnDeathForPctLifeAsElementDamage);
         variety = Monsters.Find(id);
-        at = NextToPlayer(player);
         if (variety is null)
         {
             if (CurrentGameWork && player.Minions.PendingRelics > 0) player.Minions.PendingRelics--;
             Console.WriteLine($"[gateway] {player.Connection.Remote} {element} Relic: no MonsterVarieties row"); return;
         }
+        at = NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
         var aura = RelicAura(player, variety, level);
         bool teleports = variety.GrantedEffects?.Any(e => SkillsFor(player).EffectId(e) == "RelicTeleport") == true;
         // The player's increased minion life raises its life (on its Stats as maximum_life) and so its explosion.
@@ -302,12 +302,32 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
     }
 
-    // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    public static (int X, int Y) NextToPlayer(Player player)
+    // A walkable, collision-clear cell just outside the player's footprint for a mover of size bodySize.
+    public static (int X, int Y) NextToPlayer(Player player, int bodySize = 1, uint excludeId = 0)
     {
+        int size = Math.Max(0, bodySize);
         var (px, py) = player.Walk.Position(AreaTime(player));
-        foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })
-            if (player.Layout.Walkable is not { } w || w(px + dx, py + dy)) return (px + dx, py + dy);
+        int r = Math.Max(3, size + LivingCollision.PlayerSize + 1);
+        bool Floor(int x, int y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y));
+        var blockers = player.MonsterPlacementBlockers(excludeId);
+        int w = player.Layout.GridW > 0 ? player.Layout.GridW : int.MaxValue;
+        int h = player.Layout.GridH > 0 ? player.Layout.GridH : int.MaxValue;
+        bool Clear(int x, int y) => CollisionEscape.Clear((x, y), w, h, Floor, blockers, moverSize: size);
+        for (int step = 0; step < 2; step++)
+        {
+            int ring = r + step * 2;
+            ReadOnlySpan<(int Dx, int Dy)> offsets =
+                [(ring, 0), (-ring, 0), (0, ring), (0, -ring), (ring, ring), (-ring, -ring), (ring, -ring), (-ring, ring)];
+            foreach (var (dx, dy) in offsets)
+                if (Clear(px + dx, py + dy)) return (px + dx, py + dy);
+        }
+        if (player.Layout.GridW > 0 && player.Layout.GridH > 0
+            && CollisionEscape.Find((px, py), player.Layout.GridW, player.Layout.GridH, Floor, blockers, maxRadius: 24, moverSize: size) is { } escaped)
+            return escaped;
+        ReadOnlySpan<(int Dx, int Dy)> fallback =
+            [(r, 0), (-r, 0), (0, r), (0, -r), (r, r), (-r, -r), (r, -r), (-r, r)];
+        foreach (var (dx, dy) in fallback)
+            if (Floor(px + dx, py + dy)) return (px + dx, py + dy);
         return (px, py);
     }
 }

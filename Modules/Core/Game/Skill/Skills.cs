@@ -621,8 +621,10 @@ public static partial class Game
                 var (mainHandMore, dualWieldMore) = SkillsFor(player).IsAttack(effect) && shieldWeapon is null
                     ? HandDamageMore(player, own) : (1, 1);
                 if (mainHandMore * dualWieldMore != 1) supportedHit = supportedHit.Scale(mainHandMore * dualWieldMore);
+                var shieldSpeed = SkillsFor(player).IsAttack(effect) && shieldWeapon is not null
+                    ? SupportedOffHandAttackSpeed(player, id, shieldWeapon) : ((double Seconds, int IncreasedPct, int MorePct, int FinalPct)?)null;
                 double seconds = SkillsFor(player).IsAttack(effect)
-                    ? shieldWeapon is null ? SupportedAttackSeconds(player, id) : SupportedOffHandAttackSeconds(player, id, shieldWeapon)
+                    ? shieldSpeed?.Seconds ?? SupportedAttackSeconds(player, id)
                     : Math.Max(.001, (CastMs(player, effect, id) ?? 0) / 1000.0);
                 var finalPlan = SkillHitPlan.ForSkill(SkillsFor(player), effect, supported.Level, supported.Quality);
                 int criticalChance = SupportedCriticalChance(player, id);
@@ -645,6 +647,15 @@ public static partial class Game
                     if (additionalAttackMs != 0) attackBaseMs = SkillAttackTiming.BaseMilliseconds(attackBaseMs, additionalAttackMs);
                     stats[Stat.MainHandAttackSpeedPlusPct] = (int)Math.Round((attackBaseMs / (seconds * 1000) - 1) * 100);
                     stats[Stat.HundredTimesAttacksPerSecond] = (int)Math.Round(100 / seconds);
+                    // Shield Charge (and shield attacks, +0x311 = 0) read off_hand_attack_speed_+% (0x127, 0x141b58740) for
+                    // their end-attack time and combined_off_hand_attack_speed_+% / _final (0x211e / 0x531e, 0x141a70760)
+                    // for charge travel speed. Network skill stats run no calculators, so publish all three explicitly.
+                    if (shieldSpeed is { } shieldOffSpeed)
+                    {
+                        stats[Stat.OffHandAttackSpeedPlusPct] = shieldOffSpeed.FinalPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPct] = shieldOffSpeed.IncreasedPct;
+                        stats[Stat.CombinedOffHandAttackSpeedPlusPctFinal] = shieldOffSpeed.MorePct;
+                    }
                     foreach (var (field, value) in new[]
                     {
                         (Stat.MainHandAccuracyRating, accuracy.Rating),
@@ -900,11 +911,21 @@ public static partial class Game
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
                 if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBar(player));
+                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player));
             });
             return Task.CompletedTask;
         }
-        return SendSkillBar(player);
+        return SendSkillBarHoldingGuard(player);
+    }
+
+    // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
+    // cooldown counts while the buff runs (issue #1127). Built at the send gate, as SendSkills' re-hold is.
+    static async Task SendSkillBarHoldingGuard(Player player)
+    {
+        await SendSkillBar(player);
+        if (TriggeredGuards.TryGetValue(player, out _))
+            await Send(player, [], "0x02bc guard cooldown re-held after the skill bar",
+                atGate: () => HeldGuardCooldownRefresh(player));
     }
 
     // A bind received while an earlier refresh waits for the send gate must win over that refresh.
