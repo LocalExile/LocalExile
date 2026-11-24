@@ -193,9 +193,10 @@ public static partial class Game
         int voidSpawns = 0;
         foreach (var fighter in player.Summons.Fighters.Values)
         {
-            if (fighter.Definition.Kind is not ("SpectralWolf" or "Spider" or VoidSpawnFamily) || !GolemCurrent(player, fighter)
+            if (fighter.Definition.Kind is not ("SpectralWolf" or "Spider" or "Spectre" or VoidSpawnFamily) || !GolemCurrent(player, fighter)
                 || fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
-            if (fighter.Definition.Kind == VoidSpawnFamily) voidSpawns++;
+            if (fighter.Definition.Kind == "Spectre") AddSpectreOwnerBenefits(player, sources, fighter);
+            else if (fighter.Definition.Kind == VoidSpawnFamily) voidSpawns++;
             else if (fighter.Definition.Kind == "SpectralWolf")
             {
                 Add(Stat.SpectralWolfGrantsAttackMinimumAddedPhysicalDamage, Stat.AttackMinimumAddedPhysicalDamage, fighter);

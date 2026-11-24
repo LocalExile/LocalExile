@@ -45,6 +45,11 @@ public static partial class Game
     {
         if (fighter.Monster.Variety?.Id == FieryCannibal && action.Ability.Effect is CannibalMoltenStrike or CannibalCremation)
             return !CannibalEmpowered(player, fighter, now);
+        if (action.Ability.Effect == TurtleBoon)
+        {
+            GrantTurtleBoonLocked(player, fighter, action.Ability, now);
+            return true;
+        }
         if (action.Ability.Effect != NavalCannonFire) return false;
         var catalog = SkillsFor(player);
         if (fighter.Abilities.FirstOrDefault(a => a.Effect == NavalCannonImpact) is { } impact

@@ -463,8 +463,11 @@ public static partial class Game
         if (fighter.Definition.Kind == "Phantasm")
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
         if (fighter.Definition.Kind == "Spectre")
+        {
+            ClearTurtleBoonLocked(player, fighter);
             foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
                 RemoveSummonLocked(player, child, now, reconcileBlessing: false);
+        }
         ClearEffigyHexesLocked(fighter);
         if (fighter.Definition.Kind == ItemHarbingerFamily) ClearItemHarbingerLocked(player, fighter);
         SpectreChildParents.Remove(fighter);

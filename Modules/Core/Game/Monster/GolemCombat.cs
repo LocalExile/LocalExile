@@ -152,6 +152,7 @@ public static partial class Game
             GolemReserveLocked(player, g, aura, 0, null, here, now);
             return;
         }
+        if (g.Definition.Kind == "Spectre" && TryReserveTurtleBoonLocked(player, g, here, owner, now)) return;
         if (ReaperConsumeLocked(player, g, now)) return;
         if (g.Definition.Id == "SummonReaperAltY")
         {
