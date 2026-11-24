@@ -6,7 +6,8 @@ public static partial class Game
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
     static void AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
-        IReadOnlyDictionary<uint, int> local, IReadOnlyList<UtilityFlasks.Source>? during = null)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, bool appliesToPlayer,
+        IReadOnlyList<UtilityFlasks.Source>? during = null)
     {
         var state = Automation(player);
         state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot));
@@ -17,6 +18,10 @@ public static partial class Game
             $"instantly {recovery.InstantLife:0.#} life, {recovery.InstantMana:0.#} mana{(recovery.ManaAtEnd > 0 ? $", {recovery.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(recovery.RemovesLife + recovery.RemovesMana > 0 ? $", removes {recovery.RemovesLife:0.#} life, {recovery.RemovesMana:0.#} mana" : "")}" +
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
+        double now = AreaTime(player);
+        if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
+        ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
+        if (!appliesToPlayer) return;
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
@@ -25,20 +30,23 @@ public static partial class Game
         TrimLeechLocked(player); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
-        double now = AreaTime(player);
-        if (use.LifePerUse > 0) player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskStartEnergyShieldRecharge) != 0)
+            player.EnergyShield.StartRecharge(now, character);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
+        bool hadRecoveryFlask = player.FlaskEffects.Any;
         if (recovery.ExtraLife > 0)
             player.FlaskEffects.Start(new((byte)slot, 0, 0, recovery.ExtraLife / FlaskRecovery.ExtraLifeSeconds, 0, now, now + FlaskRecovery.ExtraLifeSeconds));
         var effects = Flasks.RecoveryEffects(recovery, (byte)slot, now, () => player.NextBuff++, FlaskEffectLifeBuffRow, FlaskEffectManaBuffRow);
         StartRecoveryEffectsLocked(player, effects, copyLife);
-        if (during is { Count: > 0 } && effects.Count > 0)
+        bool startedDuring = during is { Count: > 0 } && effects.Count > 0;
+        if (startedDuring) player.RecoveryFlaskStats.Start(effects, during!);
+        if (startedDuring || !hadRecoveryFlask && player.FlaskEffects.Any)
         {
-            player.RecoveryFlaskStats.Start(effects, during);
             RecomputePoolsAndSpeed(player);
             state.StatRevision++;   // PublishFlaskChanges sends the character's stats
-            Console.WriteLine($"[gateway] {player.Connection.Remote} flask {slot} ({type.Name}) during effect: " +
-                string.Join(", ", during.Select(s => $"{s.Stat} {s.Value}")));
+            if (startedDuring)
+                Console.WriteLine($"[gateway] {player.Connection.Remote} flask {slot} ({type.Name}) during effect: " +
+                    string.Join(", ", during!.Select(s => $"{s.Stat} {s.Value}")));
         }
         // IsRecovery rows carry one u32 recovery-per-minute value, duration as f32 seconds (+0x68),
         // and the flask-bar source cell (+0x60). Preserve the existing native timer/sound payloads.

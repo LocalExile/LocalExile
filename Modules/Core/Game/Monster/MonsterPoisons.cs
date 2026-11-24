@@ -76,22 +76,29 @@ public static partial class Game
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
-        int stacks = 1 + (target.Poisons.Stacks(now) == 0
-            ? Math.Max(0, Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies)) : 0);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
         // Master Toxicist: "Poisons you inflict during any Flask Effect have N% chance to deal 100% more Damage", rolled for
         // each poison applied.
-        int doubled = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
+        int doubleChance = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
             ? Math.Min(finalChance, 100) : 0;
-        int accepted = 0;
-        for (int i = 0; i < stacks; i++)
-            if (target.Poisons.Add(now, doubled > 0 && RandomRolls.Chance(doubled, 100, random) ? perSecond * 2 : perSecond, seconds)) accepted++;
-        if (accepted == 0) return false;
+        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
+            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
+    }
+
+    static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
+        int doubleChance = 0, Random? random = null)
+    {
+        // Decide whether Lethal Dose applies before inserting any poisons from this hit.
+        int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
+        bool AddPoison() => target.Add(now,
+            doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+        bool applied = AddPoison();
+        for (int i = 0; i < extra; i++) applied |= AddPoison();
+        return applied;
     }
 
     public static async Task TickPoisons(Player player)

@@ -829,8 +829,7 @@ public static partial class Game
                     Stat.NumberOfDominatedMonsters, Stat.NumberOfDominatedVaalMonsters }) Publish(count, GolemStat(playerStats, count));
             }
             if (GolemData.Find(SkillsFor(player).EffectId(effect)) is { IsGolem: true })
-                Publish(Stat.NumberOfGolemsAllowed, GolemEffectiveLimit(OwnPanel(Stat.BaseNumberOfGolemsAllowed),
-                    n => GolemStat(playerStats, n)));
+                Publish(Stat.NumberOfGolemsAllowed, GolemRosterLimit(own, playerStats));
             var placed = PlacedKind(supported);
             if (placed.Trap || placed.Mine)
             {
@@ -1126,6 +1125,9 @@ public static partial class Game
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
+        if (DarkMonarchCastFamily(SkillsFor(player).EffectId(effect)) is { } darkFamily
+            && !DarkMonarchAllows(darkFamily, StatSourceValues(player)))
+            return "The Dark Monarch prevents this minion type";
         if (OwnAuraSkillRestricted(player, effect, skillId)) return "own aura skills are disabled";
         if (skillId is ushort beastSkill && BeastKindFor(SkillsFor(player).EffectId(effect)) is { } beastKind)
         {
@@ -1167,6 +1169,8 @@ public static partial class Game
         if (gem.Effect != effect || gem.SourceGem is null && !gem.Granted && gem.WornGrant is null)
             return "skill is unavailable";
         if (gem.WornGrant is not null && !gem.RequirementsMet) return "the granting item is inactive";
+        if (!triggered && gem.WornGrant is { } grant && TriggeredItemMinion(grant) is not null)
+            return "this minion is triggered by its item";
         if (GolemStat(gem.Stats, Stat.CannotCastCurses) != 0) return "this curse is triggered by Hextouch";
         if (!triggered && CurseCatalog.Hex(SkillsFor(player).EffectId(effect)) && IsBaneLinkedHex(player, gem))
             return "this curse is triggered by Bane";

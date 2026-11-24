@@ -4,8 +4,8 @@ public static partial class Game
 {
     // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
     // persistent entities into one area hit merely because their extracted stat set contains damage.
-    static bool TriggerAreaSpell(Player player, SupportedGem gem) => SkillsFor(player).EffectId(gem.Effect)
-        is "IceNova";
+    static bool TriggerAreaSpell(Player player, SupportedGem gem) =>
+        SkillsFor(player).EffectId(gem.Effect) == "IceNova" || IsAbsolutionHitSpell(player, gem.Effect);
 
     static bool TriggerBrandSpell(Player player, int effect) => IsBrandSkill(player, effect)
         && BrandFamilyOf(SkillsFor(player).EffectId(effect)) is not BrandFamily.Trigger;

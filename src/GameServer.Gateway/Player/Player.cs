@@ -179,6 +179,13 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A summoning skill (SkillCatalog.MonsterSummon, the Labyrinth's Immolator): its action brings monsters
     /// ahead of the summoner instead of a hit (Program.MonsterSwing). Null for an attack.</summary>
     public SkillCatalog.MonsterSummonInfo? Summon { get; init; }
+    /// <summary>A downpour skill (SkillCatalog.MonsterStorm, Fire Fury's Firestorm): its cast lands one fall per
+    /// interval for the skill's duration instead of a single contact (Program.MonsterFirestormStorm). Null for every
+    /// other skill, which keeps its contact.</summary>
+    public SkillCatalog.StormInfo? Storm { get; init; }
+    /// <summary>A projectile skill's measured launch frame (SkillCatalog.LaunchFrames): frames of 33 ms from the
+    /// start of its action, read once when the attack is built. Null without a row; the clip contact decides.</summary>
+    public int? LaunchFrames { get; init; }
     /// <summary>Whether this is a spell skill rather than a melee/ranged attack. A spell's cast duration comes from the
     /// virtual cast-time stat; an attack's from the weapon duration. Sending only attack stats for a spell left the client's
     /// cast-duration function without its value and crashed it (0xc0000005, live 2026-10-31).</summary>
@@ -394,7 +401,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// (Izaro rising on his elevator; live, the ailments landed while hits did nothing).</summary>
     public bool EntranceGrace { get => Ailments.Grace; set => Ailments.Grace = value; }
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
-    public bool Invulnerable => KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
+    public bool DamageImmune;
+    public bool Invulnerable => DamageImmune || KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
     // What it is, for the experience and items its death gives (null for monsters made without a variety).
     public MonsterCatalog.Variety? Variety { get; init; }
     // Its known TakeHit clip lengths supply HitReaction's recovery duration. Native Actor TakeHit selects the actual
@@ -523,6 +531,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly MonsterIgnites Bleeds = new();
     // The player's poisons on it (MonsterPoisons.cs), in the area's frame.
     public readonly MonsterPoisons Poisons = new();
+    public readonly MonsterIgnites Decay = new();
     // The player's Contagion on it (MonsterContagion.cs), in the area's frame.
     public readonly MonsterContagion Contagion = new();
     public MonsterContagion? Bane;
@@ -558,6 +567,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // row → buff instance), and the increased damage taken they give (every type; fire, cold and lightning) that its
     // hits read.
     public double TauntedUntil = double.NegativeInfinity, TauntShownUntil;
+    public uint? TauntingPlayerId;
     public (Player Owner, TotemState.Totem Source, double Until)? DecoyTaunt;
     public ushort TauntBuff;
     // Intimidated and unnerved by his hits (Game.HitDebuffsOnHitLocked) until when, shown the same way as the taunt.

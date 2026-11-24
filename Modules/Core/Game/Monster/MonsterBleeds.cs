@@ -69,7 +69,8 @@ public static partial class Game
             ? Math.Max(0, get(Stat.SupportRuptureBleedingDamageTakenPlusPctFinal)) : 0;
         return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
             Row("minimum", "critical"), Row("maximum", "critical"), seconds, (int)Math.Clamp(critical, 0, 100),
-            dance ? CrimsonDanceStacks : 1, Math.Clamp(aggravate, 0, 100),
+            Math.Max(dance ? CrimsonDanceStacks : 1, Math.Clamp(get(Stat.BleedingStacksUpToXTimes), 1, 100)),
+            Math.Clamp(aggravate, 0, 100),
             dance ? 0 : (int)Math.Clamp((long)aggravate + get(Stat.AggravateBleedingOnAttackCritChancePct), 0, 100),
             !dance && get(Stat.AggravateInflictedBleeding) != 0, rupture,
             NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
@@ -175,9 +176,11 @@ public static partial class Game
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
     /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
     /// stacks.</summary>
-    public static double BleedTaken(SpawnedMonster m, double now) =>
+    public static double BleedTaken(SpawnedMonster m, double now) => BleedTaken(m, now, preventsMovingBonus: false);
+
+    static double BleedTaken(SpawnedMonster m, double now, bool preventsMovingBonus) =>
         MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
-        * (m.Bleeds.Stacks == 1 && (m.Walk.Moving(now) || IsEnsnared(m, now)) ? BleedMovingMore : 1);
+        * (!preventsMovingBonus && m.Bleeds.Stacks == 1 && (m.Walk.Moving(now) || IsEnsnared(m, now)) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
     /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>

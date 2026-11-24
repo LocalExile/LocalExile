@@ -220,6 +220,7 @@ public static partial class Game
         saved.Planned
             ? SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 log: false, alone: false, bulk: bulk)
+            : WasItemisedCorpse(saved) ? PlaceItemisedCorpse(player, variety, (saved.X, saved.Y), saved.Level, saved.Mods)
             : SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
                 unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
@@ -533,6 +534,8 @@ public static partial class Game
             Ranged = rangedAttack,
             Projectile = projectile,
             Summon = summon,
+            Storm = effect >= 0 ? catalog.MonsterStorm(effect, level) : null,
+            LaunchFrames = effect >= 0 ? catalog.LaunchFrames(catalog.EffectId(effect)) : null,
             ReleaseEffect = projectile is null || effect < 0 ? null : effect,
             Release = projectile is null || effect < 0 ? null : MonsterReleaseFor(player, variety, effect, level, projectile),
         };
@@ -1750,6 +1753,20 @@ public static partial class Game
             && m.ActionGeneration == action && AreaTime(player) >= m.FlinchUntil;
     }
 
+    /// <summary>When a monster's projectile skill releases its shot, as a delay from the start of its action
+    /// 0x1ab: its measured launch frame when it has one (MonsterAttack.LaunchFrames), scaled by any runtime action-speed
+    /// change (chill/haste) and clamped strictly inside the action duration so accelerated monsters never overrun
+    /// <c>BusyUntil</c> and drop their shot; every skill without a row keeps the clip contact's fraction of the attack
+    /// time. Read from the attack built once per skill, never per hit.</summary>
+    public static double MonsterLaunchDelay(MonsterAttack attack, double contact, double seconds)
+    {
+        if (attack.LaunchFrames is not int frames) return seconds * contact;
+        double frameSeconds = Program.FrameMs / 1000d;
+        double scale = attack.Seconds > 0 && seconds > 0 ? seconds / attack.Seconds : 1;
+        double delay = Math.Max(0, frames) * frameSeconds * scale;
+        return seconds > 0 ? Math.Min(delay, Math.Max(0, seconds - frameSeconds)) : delay;
+    }
+
     public static bool MonsterPresent(Player player, uint id, SpawnedMonster m) =>
         CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PendingTransfer is null && !m.Dead && m.Life > 0
         && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), m);
@@ -2370,6 +2387,7 @@ public static partial class Game
         double startedAt = 0;
         bool meleeClock = false;
         (int X, int Y)? projectileAim = null;
+        (int X, int Y) stormAim = default;
         (int X, int Y) areaAim = default;
         (int X, int Y) beamOrigin = default, beamAim = default;
         bool walkUp = use is null && !area && !a.InPlace;
@@ -2383,6 +2401,8 @@ public static partial class Game
             // The client-drawn straight mortar retains the action order's aim throughout its windup
             // (141ba7c30 -> 141b6c630). Reacquiring here at release would turn a dodged shot toward the player.
             if (a.Projectile is { Variation: > 0, Lobbed: false }) projectileAim = playerAt;
+            // A storm is aimed where the player stood when the cast began; its falls scatter around that cell.
+            if (a.Storm is not null) stormAim = playerAt;
             // An area skill lands where its action aims (a nova around its user), wherever the player goes meanwhile.
             areaAim = a.AreaAtSelf ? from : playerAt;
             seq = MonsterSwingSequence(player, m, walkUp, seq);
@@ -2422,7 +2442,7 @@ public static partial class Game
         // their clip too), half the attack time without rig data. A weapon-stanced monster's skill lands on its stance
         // clip's contact, ahead of the native melee clock.
         double? stanceContact = a.Release is null ? StanceContact(player, m, a, seq) : null;
-        if (AreaSetup.Runs(player) && !area && a.AreaRadius <= 0 && a.Hits <= 1 && a.Summon is null && a.Trap is null && a.Strike is null && a.Projectile is null)
+        if (AreaSetup.Runs(player) && !area && a.AreaRadius <= 0 && a.Hits <= 1 && a.Summon is null && a.Trap is null && a.Strike is null && a.Storm is null && a.Projectile is null)
         {
             bool useClock = meleeClock && stanceContact is null;
             double contactAt = useClock ? 0 : startedAt + seconds * (a.Release?.Fraction ?? stanceContact ?? (walkUp && m.Variety is { } variety
@@ -2443,20 +2463,29 @@ public static partial class Game
             if (a.Projectile is not null && a.Effect is int barrageEffect
                 && BossMoves.BarrageOf(SkillsFor(player), barrageEffect) is { } pendingBarrage)
                 m.BusyUntil = Math.Max(m.BusyUntil,
-                    startedAt + seconds * contact + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
+                    startedAt + MonsterLaunchDelay(a, contact, seconds) + (pendingBarrage.Count - 1) * pendingBarrage.Seconds + player.LockstepActionTail);
             if (player.Connection.LockstepClient && a.Projectile is { Variation: > 0, Lobbed: false } nativeProjectile)
             {
                 // Like the player's native shot, the monster emits at the end of the frame that crosses contact.
                 // Starting between frames lets the server hit a moving player before the visible flight reaches them.
                 LaunchMonsterProjectile(player, id, m, a, nativeProjectile, action, projectileAim,
-                    LockstepShotAt(startedAt, seconds * contact), seq);
+                    LockstepShotAt(startedAt, MonsterLaunchDelay(a, contact, seconds)), seq);
                 return false;
             }
-            if (!await WaitMonsterActionTime(player, id, m, action, startedAt + seconds * contact)) return false;
+            if (!await WaitMonsterActionTime(player, id, m, action, startedAt + MonsterLaunchDelay(a, contact, seconds))) return false;
         }
         if (a.Summon is { } summon)
         {
             await MonsterSummon(player, id, m, summon);
+            return false;
+        }
+        if (a.Storm is { } storm)
+        {
+            // Its falls begin as the cast ends and run for the skill's own duration, one per delay;
+            // each fall resolves on the server where the bolt would have landed (no lobbed bolt per fall:
+            // the client draws the storm from the cast). The falls outlive the action, so they stop with
+            // the monster, not with the action.
+            MonsterFirestormStorm(player, id, m, a, action, storm, startedAt + seconds, stormAim, seq);
             return false;
         }
         if (a.Trap is { } payload)
@@ -2809,6 +2838,10 @@ public static partial class Game
         if (outcome is not null) MapEssences.MiseryOnAttack(player, m, player);
     }
 
+    static int DamageTakenFromMonster(SpawnedMonster? monster, IReadOnlyDictionary<uint, int> stats) =>
+        stats.GetValueOrDefault(Stat.DamageTakenPlusPctFromSkeletons) is int skeletons and not 0
+        && monster?.Variety is { } variety && MonsterModRolls.HasVarietyTag(variety.Row, "skeleton") ? skeletons : 0;
+
     /// <summary>The monster hit packet's flags: generic particles (0x4000), main hand (0x0200) and blood (0x0001) always,
     /// 0x0040 for a blocked hit and 0x0020 for a critical strike (action-hit-packet-3.29.3b.md §2).</summary>
     public static ushort MonsterHitFlags(bool blocked, bool critical) =>
@@ -2925,7 +2958,7 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int blindedPct = DamageTakenFromBlindedPct(player, id, stats);
+        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
         foreach (var (type, range) in mitigated.Components)
         {
@@ -2941,7 +2974,7 @@ public static partial class Game
             if (type == DamageType.Physical)
                 value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
-                    blindedPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
+                    sourceTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit))
                 * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -2974,7 +3007,7 @@ public static partial class Game
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
         uint manaBefore = player.PlayerMana;
-        if (blocked) RecoverOnBlockLocked(player, stats);
+        if (blocked) RecoverOnBlockLocked(player, stats, now, attackHit);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);

@@ -19,7 +19,10 @@ public static partial class Game
     static WornGrantedSkills RuthlessWornGrantedSkillCatalog = default!;
     public sealed record SupportedGem(int Effect, int Level, int Quality, IReadOnlyList<GemSupports.Applied> Supports,
         IReadOnlyDictionary<uint, int> Stats, Item? SourceGem = null, bool RequirementsMet = true, bool Granted = false,
-        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1);
+        WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1)
+    {
+        internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
+    }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
         GemSkillIds.Gem Identity, Item? SourceGem, WornGrantedSkills.Grant? WornGrant,
@@ -47,14 +50,17 @@ public static partial class Game
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null)
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
-        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId == SpiritBurstEffect)
+        return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
-                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry"
+                    or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
+                || TriggeredItemMinion(g) is not null
+                || g.EffectId == ShaperMemoryEffect
+                || SummonData.Find(g.EffectId) is { Family: "DoedresEffigy" or ItemHarbingerFamily }
                 || AuraCatalog.Supported(g.EffectId)
                 || GameEvents.GrantedSkillExecutable.For(player).Any(accept => accept(player, g.EffectId))))];
     }
@@ -124,7 +130,8 @@ public static partial class Game
                         candidates.Add(new(effect, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
-                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect or "SupportBrandSupport" })
+                    && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -164,7 +171,11 @@ public static partial class Game
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(player, selected.Place.Gem, requirements) is null,
-            Host: selected.Place.ItemId, Group: group);
+            Host: selected.Place.ItemId, Group: group)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment,
+                requirements?.Inactive ?? inactive),
+        };
     }
 
     /// <summary>
@@ -213,7 +224,7 @@ public static partial class Game
 
     static SupportedGem WornSupportedSkill(Player player, WornGrantedSkills.Grant grant,
         IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
-        GemRequirementSnapshot? requirements)
+        GemRequirementSnapshot? requirements, int? supportTarget = null)
     {
         // The accepted-use path cannot trust the last panel publication: requirements and support eligibility must
         // come from the current equipment/attribute snapshot even when no stat update announced the change.
@@ -240,7 +251,7 @@ public static partial class Game
                         Quality(place.Socket, place.Gem), place.Socket));
             }
         candidates.AddRange(Supports.ItemCandidates(host, ItemsFor(player).Mods));
-        var supports = ResolveEquippedSupports(player, grant.Effect, grant.Level, candidates, equipment,
+        var supports = ResolveEquippedSupports(player, supportTarget ?? grant.Effect, grant.Level, candidates, equipment,
             requirements.Inactive, sourceIsGem: false);
         var own = SkillsFor(player).EffectStats(grant.Effect, grant.Level).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
@@ -249,7 +260,10 @@ public static partial class Game
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
         return new(grant.Effect, grant.Level, 0, supports, own,
-            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant);
+            RequirementsMet: !requirements.Inactive.Contains(grant.Host), WornGrant: grant)
+        {
+            LivingLightningSupports = ResolveLivingLightningSupports(player, supports, candidates, equipment, requirements.Inactive),
+        };
     }
 
     static IReadOnlyList<GemSupports.Applied> ResolveEquippedSupports(Player player, int effect, int level,
@@ -455,7 +469,8 @@ public static partial class Game
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
         long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
-            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0);
+            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
@@ -758,6 +773,11 @@ public static partial class Game
         public double ReleaseAilmentMore { get; init; } = 1;
     }
 
+    static int PlayerMinionDamageShare(IReadOnlyDictionary<uint, int> stats) =>
+        Math.Max(stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAtPctValue),
+            stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
+            : stats.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
+
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
         bool projectile = false, int addedChaos = 0, bool totem = false)
@@ -781,6 +801,18 @@ public static partial class Game
             if (added == 0) return;
             stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
             stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
+        }
+        int globalMinionShare = PlayerMinionDamageShare(caster);
+        int skillMinionShare = Math.Max(gem.Stats.GetValueOrDefault(Stat.ActiveSkillAdditiveMinionDamageModifiersApplyToAllDamageAtPctValue),
+            caster.GetValueOrDefault(Stat.DominatingBlowAndAbsolutionAdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0
+                && skills.EffectId(gem.Effect) is { } effect && (effect.StartsWith("Absolution", StringComparison.Ordinal)
+                    || effect.StartsWith("DominatingBlow", StringComparison.Ordinal)) ? 150 : 0);
+        if (skillMinionShare > 0)
+        {
+            // Only the strongest transfer applies. The character snapshot already carries the global share.
+            long increased = (long)stats.GetValueOrDefault(Stat.MinionDamagePlusPct) * Math.Max(globalMinionShare, skillMinionShare) / 100
+                - (long)caster.GetValueOrDefault(Stat.MinionDamagePlusPct) * globalMinionShare / 100;
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
         }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
             stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), vaalDamage);
@@ -812,14 +844,16 @@ public static partial class Game
                 stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct), retaliation);
             ApplyRetaliationAilmentDuration(stats);
         }
-        // Lightning Strike's two components share a gem, not a damage context. Its bolts do not gain melee
-        // modifiers, and its strike does not gain projectile modifiers or the projectile-only less multiplier.
-        bool lightningStrike = IsLightningStrike(gem.Effect);
-        if (lightningStrike) types.Remove(projectile ? 19 : 2);
+        // A strike and the projectiles it releases each use their own damage modifiers.
+        bool projectileStrike = IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect);
+        if (projectileStrike) types.Remove(projectile ? 19 : 2);
         bool volcanicFissure = IsVolcanicFissure(gem.Effect);
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
         else if (area is false) types.Remove(7);
+        if (area is true && IsGalvanicArrow(SkillsFor(player).EffectId(gem.Effect))
+            && Get(Stat.GalvanicArrowAreaDamagePlusPct) is int galvanic and not 0)
+            stats[Stat.AreaDamagePlusPct] = ActorScale.Saturate((long)Get(Stat.AreaDamagePlusPct) + galvanic);
         if (IsSmite(gem.Effect) && area is true) types.Remove(19);
         bool molten = GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect));
         if (molten)
@@ -834,7 +868,7 @@ public static partial class Game
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
         var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
             : attackWeapon is not null
-            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats)),
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
@@ -843,7 +877,7 @@ public static partial class Game
         if (!attack && !secondary && addedChaos > 0)
             raw = raw.Add(GameServer.Core.World.DamageType.Chaos,
                 new GameServer.Core.World.DamageRange(addedChaos, addedChaos).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
-        if ((lightningStrike || volcanicFissure) && projectile)
+        if ((projectileStrike || volcanicFissure) && projectile)
             raw = raw.Scale(Math.Max(0, 1 + Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) / 100.0));
         // Spellblade: a supported spell gains a share of the one-hand melee weapon's damage as added spell damage,
         // scaled by the spell's damage effectiveness like any other added damage.
@@ -893,6 +927,13 @@ public static partial class Game
             if (manaCost > 0)
                 raw = raw.Scale(Math.Max(0, 1 + (double)manaforgedPerMana * manaCost / 100.0));
         }
+        if (IsDischarge(skills.EffectId(gem.Effect)) && Get(Stat.DischargeDamagePlusPctFinal) is int dischargeMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + dischargeMore / 100d));
+        if (skills.EffectId(gem.Effect) is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
+            && Get(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinal) is int magmaMore and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + magmaMore / 100d));
+        if (gem.Stats.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) is int skillDamage and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + skillDamage / 100d));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
@@ -969,10 +1010,10 @@ public static partial class Game
 
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
     {
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, own, MainHandLocalSources(player))
-            with { Rating = WeaponAccuracyFor(player, null, playerStats, own) };
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+            with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 
     public static int SupportedCriticalChance(Player player, ushort skillId) => SupportedCriticalChanceFor(player, skillId, false);
@@ -1018,8 +1059,12 @@ public static partial class Game
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
             var weapon = WeaponProfileFor(player, activeSet: true);
-            int basis = weapon.Unarmed && (!SkillsFor(player).IsMelee(gem.Effect) || SkillsFor(player).IsSpell(gem.Effect)) ? 0
-                : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
+            int basis;
+            if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)
+                basis = shieldCritical;
+            else
+                basis = weapon.Unarmed && (!skills.IsMelee(gem.Effect) || skills.IsSpell(gem.Effect)) ? 0
+                    : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
             if (Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0
                 && ElusiveFactor(player) > 0)
                 basis = ActorScale.Saturate((long)basis + elusiveBase);

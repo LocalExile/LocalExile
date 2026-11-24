@@ -63,6 +63,7 @@ public static class PlayerHitDamage
             attackCold = attack ? get(Stat.ColdDamageWithAttackSkillsPlusPct) : 0,
             attackLightning = attack ? get(Stat.LightningDamageWithAttackSkillsPlusPct) : 0;
         double charges = ChargeEffects.DamageMore(get, spell);
+        double elementalMore = DamageStats.ElementalMore(get(Stat.CombinedElementalDamagePlusPctFinal));
         var result = DamagePacket.Empty;
         foreach (var path in conversion.Trace(raw))
         {
@@ -94,7 +95,10 @@ public static class PlayerHitDamage
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
             if ((path.History & DamageTypeHistory.Physical) != 0)
+            {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
+                if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+            }
             if (melee && area)
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
                     ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance
@@ -104,7 +108,7 @@ public static class PlayerHitDamage
             // stat is the client's own carrier, published by the live stat view; a converted portion is elemental by
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
-                range = range.Scale(Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
+                range = range.Scale(elementalMore * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
             result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain

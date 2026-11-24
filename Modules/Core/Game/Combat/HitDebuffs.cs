@@ -55,13 +55,19 @@ public static partial class Game
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
         Random random)
     {
-        if (!m.Hostile || m.Dead || m.Life == 0) return;
+        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random);
+    }
+
+    static void ApplyContactDebuffsLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
+        Random random)
+    {
+        if (m.Dead || m.Life == 0) return;
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
         if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
             { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
-        TryMaimOnHitLocked(m, get(Stat.MaimOnHitPct),
+        TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
         if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
             { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
@@ -69,9 +75,12 @@ public static partial class Game
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
     /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
-    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
+    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random) =>
+        m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random);
+
+    static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
-        if (!m.Hostile || m.Dead || m.Life == 0) return false;
+        if (m.Dead || m.Life == 0) return false;
         if (m.Effects[Stat.ImmuneToMaim] != 0 || RandomRolls.Chance(m.Effects[Stat.AvoidMaimPctChance], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
@@ -231,13 +240,35 @@ public static partial class Game
         m.PresentationChanged?.Invoke();
     }
 
-    /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>
-    public static double WitheredTaken(SpawnedMonster m, double now)
+    /// <summary>The increased chaos damage from active Withered stacks at <paramref name="now"/>.</summary>
+    public static double WitheredTaken(SpawnedMonster m, double now) => ReadWithered(m, now).Taken;
+
+    // A Withering pod contributes once while an enemy is in its radius. It shares the timed stacks' cap, and
+    // leaving removes that pod immediately without changing any of the Withered stacks from hits or other skills.
+    static (int Count, double Taken, double Until, double DisplayPct) ReadWithered(SpawnedMonster m, double now)
     {
-        double taken = 0;
+        int count = 0;
+        double taken = 0, latest = 0, display = 0;
         foreach (var (until, pct) in m.Withered)
-            if (until > now) taken += pct;
-        return taken;
+        {
+            if (until <= now) continue;
+            count++;
+            taken += pct;
+            latest = Math.Max(latest, until);
+            display = pct;
+        }
+        if (count < WitheredMaxStacks && ToxicVines.TryGetValue(m, out var pods) && m.Mods.Effects[Stat.ImmuneToWither] == 0)
+            lock (pods)
+                foreach (var pod in pods)
+                {
+                    if (pod.Withered is not double pct || pod.Until <= now) continue;
+                    count++;
+                    taken += pct;
+                    latest = Math.Max(latest, pod.Until);
+                    display = pct;
+                    if (count == WitheredMaxStacks) break;
+                }
+        return (count, taken, latest, display);
     }
 
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's
