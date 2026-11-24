@@ -56,7 +56,7 @@ public sealed class SkillCatalog
     private readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool> _castsOnDeath = new();
 
     public bool CastsOnDeath(int effect) => _castsOnDeath.GetOrAdd(effect, row =>
-        Stat.CastOnDeathPct is var key && EffectStats(row, 1).Any(stat => stat.Item1 == key && stat.Item2 > 0));
+        EffectStats(row, 1).Any(stat => (stat.Item1 == Stat.CastOnDeathPct || stat.Item1 == Stat.AttackOnDeathPct) && stat.Item2 > 0));
 
 
     // Both sets of effects already have their own native rows and per-level stat sets. Only name-based lookups
@@ -1003,6 +1003,13 @@ public sealed class SkillCatalog
         ["WinterOrb"] = "Metadata/Projectiles/FrostFuryMortar",
         ["Snipe"] = "Metadata/Projectiles/ChannelledSnipeDefaultProjectile",
         ["SpectralThrow"] = "Metadata/Projectiles/ThrownWeapon",
+        // Venom Gyre throws the same claw the Spectral Throw row draws: the client tables have no
+        // Metadata/Projectiles/VenomGyre row at all, and the gem grants VenomGyre (GrantedEffects row 10850)
+        // and VaalVenomGyre (row 12333); both take the ThrownWeapon row (row 94, speed 1000). Without these
+        // every press was refused as having no projectile. The transfigured VenomGyreAltX/AltY/Royale resolve
+        // through the base effect's entry via ProjectileCandidates, so they need no entry of their own.
+        ["VenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
+        ["VaalVenomGyre"] = "Metadata/Projectiles/ThrownWeapon",
         ["LightningStrike"] = "Metadata/Projectiles/LightningSlash",
         // Unearth fires its old name's row, BoneLance: the BoneLance action class loads Metadata/Projectiles/BoneLance
         // (3.29.3c FUN_1413e64b0, by skill_art_variation).

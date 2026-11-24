@@ -62,8 +62,10 @@ public sealed class SummonCatalog
             new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveVaalAnimatedWeapons),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.Of("active_animated_weapon_count")),
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", 0, Stat.Of("active_animated_guardian_count"), true),
-            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
-            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
+            // base_number_of_mirror_arrow_clones_allowed is not a Stats row; the real cap stat is
+            // base_number_of_clones_allowed (Stats 8217).
+            new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.BaseNumberOfClonesAllowed, 0, Follows: false),
+            new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.BaseNumberOfClonesAllowed, 0, Follows: false),
         };
         foreach (var row in effects)
         {
@@ -99,6 +101,9 @@ public sealed class SummonedMinions
     public long OfferingRevision;
     public double RefreshAt;
     public bool Restored;
+    public bool LostPersistentOnDeath;
+    public bool SpectreBankLoaded;
+    public readonly List<string> SpectreBank = [];
     public double HolyRegenerationUntil;
     public int HolyRegenerationPerMinute;
     public ushort HolyBuff;

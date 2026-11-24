@@ -168,6 +168,12 @@ public sealed class HarvestCropRotationTests
         var otherColourIdle = running.Crops.Where(c => c.Phase == SacredGrove.Phase.Idle && c.Colour != startedCrop.Colour).ToList();
         Assert.NotEmpty(sameColourIdle);
         Assert.NotEmpty(otherColourIdle);
+        Assert.All(startedCrop.SeedObjects, id => Assert.False(running.Objects.ContainsKey(id)));
+        foreach (var idle in sameColourIdle.Concat(otherColourIdle))
+        {
+            Assert.False(running.Objects[idle.Extractor].States.TryGetValue("in_combat", out int ev) && ev != 0);
+            Assert.False(running.Objects[idle.Irrigator].States.TryGetValue("in_combat", out int iv) && iv != 0);
+        }
 
         var beforeByExtractor = running.Crops.ToDictionary(c => c.Extractor, c => c.Seeds.ToList());
         var beforeSeedRows = otherColourIdle.SelectMany(c => c.SeedObjects)

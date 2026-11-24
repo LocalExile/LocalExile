@@ -26,9 +26,16 @@ public sealed class ProjectileHitLedger
         hits[(group, phase, stage, target)] = at;
         return true;
     }
+    public int Count => hits.Count;
     public void Clear() => hits.Clear();
+    readonly List<(long Group, int Phase, string Stage, ProjectileActorKey Target)> stale = [];
     public void RetainGroups(IReadOnlySet<long> active)
     {
-        foreach (var key in hits.Keys.Where(key => !active.Contains(key.Group)).ToArray()) hits.Remove(key);
+        if (hits.Count == 0) return;
+        stale.Clear();
+        foreach (var key in hits.Keys)
+            if (!active.Contains(key.Group)) stale.Add(key);
+        for (int i = 0; i < stale.Count; i++) hits.Remove(stale[i]);
+        stale.Clear();
     }
 }

@@ -64,7 +64,7 @@ internal static class ArenaHazards
     {
         double seconds = double.IsNaN(e.Last) ? 0 : Math.Clamp(now - e.Last, 0, .5); e.Last = now;
         if (seconds == 0) return;
-        bool shieldChanged = false, died = false;
+        bool shieldChanged = false, manaChanged = false, died = false;
         await SendWorldRecord(p, p.Id, [], null, atGate: () =>
         {
             if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
@@ -72,6 +72,7 @@ internal static class ArenaHazards
             int Get(uint key) => stats.GetValueOrDefault(key);
             var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
             var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
+            uint manaBefore = p.PlayerMana;
             int loss = 0;
             foreach (var type in DamageTypes.ConversionOrder)
             {
@@ -83,14 +84,15 @@ internal static class ArenaHazards
                     * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                 double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];
                 int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.Carry[slot] = amount - damage;
-                bool chaosBypasses = type == DamageType.Chaos && ChaosDamageBypassesEnergyShield(p, stats);
-                loss += type == DamageType.Chaos ? p.EnergyShield.Damage(damage, chaosBypasses, now)
+                loss += type == DamageType.Chaos
+                    ? DamagePlayerChaosOverTime(p, damage, now, stats)
                     : IncomingResourceDefences.DamageOverTime(p.EnergyShield, damage, Get(IncomingResourceDefences.BypassStat), now, ref p.NonChaosDotBypassCarry);
             }
             uint lifeAfter = VaalImmortalCallLife(p, (uint)Math.Max(0, (long)p.PlayerLife - loss), now);
             RecordRechargeLifeDamage(p, (long)p.PlayerLife - lifeAfter, now, stats);
             p.PlayerLife = lifeAfter;
             shieldChanged = shield != p.EnergyShield.Current;
+            manaChanged = manaBefore != p.PlayerMana;
             if (died = before > 0 && p.PlayerLife == 0) { p.InvalidateIncomingHits(); RecordHardcoreDeath(p); }
             foreach (var g in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
             {
@@ -119,6 +121,7 @@ internal static class ArenaHazards
                 u2c: p.PlayerLife == 0 ? InstanceProtocol.DeathKindDegen : InstanceProtocol.DeathKindNormal);
         });
         if (shieldChanged) await SendPlayerEnergyShield(p);
+        if (manaChanged) await SendPlayerMana(p, "campaign arena ground mana");
         if (died) await PlayerDied(p, "campaign arena ground", deathKind: InstanceProtocol.DeathKindDegen);
     }
 }

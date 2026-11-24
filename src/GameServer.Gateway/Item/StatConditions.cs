@@ -22,6 +22,14 @@ public static class StatConditions
 {
     public const string UsingPride = "using_pride";
 
+    /// <summary>The subject flag a "while a Pinnacle Boss is in your Presence" mod is gated on: published by
+    /// <see cref="Game.ItemConditionFlags"/> from <c>Game.CelestialBossInPresenceLocked</c> (the tree's existing
+    /// <c>PresenceRadius</c> of 80; the predicate is the client's <c>PinnacleAtlasBoss</c> marker mod on the
+    /// monster's variety). Absent from a subject, the mod counts as before; present and false, its effect stats
+    /// do not count.</summary>
+    public const string CelestialBossInPresence = "_while_celestial_boss_in_presence";
+
+
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State
     {
@@ -65,6 +73,8 @@ public static class StatConditions
         "add_frenzy_charge_on_kill_%_chance_while_dual_wielding",
         "attack_speed_while_dual_wielding_+%",
         "consecrated_ground_enemy_damage_taken_+%_while_affected_by_zealotry",
+        // Evil Eye's condition is on the recipient of a curse; the caster need not be cursed.
+        "enemies_damage_taken_+%_while_cursed",
         "gain_arcane_surge_for_4_seconds_when_you_create_consecrated_ground_while_affected_by_zealotry",
         "block_while_dual_wielding_%",
         "block_while_dual_wielding_claws_%",
@@ -272,7 +282,7 @@ public static class StatConditions
             int at = statId.LastIndexOf(stateSuffix, StringComparison.Ordinal);
             return Trim(statId, at, at + stateSuffix.Length);
         }
-        foreach (string prefix in new[] { WhileAffectedBy, IfAffectedBy })
+        foreach (string prefix in AuraConditions)
         {
             int at = statId.IndexOf(prefix, StringComparison.Ordinal);
             if (at >= 0 && TryAuraName(statId, out string family) && IsModelledAura(family))
@@ -307,6 +317,7 @@ public static class StatConditions
         plain = plain switch
         {
             "attack_skills_damage_+%" => "attack_damage_+%",
+            "resist_all_elements_+%" => "base_resist_all_elements_%",
             "evasion_+%" => "evasion_rating_+%",
             // The tree spells the global one without "global" on its conditional rows (Staff Mastery's "30% increased
             // Defences while wielding a Staff"); the pools read global_defences_+% for armour, evasion, ES and ward.
@@ -317,7 +328,9 @@ public static class StatConditions
             "armour" or "armour_+" or "X_armour" => "base_physical_damage_reduction_rating",
             "local_chance_to_bleed_%" => "local_chance_to_bleed_on_hit_%",
             "physical_damage_reduction_rating_%" => "physical_damage_reduction_rating_+%",
-            "maximum_es_+%" => "maximum_energy_shield_+%",
+            "maximum_es_+%" or "energy_shield_+%" => "maximum_energy_shield_+%",
+            "energy_shield_recharge_+%" => "energy_shield_recharge_rate_+%",
+            "armour_and_evasion_+%" or "armour_evasion_+%" => "evasion_and_physical_damage_reduction_rating_+%",
             "life_+%" => "maximum_life_+%",
             "movement_speed_+%" or "movement_velocity_+%" => "base_movement_velocity_+%",
             "spell_damage_taken_+%" => "base_spell_damage_taken_+%",
@@ -455,6 +468,10 @@ public static class StatConditions
             return [.. new[] { "base_cannot_be_chilled", "base_cannot_be_frozen" }.Where(exists)];
         if (plainName == "cannot_be_shocked_or_ignited")
             return [.. new[] { "base_cannot_be_shocked", "base_cannot_be_ignited" }.Where(exists)];
+        if (plainName == "maximum_life_and_mana_+%")
+            return [.. new[] { "maximum_life_+%", "maximum_mana_+%" }.Where(exists)];
+        if (plainName == "spell_and_attack_block_chance_is_lucky")
+            return [.. new[] { "base_block_luck" }.Where(exists)];
         return FoldFromPlain(statId, exists, plainName) is { } plain ? [plain] : [];
     }
 
@@ -479,6 +496,7 @@ public static class StatConditions
 
     const string WhileAffectedBy = "_while_affected_by_";
     const string IfAffectedBy = "_if_affected_by_";
+    static readonly string[] AuraConditions = [WhileAffectedBy, IfAffectedBy, "_while_you_are_affected_by_"];
 
     /// <summary>
     /// The "recently" phrase a stat id uses, the event <see cref="Subject.Recent"/> answers it with, and whether the id
@@ -578,9 +596,13 @@ public static class StatConditions
 
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
+        // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
+        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
+        // Evil Eye tests the recipient of the curse; the caster need not be cursed.
+        if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {
@@ -923,12 +945,13 @@ public static class StatConditions
     public static bool TryAuraName(string statId, out string family)
     {
         family = "";
-        int at = statId.IndexOf(WhileAffectedBy, StringComparison.Ordinal);
-        int skip = WhileAffectedBy.Length;
-        if (at < 0)
+        int at = -1, skip = 0;
+        foreach (string prefix in AuraConditions)
         {
-            at = statId.IndexOf(IfAffectedBy, StringComparison.Ordinal);
-            skip = IfAffectedBy.Length;
+            at = statId.IndexOf(prefix, StringComparison.Ordinal);
+            if (at < 0) continue;
+            skip = prefix.Length;
+            break;
         }
         if (at < 0) return false;
         family = statId[(at + skip)..];

@@ -15,10 +15,15 @@ public static partial class Game
             if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
             await AreaWait(PlayerUpdateRole.Minions, 25);
         }
+        EnsureSpectreBankLoaded(player);
         MonsterCatalog.Variety[] pool;
-        pool = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
+        var area = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
             && m.Rarity != MonsterRarity.Unique && (m.Hostile || player.Summons.Fighters.Values.Any(g => g.Monster == m && g.Definition.Kind == "Spectre")))
-            .Select(m => m.Variety!).DistinctBy(v => v.Row).ToArray();
+            .Select(m => m.Variety!);
+        var bank = player.Summons.SpectreBank.Select(id => Monsters.Find(id))
+            .OfType<MonsterCatalog.Variety>()
+            .Where(v => v.Supported && v.LifeData.IsUsableAsCorpse(0));
+        pool = [.. area.Concat(bank).DistinctBy(v => v.Row)];
         if (pool.Length == 0 && Monsters.Find("Metadata/Monsters/Zombies/Zombie") is { Supported: true } fallback) pool = [fallback];
         if (pool.Length == 0) return false;
         int count = Math.Max(1, GolemStat(gem.Stats, Stat.DesecrateNumberOfCorpsesToCreate));

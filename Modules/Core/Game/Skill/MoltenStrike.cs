@@ -318,7 +318,7 @@ public static partial class Game
             var mods = HitResistMods(playerStats, skillStats);
             var meleeHit = SupportedSwingHit(player, skillId, hand, w => SupportedHitFor(player, skillId, suppress: true, weapon: w));
             if (ruthless != 1) meleeHit = meleeHit.Scale(ruthless);
-            int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId);
+            int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand);
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
             var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
@@ -370,7 +370,7 @@ public static partial class Game
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                 int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
-                int multiplier = CriticalMultiplierOn(m, sourceMultiplier);
+                int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
@@ -380,16 +380,19 @@ public static partial class Game
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
-                damage = WithImpaleHitLocked(player, m, damage, rolled, critical, sourceMultiplier,
+                damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
+                    sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                     critical ? criticalImpale : impale, more).Damage;
-                var stun = OwnerStun(player, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
+                var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats,
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
                 uint lifeBefore = m.Life;
-                var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats,
-                    cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local));
+                var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats, allyAt: null,
+                    cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: null,
+                    chaosDamage: chaosDamage);
                 if (applied is not { } hit) continue;
                 if (hit.Life < lifeBefore) RecordResonanceHitLocked(player, m, skillStats, rolled, now);
                 if (weapon.ItemClass is not null) player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, now);
@@ -428,8 +431,10 @@ public static partial class Game
                 // As AreaSkillHit's: the stun carries the hit's Fortification damage, so "Melee Hits which Stun have X%
                 // chance to Fortify" rolls for this skill too.
                 var fortificationDamage = RawFortificationDamage(rolled, critical, multiplier);
+                var fortifySkill = WithStrikeFortifySkillStat(playerStats, skillStats, strike: true);
                 bool fortifiedThisHit = !fortificationGranted && (fortificationGranted = FortificationOnHitLocked(player, m,
-                    fortificationDamage, melee: true, playerStats, skillStats));
+                    fortificationDamage, melee: true, playerStats, fortifySkill));
+                if (fortifiedThisHit) AfterFortificationGainLocked(player, playerStats);
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
                     rageGranted = RageOnHitLocked(player, attack: true, melee: true, critical, skillStats, playerStats: playerStats);

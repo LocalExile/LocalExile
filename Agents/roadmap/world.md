@@ -55,6 +55,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
     Restore laid trails on reentry, finish shared sulphite migration and equipment cable visual tiers.
     The ordinary Mines cell pass is ported; the initial entrance still uses its capture.
   - Heist (80): the contract and blueprint areas; the layout comes from the heist plan.
+    For the rewards, world.db's `heist_curio_rewards` holds what a Grand Heist curio display offered over 29,287
+    recorded curios (169 rewards with their counts); nothing reads it yet.
   - Synthesis (24): the memories (`Synthesis_Main*`, `Synthesis_Single*`).
   - Incursion (10): the temples (`Incursion_Temple*`); the client needs the room hash of the opened and upgraded
     rooms ("Unknown Incursion Temple room hash").
@@ -131,6 +133,17 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Done when:** an Allflame character plays the full league progression (Coast → The Sovereign → Charts & Voyages →
   Ship Upgrades → Fairgraves → Vesper Crafting → Kishara's Rest Velka & Cressie → Velka Bloodline) with live-client
   verification.
+
+### Unimplemented campaign league mechanics
+
+- **Known:** campaign areas in Acts 1–5 now spawn Strongboxes (with Rogue Exiles), Essences and Voltaxic Sulphite,
+  while five core league encounters that appear during the campaign have no league module yet:
+  - **Vaal Side Areas** (Acts 1–10 corruption side areas and Vaal Vessel bosses).
+  - **Bestiary / Einhar** (Act 2+ campaign beast spawns, Einhar appearances and capture encounters).
+  - **Blight / Cassia** (campaign Blight encounters, lanes and tower defence).
+  - **Ritual** (campaign Ritual altars and favour windows).
+  - **Delirium Mirrors** (Act 5+ campaign Delirium Mirror spawns and fog scaling).
+- **Done when:** each league module is implemented and wired into campaign area generation at its retail act threshold.
 
 ### Vaal Vessels
 

@@ -8,6 +8,17 @@ using GameServer.Core.Protocol.Login;
 // (InstanceGround.Add shared: false).
 public static partial class Game
 {
+    // GameObjectTasks row 42 (HASH16 0x9c67 = 40039): attached to gold WorldItems on creation; S→C 0x2c3 UpdateTask
+    // triggers AutoPickupWorldItem (0x14176f320), spawning coin_pickup.epk and playing SettlersLeague_GoldSpend.
+    public const ushort AutoPickupWorldItemTask = 0x9c67;
+
+    // 1-based WorldPopupIconTypes row for GoldCoin (row 3; 0x140cb1478 decrements the wire byte by 1).
+    public const byte WorldPopupGoldCoin = 4;
+
+    static readonly ushort[] GoldPickupTasks = [AutoPickupWorldItemTask];
+
+    static IReadOnlyList<ushort>? GroundItemTasks(WorldItemObject item) => IsGold(item) ? GoldPickupTasks : null;
+
     // Evaluate at the cipher gate: a kill's delayed output may outlive the item's auto-pickup.
     // Creation and wake must stay together, before any competing pickup's removal can be sent.
     public static byte[]? GroundItemPresentation(Player player, uint id, bool justDropped,
@@ -17,7 +28,8 @@ public static partial class Game
         if (player.Instance.Ground.Get(id) is not { } item || expected is not null && !ReferenceEquals(item, expected)) return null;
         var (by, shared) = player.Instance.Ground.Origin(id);
         if (!shared && !ReferenceEquals(by, player)) return null;
-        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), item.Blob(justDropped: justDropped));
+        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+            item.Blob(justDropped: justDropped, tasks: GroundItemTasks(item)));
         return includeWake ? [.. create, .. InstanceProtocol.EnterWakeZone(id)] : create;
     }
 
@@ -55,7 +67,8 @@ public static partial class Game
         foreach (var (id, item) in ground.All())
         {
             var (by, shared) = ground.Origin(id);
-            var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), item.Blob(justDropped: false));
+            var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath),
+                item.Blob(justDropped: false, tasks: GroundItemTasks(item)));
             if (!shared) { if (ReferenceEquals(by, player)) ShowPrivateItem(player, id, create, null); }
             else if (generated)
             {

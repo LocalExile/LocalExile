@@ -35,13 +35,22 @@ public static partial class Game
                             : OutputRecord.Immediate(flags, output.Log));
                     continue;
                 }
-                byte[] bytes = output.Kind switch
+                byte[] bytes;
+                if (output.Kind == PlayerMinions.OutputKind.MonsterType)
                 {
-                    PlayerMinions.OutputKind.MonsterType => player.MonsterTypes.Add(output.MonsterType!.Value)
-                        ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [],
-                    PlayerMinions.OutputKind.Passives => PassivesMessage(player).Bytes,
-                    _ => output.Packet,
-                };
+                    bytes = player.MonsterTypes.Add(output.MonsterType!.Value)
+                        ? GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([output.MonsterType.Value]) : [];
+                    if (bytes.Length != 0 && player.Area.Owned)
+                        player.Area.Delta.Add(0, bytes.ToArray(), output.Log, AreaDelta.Kind.Message, except: player);
+                }
+                else
+                {
+                    bytes = output.Kind switch
+                    {
+                        PlayerMinions.OutputKind.Passives => PassivesMessage(player).Bytes,
+                        _ => output.Packet,
+                    };
+                }
                 if (output.WorldId is { } target)
                 {
                     var builder = new WorldRecordBuilder(player, admission);
@@ -121,20 +130,25 @@ public static partial class Game
 
         async Task<bool> PredictiveBatch()
         {
+            var reservations = new WorldAdmission(player.Connection.WorldOutput, creates ?? []);
             bool projected = false;
-            await Program.Send(player, [], null, still, atGate: () =>
+            try
             {
-                // Preserve predictive's existing batching, guards, projection time and combined wire write.
-                var admission = new WorldAdmission(player.Connection.WorldOutput, []);
-                try
+                await Program.Send(player, [], null, still, atGate: () =>
                 {
-                    if (atGate(admission) is not { } batch) return null;
-                    projected = true;
-                    return [.. batch.Records.SelectMany(record => record.CopyBytes())];
-                }
-                finally { admission.Finish(false); }
-            });
-            return projected;
+                    // Preserve predictive's existing batching, guards, projection time and combined wire write.
+                    var admission = new WorldAdmission(player.Connection.WorldOutput, []);
+                    try
+                    {
+                        if (atGate(admission) is not { } batch) return null;
+                        projected = true;
+                        return [.. batch.Records.SelectMany(record => record.CopyBytes())];
+                    }
+                    finally { admission.Finish(false); }
+                });
+                return projected;
+            }
+            finally { reservations.Finish(false); }
         }
     }
 

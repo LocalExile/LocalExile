@@ -44,20 +44,25 @@ public sealed class CharacterAudioCatalog
         public bool IsServerDriven => QuestFlagRow is not null && QuestFlagId is not null;
     }
 
+    /// <summary>First-entry NPC audio line from <c>WorldAreas.FirstEntry_NPCTextAudioKey</c> (sent via S→C <c>0x1c7</c>).</summary>
+    public sealed record FirstEntryAudio(ushort NpcRow, ushort TextAudioRow);
+
     readonly Dictionary<string, Entry> _byId;
     readonly Dictionary<string, Entry> _byQuestFlag;
     readonly Dictionary<int, Entry> _byQuestFlagRow;
+    readonly Dictionary<string, FirstEntryAudio> _firstEntryByArea;
 
     public IReadOnlyList<Entry> All { get; }
     public IReadOnlyList<Entry> ServerDriven { get; }
 
-    CharacterAudioCatalog(IReadOnlyList<Entry> entries)
+    CharacterAudioCatalog(IReadOnlyList<Entry> entries, Dictionary<string, FirstEntryAudio>? firstEntryByArea = null)
     {
         All = entries;
         ServerDriven = [.. entries.Where(e => e.IsServerDriven)];
         _byId = new(entries.Count, StringComparer.Ordinal);
         _byQuestFlag = new(ServerDriven.Count, StringComparer.Ordinal);
         _byQuestFlagRow = new(ServerDriven.Count);
+        _firstEntryByArea = firstEntryByArea ?? new(StringComparer.Ordinal);
         foreach (var e in entries)
         {
             if (e.Id.Length > 0) _byId.TryAdd(e.Id, e);
@@ -77,6 +82,9 @@ public sealed class CharacterAudioCatalog
 
     public Entry? ByQuestFlagRow(int questFlagRow) =>
         _byQuestFlagRow.TryGetValue(questFlagRow, out var e) ? e : null;
+
+    public FirstEntryAudio? FirstEntryFor(string? areaId) =>
+        areaId is not null && _firstEntryByArea.TryGetValue(areaId, out var a) ? a : null;
 
     public static CharacterAudioCatalog Load()
     {
@@ -112,7 +120,30 @@ public sealed class CharacterAudioCatalog
                     delayMs, cooldownMs, skipIfBusy, allowInterrupt,
                     eventsWithCharacterLines.Contains(row), hasGoddess, hasJack));
             }
-            return new(entries);
+            var firstEntryByArea = new Dictionary<string, FirstEntryAudio>(StringComparer.Ordinal);
+            if (ClientTables.Has("WorldAreas") && ClientTables.Has("NPCTextAudio"))
+            {
+                var npcRowById = new Dictionary<string, int>(StringComparer.Ordinal);
+                if (ClientTables.Has("NPCs"))
+                    foreach (var n in ClientTables.Table("NPCs"))
+                        if (n.Text("Id") is { Length: > 0 } npcId)
+                            npcRowById.TryAdd(npcId, n.Index);
+                var textAudioNpc = new Dictionary<int, int>();
+                foreach (var ta in ClientTables.Table("NPCTextAudio"))
+                    if (ta.Ints("NPCs") is { Length: > 0 } taNpcs)
+                        textAudioNpc[ta.Index] = taNpcs[0];
+                foreach (var wa in ClientTables.Table("WorldAreas"))
+                {
+                    if (wa.Text("Id") is not { Length: > 0 } areaId) continue;
+                    if (wa.IntOrNull("FirstEntry_NPCTextAudioKey") is not int audioRow || audioRow is < 0 or > ushort.MaxValue) continue;
+                    int npcRow = wa.TextOrNull("FirstEntry_NPCsKey") is { Length: > 0 } npcKey && npcRowById.TryGetValue(npcKey, out int byKey)
+                        ? byKey
+                        : textAudioNpc.GetValueOrDefault(audioRow, -1);
+                    if (npcRow is >= 0 and <= ushort.MaxValue)
+                        firstEntryByArea.TryAdd(areaId, new FirstEntryAudio((ushort)npcRow, (ushort)audioRow));
+                }
+            }
+            return new(entries, firstEntryByArea);
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
         {
