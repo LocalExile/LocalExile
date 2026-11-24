@@ -2227,8 +2227,14 @@ public static partial class Game
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; }
                 else
                 {
-                    player.PaidChannel = CombatLifetime is { IsActive: true } rules
-                        ? new(skillId, gem.Effect, action, generation, rules) : null;
+                    if (CombatLifetime is not { IsActive: true } rules) player.PaidChannel = null;
+                    else
+                    {
+                        double started = player.PaidChannel is { } prior && prior.Generation == generation
+                            && prior.Action == action && prior.Skill == skillId && ReferenceEquals(prior.Rules, rules)
+                            && double.IsFinite(prior.StartedAt) ? prior.StartedAt : now;
+                        player.PaidChannel = new(skillId, gem.Effect, action, generation, rules) { StartedAt = started };
+                    }
                     if (cost > 0 && SkillsFor(player).IsAttack(gem.Effect) && WeaponProfileFor(player, activeSet: true).Bow)
                     {
                         var channelAim = snipe && SnipeRuntimes.TryGetValue(player, out var snipeState)
