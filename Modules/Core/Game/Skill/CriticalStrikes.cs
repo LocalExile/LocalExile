@@ -19,6 +19,15 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
             CriticalHitsDealNoExtraDamage(player, own));
 
+    static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own)
+    {
+        const uint stat = Stat.CriticalStrikeMultiplierPlusPctWithClawsDaggers;
+        long bonus = (long)player.GetValueOrDefault(stat) + (own?.GetValueOrDefault(stat) ?? 0);
+        return bonus != 0 && (weapon.ItemClass is "Claw" or "Dagger" or "Rune Dagger"
+            || WeaponIdentity.AllOneHandMelee(weapon.LocalSources)) ? bonus : 0;
+    }
+
     public static bool IsCriticalProhibition(uint name) => name is Stat.GlobalCannotCrit
         or Stat.VirtualGlobalCannotCrit or Stat.CannotCriticalStrikeWithAttacks
         or Stat.ResoluteTechnique or Stat.KeystonePreciseTechnique;

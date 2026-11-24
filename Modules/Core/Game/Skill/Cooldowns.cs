@@ -65,11 +65,27 @@ public static partial class Game
                 own = new Dictionary<uint, int>(own) { [travelRecovery] = ActorScale.Saturate((long)own.GetValueOrDefault(travelRecovery)
                     + flat + coefficient * Math.Max(0, GolemStat(playerStats, Stat.CurrentFrenzyCharges))) };
         }
-        uint scopedRecovery = skills.IsGuard(effect) ? Stat.GuardSkillCooldownRecoveryPlusPct
-            : Supports.Of(effect)?.Types.Contains(120) == true ? Stat.CounterattacksCooldownRecoveryPlusPct : 0;
-        if (scopedRecovery != 0)
+        long Bonus(uint key) => (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        bool retaliation = skills.IsRetaliation(effect);
+        long scoped = 0;
+        long trapRecovery = Bonus(Stat.PlacingTrapsCooldownRecoveryPlusPct);
+        int perMine = ActorScale.Saturate(Bonus(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation));
+        long trapUses = Bonus(Stat.TrapSkillAddedCooldownCount);
+        if ((trapRecovery != 0 || perMine != 0 || trapUses != 0) && PlacedKind(supported).Trap)
         {
-            long scoped = (long)playerStats.GetValueOrDefault(scopedRecovery) + own.GetValueOrDefault(scopedRecovery);
+            scoped += trapRecovery;
+            if (perMine != 0)
+                scoped += (long)perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
+        }
+        else trapUses = 0;
+        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
+                or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
+            scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
+        uint scopedRecovery = skills.IsGuard(effect) ? Stat.GuardSkillCooldownRecoveryPlusPct
+            : retaliation ? Stat.CounterattacksCooldownRecoveryPlusPct : 0;
+        if (scopedRecovery != 0 || scoped != 0)
+        {
+            if (scopedRecovery != 0) scoped += Bonus(scopedRecovery);
             if (scoped != 0)
                 own = new Dictionary<uint, int>(own) { [Stat.BaseCooldownSpeedPlusPct] =
                     ActorScale.Saturate(scoped + own.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) };
@@ -85,6 +101,12 @@ public static partial class Game
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
+        if (trapUses != 0)
+        {
+            long capacity = plan.Uses + trapUses;
+            if (capacity is < 1 or > 255) return null;
+            plan = plan with { Uses = (int)capacity };
+        }
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {
             9 => 9,   // Blink
@@ -92,7 +114,12 @@ public static partial class Game
             1 when skills.IsWarcry(effect) && GolemStat(playerStats, Stat.WarcrySkillsShareCooldowns) != 0 => 1,
             _ => null
         };
-        return WithMapCooldown(player, plan with { SharedGroup = shared });
+        var mapped = WithMapCooldown(player, plan with { SharedGroup = shared });
+        long more = retaliation ? Bonus(Stat.SupportExpertRetaliationCooldownSpeedPlusPctFinal) : 0;
+        if (more == 0 || mapped is not { } current) return mapped;
+        double rate = current.RecoveryRate * Math.Max(0, 1 + more / 100.0);
+        int finalRecovery = (int)Math.Clamp(Math.Round((rate - 1) * 100), -100, int.MaxValue - 100);
+        return current with { RecoveryPercent = finalRecovery };
     }
 
     // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
@@ -221,7 +248,7 @@ public static partial class Game
             // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
             // a bypass charge or a cost is spent.
             if (skillId is not null && SkillsFor(player).IsGuard(effect)
-                && !TriggerGuardReady(player, AreaTime(player))) return false;
+                && !GuardReadyFor(player, SkillsFor(player).EffectId(effect), AreaTime(player))) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(player)

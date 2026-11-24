@@ -47,6 +47,9 @@ public static partial class Game
                     - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
             if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
                 - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
+            int mineEfficiency = Get(Stat.ManaReservationEfficiencyPlusPctForSkillsThatThrowMines);
+            if (mineEfficiency != 0 && PlacedKind(gem).Mine)
+                efficiency = ActorScale.Saturate((long)efficiency + mineEfficiency);
         }
         if (!life && AuraCatalog.IsStance(effect)) efficiency += Get(Stat.StanceSkillsManaReservationEfficiencyPlusPct);
         if (curse) efficiency += Get(Stat.CurseAuraSkillsReservationEfficiencyPlusPct);

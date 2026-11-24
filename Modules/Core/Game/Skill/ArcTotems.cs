@@ -40,9 +40,10 @@ public static partial class Game
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
-            if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
+            if (crit) damage = DamageModel.CriticalDamage(damage,
+                CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId), now, caster, skill.Stats));
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
-            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: from, default, null, chaosDamage) is not { } accepted) return;
+            if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),

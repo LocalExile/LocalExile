@@ -7,7 +7,7 @@ public static partial class Game
         && SkillsFor(player).EffectId(effect) is not ("ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY");
 
     static bool BallistaRain(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "ToxicRainAltX" or "ToxicRainAltY";
+        SkillsFor(player).EffectId(effect) is "BlastRain" or "ToxicRainAltX" or "ToxicRainAltY";
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {
@@ -22,10 +22,18 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skill);
         var stats = SupportedStats(player, skill);
-        long limit = (long)BaseTotemsAllowed + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed);
+        int limit = TotemAllowance(player, gem.Effect, gem.Stats, stats);
+        return GolemStat(stats, Stat.Maximum1TotemAtATime) == 0 ? limit : Math.Min(1, limit);
+    }
+
+    // Conjoined Spire uses the normal maximum to scale its bonuses and separately caps simultaneous totems.
+    static int TotemAllowance(Player player, int effect, IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> stats)
+    {
+        long limit = (long)BaseTotemsAllowed + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed)
+            + Math.Max(0, GolemStat(own, Stat.BaseNumberOfTotemsAllowed));
         if (GolemStat(stats, Stat.KeystoneAncestralBond) != 0) limit++;
-        if (SkillsFor(player).IsAttack(gem.Effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
-        if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) != 0)
+        if (SkillsFor(player).IsAttack(effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
+        if (GolemStat(own, Stat.IsRangedAttackTotem) != 0)
             limit += GolemStat(stats, Stat.AttackSkillsAdditionalBallistaTotemsAllowed);
         return (int)Math.Clamp(limit, 0, int.MaxValue);
     }

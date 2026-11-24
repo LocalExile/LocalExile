@@ -136,6 +136,8 @@ public static partial class Game
         var rejuvenation = RejuvenationTotemAt(player, m.Walk.Position(now));
         long damage = 0;
         var mitigated = DamagePacket.Empty;
+        int minionFort = MinionFortificationStacksLocked(player, g, g.Monster.Walk.Position(now), now);
+        double fortFactor = Math.Max(0d, 1d - minionFort / 100d);
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
@@ -159,7 +161,8 @@ public static partial class Game
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1)
+                * fortFactor);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));

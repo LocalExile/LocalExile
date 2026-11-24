@@ -13,11 +13,14 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
 public static partial class Game
 {
     // A Vaal name never opts into the generic area fallback. Each executor is admitted explicitly.
-    public static bool VaalExecutor(Player player, int effect) =>
-        SkillsFor(player).EffectId(effect) is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike"
+    public static bool VaalExecutor(Player player, int effect)
+    {
+        string id = SkillsFor(player).EffectId(effect) ?? "";
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap"
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
-            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike"
-            || IsVaalMinion(SkillsFor(player).EffectId(effect)) || VaalAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "");
+            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect
+            || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
+    }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
 
@@ -56,13 +59,18 @@ public static partial class Game
             life = mana;
             mana = 0;
         }
+        if (Get(Stat.NoManaCost) != 0) mana = 0;
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
         // Vaal auras: "Modifiers to Buff Duration also apply to this Skill's Soul Gain Prevention".
         bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;
-        double preventionBase = buffScaled ? VaalAuraSeconds(preventionMs, playerStats, gem.Stats, SkillDurationModifiers.Kinds.Buff)
-            : Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0
-            ? SkillDurationModifiers.Seconds(preventionMs, n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n))
-            : preventionMs / 1000d;
+        bool skillScaled = Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0;
+        int preventionIncrease = Get(Stat.VaalSkillSoulGainPreventationDurationPlusPct);
+        int PreventionPlayer(uint name) => ActorScale.Saturate((long)GolemStat(playerStats, name)
+            + (name == SkillDurationModifiers.IncreasedDuration ? preventionIncrease : 0));
+        double preventionBase = buffScaled || skillScaled
+            ? SkillDurationModifiers.Seconds(preventionMs, PreventionPlayer, n => GolemStat(gem.Stats, n),
+                buffScaled ? SkillDurationModifiers.Kinds.Buff : SkillDurationModifiers.Kinds.None)
+            : preventionMs / 1000d * Math.Max(0, 1 + preventionIncrease / 100d);
         if (Get(Stat.ModifiersToTotemDurationAlsoAffectSoulPreventionDuration) != 0)
             preventionBase *= TotemDurationFactor(Get(Stat.TotemDurationPlusPct));
         double prevention = Get(Stat.VaalSkillDoesNotApplySoulGainPrevention) != 0

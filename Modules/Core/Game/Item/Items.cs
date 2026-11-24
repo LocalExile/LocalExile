@@ -1485,12 +1485,33 @@ public static partial class Game
             items.NextRevision(PlayerInventories.Cursor), [], [held]), $"0x00bf cursor: hold {held.Item.StackSize} as item {held.Id}");
     }
 
-    // C→S 0x58: use an item that needs no target (a right-click), such as an Orb of Regret: one item becomes one refund point.
+    // C→S 0x57 / 0x58: use an item that needs no target (a right-click), such as Stacked Deck or an Orb of Regret.
     public static async Task UseItem(Player player,
         InstanceItems.UseItemRequest use, string hex)
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
         var items = ItemsOf(player);
+        if (StashOf(player) is { } stash && stash.TabOf(use.InventoryId) is int stashTab)
+        {
+            if (stash.Inventory(stashTab).Items.FirstOrDefault(i => i.Id == use.ItemId) is not { } stashItem
+                || ItemsFor(player).ByHash(stashItem.Item.TypeHash) is not { } stashType)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: no such item in stash tab {stashTab}: {hex}");
+                return;
+            }
+            if (stash.IsPublic(stashTab))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: refused, item is in public stash tab {stashTab}");
+                return;
+            }
+            if (stashType.Id == StackedDeck)
+            {
+                await UseStackedDeckFromStash(player, items, stash, stashTab, stashItem, stashType);
+                return;
+            }
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: {stashType.Name} from stash tab {stashTab} is not handled: {hex}");
+            return;
+        }
         byte? row = null;
         foreach (uint inventory in new[] { use.InventoryId, use.InventoryId + 1 })
             if (PlayerInventories.Row(inventory) is byte candidate && items.Items(candidate).Any(i => i.Id == use.ItemId))
@@ -1528,6 +1549,11 @@ public static partial class Game
         if (type.Id == CurrencyEffects.OrbOfUnmaking)
         {
             await UseOrbOfUnmaking(player, items, r, item, type);
+            return;
+        }
+        if (type.Id == StackedDeck)
+        {
+            await UseStackedDeck(player, items, r, item, type);
             return;
         }
         if (type.Id != Regret && type.Name != RegretBook)
@@ -1587,6 +1613,115 @@ public static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used");
         await SendAtlasSlots(player, "Orb of Unmaking");
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
+    }
+
+    public const string StackedDeck = "Metadata/Items/DivinationCards/DivinationCardDeck";
+
+    static Item? DrawStackedCard(Player player)
+    {
+        if (Drops.Card(AreaRng(player), 0)?.Item is { } card) return card;
+        var fallback = ItemsFor(player).Find("The Gambler")
+            ?? ItemsFor(player).All.FirstOrDefault(b => b.Class == "DivinationCard");
+        return fallback is null ? null : ItemCatalog.Create(fallback) with { StackSize = 1 };
+    }
+
+    static async Task UseStackedDeckFromStash(Player player,
+        PlayerInventories items, AccountStash stash, int tab, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (DrawStackedCard(player) is not { } card) return;
+        var drawn = Saves.Atomically<
+            (InventoryItem? Left, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
+            (() =>
+        {
+            if (stash.IsPublic(tab)) return null;
+            if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == item.Id) is not { } current) return null;
+            bool toCursor = items.Items(PlayerInventories.Cursor).Count == 0;
+            if (!toCursor && !items.Fits(PlayerInventories.MainInventory, card, ShapeOf)) return null;
+            InventoryItem? left = null;
+            if (current.Item.StackSize <= 1)
+            {
+                if (stash.Take(tab, item.Id) is null) return null;
+            }
+            else
+            {
+                if (stash.Shrink(tab, item.Id, 1) is not { } shrunk) return null;
+                left = shrunk;
+            }
+            if (toCursor)
+            {
+                var onCursor = items.Add(PlayerInventories.Cursor, 0, 0, card);
+                return (left, PlayerInventories.Cursor, [], [onCursor]);
+            }
+            var stacked = items.AddStacked(PlayerInventories.MainInventory, card, ShapeOf);
+            return (left, PlayerInventories.MainInventory, [.. stacked.Changed.Select(i => i.Id)], [.. stacked.Changed, .. stacked.Added]);
+        });
+        if (drawn is not { } result)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} from stash tab {tab}: no room for drawn card or item {item.Id} disappeared");
+            return;
+        }
+        await SendTabChange(player, stash, tab, [result.Left?.Id ?? item.Id],
+            result.Left is { } remaining ? [remaining] : [],
+            result.Left is null ? $"0x00bf stash tab {tab}: {type.Name} emptied" : $"0x00bf stash tab {tab}: {type.Name} now {result.Left.Item.StackSize}");
+        uint destInvId = PlayerInventories.InventoryId(result.DestRow);
+        await Send(player,
+            InstanceItems.InventoryChange(destInvId, items.NextRevision(result.DestRow), result.Removed, result.Added),
+            $"0x00bf inventory {destInvId}: {type.Name} drew divination card");
+        string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} ({item.Id}) from stash tab {tab}: drew {cardName} -> row {result.DestRow}");
+    }
+
+    // Stacked Deck (C->S 0x57 / 0x58, right-click; Metadata/Items/DivinationCards/DivinationCardDeck): consumes one Stacked Deck
+    // and draws a random weighted Divination Card onto the cursor (if empty) or into the main inventory.
+    public static async Task UseStackedDeck(Player player,
+        PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    {
+        if (DrawStackedCard(player) is not { } card) return;
+        var drawn = Saves.Atomically<
+            (PlayerInventories.Consumption Taken, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
+            (() =>
+        {
+            bool toCursor = row != PlayerInventories.Cursor && items.Items(PlayerInventories.Cursor).Count == 0;
+            if (!toCursor && !items.Fits(PlayerInventories.MainInventory, card, ShapeOf)) return null;
+            if (items.ConsumeOne(row, item.Id) is not { } consumed) return null;
+            if (toCursor)
+            {
+                var onCursor = items.Add(PlayerInventories.Cursor, 0, 0, card);
+                return (consumed, PlayerInventories.Cursor, [], [onCursor]);
+            }
+            var stacked = items.AddStacked(PlayerInventories.MainInventory, card, ShapeOf);
+            return (consumed, PlayerInventories.MainInventory, [.. stacked.Changed.Select(i => i.Id)], [.. stacked.Changed, .. stacked.Added]);
+        });
+        if (drawn is not { } result)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: no room for drawn card or item {item.Id} disappeared");
+            return;
+        }
+        uint sourceInvId = PlayerInventories.InventoryId(row);
+        if (result.DestRow == row)
+        {
+            var removed = new List<uint> { item.Id };
+            foreach (uint cid in result.Removed) if (!removed.Contains(cid)) removed.Add(cid);
+            var added = new List<InventoryItem>();
+            if (result.Taken.Left is { } left) added.Add(left);
+            added.AddRange(result.Added);
+            await Send(player,
+                InstanceItems.InventoryChange(sourceInvId, items.NextRevision(row), removed, added),
+                $"0x00bf inventory {sourceInvId}: {type.Name} opened into same inventory");
+        }
+        else
+        {
+            await Send(player,
+                InstanceItems.InventoryChange(sourceInvId, items.NextRevision(row), [item.Id],
+                    result.Taken.Left is { } left ? [left] : []),
+                $"0x00bf inventory {sourceInvId}: {type.Name} consumed");
+            uint destInvId = PlayerInventories.InventoryId(result.DestRow);
+            await Send(player,
+                InstanceItems.InventoryChange(destInvId, items.NextRevision(result.DestRow), result.Removed, result.Added),
+                $"0x00bf inventory {destInvId}: {type.Name} drew divination card");
+        }
+        string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): drew {cardName} -> row {result.DestRow}");
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):

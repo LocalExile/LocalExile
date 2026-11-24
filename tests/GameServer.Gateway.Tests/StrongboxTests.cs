@@ -122,6 +122,24 @@ public sealed class StrongboxTests
         }
     }
 
+    // A box's rarity follows the mix recorded in the official game (11 normal, 9 magic, 9 rare of 29), and its items drop
+    // one frame after its last daemon is gone, the plain summoning daemon living 45 frames.
+    [Fact]
+    public void Rarity_mix_and_drop_time_follow_the_recordings()
+    {
+        var rng = new Random(11);
+        var counts = new int[3];
+        for (int i = 0; i < 20000; i++) counts[StrongboxMods.RollRarity(MapMods.None, rng)]++;
+        Assert.InRange(counts[2] / 200.0, 29, 33);
+        Assert.InRange(counts[1] / 200.0, 29, 33);
+        Assert.InRange(counts[0] / 200.0, 36, 40);
+        const string plain = "Metadata/Monsters/Daemon/ChestDaemonSummonNormal", explode = "Metadata/Monsters/Daemon/ChestDaemonExplode";
+        Assert.Equal(46, MapStrongboxes.DropFrames([plain]));
+        Assert.Equal(60, MapStrongboxes.DropFrames([plain, explode]));
+        Assert.Equal(46, MapStrongboxes.DropFrames(["Metadata/Monsters/Daemon/NotRecorded"]));
+        Assert.Equal(46, MapStrongboxes.DropFrames([]));
+    }
+
     // The closed glow and the open effect a box plays come from the Chests row's ChestEffects row, one model per
     // rarity (the rows' white/blue/gold/brown sets; the small and big strongboxes have their own).
     [Fact]

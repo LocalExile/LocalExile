@@ -147,7 +147,7 @@ public static partial class Game
         }
         double elapsed = Math.Max(0, now - links.PaidAt);
         bool outOfMana = false;
-        if (all is null && links.Count > 0)
+        if (all is null && links.Count > 0 && playerStats.GetValueOrDefault(Stat.NoManaCost) == 0)
         {
             double due = links.ManaCarry + links.All.Sum(l => l.ManaPerMinute) / 60 * elapsed;
             uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(due));

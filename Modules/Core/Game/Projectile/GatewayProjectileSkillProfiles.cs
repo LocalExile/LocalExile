@@ -30,6 +30,7 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
     public static bool IsCausticArrow(string? effect) =>
@@ -124,7 +125,7 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("volcanic-fissure", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
-        else if (effect is "HolyFlameTotem" or "HolyFlameTotemAltX")
+        else if (IsHolyFlameTotem(effect))
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
         else if (IsCausticArrow(effect))
             p = p with

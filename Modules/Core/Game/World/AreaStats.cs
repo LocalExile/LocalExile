@@ -48,6 +48,9 @@ public static partial class Game
             typed += bow;
         if (typed != 0)
             stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
+        if (Get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) is int totemMore and not 0)
+            stats[Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem] = types.Totem
+                ? ActorScale.Saturate((long)totemMore * TotemAllowance(player, effect, own, stats)) : 0;
         return stats;
     }
 

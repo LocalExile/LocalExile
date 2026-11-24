@@ -612,6 +612,9 @@ public static partial class Game
         }
         if (MonsterBlocks(target, AreaRng(player), a.Attack.Spell)) return false;
         double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, g, id, target, now);
+        if (MinionDoubleDamageChanceLocked(player, g, g.Monster.Life >= g.Monster.MaxLife, now) is int doubleChance and > 0
+            && RandomRolls.Chance(doubleChance, 100, AreaRng(player)))
+            factor *= 2.0;
         if (g.Definition.Kind == "Carrion")
         {
             var here = g.Monster.Walk.Position(now);
@@ -639,13 +642,14 @@ public static partial class Game
             NonCriticalPenetration: 0,
             UnconditionalIgnoreElemental: ignoreElemental,
             CannotPenetrateOrIgnore: g.Monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances] != 0 ? 1 : 0);
+        resistanceMods = ImpurityHitMods(target, now, resistanceMods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var mitigated = DamageModel.Mitigate(rolled,
             type => HitResistances.Effective(type, MonsterHitResistance(target, type, default, now), strike, resistanceMods));
         int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, random: AreaRng(player));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
-        var cull = MinionIgniteKillRule(currentPlayer, target, now);
+        var cull = MinionIgniteKillRule(currentPlayer, target, now) with { Threshold = MinionCullLocked(player, g, from, now).Threshold };
         int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage);
         if (ApplyMonsterHitLocked(player, target, damage, rampageSource: null, playerStats: null, allyAt: from,
             cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return false;
