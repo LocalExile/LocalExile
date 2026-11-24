@@ -175,6 +175,19 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        int addedStrength = SharedMinionStrength(playerStats);
+        if (addedStrength > 0)
+        {
+            int before = Math.Max(0, values.GetValueOrDefault(Stat.Strength));
+            AddStat(Stat.Strength, addedStrength);
+            int after = Math.Max(0, values.GetValueOrDefault(Stat.Strength));
+            if (values.GetValueOrDefault(Stat.GainNoInherentBonusFromStrength) == 0)
+            {
+                if (values.GetValueOrDefault(Stat.GainNoMaximumLifeFromStrength) == 0)
+                    AddStat(Stat.BaseMaximumLife, after / 2 - before / 2);
+                AddStat(Stat.MeleePhysicalDamagePlusPct, after / 5 - before / 5);
+            }
+        }
         AddNecromanticShieldStats(player, playerStats, values);
         if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
         {
@@ -486,6 +499,8 @@ public static partial class Game
                 foreach (var type in DamageTypes.ConversionOrder)
                     if ((path.History & DamageTypes.HistoryOf(type)) != 0) increase += mods[Stat.Of(type.ToString().ToLowerInvariant() + "_damage_+%")];
                 if ((path.History & DamageTypeHistory.Elemental) != 0) increase += mods[Stat.ElementalDamagePlusPct];
+                if (types.Contains(19) && (path.History & DamageTypeHistory.Physical) != 0)
+                    increase += mods[Stat.MeleePhysicalDamagePlusPct];
                 var (general, typed) = GemSupportDamage.Multipliers(path.History, supportStats, types);
                 double physicalMore = (path.History & DamageTypeHistory.Physical) != 0
                     ? Math.Max(0, 1 + Own(Stat.ActiveSkillMinionPhysicalDamagePlusPctFinal) / 100.0) : 1;
@@ -560,6 +575,9 @@ public static partial class Game
         GolemStat(stats, Stat.MinionsUseYourMainHandBaseCritChanceFromWeapon) != 0 && WeaponIn(player, ActiveMainHand(player)) is not null
             ? HandWeaponCritical(player, AttackHand.Main) : null;
 
+    static int SharedMinionStrength(IReadOnlyDictionary<uint, int> owner) =>
+        GolemStat(owner, Stat.MinionsGainYourStrength) > 0 ? Math.Max(0, GolemStat(owner, Stat.Strength)) / 2 : 0;
+
     static bool LivingZombieCorpse(GolemState.Golem golem, IReadOnlyDictionary<uint, int> stats) =>
         golem.Definition.Kind == "Zombie" && GolemStat(stats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
 
@@ -624,6 +642,7 @@ public static partial class Game
         hash.Add(golem.SkeletonWeapon is { } weapon ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(weapon) : 0);
         hash.Add(NecromanticShield(player, playerStats));
         hash.Add(MinionOwnerAttackCritical(player, playerStats));
+        hash.Add(SharedMinionStrength(playerStats));
         hash.Add(LivingZombieCorpse(golem, playerStats));
         if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
         {
@@ -655,10 +674,13 @@ public static partial class Game
         golem.Player = new(playerStats);
         var m = golem.Monster;
         int previousCorpse = m.Effects[Stat.IsUsableAsCorpseWhenAlive];
+        int previousStrength = m.Effects[Stat.Strength];
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances);
         m.Mods = mods;
         if (previousCorpse != mods.Effects[Stat.IsUsableAsCorpseWhenAlive])
             SetStats(player, golem.Id, [(Stat.IsUsableAsCorpseWhenAlive, mods.Effects[Stat.IsUsableAsCorpseWhenAlive])]);
+        if (previousStrength != mods.Effects[Stat.Strength])
+            SetStats(player, golem.Id, [(Stat.Strength, mods.Effects[Stat.Strength])]);
         var pools = GolemPools.Calculate(Monsters, m.Variety!, m.Level, golem, playerStats, mods.Effects);
         if (pools.Fatal)
         {
