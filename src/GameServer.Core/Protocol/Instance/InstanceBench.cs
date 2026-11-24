@@ -15,6 +15,11 @@ public static class InstanceBench
     public const int MoveLength = 7;
     public static (uint ItemId, bool IntoBench) ReadMove(ReadOnlySpan<byte> message) =>
         (BinaryPrimitives.ReadUInt32BigEndian(message[2..]), (message[6] & 0x80) != 0);
+    // C→S 0x2b1 (4 bytes, writer 0x141f9a380, sender 0x140c40b80): sent when the crafting bench window closes.
+    // u8 flags (+2, 0), u8 uiKind (+3, 0x33 = InstanceWaypoints.CraftingBenchUi).
+    public const ushort CloseId = 0x2b1;
+    public const int CloseLength = 4;
+    public static (byte Flags, byte UiKind) ReadClose(ReadOnlySpan<byte> message) => (message[2], message[3]);
     // Currency-count inventory: the bench's native filter (0x140c3b610) accepts kind 0x12,
     // but excludes ordinary stash kind 0x11. Row 26 is deliberately absent from fixed-slot lookup.
     public const uint BalanceInventoryId = 0xfffffe00;

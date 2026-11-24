@@ -346,6 +346,28 @@ public static class InstanceEntities
     public static byte[] TransitionableUpdate(uint entityId, byte componentIndex, byte state) =>
         ComponentUpdate(entityId, componentIndex, [state]);
 
+    /// <summary>S→C 0x2bc to a Shrine component (slot 20 reader <c>0x1415e49f0</c>): creation layout plus u32 LE taker
+    /// object id. Claiming flips bit 7 (0 → 1) and plays Animated clip 0, ShrineSounds, and Shrines.Description.</summary>
+    public static byte[] ShrineUpdate(uint entityId, byte shrineRow, uint takerObjectId, bool claimed = true,
+        byte state = 0, byte componentIndex = ShrineObject.ShrineComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, ShrineObject.UpdateBlob(shrineRow, takerObjectId, claimed, state));
+
+    /// <summary>S→C 0x2bc to a GroundEffect component (slot 20 reader <c>0x141e1ea90</c> → <c>0x141e1ead0</c>):
+    /// u8 state (+0x38) and f32 LE remaining seconds (+0x44); values &lt;= 0 trigger the component's EndEffect.</summary>
+    public static byte[] GroundEffectUpdate(uint entityId, byte state, float remainingSeconds,
+        byte componentIndex = GroundEffectObject.GroundEffectComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, new BlobWriter().U8(state).F32(remainingSeconds).ToArray());
+
+    /// <summary>S→C 0x2bc to a Beam component (slot 20 reader <c>0x1416710c0</c>, shared with slot 17 creation):
+    /// updates the MiscBeams art row and/or start and end endpoints.</summary>
+    public static byte[] BeamUpdate(uint entityId, BeamEffectObject beam,
+        byte componentIndex = BeamEffectObject.BeamComponentIndex)
+    {
+        var w = new BlobWriter();
+        beam.WriteBeamComponent(w);
+        return ComponentUpdate(entityId, componentIndex, w.ToArray());
+    }
+
     public const ushort BlockageUpdateId = 0x1c6;
 
     /// <summary>
@@ -609,7 +631,80 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278;
+    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278, MiscObjectSpawnId = 0x01ca, EntityVariantDeltaId = 0x02d9;
+
+    /// <summary>
+    /// S→C 0x01ca <c>MiscObjectSpawn</c> (class <c>0x1435e65e8</c>, reader <c>0x1421afcc0</c>, dispatcher case 0x83
+    /// <c>0x1421527eb..0x142152c30</c>): spawns a <c>MiscObjects</c> (flags bit 0 clear) or <c>MiscAnimated</c>
+    /// (flags bit 0 set) visual by HASH16. Bit 1 selects world cell coords (<c>i32 BE x, i32 BE y</c>) instead of an
+    /// attached entity (<c>u32 BE entityId</c> when bit 3 is clear, plus optional <c>i16 BE offsetX, i16 BE offsetY</c>
+    /// when bit 2 is set). Bit 5 adds <c>u32 BE delayMs</c>; bit 6 adds <c>f32 BE rotation</c>.
+    /// </summary>
+    public static byte[] MiscObjectSpawn(ushort tableHash16, bool miscAnimated = false, uint? entityId = null,
+        (int X, int Y)? coords = null, (short X, short Y)? offset = null, uint? delayMs = null, float? rotation = null,
+        byte extraFlags = 0)
+    {
+        byte flags = (byte)((extraFlags & 0x90) | (miscAnimated ? 0x01 : 0));
+        if (coords is not null) flags |= 0x02;
+        else
+        {
+            if (entityId is null) flags |= 0x08;
+            if (offset is not null) flags |= 0x04;
+        }
+        if (delayMs is not null) flags |= 0x20;
+        if (rotation is not null) flags |= 0x40;
+        var w = new LoginWriter().U16(MiscObjectSpawnId).U8(flags).U16(tableHash16);
+        if (coords is { } c) w.U32((uint)c.X).U32((uint)c.Y);
+        else
+        {
+            if (entityId is { } id) w.U32(id);
+            if (offset is { } o) w.U16((ushort)o.X).U16((ushort)o.Y);
+        }
+        if (delayMs is { } d) w.U32(d);
+        if (rotation is { } r) w.U32(BitConverter.SingleToUInt32Bits(r));
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x02d9 <c>EntityVariantDelta</c> (class <c>0x1435e6928</c>, reader <c>0x1421b8d30</c>, writer
+    /// <c>0x1421b8aa0</c>, variant dispatch table <c>0x1435e6c78</c>, dispatcher case 0xf0): u8 flag, CompactUInt
+    /// count, then count entries of u32 BE entityId, u16 BE <c>(kind &amp; 0x7fff) | (hasVariant ? 0x8000 : 0)</c>,
+    /// optional <c>i32 BE x, i32 BE y</c> when <c>(kind &amp; 0x7fff) != 0</c>, and optional tagged raw-LE variant
+    /// (tag 0/2 = u16 LE, tag 1 = u32 LE).
+    /// </summary>
+    public static byte[] EntityVariantDelta(byte flag, IReadOnlyList<EntityVariantDeltaEntry> entries)
+    {
+        var w = new LoginWriter().U16(EntityVariantDeltaId).U8(flag);
+        InstanceProtocol.CompactUInt(w, (uint)entries.Count);
+        foreach (var entry in entries)
+        {
+            ushort kind = (ushort)(entry.Kind & 0x7fff);
+            ushort raw = (ushort)(kind | (entry.Variant is not null ? 0x8000 : 0));
+            w.U32(entry.EntityId).U16(raw);
+            if (kind != 0)
+            {
+                var pos = entry.Position ?? default;
+                w.U32((uint)pos.X).U32((uint)pos.Y);
+            }
+            if (entry.Variant is { } v)
+            {
+                w.U8(v.Tag);
+                switch (v.Tag)
+                {
+                    case 0:
+                    case 2:
+                        w.U8((byte)v.Value).U8((byte)(v.Value >> 8));
+                        break;
+                    case 1:
+                        w.RawU32(v.Value);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(entries), v.Tag, "S→C 0x02d9 variant tag must be 0, 1, or 2");
+                }
+            }
+        }
+        return w.ToArray();
+    }
 
     /// <summary>S→C 0x2aa (class 0x1431767e8, read 0x140911270): u32 BE, the character's gold. The instance dispatcher (case
     /// 0xe2, 0x142154531) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
@@ -737,7 +832,16 @@ public static partial class InstanceInventories
     public static byte[] RemoveInventory(uint inventoryId, byte manager = 0) =>
         new LoginWriter().U16(RemoveInventoryId).U8(manager).U32(inventoryId).ToArray();
 
-    public const ushort RemoveInventoryId = 0xc1;
+    public const ushort RemoveInventoryId = 0xc1, InventoryPermissionsId = 0xc2;
+
+    /// <summary>
+    /// S→C 0xc2 (class 0x1435e7560, read 0x1421aa500; dispatcher 0x142154016 → 0x141d65da0): marks an inventory
+    /// non-writable (<c>+0x160</c>, remove-only) and/or excluded from item scans (<c>+0x161</c>). u8 manager,
+    /// u32 BE inventory id, u8 notWritable, u8 skipScans (9 bytes total).
+    /// </summary>
+    public static byte[] InventoryPermissions(uint inventoryId, bool notWritable, bool skipScans = false, byte manager = 0) =>
+        new LoginWriter().U16(InventoryPermissionsId).U8(manager).U32(inventoryId)
+            .U8((byte)(notWritable ? 1 : 0)).U8((byte)(skipScans ? 1 : 0)).ToArray();
 }
 
 /// <summary>
@@ -894,6 +998,8 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>Clip index within <see cref="PlayerObject.DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
     /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
     public ushort AnimationSeed { get; init; }
@@ -978,10 +1084,12 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
-                // then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e); when Life <= 0, Actor reader 0x1421993f0 reads
+                // two dead-pose bytes (Animation.dat row → +0x230, clip index → +0x234) before u32, u32 and slot 20.
                 case "Actor":
-                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance);
+                    if (Life == 0) w.U8(PlayerObject.DeadPoseAnimation).U8(DeadPoseClip);
+                    w.U32(0).U32(0);
                     if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
                     else w.U8(0).U8(0);
                     break;
@@ -1210,6 +1318,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 public sealed record GroundEffectObject(int GridX, int GridY, ushort GroundEffectRow, string AnimatedObject, float Seconds)
 {
     public const string TypePath = "Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect";
+    /// <summary>GroundEffect in <c>VisibleServerGroundEffect</c>'s component order (Positioned, BaseEvents, GroundEffect, Buffs, Animated).</summary>
+    public const byte GroundEffectComponentIndex = 2;
 
     /// <summary>The art's uniform scale (Positioned flags0 0x20); 1 sends none.</summary>
     public float Scale { get; init; } = 1;
@@ -1243,16 +1353,14 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
     uint EndObject, ushort BeamRow = 0, string? StartBone = null)
 {
     public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Beam in <c>ServerBeamEffect</c>'s component order (Positioned, BaseEvents, Animated, LimitedLifespan, Beam).</summary>
+    public const byte BeamComponentIndex = 4;
     /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
     public const float WorldPerCell = 10;
 
-    public byte[] Blob()
+    /// <summary>Writes the Beam component body (0x1416710c0, used for both 0x2bb creation and 0x2bc updates).</summary>
+    internal void WriteBeamComponent(BlobWriter w)
     {
-        var w = new BlobWriter();
-        w.U8(0).U8(0);                                                  // object flags, base data entries
-        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
-        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
-        w.U8(0);                                                        // Animated: the Beam row's art
         // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
         // world position and object id (the client follows the objects; the positions are their snapshot).
         w.U16((ushort)(BeamRow + 1)).U8((byte)(StartBone is null ? 0x97 : 0xD7)).U8(0x0C).U8(0x00)
@@ -1264,6 +1372,16 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
             w.U32((uint)bone.Length).Bytes(bone);
         }
         w.F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+    }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        WriteBeamComponent(w);
         w.U8(0);                                                        // tasks
         return w.ToArray();
     }
@@ -1396,6 +1514,19 @@ public readonly record struct MinionOwnershipChange(uint Id, ushort Source, usho
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
     float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
 
+/// <summary>3-arm tagged variant payload inside S→C 0x02d9 (<c>0x1421b8d30</c>, table <c>0x1435e6c78</c>):
+/// tags 0 and 2 carry raw little-endian u16 values; tag 1 carries a raw little-endian u32 value.</summary>
+public readonly record struct EntityVariantValue(byte Tag, uint Value)
+{
+    public static EntityVariantValue Tag0(ushort value) => new(0, value);
+    public static EntityVariantValue Tag1(uint value) => new(1, value);
+    public static EntityVariantValue Tag2(ushort value) => new(2, value);
+}
+
+/// <summary>One entry of S→C 0x02d9 (<see cref="InstanceEntities.EntityVariantDelta"/>).</summary>
+public readonly record struct EntityVariantDeltaEntry(uint EntityId, ushort Kind,
+    (int X, int Y)? Position = null, EntityVariantValue? Variant = null);
+
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 
@@ -1488,6 +1619,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public float Rotation { get; init; }
     // All seven 3.29.3b character .act files put WashedUp at stance index 68 (0 is the base stance).
     public const byte WashedUpStance = 68;
+    /// <summary>Animation.dat row 6 (<c>Death</c>): written after stance in Actor creation (0x1421993f0) when Life == 0.</summary>
+    public const byte DeadPoseAnimation = 6;
+    /// <summary>Clip index within <see cref="DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
     /// <summary>The Animated component's index in the same order.</summary>
@@ -1575,11 +1710,13 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears
-        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8; two more u8 (+0x230, +0x234) only
-        // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
-        // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
+        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8 stance; when Life <= 0 (0x1421995dc),
+        // two dead-pose bytes follow (Animation.dat row → +0x230, clip index → +0x234); then u32 +0x26c, u32 +0x274
+        // and its vtable+0xa0 reader 0x142199c20 (two flag bytes: f0 0x40 = the skill list 0x14219e480).
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0);
+        if (Life == 0) w.U8(DeadPoseAnimation).U8(DeadPoseClip);
+        w.U32(0).U32(0);
     }
 
     public byte[] Blob()

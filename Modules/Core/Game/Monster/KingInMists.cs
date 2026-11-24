@@ -1168,8 +1168,9 @@ public static class KingInMists
                 // The ritual bark belongs to the start of call_start_01, not to the teleport: Client.txt 11:45:27
                 // "Bid the darkness!" and 11:45:50 "Nothingness approaches!" both land on clip 4.
                 await Say(RitualBarks[ritualIndex % RitualBarks.Length]);
+                ushort ritualSeq = NextSeq();
                 if (!await SendMonsterAction(player, id, boss, ritual,
-                    () => InstanceProtocol.ActionStarted(id, x, y, fx, fy, K.Ritual, NextSeq(), player.MonsterOrderFlags,
+                    () => InstanceProtocol.ActionStarted(id, x, y, fx, fy, K.Ritual, ritualSeq, player.MonsterOrderFlags,
                         targetObjectId: fetishId),
                     $"0x01ab King in the Mists channels GSVoodooKingRitual (0x{K.Ritual:x4}) into Mystic Fetish {which + 1} (0x{fetishId:x})")) return;
 
@@ -1192,8 +1193,9 @@ public static class KingInMists
                 bool ritualFlinching;
                 ritualFlinching = AreaTime(player) < boss.FlinchUntil;
                 if (!ritualFlinching)
-                    await Game.SendWorldRecord(player, id, InstanceProtocol.ActionEnded(id),
-                        "0x01ac King in the Mists ends the ritual channel (call_end_01)");
+                    await Game.SendWorldRecord(player, id,
+                        [.. InstanceProtocol.ChannelFinished(id, ritualSeq), .. InstanceProtocol.ActionEnded(id)],
+                        "0x01ae+0x01ac King in the Mists ends the ritual channel (call_end_01)");
                 // The official client holds call_end_01 for ~1 s before the return teleport.
                 await AreaDelay(player, 1);
                 if (!Present()) return;
