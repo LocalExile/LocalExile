@@ -818,6 +818,7 @@ public static partial class Game
             InflictMonsterBlind(player, id, target, now, BlindHitInput.Capture(Golem), a.Attack.Spell, critical,
                 AreaRng(player));
             MinionAilmentsLocked(player, a, id, target, critical, now, ailmentFactor);
+            ApplyMinionDecayLocked(player, g, a, id, target, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
             if (damage > 0)
             {

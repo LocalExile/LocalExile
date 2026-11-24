@@ -22,6 +22,7 @@ public static partial class Game
                 await BurnIgnited(view);
                 await BleedMonsters(view);
                 await TickPoisons(view);
+                await TickMinionDecays(view);
                 await TickContagions(view);
                 await TickEssenceDrains(view);
             });
