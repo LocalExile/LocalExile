@@ -199,6 +199,11 @@ public static partial class Game
         }
         if (bytes.Count > 0) await Send(player, [.. bytes], "0x01b1/0x02bd chieftain minion ends");
         if (!CurrentGameWork || summon is null || now >= summon.Until) return;
+        if (!DarkMonarchAllows("SpiritChieftain", StatSourceValues(player)))
+        {
+            if (ReferenceEquals(player.SpiritChieftains.Pending, summon)) player.SpiritChieftains.Pending = null;
+            return;
+        }
         if (Monsters.Find(summon.Variety.ToString()) is not { Supported: true } variety)
         {
             Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill}: MonsterVarieties row {summon.Variety} cannot be created");
@@ -228,7 +233,8 @@ public static partial class Game
                 player.Minions.Add(new(id, m, summon.Skill, variety.Name)
                     { Until = summon.Until, Fights = true, SpiritChieftain = true });
             }, ownedCurrent: () => player.PlayerLife > 0 && ReferenceEquals(player.SpiritChieftains.Pending, summon)
-                && AreaTime(player) < summon.Until && CanHaveOtherMinions(player));
+                && AreaTime(player) < summon.Until && CanHaveOtherMinions(player)
+                && DarkMonarchAllows("SpiritChieftain", StatSourceValues(player)));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {CharacterName(player)}: {summon.Skill} summons {variety.Name} at level {summon.Level} for "
             + $"{summon.Until - now:0.##} s");

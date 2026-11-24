@@ -85,8 +85,14 @@ public static partial class Game
     static void MinionTauntOnHitLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
         IReadOnlyDictionary<uint, int> own, uint id, SpawnedMonster target, double now)
     {
-        int chance = GolemStat(own, Stat.MinionChanceToTauntOnHitPct);
-        if (ability.Effect == 136) chance += GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        var effects = fighter.Monster.Effects;
+        // Keep the body's taunt and owner-granted modifiers, but resolve links from the accepted hit.
+        long Current(uint direct, uint minionScoped) => (long)effects[direct]
+            - GolemStat(fighter.Own, direct) - GolemStat(fighter.Own, minionScoped)
+            + GolemStat(own, direct) + GolemStat(own, minionScoped);
+        long chance = Current(Stat.ChanceToTauntOnHitPct, Stat.MinionChanceToTauntOnHitPct)
+            + GolemStat(ability.Stats, Stat.ChanceToTauntOnHitPct);
+        if (!ability.Attack.Spell) chance += Current(Stat.AttacksChanceToTauntOnHitPct, Stat.MinionAttacksChanceToTauntOnHitPct);
         if (chance <= 0 || target.Effects[Stat.CannotBeTaunted] != 0
             || player.Summons.Definitions.GetValueOrDefault(fighter.Id) is { Targetable: false }
             || player.Minions.Random.Next(100) >= chance) return;
@@ -96,6 +102,17 @@ public static partial class Game
             foreach (var expired in fighter.Taunts.Where(t => t.Value <= now || !player.Area.Monsters.ContainsKey(t.Key)).ToArray())
                 fighter.Taunts.Remove(expired.Key);
         fighter.Taunts[id] = now + FlaskGrounds.TauntSeconds / target.RecipientDebuffRate;
+        MinionTauntSources.AddOrUpdate(target, fighter);
+    }
+
+    static readonly RuleTable<SpawnedMonster, GolemState.Golem> MinionTauntSources = new();
+
+    static double TauntedHitAgainstMinion(Player player, uint attacker, SpawnedMonster source, GolemState.Golem target, double now)
+    {
+        if (source.TauntedUntil > now || DecoyTarget(source, now) is not null) return .9;
+        return MinionTauntSources.TryGetValue(source, out var taunter) && !ReferenceEquals(target, taunter)
+            && taunter.Taunts.GetValueOrDefault(attacker) > now && !taunter.Monster.Dead
+            && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(taunter.Id), taunter.Monster) ? .9 : 1;
     }
 
     internal static void FeedingFrenzyOnHitLocked(Player player, GolemState.Golem fighter, double now)

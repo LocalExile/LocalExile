@@ -59,11 +59,13 @@ public static partial class Game
         bool paysLife = Lifetap.ConvertsCostToLife(gem.Stats, playerStats);
         link = new(target, skillId, effectId)
         {
+            SkillStats = gem.Stats,
             Until = now + seconds, ManaPerMinute = paysLife ? 0 : Own(Stat.ManaCostPerMinute),
             LifePerMinute = paysLife ? Own(Stat.ManaCostPerMinute) : 0, LifePaidAt = now,
             SourceBuff = player.NextBuff++, TargetBuff = player.NextBuff++, SourceRow = rows.Source, TargetRow = rows.Target,
         };
         player.Links.Add(link);
+        if (effectId == "IntuitiveLink") CaptureIntuitiveLink(player, link, gem);
         player.Area.Buffs.Set(player.Id, new(rows.Source, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.SourceBuff));
         player.Area.Buffs.Set(target, new(rows.Target, player.Id, skillId, U68: Buff.Seconds(seconds), Tag: link.TargetBuff));
         LinksChangedLocked(player);
@@ -80,7 +82,9 @@ public static partial class Game
         if (playerStats(Stat.LinkSkillsCanTargetMinions) == 0) return null;
         var here = player.Walk.Position(now);
         int range = LinkSkills.Range(playerStats(Stat.LinkSkillRangePlusPct));
-        var valid = player.Minions.All.Where(m => LinkTargetAliveLocked(player, m.Id)
+        var valid = player.Minions.All.Where(m => LinkTargetAliveLocked(player, m)
+            && !m.Monster.Invulnerable && m.Monster.Effects[Stat.BaseCannotBeDamaged] == 0
+            && (OwnedFighter(player, m.Id) is not { } fighter || !GolemIgnoresDots(fighter))
             && Dist(m.Monster.Walk.Position(now), here) <= range).ToList();
         if (valid.FirstOrDefault(m => m.Id == aimed) is { } chosen) return chosen.Id;
         return valid.OrderBy(m => player.Links.On(m.Id) is null ? 0 : 1).ThenBy(m => Dist(m.Monster.Walk.Position(now), here))
@@ -88,8 +92,49 @@ public static partial class Game
     }
 
     static bool LinkTargetAliveLocked(Player player, uint id) =>
-        player.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && player.Area.Monsters.TryGetValue(id, out var held)
+        player.Minions.All.FirstOrDefault(m => m.Id == id) is { } minion && LinkTargetAliveLocked(player, minion);
+
+    static bool LinkTargetAliveLocked(Player player, PlayerMinions.Minion minion) =>
+        player.Area.Monsters.TryGetValue(minion.Id, out var held)
         && ReferenceEquals(held, minion.Monster) && !held.Dead && held.Life > 0;
+
+    static LinkSkills.Link? ActiveMinionLink(Player player, GolemState.Golem fighter, double now) =>
+        player.PlayerLife > 0 && player.Links.On(fighter.Id) is { } link && now < link.Until
+        && (link.AwaySince is not double away || now - away < LinkSkills.BreakSeconds) ? link : null;
+
+    static long LinkBuffPercent(GolemState.Golem fighter, IReadOnlyDictionary<uint, int> casterStats) =>
+        Math.Max(0, 100L + casterStats.GetValueOrDefault(Stat.LinkSkillBuffEffectPlusPct)
+            + fighter.InheritedMods.Effects[Stat.LinkBuffEffectOnSelfPlusPct]
+            + (fighter.Definition.Kind == "AnimatedGuardian" ? casterStats.GetValueOrDefault(Stat.LinkBuffEffectPlusPctOnAnimateGuardian) : 0));
+
+    static int ScaledLinkStat(LinkSkills.Link link, uint stat, long effect) =>
+        ActorScale.Saturate(link.SkillStats.GetValueOrDefault(stat) * effect / 100);
+
+    static double SoulLinkDamageTaken(LinkSkills.Link link, long effect) =>
+        Math.Max(0, 1 + ScaledLinkStat(link, Stat.SoulLinkGrantsDamageTakenPlusPctFinal, effect) / 100d);
+
+    internal static double MinionSoulLinkDamageTaken(Player player, GolemState.Golem fighter, double now) =>
+        ActiveMinionLink(player, fighter, now) is { EffectId: "SoulLink" } link
+            ? SoulLinkDamageTaken(link, LinkBuffPercent(fighter, CharacterPlayerStats(player))) : 1;
+
+    readonly record struct MinionLinkOffence(int FireMin = 0, int FireMax = 0, int Ignite = 0,
+        int? MainHandCrit = null, int CritMultiplier = 0, int Accuracy = 0);
+
+    static MinionLinkOffence MinionLinkOffenceAt(Player player, GolemState.Golem fighter,
+        IReadOnlyDictionary<uint, int> casterStats, double now)
+    {
+        if (ActiveMinionLink(player, fighter, now) is not { } link) return default;
+        long effect = LinkBuffPercent(fighter, casterStats);
+        if (link.EffectId == "DestructiveLink")
+            return new(MainHandCrit: player.Pools.AttackCriticalStrikeChance,
+                CritMultiplier: ScaledLinkStat(link, Stat.CriticalLinkGrantsBaseCriticalStrikeMultiplierPlus, effect),
+                Accuracy: ScaledLinkStat(link, Stat.CriticalLinkGrantsAccuracyRatingPlusPct, effect));
+        if (link.EffectId != "FlameLink") return default;
+        long fromLife = (long)player.PlayerMaxLife * link.SkillStats.GetValueOrDefault(Stat.FlameLinkAddedFireDamageFromLifePct) / 100;
+        int Fire(uint stat) => ActorScale.Saturate((fromLife + link.SkillStats.GetValueOrDefault(stat)) * effect / 100);
+        return new(Fire(Stat.FlameLinkMinimumFireDamage), Fire(Stat.FlameLinkMaximumFireDamage),
+            ScaledLinkStat(link, Stat.FlameLinkGrantsChanceToIgnitePct, effect));
+    }
 
     // A link ends: both its buffs come off (the target's only while its object is there).
     static void EndLinkLocked(Player player, LinkSkills.Link link, List<byte> bytes)

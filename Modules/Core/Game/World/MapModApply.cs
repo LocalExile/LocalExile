@@ -23,6 +23,25 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
+    {
+        if (map is null) return;
+        void Add(uint mapStat, uint minionStat)
+        {
+            int value = map.Get(mapStat);
+            if (value != 0) stats[minionStat] = ActorScale.Saturate((long)stats.GetValueOrDefault(minionStat) + value);
+        }
+        Add(Stat.MapMinionAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
+        Add(Stat.MapMinionCastSpeedPlusPct, Stat.CastSpeedPlusPct);
+        Add(Stat.MapMinionMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+    }
+
+    static double MapMinionDamageFactor(Player player)
+    {
+        if (MapModsOf(player)?.Get(Stat.MapPlayersMinionDamagePlusPctFinalPerEquippedItem) is not int perItem || perItem == 0) return 1;
+        return Math.Max(0, 1 + (double)perItem * ItemsOf(player).EquipmentSnapshot().Count / 100);
+    }
+
     internal static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
 
     public static double MapScarabQuantity(MapMods? mods) =>

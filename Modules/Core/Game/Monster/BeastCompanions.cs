@@ -217,7 +217,8 @@ public static partial class Game
                 player.Beasts.Active = new(id, m, summon.Source, summon.Skill, summon.Variety, summon.MinionKind,
                     summon.Lifetime, summon.Area)
                     { SourceSkill = summon.SkillId, SkillStats = summon.SkillStats, Intrinsic = native.Effects };
-            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(player, summon, rules) && CanHaveOtherMinions(player));
+            }, ownedCurrent: () => Current() && BeastPendingCurrentLocked(player, summon, rules)
+                && CanHaveOtherMinions(player) && DarkMonarchAllows("Beast", StatSourceValues(player)));
         if (Current())
         {
             if (ReferenceEquals(player.Beasts.Pending, summon)

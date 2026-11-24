@@ -168,14 +168,20 @@ public static partial class Game
     /// skill's stats, grown by the hit's area modifier as a chill's or shock's is (MonsterElementalAilments.SpreadRadius).
     /// </summary>
     public static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
-        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand)
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand) =>
+        WithIgniteSpread(settings, player, skill, spell, hand, includeActorBaseArea: false);
+
+    static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand,
+        bool includeActorBaseArea)
     {
         if (settings.Seconds <= 0) return settings;
         int Player(uint key) => player.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
         if (radius <= 0) return settings;
-        double area = AilmentArea(Player, Skill, spell);
+        double area = includeActorBaseArea ? SkillArea.Modifier(name => Player(name) + Skill(name), spell)
+            : AilmentArea(Player, Skill, spell);
         return settings with { Spread = (int)Math.Floor(radius * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100) };
     }
 
@@ -233,14 +239,7 @@ public static partial class Game
         player.Area.ActiveIgniteMonsters.Add(id);
         player.Area.RecentlyIgnitedMonsters.Add(id);
         InflictedLocked(player, target, AilmentType.Ignite, now + settings.Seconds);
-        // Combustion: ignites from the supported skill apply their fire resistance reduction for the ignite's duration.
-        if (settings.FireExposure < 0)
-        {
-            double until = target.Ignites.Until;
-            var key = (DamageType.Fire, settings.FireExposure);
-            target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
-            { target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until); target.PresentationChanged?.Invoke(); }
-        }
+        ApplyIgniteFirePenaltyLocked(target, settings, now);
         if (playerIgnite && target.Hostile)
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
@@ -249,6 +248,16 @@ public static partial class Game
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         return [];
+    }
+
+    static void ApplyIgniteFirePenaltyLocked(SpawnedMonster target, MonsterIgnites.Settings settings, double now)
+    {
+        if (settings.FireExposure >= 0) return;
+        double until = now + settings.Seconds;
+        var key = (DamageType.Fire, settings.FireExposure);
+        target.Exposures[key] = Math.Max(target.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
+        target.ExposureUntil[0] = Math.Max(target.ExposureUntil[0], until);
+        target.PresentationChanged?.Invoke();
     }
 
     public static string IgnitedLog(uint id, SpawnedMonster target, bool critical, double now) =>

@@ -61,6 +61,7 @@ public sealed class SummonCatalog
             new("SummonHolyRelic", "HolyRelic", "Metadata/Monsters/AnimatedItem/HolyLivingRelic", Stat.BaseNumberOfRelicsAllowed, Stat.NumberOfActiveRelics, true, Targetable: false),
             new("VaalAnimateWeapon", "VaalAnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveVaalAnimatedWeapons),
             new("AnimateWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.Of("active_animated_weapon_count")),
+            new("AnimateGuardiansWeapon", "AnimatedWeapon", "Metadata/Monsters/AnimatedItem/AnimatedWeapon", Stat.BaseNumberOfAnimatedWeaponsAllowed, Stat.NumberOfActiveAnimatedWeapons),
             new("AnimateGuardian", "AnimatedGuardian", "Metadata/Monsters/AnimatedItem/AnimatedArmour", 0, Stat.Of("active_animated_guardian_count"), true),
             new("BlinkArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
             new("MirrorArrow", "Clone", "Metadata/Monsters/Clone/MarauderCloneImmobile", Stat.Of("base_number_of_mirror_arrow_clones_allowed"), 0, Follows: false),
@@ -110,7 +111,8 @@ public sealed class SummonedMinions
         GameServer.Core.Protocol.Instance.Item? Gem, double Until);
     public readonly Dictionary<(uint Id, ushort Source), HitMark> HitMarks = [];
     public sealed record HitSummon(uint Target, SpawnedMonster Monster, ushort Source, int Effect,
-        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "");
+        GameServer.Core.Protocol.Instance.Item? Gem, bool ConsumeCorpse, string Kind = "", string Supports = "",
+        GameServer.Core.Protocol.Instance.Item? Weapon = null);
     public readonly List<HitSummon> HitSummons = [];
     public readonly Dictionary<uint, GameServer.Core.Protocol.Instance.MinionOwnershipChange> PresentedOwnership = [];
     public Dictionary<byte, GameServer.Core.Protocol.Instance.Item> GuardianEquipment = [];

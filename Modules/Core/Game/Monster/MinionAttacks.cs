@@ -86,7 +86,8 @@ public static partial class Game
             offense = offense.Scale(MeatShieldDamage(player, companion.SkillStats, t, now));
         var mitigated = MitigateMonsterHit(t, offense.Roll(random), now,
             cannotPenetrateOrIgnore: m.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
-        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
+        bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, m.Effects, t, random, supported?.Stats);
+        int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now, ignorePhysicalReduction: ignorePhysical);
         var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(StatSourceValues(player), t, now) : default;
         if (ApplyMonsterHitLocked(player, t, damage, allyAt: at, cull: cull) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
@@ -178,10 +179,11 @@ public static partial class Game
                             HitAngle(to.X - at.X, to.Y - at.Y)),
                             $"0x01af minion 0x{id:x} hit on monster 0x{target.Id:x}", target.Id, target.Monster, WorldId: id));
                         bool owned = player.Minions.Owns(id, m);
-                        IReadOnlyDictionary<uint, int>? skill = owned ? OwnedFighter(player, id)?.Own : null;
+                        var fighter = owned ? OwnedFighter(player, id) : null;
+                        IReadOnlyDictionary<uint, int>? skill = fighter?.Own;
                         if (owned && skill is null && player.Beasts.Active is { } beast && beast.Id == id) skill = beast.SkillStats;
                         CommitMinionHitLocked(player, target.Id, target.Monster, accepted.Hit, accepted.Damage, now,
-                            $"minion 0x{id:x} ({m.Label})", source: owned ? m : null, skill: skill);
+                            $"minion 0x{id:x} ({m.Label})", source: owned ? m : null, skill: skill, fighter: fighter);
                     }
                     break;
                 }

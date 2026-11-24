@@ -300,6 +300,8 @@ public static partial class Game
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
+        if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
+            QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
@@ -394,17 +396,12 @@ public static partial class Game
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
-        if (!m.Fleeing && MonsterFlee.Rolls(fleeChance, m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player)))
+        if (TryFleeFromHitLocked(player, m, player.Walk.Position(now), fleeChance, now))
         {
-            int size = Math.Max(0, LivingCollision.Size(m));
-            m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), player.Walk.Position(now),
-                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
-            m.Fleeing = m.FleeTo is not null;
             // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing
             // monster reads as broken AI (reported live 2026-11-23).
-            if (m.Fleeing)
-                Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
-                    $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
+            Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
+                $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
         if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;
@@ -413,6 +410,16 @@ public static partial class Game
         if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(player, added, now, playerStats, random);
+    }
+
+    static bool TryFleeFromHitLocked(Player player, SpawnedMonster monster, (int X, int Y) from, int chance, double now)
+    {
+        if (chance <= 0 || monster.Fleeing
+            || !MonsterFlee.Rolls(chance, monster.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player))) return false;
+        int size = Math.Max(0, LivingCollision.Size(monster));
+        monster.FleeTo = MonsterFlee.Point(monster.Walk.Position(now), from,
+            (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
+        return monster.Fleeing = monster.FleeTo is not null;
     }
 
     internal static void ReflectPendingAilmentsLocked(Player player, List<MonsterElementalAilments.Effect> pending,
@@ -504,16 +511,7 @@ public static partial class Game
             }
         }
         double action = MonsterActionFactor(m, now, freeze: false);
-        // Maim changes movement only: fold its -30 into the movement bucket rather than scaling action speed. So does
-        // Bear Trap's more-multiplier: the client's walk reads movement_velocity_+%, not bear_trap_movement_speed_+%_final.
-        bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
-        var movement = MaimedMovementFactor(m, now);
-        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? 0.8 : 1.0);
-        if (lessMove != 1 && !(speedFloored && lessMove < 1))
-            movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
-        double walk = (speedFloored ? Math.Max(1, action) : action)
-            * movement.Factor;
-        if (!speedFloored) walk *= vines;
+        var (walk, movementPct) = MonsterWalkModifiers(m, now, action, vines, trap, snare);
         if (walk != a.WalkFactor)
         {
             // PlayerWalk cannot represent zero. Keep the last recoverable speed so thawing or an expiry can restore
@@ -542,18 +540,30 @@ public static partial class Game
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed
-            ? !maimShown || movement.Pct != m.MaimedMovementShownPct
-            : maimShown && movement.Pct != m.MaimedMovementShownPct;
+            ? !maimShown || movementPct != m.MaimedMovementShownPct
+            : maimShown && movementPct != m.MaimedMovementShownPct;
         m.MaimedMovementShown = maimed;
         if (movementChanged)
         {
-            m.MaimedMovementShownPct = movement.Pct;
-            SetStats(player, id, [(Stat.MovementVelocityPlusPct, movement.Pct)]);
+            m.MaimedMovementShownPct = movementPct;
+            SetStats(player, id, [(Stat.MovementVelocityPlusPct, movementPct)]);
         }
         else if (!m.MaimedMovementShown)
         {
             m.MaimedMovementShownPct = 0;
         }
+    }
+
+    static (double Factor, int Pct) MonsterWalkModifiers(SpawnedMonster m, double now, double action, double vines, double trap, double snare)
+    {
+        // Maim changes movement only. Bear Trap's movement multiplier also enters the client's movement_velocity stat.
+        bool speedFloored = m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0;
+        var movement = MaimedMovementFactor(m, now);
+        double lessMove = trap * snare * (now < m.CoveredInAshUntil ? .8 : 1);
+        if (lessMove != 1 && !(speedFloored && lessMove < 1))
+            movement = (movement.Factor * lessMove, (int)Math.Round((100 + movement.Pct) * lessMove - 100));
+        double walk = (speedFloored ? Math.Max(1, action) : action) * movement.Factor;
+        return (speedFloored ? walk : walk * vines, movement.Pct);
     }
 
     /// <summary>

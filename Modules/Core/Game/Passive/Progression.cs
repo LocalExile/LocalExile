@@ -807,6 +807,7 @@ public static partial class Game
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);
         AbyssJewels.Count(active, catalog, Stats, sources);
+        ApplySocketedGhastlyEyeSpectreLimit(active, catalog, sources);
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -1076,6 +1077,10 @@ public static partial class Game
         auras = AffectingAuras(player);
         var aura = AuraCatalog.Bonus(auras.Where(a => a.AffectsSelf), bonus.AuraEffectPct, SkillsFor(player), Stats);
         aura = WithTemporaryAuraBonus(auras, bonus.AuraEffectPct, aura);
+        int sentinelChaos = 0;
+        foreach (var sentinel in DivineSentinelAurasReaching(player, player.Id))
+            foreach (var (key, value) in sentinel.Stats)
+                if (key == Stat.BaseChaosDamageResistancePct) sentinelChaos += value;
         int CatInput(uint key) => sources.GetValueOrDefault(key);
         var cat = CatAspectPhaseStatsLocked(player, bonus.AuraEffectPct, CatInput);
         bonus = bonus with
@@ -1116,7 +1121,7 @@ public static partial class Game
             FireResistance = bonus.FireResistance + aura.FireResistance,
             ColdResistance = bonus.ColdResistance + aura.ColdResistance,
             LightningResistance = bonus.LightningResistance + aura.LightningResistance,
-            ChaosResistance = bonus.ChaosResistance + aura.ChaosResistance,
+            ChaosResistance = bonus.ChaosResistance + aura.ChaosResistance + sentinelChaos,
             FireMaxResistance = bonus.FireMaxResistance + aura.FireMaxResistance,
             ColdMaxResistance = bonus.ColdMaxResistance + aura.ColdMaxResistance,
             LightningMaxResistance = bonus.LightningMaxResistance + aura.LightningMaxResistance,

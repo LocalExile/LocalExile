@@ -58,6 +58,7 @@ public static partial class Game
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
         if (!Current()) return;
         RetireDisallowedMinions(player, now);
+        RetireDarkMonarchMinions(player, now);
         foreach (var tick in GameEvents.CompanionTick.For(player))
         {
             if (!Current()) return;
@@ -97,7 +98,8 @@ public static partial class Game
         using (ProjectileMutation(player))
         {
             if (!Current() || player.Closed || player.LeavingArea) return;
-            bool keep = player.PlayerLife > 0 && RelicTriggerOf(player) is not null;
+            bool keep = player.PlayerLife > 0 && RelicTriggerOf(player) is not null
+                && DarkMonarchAllows("ElementalRelic", StatSourceValues(player));
             summons = keep ? player.Minions.PendingRelics : 0;
             if (!keep) player.Minions.PendingRelics = 0;
             RemoveMinionBodiesLocked(player, now);
@@ -156,6 +158,11 @@ public static partial class Game
             if (bytes.Count > 0) player.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
             bytes.Clear();
             if (minion.OwnerAura is not { } aura) continue;
+            if (aura.SharesWithAllies)
+            {
+                SyncDivineSentinelAura(player, minion, aura, now);
+                continue;
+            }
             // The aura is a zone around the minion that reaches its owner (OwnedZones).
             SyncZones(player, minion.Id, MinionAuraZones, [(0u, aura.Radius, default((int, int)))],
                 new(ReachesOnly(player.Id), new EntityId(minion.Id)));
@@ -175,6 +182,7 @@ public static partial class Game
     {
         List<PlayerMinions.Aura> auras;
         auras = [.. player.Minions.All.Where(m => m.OwnerBuff != 0).Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>()];
+        auras.AddRange(DivineSentinelAurasReaching(player, player.Id));
         foreach (var aura in auras)
         {
             var same = own.Where(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(aura.EffectId)).ToList();
@@ -241,7 +249,8 @@ public static partial class Game
                     Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
                 });
             }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0
-                && RelicTriggerOf(player) is not null && CanHaveOtherMinions(player));
+                && RelicTriggerOf(player) is not null && CanHaveOtherMinions(player)
+                && DarkMonarchAllows("ElementalRelic", StatSourceValues(player)));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {element} Relic summoned at level {level} for {seconds:0.##} s" +
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));

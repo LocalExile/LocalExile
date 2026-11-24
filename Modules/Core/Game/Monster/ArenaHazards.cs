@@ -100,11 +100,12 @@ internal static class ArenaHazards
                 bool elementalImmune = g.Definition.IsGolem && (MinionStat(global::Stat.GolemImmunityToElementalDamage) != 0
                     || g.Definition.Kind is "Flame" or "Ice" or "Lightning" && MinionStat(global::Stat.ElementalGolemImmunityToElementalDamage) != 0);
                 double amount = e.MinionCarry.GetValueOrDefault(g.Id);
+                double soulLink = MinionSoulLinkDamageTaken(p, g, now);
                 foreach (var type in DamageTypes.ConversionOrder)
                 {
                     if (elementalImmune && DamageTypes.IsElemental(type)) continue;
                     var res = MonsterHitResistance(g.Monster, type, default);
-                    amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds;
+                    amount += DamageModel.Mitigate(packet[type].Min, res.Value, res.Maximum) * seconds * soulLink;
                 }
                 int damage = (int)Math.Min(int.MaxValue, Math.Floor(amount)); e.MinionCarry[g.Id] = amount - damage;
                 int beforeShield = damage;

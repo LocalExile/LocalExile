@@ -20,7 +20,9 @@ public sealed class GolemState
         public object? SourceIdentity;
         public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
+        public bool RestoredInArea;
         public double FreshMeatUntil;
+        public double OnslaughtUntil;
         public double Regeneration;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;
@@ -39,7 +41,7 @@ public sealed class GolemState
         public Dictionary<byte, Item> Equipment = [];
         public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
-        public double HolyRegenerationUntil, HolyRegenerationPerSecond;
+        public double HolyRegenerationSince, HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public Charges.State? CombatCharges;
         public IReadOnlyList<GrantedSkill> Skills = [];

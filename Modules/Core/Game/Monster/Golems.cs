@@ -201,6 +201,15 @@ public static partial class Game
         old.Bleeds.MoveTo(target.Bleeds);
         old.Poisons.MoveTo(target.Poisons);
         old.Ailments.MoveTo(target.Ailments);
+        if (MinionLifeLeeches.TryGetValue(oldGolem, out var leech))
+            MinionLifeLeeches.Add(replacement, leech);
+        if (MinionShieldLeeches.TryGetValue(oldGolem, out var shieldLeech))
+            MinionShieldLeeches.Add(replacement, shieldLeech);
+        if (MinionFortification.TryGetValue(oldGolem, out var fortification))
+        {
+            fortification.PresentedRevision = -1;
+            MinionFortification.Add(replacement, fortification);
+        }
 
         target.ReceivedActionFactor = old.ReceivedActionFactor;
         target.ReceivedActionUntil = old.ReceivedActionUntil;
@@ -208,9 +217,11 @@ public static partial class Game
         target.RecipientDebuffRate = old.RecipientDebuffRate;
         target.FlinchUntil = old.FlinchUntil;
         target.StunImmuneUntil = old.StunImmuneUntil;
+        replacement.OnslaughtUntil = oldGolem.OnslaughtUntil;
         if (double.IsFinite(old.BusyUntil) && old.BusyUntil > now) target.BusyUntil = old.BusyUntil;
         if (oldGolem.HolyRegenerationUntil > now)
         {
+            replacement.HolyRegenerationSince = oldGolem.HolyRegenerationSince;
             replacement.HolyRegenerationUntil = oldGolem.HolyRegenerationUntil;
             replacement.HolyRegenerationPerSecond = oldGolem.HolyRegenerationPerSecond;
         }
@@ -408,9 +419,9 @@ public static partial class Game
             || !CanHaveMinion(playerStats, OwnedMinionFamily.Golem)
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
+        if (!DarkMonarchAllows("Golem", playerStats)) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);
-        int Player(uint name) => GolemStat(playerStats, name);
-        int limit = GolemCatalog.Limit(Own(Stat.BaseNumberOfGolemsAllowed), Player);
+        int limit = GolemRosterLimit(Own(Stat.BaseNumberOfGolemsAllowed), playerStats);
         if (limit == 0) return 0;
         byte level = (byte)Math.Clamp(Own(Stat.BaseDisplayMinionActorLevel), 1, 100);
         double remaining = arrival && double.IsFinite(summonedSecondsRemaining)
@@ -506,7 +517,12 @@ public static partial class Game
 
     static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
     {
+        if (player.Minions.All.FirstOrDefault(minion => minion.Id == golem.Id)?.OwnerAura is { SharesWithAllies: true } aura)
+            ClearDivineSentinelAura(player, golem.Id, aura);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
+        MinionLifeLeeches.Remove(golem);
+        MinionShieldLeeches.Remove(golem);
+        MinionFortification.Remove(golem);
         player.Golems.IncomingHits.RemoveAll(hit => ReferenceEquals(hit.Target, golem));
         golem.Pending = null;
         foreach (var hazard in golem.Hazards) if (hazard.Object is uint art)
@@ -659,7 +675,7 @@ public static partial class Game
                     continue;
                 }
                 golem.Own = new(gem.Stats); golem.GemLevel = gem.Level; golem.Quality = gem.Quality;
-                golem.Limit = GolemCatalog.Limit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), n => GolemStat(playerStats, n));
+                golem.Limit = GolemRosterLimit(GolemStat(gem.Stats, Stat.BaseNumberOfGolemsAllowed), playerStats);
                 int level = GolemStat(gem.Stats, Stat.BaseDisplayMinionActorLevel);
                 if (level != golem.Monster.Level)
                 {

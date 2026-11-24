@@ -4,9 +4,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    sealed record MinionAilmentProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
-        MonsterPoisons.Settings Poison, int PoisonChance);
-    static readonly RuleTable<GolemState.Ability, MinionAilmentProfile> MinionAilmentProfiles = new();
+    sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
+        MonsterPoisons.Settings Poison, int PoisonChance, Penetration.PerType Penetration, DamagePacket LifeLeech, DamagePacket ShieldLeech);
+    static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
         DamagePacket mitigated, double now, Random random)
@@ -29,11 +29,10 @@ public static partial class Game
             Expose(target, element, DefaultExposure, now);
     }
 
-    static void MinionAilmentsLocked(Player player, GolemState.Golem fighter, GolemState.Ability ability,
-        uint id, SpawnedMonster target, bool critical, double now)
+    static void MinionAilmentsLocked(Player player, GolemState.Ability ability,
+        uint id, SpawnedMonster target, bool critical, double now, double factor)
     {
-        if (!MinionAilmentProfiles.TryGetValue(ability, out var profile)) return;
-        double factor = DoedreSewers.MinionDamageFactor(player) * MinionTacticsDamage(player, fighter, id, target, now);
+        if (!MinionHitProfiles.TryGetValue(ability, out var profile)) return;
         if (factor != 1)
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
@@ -44,12 +43,13 @@ public static partial class Game
                     CriticalMin = poison.CriticalMin * factor, CriticalMax = poison.CriticalMax * factor } };
         }
         var packets = new List<byte[]>();
-        if (target.Ignites.TryApply(profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) }, critical, now,
-            target.Effects[Stat.AvoidIgnitePct],
-            target.Effects[Stat.ImmuneToIgnite] != 0, AreaRng(player)))
+        var ignite = profile.Ignite with { Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]) };
+        if (target.Ignites.TryApply(ignite, critical, now, target.Effects[Stat.AvoidIgnitePct],
+            target.Effects[Stat.ImmuneToIgnite] != 0 || target.Effects[Stat.CannotBeIgnited] != 0, AreaRng(player)))
         {
             player.Area.ActiveIgniteMonsters.Add(id);
             player.Area.RecentlyIgnitedMonsters.Add(id);
+            ApplyIgniteFirePenaltyLocked(target, ignite, now);
             ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         }
         if (BleedOnHitLocked(player, id, target, profile.Bleed, critical, now) is { } bleeding) packets.AddRange(bleeding);

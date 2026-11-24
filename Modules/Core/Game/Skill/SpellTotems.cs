@@ -217,7 +217,9 @@ public static partial class Game
             uint summonTarget = 0;
             if (summon is { Corpse: true } && SummonNeedsCorpse(summon, CharacterPlayerStats(player)))
             {
-                if (SummonCorpse(player, totem.At, 0, range) is not { } corpse) continue;
+                var spell = SupportedSkill(player, totem.SkillId);
+                if (SummonCorpse(player, totem.At, 0, range,
+                    GolemStat(spell.Stats, Stat.CannotUseSpectreCorpses) != 0) is not { } corpse) continue;
                 summonTarget = player.Area.Monsters.First(p => ReferenceEquals(p.Value, corpse)).Key;
                 aim = corpse.Walk.Position(now);
             }

@@ -27,6 +27,16 @@ public static partial class Game
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state) || player.LeavingArea) return 0;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
+        int total = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
+        int diverted = MinionsTakeOwnerHitLocked(player, total, at, playerStats);
+        if (diverted > 0)
+        {
+            long keptTotal = total - diverted;
+            int keptNonChaos = (int)(((long)physical + other) * keptTotal / total);
+            physical = (int)(physical * keptTotal / total);
+            other = keptNonChaos - physical;
+            chaos = (int)keptTotal - keptNonChaos;
+        }
         // Redirect the combined non-chaos hit before Ward, retaining the physical share.
         int nonChaos = (int)Math.Min(int.MaxValue, (long)physical + other);
         var kept = TotemsTakeHitLocked(player, nonChaos, chaos, at, playerStats);
@@ -46,7 +56,7 @@ public static partial class Game
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
         (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
-        RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
+        RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos + diverted), at);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
         bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;

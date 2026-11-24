@@ -46,8 +46,9 @@ public static partial class Game
         if (Monsters.Find(path) is not { Supported: true } variety) return;
         var supported = SupportedSkill(player, aura.SkillId);
         if (!supported.RequirementsMet) return;
-        int limit = kind == "Purity" ? ReservationStat(player, aura, Stat.BaseNumberOfChampionsOfLightAllowed)
-            + GolemStat(CharacterPlayerStats(player), Stat.BaseNumberOfChampionsOfLightAllowed) : 1;
+        var playerStats = CharacterPlayerStats(player);
+        if (!DarkMonarchAllows(kind, playerStats)) return;
+        int limit = kind == "Purity" ? PurityMinionLimit(supported, playerStats) : 1;
         if (limit <= 0) return;
         if (ReservationAura(player, aura.EffectId) is null) return;
         var existing = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind == kind && !g.Monster.Dead).ToArray();
@@ -65,7 +66,6 @@ public static partial class Game
         byte level = (byte)Math.Clamp(GolemStat(supported.Stats, Stat.BaseDisplayMinionActorLevel) is > 0 and var actorLevel
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
-        var playerStats = CharacterPlayerStats(player);
         if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other)) return;
         bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         double summonDuration = kind == "Purity"
@@ -95,7 +95,8 @@ public static partial class Game
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
             ownedInitialDeath: pools.Fatal,
-            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId && CanHaveOtherMinions(player),
+            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId
+                && CanHaveOtherMinions(player) && DarkMonarchAllows(kind, StatSourceValues(player)),
             owned: (id, monster) =>
             {
                 double committed = AreaTime(player);
@@ -106,14 +107,21 @@ public static partial class Game
                 monster.Mods = mods;
                 player.Reservations.Fighters.Add(id, fighter);
                 player.Reservations.Until[id] = double.IsFinite(summonDuration) ? committed + summonDuration : double.PositiveInfinity;
-                player.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = player.Reservations.Until[id] });
+                player.Minions.Add(new(id, monster, aura.EffectId, kind)
+                { Until = player.Reservations.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter) });
                 monster.NoRewards = true; monster.Aggro = true;
                 if (pools.Fatal) GolemDieLocked(player, fighter, committed, emitLife: false);
             });
     }
 
+    static int PurityMinionLimit(SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats) =>
+        (int)Math.Clamp(DarkMonarchLimit("Purity",
+            (long)GolemStat(gem.Stats, Stat.BaseNumberOfChampionsOfLightAllowed)
+            + GolemStat(playerStats, Stat.BaseNumberOfChampionsOfLightAllowed), playerStats), 0, 200);
+
     static void RemoveReservationFighterLocked(Player player, GolemState.Golem fighter, double now)
     {
+        ClearSkitterAuraLocked(fighter);
         player.Reservations.Fighters.Remove(fighter.Id);
         player.Reservations.Until.Remove(fighter.Id);
         RemoveGolemLocked(player, fighter, now);
@@ -147,6 +155,13 @@ public static partial class Game
             bool refresh = now >= state.RefreshFightersAt;
             if (refresh) state.RefreshFightersAt = now + .5;
             var playerStats = refresh && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
+            if (playerStats is not null && ReservationAura(player, "HeraldOfPurity") is { } purity)
+            {
+                int limit = PurityMinionLimit(SupportedSkill(player, purity.SkillId), playerStats);
+                foreach (var excess in state.Fighters.Values.Where(fighter => fighter.Definition.Kind == "Purity")
+                    .OrderByDescending(fighter => state.Until[fighter.Id]).Skip(limit).ToArray())
+                    RemoveReservationFighterLocked(player, excess, now);
+            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (!player.Auras.TryGetValue(fighter.Source, out var aura)) continue;
@@ -159,15 +174,7 @@ public static partial class Game
                 GolemStepLocked(player, fighter, now);
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0
                     || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
-                bool cold = fighter.Definition.Kind == "SkitterCold";
-                int auraRadius = SkitterAuraRadius(fighter);
-                var botAt = fighter.Monster.Walk.Position(now);
-                foreach (var monster in player.Area.Monsters.Values)
-                    if (monster is { Hostile: true, Dead: false, Life: > 0 }
-                        && Dist(monster.Walk.Position(now), botAt) <= auraRadius)
-                        monster.Ailments.WithoutDamage(cold ? MonsterElementalAilments.Kind.Chill : MonsterElementalAilments.Kind.Shock,
-                            .5, now, n => SkitterAilmentStat(fighter, n),
-                            n => monster.Mods.Effects[n]);
+                SkitterAuraTickLocked(player, fighter, now);
             }
         }
         if (ReservationAura(player, "HeraldOfAgony") is { } activeAgony && state.Virulence > 0)

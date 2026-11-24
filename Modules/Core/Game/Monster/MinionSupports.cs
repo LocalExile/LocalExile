@@ -38,13 +38,13 @@ public static partial class Game
     {
         var scaled = original with { Attack = original.Attack with { Damage = original.Attack.Damage.Scale(hitMore) },
             Stats = stats ?? original.Stats };
-        if (MinionAilmentProfiles.TryGetValue(original, out var profile))
+        if (MinionHitProfiles.TryGetValue(original, out var profile))
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
             { Min = s.Min * ailmentMore, Max = s.Max * ailmentMore,
                 CriticalMin = s.CriticalMin * ailmentMore, CriticalMax = s.CriticalMax * ailmentMore };
             var p = profile.Poison;
-            MinionAilmentProfiles.Add(scaled, profile with { Ignite = Scale(profile.Ignite), Bleed = Scale(profile.Bleed),
+            MinionHitProfiles.Add(scaled, profile with { Ignite = Scale(profile.Ignite), Bleed = Scale(profile.Bleed),
                 Poison = p with { Min = p.Min * ailmentMore, Max = p.Max * ailmentMore,
                     CriticalMin = p.CriticalMin * ailmentMore, CriticalMax = p.CriticalMax * ailmentMore } });
         }

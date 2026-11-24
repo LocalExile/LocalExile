@@ -36,7 +36,10 @@ public sealed class PlayerMinions
 
     /// <summary>An aura a minion casts on its owner: the skill, its BuffDefinitions row, its radius (cells) and its stats.
     /// The owner's aura effect does not scale it: it is the minion's skill, not his.</summary>
-    public sealed record Aura(string EffectId, ushort BuffRow, int Radius, IReadOnlyList<(uint Key, int Value)> Stats);
+    public sealed record Aura(string EffectId, ushort BuffRow, int Radius, IReadOnlyList<(uint Key, int Value)> Stats)
+    {
+        public bool SharesWithAllies { get; init; }
+    }
 
     /// <summary>A death explosion: this percent of the minion's maximum life as this type of damage to the hostile monsters
     /// within the radius (cells).</summary>

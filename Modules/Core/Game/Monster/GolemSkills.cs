@@ -6,6 +6,7 @@ public static partial class Game
     const uint FreshMeatDurationPercent = Stat.SupportRecentMinionsEffectDurationIsPctSummonDuration;
     const uint WakenedFuryChance = Stat.SupportRecentMinionsAdditionalCriticalStrikeChanceFromWakenedFury;
     const uint WakenedFuryMultiplier = Stat.SupportRecentMinionsAdditionalCriticalStrikeMultiplierFromWakenedFury;
+    const string UsedMinionSkillRecently = "used_minion_skill";
 
     static double FreshMeatSeconds(IReadOnlyDictionary<uint, int> own, double summonSeconds)
     {
@@ -27,6 +28,18 @@ public static partial class Game
     public static int GolemRecentDamageIncrease(GolemState.Golem golem, double at) =>
         GolemSummonedInPastEightSeconds(golem, at)
             ? GolemStat(golem.Player, Stat.GolemDamagePlusPctIfSummonedInPast8Seconds) : 0;
+
+    static bool HasRecentCreationEffects(IReadOnlyDictionary<uint, int> stats) =>
+        GolemStat(stats, Stat.MinionSummonedRecentlyMovementSpeedPlusPct) != 0
+        || GolemStat(stats, Stat.MinionSummonedRecentlyAttackAndCastSpeedPlusPct) != 0
+        || GolemStat(stats, Stat.MinionSummonedRecentlyCannotBeDamaged) != 0;
+
+    static bool MinionCreatedRecently(GolemState.Golem golem, double now) =>
+        !golem.RestoredInArea && now >= golem.SummonedAt && now < golem.SummonedAt + RecentEvents.WindowSeconds;
+
+    static bool OwnerUsedMinionSkillRecently(Player player, IReadOnlyDictionary<uint, int> stats, double now) =>
+        GolemStat(stats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently) != 0
+        && player.RecentEvents.Happened(UsedMinionSkillRecently, now);
 
     public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
@@ -53,7 +66,9 @@ public static partial class Game
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
-                    "skill_area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
+                    "maximum_all_elemental_resistances_%" => Stat.AdditionalMaximumAllElementalResistancesPct,
+                    "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
+                    "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
                     var plain => Stat.Of(plain),
                 };
             else if (key is Stat.EnergyShieldPlusPctFinalForMinion or Stat.MinionsHaveNoArmourOrEnergyShield)
@@ -69,12 +84,41 @@ public static partial class Game
             if (name is "is_totem" or "base_skill_is_totemified" or "skill_is_totemified" or "is_ranged_attack_totem") continue;
             uint id = key;
             if (name.StartsWith("minion_", StringComparison.Ordinal)) id = Stat.Of(name = name[7..]);
+            if (key == Stat.MinionAreaOfEffectPlusPct) id = Stat.BaseSkillAreaOfEffectPlusPct;
             // SupportedSkill already projects its global added damage into the attack and spell forms.
             if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
                 && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[id] = values.GetValueOrDefault(id) + value;
         }
-        if (FreshMeatActive(golem, double.IsNegativeInfinity(at) ? AreaTime(player) : at))
+        double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
+        if (OwnerUsedMinionSkillRecently(player, playerStats, now))
+            values[Stat.DamagePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.DamagePlusPct)
+                + GolemStat(playerStats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently));
+        if (MinionCreatedRecently(golem, now) && HasRecentCreationEffects(playerStats))
+        {
+            values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
+                + GolemStat(playerStats, Stat.MinionSummonedRecentlyMovementSpeedPlusPct));
+            values[Stat.AttackAndCastSpeedPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct)
+                + GolemStat(playerStats, Stat.MinionSummonedRecentlyAttackAndCastSpeedPlusPct));
+            if (GolemStat(playerStats, Stat.MinionSummonedRecentlyCannotBeDamaged) != 0)
+                values[Stat.BaseCannotBeDamaged] = 1;
+        }
+        var link = MinionLinkOffenceAt(player, golem, playerStats, now);
+        void AddLinkStat(uint stat, int value)
+        {
+            if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
+        }
+        AddLinkStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
+        AddLinkStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
+        AddLinkStat(Stat.BaseChanceToIgnitePct, link.Ignite);
+        AddLinkStat(Stat.BaseCriticalStrikeMultiplierPlus, link.CritMultiplier);
+        AddLinkStat(Stat.AccuracyRatingPlusPct, link.Accuracy);
+        if (link.MainHandCrit is int linkedCrit)
+        {
+            values[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] = 1;
+            values[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink] = linkedCrit;
+        }
+        if (FreshMeatActive(golem, now))
         {
             foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
                 values[key] = ActorScale.Saturate((long)values.GetValueOrDefault(key) + value);
@@ -84,6 +128,29 @@ public static partial class Game
         }
         foreach (var (name, value) in golem.Auras.Concat(golem.Utility)) values[name] = values.GetValueOrDefault(name) + value;
         foreach (var (name, value) in golem.Gear) values[name] = values.GetValueOrDefault(name) + value;
+        if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
+        {
+            const uint conversion = Stat.PhysicalDamagePctToConvertToChaos;
+            values[conversion] = ActorScale.Saturate((long)values.GetValueOrDefault(conversion)
+                + GolemStat(playerStats, Stat.SummonedSkeletonPctPhysicalToChaos));
+            values[Stat.WitheredOnHitFor2SecondsPctChance] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.WitheredOnHitFor2SecondsPctChance)
+                + GolemStat(playerStats, Stat.SummonedSkeletonPctChanceToWitherFor2Seconds));
+        }
+        AddMapMinionActionStats(MapModsOf(player), values);
+        if (LivingZombieCorpse(golem, playerStats)) values[Stat.IsUsableAsCorpseWhenAlive] = 1;
+        if (SpectreSurges.TryGetValue(golem, out var surge) && now < surge.Until)
+        {
+            values[Stat.CastSpeedPlusPct] = values.GetValueOrDefault(Stat.CastSpeedPlusPct) + ArcaneSurgeCastSpeedPct;
+            values[Stat.ManaRegenerationRatePlusPct] = values.GetValueOrDefault(Stat.ManaRegenerationRatePlusPct) + ArcaneSurgeManaRegenPct;
+            values[Stat.HasArcaneSurge] = 1;
+        }
+        if (now < golem.OnslaughtUntil && ItemsFor(player).Onslaught is { } onslaught)
+        {
+            double effect = Math.Max(0, 1 + values.GetValueOrDefault(Stat.OnslaughtEffectPlusPct) / 100d);
+            foreach (var source in UtilityFlasks.OnslaughtSources(onslaught, effect))
+                values[source.Stat] = ActorScale.Saturate((long)values.GetValueOrDefault(source.Stat) + source.Value);
+            values[Stat.CurrentlyHasOnslaught] = 1;
+        }
         if (golem.CombatCharges is { } charges)
         {
             int frenzy = charges.Held(ChargeType.Frenzy);
@@ -91,6 +158,11 @@ public static partial class Game
             values[Stat.CastSpeedPlusPct] = values.GetValueOrDefault(Stat.CastSpeedPlusPct) + 4 * frenzy;
             values[Stat.CriticalStrikeChancePlusPct] = values.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct)
                 + 50 * charges.Held(ChargeType.Power);
+            int endurance = charges.Held(ChargeType.Endurance);
+            values[Stat.BaseAdditionalPhysicalDamageReductionPct] = values.GetValueOrDefault(Stat.BaseAdditionalPhysicalDamageReductionPct)
+                + 4 * endurance;
+            values[Stat.AdditionalElementalDamageReductionPct] = values.GetValueOrDefault(Stat.AdditionalElementalDamageReductionPct)
+                + 4 * endurance;
         }
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
@@ -135,6 +207,8 @@ public static partial class Game
             Inherit("fire", owner.Fire); Inherit("cold", owner.Cold);
             Inherit("lightning", owner.Lightning); Inherit("chaos", owner.Chaos);
         }
+        if (values.GetValueOrDefault(Stat.MinionsHaveNoArmourOrEnergyShield) != 0)
+            values.Remove(Stat.BasePhysicalDamageReductionRating);
         if (!golem.Definition.IsGolem)
         {
             if (golem.Definition.Kind == "RagingSpirit" && Get(Stat.RagingSpiritDamagePlusPct) is int spiritDamage and not 0)
@@ -266,6 +340,7 @@ public static partial class Game
             ? WeaponFor(player).AttackMs : golem.Weapon?.AttackMs ?? variety.AttackMs;
         double zombiePhysicalMore = golem.Definition.Kind == "Zombie"
             ? Math.Max(0, 1 + GolemStat(playerStats, Stat.ZombiePhysicalDamagePlusPctFinal) / 100d) : 1;
+        int? ownerAttackCrit = MinionOwnerAttackCritical(player, playerStats);
         int Own(uint name) => GolemStat(golem.Own, name);
         foreach (var (effect, index) in (variety.GrantedEffects ?? []).Select((e, i) => (e, i)))
         {
@@ -281,6 +356,10 @@ public static partial class Game
             }
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
+            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
+                projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
+            bool projectileSkill = projectile is not null || Raw(Stat.BaseIsProjectile) != 0 || catalog.IsProjectile(effect);
             double seconds = (spell || Raw(Stat.CastTimeOverridesAttackDuration) != 0) && catalog.CastTimeMs(effect) > 0
                 ? catalog.CastTimeMs(effect) / 1000.0 : attackMs / 1000.0;
             double speed = (1 + mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d) * (1 + (spell ? mods[Stat.CastSpeedPlusPct] + mods[Stat.BaseCastSpeedPlusPct] + mods[Stat.AttackAndCastSpeedPlusPct] : mods[Stat.AttackSpeedPlusPct] + Raw(Stat.AttackSpeedPlusPct)) / 100.0);
@@ -290,6 +369,8 @@ public static partial class Game
             if (!spell && catalog.IsMelee(effect))
                 speed *= (multistrike ? Math.Max(.01, 1 + Own(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100d) : 1)
                     * Math.Max(.01, 1 + Own(Stat.Of("support_melee_physical_attack_speed_+%_final")) / 100d);
+            if (!spell && projectileSkill)
+                speed *= Math.Max(.01, 1 + Own(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100d);
             if (!spell) speed *= Math.Max(.01, 1 + catalog.AttackSpeedMultiplier(effect, skillLevel) / 100.0);
             seconds = Math.Max(.1, seconds / Math.Max(.1, speed));
             var damage = DamagePacket.Empty;
@@ -302,7 +383,10 @@ public static partial class Game
                 }
             else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
-                if (crit == 0) crit = MinionWeaponCritical(player, golem);
+                if (ownerAttackCrit is int inheritedCrit) crit = inheritedCrit;
+                else if (crit == 0) crit = MinionWeaponCritical(player, golem);
+                if (mods[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
+                    crit = mods[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink];
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
                 damage = (golem.Weapon is { } equipped ? equipped.LocalDamage ?? DamagePacket.Of(DamageType.Physical, equipped.MinDamage, equipped.MaxDamage)
                     : DamagePacket.Of(DamageType.Physical, min, max)).Scale(multiplier);
@@ -342,6 +426,8 @@ public static partial class Game
                     conversion.AddGlobal(type, DamageType.Fire, 50);
             int DamageStat(uint name) => avatarOfFire && name == Stat.DealNoNonFireDamage ? 1 : mods[name] + Raw(name);
             if (effect == 306) conversion.AddSkill(DamageType.Physical, prismatic, 100);
+            if (golem.Definition.Kind == "HolyArmament")
+                conversion.AddSkill(DamageType.Physical, DamageType.Lightning, Own(Stat.SkillPhysicalDamagePctToConvertToLightning));
             var rawDamage = damage;
             double more = Math.Max(0, 1 + mods[Stat.MonsterRarityDamagePlusPctFinal] / 100d)
                 * Math.Max(0, 1 - mods[Stat.MonsterRarityAttackCastSpeedPlusPctAndDamageMinusPctFinal] / 100d)
@@ -356,9 +442,9 @@ public static partial class Game
             if (golem.Definition.Kind != "Reaper") more *= Math.Max(0, 1 + GolemStat(playerStats, Stat.ActiveSkillNonReaperMinionDamagePlusPctFinal) / 100d);
             var types = new HashSet<int>();
             if (spell) types.Add(1);
-            else { types.Add(0); if (catalog.IsMelee(effect) && golem.Weapon is not { Melee: false }) types.Add(19); }
+            else { types.Add(0); if (catalog.IsMelee(effect) && projectile is null && golem.Weapon is not { Melee: false }) types.Add(19); }
             if (Raw(Stat.IsAreaDamage) != 0) types.Add(7);
-            if (Raw(Stat.BaseIsProjectile) != 0) types.Add(2);
+            if (projectileSkill) types.Add(2);
             var supportStats = golem.Own.Select(p => (Id: p.Key, p.Value))
                 .Where(p => multistrike || p.Id != Stat.SupportMultipleAttackDamagePlusPctFinal).ToArray();
             var modified = DamagePacket.Empty;
@@ -383,10 +469,11 @@ public static partial class Game
                     ? Math.Max(0, 1 + Own(Stat.SupportMinionTotemResistanceElementalDamagePlusPctFinal) / 100.0) : 1;
                 modified = modified.Add(path.Type, path.Range.Scale(Math.Max(0, 1 + increase / 100) * more * physicalMore * auraMore * general * typed * elementalMore));
             }
-            damage = modified;
+            damage = spell ? modified : Volatility.Apply(modified, name => mods[name] + Raw(name));
             string id = catalog.EffectId(effect) ?? "";
             double range = spell ? Math.Max(20, 70 * (1 + Raw(Stat.SpellMaximumActionDistancePlusPct) / 100.0)) : variety.AttackRange;
             if (!spell && golem.Weapon is { } weapon) range = weapon.Melee ? weapon.Range : 70;
+            if (golem.Definition.Kind == "HolyArmament") range += Own(Stat.MinionMeleeRangePlus);
             if (effect == 9638) range = Math.Max(range, Raw(Stat.SmiteLightningTargetRange));
             if (id.Contains("Whirling", StringComparison.Ordinal) || id.Contains("Cyclone", StringComparison.Ordinal) || id.Contains("Leap", StringComparison.Ordinal)) range = 45;
             double radius = Raw(Stat.ActiveSkillBaseAreaOfEffectRadius);
@@ -396,11 +483,6 @@ public static partial class Game
                 * Math.Sqrt(Math.Max(0, 1 + (mods[Stat.BaseSkillAreaOfEffectPlusPct] + Raw(Stat.BaseSkillAreaOfEffectPlusPct)) / 100.0));
             ushort skill = (ushort)(0x4000 + index);
             var attack = new MonsterAttack(skill, seconds, range, damage) { Spell = spell, Ranged = spell || variety.RangedWeapon || golem.Weapon is { Melee: false }, Scripted = true };
-            var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true);
-            // Ice spear / Flame spray are named active skills rather than monster_projectile_spell rows.
-            projectile ??= GolemProjectile(effect, catalog);
-            if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
-                projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             var contact = projectile is null ? null : MonsterReleaseFor(player, variety, effect, level, projectile);
             double cd = catalog.CooldownMs(effect, skillLevel) / 1000.0 / Math.Max(.01, 1 +
                 (GolemStat(playerStats, Stat.MinionCooldownRecoveryPlusPct) + (golem.Definition.IsGolem ? GolemStat(playerStats, Stat.GolemCooldownRecoveryPlusPct) : 0) + Own(Stat.MinionCooldownRecoveryPlusPct)) / 100.0);
@@ -410,13 +492,25 @@ public static partial class Game
             int AilmentStat(uint name) => DamageStat(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
+            var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+                mods.Stats, raw, spell, hand, includeActorBaseArea: true);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
             double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
             var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
             int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
-            MinionAilmentProfiles.Add(ability, new(ignite, bleed, poison, chance));
+            var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
+            var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
+            int LeechStat(uint name) => mods[name] + Raw(name);
+            var lifeLeech = damage.MaxTotal > 0 && mods[Stat.CannotLeech] == 0 && mods[Stat.BaseCannotLeech] == 0
+                && mods[Stat.CannotLeechLife] == 0 && mods[Stat.BaseCannotLeechLife] == 0
+                ? LeechSources.Coefficients("life", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
+                : DamagePacket.Empty;
+            var shieldLeech = damage.MaxTotal > 0 && mods[Stat.CannotLeech] == 0 && mods[Stat.BaseCannotLeech] == 0
+                && mods[Stat.CannotLeechEnergyShield] == 0 && mods[Stat.BaseCannotLeechEnergyShield] == 0
+                ? LeechSources.Coefficients("energy_shield", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
+                : DamagePacket.Empty;
+            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance, penetration, lifeLeech, shieldLeech));
         }
         return result;
     }
@@ -430,6 +524,13 @@ public static partial class Game
             weapon.LocalSources?.GetValueOrDefault(Stat.LocalCriticalStrikeChance) ?? 0,
             weapon.LocalSources?.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct) ?? 0);
     }
+
+    static int? MinionOwnerAttackCritical(Player player, IReadOnlyDictionary<uint, int> stats) =>
+        GolemStat(stats, Stat.MinionsUseYourMainHandBaseCritChanceFromWeapon) != 0 && WeaponIn(player, ActiveMainHand(player)) is not null
+            ? HandWeaponCritical(player, AttackHand.Main) : null;
+
+    static bool LivingZombieCorpse(GolemState.Golem golem, IReadOnlyDictionary<uint, int> stats) =>
+        golem.Definition.Kind == "Zombie" && GolemStat(stats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
 
     static int GolemTether(IReadOnlyDictionary<uint, int> player, string kind)
     {
@@ -474,14 +575,28 @@ public static partial class Game
         var hash = new HashCode();
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
+        hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
+        hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
         hash.Add(FreshMeatActive(golem, now));
+        hash.Add(now < golem.OnslaughtUntil);
+        hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));
+        hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
+        hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
+        hash.Add(MinionOwnerAttackCritical(player, playerStats));
+        hash.Add(LivingZombieCorpse(golem, playerStats));
+        if (golem.Definition.Kind is "Skeleton" or "VaalSkeleton")
+        {
+            hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctPhysicalToChaos));
+            hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctChanceToWitherFor2Seconds));
+        }
         foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
             || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(playerStats));
         if (golem.CombatCharges is { } charges)
         {
+            hash.Add(charges.Held(ChargeType.Endurance));
             hash.Add(charges.Held(ChargeType.Frenzy));
             hash.Add(charges.Held(ChargeType.Power));
         }
@@ -497,8 +612,11 @@ public static partial class Game
         golem.InputHash = input;
         golem.Player = new(playerStats);
         var m = golem.Monster;
+        int previousCorpse = m.Effects[Stat.IsUsableAsCorpseWhenAlive];
         var mods = GolemModifiers(player, golem, playerStats, now, ownerResistances);
         m.Mods = mods;
+        if (previousCorpse != mods.Effects[Stat.IsUsableAsCorpseWhenAlive])
+            SetStats(player, golem.Id, [(Stat.IsUsableAsCorpseWhenAlive, mods.Effects[Stat.IsUsableAsCorpseWhenAlive])]);
         var pools = GolemPools.Calculate(Monsters, m.Variety!, m.Level, golem, playerStats, mods.Effects);
         if (pools.Fatal)
         {
@@ -512,7 +630,7 @@ public static partial class Game
             golem.Hazards.Clear(); golem.Pulses.Clear();
             PublishEnergyShieldLocked(player, golem);
             SetStats(player, golem.Id, [(Stat.MaximumLife, 1)]);
-            GolemDieLocked(player, golem, now);
+            GolemDieLocked(player, golem, now, canReform: false);
             if (player.MinionOrigins.TryGetValue(golem.Id, out var fatalOrigin))
                 player.MinionOrigins[golem.Id] = fatalOrigin with
                 {

@@ -175,9 +175,11 @@ public static partial class Game
     /// <summary>A bleeding monster's mitigation: its physical damage over time taken (resistance, damage taken, Pride;
     /// armour stops hits only), times <see cref="BleedMovingMore"/> while it moves, but not for Crimson Dance's
     /// stacks.</summary>
-    public static double BleedTaken(SpawnedMonster m, double now) =>
+    public static double BleedTaken(SpawnedMonster m, double now) => BleedTaken(m, now, preventsMovingBonus: false);
+
+    static double BleedTaken(SpawnedMonster m, double now, bool preventsMovingBonus) =>
         MonsterDotTaken(m, DamageType.Physical, now) * m.Ruptures.More(now)
-        * (m.Bleeds.Stacks == 1 && (m.Walk.Moving(now) || IsEnsnared(m, now)) ? BleedMovingMore : 1);
+        * (!preventsMovingBonus && m.Bleeds.Stacks == 1 && (m.Walk.Moving(now) || IsEnsnared(m, now)) ? BleedMovingMore : 1);
 
     /// <summary>A standing monster's strongest aggravated bleed deals its moving bonus on top of the strongest bleed's
     /// damage; moving, the strongest already deals it, and the two do not stack (wiki Bleeding, Aggravate).</summary>
