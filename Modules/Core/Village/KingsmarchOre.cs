@@ -484,9 +484,9 @@ public static class KingsmarchOre
     static byte[] Blob(OreType type, int x, int y, bool claimed) =>
         new QuestObject(x, y, type.Components)
         {
-            // A channelled ore is created with its three channel states written explicitly at zero: the client drops a
-            // Verisium click in silence when begun_channelling is not among the node's states (F-126), and zero is
-            // "no channel running".
+            // A channelled ore is created with its channel states written explicitly at zero: the client's Verisium gate
+            // answers 0 -- which starts nothing -- unless the node's state machine carries begun_channelling AND
+            // encounter with a value at most 0 (F-126), and a state left at the type's default is not carried.
             StateMachine = IsChannelled(type) ? Zeroed(States(type, claimed)) : States(type, claimed),
             Blocked = type.Triggerable,
             Model = type.Model,
@@ -533,7 +533,7 @@ public static class KingsmarchOre
 
     /// <summary>A copy of these states with the channel states written explicitly as 0 (present, not running).</summary>
     static StateMachineData Zeroed(StateMachineData states) =>
-        states.Set("begun_channelling", 0).Set("channelling", 0).Set("in_zone", 0);
+        states.Set("begun_channelling", 0).Set("encounter", 0).Set("channelling", 0).Set("in_zone", 0);
 
     /// <summary>Whether this ore is the one a player channels into (Verisium). Read from the type's own states, so a
     /// server without the Verisium row needs nothing here.</summary>

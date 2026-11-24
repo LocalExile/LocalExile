@@ -675,6 +675,25 @@ experiment was needed once the dispatcher was read.
   column is literally the string `_index`). A type's `shared_timers` is `[]` for all five, so the state machine carries no
   timer: the values are pure integers the server sets.
 
+## 20. A click reaches the server, and the two "hold" ores never send one (F-131–F-133)
+
+- **F-131 · the click chain, confirmed from disassembly** — `confirmed` — a left-click on a world object runs
+  `0x14011ECB0` (input dispatcher, `case 6`) → `0x1421660B0` (use a skill) → `0x141E94010` (build the action: template
+  lookup `0x141EF0050` by HASH16, target binding `0x1419437F0` into `action+0x128`) → `0x141E937B0` (start gate) →
+  `0x141E94900` (commit) → slot 17 of the game object `0x14216CCB0` → the 12-byte writer `0x141F983F0`. All four
+  variable fields of C→S 0x24 come from the **action**: the target is `*(u32*)(boundTarget+0x88)`, the skill is
+  `*(u16*)(*(action+0xF0)+0x40)`, the sequence is `action+0x11A` and the flags are `action+0x122`.
+- **F-132 · the object dispatcher is not on that path** — `confirmed` — `sub_140CA49E0` (and the state gate
+  `sub_140CA32D0` it calls) is the **hover/preview** pass: its only two exits append the object to the highlight lists
+  or call `0x140CA57F0`, a ray-projected highlight-position update that never touches `0x141E94010` or the network.
+  Everything in §19 about that gate is true of the hover path and says nothing about whether a click is sent. The
+  start gate `0x141E937B0` is unreachable from it for **any** object type.
+- **F-133 · two of the five ores never send a click** — `confirmed` — with one deposit of each type in one area, the
+  click produces C→S `0x24` for Crimson Iron, Petrified Amber and Bismuth (repeatedly, as often as the player clicks),
+  and **not once** for Orichalcum or Verisium. Those are exactly the two whose client description reads "click and
+  hold"; the other three read "interact". So the difference is the *kind of interaction* the client offers for the
+  type, and whatever makes a held interaction start an action is not established.
+
 ## COVERAGE STATEMENT (fact layer)
 
 **Examined — client functions.** `0x140529450` (town map Show), `0x1405235c0` (window ctor), `0x140521d00`
