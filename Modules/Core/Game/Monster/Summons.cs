@@ -313,6 +313,7 @@ public static partial class Game
             fighter.Gear = ItemModStats.Sum(items, ItemsFor(player).Mods);
             if (fighter.Equipment.GetValueOrDefault((byte)2) is { } item) fighter.Weapon = WeaponIn(player, (item, ItemsFor(player).ByHash(item.TypeHash)));
         }
+        CopySkeletonWeapon(player, fighter, variety);
         fighter.Utility = MinionOfferingStats(player, AreaTime(player));
         var mods = GolemModifiers(player, fighter, playerStats);
         var pools = GolemPools.Calculate(Monsters, variety, level, fighter, playerStats, mods.Effects);

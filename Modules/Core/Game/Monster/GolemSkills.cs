@@ -385,7 +385,7 @@ public static partial class Game
             else if (catalog.IsAttack(effect) && Raw(Stat.BaseDealNoDamage) == 0)
             {
                 if (ownerAttackCrit is int inheritedCrit) crit = inheritedCrit;
-                else if (crit == 0) crit = MinionWeaponCritical(player, golem);
+                else if (crit == 0 || golem.SkeletonWeapon is not null) crit = MinionWeaponCritical(player, golem);
                 if (mods[Stat.DisplayCriticalLinkOverridesMainHandCriticalStrikeChance] != 0)
                     crit = mods[Stat.OverrideMainHandCriticalStrikeChancePctFromCriticalLink];
                 var (min, max) = Monsters.BaseDamage(variety, level) ?? (1, 1);
@@ -514,7 +514,7 @@ public static partial class Game
     static int MinionWeaponCritical(Player player, GolemState.Golem golem)
     {
         // Natural minion weapons have 5% base crit. Animated weapons use the equipped item's local chance.
-        if (golem.Weapon is not { } weapon || golem.Equipment.GetValueOrDefault((byte)2) is not { } item
+        if (golem.Weapon is not { } weapon || (golem.SkeletonWeapon ?? golem.Equipment.GetValueOrDefault((byte)2)) is not { } item
             || ItemsFor(player).ByHash(item.TypeHash) is not { } type) return 500;
         return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(player).WeaponCritical(type),
             weapon.LocalSources?.GetValueOrDefault(Stat.LocalCriticalStrikeChance) ?? 0,
@@ -567,6 +567,7 @@ public static partial class Game
     static void RefreshGolemLocked(Player player, GolemState.Golem golem, IReadOnlyDictionary<uint, int> playerStats, double? at = null)
     {
         double now = at ?? AreaTime(player);
+        CopySkeletonWeapon(player, golem, golem.Monster.Variety!);
         SyncInheritedMinionChargesLocked(player, golem, playerStats, now);
         golem.Auras = MinionAuraStats(player, golem);
         var hash = new HashCode();
@@ -582,6 +583,7 @@ public static partial class Game
         hash.Add(MinionLinkOffenceAt(player, golem, playerStats, now));
         hash.Add(MapModsOf(player));
         hash.Add(SkeletonShieldChaos(player, golem, playerStats));
+        hash.Add(golem.SkeletonWeapon is { } weapon ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(weapon) : 0);
         hash.Add(NecromanticShield(player, playerStats));
         hash.Add(MinionOwnerAttackCritical(player, playerStats));
         hash.Add(LivingZombieCorpse(golem, playerStats));

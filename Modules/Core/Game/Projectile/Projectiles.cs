@@ -892,7 +892,7 @@ public static partial class Game
             SoulEaterHit(Player, target);
             if (shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage && target.Hostile)
             {
-                Player.RecentEvents.Record(StatConditions.HitEnemyWithWeapon, at);
+                RecordWeaponContactLocked(Player, at, shot.SkeletonWeaponContactSource);
                 if (hit.Value.Life == 0) RecordTinctureKill(target, shot.TinctureKill);
             }
             if (shot.ActualCaster is null && !shot.Spell && Player.TinctureEffects.AnyEffective)

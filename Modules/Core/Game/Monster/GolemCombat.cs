@@ -735,7 +735,7 @@ public static partial class Game
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
         var rolled = GolemRollHit(a.Attack.Damage.Scale(factor), effects, a.Attack.Spell, AreaRng(player),
-            fullLife: g.Monster.Life >= g.Monster.MaxLife);
+            fullLife: g.Monster.Life >= g.Monster.MaxLife, tripleDamage: SkeletonWeaponTripleDamage(player, g, a, now));
         MinionHitProfiles.TryGetValue(a, out var profile);
         bool ignoreElemental = g.Shield > 0
             && g.Monster.Mods.Effects[Stat.HitsIgnoreEnemyElementalResistancesWhileHasEnergyShield] != 0;
@@ -871,9 +871,14 @@ public static partial class Game
         return (int)Math.Clamp(chance, 0, 10_000);
     }
 
-    public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random, bool fullLife = false) =>
-        GamblerModifiers.From(name => effects[name]).ForSkill(name => fullLife && name == Stat.ChanceToDealDoubleDamagePct
-            ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0, spell).RollOutgoingHit(damage, random);
+    public static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
+        bool fullLife = false, bool tripleDamage = false)
+    {
+        var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => fullLife && name == Stat.ChanceToDealDoubleDamagePct
+            ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0, spell);
+        if (tripleDamage) modifiers = modifiers with { TripleDamageChance = 100 };
+        return modifiers.RollOutgoingHit(damage, random);
+    }
 
     /// <summary><paramref name="additionalChance"/>: flat chance in hundredths added after the increases (the target's Brittle).</summary>
     public static bool GolemCriticalStrike(GolemState.Ability ability, MonsterModSet mods, int roll, int additionalIncrease = 0,

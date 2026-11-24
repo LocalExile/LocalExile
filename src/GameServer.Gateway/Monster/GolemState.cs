@@ -41,6 +41,7 @@ public sealed class GolemState
         public Dictionary<byte, Item> Equipment = [];
         public Dictionary<uint, int> Gear = [];
         public SkillCatalog.Unarmed? Weapon;
+        public Item? SkeletonWeapon;
         public double HolyRegenerationSince, HolyRegenerationUntil, HolyRegenerationPerSecond;
         public readonly Dictionary<int, Queue<double>> Charges = [];
         public Charges.State? CombatCharges;
