@@ -267,15 +267,19 @@ public static partial class Game
             }
         }
 
-        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release) => Schedule(at, valid, release, null);
+        public void Schedule(long at, Func<bool> valid, Func<ProjectileUse?> release) => Schedule(at, valid, release, null);
 
-        internal void Schedule(long at, Func<bool> valid, Func<ProjectileUse> release, Action? released)
+        internal void Schedule(long at, Func<bool> valid, Func<ProjectileUse?> release, Action? released)
         {
             if (Active)
                 Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
                 {
                     if (!Active || !valid()) return;
-                    try { ReleaseNow(release()); }
+                    try
+                    {
+                        if (release() is not { } use) return;
+                        ReleaseNow(use);
+                    }
                     catch (InvalidOperationException ex)
                     {
                         Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");
@@ -822,6 +826,8 @@ public static partial class Game
                     Bleed = RepeatAilment(shot.Bleed, overexertionMore),
                     Poison = RepeatAilment(shot.Poison, overexertionMore),
                 };
+            if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
+                shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
@@ -876,7 +882,7 @@ public static partial class Game
             }
             uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitLocked(Player, target, damage, rampageSource: null, playerStats: player,
-                allyAt: shot.ActualCaster is null ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
+                allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage);
             if (hit is null) return ProjectileHitResult.Miss;
@@ -927,7 +933,7 @@ public static partial class Game
                     : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
-                    sourceSkill: shot.SourceSkill, blind: shot.Blind,
+                    sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
@@ -1092,7 +1098,8 @@ public static partial class Game
                 end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
                     && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
                         || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
-                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true);
+                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true)
+                    || presentation.StayAtEndOfRange && value.Reason is ProjectileEndReason.Distance or ProjectileEndReason.Terrain;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance))
                     : endRay is { } ray ? ray.MarkerAt(value.Position)
                     : end.Height;
@@ -1343,7 +1350,7 @@ public static partial class Game
         return session;
     }
 
-    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
+    static readonly PlayerStatStep[] ProjectileClockSteps = [PlayerStatStep.PanelDefaults, PlayerStatStep.VaalPrevention, PlayerStatStep.Rage, PlayerStatStep.Rampage, PlayerStatStep.Resonance];
 
     public static void AdvanceProjectiles(Player player) => player.ProjectileRuntime?.Advance();
 

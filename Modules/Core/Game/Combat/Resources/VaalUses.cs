@@ -16,8 +16,10 @@ public static partial class Game
     public static bool VaalExecutor(Player player, int effect)
     {
         string id = SkillsFor(player).EffectId(effect) ?? "";
-        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or VaalImmortalCallEffect or "VaalSmite"
-            || id == VaalMoltenShellEffect || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap"
+            or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
+            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect
+            || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
@@ -63,6 +65,8 @@ public static partial class Game
         bool buffScaled = Get(Stat.ModifiersToBuffEffectDurationAlsoAffectSoulPreventionDuration) != 0;
         bool skillScaled = Get(Stat.ModifiersToSkillEffectDurationAlsoAffectSoulPreventionDuration) != 0;
         int preventionIncrease = Get(Stat.VaalSkillSoulGainPreventationDurationPlusPct);
+        if (Get(Stat.ModifiersToTotemDurationAlsoAffectSoulPreventionDuration) != 0)
+            preventionIncrease = ActorScale.Saturate((long)preventionIncrease + Get(Stat.TotemDurationPlusPct));
         int PreventionPlayer(uint name) => ActorScale.Saturate((long)GolemStat(playerStats, name)
             + (name == SkillDurationModifiers.IncreasedDuration ? preventionIncrease : 0));
         double preventionBase = buffScaled || skillScaled

@@ -59,7 +59,8 @@ public static partial class Game
         double more = WintertideDotSupportMore.Aggregate(1.0, (factor, name) =>
             factor * Math.Max(0, 1 + BrandStat(skill, name) / 100d));
         double dotMultiplier = Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ColdDotMultiplierPlus)) / 100d);
-        return basis * Math.Max(0, 1 + increased / 100d) * more * dotMultiplier;
+        return basis * Math.Max(0, 1 + increased / 100d) * more * dotMultiplier
+            * DamageStats.ElementalMore(get(Stat.CombinedElementalDamagePlusPctFinal));
     }
 
     static bool InsideFrigidBondBeam((int X, int Y) at, (int X, int Y) from, (int X, int Y) to, int radius)

@@ -95,7 +95,7 @@ public static partial class Game
         bool flask = player.FlaskEffects.Any || player.UtilityFlaskEffects.ActiveAt(now)
             || MagebloodCount(player, activeItems) is { Count: > 0 } always
                 && MagebloodFlasks(ItemsOf(player).Items(PlayerInventories.Flask), always).Count > 0;
-        flags["_while_using_flask"] = flags["_during_flask_effect"] = flask;
+        flags["_while_using_flask"] = flags["_during_flask_effect"] = flags[StatConditions.DuringAnyFlaskEffect] = flask;
         flags["_if_affected_by_no_flasks"] = !flask;
         flags["_while_bleeding"] = player.IncomingAilments.Bleeding(now);
         flags["_while_poisoned"] = player.IncomingAilments.PoisonStacks(now) > 0;
@@ -370,8 +370,7 @@ public static partial class Game
         bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
             || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
-                && (s.Name.Contains("_if_", StringComparison.Ordinal)
-                    || s.Name.Contains("_while_", StringComparison.Ordinal)
+                && (StatConditions.Of(s.Name, default) != StatConditions.State.None
                     || StatConditions.IsActiveNonVaalSkillMinionCoefficient(s.Name)
                     || OwnedCountItemStats.IsCoefficient(s.Id)
                     || IsFlaggedItemStat(s.Id))) == true)));
