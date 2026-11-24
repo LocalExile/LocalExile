@@ -182,6 +182,34 @@ public sealed class ItemModEffectTests
         Assert.Equal(-120, penalized[Stat.LocalWeaponNoPhysicalDamage]);
     }
 
+    // local_implicit_stat_magnitude_+% (Stats row 3915, IsLocal, the row beside the enchant one;
+    // ImplicitModifierMagnitudeUnique_2, StatsKey1 = 3915, 80-100) scales only the implicit section of the same
+    // item, the way the enchant stat above scales its section. The effect stat itself stays raw, and explicit
+    // mods are untouched.
+    [Fact]
+    public void Implicit_modifier_magnitude_scales_only_the_implicit_section()
+    {
+        using var gameRules = new GameRules();
+        var items = new ItemCatalog("data");
+        var plain = ItemCatalog.Create(items.All.First(t => t.Name == "Twilight Regalia")) with { Mods = [] };
+        plain = With(items, plain, "LocalIncreasedEnergyShield2", ModSection.Implicit, 10);
+        plain = With(items, plain, "LocalIncreasedEnergyShield2", ModSection.Explicit, 10);
+        plain = With(items, plain, "FireResist1", ModSection.Explicit, 25);
+        var item = With(items, plain, "ImplicitModifierMagnitudeUnique_2", ModSection.Implicit, 100);
+
+        Program.SetGameLogic(null!);
+        Assert.Equal(20, ItemModStats.Local(item, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(25, ItemModStats.Sum([item], items.Mods)[Stat.BaseFireDamageResistancePct]);
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var local = ItemModStats.Local(item, items.Mods);
+        Assert.Equal(30, local[Stat.LocalEnergyShield]); // Implicit 10 * 2, explicit 10 untouched.
+        Assert.Equal(100, local[Stat.LocalImplicitStatMagnitudePlusPct]); // The effect stat itself stays raw.
+        Assert.Equal(25, ItemModStats.Sum([item], items.Mods)[Stat.BaseFireDamageResistancePct]); // Explicit, unscaled.
+        // The control: the same item without the implicit-magnitude mod has nothing to scale, with the rule on.
+        Assert.Equal(20, ItemModStats.Local(plain, items.Mods)[Stat.LocalEnergyShield]);
+        Assert.Equal(new[] { 10, 10, 25, 100 }, item.Mods.SelectMany(mod => mod.Values));
+    }
+
     sealed class GameRules : IDisposable
     {
         readonly IGameLogic? previous = Program.GameLogicOrNull;

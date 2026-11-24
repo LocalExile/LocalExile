@@ -21,6 +21,18 @@ public static partial class Game
     static int NativeMonsterStat(IReadOnlyDictionary<uint, int>? stats, uint key) =>
         stats is not null ? stats.GetValueOrDefault(key) : 0;
 
+    /// <summary>The distance (cells) at which a monster first notices a player: its variety's MinAgroRange when that
+    /// is a real notice distance (0 &lt; Min &lt;= the monster's AggroRange), else its AggroRange. Official captures: zombies
+    /// with a MinAgroRange of 40 first move towards the player at 36.6-39.9 cells.</summary>
+    public static int MonsterNoticeRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? min : m.AggroRange;
+
+    /// <summary>The player distance (cells) past which a chasing monster lets go: its AggroRange (MaxAgroRange) when
+    /// its variety has a real notice distance, else twice its AggroRange. Official captures: no chase is re-issued past
+    /// MaxAgroRange (106-108 cells).</summary>
+    public static int MonsterLeashRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? m.AggroRange : 2 * m.AggroRange;
+
     /// <summary>Ranged spell engagement reach in cells: scales a 60-cell base by native
     /// <c>spell_maximum_action_distance_+%</c> and caps unmodified spells to on-screen range (40 cells for projectiles
     /// like bow monsters, 28 cells for non-projectile area spells like BatScreech), instead of firing across the full
@@ -1118,7 +1130,7 @@ public static partial class Game
                     Player? reaggroTarget = null;
                     if (homeDist <= reaggroAnchorCap)
                     {
-                        double bestDist = m.AggroRange;
+                        double bestDist = MonsterNoticeRange(m);
                         foreach (var peer in player.Frames.Players())
                         {
                             if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
@@ -1176,7 +1188,7 @@ public static partial class Game
                     if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
                     m.Attack = chosen;
                 }
-                if (!m.Aggro && d <= m.AggroRange)
+                if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
@@ -1190,10 +1202,10 @@ public static partial class Game
                     plan.BossBars.Add((id, m));
                 }
                 // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
-                // Retail leash: break pursuit when the player pulls beyond 2 × AggroRange OR when an ordinary monster is
-                // dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
+                // Retail leash: break pursuit when the player pulls beyond MonsterLeashRange OR when an ordinary monster
+                // is dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
                 else if (decoy is null && m.Aggro && !m.Fleeing && !player.Minions.Owns(id) && !m.TemporarilyAllied
-                    && (d > 2 * m.AggroRange || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
+                    && (d > MonsterLeashRange(m) || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
                 {
                     m.Aggro = false;
                     m.Target = null;

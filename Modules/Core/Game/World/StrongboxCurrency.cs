@@ -38,9 +38,17 @@ public static partial class MapStrongboxes
         foreach (byte row in CurrencyRows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
                 return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
-        Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
+        if (OpenStash(player) is { } stash)
+            for (int tab = 0; tab < stash.Count; tab++)
+                if (stash.IsShownTab(tab) && !stash.IsPublic(tab)
+                    && stash.Inventory(tab).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stashStack)
+                    return UseItemOnCore(player, new(stash.InventoryOf(tab), stashStack.Id, req.TargetObjectId), "0x0079");
+        Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory or stash");
         return Task.FromResult(true);
     }
+
+    static AccountStash? OpenStash(Player player) =>
+        player.StashOpen || (player.GuildStashOpen && !player.Character.Ssf) ? StashOf(player) : null;
 
     static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use, string opcode)
     {
@@ -57,7 +65,8 @@ public static partial class MapStrongboxes
             && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
         { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
         AccountStash? stash = null; int stashTab = -1;
-        if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
+        if (used is null && OpenStash(player) is { } s && s.TabOf(use.InventoryId) is int t
+            && !s.IsPublic(t)
             && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
         if (used is null)
         {
@@ -93,7 +102,7 @@ public static partial class MapStrongboxes
             {
                 // One orb from the clicked stack, not the smallest stack of its type anywhere in the stash: the client
                 // named (tab, item). SendStashPayment notifies the tab it changed.
-                if (PayOne(stash!, stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
+                if (stash!.PayOne(stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
                 notify = () => SendStashPayment(player, stash!, paid);
             }
             area.Boxes[box.Index] = changed;
@@ -118,25 +127,6 @@ public static partial class MapStrongboxes
         }
         finally { area.Gate.Release(); }
         return true;
-    }
-
-    /// <summary>One unit of the stack the client named by (tab, item): <see cref="AccountStash.Shrink"/> for a stack that
-    /// keeps some, <see cref="AccountStash.Take"/> for the last one. Null when the stack is gone. Shared with the essence
-    /// monolith's Vaal Orb.</summary>
-    internal static AccountStash.Payment? PayOne(AccountStash stash, int tab, InventoryItem item)
-    {
-        var tabs = new Dictionary<int, (List<uint> Removed, List<InventoryItem> Changed)>();
-        if (item.Item.StackSize > 1)
-        {
-            if (stash.Shrink(tab, item.Id, 1) is not { } left) return null;
-            tabs[tab] = ([], [left]);
-        }
-        else
-        {
-            if (stash.Take(tab, item.Id) is not { } taken) return null;
-            tabs[tab] = ([taken.Id], []);
-        }
-        return new(tabs);
     }
 
     /// <summary>The box's ObjectMagicProperties by S→C 0x2bc: the same bytes a created box's component carries

@@ -88,6 +88,9 @@ public static partial class Game
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
+                    // The stripped name nothing on the minion reads; the minion reader
+                    // (GolemDamage) takes the base stat.
+                    "spell_suppression_chance_%" => Stat.BaseSpellSuppressionChancePct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
                     "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
@@ -112,7 +115,9 @@ public static partial class Game
                 {
                     Stat.MinionElementalResistancePct => Stat.BaseResistAllElementsPct,
                     Stat.MinionMaximumAllElementalResistancesPct => Stat.AdditionalMaximumAllElementalResistancesPct,
+                    Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
+                    Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
                     _ => Stat.Of(name),
                 };
             }
@@ -261,6 +266,9 @@ public static partial class Game
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
         GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));
+        // "Minions have X% increased Damage over Time Multiplier": the id carries the
+        // minion prefix in the middle, so the strip above never reaches it.
+        GolemAdd(values, Stat.DotMultiplierPlus, Get(Stat.BaseMinionDotMultiplierPlus));
         GolemAdd(values, Stat.WitheredOnHitFor2SecondsPctChance, Get(Stat.MinionsHavePctChanceToInflictWitherOnHit));
         int ashChance = golem.Definition.Kind switch
         {

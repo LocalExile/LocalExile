@@ -452,6 +452,33 @@ public static partial class Game
         await SendTransfer(player, items, stash, moved, tabFirst: true);
     }
 
+    // Ctrl + click on an oil in the blight tab (C→S 0xf5; panelState is 1 either way): with an item in the anoint cell one
+    // oil goes to the first free input cell, and nothing happens when they are full; otherwise into the inventory
+    // (retail, 2026-11-24).
+    public static async Task TakeBlightOil(Player player, int tab, uint itemId, byte kind)
+    {
+        var stash = kind switch
+        {
+            InstanceStash.Guild when !player.Character.Ssf => GuildStashOf(player),
+            InstanceStash.Guild => null,
+            InstanceStash.Personal => PersonalStashOf(player),
+            _ => StashOf(player),
+        };
+        if (stash is null) return;
+        if (ItemMoves.StashToAnointInput(stash, tab, itemId, ShapeOf, out bool full) is { } moved)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x00f5 oil {itemId} -> anoint input cell {moved.TabAdded[0].X}");
+            await SendTransfer(player, ItemsOf(player), stash, moved, tabFirst: true);
+            return;
+        }
+        if (full)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} 0x00f5 oil {itemId}: the anoint input cells are full, nothing moves");
+            return;
+        }
+        await TakeFromStash(player, tab, itemId, all: false, kind);
+    }
+
     // What a Ctrl + click moved (ItemMoves.Transfer), to the client: one 0xbf for the inventory row, one for the tab
     // (SendTabChange).
     public static async Task SendTransfer(Player player, PlayerInventories items,
@@ -480,10 +507,8 @@ public static partial class Game
         if (t.InventoryItemId != 0 && PlayerInventories.ShowsOnModel(t.Row)) await SendEquipment(player, items);
     }
 
-    // C→S 0xd3: the tab settings' affinities, confirmed: saved with the tab, and the tab list again (S→C 0x136), which the
-    // settings window waits for.
-    // After the tab settings change a tab (0xcd, 0xce): the tab list again (S→C 0x136), as after the affinities; the
-    // settings window waits for it before it closes.
+    // After the tab settings change a tab (0xcd, 0xce, 0xcf, 0xd1, 0xd2, 0xd3): the tab list again (S→C 0x136); after
+    // a rename or colour the settings window waits for it before it closes.
     public static async Task SendTabListAgain(Player player, byte kind)
     {
         if (player.Character.Ssf && kind == InstanceStash.Guild) return;
@@ -493,14 +518,19 @@ public static partial class Game
             $"0x0136 stash {kind} tab list again ({tabs.Count} tabs, after the tab settings)");
     }
 
+    // The stash is the one the message's kind names, not the open panel's: with the guild panel open, a kind 1 change was
+    // refused and the guild tabs went out as the personal list.
     public static async Task SetTabAffinities(Player player, InstanceStash.SetAffinities set)
     {
-        var stash = StashOf(player);
-        uint? now = set.Kind == InstanceStash.Personal ? stash.SetAffinities(set.Tab, set.Changes) : null;
-        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
-            (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such personal tab)"));
-        var tabs = stash.Records(null, TabsSentOf(player, stash));
-        await Send(player, InstanceStash.TabList(tabs), $"0x0136 stash tab list again ({tabs.Count} tabs, after the affinities)");
+        if (set.Kind > InstanceStash.Guild || (set.Kind == InstanceStash.Guild && player.Character.Ssf)) return;
+        var stash = set.Kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
+        uint? now = stash.SetAffinities(set.Tab, set.Changes);
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d3 stash {set.Kind} tab {set.Tab} affinities [{string.Join(", ", set.Changes.Select(c => $"{c.Affinity}={(c.On ? "on" : "off")}"))}]" +
+            (now is uint bits ? $": now 0x{bits:x}" : ": refused (no such tab)"));
+        // The settings window closes on the change echoed as S→C 0xd3; on 0x136 alone it stays open (live 2026-11-24).
+        if (now is not null)
+            await Send(player, set.Encode(), $"0x00d3 stash {set.Kind} tab {set.Tab} affinities echoed");
+        await SendTabListAgain(player, set.Kind);
     }
 
     // C→S 0x002d: controller quick-move between carried inventory and Heist NPC equipment (rows 45..53, kind 0x22).
