@@ -174,12 +174,15 @@ public sealed record ProjectileProfile(string Id)
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
+    public double ForkAngleRadians { get; init; } = Math.PI / 6;
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
     public int ForkExtraProjectileChancePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;
+    /// <summary>When provided, keeps split targeting independent of modifiers to chain range.</summary>
+    public double? SplitRange { get; init; }
     public bool Returns { get; init; }
     public int ReturnChancePercent { get; init; }
     /// <summary>The host's 0–99 return roll of each initial projectile, for projectiles the client rolls itself; null

@@ -500,7 +500,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => p.Phase == 0 && p.Profile.OutboundHitLimit is not null
         || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
         || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
-        || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors).Any()))
+        || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors, p.Profile.SplitRange).Any()))
         || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
         || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any());
 
@@ -545,8 +545,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             // Greater Fork's "chance for an additional Projectile when Forking": a third child straight ahead.
             if (profile.ForkExtraProjectileChancePercent > 0 && p.Random.Next(100) < profile.ForkExtraProjectileChancePercent)
                 ContinueChild(p, p.Direction);
-            ContinueChild(p, p.Direction.Rotate(Math.PI / 6));
-            ContinueChild(p, p.Direction.Rotate(-Math.PI / 6));
+            ContinueChild(p, p.Direction.Rotate(profile.ForkAngleRadians));
+            ContinueChild(p, p.Direction.Rotate(-profile.ForkAngleRadians));
             End(p, ProjectileEndReason.Fork, allowReturn: false);
             return true;
         }
@@ -561,14 +561,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         return false;
     }
 
-    IEnumerable<ProjectileActor> Nearby(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => actors
+    IEnumerable<ProjectileActor> Nearby(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, double? range = null) => actors
         .Where(a => a.Team != p.Use.Team && !p.Contacts.Contains(a.Key) && a.Key != p.Use.Owner && a.Key != p.TurnaroundTarget
-            && (a.Position(Now) - p.Position).Length <= p.Profile.ChainRange)
+            && (a.Position(Now) - p.Position).Length <= (range ?? p.Profile.ChainRange))
         .OrderBy(a => (a.Position(Now) - p.Position).Length).ThenBy(a => a.Key.Id).ThenBy(a => a.Key.Generation);
 
     bool Split(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int count, bool fill, ProjectileVector? terrainNormal = null)
     {
-        var targets = Nearby(p, actors)
+        var targets = Nearby(p, actors, p.Profile.SplitRange)
             .Where(a => terrainNormal is null || world.TraceTerrain(p.Position, a.Position(Now)) is null)
             .Take(count).ToArray();
         if (targets.Length == 0 && !fill) return false;
