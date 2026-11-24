@@ -134,8 +134,19 @@ public static partial class Game
             g.BlockedAt = now;
             int linkedRecovery = protective
                 ? ScaledLinkStat(link!, Stat.BulwarkLinkGrantsRecoverXLifeOnBlock, LinkBuffPercent(g, currentPlayer)) : 0;
-            m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife * (long)Player(Stat.MinionRecoverPctOfMaximumLifeOnBlock) / 100
-                + Player(Stat.MinionRecoverXLifeOnBlock) + linkedRecovery);
+            if (m.Life < m.MaxLife && !LifeRecovery.NonLeechBlocked(name => effects[name]))
+            {
+                long recovery = m.MaxLife * (long)effects[Stat.RecoverPctOfMaximumLifeOnBlock] / 100
+                    + effects[Stat.RecoverXLifeOnBlock] + effects[Stat.LifeGainedOnBlock] + linkedRecovery;
+                m.Life = (uint)Math.Min(m.MaxLife, m.Life + Math.Max(0, recovery));
+            }
+            if (g.Shield < g.MaximumShield && effects[Stat.CannotRecoverEnergyShield] == 0 && effects[Stat.NoEnergyShieldRecovery] == 0)
+            {
+                int fromArmour = effects[Stat.EnergyShieldPctOfArmourRatingGainedOnBlock];
+                double recovery = effects[Stat.EnergyShieldGainedOnBlock]
+                    + (fromArmour > 0 ? GolemArmour(g) * fromArmour / 100 : 0);
+                g.ShieldPool.Recover((uint)Math.Clamp(recovery, 0, uint.MaxValue));
+            }
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
@@ -175,11 +186,7 @@ public static partial class Game
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
-                double armour = effects[Stat.MinionsHaveNoArmourOrEnergyShield] != 0 ? 0
-                    : Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
-                    + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
-                    + effects[Stat.BasePhysicalDamageReductionRating])
-                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+                double armour = GolemArmour(g);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
@@ -232,6 +239,16 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Flinch, Until: m.FlinchUntil, Action: m.ActionGeneration));
         }
         return true;
+    }
+
+    static double GolemArmour(GolemState.Golem minion)
+    {
+        var effects = minion.Monster.Effects;
+        if (effects[Stat.MinionsHaveNoArmourOrEnergyShield] != 0) return 0;
+        return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
+            + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
+            + effects[Stat.BasePhysicalDamageReductionRating])
+            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
     }
 
     internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool canReform = true)
