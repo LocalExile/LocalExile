@@ -329,14 +329,41 @@ public static partial class Game
     internal static ushort RestoredGolemSource(Player player, GolemState.Saved saved) =>
         RestoredMinionSource(player, saved.Effect, saved.Skill, saved.Host, saved.Socket);
 
+    static void ApplySocketedGolemEquipment(Player player, int effect, Item host, IReadOnlyDictionary<uint, int> local,
+        Dictionary<uint, int> own)
+    {
+        if (host.Mods.Count == 0 || GolemData.Find(SkillsFor(player).EffectId(effect)) is null) return;
+        GolemAdd(own, Stat.MinionChanceToTauntOnHitPct, GolemStat(local, Stat.LocalDisplaySocketedGolemChanceToTauntPct));
+        GolemAdd(own, Stat.MinionLifeRegenerationRatePerMinutePct,
+            GolemStat(local, Stat.LocalDisplaySocketedGolemLifeRegenerationRatePerMinutePct));
+        // This display row is global in Stats.dat but refers to gems in this exact item.
+        foreach (var (key, value) in ItemModStats.Values(host, ItemsFor(player).Mods))
+            if (key == Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned)
+                GolemAdd(own, key, value);
+    }
+
     internal static Task<bool> CastGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, int recovery, Func<bool> current,
-        bool triggered = false) =>
-        RepeatSummonCast(player, source, recovery, current, triggered, async () =>
+        bool triggered = false)
+    {
+        int onslaughtMs = triggered ? 0 : GolemStat(SupportedSkill(player, source).Stats,
+            Stat.LocalDisplaySocketedGolemSkillGrantsOnslaughtWhenSummoned);
+        return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
-            await SummonGolem(player, source, definition, aim, current: current);
+            uint id = await SummonGolem(player, source, definition, aim, current: current);
+            if (id != 0 && onslaughtMs > 0)
+            {
+                bool present;
+                using (ProjectileMutation(player, advance: false))
+                    present = current() && player.PlayerLife > 0 && !player.LeavingArea
+                        && KillOnslaughtOf(player).Gain(AreaTime(player), onslaughtMs / 1000d)
+                        && Marked(player, PlayerStatStep.Onslaught);
+                onslaughtMs = 0;
+                if (present) await SendKillOnslaught(player);
+            }
             return true;
         });
+    }
 
     public static async Task<uint> SummonGolem(Player player,
         ushort source, GolemCatalog.Definition definition, (int X, int Y) aim, double life = 1, bool arrival = false,
@@ -378,6 +405,7 @@ public static partial class Game
             if (replacingOld is not null && replacement is null) return 0;
         }
         if (supported.Effect != definition.Effect || !supported.RequirementsMet
+            || !CanHaveMinion(playerStats, OwnedMinionFamily.Golem)
             || gemSource is null || replacingOld is null && fresh is null
             || Monsters.Find(definition.Variety) is not { Supported: true } variety) return 0;
         int Own(uint name) => GolemStat(supported.Stats, name);

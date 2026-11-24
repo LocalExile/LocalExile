@@ -136,6 +136,8 @@ public static class DamageStats
             [DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire]),
         (Stat.DealNoNonPhysicalDamage, [DamageType.Lightning, DamageType.Cold, DamageType.Fire, DamageType.Chaos]),
         (Stat.DealNoNonLightningDamage, [DamageType.Physical, DamageType.Cold, DamageType.Fire, DamageType.Chaos]),
+        (Stat.DealNoNonColdDamage, [DamageType.Physical, DamageType.Lightning, DamageType.Fire, DamageType.Chaos]),
+        (Stat.DealNoNonFireDamage, [DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Chaos]),
         (Stat.DealNoNonElementalDamage, [DamageType.Physical, DamageType.Chaos]),
         (Stat.DealNoNonChaosDamage, [DamageType.Physical, DamageType.Lightning, DamageType.Cold, DamageType.Fire]),
     ];

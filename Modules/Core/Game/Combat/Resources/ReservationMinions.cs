@@ -66,6 +66,7 @@ public static partial class Game
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
         var playerStats = CharacterPlayerStats(player);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other)) return;
         bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
         double summonDuration = kind == "Purity"
             ? ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
@@ -94,7 +95,7 @@ public static partial class Game
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
             ownedInitialDeath: pools.Fatal,
-            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId,
+            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId && CanHaveOtherMinions(player),
             owned: (id, monster) =>
             {
                 double committed = AreaTime(player);

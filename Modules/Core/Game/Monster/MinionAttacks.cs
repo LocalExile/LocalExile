@@ -87,7 +87,10 @@ public static partial class Game
         var mitigated = MitigateMonsterHit(t, offense.Roll(random), now,
             cannotPenetrateOrIgnore: m.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
-        if (ApplyTypedMonsterHitLocked(player, t, damage, MonsterHitChaosDamage(t, mitigated, false, now, damage), allyAt: at) is not { } hit) return null;
+        var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(StatSourceValues(player), t, now) : default;
+        int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage);
+        if (ApplyMonsterHitLocked(player, t, damage, rampageSource: null, playerStats: null, allyAt: at,
+            cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) return null;
         if (!t.Dead && damage > 0 && supported is not null && player.Beasts.Active is { } beast)
             MinionExposureOnHitLocked(beast.SkillStats, t, mitigated, now, random);
         return (hit, damage, HitCode(mitigated));

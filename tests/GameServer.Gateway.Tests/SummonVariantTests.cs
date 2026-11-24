@@ -5,6 +5,52 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SummonVariantTests
 {
+    [Fact]
+    public async Task Skeleton_equipment_stats_change_their_own_timing_and_leave_other_summons_unchanged()
+    {
+        async Task<(double Action, double Move, double Duration)> Sample(string name, bool modifiers)
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            ushort skill = Assert.Single(fixture.Equip((name, 1)));
+            var gem = Assert.Single(Game.GemSkillEffects(player));
+            using var input = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (modifiers && ReferenceEquals(owner, player))
+                {
+                    values[Stat.SkeletonAttackSpeedPlusPct] = 25;
+                    values[Stat.SkeletonCastSpeedPlusPct] = 40;
+                    values[Stat.SkeletonMovementSpeedPlusPct] = 20;
+                    values[Stat.SkeletonDurationPlusPct] = 100;
+                }
+                return values;
+            });
+            string effect = Assert.IsType<string>(Program.Skills.EffectId(gem.Effect));
+            var definition = Assert.IsType<SummonCatalog.Definition>(Game.SummonData.Find(effect));
+            uint id = await Game.SummonFighter(player, skill, definition, (100, 100));
+            Assert.NotEqual(0u, id);
+            var fighter = player.Summons.Fighters[id];
+            double action = fighter.Abilities.First(a => a.Attack.Spell == (name == "Summon Skeletons of Mages")
+                && a.Attack.Damage.MaxTotal > 0).Attack.Seconds;
+            return (action, fighter.Monster.Walk.Speed, player.Summons.Until[id] - fighter.SummonedAt);
+        }
+
+        var warrior = await Sample("Summon Skeletons", modifiers: false);
+        var fasterWarrior = await Sample("Summon Skeletons", modifiers: true);
+        Assert.True(fasterWarrior.Action < warrior.Action);
+        Assert.True(fasterWarrior.Move > warrior.Move);
+        Assert.Equal(warrior.Duration * 2, fasterWarrior.Duration, precision: 6);
+
+        var mage = await Sample("Summon Skeletons of Mages", modifiers: false);
+        var fasterMage = await Sample("Summon Skeletons of Mages", modifiers: true);
+        Assert.True(fasterMage.Action < mage.Action);
+        var spirit = await Sample("Summon Raging Spirit", modifiers: false);
+        var spiritWithSkeletonModifiers = await Sample("Summon Raging Spirit", modifiers: true);
+        Assert.Equal(spirit.Action, spiritWithSkeletonModifiers.Action, precision: 6);
+        Assert.Equal(spirit.Move, spiritWithSkeletonModifiers.Move, precision: 6);
+        Assert.Equal(spirit.Duration, spiritWithSkeletonModifiers.Duration, precision: 6);
+    }
+
     static ushort Equip(AnimatedAdmissionTests.Fixture f, string name, string weapon = "Rusted Sword", int sockets = 1)
     {
         var items = Game.ItemsOf(f.Player);
