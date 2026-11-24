@@ -5,7 +5,8 @@ using GameServer.Core.World;
 public static partial class Game
 {
     sealed record MinionHitProfile(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed,
-        MonsterPoisons.Settings Poison, int PoisonChance, Penetration.PerType Penetration, DamagePacket LifeLeech, DamagePacket ShieldLeech);
+        MonsterPoisons.Settings Poison, int PoisonChance, int AdditionalPoisons, Penetration.PerType Penetration,
+        DamagePacket LifeLeech, DamagePacket ShieldLeech);
     static readonly RuleTable<GolemState.Ability, MinionHitProfile> MinionHitProfiles = new();
 
     static void MinionExposureOnHitLocked(IReadOnlyDictionary<uint, int> skillStats, SpawnedMonster target,
@@ -58,7 +59,9 @@ public static partial class Game
         {
             var p = profile.Poison;
             double min = critical ? p.CriticalMin : p.Min, max = critical ? p.CriticalMax : p.Max;
-            if (target.Poisons.Add(now, min + (max - min) * AreaRng(player).NextDouble(), p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n])))
+            double dps = min + (Math.Max(min, max) - min) * AreaRng(player).NextDouble();
+            if (ApplyHitPoisonsLocked(target.Poisons, now, dps, p.Seconds * MonsterPoisons.SelfDuration(n => target.Effects[n]),
+                profile.AdditionalPoisons))
                 player.Area.ActivePoisonMonsters.Add(id);
         }
         foreach (var packet in packets) player.Minions.OutputQueue.Add(new(packet, null));

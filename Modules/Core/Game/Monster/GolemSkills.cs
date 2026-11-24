@@ -500,7 +500,8 @@ public static partial class Game
                 && mods[Stat.CannotLeechEnergyShield] == 0 && mods[Stat.BaseCannotLeechEnergyShield] == 0
                 ? LeechSources.Coefficients("energy_shield", LeechStat, !spell, weaponLocal is null ? null : weaponLocal.GetValueOrDefault)
                 : DamagePacket.Empty;
-            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance, penetration, lifeLeech, shieldLeech));
+            MinionHitProfiles.Add(ability, new(ignite, bleed, poison, chance,
+                AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), penetration, lifeLeech, shieldLeech));
         }
         return result;
     }
