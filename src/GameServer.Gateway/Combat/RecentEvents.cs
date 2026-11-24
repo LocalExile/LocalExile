@@ -147,6 +147,15 @@ public sealed class RecentEvents
         return set;
     }
 
+    /// <summary>Removes the pending event and its window data when an admitted skill consumes it.</summary>
+    public void Forget(string key)
+    {
+        bool removed = last.Remove(key);
+        windows.Remove(key);
+        amounts.Remove(key);
+        if (removed) Changed?.Invoke();
+    }
+
     /// <summary>Forgets every event (a new area, a death, a login).</summary>
     public void Clear() { last.Clear(); windows.Clear(); amounts.Clear(); attackCriticals?.Clear(); Changed?.Invoke(); }
 }

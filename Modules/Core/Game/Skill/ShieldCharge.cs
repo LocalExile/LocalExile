@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
@@ -279,6 +280,22 @@ public static partial class Game
         return run.Token;
     }
 
+    sealed record ShieldDefences(ItemCatalog Catalog, decimal Armour, decimal Evasion, int EnergyShield);
+    static readonly RuleTable<Item, ShieldDefences> ShieldDefenceCache = new();
+
+    static ShieldDefences? ActiveShieldDefences(Player player)
+    {
+        if (ActiveOffHand(player) is not { Type: { Class: "Shield" } type } shield) return null;
+        var catalog = ItemsFor(player);
+        if (ShieldDefenceCache.TryGetValue(shield.Item, out var cached) && ReferenceEquals(catalog, cached.Catalog))
+            return cached;
+        if (catalog.Defences(type) is not { } baseDefences) return null;
+        var (armour, evasion, energyShield) = ItemDefences.Calculate(shield.Item, baseDefences, catalog.Mods);
+        var defences = new ShieldDefences(catalog, armour, evasion, energyShield);
+        ShieldDefenceCache.AddOrUpdate(shield.Item, defences);
+        return defences;
+    }
+
     // A shield skill's attack swings the shield (Shield Charge, Shield Crush), which has no weapon damage: the gem's own
     // off_hand_local_minimum/maximum_added_physical_damage plus its added damage per 15 of the shield's armour and evasion
     // rating (the item's own, local values: "per 15 Armour or Evasion Rating on Shield"), at the gem's AttackTime. Null
@@ -287,14 +304,16 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).RequiresShield(gem.Effect)
-            || ActiveOffHand(player)?.Type?.Class != "Shield") return null;
+            || ActiveShieldDefences(player) is not { } shield) return null;
         int Own(uint k) => gem.Stats.GetValueOrDefault(k);
-        var shield = EquippedArmourDefences(player).FirstOrDefault(d => d.Row == PlayerInventories.Offhand1).Defence;
-        int per15 = (int)((shield.Armour + shield.Evasion) / 15);
-        int min = Own(Stat.OffHandLocalMinimumAddedPhysicalDamage)
-            + per15 * Own(Stat.OffHandMinimumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
-        int max = Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
-            + per15 * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating);
+        long per15Armour = (long)(shield.Armour / 15);
+        long per15Combined = (long)((shield.Armour + shield.Evasion) / 15);
+        int min = ActorScale.Saturate(Own(Stat.OffHandLocalMinimumAddedPhysicalDamage)
+            + per15Combined * Own(Stat.OffHandMinimumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating)
+            + per15Armour * Own(Stat.OffHandMinimumAddedPhysicalDamagePer15ShieldArmour));
+        int max = ActorScale.Saturate(Own(Stat.OffHandLocalMaximumAddedPhysicalDamage)
+            + per15Combined * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmourAndEvasionRating)
+            + per15Armour * Own(Stat.OffHandMaximumAddedPhysicalDamagePer15ShieldArmour));
         int attackMs = SkillsFor(player).AttackTimeMs(gem.Effect, gem.Level);
         var weapon = new SkillCatalog.Unarmed(attackMs > 0 ? attackMs : WeaponFor(player).AttackMs, min, Math.Max(min, max), WeaponFor(player).Range);
         int per15Evasion = (int)(shield.Evasion / 15);
