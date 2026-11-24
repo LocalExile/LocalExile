@@ -86,10 +86,11 @@ public static partial class Game
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
     const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
 
-    // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his lightning resistance
-    // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 35 cells is the retail aura's reach,
-    // the same as the influenced blind's.
-    const int DoryaniAuraRadius = 35;
+    // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his capped lightning resistance
+    // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 60 cells (6 metres) is the retail
+    // aura's reach. Stored with an offset so a 0% wearer resistance stays distinct from SetSourceValue's 0-removal.
+    const int DoryaniAuraRadius = 60;
+    const int DoryaniResistOffset = 1_000_000;
     const string LightningResistEqualsYours = "nearby_enemies_lightning_resist_equal_to_yours";
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
@@ -133,10 +134,13 @@ public static partial class Game
                 fleshPhysical = AuraCatalog.FleshAndStonePhysicalTaken(flesh, player.Pools.AuraEffectPct, skills, Stats);
         }
         var curses = CurseAuras(player, out var curseStats);
-        // Doryani's Prototype: its aura carries the wearer's own lightning resistance to the enemies around him,
-        // negative included (the item's other stats, dealing no non-lightning damage, are handled where it hits).
+        // Doryani's Prototype: its aura carries the wearer's own effective (capped) lightning resistance to the enemies
+        // around him, negative included (floored at -200% and capped at his max lightning resistance).
         int? lightningEquals = alive && StatOf(playerStats, Stat.NearbyEnemiesLightningResistEqualToYours) > 0
-            ? Resistance(player, GameServer.Core.World.DamageType.Lightning) : null;
+            ? GameServer.Core.World.DamageModel.Capped(
+                Resistance(player, GameServer.Core.World.DamageType.Lightning),
+                MaxResistance(player, GameServer.Core.World.DamageType.Lightning))
+            : null;
         var cursedCorpses = alive && StatOf(playerStats, CursedCorpseBlast) > 0 ? OwnCursedCorpses(player, now).ToArray() : [];
         if (cursedCorpses.Length > 0 || steps.HadCursedCorpses)
             SyncZones(player, player.Id, ZoneKind.CursedCorpses, cursedCorpses.Select(c => (c.Id, KillExplosionRadius, c.At)),
@@ -310,9 +314,9 @@ public static partial class Game
         bool flesh = living && scope.FleshPhysical > 0 && In(FleshZone);
         (m.FleshFrom, m.FleshRadius) = flesh ? (player, scope.FleshRadius) : (null, 0);
         // Doryani's Prototype: the monsters in its zone keep his lightning resistance until they leave it, he dies or
-        // takes the chest off (a hash change re-steps everyone).
+        // takes the chest off (a hash change re-steps everyone). Offset keeps 0% distinct from SetSourceValue's removal.
         m.SetSourceValue(player.Id, LightningResistEqualsYours,
-            living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist : 0);
+            living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist + DoryaniResistOffset : 0);
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
         m.TakenFromPlayer = ((taunted ? scope.TauntedTakenPct : 0) + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
