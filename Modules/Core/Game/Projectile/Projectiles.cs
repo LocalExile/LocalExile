@@ -820,7 +820,7 @@ public static partial class Game
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
             int projectileFreezeChance = 0;
-            if (SkillsFor(Player).EffectId(shot.Effect) is "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale")
+            if (shot.FreezingPulseFalloff)
             {
                 // The gem loses up to half its damage over the flight. Its inherent freeze chance fades
                 // from 25% to zero during the first quarter, independently of other freeze sources.
@@ -831,8 +831,7 @@ public static partial class Game
                 shot = shot.ScaleDamage(1 - progress * .5);
                 projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
             }
-            int chainDamage = GolemStat(shot.SkillStats, Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain);
-            double chainsMore = Math.Max(0, 1 + (double)chainDamage * contact.Projectile.ChainsRemaining / 100);
+            double chainsMore = Math.Max(0, 1 + (double)shot.RemainingChainDamagePercent * contact.Projectile.ChainsRemaining / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
             if (ailmentMore != 1)

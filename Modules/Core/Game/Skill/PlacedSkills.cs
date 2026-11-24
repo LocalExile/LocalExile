@@ -604,8 +604,7 @@ public static partial class Game
     {
         int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
         if (coefficient <= 0) return;
-        var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
-            (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
+        var life = DamagePacket.Empty.Select((_, _) => new(coefficient, coefficient));
         LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
     }
@@ -656,9 +655,8 @@ public static partial class Game
                 useProxyOrigin: true));
             return;
         }
-        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
-        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
-        // does a triggered spell's: no local input action predicts it.
+        // The trap or mine emits its own projectile with the supported skill's hit and the device's resolved aim.
+        // The server draws it because no local input action predicts it.
         if (projectile)
         {
             var session = ProjectilesFor(player);

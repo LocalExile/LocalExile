@@ -46,7 +46,10 @@ public static class SupportedAttackDamage
     // The tree's "with <weapon type>" rows for the attacking hand (issue #1102, batch 1), including ModParser's
     // "with Claws" (Claw + Hit, not an ailment increase). WeaponTypeDamage reads the hand's family through
     // WeaponIdentity, so a weapon that counts as all one-hand melee types (Varunastra) takes every family's row.
-    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get, int skillProjectileSpeed = 0)
+    public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
+        WeaponIncrease(weapon, get, skillProjectileSpeed: 0);
+
+    internal static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get, int skillProjectileSpeed)
     {
         int increased = WeaponTypeDamage.Any(weapon, get);
         if (weapon.Bow && get(Stat.ArrowSpeedAdditiveModifiersAlsoApplyToBowDamage) != 0)

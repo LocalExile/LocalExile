@@ -99,7 +99,11 @@ public static class PlayerDamageTaken
     /// happen (wiki Avoidance). <paramref name="avoidAllPct"/> is a separate "Avoid All Damage" roll (Elusive). The
     /// same packet when nothing is avoided.</summary>
     public static DamagePacket Avoid(DamagePacket hit, Func<uint, int> get, Random random, out DamageType[] avoided,
-        int avoidAllPct = 0, bool projectile = false, bool recentlyDamagedByProjectile = false)
+        int avoidAllPct = 0, bool projectile = false) =>
+        Avoid(hit, get, random, out avoided, avoidAllPct, projectile, recentlyDamagedByProjectile: false);
+
+    internal static DamagePacket Avoid(DamagePacket hit, Func<uint, int> get, Random random, out DamageType[] avoided,
+        int avoidAllPct, bool projectile, bool recentlyDamagedByProjectile)
     {
         if (avoidAllPct > 0 && AvoidsAll(avoidAllPct, random)
             || projectile && RandomRolls.Chance((int)Math.Clamp((long)get(Stat.BaseAvoidProjectilesPctChance)
@@ -142,7 +146,10 @@ public static class PlayerDamageTaken
     public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get) =>
         IncreasedPct(type, melee, get, spell: false);
 
-    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell, bool projectile = false) =>
+    public static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell) =>
+        IncreasedPct(type, melee, get, spell, projectile: false);
+
+    internal static int IncreasedPct(DamageType type, bool melee, Func<uint, int> get, bool spell, bool projectile) =>
         ActorScale.Saturate((long)get(Increased) + get(TypedIncreased(type))
             + (DamageTypes.IsElemental(type) ? (long)get(ElementalIncreased) + get(ItemChargeDefences.ElementalHitTaken) : 0)
             + (melee ? get(MeleeIncreased) : 0) + (spell ? get(SpellIncreased) : 0)

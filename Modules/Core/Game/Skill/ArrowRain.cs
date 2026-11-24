@@ -137,11 +137,11 @@ public static partial class Game
         // its impact particles at 0.224 s and 0.218 s, Blast Rain's "contact" at 0.333 s. So it starts that long before
         // the arrow lands.
         double fall = toxic ? .224 : blast ? .333 : .218;
+        double travel = artillery ? .35 * (SkillsFor(player).Projectile(GroundArrow.Metadata)?.Speed ?? 1000)
+            / (WorldUnits.PerCell * Math.Max(1, use.Profile.Speed)) : .35;
         for (int i = 0; i < landings.Count; i++)
         {
             var at = landings[i];
-            double travel = artillery ? .35 * (SkillsFor(player).Projectile(GroundArrow.Metadata)?.Speed ?? 1000)
-                / (WorldUnits.PerCell * Math.Max(1, use.Profile.Speed)) : .35;
             long land = session.Runtime.Now + ProjectileRuntime.Time(travel + i * spacing);
             session.Runtime.Schedule(Math.Max(session.Runtime.Now, land - ProjectileRuntime.Time(fall)), () =>
             {
