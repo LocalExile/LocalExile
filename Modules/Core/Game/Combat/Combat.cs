@@ -1816,29 +1816,33 @@ public static partial class Game
         if (swingAt is { } swung) delay -= AreaTime(player) - swung;
         await AreaDelay(player, Math.Max(0.05, delay));
         await WhilePaused(player);
-        if (player.Closed || player.LeavingArea || player.PlayerLife <= 0 || InTown(player)) return;
-        if (cooldownUse is not null ? !cooldownUse.Current(player) : actionToken is int token && player.ActionCount != token)
-            return;
-        double now = ProjectileWorldTime(player);
-        var origin = player.Walk.Position(now);
-        var own = SupportedSkill(player, skillId).Stats;
-        var playerStats = CharacterPlayerStats(player);
-        int travelPct = GolemStat(own, Stat.SkillMaximumTravelDistancePlusPct)
-            + GolemStat(playerStats, Stat.SkillMaximumTravelDistancePlusPct);
-        var resolvedAim = aim;
-        if (targetId is uint tid && player.Area.Monsters.TryGetValue(tid, out var target)
-            && !target.Dead && target.Life > 0 && target.Variety is { ObjectSize: >= 1 and <= 128 } variety)
+        (int X, int Y) origin, landing;
+        using (ProjectileMutation(player))
         {
-            var targetPos = target.Walk.Position(now);
-            if (InstantLocationSkill.ObjectAim(origin, targetPos, 1, variety.ObjectSize - 1) is { } trace)
-                resolvedAim = trace.End;
-            else
-                resolvedAim = targetPos;
+            if (player.Closed || player.LeavingArea || player.PlayerLife <= 0 || InTown(player)) return;
+            if (cooldownUse is not null ? !cooldownUse.Current(player) : actionToken is int token && player.ActionCount != token)
+                return;
+            double now = ProjectileWorldTime(player);
+            origin = player.Walk.Position(now);
+            var own = SupportedSkill(player, skillId).Stats;
+            var playerStats = CharacterPlayerStats(player);
+            int travelPct = GolemStat(own, Stat.SkillMaximumTravelDistancePlusPct)
+                + GolemStat(playerStats, Stat.SkillMaximumTravelDistancePlusPct);
+            var resolvedAim = aim;
+            if (targetId is uint tid && player.Area.Monsters.TryGetValue(tid, out var target)
+                && !target.Dead && target.Life > 0 && target.Variety is { ObjectSize: >= 1 and <= 128 } variety)
+            {
+                var targetPos = target.Walk.Position(now);
+                if (InstantLocationSkill.ObjectAim(origin, targetPos, 1, variety.ObjectSize - 1) is { } trace)
+                    resolvedAim = trace.End;
+                else
+                    resolvedAim = targetPos;
+            }
+            if (!InstantLocationSkill.TryResolveLanding(player, origin, resolvedAim, travelPct, allowTerrainFallback: true, out landing))
+                landing = origin;
+            if (landing != origin)
+                player.Walk.Teleport(landing.X, landing.Y, now);
         }
-        if (!InstantLocationSkill.TryResolveLanding(player, origin, resolvedAim, travelPct, allowTerrainFallback: true, out var landing))
-            landing = origin;
-        if (landing != origin)
-            player.Walk.Teleport(landing.X, landing.Y, now);
         foreach (var centre in landing != origin ? new[] { origin, landing } : new[] { origin })
             await AreaSkillHit(player, skillId, gem, centre, centre, immediate: true,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,

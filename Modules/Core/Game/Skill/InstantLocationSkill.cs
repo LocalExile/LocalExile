@@ -91,10 +91,19 @@ public static class InstantLocationSkill
         int clampedX = Math.Clamp(aim.X, 0, player.Layout.GridW - 1);
         int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
         if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct) is not { } endpoint) return false;
+        var blockers = player.Blockers;
         bool Allowed(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
             && walkable(x, y) && !player.Barrier.Contains((x, y));
-        bool Blocked(int x, int y) => player.Blockers.Any(b =>
-            Math.Max(Math.Abs((long)x - b.X), Math.Abs((long)y - b.Y)) - b.Size < 2);
+        bool Blocked(int x, int y)
+        {
+            for (int i = 0; i < blockers.Count; i++)
+            {
+                var b = blockers[i];
+                if (Math.Max(Math.Abs((long)x - b.X), Math.Abs((long)y - b.Y)) - b.Size < 2)
+                    return true;
+            }
+            return false;
+        }
         bool ClearLine((int X, int Y) target)
         {
             foreach (var cell in ClientPathfinder.Line(from, target))
@@ -121,9 +130,18 @@ public static class InstantLocationSkill
         {
             // Aiming onto or beside a monster's footprint should slide to the nearest clear cell around it rather
             // than silently dropping the blink.
+            int maxBlockingSize = 0;
+            for (int i = 0; i < blockers.Count; i++)
+            {
+                var b = blockers[i];
+                if (Math.Max(Math.Abs((long)endpoint.X - b.X), Math.Abs((long)endpoint.Y - b.Y)) - b.Size < 2
+                    && b.Size > maxBlockingSize)
+                    maxBlockingSize = b.Size;
+            }
+            int maxRadius = Math.Clamp(maxBlockingSize + 3, 8, 32);
             (int X, int Y)? fallback = null;
             long bestDistSq = long.MaxValue;
-            for (int r = 1; r <= 8 && fallback is null; r++)
+            for (int r = 1; r <= maxRadius && fallback is null; r++)
             {
                 for (int dy = -r; dy <= r; dy++)
                 {

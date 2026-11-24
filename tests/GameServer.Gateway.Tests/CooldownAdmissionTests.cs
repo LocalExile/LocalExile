@@ -92,7 +92,7 @@ public sealed class CooldownAdmissionTests
     }
 
     [Fact]
-    public void Frostblink_slides_around_monster_blockers_and_queues_cooldown_refresh_in_area_frame()
+    public async Task Frostblink_slides_around_monster_blockers_and_queues_cooldown_refresh_in_area_frame()
     {
         using var f = new Fixture();
         var c = f.Player;
@@ -104,6 +104,44 @@ public sealed class CooldownAdmissionTests
         Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
         Assert.True(Math.Max(Math.Abs(to.X - 140), Math.Abs(to.Y - 100)) - (zombie.ObjectSize - 1) >= 2);
         Assert.InRange(Math.Max(Math.Abs(to.X - 140), Math.Abs(to.Y - 100)), 4, 6);
+
+        // Large-footprint monsters (ObjectSize > 8) expand the blocker slide radius beyond 8 cells.
+        c.Area.Monsters.Clear();
+        var large = zombie with { ObjectSize = 15 };
+        c.Area.Monsters[0x80000002u] = new("large-blocker", new(140, 100, 0), 0, 0, 1000) { Hostile = true, Variety = large };
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var largeTo));
+        Assert.True(Math.Max(Math.Abs(largeTo.X - 140), Math.Abs(largeTo.Y - 100)) - (large.ObjectSize - 1) >= 2);
+
+        // Inside an area frame, SendNativeCooldownRefresh queues 0x02bc into Area.Delta (only: player) after 0x01ce.
+        c.Connection.LockstepClient = false;
+        var frostId = f.Equip(PlayerInventories.Weapon1, "Frostblink").Single();
+        var frost = Game.SupportedSkill(c, frostId);
+        c.ClientSkillIds.Add(frostId);
+        var plan = Game.CooldownForSkill(c, frostId);
+        Assert.NotNull(plan);
+        Assert.True(Game.TryBeginSkillCooldownUse(c, frostId, frost.Effect, plan,
+            true, () => { }, out var use));
+        Assert.True(use!.CommitNativeUse(c, frostId));
+        Assert.Contains(c.SingleUseCooldowns.Values, s => s.NeedsNativeRefresh);
+        c.Connection.WorldOutput.Begin(1);
+        var previousArea = GameArea.Own(c.Area);
+        try
+        {
+            Assert.True(c.Area.Owned);
+            Assert.True(c.Connection.WorldOutput.Started);
+            Program.ToArea(c, Game.PlayerInstantAction(c, frostId, (140, 100)), "0x01ce instant action", only: c);
+            await Game.SendNativeCooldownRefresh(c);
+            var records = c.Area.Delta.Take();
+            Assert.Equal(2, records.Count);
+            Assert.Equal(InstanceProtocol.InstantActionId, (ushort)(records[0].Bytes[0] << 8 | records[0].Bytes[1]));
+            Assert.Equal(InstanceEntities.ComponentUpdateId, (ushort)(records[1].Bytes[0] << 8 | records[1].Bytes[1]));
+            Assert.Equal(c.Id, records[1].Entity);
+            Assert.Same(c, records[1].Only);
+        }
+        finally
+        {
+            GameArea.Own(previousArea);
+        }
     }
 
     sealed class Fixture : IDisposable

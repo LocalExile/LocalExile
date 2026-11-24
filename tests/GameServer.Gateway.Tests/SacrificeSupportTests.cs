@@ -100,7 +100,10 @@ public class SacrificeSupportTests
         uint chilledLost = 10000 - chilled.Life;
         Assert.True(unchilledLost > 0);
         Assert.True(chilledLost > unchilledLost, $"expected chilled damage ({chilledLost}) > unchilled ({unchilledLost})");
-        Assert.Equal(0, chilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, Game.ProjectileWorldTime(c)));
+        double afterHit = Game.ProjectileWorldTime(c);
+        Assert.Equal(0, chilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, afterHit));
+        Assert.Equal(0, unchilled.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, afterHit));
+        Assert.False(unchilled.SourceMarked(c.Id, "inflicted_chill", afterHit));
     }
 
     [Fact]
