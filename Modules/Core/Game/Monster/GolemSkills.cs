@@ -399,7 +399,8 @@ public static partial class Game
             int AilmentStat(uint name) => mods[name] + Raw(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = MonsterIgnites.Settings.From(rows, hand, AilmentStat);
+            var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+                mods.Stats, raw, spell, hand, includeActorBaseArea: true);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
             double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };

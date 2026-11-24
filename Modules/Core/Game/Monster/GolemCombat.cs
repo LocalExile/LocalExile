@@ -719,8 +719,10 @@ public static partial class Game
         if (!target.Dead)
         {
             int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
+            double ailmentArea = Golem(Stat.ElementalStatusEffectAuraRadius) > 0
+                ? SkillArea.Modifier(Golem, a.Attack.Spell) : 1;
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], AreaRng(player));
+                n => target.Mods.Effects[n], AreaRng(player), ailmentArea);
             if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
                 || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
                 ExposureOnHitLocked(target, Golem, mitigated, now, random);

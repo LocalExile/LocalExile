@@ -175,14 +175,20 @@ public static partial class Game
     /// skill's stats, grown by the hit's area modifier as a chill's or shock's is (MonsterElementalAilments.SpreadRadius).
     /// </summary>
     public static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
-        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand)
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand) =>
+        WithIgniteSpread(settings, player, skill, spell, hand, includeActorBaseArea: false);
+
+    static MonsterIgnites.Settings WithIgniteSpread(MonsterIgnites.Settings settings,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? skill, bool spell, string hand,
+        bool includeActorBaseArea)
     {
         if (settings.Seconds <= 0) return settings;
         int Player(uint key) => player.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
         if (radius <= 0) return settings;
-        double area = AilmentArea(Player, Skill, spell);
+        double area = includeActorBaseArea ? SkillArea.Modifier(name => Player(name) + Skill(name), spell)
+            : AilmentArea(Player, Skill, spell);
         return settings with { Spread = (int)Math.Floor(radius * Math.Floor(100 * Math.Sqrt(Math.Max(0, area))) / 100) };
     }
 
