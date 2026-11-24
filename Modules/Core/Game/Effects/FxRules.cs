@@ -33,7 +33,9 @@ public static class FxRules
             try
             {
                 var rule = Engine(row);
-                foreach (var (kind, key) in row.Sources)
+                // A summed chance is one rule for all its stats (its sources), not one for each.
+                bool summed = rule["chance"] is JsonObject chance && chance.ContainsKey("sum");
+                foreach (var (kind, key) in summed ? row.Sources.Take(1) : row.Sources)
                 {
                     if (kind is not ("stat" or "skill")) throw new FormatException($"a source of kind \"{kind}\" has no code yet");
                     var json = (JsonObject)rule.DeepClone();
@@ -77,7 +79,24 @@ public static class FxRules
             void Whole(string what) { if (negate) throw new FormatException($"\"{what}\" cannot be negated"); }
             switch (condition)
             {
-                case "chance": Whole(condition); rule["chance"] = Value(with["percent"]); break;
+                case "chance":
+                    Whole(condition);
+                    // {"from":"sum","of":[{"stat":...,"when":"attack"}, ...],"skill":true}: several stats, one roll.
+                    if (with["percent"] is JsonObject { } percent && percent["from"]?.GetValue<string>() == "sum")
+                    {
+                        var terms = new JsonArray();
+                        foreach (var term in percent["of"]?.AsArray() ?? throw new FormatException("a summed chance needs \"of\""))
+                        {
+                            var one = new JsonObject { ["stat"] = term?["stat"]?.DeepClone() ?? throw new FormatException("a summed chance's term needs \"stat\"") };
+                            if (term["when"] is { } only) one["if"] = only.DeepClone();
+                            terms.Add(one);
+                        }
+                        var summed = new JsonObject { ["sum"] = terms };
+                        if (percent["skill"] is { } adds) summed["skill"] = adds.DeepClone();
+                        rule["chance"] = summed;
+                    }
+                    else rule["chance"] = Value(with["percent"]);
+                    break;
                 case "cooldown":
                     Whole(condition);
                     rule["cooldown"] = Value(with["seconds"]);
@@ -150,6 +169,12 @@ public static class FxRules
                     if (target != "self" || !with.ContainsKey("stats")) throw new FormatException("the action \"quantity\" gives the actor \"stats\" while the rule is active so far");
                     effect["kind"] = "stats";
                     effect["stats"] = with["stats"]!.DeepClone();
+                    break;
+                case "debuff":
+                    if (target != "enemy") throw new FormatException("a debuff is put on the trigger's enemy");
+                    effect["kind"] = "debuff";
+                    effect["debuff"] = with["debuff"]?.DeepClone() ?? throw new FormatException("the action \"debuff\" needs \"debuff\"");
+                    effect["seconds"] = Duration() ?? throw new FormatException("a debuff needs a \"duration\" timer");
                     break;
                 case "charge":
                     if (target != "self") throw new FormatException("charges are given to the actor itself");

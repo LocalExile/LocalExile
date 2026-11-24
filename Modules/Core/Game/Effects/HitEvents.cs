@@ -10,6 +10,9 @@ public sealed record HitLanded(bool Critical, bool Spell, bool Killed, IReadOnly
 {
     /// <summary>The hitting skill's id among the character's skills; 0 for the default attack or a site that has none.</summary>
     public ushort Skill { get; init; }
+    /// <summary>When the hit landed, on the clock its site works by (what a debuff it causes is timed from); null
+    /// where the site gave none.</summary>
+    public double? At { get; init; }
 }
 
 public static partial class Game
@@ -64,12 +67,12 @@ public static partial class Game
 
     // Per hit, inside the Monsters lock: nothing is built unless a rule or a subscriber listens.
     public static void HitLandedLocked(Player player, SpawnedMonster m, bool critical, bool spell,
-        IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0)
+        IReadOnlyDictionary<uint, int>? skill, string who, ushort sourceSkill = 0, double? at = null)
     {
         bool rules = EffectRules.Listens(player, EffectRules.What.Hit);
         if (!rules && !GameEvents.Combat.Any) return;
         var hit = new HitLanded(critical, spell, m.Dead || m.Life == 0, skill)
-        { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill };
+        { Monster = m, Who = who, Depth = TriggerDepth, Skill = sourceSkill, At = at };
         if (rules) EffectRules.Run(player, hit);
         GameEvents.RaiseCombat(player, hit);
     }

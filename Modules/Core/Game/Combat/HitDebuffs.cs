@@ -31,12 +31,18 @@ public static partial class Game
     /// <summary>Whether a hit intimidates and unnerves: chance_to_intimidate_on_hit_% (and attacks_intimidate_on_hit_%
     /// for an attack), chance_to_unnerve_on_hit_% (and chance_to_unnerve_on_hit_with_spells_% for a spell), and Grattus
     /// Signet's crits: spells_inflict_intimidate_on_crit, attacks_inflict_unnerve_on_crit.</summary>
-    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<uint, int> get, bool spell, bool critical, Random random)
+    /// <paramref name="ruled"/>: the stats an effect rule is live for on the hitting character (EffectRules.LiveFor); the
+    /// rule rolls those, so they are left out here.
+    public static (bool Intimidate, bool Unnerve) HitDebuffRolls(Func<uint, int> get, bool spell, bool critical, Random random,
+        Func<uint, bool>? ruled = null)
     {
-        bool intimidate = spell && critical && get(Stat.SpellsInflictIntimidateOnCrit) != 0
-            || RandomRolls.Chance(get(Stat.ChanceToIntimidateOnHitPct) + (spell ? 0 : get(Stat.AttacksIntimidateOnHitPct)), 100, random);
-        bool unnerve = !spell && critical && get(Stat.AttacksInflictUnnerveOnCrit) != 0
-            || RandomRolls.Chance(get(Stat.ChanceToUnnerveOnHitPct) + (spell ? get(Stat.ChanceToUnnerveOnHitWithSpellsPct) : 0), 100, random);
+        bool Ruled(uint stat) => ruled is not null && ruled(stat);
+        bool intimidate = spell && critical && !Ruled(Stat.SpellsInflictIntimidateOnCrit) && get(Stat.SpellsInflictIntimidateOnCrit) != 0
+            || !Ruled(Stat.ChanceToIntimidateOnHitPct)
+                && RandomRolls.Chance(get(Stat.ChanceToIntimidateOnHitPct) + (spell ? 0 : get(Stat.AttacksIntimidateOnHitPct)), 100, random);
+        bool unnerve = !spell && critical && !Ruled(Stat.AttacksInflictUnnerveOnCrit) && get(Stat.AttacksInflictUnnerveOnCrit) != 0
+            || !Ruled(Stat.ChanceToUnnerveOnHitPct)
+                && RandomRolls.Chance(get(Stat.ChanceToUnnerveOnHitPct) + (spell ? get(Stat.ChanceToUnnerveOnHitWithSpellsPct) : 0), 100, random);
         return (intimidate, unnerve);
     }
 
@@ -53,23 +59,41 @@ public static partial class Game
     // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; others pass AreaRng(player).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
-        Random random)
+        Random random, Func<uint, bool>? ruled = null)
     {
-        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random);
+        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random, ruled);
+    }
+
+    /// <summary>What the effect rules' "debuff" does to the monster of a hit: one of the timed debuffs below, from
+    /// <paramref name="now"/>, a later one restarting it. False for a name that is not one of them.</summary>
+    public static bool ApplyNamedDebuffLocked(SpawnedMonster m, string debuff, double seconds, double now)
+    {
+        if (!m.Hostile || m.Dead || m.Life == 0) return true;
+        switch (debuff)
+        {
+            case "intimidated": m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + seconds); break;
+            case "unnerved": m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + seconds); break;
+            case "crushed": m.CrushedUntil = Math.Max(m.CrushedUntil, now + seconds); break;
+            case "hindered": m.HinderedUntil = Math.Max(m.HinderedUntil, now + seconds); break;
+            default: return false;
+        }
+        m.PresentationChanged?.Invoke();
+        return true;
     }
 
     static void ApplyContactDebuffsLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
-        Random random)
+        Random random, Func<uint, bool>? ruled = null)
     {
         if (m.Dead || m.Life == 0) return;
-        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
+        bool Ruled(uint stat) => ruled is not null && ruled(stat);
+        var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random, ruled);
         if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
-        if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
+        if (!Ruled(Stat.ChanceToCrushOnHitPct) && RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
             { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
         TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
-        if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
+        if (spell && !Ruled(Stat.SpellsChanceToHinderOnHitPct) && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
             { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
     }
 

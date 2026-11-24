@@ -83,6 +83,12 @@ skill's own share of the stat (`"skill": true`). While a rule is live for a char
 `ChargeGains.Roll` leaves its stat to the rule; a character without the stat still gets a skill's own share from the
 code. The `charge` action gains, fills to the maximum, or takes one or all, of a type or a random one.
 
+Intimidate, Unnerve, Crush and Hinder on hit (`HitDebuffs.cs`) are fx rules on the `hit` trigger with `"who": "any"`.
+A chance may be several stats added up and rolled once (`{"from":"sum","of":[{"stat":...,"when":"attack"}]}`): the rule
+is one engine rule, live while any of the stats is there, and each term counts only for an event with its fact. The
+`debuff` action times the debuff from the hit's own clock (`HitLanded.At`). Maim, Blind, Exposure and Withered are
+still the code's.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its

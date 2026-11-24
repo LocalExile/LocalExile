@@ -303,7 +303,7 @@ public static partial class Game
     {
         // The one hit event (HitLanded). who: the site's own word for a totem, trap or mine; otherwise the character's,
         // or a trap's for a site that only says the hit is not the character's.
-        HitLandedLocked(player, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap), sourceSkill);
+        HitLandedLocked(player, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap), sourceSkill, now);
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
@@ -389,7 +389,7 @@ public static partial class Game
             else ShockOnKillLocked(player, m, playerStats, now);
             return;
         }
-        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
+        HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random, stat => EffectRules.LiveFor(player, stat));
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player));
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));

@@ -134,6 +134,11 @@ public static class EffectRules
         /// <summary>The one carrier (Source.Name) the rule is for, when many carriers share its stat and each has its
         /// own trigger ("only").</summary>
         public string? Only { get; init; }
+        /// <summary>A chance that is several stats added up and rolled once ("chance": {"sum": [...]}): each term is a
+        /// stat, counted only for an event with its fact when it names one ("attack": the attacks-only stat). The rule
+        /// is live while any of them is there. SumWithSkill: the event's skill adds its own share of each.</summary>
+        public Term[]? Sum { get; init; }
+        public bool SumWithSkill { get; init; }
     }
 
     /// <summary>
@@ -158,9 +163,14 @@ public static class EffectRules
         public string? Word(string name) => Names[Array.IndexOf(Kind.Names, name)];
     }
 
+    public sealed record Term(string Stat, uint Key, string? Fact, bool Not);
     sealed record LiveEffect(Kind Kind, double[] Values, string?[] Names, object? Data);
     public sealed record Need(string Stat, uint Key, double? Min, double? Max);
-    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null, int Uses = 1);
+    sealed record LiveRule(Rule Rule, double Chance, double Cooldown, LiveEffect[] Do, Source? Source = null, int Uses = 1)
+    {
+        // The actor's own value of each term of a summed chance (Rule.Sum).
+        public int[]? Terms { get; init; }
+    }
     sealed class Live
     {
         public LiveRule[][] ByWhat = NoRules;
@@ -276,7 +286,7 @@ public static class EffectRules
                 { Console.WriteLine($"[rules] refused the rule of {row.Stat} #{row.Ord}: {e.Message}"); }
             }
             Console.WriteLine($"[rules] {rules.Count} effect rule(s) loaded, {tables} of them from the fx tables, {Kinds.Count} effect kind(s) (game data revision {revision})");
-            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).Select(r => r.Key)],
+            Volatile.Write(ref _table, new(revision, [.. rules], [.. rules.Where(r => r.Carrier is null).SelectMany(r => r.Sum is { } terms ? terms.Select(t => t.Key) : [r.Key])],
                 rules.Where(r => r.Carrier is not null).GroupBy(r => r.Carrier!).ToDictionary(g => g.Key, g => g.ToArray())));
             return _table;
         }
@@ -310,7 +320,29 @@ public static class EffectRules
                 checks.Add(new(fact, not));
             }
         bool any = root.TryGetProperty("any", out var anyOf) && anyOf.GetBoolean();
-        var chance = root.TryGetProperty("chance", out var c) ? ParseValue(c) : Value.Always;
+        Term[]? sum = null;
+        bool sumWithSkill = false;
+        if (root.TryGetProperty("chance", out var summed) && summed.ValueKind == JsonValueKind.Object && summed.TryGetProperty("sum", out var terms))
+        {
+            foreach (var property in summed.EnumerateObject())
+                if (property.Name is not ("sum" or "skill")) throw new FormatException($"a summed chance has no \"{property.Name}\"");
+            sumWithSkill = summed.TryGetProperty("skill", out var adds) && adds.GetBoolean();
+            var summedTerms = new List<Term>();
+            foreach (var term in terms.EnumerateArray())
+            {
+                string termStat = term.GetProperty("stat").GetString() ?? "";
+                if (Program.Stats.Key(termStat) is not uint termKey) throw new FormatException($"unknown stat \"{termStat}\"");
+                string? text = term.TryGetProperty("if", out var termIf) ? termIf.GetString() : null;
+                bool not = text?.StartsWith('!') == true;
+                string? fact = not ? text![1..] : text;
+                if (fact is not null && !Facts[(What)when].Contains(fact)) throw new FormatException($"the event \"{whenName}\" has no fact \"{fact}\"");
+                summedTerms.Add(new(termStat, termKey, fact, not));
+            }
+            if (summedTerms.Count == 0) throw new FormatException("a summed chance needs a term");
+            if (summedTerms[0].Key != statKey) throw new FormatException("a summed chance's first term is the rule's own stat");
+            sum = [.. summedTerms];
+        }
+        var chance = sum is null && root.TryGetProperty("chance", out var c) ? ParseValue(c) : Value.Always;
         var cooldown = root.TryGetProperty("cooldown", out var cd) ? ParseValue(cd) : null;
         var effects = new List<EffectSpec>();
         foreach (var effect in root.GetProperty("do").EnumerateArray())
@@ -364,6 +396,7 @@ public static class EffectRules
             throw new FormatException($"the effect \"{cannot.Kind.Name}\" cannot stand: it is for an event, not for \"worn\"");
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
         { Key = statKey, Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
+          Sum = carrier is null || sum is null ? sum : throw new FormatException("a summed chance is for a rule of the actor's own stats, not a carrier's"), SumWithSkill = sumWithSkill,
           Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null };
     }
 
@@ -395,11 +428,11 @@ public static class EffectRules
     {
         var table = Enabled ? Current() : null;
         List<LiveRule>?[]? lists = null;
-        void Add(Rule rule, int own, Source? source)
+        void Add(Rule rule, int own, Source? source, int[]? terms = null)
         {
             // A carrier's own stats come first for a value that names a stat; the actor's are behind them.
             Func<uint, int> read = source is null ? get : key => source.Get(key) is var held and not 0 ? held : get(key);
-            double chance = rule.Chance.Resolve(own, read, source?.Data);
+            double chance = terms is null ? rule.Chance.Resolve(own, read, source?.Data) : 100;
             if (chance <= 0) return;
             foreach (var need in rule.Needs)
                 if (get(need.Key) is var has && (has < need.Min || has > need.Max)) return;
@@ -413,12 +446,20 @@ public static class EffectRules
             }
             lists ??= new List<LiveRule>?[WhatNames.Length];
             (lists[(int)rule.When] ??= []).Add(new(rule, chance, rule.Cooldown?.Resolve(own, read, source?.Data) ?? 0, effects, source,
-                (int)Math.Round(rule.Uses?.Resolve(own, read, source?.Data) ?? 1)));
+                (int)Math.Round(rule.Uses?.Resolve(own, read, source?.Data) ?? 1)) { Terms = terms });
         }
         if (table is not null)
             foreach (var rule in table.Rules)
             {
-                if (rule.Carrier is null)
+                if (rule.Sum is { } sum)
+                {
+                    // Live while any of its stats is there; each term keeps the actor's own value.
+                    var held = new int[sum.Length];
+                    bool any = false;
+                    for (int i = 0; i < sum.Length; i++) any |= (held[i] = get(sum[i].Key)) != 0;
+                    if (any) Add(rule, held[0], null, held);
+                }
+                else if (rule.Carrier is null)
                 {
                     if (get(rule.Key) is var own and not 0) Add(rule, own, null);
                 }
@@ -432,7 +473,8 @@ public static class EffectRules
         var live = Lives.GetOrCreateValue(player);
         var byWhat = lists is null ? NoRules : [.. lists.Select(l => l?.ToArray() ?? [])];
         Volatile.Write(ref live.ByWhat, byWhat);
-        Volatile.Write(ref live.Keys, [.. byWhat.SelectMany(rules => rules).Where(r => r.Source is null).Select(r => r.Rule.Key)]);
+        Volatile.Write(ref live.Keys, [.. byWhat.SelectMany(rules => rules).Where(r => r.Source is null)
+            .SelectMany(r => r.Rule.Sum is { } terms ? terms.Select(t => t.Key) : [r.Rule.Key])]);
         // The "worn" rules: one that is new starts its effects, one that is gone leaves the set and its effects see
         // that at their next step. A rule that stays is not started again.
         var worn = byWhat[(int)What.Worn];
@@ -481,7 +523,8 @@ public static class EffectRules
             if (rule.Rule.Who is { } who && who != e.Who) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
             if (!Passes(rule.Rule, e, player)) continue;
-            double chance = rule.Rule.Chance.WithSkill ? rule.Chance + SkillStat(e, rule.Rule.Key) : rule.Chance;
+            double chance = rule.Terms is { } held ? SummedChance(rule.Rule, held, e, player)
+                : rule.Rule.Chance.WithSkill ? rule.Chance + SkillStat(e, rule.Rule.Key) : rule.Chance;
             if (chance * ChanceScale < 100 && Game.AreaRng(player).NextDouble() * 100 >= chance * ChanceScale) continue;
             if (rule.Cooldown > 0)
                 lock (live)
@@ -497,6 +540,19 @@ public static class EffectRules
                     catch (Exception ex) { Console.WriteLine($"[events] {owner}: EffectRules.Fired failed: {ex.Message}"); }
             }
         }
+    }
+
+    // A summed chance for this event: every term whose fact the event has, the actor's own value and the skill's.
+    static double SummedChance(Rule rule, int[] held, CombatEvent e, Player player)
+    {
+        long chance = 0;
+        var terms = rule.Sum!;
+        for (int i = 0; i < terms.Length; i++)
+        {
+            if (terms[i].Fact is { } fact && Fact(fact, e, player) == terms[i].Not) continue;
+            chance += held[i] + (rule.SumWithSkill ? SkillStat(e, terms[i].Key) : 0);
+        }
+        return chance;
     }
 
     // What the event's own skill has of a stat (its supports' included), for a chance that adds it.

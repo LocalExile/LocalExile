@@ -52,6 +52,14 @@ public static partial class Game
 
         EnsureTriggeredSkills();
 
+        // A timed debuff on the monster of the event (the one hit) for "seconds": intimidated, unnerved, crushed or
+        // hindered, timed from the hit as its site times it; a later one restarts it.
+        EffectRules.Register(new("debuff", ["seconds"], ["debuff"], fire =>
+        {
+            if (fire.Event.Monster is { } monster)
+                ApplyNamedDebuffLocked(monster, fire.Word("debuff") ?? "", fire.Number("seconds"), (fire.Event as HitLanded)?.At ?? fire.Now);
+        }, (_, word) => word is "intimidated" or "unnerved" or "crushed" or "hindered"));
+
         // Charges of "type" (endurance, frenzy, power, or random: one of the three, drawn when the rule fires), through
         // the charge rules at their next step, with the maximum and the refresh they give any gain. "does": gain "count"
         // of them (the default), to_maximum, lose_all (down to the minimum) or lose_one.
