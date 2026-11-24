@@ -78,6 +78,14 @@ public static partial class Game
         var shared = SelectMinionAuras(player, minion.Id, auras, 0);
         var values = AuraCatalog.RawStats(auras, 0, skills, Stats).ToDictionary(p => p.Key, p => p.Value);
         WithTemporaryAuraStats(auras, 0, values);
+        if (minion.Monster is { } monster && MinionWarcryGrants.TryGetValue(monster, out var cries))
+        {
+            double now = AreaTime(player);
+            for (int i = cries.Count - 1; i >= 0; i--)
+                if (cries[i].Until <= now || monster.Dead) cries.RemoveAt(i);
+            if (cries.Count == 0) MinionWarcryGrants.Remove(monster);
+            else AddWarcryStats(cries, player.Area, now, values);
+        }
         if (MinionIntimidatingCryMovement(player, minion.Monster) is > 0 and var cryMovement)
             values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + cryMovement);

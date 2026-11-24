@@ -170,6 +170,7 @@ public static partial class Game
         sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         // The stat buffs on the player's entity in its area (AreaStatBuffs): sources like any other, so the pools have them.
         if (player.Frames.Area is { } statArea) statArea.AddStatBuffs(new EntityId(player.Id), sources);
+        AddWarcryStats(player, sources);
         sources = WithSummonBuffs(player, sources);
         sources = WithRighteousFireSpellBonus(player, sources);
         sources = WithSpreadPoisonRegeneration(player, sources);
@@ -1142,7 +1143,7 @@ public static partial class Game
             Evasion = bonus.Evasion + aura.Evasion,
             // Discipline is a global flat ES source, added after equipment ES-to-Life conversion.
             EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + aura.EnergyShield),
-            ArmourMorePct = aura.ArmourMorePct,
+            ArmourMorePct = (100m + aura.ArmourMorePct) * (100m + EquipmentInput(Stat.ArmourPlusPctFinalFromSeismicCryBuff)) / 100m - 100m,
             EvasionMorePct = aura.EvasionMorePct,
             CriticalStrikeChancePct = attackIncrease,
             SpellCriticalStrikeChancePct = spellIncrease,

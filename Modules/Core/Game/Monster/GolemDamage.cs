@@ -278,7 +278,8 @@ public static partial class Game
         return Math.Max(0L, (long)GolemStat(minion.Player, Stat.MinionPhysicalDamageReductionRating)
             + (minion.Definition.IsGolem ? GolemStat(minion.Player, Stat.GolemPhysicalDamageReductionRating) : 0)
             + effects[Stat.BasePhysicalDamageReductionRating])
-            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+            * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+            * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
     }
 
     internal static void GolemDieLocked(Player player, GolemState.Golem g, double now, bool emitLife = true, bool canReform = true)

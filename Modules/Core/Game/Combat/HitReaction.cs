@@ -54,7 +54,8 @@ public static class HitReaction
     {
         if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
         if (m.CannotBeStunned || m.Mods.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;   // Unwavering
-        if (random.NextDouble() * 100 >= Chance(hit, m.MaxLife)) return false;
+        double threshold = m.MaxLife * Math.Max(.01, 1 + m.Mods.Effects[Stat.StunThresholdPlusPct] / 100d);
+        if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
         hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {
