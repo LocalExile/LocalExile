@@ -9,7 +9,8 @@
 -- 222 go up and 300 go down. Ruthless takes the tier's median Ruthless weight.
 -- Left alone: tiers 0 and 1 (too few drops to tell), a unique whose tier the wiki and
 -- the 3.29 value disagree on (it changed, or became a boss, Bestiary or Mercenary drop), and every unique not in the log.
-INSERT INTO unique_weight_overrides (name, weight, ruthless_weight) VALUES
+-- Keep existing local overrides, including alternate names accepted by UniqueCatalog.NameKey.
+WITH defaults(name, weight, ruthless_weight) AS (VALUES
 ('Abberath''s Horn', 0.42, 0.68),
 ('Abyssus', 0.0605, 0.336),
 ('Advancing Fortress', 0.42, 0.68),
@@ -532,4 +533,11 @@ INSERT INTO unique_weight_overrides (name, weight, ruthless_weight) VALUES
 ('Yriel''s Fostering', 0.0605, 0.336),
 ('Zahndethus'' Cassock', 0.42, 0.68),
 ('Zeel''s Amplifier', 0.42, 0.68)
-ON CONFLICT(name) DO UPDATE SET weight = excluded.weight, ruthless_weight = excluded.ruthless_weight;
+)
+INSERT INTO unique_weight_overrides (name, weight, ruthless_weight)
+SELECT d.name, d.weight, d.ruthless_weight FROM defaults AS d
+WHERE NOT EXISTS (
+    SELECT 1 FROM unique_weight_overrides AS o
+    WHERE replace(replace(replace(trim(o.name), '’', ''''), '‘', ''''), 'ʼ', '''') COLLATE NOCASE
+        IN (d.name, CASE d.name WHEN 'Rigwald''s Charge' THEN 'Rigvald''s Charge' ELSE d.name END)
+);
