@@ -78,6 +78,9 @@ public static partial class Game
         if ((owner.Id == recipient ? owner : AreaPlayer(owner, recipient)) is not { } player) return;
         player.Minions.StatRevision++;
         player.AuraStatsDirty = true;
+        player.Pools = BuildPoolsFor(player, player.Pools.Level);
+        player.ApplyMovementSpeed();
+        player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
         PresentNearby(player);
     }
 
