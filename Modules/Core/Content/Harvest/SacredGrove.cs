@@ -572,12 +572,16 @@ public static class SacredGrove
         foreach (var member in Members(player))
         {
             var shown = Presented.GetOrCreateValue(member);
+            var toRemove = new List<uint>();
             foreach (uint id in list)
             {
                 member.RemoveBlocker(id);
-                if (shown.Remove(id))
-                    await SendWorldRemoval(member, id, null);
+                if (shown.Remove(id)) toRemove.Add(id);
             }
+            // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
+            // area.Gate for a frame per seed object.
+            if (toRemove.Count > 0)
+                await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null)));
         }
     }
 

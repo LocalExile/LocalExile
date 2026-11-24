@@ -5,18 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class MapOverlayAndEncountersTests
 {
     [Fact]
-    public void AreaInstance_encodes_display_stats_in_second_compact_pair_list()
-    {
-        byte[] plain = new AreaInstance(1, 0x235c, 7, 2).Encode();
-        byte[] withDisplay = new AreaInstance(1, 0x235c, 7, 2,
-            DisplayStats: new Dictionary<uint, int> { [1041u] = 75 }).Encode();
-        Assert.NotEqual(plain.Length, withDisplay.Length);
-        // Header flag bit 0x40 enables the three area-stat lists at bytes [18..20].
-        Assert.Equal(0x40, withDisplay[18] & 0x40);
-    }
-
-    [Fact]
-    public void ComposeMapDisplayStats_scales_explicit_mods_by_atlas_effect_and_excludes_raw_atlas_passives()
+    public void Map_display_stats_compose_with_atlas_scaling_and_encode_in_second_list()
     {
         uint qtyKey = Program.Stats.Key("map_item_drop_quantity_+%")!.Value;
         uint explicitPackKey = Program.Stats.Key("map_pack_size_+%")!.Value;
@@ -50,6 +39,12 @@ public sealed class MapOverlayAndEncountersTests
         Assert.Equal(30, display[explicitPackKey]);
         Assert.False(display.ContainsKey(rawAtlasOnlyKey));
         Assert.False(display.ContainsKey(atlasEffectKey));
+
+        byte[] plain = new AreaInstance(1, 0x235c, 7, 2).Encode();
+        byte[] withDisplay = new AreaInstance(1, 0x235c, 7, 2, DisplayStats: display).Encode();
+        Assert.NotEqual(plain.Length, withDisplay.Length);
+        // Header flag bit 0x40 enables the three area-stat lists at bytes [18..20].
+        Assert.Equal(0x40, withDisplay[18] & 0x40);
     }
 
     [Fact]
