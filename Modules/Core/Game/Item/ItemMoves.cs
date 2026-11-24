@@ -484,6 +484,7 @@ public static class ItemMoves
         Spot used, Spot target, Item? change, Item? held) =>
         Saves.Atomically<(InventoryItem?, InventoryItem?, InventoryItem?)?>(() =>
         {
+            if (used == target) return null;
             bool there(Spot s) => s.Tab is int t ? t >= 0 && t < stash.Count && stash.Inventory(t).Items.Any(i => i.Id == s.Id)
                 : items.Items(s.Row).Any(i => i.Id == s.Id);
             if (change is null && held is null || !there(used) || !there(target)) return null;

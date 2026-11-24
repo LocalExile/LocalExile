@@ -160,6 +160,14 @@ public class HinekoraLockGatewayTests
             var target = InTab(LockedWand(), 4);
             var currency = InTab(ItemCatalog.Create(Program.Items.Find(CurrencyEffects.ChaosOrb)!) with { StackSize = 2 }, 0);
             uint tab = stash.InventoryOf(0);
+            int publicTab = stash.Records(null, new HashSet<int>()).First(t => t.Type == 1 && !t.Hidden && t.HiddenKey == 0).Index;
+            Assert.True(stash.SetPublic(publicTab, true));
+            var pubCurrency = stash.Place(publicTab, 0, 0, new InventoryItem(stash.NewItemId(), 0, 0,
+                ItemCatalog.Create(Program.Items.Find(CurrencyEffects.ChaosOrb)!) with { StackSize = 2 }), Shape, out _)!.Value.Placed;
+            await sendRaw(new LoginWriter().U16(0x29d).U16(13).U32(stash.InventoryOf(publicTab)).U32(pubCurrency.Id).U32(tab).U32(target.Id).ToArray());
+            var pubPreview = await readPreview();
+            Assert.NotEqual((ushort)0, pubPreview.Status);
+            Assert.Equal(0ul, pubPreview.Count);
 
             await sendRaw(new LoginWriter().U16(0x29d).U16(12).U32(tab).U32(currency.Id).U32(tab).U32(target.Id).ToArray());
             var preview = await readPreview();

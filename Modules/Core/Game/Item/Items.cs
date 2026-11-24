@@ -1736,6 +1736,11 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: no such item{where}: {hex}");
             return;
         }
+        if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0071 use item on item {use}: refused, currency is in public stash tab {pubTab}");
+            return;
+        }
         var type = ItemsFor(player).ByHash(used.Item.TypeHash);
         // A worn item (equipment, the flask bar, jewels in the passive tree) takes only quality and flask enchant
         // currency: the others' client validators refuse it with ItemErrorItemEquipped, and the client still sends 0x71

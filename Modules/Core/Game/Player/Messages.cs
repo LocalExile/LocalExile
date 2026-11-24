@@ -671,7 +671,7 @@ public static partial class Game
                 var stash = StashOf(player);
                 (int Tab, InventoryItem Item)? inStash = null;
                 for (int t = 0; stack.Item is null && inStash is null && t < stash.Count; t++)
-                    if (stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == again.TypeHash) is { } found) inStash = (t, found);
+                    if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == again.TypeHash) is { } found) inStash = (t, found);
                 if (inStash is var (stashTab, stashItem))
                     await UseItemOn(player, new InstanceItems.UseItemOn(stash.InventoryOf(stashTab), stashItem.Id,
                         again.TargetInventoryId, again.TargetId), Convert.ToHexString(bytes));
@@ -1041,9 +1041,11 @@ public static partial class Game
                 // The currency and the target can each be in a stash tab, as for 0x71 (Locate).
                 var items = ItemsOf(player);
                 var stash = StashOf(player);
-                var currency = Locate(items, stash, req.CurrencyInventory, req.CurrencyId).Item;
+                var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);
                 var (targetSpot, target) = Locate(items, stash, req.TargetInventory, req.TargetId);
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing && !RefusedOnWorn(player, currency.Item, targetSpot)
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    && !(usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
+                    && !RefusedOnWorn(player, currency.Item, targetSpot)
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
                     : null;
@@ -1074,9 +1076,11 @@ public static partial class Game
                 uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
                 var items = ItemsOf(player);
                 var stash = StashOf(player);
-                var currency = Locate(items, stash, currencyInventory, currencyId).Item;
+                var (usedSpot, currency) = Locate(items, stash, currencyInventory, currencyId);
                 var (targetSpot, target) = Locate(items, stash, targetInventory, targetId);
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing && !RefusedOnWorn(player, currency.Item, targetSpot)
+                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
+                    && !(usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
+                    && !RefusedOnWorn(player, currency.Item, targetSpot)
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
                     : null;
