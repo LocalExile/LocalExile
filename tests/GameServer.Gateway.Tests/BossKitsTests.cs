@@ -286,6 +286,78 @@ public sealed class BossKitsTests
         });
     }
 
+    [Fact]
+    public void Boss_summon_overrides_name_the_monster_the_guess_cannot_find()
+    {
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            // Atziri's demons are skeletons from another folder and her mirrors are a skill with no summon word;
+            // Avarius's statues are excluded by name, Kaom's spawners and Piety's eye spawners carry no summon word,
+            // and Shavronne's books name no monster. Each override names the row's monster and how many it brings.
+            var atziri = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri"));
+            var demons = BossSummons.For(catalog, atziri, 3386); // AtziriSummonDemons
+            Assert.NotNull(demons);
+            Assert.Equal("Metadata/Monsters/Skeletons/SkeletonMeleeKnightElementalSwordAtziri", Game.Monsters.Find(demons.Variety.ToString())?.Id);
+            Assert.Equal(3, demons.Count);
+            Assert.True(demons.DiesWithParent);
+            var mirror = BossSummons.For(catalog, atziri, 3401); // AtziriMirrorImage
+            Assert.NotNull(mirror);
+            Assert.Equal("Metadata/Monsters/Atziri/AtziriMirror", Game.Monsters.Find(mirror.Variety.ToString())?.Id);
+            Assert.Equal(2, mirror.Count);
+            Assert.True(mirror.DiesWithParent);
+            var atziri2 = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri2"));
+            var mirror2 = BossSummons.For(catalog, atziri2, 3402); // AtziriMirrorImageUber
+            Assert.NotNull(mirror2);
+            Assert.Equal("Metadata/Monsters/Atziri/AtziriMirror", Game.Monsters.Find(mirror2.Variety.ToString())?.Id);
+            Assert.Equal(2, mirror2.Count);
+            var avarius = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/AvariusCasticus/AvariusCasticus"));
+            var statues = BossSummons.For(catalog, avarius, 6326); // AvariusRaiseStatues
+            Assert.NotNull(statues);
+            Assert.Equal("Metadata/Monsters/BloodElemental/BloodElemental", Game.Monsters.Find(statues.Variety.ToString())?.Id);
+            Assert.Equal(2, statues.Count);
+            var kaom = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Kaom/KaomBoss"));
+            var archers = BossSummons.For(catalog, kaom, 5142); // TriggerKaomArcherSpawners
+            Assert.NotNull(archers);
+            Assert.Equal("Metadata/Monsters/Daemon/KaomVolcanoMortar", Game.Monsters.Find(archers.Variety.ToString())?.Id);
+            Assert.Equal(3, archers.Count);
+            var beast = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBeastBoss"));
+            var eye = BossSummons.For(catalog, beast, 5243); // PietyActivateEyeSpawner
+            Assert.NotNull(eye);
+            Assert.Equal("Metadata/Monsters/SummonedSkull/SummonedArcaneEye", Game.Monsters.Find(eye.Variety.ToString())?.Id);
+            Assert.Equal(1, eye.Count);
+            var tower = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Shavronne/ShavronneTower"));
+            var books = BossSummons.For(catalog, tower, 6674); // ShavronneSummonLightningBooks
+            Assert.NotNull(books);
+            Assert.Equal("Metadata/Monsters/Skeletons/SkeletonCasterLightning", Game.Monsters.Find(books.Variety.ToString())?.Id);
+            Assert.Equal(2, books.Count);
+        });
+    }
+
+    [Fact]
+    public void Boss_kits_play_the_summon_rows_the_tables_give_no_type()
+    {
+        InGame(player =>
+        {
+            // The summon rows are in the kit, not only resolvable: Atziri's demons and mirrors, Kaom's archer
+            // spawners and Piety's eye spawners. The last two carry no attack, spell or projectile type, so without
+            // the override the kit drops them before it ever asks what they raise.
+            var atziri = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Atziri/Atziri"));
+            var atziriKit = BossKits.Kit(player, atziri, 70);
+            Assert.Contains(atziriKit, k => k.Effect == 3386 && k.Attack.Summon is not null);
+            Assert.Contains(atziriKit, k => k.Effect == 3401 && k.Attack.Summon is not null);
+            var kaom = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Kaom/KaomBoss"));
+            var kaomKit = BossKits.Kit(player, kaom, 40);
+            Assert.Contains(kaomKit, k => k.Effect == 5142 && k.Attack.Summon is not null);
+            var beast = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Axis/PietyBeastBoss"));
+            var beastKit = BossKits.Kit(player, beast, 45);
+            Assert.Contains(beastKit, k => k.Effect == 5243 && k.Attack.Summon is not null);
+            var tower = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Shavronne/ShavronneTower"));
+            var towerKit = BossKits.Kit(player, tower, 50);
+            Assert.Contains(towerKit, k => k.Effect == 6674 && k.Attack.Summon is not null);
+        });
+    }
+
     /// <summary>Runs the body with the game module mounted on a connection of its own, as BossStageTests does.</summary>
     static void InGame(Action<Player> body)
     {

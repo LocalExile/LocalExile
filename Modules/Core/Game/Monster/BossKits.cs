@@ -82,7 +82,10 @@ public static class BossKits
                 || id.Contains("EmptyAction", StringComparison.Ordinal)
                 || id.Contains("Emerge", StringComparison.Ordinal)
                 || id.Contains("Retreat", StringComparison.Ordinal))) continue;
-            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect))) continue;
+            // A summon row the tables give no attack, spell or projectile type (Kaom's archer spawners, Piety's
+            // eye spawners: their ActiveSkills rows carry no type at all) is still an action when the server can name
+            // what it raises; anything else without a type is no action.
+            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect)) && !BossSummons.HasOverride(effect)) continue;
             // A skill on a corpse is no hit of its own: without one the client plays nothing (MonsterSkills.OnCorpse).
             if (MonsterSkills.IsCorpseSkill(effect)) continue;
             if (!usable.Contains(effect)) usable.Add(effect);
