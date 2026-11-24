@@ -8,36 +8,48 @@ static partial class QuestobjectsRules
 
     sealed class DivineFontSession
     {
+        public readonly Lock Gate = new();
         public byte RemainingUses;
         public List<DivineFontOption> Options = [];
         public List<Item> PendingResults = [];
     }
 
     static readonly ConditionalWeakTable<InstanceState, Dictionary<string, DivineFontSession>> DivineFontSessions = new();
-    static IReadOnlyList<DivineFontOption>? DivineFontCatalog;
+    static readonly Lock DivineFontCatalogGate = new();
+    static object? DivineFontCatalogRevision;
+    static IReadOnlyList<DivineFontOption> DivineFontCatalog = [];
+
+    internal static void LoadDivineFontData() => _ = LoadDivineFontCatalog();
 
     static IReadOnlyList<DivineFontOption> LoadDivineFontCatalog()
     {
-        if (DivineFontCatalog is { } cached) return cached;
-        var list = new List<DivineFontOption>();
-        if (ClientTables.Has("LabyrinthCraftOptions"))
+        var current = ClientTables.CacheKey;
+        if (ReferenceEquals(DivineFontCatalogRevision, current)) return DivineFontCatalog;
+        lock (DivineFontCatalogGate)
         {
-            foreach (var row in ClientTables.Table("LabyrinthCraftOptions"))
+            if (ReferenceEquals(DivineFontCatalogRevision, current)) return DivineFontCatalog;
+            var list = new List<DivineFontOption>();
+            if (ClientTables.Has("LabyrinthCraftOptions"))
             {
-                string id = row.Text("Id") ?? "";
-                string script = row.Text("Script") ?? "";
-                string arg = row.Text("ScriptArgument") ?? "";
-                int tier = row.IntOrNull("Tier") ?? 0;
-                ushort hash16 = (ushort)(row.IntOrNull("HASH16") ?? 0);
-                if (hash16 == 0 || script.Length == 0) continue;
-                bool hardMode = id.StartsWith("HardMode", StringComparison.OrdinalIgnoreCase);
-                int minDiff = id.Contains("Uber", StringComparison.OrdinalIgnoreCase) ? 4
-                    : id.Contains("Merciless", StringComparison.OrdinalIgnoreCase) ? 3
-                    : id.Contains("Cruel", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
-                list.Add(new(hash16, id, script, arg, tier, minDiff, hardMode));
+                foreach (var row in ClientTables.Table("LabyrinthCraftOptions"))
+                {
+                    string id = row.Text("Id") ?? "";
+                    string script = row.Text("Script") ?? "";
+                    string arg = row.Text("ScriptArgument") ?? "";
+                    int tier = row.IntOrNull("Tier") ?? 0;
+                    ushort hash16 = (ushort)(row.IntOrNull("HASH16") ?? 0);
+                    if (hash16 == 0 || script.Length == 0) continue;
+                    bool hardMode = id.StartsWith("HardMode", StringComparison.OrdinalIgnoreCase);
+                    int minDiff = id.Contains("Uber", StringComparison.OrdinalIgnoreCase) ? 4
+                        : id.Contains("Merciless", StringComparison.OrdinalIgnoreCase) ? 3
+                        : id.Contains("Cruel", StringComparison.OrdinalIgnoreCase) ? 2 : 1;
+                    list.Add(new(hash16, id, script, arg, tier, minDiff, hardMode));
+                }
             }
+            DivineFontCatalog = list;
+            DivineFontCatalogRevision = current;
+            return list;
         }
-        return DivineFontCatalog = list;
     }
 
     static DivineFontSession GetOrCreateDivineFontSession(Player player, int tier)
@@ -84,9 +96,15 @@ static partial class QuestobjectsRules
 
     static Task SendDivineFontOptions(Player player, DivineFontSession session)
     {
-        ushort[] hashes = session.RemainingUses > 0 ? [.. session.Options.Select(o => o.Hash16)] : [];
-        return SendFont(player, InstanceLabyrinth.CraftOptions(hashes, session.RemainingUses),
-            $"0x0246 Divine Font: {hashes.Length} option(s), {session.RemainingUses} use(s) left");
+        byte remaining;
+        ushort[] hashes;
+        lock (session.Gate)
+        {
+            remaining = session.RemainingUses;
+            hashes = remaining > 0 ? [.. session.Options.Select(o => o.Hash16)] : [];
+        }
+        return SendFont(player, InstanceLabyrinth.CraftOptions(hashes, remaining),
+            $"0x0246 Divine Font: {hashes.Length} option(s), {remaining} use(s) left");
     }
 
     // The Ascendancy Chamber's Divine Font (Metadata/Terrain/Labyrinth/Objects/LabyrinthBlessingBench):
@@ -94,6 +112,7 @@ static partial class QuestobjectsRules
     // LabyrinthCraftingWindow (0x140bc9a23, bound to PlayerInventories.CraftingBench row 16).
     internal static async Task UseDivineFont(Player player)
     {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
         if (LabyrinthDay.DifficultyOf(player.Layout.Id) is not int tier) return;
         if (!player.Instance.HasState(IzaroFights.Beaten))
         {
@@ -102,9 +121,11 @@ static partial class QuestobjectsRules
         }
         var session = GetOrCreateDivineFontSession(player, tier);
         await SendDivineFontOptions(player, session);
-        if (session.PendingResults.Count > 0)
-            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(session.PendingResults),
-                $"0x02a2 Divine Font pending results ({session.PendingResults.Count})");
+        List<Item> pending;
+        lock (session.Gate) pending = [.. session.PendingResults];
+        if (pending.Count > 0)
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(pending),
+                $"0x02a2 Divine Font pending results ({pending.Count})");
     }
 
     internal static Task UseDivineFontOption(Player player, ushort optionHash16)
@@ -122,7 +143,10 @@ static partial class QuestobjectsRules
 
     static async Task ApplyDivineFontCraft(Player player, DivineFontSession session, DivineFontOption option)
     {
-        if (session.RemainingUses == 0)
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        byte usesLeft;
+        lock (session.Gate) usesLeft = session.RemainingUses;
+        if (usesLeft == 0)
         {
             await SendDivineFontOptions(player, session);
             return;
@@ -130,9 +154,10 @@ static partial class QuestobjectsRules
         var items = ItemsOf(player);
         var slotItem = items.Items(PlayerInventories.CraftingBench).FirstOrDefault();
         var catalog = ItemsFor(player);
-        if (slotItem is null || catalog.ByHash(slotItem.Item.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } gemType)
+        if (slotItem is null || slotItem.Item.Corrupted || slotItem.Item.Mirrored || slotItem.Item.Vestigial
+            || catalog.ByHash(slotItem.Item.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } gemType)
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Divine Font {option.Id}: no skill gem in CraftingBench (row 16)");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Divine Font {option.Id}: no eligible skill gem in CraftingBench (row 16)");
             return;
         }
 
@@ -163,7 +188,7 @@ static partial class QuestobjectsRules
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= Divine Font {option.Id}: no transfigured variants for {baseType.Name}");
                 return;
             }
-            session.PendingResults = candidates;
+            lock (session.Gate) session.PendingResults = candidates;
             await SendFont(player, InstanceLabyrinth.CraftResultOptionsList(candidates),
                 $"0x02a2 Divine Font craft results ({candidates.Count} gem(s) for {option.Id})");
             return;
@@ -237,18 +262,22 @@ static partial class QuestobjectsRules
     // C→S 0x02a3: player picked one of the gems offered via S→C 0x02a2.
     internal static async Task PickDivineFontResult(Player player, byte choiceIndex)
     {
-        if (TryGetDivineFontSession(player) is not { } session || choiceIndex >= session.PendingResults.Count)
-            return;
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+        if (TryGetDivineFontSession(player) is not { } session) return;
+        Item? chosen;
+        lock (session.Gate)
+        {
+            if (session.RemainingUses == 0 || choiceIndex >= session.PendingResults.Count) return;
+            chosen = session.PendingResults[choiceIndex];
+            session.PendingResults.Clear();
+        }
         var items = ItemsOf(player);
         var slotItem = items.Items(PlayerInventories.CraftingBench).FirstOrDefault();
-        if (slotItem is null)
+        if (slotItem is null || slotItem.Item.Corrupted || slotItem.Item.Mirrored || slotItem.Item.Vestigial)
         {
-            session.PendingResults.Clear();
-            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results (slot empty)");
+            await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results (slot empty or ineligible)");
             return;
         }
-        var chosen = session.PendingResults[choiceIndex];
-        session.PendingResults.Clear();
         await CommitDivineFontGem(player, session, slotItem, chosen, $"Divine Font result choice #{choiceIndex}");
         await SendFont(player, InstanceLabyrinth.CraftResultOptionsList([]), "0x02a2 Divine Font clear results");
     }
@@ -257,13 +286,19 @@ static partial class QuestobjectsRules
     {
         var items = ItemsOf(player);
         var shape = ShapeOf(after);
-        var replaced = Saves.Atomically(() =>
+        InventoryItem? replaced = null;
+        lock (session.Gate)
         {
-            var next = shape is { } s ? PlayerInventories.Completed(before with { Item = after }, s).Item : after;
-            return items.Change(PlayerInventories.CraftingBench, before.Id, _ => next);
-        });
-        if (replaced is null) return;
-        if (session.RemainingUses > 0) session.RemainingUses--;
+            if (session.RemainingUses == 0) return;
+            replaced = Saves.Atomically(() =>
+            {
+                if (items.Items(PlayerInventories.CraftingBench).FirstOrDefault(i => i.Id == before.Id) is null) return null;
+                var next = shape is { } s ? PlayerInventories.Completed(before with { Item = after }, s).Item : after;
+                return items.Change(PlayerInventories.CraftingBench, before.Id, _ => next);
+            });
+            if (replaced is null) return;
+            session.RemainingUses--;
+        }
         await SendFont(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.CraftingBench),
             items.NextRevision(PlayerInventories.CraftingBench), [before.Id], [replaced]),
             $"0x00bf CraftingBench: {label}");

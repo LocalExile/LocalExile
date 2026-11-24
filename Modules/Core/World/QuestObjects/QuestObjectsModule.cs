@@ -31,6 +31,7 @@ public sealed class QuestObjectsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        QuestobjectsRules.LoadDivineFontData();
         GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
             "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/Epilogue/Helena"
             or "Metadata/NPC/Epilogue/Kirac" or "Metadata/NPC/Epilogue/KiracHideout"
