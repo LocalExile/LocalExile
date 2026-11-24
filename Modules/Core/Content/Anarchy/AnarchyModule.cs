@@ -21,7 +21,7 @@ public sealed class AnarchyModule : IModule
     sealed record Exile(uint Id, string VarietyId, bool Exceptional, bool Special);
 
     sealed class Placed { public readonly Dictionary<uint, Exile> Exiles = []; }
-    static readonly ConditionalWeakTable<InstanceState, Placed> PlacedExiles = new();
+    static readonly RuleTable<InstanceState, Placed> PlacedExiles = new();
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -43,9 +43,9 @@ public sealed class AnarchyModule : IModule
 
     static async Task<IReadOnlyList<uint>> StrongboxGuards(IModuleContext module, Player player, (int X, int Y) at, int count)
     {
-        var instance = player.Instance;
+        if (count <= 0 || player.Instance is not { } instance || player.Closed || player.LeavingArea || player.Layout.Walkable is null) return [];
         var stats = AreaLeagueStats(player);
-        if (stats.GetValueOrDefault(Stat.MapNoExiles) > 0 || player.Layout.Walkable is null) return [];
+        if (stats.GetValueOrDefault(Stat.MapNoExiles) > 0) return [];
         var placed = PlacedExiles.GetOrCreateValue(instance);
         var rng = new Random(unchecked((int)player.Seed ^ at.X * 397 ^ at.Y * 7919));
         List<string> used;
@@ -62,7 +62,7 @@ public sealed class AnarchyModule : IModule
                 double angle = (i * 2 + n) * 2.4;
                 var spot = player.Layout.Near((at.X + (int)Math.Round(Math.Cos(angle) * 12), at.Y + (int)Math.Round(Math.Sin(angle) * 12)));
                 uint? id = await SpawnExile(module, player, level, spot,
-                    stats, rng, used, false, placed, "strongbox guard", guardInstance: instance);
+                    stats, rng, used, false, placed, "strongbox guard", aggro: true, guardInstance: instance);
                 if (id is null or 0) return ids;
                 ids.Add(id.Value);
             }
@@ -74,7 +74,7 @@ public sealed class AnarchyModule : IModule
     {
         var player = area.Player;
         var layout = player.Layout;
-        if (layout.Walkable is not { } walkable) return;
+        if (player.Instance is null || layout.Walkable is not { } walkable) return;
         var stats = AreaLeagueStats(player);
         int S(uint name) => stats.GetValueOrDefault(name);
         var placed = PlacedExiles.GetOrCreateValue(player.Instance);
@@ -84,6 +84,7 @@ public sealed class AnarchyModule : IModule
         bool Chance(int percent) => percent > 0 && rng.Next(100) < percent;
         int count = S(Stat.MapDisableRogueExilesFromChance) > 0 ? 0
             : LeagueChances.Current.Count(layout.Id, LeagueChances.Anarchy, rng,
+                alternate: LeagueFor(player).HardMode,
                 increased: S(Stat.MapLeagueBaseChancePlusPctFinal),
                 added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapRogueExileChancePct));
         // What the map adds: its affixes' and the Anarchy Scarab's exiles, Unexpected Stranger's one.
@@ -153,7 +154,7 @@ public sealed class AnarchyModule : IModule
     /// spawn here (the caller places no more).</summary>
     static async Task<uint?> SpawnExile(IModuleContext module, Player player, byte level, (int X, int Y) at,
         Dictionary<uint, int> stats, Random rng, List<string> used, bool exceptional, Placed placed, string kind, bool bodyguard = false,
-        bool giant = false, InstanceState? guardInstance = null)
+        bool giant = false, bool aggro = false, InstanceState? guardInstance = null)
     {
         int S(uint name) => stats.GetValueOrDefault(name);
         bool anyLevel = S(Stat.MapOverrideRogueExileMinLevel) > 0;
@@ -198,7 +199,11 @@ public sealed class AnarchyModule : IModule
         }
         uint id = await SpawnMonster(player, exile, level, MonsterRarity.Unique, at.X, at.Y,
             log: true, alone: true, extraMods: mods, extraStats: extraStats,
-            owned: guardInstance is not null ? (id, _) => Keep(id) : null,
+            owned: aggro || guardInstance is not null ? (spawnedId, monster) =>
+            {
+                if (aggro) monster.Aggro = true;
+                if (guardInstance is not null) Keep(spawnedId);
+            } : null,
             ownedCurrent: guardInstance is not null ? () => module.Lifetime.IsActive && ReferenceEquals(player.Instance, guardInstance) : null);
         if (id != 0 && guardInstance is null) Keep(id);
         module.Log($"{player.Layout.Id}: Rogue Exile {exile.Name} ({exile.Id}, {kind}{(giant ? ", gigantified" : "")}" +
@@ -232,7 +237,7 @@ public sealed class AnarchyModule : IModule
                 && !RogueExiles.Current.IsExile(boss.Id))
                 for (int i = S(Stat.MapBossDropsXAdditionalScarabsAnarchy); i > 0; i--) roll.Items.Add(AnarchyScarab(rng));
         }
-        if (!PlacedExiles.TryGetValue(player.Instance, out var placed)) return;
+        if (player.Instance is null || !PlacedExiles.TryGetValue(player.Instance, out var placed)) return;
         Exile? exile;
         lock (placed)
         {

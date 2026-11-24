@@ -84,6 +84,7 @@ public sealed class AnarchyScarabTests : IDisposable
             var monster = instance.World.Area.Monsters[id];
             Assert.Equal(MonsterRarity.Unique, monster.Rarity);
             Assert.Equal(70, monster.Level);
+            Assert.True(monster.Aggro);
             Assert.True(monster.Effects[Stat.MaximumLifePlusPct] >= 50);
         });
         var first = instance.World.Area.Monsters[ids[0]];

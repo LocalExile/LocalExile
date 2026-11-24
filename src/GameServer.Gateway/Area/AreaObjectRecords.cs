@@ -73,7 +73,22 @@ public sealed class AreaObjectRecords(GameArea area)
     }
 
     static (ushort Message, byte Component) Kind(AreaDelta.Record record) => (BinaryPrimitives.ReadUInt16BigEndian(record.Bytes),
-        BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) == InstanceEntities.ComponentUpdateId && record.Bytes.Length > 12 ? record.Bytes[12] : (byte)0);
+        BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) == InstanceEntities.ComponentUpdateId && record.Bytes.Length > 14 ? record.Bytes[14] : (byte)0);
+
+    // Static scenery with Positioned first and no Sector prefix. Read the retained create only for
+    // these known layouts, and only when no per-object script variables precede the components.
+    public (int X, int Y)? StaticPosition(uint id, IReadOnlySet<uint> positionedTypes)
+    {
+        lock (objects)
+        {
+            if (!objects.TryGetValue(id, out var records)) return null;
+            var bytes = records[0].Bytes.AsSpan();
+            if (bytes.Length < 28 || BinaryPrimitives.ReadUInt16BigEndian(bytes) != InstanceEntities.CreateObjectId
+                || !positionedTypes.Contains(BinaryPrimitives.ReadUInt32BigEndian(bytes[12..]))
+                || BinaryPrimitives.ReadUInt16BigEndian(bytes[16..]) < 10 || bytes[19] != 0) return null;
+            return (BinaryPrimitives.ReadInt32LittleEndian(bytes[20..]), BinaryPrimitives.ReadInt32LittleEndian(bytes[24..]));
+        }
+    }
 
     public bool Has(uint id) { lock (objects) return objects.ContainsKey(id); }
 

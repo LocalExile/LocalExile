@@ -120,7 +120,7 @@ public sealed class ResonanceSupportTests
             var copy = new Dictionary<uint, int>(sources)
             {
                 [Stat.GlobalAlwaysHit] = 1,
-                [Stat.CriticalStrikeChancePlusPct] = -10000,
+                [Stat.GlobalCannotCrit] = 1,
             };
             return copy;
         });
