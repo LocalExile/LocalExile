@@ -14,6 +14,7 @@ public sealed partial class ReservationCurseSummonTests
         string path = Path.Combine(Path.GetTempPath(), $"congregation-{Guid.NewGuid():N}.db");
         using var wire = new Wire();
         player.Connection.Session = new("test", wire.Stream, wire.Ciphers);
+        player.Connection.PlayerSent = true;
         Saves.Open(path);
         Game.CombatLifetime = lifetime;
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
@@ -79,6 +80,7 @@ public sealed partial class ReservationCurseSummonTests
             items.Change(PlayerInventories.BodyArmour, worn.Id, item => item with { Links = [1, 1, 1, 1, 1] });
             Assert.Equal(skill, Source("SummonSkeletons"));
             Assert.Equal(5, Published(skill, "number_of_skeletons_allowed"));
+            player.Summons.RefreshAt = 0;
             await Game.SummonsTick(player, Game.AreaTime(player));
             Assert.Equal(5, player.Summons.Fighters.Count);
             await Game.ReservationSkillsTick(player, Game.AreaTime(player) + .5);

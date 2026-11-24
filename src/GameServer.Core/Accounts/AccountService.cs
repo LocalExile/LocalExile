@@ -40,6 +40,14 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         }
     }
 
+    private static readonly byte[] EmptyPasswordDigest = ClientPasswordDigest("");
+
+    private void InvalidateSessions(Guid accountId)
+    {
+        foreach (var token in _sessions.Where(kv => kv.Value.AccountId == accountId).Select(kv => kv.Key).ToArray())
+            _sessions.Remove(token);
+    }
+
     /// <summary>Sets an account's password (dev tool: no minimum length, so a local test account can use any text). Both
     /// stored hashes change with a new salt: the one for <see cref="Login"/> and the one for the official client's digest.</summary>
     public Result<Account> SetPassword(string name, string password)
@@ -55,6 +63,39 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
                 ClientDigestHash = DigestHash(ClientPasswordDigest(password), salt),
             };
             store.UpdateAccount(changed);
+            InvalidateSessions(acc.Id);
+            return Result<Account>.Success(changed);
+        }
+    }
+
+    /// <summary>Changes an account's password from the official client's change-password request (C→S 0x0a), where only
+    /// SHA-256 digests of the old and new UTF-16LE passwords are sent. Rotates the salt and password verifier so prior
+    /// saved-login credentials and active sessions are invalidated.</summary>
+    public Result<Account> ChangePasswordWithClientDigest(Guid accountId, ReadOnlySpan<byte> oldDigest, ReadOnlySpan<byte> newDigest)
+    {
+        if (oldDigest.Length != 32 || newDigest.Length != 32) return Result<Account>.Fail(AuthError.BadCredentials);
+        bool allZero = true;
+        foreach (byte b in newDigest) if (b != 0) { allZero = false; break; }
+        if (allZero || CryptographicOperations.FixedTimeEquals(newDigest, EmptyPasswordDigest))
+            return Result<Account>.Fail(AuthError.WeakPassword);
+        lock (_gate)
+        {
+            var acc = store.GetAccount(accountId);
+            if (acc is null) return Result<Account>.Fail(AuthError.NotFound);
+            if (acc.ClientDigestHash is null || !CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(acc.ClientDigestHash), Encoding.UTF8.GetBytes(DigestHash(oldDigest, acc.PasswordSalt))))
+                return Result<Account>.Fail(AuthError.BadCredentials);
+            var salt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
+            var changed = acc with
+            {
+                // Rotate PasswordHash to a random 32-byte Base64 sentinel so SavedClientCredential rotates
+                // without making HEX(newDigest) a valid Login(name, password) secret; Login verifies ClientDigestHash.
+                PasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
+                PasswordSalt = salt,
+                ClientDigestHash = DigestHash(newDigest, salt),
+            };
+            store.UpdateAccount(changed);
+            InvalidateSessions(accountId);
             return Result<Account>.Success(changed);
         }
     }
@@ -62,11 +103,18 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
     public Result<Session> Login(string name, string password)
     {
         var acc = store.FindAccount(name);
-        if (acc is null || !CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(acc.PasswordHash), Encoding.UTF8.GetBytes(Hash(password ?? "", acc.PasswordSalt))))
+        if (acc is null) return Result<Session>.Fail(AuthError.BadCredentials);
+        string pw = password ?? "";
+        bool matchesPassword = CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(acc.PasswordHash), Encoding.UTF8.GetBytes(Hash(pw, acc.PasswordSalt)));
+        bool matchesDigest = !matchesPassword && !string.IsNullOrEmpty(acc.ClientDigestHash)
+            && CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(acc.ClientDigestHash),
+                Encoding.UTF8.GetBytes(DigestHash(ClientPasswordDigest(pw), acc.PasswordSalt)));
+        if (!matchesPassword && !matchesDigest)
             return Result<Session>.Fail(AuthError.BadCredentials);
         if (acc.ClientDigestHash is null)
-            store.UpdateAccount(acc with { ClientDigestHash = DigestHash(ClientPasswordDigest(password!), acc.PasswordSalt) });
+            store.UpdateAccount(acc with { ClientDigestHash = DigestHash(ClientPasswordDigest(pw), acc.PasswordSalt) });
         return Result<Session>.Success(NewSession(acc));
     }
 
@@ -148,6 +196,21 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
             var c = new Character(Guid.NewGuid(), accountId, name, cls, level, inLeague ?? league, StartingArea, now, now);
             store.AddCharacter(c);
             return Result<Character>.Success(c);
+        }
+    }
+
+    public Result<Character> RenameCharacter(Guid accountId, Guid characterId, string newName)
+    {
+        if (!ValidName(newName, 3, 23)) return Result<Character>.Fail(AuthError.InvalidCharacterName);
+        lock (_gate)
+        {
+            var c = store.GetCharacter(characterId);
+            if (c is null || c.AccountId != accountId) return Result<Character>.Fail(AuthError.NotFound);
+            if (store.FindCharacter(newName) is { } existing && existing.Id != c.Id)
+                return Result<Character>.Fail(AuthError.CharacterNameTaken);
+            if (!store.RenameCharacter(c.Id, newName))
+                return Result<Character>.Fail(AuthError.CharacterNameTaken);
+            return Result<Character>.Success(c with { Name = newName });
         }
     }
 

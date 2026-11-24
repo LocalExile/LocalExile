@@ -103,6 +103,9 @@ public sealed partial class DeepwaterModule
         await DeepwaterLanterns.SendCount(player, run);
         if (run.CollapseState != 0 && DeepwaterRuleset.Collapse(run.CollapseState) is { } collapse)
             await modPlayer.Send(collapse, $"0x02c9 ruleset DeepwaterRules mode 3: {run.CollapseState} (sync)");
+        if (DeepwaterCollapse.RemainingTimerSeconds(run, AreaTime(player)) is uint timerLeft and > 0)
+            await modPlayer.Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Deepwater, timerLeft),
+                $"0x0163 mission timer Deepwater: {timerLeft} s (sync)");
         await DeepwaterLoot.Show(player, run);
         await DeepwaterExtraction.Show(player, run);
         await DeepwaterVelka.Show(player, run);

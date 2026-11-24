@@ -129,14 +129,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null)
     {
-        Func<uint, int> get;
-        if (capturedInputs is null)
-        {
-            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
-            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
-        }
-        else
-            get = capturedInputs.Get;
+        var get = SupportedAilmentStats(player, skillId, playerStats, capturedInputs);
         string hand = spell ? "spell" : "main_hand";
         NoteIgniteArt(player, skillId);
         var rows = capturedInputs is null
@@ -214,7 +207,8 @@ public static partial class Game
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
         return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
-            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats))), conversion ?? DamageStats.Conversion(playerStats, Stats, attack: true),
+            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
+            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),
             "main_hand", Get), playerStats, null, spell: false, "main_hand");
     }
@@ -327,11 +321,14 @@ public static partial class Game
                 if (!set.Burning) EndDot(player, id, ref set.Buff, set.BuffSource);
                 if (set.Idle) (done ??= []).Add(id);
                 if (damage == 0) continue;
-                (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
+                int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: false, AreaTime(player));
+                bool stageStarts = false;
+                if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                 m.Aggro = m.Life > 0;
                 if (m.Life == 0)
                 {
                     m.Dead = true;
+                    CleanupDeadMonsterLocked(player.Area, id, m);
                     CollectVaalSoulAtDeathLocked(player, m);
                     EndDot(player, id, ref set.Buff, set.BuffSource);
                     set.Clear(burnt: true);

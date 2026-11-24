@@ -128,6 +128,11 @@ public static class UtilityFlasks
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanShockDuringEffect, Stat.AllDamageFromCriticalStrikesCanShock, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanChillDuringEffect, Stat.AllDamageFromCriticalStrikesCanChill, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanFreezeDuringEffect, Stat.AllDamageFromCriticalStrikesCanFreeze, 1, true),
+        // "25% reduced Mana Cost of Skills during Effect" (the official Topaz Flask,
+        // JunMaster2LocalFlaskSkillManaCostDuringFlaskEffect1): the local stat is
+        // negative, the character stat is the reduction, so the sign flips.
+        // The finished skill mana cost reads base_mana_cost_-% as its first percentage.
+        (Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect, Stat.BaseManaCostMinusPct, -1, false),
     ];
 
     // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
@@ -191,6 +196,7 @@ public static class UtilityFlasks
         Stat.MonsterBaseBlockPct, Stat.BaseSpellBlockPct,   // Rumi's Concoction (Apply)
         Stat.AllDamageFromCriticalStrikesCanShock, Stat.AllDamageFromCriticalStrikesCanChill,
         Stat.AllDamageFromCriticalStrikesCanFreeze,   // Stormblood
+        Stat.BaseManaCostMinusPct,   // "reduced Mana Cost of Skills during Effect"
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -252,7 +258,7 @@ public static class UtilityFlasks
     /// base × (1 + local increased) × (1 + global increased) × (1 + quality) × (1 + local more), quality multiplying the other increases; effect
     /// = 1 + the local and the character's increased effect.</summary>
     public static (IReadOnlyList<Source> Stats, double Seconds) For(Utility u, Item flask,
-        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1)
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> character, int playerLevel = 1, double finalMultiplier = 1)
     {
         int Get(uint name) => local.GetValueOrDefault(name);
         double durationInc = PanelStats.FlaskDurationIncrease(character, playerLevel);
@@ -261,7 +267,7 @@ public static class UtilityFlasks
             * (100.0 + durationInc) / 100.0 * (100.0 + flask.Quality) / 100.0
             * (100.0 + Get(Stat.LocalFlaskDurationPlusPctFinal)) / 100.0;
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, Get(Stat.LocalFlaskEffectPlusPct),
-            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0);
+            flask.Rarity == ItemRarity.Magic ? character(Stat.MagicUtilityFlaskEffectPlusPct) : 0, finalMultiplier);
         bool Applies(uint stat) => SupportOf(stat) != Support.Unsupported;
         List<Source> stats = [.. u.Stats.Where(s => Applies(s.Stat))
             .Select(s => new Source($"buff {u.BuffRow}", s.Stat, s.Stat == Stat.PhaseThroughObjects ? s.Value
@@ -350,6 +356,7 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
+        public int SelfChaosDamageLifePctPerMinute { get; init; }
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
     }
@@ -369,12 +376,30 @@ public static class UtilityFlasks
     /// a pending End edge from any subsequent accepted use of the same item.</summary>
     public sealed class Effects
     {
+        public sealed class DamageProgress
+        {
+            public double Through = double.NaN;
+            public double Pending, TakenCarry, BypassCarry;
+        }
+
         readonly List<Active> _active = [];
         readonly Lock _lock = new();
         int _ticker, _lastTicket;
         long _activation;
         readonly Dictionary<uint, long> _latest = [];
         double expiryRate = 1;
+        public DamageProgress SelfDamage { get; } = new();
+
+        public bool HasSelfDamage
+        {
+            get { lock (_lock) return _active.Any(a => a.SelfChaosDamageLifePctPerMinute > 0); }
+        }
+
+        public IReadOnlyList<Active> SelfDamageEffects()
+        {
+            lock (_lock) return [.. _active.Where(a => a.SelfChaosDamageLifePctPerMinute > 0)];
+        }
+
         public void SetExpiryRate(double now, double rate)
         {
             lock (_lock)
@@ -574,6 +599,9 @@ public static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
                 Stat.PhaseThroughObjects => Stat.VirtualPhaseThroughObjects,
+                // The flask's reduced skill mana cost: the finished cost reads it
+                // off the character's stats, and the running flasks reach those only here.
+                Stat.BaseManaCostMinusPct => stat,
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,
@@ -636,10 +664,12 @@ public static class UtilityFlasks
 
     /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
     /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static void ShowBuffs(Active e, Player player)
+    public static void ShowBuffs(Active e, Player player) => ShowBuffs(e, player, null);
+
+    public static void ShowBuffs(Active e, Player player, ushort? visual)
     {
         double seconds = (e.Ends - e.Started) * e.ExpiryRate;
-        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds));
+        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds, values: null, visual: visual));
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
             player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, U68: global::Buff.Seconds(seconds), Tag: extra));
     }

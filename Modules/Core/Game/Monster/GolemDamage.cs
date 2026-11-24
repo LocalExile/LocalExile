@@ -16,13 +16,24 @@ public static partial class Game
         var to = golem.G.Monster.Walk.Position(now);
         if (golem.Distance > attack.Range + LivingCollision.Size(golem.G.Monster))
         {
-            if (enemy.LastTarget is { } old && Dist(old, to) < 5 && now < enemy.Walk.ArrivesAt) return true;
             double factor = golem.Distance > 0 ? Math.Max(1, attack.Range - 1) / golem.Distance : 0;
             var aim = ((int)Math.Round(to.X + (here.X - to.X) * factor), (int)Math.Round(to.Y + (here.Y - to.Y) * factor));
+            if (enemy.LastTarget is { } old && (Dist(old, to) < 5 || Dist(old, aim) < 5) && now < enemy.Walk.ArrivesAt) return true;
+            if (player.Connection.LockstepClient)
+            {
+                if (!LockstepTakesMove(here, aim)) aim = to;
+                if (!LockstepTakesMove(here, aim)) return true;
+                if (InAreaFrame(player))
+                {
+                    int gen = ++enemy.ActionGeneration;
+                    player.Minions.OutputQueue.Add(new([], null, id, enemy, Action: gen, At: aim, WorldId: id));
+                    return true;
+                }
+            }
             int generation = ++enemy.ActionGeneration; enemy.LastTarget = to;
             enemy.Walk.Order(aim.Item1, aim.Item2, now);
             player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionStarted(id, here.X, here.Y, aim.Item1, aim.Item2,
-                0x2909, player.NextActionSequence(), 0x0408), null, id, enemy, Action: generation, WorldId: id));
+                0x2909, NextMonsterMoveSequence(player, enemy), player.MonsterOrderFlags), null, id, enemy, Action: generation, WorldId: id));
             return true;
         }
         int action = ++enemy.ActionGeneration;
@@ -47,13 +58,14 @@ public static partial class Game
     {
         var hit = player.Golems.IncomingHits.FirstOrDefault(h => h.Enemy == output.TargetId && h.Generation == output.Action);
         if (hit is null || hit.Started || hit.Monster.Dead || hit.Monster.ActionGeneration != hit.Generation || hit.Target.Monster.Dead) return null;
-        double now = AreaTime(player); var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
+        double now = LockstepOrderStart(player, AreaTime(player));
+        var from = hit.Monster.Walk.Position(now); var to = hit.Target.Monster.Walk.Position(now);
         hit.Started = true;
-        hit.ContactAt = now + hit.Attack.Seconds * (hit.Monster.Variety?.Id == EssenceExplosiveInsect ? 1 : hit.Attack.Release?.Fraction ?? .5);
+        hit.ContactAt = now + hit.Attack.Seconds * (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id) ? 1 : hit.Attack.Release?.Fraction ?? .5);
         hit.Monster.BusyUntil = now + hit.Attack.Seconds;
         hit.Monster.Walk.Order(from.X, from.Y, now);
         return InstanceProtocol.ActionStarted(hit.Enemy, from.X, from.Y, to.X, to.Y, hit.Attack.SkillId,
-            0xffff, 0x0408, targetObjectId: hit.Target.Id);
+            0xffff, player.MonsterOrderFlags, targetObjectId: hit.Target.Id);
     }
 
     static void GolemIncomingContactsLocked(Player player, double now)
@@ -71,7 +83,7 @@ public static partial class Game
             if (!hit.Started || now < hit.ContactAt) continue;
             player.Golems.IncomingHits.Remove(hit);
             if (MonsterActionFactor(hit.Monster, now) == 0) continue;
-            if (hit.Monster.Variety?.Id == EssenceExplosiveInsect)
+            if (IsEssenceExplosiveInsect(hit.Monster.Variety?.Id))
             {
                 QueueEssenceInsectContactLocked(player, hit.Enemy, hit.Monster, hit.Attack, hit.Generation);
                 continue;
@@ -123,20 +135,24 @@ public static partial class Game
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         long damage = 0;
         var mitigated = DamagePacket.Empty;
+        int minionFort = MinionFortificationStacksLocked(player, g, g.Monster.Walk.Position(now), now);
+        double fortFactor = Math.Max(0d, 1d - minionFort / 100d);
         foreach (var (type, range) in rolled.Components)
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
             var resistance = MonsterHitResistance(m, type, default);
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
-                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };
+                    + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")]
+                    + (type != DamageType.Chaos ? effects[Stat.AdditionalMaximumAllElementalResistancesPct] : 0), 0, 90) };
             int value = (int)Math.Round(DamageModel.Mitigate(DamagePacket.Of(type, range.Min, range.Min), _ => resistance)[type].Min);
             if (type == DamageType.Physical)
             {
                 double armour = Math.Max(0, Player(Stat.MinionPhysicalDamageReductionRating)
                     + (g.Definition.IsGolem ? Player(Stat.GolemPhysicalDamageReductionRating) : 0)
                     + effects[Stat.BasePhysicalDamageReductionRating])
-                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0);
+                    * Math.Max(0, 1 + effects[Stat.DeterminationAuraArmourPlusPctFinal] / 100.0)
+                    * Math.Max(0, 1 + effects[Stat.ArmourPlusPctFinalFromSeismicCryBuff] / 100.0);
                 double reduction = Math.Min(.9, armour / Math.Max(1, armour + 5 * value) + effects.PhysicalReduction / 100.0);
                 value = (int)Math.Round(value * (1 - reduction));
             }
@@ -144,7 +160,9 @@ public static partial class Game
                 // Meat Shield's defensive half: "Minions take 15% less Damage" (the stat is the negative more).
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100.0)
                 * Math.Max(0, 1 + GolemStat(g.Own, Stat.VaalUpgradeMinionDamageTakenPlusPctFinal) / 100d)
-                * (area ? Math.Max(0, 1 + effects[Stat.Of("damage_taken_+%_from_area_hits")] / 100.0) : 1));
+                // area_damage_taken_from_hits_+% (Stats 8037).
+                * (area ? Math.Max(0, 1 + effects[Stat.AreaDamageTakenFromHitsPlusPct] / 100.0) : 1)
+                * fortFactor);
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
@@ -183,6 +201,7 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        ReconcileGuardianBlessingLocked(player);
         if (g.Definition.Kind == "AnimatedGuardian") RecordAnimatedGuardianDeath(player);
         g.ShieldPool.Empty();
         ExpireMinionChargesLocked(player, g, double.PositiveInfinity);
@@ -191,6 +210,11 @@ public static partial class Game
         EndDot(player, g.Id, ref g.Monster.Ignites.Buff, g.Monster.Ignites.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Bleeds.Buff, g.Monster.Bleeds.BuffSource);
         EndDot(player, g.Id, ref g.Monster.Poisons.Buff, g.Monster.Poisons.BuffSource);
+        if (g.SpectreBuff != 0)
+        {
+            player.Area.Buffs.Clear(g.Id, SpectreBuffRowValue(), g.Id);
+            g.SpectreBuff = 0;
+        }
         g.Monster.Ignites.Clear();
         g.Monster.Bleeds.Clear();
         g.Monster.Poisons.Clear();

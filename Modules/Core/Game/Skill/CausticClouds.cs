@@ -5,7 +5,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static double CausticGroundDps(Func<uint, int> get, Func<uint, int> own)
+    public static double CausticGroundDps(Func<uint, int> get, Func<uint, int> own)
     {
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return 0;
         double increased = (double)get(Stat.DamagePlusPct) + get(Stat.ChaosDamagePlusPct) + get(Stat.AreaDamagePlusPct)
@@ -20,9 +20,11 @@ public static partial class Game
             Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
             Stat.SupportAreaConcentrateAreaDamagePlusPctFinal,
             Stat.CrueltyDamageOverTimePlusPctFinal,
+            Stat.SupportManaforgedArrowsDamagePlusPctFinal,
         }) more *= Math.Max(0, 1 + own(stat) / 100d);
         return Math.Max(0, get(Stat.BaseChaosDamageToDealPerMinute) / 60d) * more * Math.Max(0, 1 + increased / 100)
-            * Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)) / 100);
+            * Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)
+                + get(Stat.DotMultiplierPlusWithBowSkills)) / 100);
     }
 
     public sealed partial class ProjectileSession
@@ -126,7 +128,8 @@ public static partial class Game
                     int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
                     carry.Fraction = total - Math.Floor(total);
                     if (damage == 0) continue;
-                    var (life, stage) = TakeOwnerDamageLocked(Player, monster, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(Player.Area, monster, damage, chaos: true, AreaTime(Player));
+                    var (life, stage) = lifeDamage > 0 ? TakeOwnerDamageLocked(Player, monster, lifeDamage) : (monster.Life, false);
                     monster.Life = life;
                     monster.Aggro = life > 0;
                     if (stage) CommitProjectileBossStage(this, id, monster, now);
@@ -134,6 +137,7 @@ public static partial class Game
                     {
                         SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
                         monster.Dead = true;
+                        CleanupDeadMonsterLocked(Player.Area, id, monster);
                         monster.LastHitBy = Player;
                         CollectVaalSoulAtDeathLocked(Player, monster);
                         Enqueue(() => DotKilled(Player, id, monster));

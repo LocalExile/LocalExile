@@ -152,7 +152,7 @@ public sealed partial class DeepwaterModule
         if (!await global::Game.SendWorldCreate(modPlayer, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(at.Type), blob),
             $"0x02bb {at.Type.Split('/')[^1]} 0x{id:x} at ({at.X}, {at.Y}), {name} {value}")) return null;
         await global::Game.SendWorldRecord(modPlayer, id, InstanceProtocol.EnterWakeZone(id));
-        if (info.Blocking) player.SetBlocker(id, at.X, at.Y, Math.Max(1, info.Size));
+        if (info.Blocking) player.SetObjectBlocker(id, at.X, at.Y, Math.Max(1, info.Size), info.ActorOrChest);
         return (id, info.Size + 2);
     }
 

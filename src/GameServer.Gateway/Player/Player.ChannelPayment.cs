@@ -9,4 +9,5 @@ public sealed partial class Player
     public double NonChaosDotBypassCarry;
     public double NonChaosDotTakenCarry;
     public double ChaosDotBypassCarry;
+    public double ChaosDotManaCarry;
 }

@@ -21,15 +21,24 @@ public static partial class Game
         return own;
     }
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<uint, uint> MinionStatIds = new();
+
+    static uint MinionStatId(uint n) => MinionStatIds.GetOrAdd(n, static key =>
+        Stats.Name(key) is { Length: > 0 } name ? Stat.Of("minion_" + name) : 0);
+
     static IReadOnlyList<(uint Key, int Value)> SkitterMinionStats =>
         [.. MinionStats, (Stat.HideMiniLifeBar, 1), (Stat.BaseCannotBeDamaged, 1)];
 
     static int SkitterAuraRadius(GolemState.Golem fighter) =>
-        SkillArea.Radius(30, n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, Stat.Of("minion_" + Stats.Name(n))), spell: true);
+        SkillArea.Radius(30, n => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, MinionStatId(n)), spell: true);
 
-    static int PuritySentinelLimit(IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> playerStats) =>
-        SupportedSummonLimit((long)GolemStat(own, Stat.BaseNumberOfChampionsOfLightAllowed)
-            + GolemStat(playerStats, Stat.BaseNumberOfChampionsOfLightAllowed), own);
+    static int PuritySentinelLimit(IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> playerStats)
+    {
+        int PlayerStat(uint key) => GolemStat(playerStats, key);
+        int limit = SupportedSummonLimit((long)GolemStat(own, Stat.BaseNumberOfChampionsOfLightAllowed)
+            + PlayerStat(Stat.BaseNumberOfChampionsOfLightAllowed), own);
+        return ApplyDarkMonarchLimit(limit, PlayerStat, "Purity");
+    }
 
     static async Task SummonReservationFighter(Player player,
         AuraCatalog.Aura aura, string kind)
@@ -46,7 +55,9 @@ public static partial class Game
         var supported = SupportedSkill(player, aura.SkillId);
         if (!supported.RequirementsMet) return;
         var playerStats = CharacterPlayerStats(player);
-        int limit = kind == "Purity" ? PuritySentinelLimit(supported.Stats, playerStats) : 1;
+        int PlayerStat(uint stat) => GolemStat(playerStats, stat);
+        int limit = kind == "Purity" ? PuritySentinelLimit(supported.Stats, playerStats)
+            : MinionFamilyAllowed(PlayerStat, kind) ? 1 : 0;
         if (limit <= 0) return;
         if (ReservationAura(player, aura.EffectId) is null) return;
         var existing = player.Reservations.Fighters.Values.Where(g => g.Definition.Kind == kind && !g.Monster.Dead).ToArray();
@@ -64,39 +75,49 @@ public static partial class Game
         byte level = (byte)Math.Clamp(GolemStat(supported.Stats, Stat.BaseDisplayMinionActorLevel) is > 0 and var actorLevel
             ? actorLevel : SkillsFor(player).PlayerLevelReq(aura.Effect, aura.Level), 1, 100);
         var definition = new GolemCatalog.Definition(aura.Effect, aura.EffectId, kind, path, 0, [], false, false, IsGolem: false);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other)) return;
+        bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
+        double summonDuration = kind == "Purity"
+            ? ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
+        double freshMeat = !skitter ? FreshMeatSeconds(supported.Stats, summonDuration) : 0;
+        double preparedNow = AreaTime(player);
         var fighter = new GolemState.Golem(0, null!, definition, aura.SkillId)
-        { GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(player, aura, kind), Player = new(playerStats), Limit = limit };
-        var mods = GolemModifiers(player, fighter, playerStats);
+        {
+            GemLevel = supported.Level, Quality = supported.Quality, Own = ReservationMinionStats(player, aura, kind),
+            Player = new(playerStats), Limit = limit,
+            FreshMeatUntil = freshMeat > 0 ? preparedNow + freshMeat : 0,
+        };
+        var mods = GolemModifiers(player, fighter, playerStats, preparedNow);
         var pools = GolemPools.Calculate(Monsters, variety, level, fighter, playerStats, mods.Effects);
         uint transportMaximum = pools.Fatal ? 1 : pools.MaximumLife;
         uint maximumEnergyShield = NativeEnergyShield(pools.MaximumEnergyShield);
         uint energyShield = maximumEnergyShield;
         if (!pools.Fatal)
         {
-            fighter.Abilities = kind.StartsWith("Skitter", StringComparison.Ordinal)
-                ? [] : GolemAbilities(player, variety, level, fighter, playerStats);
+            fighter.Abilities = skitter
+                ? [] : GolemAbilities(player, variety, level, fighter, playerStats, preparedNow);
             fighter.Skills = GolemNativeSkills(player, level, fighter.Abilities);
         }
-        var at = NextToPlayer(player);
-        bool skitter = kind.StartsWith("Skitter", StringComparison.Ordinal);
+        var at = NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
         await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
             friendly: true, mods: mods, unrisen: false, extraStats: skitter ? SkitterMinionStats : MinionStats, ownedSkills: fighter.Skills,
             ownedMaximumLife: transportMaximum, ownedMaximumEnergyShield: maximumEnergyShield,
             ownedEnergyShield: energyShield, damagedLife: pools.Fatal ? 1 : transportMaximum,
             ownedInitialDeath: pools.Fatal,
-            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId,
+            ownedCurrent: () => ReservationAura(player, aura.EffectId)?.SkillId == aura.SkillId && CanHaveOtherMinions(player),
             owned: (id, monster) =>
             {
+                double committed = AreaTime(player);
                 fighter.Id = id; fighter.Monster = monster;
-                fighter.SummonedAt = fighter.LastStep = AreaTime(player);
+                fighter.SummonedAt = fighter.LastStep = committed;
+                if (freshMeat > 0) fighter.FreshMeatUntil = committed + freshMeat;
                 fighter.ShieldPool.SetMaximum(maximumEnergyShield, refill: true);
                 monster.Mods = mods;
                 player.Reservations.Fighters.Add(id, fighter);
-                player.Reservations.Until[id] = kind == "Purity"
-                    ? AreaTime(player) + ReservationDuration(player, aura, Stat.BaseSkillEffectDuration, 12000) : double.PositiveInfinity;
+                player.Reservations.Until[id] = double.IsFinite(summonDuration) ? committed + summonDuration : double.PositiveInfinity;
                 player.Minions.Add(new(id, monster, aura.EffectId, kind) { Until = player.Reservations.Until[id] });
                 monster.NoRewards = true; monster.Aggro = true;
-                if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false);
+                if (pools.Fatal) GolemDieLocked(player, fighter, committed, emitLife: false);
             });
     }
 
@@ -135,32 +156,31 @@ public static partial class Game
             bool refresh = now >= state.RefreshFightersAt;
             if (refresh) state.RefreshFightersAt = now + .5;
             var playerStats = refresh && state.Fighters.Count > 0 ? CharacterPlayerStats(player) : null;
-            if (playerStats is not null && ReservationAura(player, "HeraldOfPurity") is { } purity
-                && state.Fighters.Values.Any(f => f.Definition.Kind == "Purity" && GolemStat(f.Own, CongregationMinionLimit) > 0))
-            {
-                int limit = PuritySentinelLimit(SupportedSkill(player, purity.SkillId).Stats, playerStats);
-                foreach (var surplus in state.Fighters.Values.Where(f => f.Definition.Kind == "Purity")
-                    .OrderByDescending(f => f.SummonedAt).Skip(limit).ToArray())
-                    RemoveReservationFighterLocked(player, surplus, now);
-            }
             foreach (var fighter in state.Fighters.Values.ToArray())
             {
                 if (!player.Auras.TryGetValue(fighter.Source, out var aura)) continue;
                 if (refresh)
                 {
+                    int PlayerStat(uint s) => GolemStat(playerStats!, s);
+                    if (!MinionFamilyAllowed(PlayerStat, fighter.Definition.Kind))
+                    {
+                        RemoveReservationFighterLocked(player, fighter, now);
+                        continue;
+                    }
+                    if (fighter.Definition.Kind == "Purity")
+                    {
+                        int purityLimit = PuritySentinelLimit(SupportedSkill(player, aura.SkillId).Stats, playerStats!);
+                        if (state.Fighters.Values.Count(g => g.Definition.Kind == "Purity" && !g.Monster.Dead) > purityLimit)
+                        {
+                            RemoveReservationFighterLocked(player, fighter, now);
+                            continue;
+                        }
+                    }
                     fighter.Own = ReservationMinionStats(player, aura, fighter.Definition.Kind);
-                    RefreshGolemLocked(player, fighter, playerStats!);
+                    RefreshGolemLocked(player, fighter, playerStats!, now);
                 }
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
-                var pending = fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && now >= fighter.NextOrb
-                    ? player.Placed.All.Values.Where(p => !p.SkitterTriggered && now >= p.Armed
-                        && Dist(p.At, player.Walk.Position(now)) <= 100
-                        && ReferenceEquals(fighter, state.Fighters.Values
-                            .Where(g => g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) && !g.Monster.Dead && now >= g.NextOrb)
-                            .MinBy(g => Dist(g.Monster.Walk.Position(now), p.At))))
-                        .MinBy(p => Dist(p.At, fighter.Monster.Walk.Position(now))) : null;
-                if (pending is not null) GolemMoveLocked(player, fighter, pending.At, now);
-                else GolemStepLocked(player, fighter, now);
+                GolemStepLocked(player, fighter, now);
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0
                     || !fighter.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal)) continue;
                 bool cold = fighter.Definition.Kind == "SkitterCold";
@@ -183,9 +203,34 @@ public static partial class Game
         }
     }
 
+    static PlacedSkills.Placed? PendingSkitterPlaced(Player player, GolemState.Golem fighter, (int X, int Y) owner, double now)
+    {
+        if (player.Placed.All.Count == 0 || now < fighter.NextOrb) return null;
+        var state = player.Reservations;
+        var here = fighter.Monster.Walk.Position(now);
+        PlacedSkills.Placed? best = null;
+        double bestDist = double.MaxValue;
+        foreach (var p in player.Placed.All.Values)
+        {
+            if (p.SkitterTriggered || now < p.Armed || Dist(p.At, owner) > 100) continue;
+            GolemState.Golem? nearest = null;
+            double nearestDist = double.MaxValue;
+            foreach (var g in state.Fighters.Values)
+            {
+                if (!g.Definition.Kind.StartsWith("Skitter", StringComparison.Ordinal) || g.Monster.Dead || g.Monster.Life == 0 || now < g.NextOrb) continue;
+                double d = Dist(g.Monster.Walk.Position(now), p.At);
+                if (d < nearestDist) { nearestDist = d; nearest = g; }
+            }
+            if (!ReferenceEquals(nearest, fighter)) continue;
+            double dist = Dist(p.At, here);
+            if (dist < bestDist) { bestDist = dist; best = p; }
+        }
+        return best;
+    }
+
     public static int SkitterAilmentStat(GolemState.Golem fighter, uint name)
     {
-        int Get(uint n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, Stat.Of("minion_" + n));
+        int Get(uint n) => GolemStat(fighter.Own, n) + GolemStat(fighter.Player, MinionStatId(n));
         return name switch {
             Stat.VirtualChillEffectPlusPct => Get(name) + Get(Stat.ChillEffectPlusPct) + Get(Stat.ColdAilmentEffectPlusPct) + Get(Stat.NonDamagingAilmentEffectPlusPct),
             Stat.VirtualShockEffectPlusPct => Get(name) + Get(Stat.ShockEffectPlusPct) + Get(Stat.LightningAilmentEffectPlusPct) + Get(Stat.NonDamagingAilmentEffectPlusPct),

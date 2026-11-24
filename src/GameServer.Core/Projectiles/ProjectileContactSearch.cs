@@ -43,7 +43,8 @@ public sealed partial class ProjectileRuntime
         public bool Take(IReadOnlyList<ProjectileActor> actors, long now, long horizon, int fewest)
         {
             int before = Count;
-            bool same = before == actors.Count && takenAt == now && takenUntil == horizon;
+            bool sameTime = takenAt == now && takenUntil == horizon;
+            bool sameActors = before == actors.Count;
             Count = actors.Count; takenAt = now; takenUntil = horizon;
             if (Motion.Length < Count) Motion = new ActorMotion[Math.Max(Count, Motion.Length * 2)];
             bool ordered = true;
@@ -53,7 +54,7 @@ public sealed partial class ProjectileRuntime
                 {
                     var actor = actors[i];
                     var taken = new ActorMotion(actor, actor.Position(now), actor.Position(horizon));
-                    same = same && Same(in Motion[i], in taken);
+                    sameActors = sameActors && Same(in Motion[i], in taken);
                     Motion[i] = taken;
                 }
             else
@@ -62,12 +63,12 @@ public sealed partial class ProjectileRuntime
                 foreach (var actor in actors.OrderBy(a => a.Key.Id).ThenBy(a => a.Key.Generation))
                 {
                     var taken = new ActorMotion(actor, actor.Position(now), actor.Position(horizon));
-                    same = same && Same(in Motion[i], in taken);
+                    sameActors = sameActors && Same(in Motion[i], in taken);
                     Motion[i++] = taken;
                 }
             }
             if (before > Count) Array.Clear(Motion, Count, before - Count);
-            if (same) return false;
+            if (sameActors && (Count < fewest || Indexed)) return !sameTime;
             Indexed = false;
             if (Count >= fewest) Index();
             return true;

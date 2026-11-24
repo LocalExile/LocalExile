@@ -23,7 +23,7 @@ using GameServer.Core.Protocol.Instance;
 /// timer drifted 28 to 47 ms apart, with gaps to 390 ms; GGG's spacing is 30 to 36 ms). The Clock stops in the Escape
 /// menu's pause, and so do the frames.
 /// </remarks>
-public sealed class AreaFrames(Func<Stopwatch> clock)
+public sealed class AreaFrames
 {
     public const int BudgetFrames = 256;
     static readonly int Roles = Enum.GetValues<PlayerUpdateRole>().Length;
@@ -59,14 +59,23 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     /// driver's thread (<see cref="Pump"/>), and never on another thread. The area's state then has one owner, its frame,
     /// and nothing in it locks.
     /// </summary>
-    public sealed class FrameContext : SynchronizationContext
+    public sealed class FrameContext(AreaFrames owner) : SynchronizationContext
     {
         readonly ConcurrentQueue<(SendOrPostCallback Callback, object? State)> posted = new();
         TaskCompletionSource? waiting;
         public override void Post(SendOrPostCallback callback, object? state)
         {
-            posted.Enqueue((callback, state));
-            Interlocked.Exchange(ref waiting, null)?.TrySetResult();
+            lock (owner.gate)
+            {
+                if (owner.running)
+                {
+                    posted.Enqueue((callback, state));
+                    Interlocked.Exchange(ref waiting, null)?.TrySetResult();
+                    return;
+                }
+            }
+            // No driver runs this area anymore: run off-frame so posted continuations never strand or wake on a later session.
+            ThreadPool.QueueUserWorkItem(static work => work.Callback(work.State), (Callback: callback, State: state), preferLocal: false);
         }
 
         /// <summary>Completes when something is posted (at once if something waits already).</summary>
@@ -88,7 +97,15 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         internal bool TryTake(out (SendOrPostCallback Callback, object? State) work) => posted.TryDequeue(out work);
     }
 
-    readonly FrameContext context = new();
+    readonly FrameContext context;
+
+    public AreaFrames(Func<Stopwatch> clock)
+    {
+        this.clock = clock;
+        context = new(this);
+    }
+
+    readonly Func<Stopwatch> clock;
 
     /// <summary>One frame's costs: the step's loops run on the driver (StepMs), the wait for the ones that went on
     /// asynchronously (SettleMs), and the members' frame writes (WriteMs, Records, Bytes). RoleMs[r] is how long the loops of
@@ -111,13 +128,15 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     int records, bytes, inputs, spilled;
     string unsettledRoles = "";
     Task driver = Task.CompletedTask;
+    volatile bool running;
+    long driverGeneration;
 
     /// <summary>Frames stepped so far.</summary>
     public long Frame { get; private set; }
     /// <summary>The time on the area's Clock of the last step's boundary, NaN before the first.</summary>
     public double Time { get; private set; } = double.NaN;
     /// <summary>Whether a driver steps the frames (the area has members).</summary>
-    public bool Running { get; private set; }
+    public bool Running => running;
 
     /// <summary>The area's own world (GameArea), made when the first member joins, with that member's area seed; stepped in
     /// every frame after the input phase, before the loops. Its players are its members' player entities.</summary>
@@ -242,11 +261,12 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
     // Under gate.
     void StartDriver()
     {
-        if (Running) return;
-        Running = true;
+        if (running) return;
+        running = true;
+        long generation = ++driverGeneration;
         if (Area is { } area) area.Driven = true;
-        if (ExecutionContext.IsFlowSuppressed()) driver = Task.Run(Drive);
-        else using (ExecutionContext.SuppressFlow()) driver = Task.Run(Drive);
+        if (ExecutionContext.IsFlowSuppressed()) driver = Task.Run(() => Drive(generation));
+        else using (ExecutionContext.SuppressFlow()) driver = Task.Run(() => Drive(generation));
     }
 
     /// <summary>The connection's frames start (S→C 0x2b8 first, Program.BeginWorldFrames): from the next frame end on, the
@@ -282,8 +302,13 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     /// <summary>Runs <paramref name="work"/> in the area's frame and completes with it: what a connection does to the game
     /// besides its messages (its entry, its close) goes through here. Never awaited from the frame itself.</summary>
-    public Task Run(Func<Task> work) => Running ? Start(context, async () => { await work(); return true; }) : Task.Run(work);
-    public Task<T> Run<T>(Func<Task<T>> work) => Running ? Start(context, work) : Task.Run(work);
+    public Task Run(Func<Task> work) => Run(async () => { await work(); return true; });
+    public Task<T> Run<T>(Func<Task<T>> work)
+    {
+        lock (gate)
+            if (running) return Start(context, work);
+        return Task.Run(work);
+    }
     public Task Run(Action work) => Run(() => { work(); return Task.CompletedTask; });
 
     /// <summary>Starts <paramref name="work"/> in the frame it is called from, as Task.Run does elsewhere: a skill's own
@@ -419,7 +444,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
 
     // ---- the driver ----
 
-    async Task Drive()
+    async Task Drive(long generation)
     {
         double frame = Program.FrameMs / 1000d;
         var watch = clock();
@@ -440,7 +465,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                         next = Math.Max(next, Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame);
                         continue;
                     }
-                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await Program.EndPausedFrame(paused.Player); return true; }));
+                    if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await EndPausedFrame(paused.Player); return true; }));
                     await Task.Delay(Math.Max(1, Program.FrameMs / 3));
                     if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
                     {
@@ -459,7 +484,6 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                 if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
                 double now = watch.Elapsed.TotalSeconds;
                 if (now < next) continue;
-                var ended = new List<Member>();
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.
                 for (; next <= now; next += frame)
                 {
@@ -476,19 +500,33 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                     long t2 = Stopwatch.GetTimestamp();
                     // A member's first frame: the game puts what its client is missing in the area's frame, and its player
                     // for the others (Program.Joining).
-                    foreach (var m in Snapshot())
-                        if (m.Framed && double.IsNaN(m.LastEnded) && boundary >= m.First + frame - 1e-9 && Program.Joining is { } joining)
-                            OnFrame(() => joining(m.Player));
-                    // The frame's changes, made once, go to every member with its end.
-                    if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
-                    var delta = Area?.Delta.Take() ?? [];
-                    foreach (var m in Snapshot())
-                    {
-                        if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
-                        if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
+                    var snap = Snapshot();
+                    bool anyDue = false;
+                    foreach (var m in snap)
+                        if (m.Framed && boundary >= m.First + frame - 1e-9)
                         {
-                            m.LastEnded = boundary;
-                            if (!ended.Contains(m)) ended.Add(m);
+                            anyDue = true;
+                            if (double.IsNaN(m.LastEnded) && Program.Joining is { } joining)
+                                OnFrame(() => joining(m.Player));
+                        }
+                    // The frame's changes, made once, go to every member with its end. Never drain Area.Delta when no
+                    // member is due to receive this frame (e.g. catch-up frames while a slow entry's First is ahead of
+                    // boundary), or creates queued into Area.Delta during those frames are lost before the first frame.
+                    List<Member>? ended = null;
+                    if (anyDue)
+                    {
+                        if (Area is { } components) OnFrame(() => { components.Buffs.Publish(); components.Stats.Publish(); components.Life.Publish(); });
+                        var delta = Area?.Delta.Take() ?? [];
+                        foreach (var m in snap)
+                        {
+                            if (!m.Framed || boundary < m.First + frame - 1e-9) continue;
+                            if (delta.Count > 0 && Program.GameLogicOrNull is { } logic)
+                                OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
+                            if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
+                            {
+                                m.LastEnded = boundary;
+                                (ended ??= []).Add(m);
+                            }
                         }
                     }
                     long t3 = Stopwatch.GetTimestamp();
@@ -498,6 +536,16 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                     long t4 = Stopwatch.GetTimestamp();
                     OnFrame(() => Step(due));
                     Pump();
+                    // Start each frame's lockstep actions immediately after its step so catch-up frames never go out empty
+                    // or drop LockstepTrail samples.
+                    if (Program.GameLogicOrNull is { } rules && ended is { Count: > 0 })
+                    {
+                        OnFrame(() =>
+                        {
+                            foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, boundary));
+                        });
+                        Pump();
+                    }
                     // A frame whose steps took 100 ms or more, by stage: what the client waited for.
                     if (Stopwatch.GetElapsedTime(t0).TotalMilliseconds >= 100)
                         Console.WriteLine($"[frames] slow frame {Frame}: settle {Ms(t0, t1):0} ms, input {Ms(t1, t2):0} ms" +
@@ -505,18 +553,25 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
                             $" ({due.Count} due: {string.Join(" ", due.GroupBy(w => w.Role).Select(g => $"{g.Key}x{g.Count()}"))})" +
                             (Area is { Systems.All.Count: > 0 } slow ? "; slowest systems: " + string.Join(", ", slow.Systems.Slowest(3).Select(s => $"{s.Name} {s.LastMs:0} ms")) : ""));
                 }
-                if (Program.GameLogicOrNull is { } rules && ended.Count > 0)
-                {
-                    OnFrame(() =>
-                    {
-                        foreach (var m in ended) _ = Logged(rules.WorldFrameEnded(m.Player, m.LastEnded));
-                    });
-                    Pump();
-                }
             }
         }
         catch (Exception ex) { Console.WriteLine($"[frames] area driver failed: {ServerLog.Describe(ex)}"); }
-        finally { Stop(); }
+        finally { Stop(generation); }
+    }
+
+    /// <summary>A paused member's frame of 0 ms (Program.EndPausedFrame). What its messages changed meanwhile (a passive
+    /// point's maximum life and mana, its pools) is the area's components': the Stats phase steps it and they publish it
+    /// here, as a frame's end does, so it goes out now and not at the resume.</summary>
+    internal Task EndPausedFrame(Player player)
+    {
+        IReadOnlyList<AreaDelta.Record> delta = [];
+        if (Area is { } area)
+        {
+            OnFrame(() => area.Systems.Run(area, AreaPhase.Stats, AreaPhase.Stats));
+            Pump();
+            OnFrame(() => { area.Buffs.Publish(); area.Stats.Publish(); area.Life.Publish(); delta = area.Delta.Take(); });
+        }
+        return Program.EndPausedFrame(player, delta);
     }
 
     static double Ms(long from, long to) => (to - from) * 1000.0 / Stopwatch.Frequency;
@@ -545,7 +600,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         lock (gate) return [.. members];
     }
 
-    // Leaves the closed members; with none left the driver ends (Running off under the same lock, so a Join starts a new one).
+    // Leaves the closed members; with none left the driver ends (running off under the same lock, so a Join starts a new one).
     int Prune()
     {
         Member[] gone;
@@ -554,7 +609,7 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         {
             gone = [.. members.Where(m => m.Detached || m.Inbox is null && (m.Player.Closed || m.Player.Connection.WorldOutput.Closed))];
             foreach (var m in gone) members.Remove(m);
-            if (members.Count == 0) { Running = false; if (Area is { } area) area.Driven = false; }
+            if (members.Count == 0) { running = false; if (Area is { } area) area.Driven = false; }
             count = members.Count;
         }
         return count;
@@ -565,21 +620,30 @@ public sealed class AreaFrames(Func<Stopwatch> clock)
         lock (gate) return members.FirstOrDefault(m => m.Framed && m.Player.Paused);
     }
 
-    /// <summary>The driver ends: every waiting loop resumes now, and its next waits are plain delays until a member joins
-    /// again.</summary>
-    void Stop()
+    /// <summary>The driver ends: every waiting loop resumes now, any posted work drains off-frame, and next waits are plain
+    /// delays until a member joins again.</summary>
+    void Stop(long generation)
     {
         Waiter[] all;
+        List<(SendOrPostCallback Callback, object? State)>? drained = null;
         lock (gate)
         {
-            if (members.Count > 0 && Running) return;
-            Running = false;
+            if (driverGeneration != generation) return;
+            running = false;
+            if (Area is { } area) area.Driven = false;
             all = [.. waiting];
             waiting.Clear();
             Array.Clear(active);
             activeTotal = 0;
+            while (context.TryTake(out var work)) (drained ??= []).Add(work);
         }
         foreach (var w in all) { w.Cancel.Dispose(); w.TrySetResult(); }
+        if (drained is not null)
+            foreach (var work in drained)
+            {
+                try { work.Callback(work.State); }
+                catch (Exception ex) { Console.WriteLine($"[frames] frame work failed: {ServerLog.Describe(ex)}"); }
+            }
     }
 
     /// <summary>Begins the frame at <paramref name="time"/> (its number and Now) and takes the waits due in it, in role
