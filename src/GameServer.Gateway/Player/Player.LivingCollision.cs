@@ -112,6 +112,8 @@ public sealed partial class Player
         return new(p.X, p.Y, LivingCollision.Size(monster));
     }
 
+    BlockerSet? correctionBlockers;
+
     public IReadOnlyList<ClientPathfinder.Blocker> CorrectionBlockers()
     {
         var result = new List<ClientPathfinder.Blocker>(StationaryBlockers);
@@ -121,7 +123,10 @@ public sealed partial class Player
         foreach (var peer in Instance?.PlayersExcept(Id) ?? [])
             if (peer.Id < Id && peer.PlayerLife > 0 && peer.Walk.Position(peer.Frames.Now(peer)) is var at)
                 result.Add(new(at.X, at.Y, LivingCollision.PlayerSize));
-        return new BlockerSet(result);
+        if (result.Count == 0) return result;
+        var set = correctionBlockers ??= new();
+        set.Reset(result);
+        return set;
     }
 
     /// <summary>What stands in a monster's way now. Inside a pass its frame answers. Outside one (an order placed at
@@ -161,7 +166,7 @@ public sealed partial class Player
 
     /// <param name="throughBodies">Its walk goes through living bodies (<see cref="MonsterMovement.ThroughBodies"/>).</param>
     public PlayerWalk NewMonsterWalk(uint id, int x, int y, double speed, int size, bool unique, bool throughBodies = false) =>
-        new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && !Barrier.Contains((cx, cy)),
+        new(x, y, Math.Max(1, speed), (cx, cy) => Layout.WalkableFor(cx, cy, Math.Max(0, size)) && (Barrier is not { Count: > 0 } b || !b.Contains((cx, cy))),
             Layout.GridW > 0 ? Layout.GridW : 4096, Layout.GridH > 0 ? Layout.GridH : 4096,
             () => size < 0 || throughBodies ? StationaryBlockers : MonsterBlockers(id), Math.Max(0, size),
             // The client's budget for this mover (0x141e50f90): 1000 expansions for a unique, 100 for any other monster.

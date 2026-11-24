@@ -38,20 +38,41 @@ public static class InstanceChat
         return WireMeasure.Ok;
     }
 
-    /// <summary>C→S 0x12, 0x13 and 0x14 (senders in 0x14018faa0): one per item linked in a line, just before its 0x15. Only
-    /// 0x12, an item in an inventory, is mapped; 0x13 (u32, u8 index, u8) and 0x14 (u32, u8 index) are the client's other
-    /// kinds of link.</summary>
+    /// <summary>C→S 0x12, 0x13 and 0x14 (senders in 0x14018faa0): one per item linked in a line, just before its 0x15.
+    /// 0x12 links an inventory/stash/shop/trade item, 0x13 links a microtransaction record (0x14018ee00), and 0x14 links
+    /// a ground world item by object id (0x14018f5d0).</summary>
     public const ushort LinkItemId = 0x12, LinkOtherId = 0x13, LinkAnotherId = 0x14;
     public const int LinkItemLength = 12, LinkOtherLength = 8, LinkAnotherLength = 7;
 
     /// <summary>C→S 0x12 (class 0x1435ca9f8, write 0x141f97830): u8 the link's index in its line, u32 inventory id (with
-    /// the side-channel bits of <see cref="InstanceItems.ReadPickUpItem"/>), u32 item id, u8.</summary>
-    public sealed record LinkItem(byte Index, uint InventoryId, uint ItemId);
+    /// the side-channel bits of <see cref="InstanceItems.ReadPickUpItem"/>), u32 item id, u8 manager (0 player/stash,
+    /// 1 shop/trade, 2 guild/other; 0x14018f96c).</summary>
+    public sealed record LinkItem(byte Index, uint InventoryId, uint ItemId, byte Manager = 0);
 
     public static LinkItem ReadLinkItem(ReadOnlySpan<byte> m)
     {
         var r = new LoginReader(m[2..]);
-        return new(r.U8(), r.U32() & 0xc01fffff, r.U32());
+        return new(r.U8(), r.U32() & 0xc01fffff, r.U32(), r.U8());
+    }
+
+    /// <summary>C→S 0x13 (class 0x1435ca9e0, write 0x141f993f0, sender 0x14018fb09): u32 BE record id, u8 link index,
+    /// u8 kind/category flag (MTX links built by 0x14018ee00).</summary>
+    public sealed record LinkOther(uint Id, byte Index, byte Kind);
+
+    public static LinkOther ReadLinkOther(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U8(), r.U8());
+    }
+
+    /// <summary>C→S 0x14 (class 0x1435c9ed8, write 0x141f96e50, sender 0x14018face): u32 BE world object id of a ground
+    /// item (0x14018f5d0 reads [entity+0x10]), u8 link index.</summary>
+    public sealed record LinkAnother(uint ObjectId, byte Index);
+
+    public static LinkAnother ReadLinkAnother(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U8());
     }
 
     public const ushort MessageBoxId = 0x0d;
@@ -68,15 +89,34 @@ public static class InstanceChat
     /// u8 n + n linked items, in the order of the text. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
     public static byte[] ChatLine(string text, string sender = "", ushort flags = 0, IReadOnlyList<ChatLineItem>? items = null)
     {
+        if ((flags & 0x0008) != 0)
+            throw new ArgumentOutOfRangeException(nameof(flags), "S→C 0x17 bit 0x0008 requires a trailing field not serialized by ChatLine.");
         var w = new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8((byte)(items?.Count ?? 0));
         foreach (var item in items ?? []) w.U32(item.At).Bytes(item.Wire);
         return w.ToArray();
     }
 
-    /// <summary>The 0x17 flag of the sender's own copy of a whisper: bit 2 of the flags' first byte (0x14017a670; 4 in the second
-    /// byte reddens the text). An '@' line then reads "@To Name" for "@From Name",
-    /// without the whisper sound and the window flash (0x14017a670).</summary>
-    public const ushort WhisperSentFlag = 0x0400;
+    /// <summary>S→C 0x17 flags (big-endian u16: high byte is wire byte 0 / chat struct +0x78, low byte is wire byte 1 /
+    /// +0x79; read by 0x140e0afb0, interpreted by 0x14017a270 / 0x14017a670).</summary>
+    /// <remarks>
+    /// High byte (+0x78): bit 0 Staff/Dev badge &amp; DND bypass (<see cref="StaffOrDevFlag"/>), bit 1 system/filter
+    /// bypass (<see cref="SystemBypassFlag"/>), bit 2 sender's own whisper echo "@To Name" without sound/flash
+    /// (<see cref="WhisperSentFlag"/>), bit 3 Moderator badge &amp; DND bypass (<see cref="ModeratorFlag"/>), bit 4 trade
+    /// whisper (<see cref="TradeWhisperFlag"/>), bit 6 "Autoreply: " prefix &amp; DND bypass (<see cref="AutoReplyFlag"/>),
+    /// bit 7 force local channel without prefix (<see cref="ForceLocalFlag"/>).
+    /// Low byte (+0x79): bit 0 route to +0xd78 listeners (<see cref="ListenerRouteFlag"/>), bit 2 red text
+    /// (<see cref="RedTextFlag"/>); bit 3 (0x0008) expects a trailing field not written by <see cref="ChatLine"/>.
+    /// </remarks>
+    public const ushort
+        StaffOrDevFlag = 0x0100,
+        SystemBypassFlag = 0x0200,
+        WhisperSentFlag = 0x0400,
+        ModeratorFlag = 0x0800,
+        TradeWhisperFlag = 0x1000,
+        AutoReplyFlag = 0x4000,
+        ForceLocalFlag = 0x8000,
+        ListenerRouteFlag = 0x0001,
+        RedTextFlag = 0x0004;
 
     public static ChatInput ReadChat(ReadOnlySpan<byte> m)
     {

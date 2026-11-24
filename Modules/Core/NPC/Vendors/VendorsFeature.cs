@@ -44,11 +44,21 @@ static class VendorsFeature
         if (player.NpcRewardOffer is not null)
         {
             if (PlayerInventories.Row(buy.InventoryId) is byte rewardRow)
-                await ClaimNpcReward(player, buy.ItemId, rewardRow);
+                await ClaimNpcReward(player, buy.ItemId, rewardRow, buy.X, buy.Y);
             return;
         }
         if (PlayerInventories.Row(buy.InventoryId) is byte row)
             await Purchase(player,buy.ItemId,row,buy.X,buy.Y);
+    }
+
+    internal static async Task BuyAndSocketFromShop(Player player, InstanceNpcs.BuyAndSocket buy)
+    {
+        if (player.NpcRewardOffer is not null)
+        {
+            await ClaimNpcRewardIntoSocket(player, buy);
+            return;
+        }
+        await PurchaseAndSocket(player, buy);
     }
 
     internal static async Task CtrlBuyFromShop(Player player, InstanceNpcs.CtrlBuy buy)
@@ -65,6 +75,7 @@ static class VendorsFeature
         var items = ItemsOf(player);
         var stash = StashOf(player);
         var catalog = ItemsFor(player);
+        bool expandedAllowed = ExpandedInventoryGranted(player);
         if (row is byte requested && LevelTooLow(player, requested, offer.Item.Item) is { } low)
         { await player.Commands!.Reply(low); return; }
         var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
@@ -77,14 +88,14 @@ static class VendorsFeature
             // cell asked for when it fits there and to the inventory's first free cell otherwise; never straight onto equipment.
             if (gamble.Roll(AreaRng(player)) is not { } rolled) { await player.Commands!.Reply("Nothing to gamble for at your level."); return; }
             bought = rolled with { Price = bought.Price };
-            if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.Cursor) row = null;
+            if (row is byte asked && asked != PlayerInventories.MainInventory && asked != PlayerInventories.ExpandedInventory && asked != PlayerInventories.Cursor) row = null;
         }
         // A gamble window opened before a module reload lost its offers (Gambling.Open): never sell the "Random …" item itself.
         else if (catalog.ByHash(bought.TypeHash)?.Class == "HiddenItem")
         { await player.Commands!.Reply("Talk to the gambler again to gamble."); return; }
         var purchase = ItemMoves.PurchaseVendor(items,
             shop.Npc.Npc.Id.EndsWith("/Siosa",StringComparison.Ordinal) ? null : stash, PersonalStashOf(player),
-            bought,catalog,ShapeOf,Consume,row,x,y);
+            bought,catalog,ShapeOf,Consume,row,x,y,expandedAllowed);
         if (purchase is null && row is not null && bought != offer.Item.Item)
         {
             row = null;
@@ -112,6 +123,22 @@ static class VendorsFeature
                 await RefreshMagebloodFlasks(player);
             }
         }
+        else if (purchase.Placed is { } placed)
+        {
+            if (placed.Row != PlayerInventories.MainInventory)
+            {
+                uint[] removed = placed.Merged ? [placed.Placed.Id]
+                    : placed.Displaced is { } old ? [old.Id] : [];
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(placed.Row),
+                    items.NextRevision(placed.Row), removed, [placed.Placed]), "0x00bf vendor item placed");
+            }
+            if (placed.Displaced is { } displaced)
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor), [], [displaced]), "0x00bf replaced item to cursor");
+            else if (placed.Rest is { } rest)
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                    items.NextRevision(PlayerInventories.Cursor), [], [rest]), "0x00bf vendor stack overflow to cursor");
+        }
         else if (row is byte destination && destination != PlayerInventories.MainInventory)
             await Send(player,InstanceItems.InventoryChange(PlayerInventories.InventoryId(destination),
                 items.NextRevision(destination),[],purchase.Bought),"0x00bf vendor item to cursor");
@@ -121,12 +148,92 @@ static class VendorsFeature
         Console.WriteLine($"[gateway] {player.Connection.Remote} vendor purchased {id} from {shop.Npc.Npc.Name}; finite={finite}");
     }
 
+    static async Task PurchaseAndSocket(Player player, InstanceNpcs.BuyAndSocket buy)
+    {
+        var shop = player.Shop;
+        if (shop is null || !shop.Items.TryGetValue(buy.OfferItemId, out var offer)) return;
+        if (PlayerInventories.Row(buy.InventoryId) is not byte targetRow)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 vendor socket {buy}: refused (unknown inventory)");
+            return;
+        }
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var catalog = ItemsFor(player);
+        if (Gambling.OfferOf(shop, buy.OfferItemId) is not null || catalog.ByHash(offer.Item.Item.TypeHash)?.Class == "HiddenItem")
+        {
+            await player.Commands!.Reply("Unable to socket this vendor item directly.");
+            return;
+        }
+        var before = items.Items(PlayerInventories.MainInventory).Select(i => i.Id).ToArray();
+        bool finite = shop.Finite.TryGetValue(buy.OfferItemId, out var token);
+        bool Consume() => !finite || shop.StockKey is { } key && VendorStock.Consume(CharacterName(player), key, token, PersonalStashOf(player));
+        bool equipped = ItemModStats.EquipmentRows.Contains(targetRow);
+        ItemMoves.VendorSocketPurchase? purchase = null;
+        string why = "";
+        string? missing = null;
+        using (ProjectileMutation(player, advance: false, phase: "vendor gem socket"))
+        {
+            IReadOnlyList<PlayerSkillSource> displacedSources = [];
+            if (equipped && items.Items(targetRow).FirstOrDefault(i => i.Id == buy.TargetItemId) is { } host
+                && buy.Socket < host.Item.Sockets.Count && host.Item.Sockets[(int)buy.Socket].Gem is { } oldGem)
+                displacedSources = GemSourceRowsLocked(player, host.Id, (int)buy.Socket, oldGem);
+            if (GemRequirementsUnmetAt(player, offer.Item.Item, null, targetItemId: buy.TargetItemId) is { } unmet)
+                missing = unmet;
+            else
+            {
+                purchase = ItemMoves.PurchaseAndSocketVendor(items,
+                    shop.Npc.Npc.Id.EndsWith("/Siosa", StringComparison.Ordinal) ? null : stash, PersonalStashOf(player),
+                    offer.Item.Item, catalog, targetRow, buy.TargetItemId, (int)buy.Socket, ShapeOf, Consume, out why);
+                if (purchase is not null && equipped)
+                {
+                    if (purchase.Displaced is { } displaced)
+                    {
+                        RetireDirectMinionSourcesLocked(player, displacedSources);
+                        ForgetGemActivation(player, displaced.Item);
+                    }
+                    RecomputePoolsAndSpeed(player);
+                    ReconcileBeastCompanionsLocked(player);
+                }
+            }
+        }
+        if (missing is not null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 vendor socket {buy}: refused ({missing})");
+            return;
+        }
+        if (purchase is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0089 vendor socket {buy}: refused ({why})");
+            await player.Commands!.Reply("Unable to buy and socket: check the price, socket compatibility and available stock.");
+            return;
+        }
+        if (finite) shop.Items.Remove(buy.OfferItemId);
+        foreach (var payment in purchase.Payments) await SendStashPayment(player, stash, payment.Stash);
+        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.MainInventory),
+            items.NextRevision(PlayerInventories.MainInventory), before, items.Items(PlayerInventories.MainInventory)),
+            "0x00bf vendor payment for direct socket");
+        if (targetRow != PlayerInventories.MainInventory)
+            await Send(player, InstanceItems.InventoryChange(buy.InventoryId, items.NextRevision(targetRow),
+                [purchase.Host.Id], [purchase.Host]),
+                $"0x00bf inventory {buy.InventoryId}: item {purchase.Host.Id} with vendor gem in socket {buy.Socket}");
+        if (purchase.Displaced is { } displacedGem)
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                items.NextRevision(PlayerInventories.Cursor), [], [displacedGem]),
+                $"0x00bf cursor: hold displaced gem {displacedGem.Id} from socket {buy.Socket}");
+        if (equipped) await SendEquipment(player, items);
+        await Send(player, InstanceItems.InventoryChange(offer.Tab, shop.NextRevision(offer.Tab), [buy.OfferItemId],
+            finite ? [] : [offer.Item], NpcShops.Manager), "0x00bf vendor offer updated");
+        await Send(player, InstanceEntities.Gold(PersonalStashOf(player).Gold), "0x02aa vendor gold balance");
+        Console.WriteLine($"[gateway] {player.Connection.Remote} vendor purchased and socketed {buy.OfferItemId} into item {buy.TargetItemId} socket {buy.Socket} from {shop.Npc.Npc.Name}; finite={finite}");
+    }
+
     // An item goes into the sell offer (C→S 0xb2, or 0x2a on the offer inventory) from the inventory it is in (the cursor, or
     // the main inventory on a Ctrl-click); the NPC answers with one Scroll Fragment per offered item in its own offer. As in
     // the saved item and its inventory cell remain reserved until the sale ends (PlayerInventories.Offer).
     // The client sees the item only in its offer grid.
     internal static async Task OfferForSale(Player player, NpcSale sale,
-        uint fromInventory, uint itemId, byte x, byte y)
+        uint fromInventory, uint itemId, byte x, byte y, bool sendReward = true)
     {
         var items = ItemsOf(player);
         if (PlayerInventories.Row(fromInventory) is not byte row || items.Offer(row, itemId, x, y, ShapeOf) is not var (waits, offered))
@@ -141,11 +248,11 @@ static class VendorsFeature
         var inOffer = offered with { X = x, Y = y };
         await Send(player, InstanceItems.InventoryChange(sale.Mine, ++sale.MineRevision, [], [inOffer], NpcShops.Manager),
             $"0x00bf sell offer: item {inOffer.Id} at ({x}, {y})");
-        await SendSaleReward(player, sale);
+        if (sendReward) await SendSaleReward(player, sale);
     }
 
     // Taking an offered item back restores its original inventory view and removes its offer entry.
-    internal static async Task TakeFromSale(Player player, NpcSale sale, uint itemId)
+    internal static async Task TakeFromSale(Player player, NpcSale sale, uint itemId, bool sendReward = true)
     {
         var items = ItemsOf(player);
         if (items.TakeBack(itemId) is not var (row, back))
@@ -157,7 +264,7 @@ static class VendorsFeature
             $"0x00bf sell offer: remove item {itemId} (back in inventory {PlayerInventories.InventoryId(row)} at ({back.X}, {back.Y}))");
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [], [back]),
             $"0x00bf return item {back.Id} to inventory {PlayerInventories.InventoryId(row)}");
-        await SendSaleReward(player, sale);
+        if (sendReward) await SendSaleReward(player, sale);
     }
 
     // Quote once on each offer change. The same immutable outputs are displayed and paid at acceptance.
@@ -212,7 +319,7 @@ static class VendorsFeature
     }
 
     // An item Shift-clicked in an inventory while the sell window is open goes into a free cell of the offer.
-    internal static async Task OfferFromInventory(Player player, NpcSale sale, uint inventory, uint itemId)
+    internal static async Task OfferFromInventory(Player player, NpcSale sale, uint inventory, uint itemId, bool sendReward = true)
     {
         var items = ItemsOf(player);
         byte? row = PlayerInventories.Row(inventory);
@@ -225,7 +332,7 @@ static class VendorsFeature
                 if (!offered.Any(o => o.Shape is { } s && o.Item.X < x + shape.Width && x < o.Item.X + s.Width && o.Item.Y < y + shape.Height && y < o.Item.Y + s.Height))
                     cell = ((byte)x, (byte)y);
         if (cell is not { } c) { Console.WriteLine($"[gateway] {player.Connection.Remote} sell offer: no room for item {itemId}"); return; }
-        await OfferForSale(player, sale, inventory, itemId, c.X, c.Y);
+        await OfferForSale(player, sale, inventory, itemId, c.X, c.Y, sendReward);
     }
 
     // Ends the sale. Accepted: the offered items are gone and the NPC's offer goes into the inventory, in one save; when the

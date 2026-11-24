@@ -165,6 +165,8 @@ static partial class SurvivorsRunRules
         {
             try
             {
+                await Send(player, InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Generic),
+                    "0x0163 hide mission timer Generic (survivors run ended)");
                 if (wasPaused)
                     await Send(player, InstancePause.State(false),
                         "0x01d3 resumed (the survivors run ended)");

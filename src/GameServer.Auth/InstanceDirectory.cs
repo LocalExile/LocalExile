@@ -23,8 +23,20 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
     private readonly ConcurrentDictionary<uint, TicketInfo> _tickets = new();
     // Each character's latest ticket: a connection closing after its character re-entered the same instance (Instance
     // Manager) must not take it out of that instance.
-    private readonly ConcurrentDictionary<string, uint> _latest = new();
+    private readonly ConcurrentDictionary<string, uint> _latest = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, LoginLink> _links = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>True when <paramref name="character"/> currently has an active login link or live instance presence.</summary>
+    public bool IsCharacterActive(string character)
+    {
+        if (_links.ContainsKey(character)) return true;
+        if (_latest.TryGetValue(character, out uint ticket)
+            && _tickets.TryGetValue(ticket, out var info)
+            && registry.Get(info.Instance) is { } inst
+            && inst.Players.Contains(character))
+            return true;
+        return false;
+    }
 
     public sealed record TicketInfo(string Character, ulong Instance, ushort Area, League? League, CharacterClass Class,
         int Level, Guid? CharacterId, ushort PortraitFrame = 0);
@@ -176,6 +188,10 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 AreaInstanceState? inst = req.Instance != 0
                     ? registry.EnterExisting(req.Instance, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         req.Area, info.CharacterId?.ToString("N"))
+                    : !string.IsNullOrWhiteSpace(req.Owner)
+                        && !string.Equals(req.Owner, info.Character, StringComparison.OrdinalIgnoreCase)
+                        ? registry.EnterPersonal(req.Area, info.Character, req.Owner, info.League?.Name, info.League?.Ssf ?? false,
+                            info.CharacterId?.ToString("N"))
                     : req.New ? registry.EnterNew(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
                         info.CharacterId?.ToString("N"), req.Seed)
                     : registry.Enter(req.Area, info.Character, info.League?.Name, info.League?.Ssf ?? false,
@@ -185,7 +201,8 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
                 uint ticket = NewTicket(link.Session, info.Character, inst);
                 return new ControlResponse
                 {
-                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
+                    Ok = true, Area = inst.AreaHash, Instance = inst.Id, Created = inst.Created.ToUnixTimeMilliseconds(),
+                    Seed = inst.Seed, IsTown = inst.IsTown, Ticket = ticket,
                 };
             }
             case "set_level":

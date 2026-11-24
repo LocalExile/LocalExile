@@ -42,7 +42,8 @@ public sealed partial class AccountStash
     /// <paramref name="Parent"/>: a unique category page's Unique tab, else the folder the tab is in (0xffff none).
     /// <paramref name="Hidden"/>: left out of the panel; a deleted folder, kept so later tabs keep their places.</summary>
     public sealed record SavedTab(string Name, byte Type, byte R, byte G, byte B, List<CharacterSaves.SavedPlacement> Items, uint Affinities = 0,
-        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false);
+        ushort? Position = null, uint Colour = 0, ulong UniqueCategory = 0, ushort Parent = ushort.MaxValue, bool Hidden = false,
+        bool Public = false);
 
     /// <summary>LeagueQuestFlags: the league quest flags (client ids, Quests.League) the account's characters set in this
     /// stash's league, such as a Trial of Ascendancy's: every character of the league has them.</summary>
@@ -104,7 +105,11 @@ public sealed partial class AccountStash
     Dictionary<string, JsonElement>? _unknown;  // fields of a newer build's save, written back as they are
     bool _stale;  // dropped after a failed save: the database has the stash as it is
     bool _itemsInHeader;  // loaded from a stash saved before tabs had rows: the next save writes every tab
+    bool _publicTabsDirty;  // set only when a tab's Public flag changes
+    bool _itemNotesDirty;   // set only when an item's Note is changed or a noted item moves/leaves
     StashRules _rules = new();  // what each tab type holds (the catalog's)
+    const string PublicTabsModuleKey = "stash.public-tabs.v1";
+    const string ItemNotesModuleKey = "stash.item-notes.v1";
 
     AccountStash(string account) => _account = account;
 
@@ -133,6 +138,11 @@ public sealed partial class AccountStash
         {
             var stash = new AccountStash(name) { _mods = catalog.Mods, _rules = catalog.Stash, _firstInventoryId = firstInventoryId, _firstItemId = firstItemId };
             var save = Load(name);
+            stash._moduleData = save?.ModuleData is { } saved ? new(saved) : [];
+            var publicTabs = stash._moduleData.TryGetValue(PublicTabsModuleKey, out var pubJson)
+                ? JsonSerializer.Deserialize<HashSet<int>>(pubJson) ?? [] : new HashSet<int>();
+            var itemNotes = stash._moduleData.TryGetValue(ItemNotesModuleKey, out var notesJson)
+                ? JsonSerializer.Deserialize<Dictionary<uint, string>>(notesJson) ?? [] : new Dictionary<uint, string>();
             var headers = save?.Tabs ?? [.. starter];
             // A stash saved before a starter tab existed gets it at the end: a special tab type it has none of (Delve,
             // Blight, Unique …: 2026-10-22), or a normal tab "3" / "4" (the real game starts with four).
@@ -141,13 +151,19 @@ public sealed partial class AccountStash
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
             {
-                var tab = new TabState(headers[i] with { Items = [] });
+                var header = headers[i] with { Items = [], Public = headers[i].Public || publicTabs.Contains(i) };
+                var tab = new TabState(header);
                 // Each tab's items are a row of their own; a stash saved before that (imported) keeps them in its header,
                 // and its first save gives every tab its row.
                 var items = Saves.LoadStashTab(name, i);
                 if (items is null && headers[i].Items.Count > 0) stash._itemsInHeader = true;
                 foreach (var p in items ?? headers[i].Items)
-                    tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, CharacterSaves.FromSaved(p.Item, catalog)));
+                {
+                    var loadedItem = CharacterSaves.FromSaved(p.Item, catalog);
+                    if (loadedItem.Note is null && itemNotes.TryGetValue(p.Id, out var note))
+                        loadedItem = loadedItem with { Note = note };
+                    tab.Items.Add(new InventoryItem(p.Id, p.X, p.Y, loadedItem));
+                }
                 stash._tabs.Add(tab);
             }
             stash._lastTab = Math.Clamp(save?.LastTab ?? 0, 0, Math.Max(0, stash._tabs.Count - 1));
@@ -155,7 +171,6 @@ public sealed partial class AccountStash
             uint used = stash._tabs.SelectMany(t => t.Items).Select(i => i.Id).Where(stash.OwnId).DefaultIfEmpty(firstItemId - 1).Max();
             stash._nextItemId = Math.Max(save?.NextItemId is uint next && stash.OwnId(next) ? next : firstItemId, used + 1);
             stash._gold = save?.Gold ?? 0;
-            stash._moduleData = save?.ModuleData is { } saved ? new(saved) : [];
             stash._leagueQuestFlags = [.. save?.LeagueQuestFlags ?? []];
             // A save from before Delve was a module: its equipment becomes that module's text.
             if (save?.Delve is { } legacy) stash._moduleData.TryAdd("delve", legacy.GetRawText());
@@ -190,6 +205,23 @@ public sealed partial class AccountStash
         List<(int Tab, List<CharacterSaves.SavedPlacement> Items)> tabs;
         lock (_lock)
         {
+            if (_publicTabsDirty)
+            {
+                var publicTabs = Enumerable.Range(0, _tabs.Count).Where(i => _tabs[i].Saved.Public).ToList();
+                if (publicTabs.Count > 0) _moduleData[PublicTabsModuleKey] = JsonSerializer.Serialize(publicTabs);
+                else _moduleData.Remove(PublicTabsModuleKey);
+                _publicTabsDirty = false;
+            }
+            if (_itemNotesDirty)
+            {
+                var itemNotes = new Dictionary<uint, string>();
+                foreach (var tab in _tabs)
+                    foreach (var it in tab.Items)
+                        if (it.Item.Note is { Length: > 0 } note) itemNotes[it.Id] = note;
+                if (itemNotes.Count > 0) _moduleData[ItemNotesModuleKey] = JsonSerializer.Serialize(itemNotes);
+                else _moduleData.Remove(ItemNotesModuleKey);
+                _itemNotesDirty = false;
+            }
             header = new Save([.. _tabs.Select(t => t.Saved with { Items = [] })], _lastTab, _nextItemId, _gold, null, new(_moduleData),
                 [.. _leagueQuestFlags]) { Unknown = _unknown };
             var write = _itemsInHeader ? Enumerable.Range(0, _tabs.Count) : changedTabs.Distinct();
@@ -436,8 +468,15 @@ public sealed partial class AccountStash
                 if (i == tab || t.Saved.UniqueCategory != 0 && t.Saved.Parent == tab)
                 {
                     removed += t.Items.Count;
-                    if (t.Items.Count > 0) { t.Items.Clear(); t.Revision++; changed.Add(i); }
-                    t.Saved = t.Saved with { Hidden = true, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
+                    if (t.Items.Count > 0)
+                    {
+                        if (t.Items.Any(it => it.Item.Note is { Length: > 0 })) _itemNotesDirty = true;
+                        t.Items.Clear();
+                        t.Revision++;
+                        changed.Add(i);
+                    }
+                    if (t.Saved.Public) _publicTabsDirty = true;
+                    t.Saved = t.Saved with { Hidden = true, Public = false, Affinities = 0, Parent = i == tab ? ushort.MaxValue : t.Saved.Parent };
                 }
                 else if (t.Saved.UniqueCategory == 0 && t.Saved.Parent == tab) t.Saved = t.Saved with { Parent = ushort.MaxValue };
             }
@@ -477,6 +516,57 @@ public sealed partial class AccountStash
         return true;
     }
 
+    /// <summary>Sets or clears a premium tab's Public flag (C→S 0xcf, bit 3 = 0x08 in S→C 0x136) and propagates it to
+    /// any hidden child pages owned by that tab (matching 0x14216e103). False for no such tab, hidden/deleted tabs,
+    /// child pages, or non-premium tabs.</summary>
+    public bool SetPublic(int tab, bool isPublic)
+    {
+        bool changed = false;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return false;
+            var saved = _tabs[tab].Saved;
+            if (saved.Hidden || saved.UniqueCategory != 0 || !IsPremium(saved.Type)) return false;
+            if (saved.Public != isPublic)
+            {
+                _tabs[tab].Saved = saved with { Public = isPublic };
+                changed = true;
+            }
+            for (int i = 0; i < _tabs.Count; i++)
+                if (_tabs[i].Saved.UniqueCategory != 0 && _tabs[i].Saved.Parent == tab && _tabs[i].Saved.Public != isPublic)
+                {
+                    _tabs[i].Saved = _tabs[i].Saved with { Public = isPublic };
+                    changed = true;
+                }
+            if (changed) _publicTabsDirty = true;
+        }
+        if (changed) Persist();
+        return true;
+    }
+
+    /// <summary>Whether <paramref name="tab"/> is marked Public (trade-listed; currency cannot be used out of it).</summary>
+    public bool IsPublic(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved.Public; }
+
+    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public, premium <paramref name="tab"/>.</summary>
+    public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        InventoryItem result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return null;
+            var t = _tabs[tab];
+            if (t.Saved.Hidden || !t.Saved.Public || !IsPremium(t.Saved.Type)) return null;
+            int at = t.Items.FindIndex(i => i.Id == itemId);
+            if (at < 0) return null;
+            result = t.Items[at] = t.Items[at] with { Item = t.Items[at].Item with { Note = normalized } };
+            _itemNotesDirty = true;
+        }
+        Persist(tab);
+        return result;
+    }
+
     /// <summary>The tab of a stash inventory id, or null.</summary>
     public int? TabOf(uint inventoryId)
     {
@@ -506,7 +596,8 @@ public sealed partial class AccountStash
                     detached || t.Saved.UniqueCategory != 0 && !registered || t.Saved.Type == StashRules.Folder ? 0 : InventoryOf(i),
                     t.Saved.Type, t.Saved.R, t.Saved.G, t.Saved.B,
                     // Retail sends folders with the premium flag and no inventory (3.30 capture), though they have no colour.
-                    Flags: IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None,
+                    Flags: (IsPremium(t.Saved.Type) || t.Saved.Type == StashRules.Folder ? InstanceStash.TabFlags.Premium : InstanceStash.TabFlags.None)
+                        | (t.Saved.Public ? InstanceStash.TabFlags.Public : InstanceStash.TabFlags.None),
                     Position: t.Saved.UniqueCategory == 0 ? t.Saved.Position ?? (ushort)i : (ushort)t.Items.Count,
                     Parent: t.Saved.Parent, Affinities: t.Saved.Affinities | (selectBit is int b && i == _lastTab ? 1u << b : 0),
                     Loaded: registered && !detached, Id: $"{i + 1:x8}", U2c: t.Saved.Colour, HiddenKey: t.Saved.UniqueCategory,
@@ -550,6 +641,7 @@ public sealed partial class AccountStash
             if (at < 0) return null;
             it = items[at];
             items.RemoveAt(at);
+            if (it.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
         }
         Persist(tab);
         return it;
@@ -634,6 +726,7 @@ public sealed partial class AccountStash
             // An item keeps the id this stash gave it; one from a character or the other stash gets one of this stash's.
             var placed = held with { Id = OwnId(held.Id) ? held.Id : _nextItemId++, X = (byte)x, Y = (byte)y };
             t.Items.Add(placed);
+            if (placed.Item.Note is { Length: > 0 } || displaced?.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
             result = (placed, displaced);
         }
         Persist(tab);
@@ -845,7 +938,9 @@ public sealed partial class AccountStash
             var items = _tabs[tab].Items;
             int at = items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
+            string? priorNote = items[at].Item.Note;
             result = items[at] = items[at] with { Item = change(items[at].Item) };
+            if (!string.Equals(priorNote, result.Item.Note, StringComparison.Ordinal)) _itemNotesDirty = true;
         }
         Persist(tab);
         return result;
@@ -929,7 +1024,12 @@ public sealed partial class AccountStash
                 amount -= take;
                 var items = _tabs[tab].Items;
                 var paid = tabs.TryGetValue(tab, out var p) ? p : tabs[tab] = ([], []);
-                if (take == s.Item.StackSize) { items.Remove(s); paid.Removed.Add(s.Id); }
+                if (take == s.Item.StackSize)
+                {
+                    items.Remove(s);
+                    paid.Removed.Add(s.Id);
+                    if (s.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+                }
                 else paid.Changed.Add(items[items.IndexOf(s)] = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize - take) } });
             }
         }

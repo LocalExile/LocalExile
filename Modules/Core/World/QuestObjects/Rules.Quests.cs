@@ -126,7 +126,7 @@ static partial class QuestobjectsRules
                 bool opened = player.Instance.ChestOpened(nest.At.X, nest.At.Y);
                 uint id = (opened ? OpenedNestFirstId : GlyphObjectFirstId) + (uint)i;
                 lock (player.GlyphNests) player.GlyphNests[id] = nest;
-                player.SetBlocker(id, nest.At.X, nest.At.Y, GlyphQuest.NestSize);
+                player.SetObjectBlocker(id, nest.At.X, nest.At.Y, GlyphQuest.NestSize, QuestObjectTypes.Find(nest.Type)?.ActorOrChest ?? true);
                 await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(nest.Type), GlyphQuest.NestBlob(nest.At, opened)),
                     $"0x02bb Rhoa Nest 0x{id:x} {nest.Type} at ({nest.At.X}, {nest.At.Y}) with glyph {nest.Glyph + 1}, opened={opened}", wake: true, awaitBirth: false);
             }
