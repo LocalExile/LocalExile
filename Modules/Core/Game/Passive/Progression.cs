@@ -1464,10 +1464,13 @@ public static partial class Game
         int evasionPct = Get(Stat.EvasionRatingPlusPct) + defencesPct;
         long attackBlockLuck = (long)Get(Stat.BaseBlockLuck) + Get(Stat.AttackBlockLuck) + Get(Stat.BaseAttackBlockLuck);
         long spellBlockLuck = (long)Get(Stat.BaseBlockLuck) + Get(Stat.SpellBlockLuck) + Get(Stat.BaseSpellBlockLuck);
+        decimal lifeMorePct = Get(Stat.LifeMasteryCountMaximumLifePlusPctFinal);
+        if (Get(Stat.KeystoneBloodMagic) != 0)
+            lifeMorePct = (100m + lifeMorePct) * (100m + BloodMagic.LifeMorePct) / 100m - 100m;
         return new CharacterStats.Bonus(
             Attributes: attributes, Ward: Get(Stat.BaseWard), WardPct: Get(Stat.WardPlusPct) + Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct),
             Life: Get(Stat.BaseMaximumLife), LifePct: Get(Stat.MaximumLifePlusPct), Mana: Get(Stat.BaseMaximumMana), ManaPct: Get(Stat.MaximumManaPlusPct),
-            LifeMorePct: Get(Stat.LifeMasteryCountMaximumLifePlusPctFinal),
+            LifeMorePct: lifeMorePct,
             ManaPerFourStrength: Get(StrengthMana.PerFourStrength),
             LifePerLevel: Get(LifeManaPoolSources.LifePerLevel), ManaPerLevel: Get(LifeManaPoolSources.ManaPerLevel),
             LifePerTenDexterity: Get(LifeManaPoolSources.LifePerTenDexterity),
@@ -1492,6 +1495,9 @@ public static partial class Game
             SharedDefencesPct: defencesPct, IronReflexes: Get(Stat.KeystoneIronReflexes) != 0,
             MentalConditioning: Get(PowerOfPurpose.RawFlag) != 0,
             ChaosInoculation: Get(Stat.KeystoneChaosInoculation) != 0,
+            // Blood Magic (the tree keystone and every item mod grant keystone_blood_magic): "Removes all mana. 10% more
+            // maximum Life" (ReminderTextKeystoneBloodMagic). no_mana/base_no_mana ("Removes all Mana") remove it too.
+            NoMana: Get(Stat.KeystoneBloodMagic) != 0 || Get(Stat.NoMana) != 0 || Get(Stat.BaseNoMana) != 0,
             ArmourAppliesToChaosDamage: Get(PlayerHitMitigation.ArmourAppliesToChaos) != 0,
             EnergyShield: Get(Stat.BaseMaximumEnergyShield),
             EnergyShieldPctPerTenStrength: Get(AttributeDefenceSources.EnergyShieldPerTenStrength),
