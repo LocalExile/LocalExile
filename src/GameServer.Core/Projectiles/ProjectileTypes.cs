@@ -237,6 +237,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
     public bool SplitOnTerrain { get; init; }
+    public bool SplitAtEndOfRange { get; init; }
     /// <summary>Fill this skill's split count even when there are fewer available target actors.</summary>
     public bool SplitWithoutTargets { get; init; }
     public ProjectileTargetedRecipe? ContactTargets { get; init; }

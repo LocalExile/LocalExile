@@ -457,6 +457,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             }
             else End(p, c.End.Value, terrainNormal: c.Normal);
         }
+        else if (c.End == ProjectileEndReason.Distance && p.Profile.SplitAtEndOfRange
+            && !p.Profile.CannotSplit && p.Split > 0)
+            Split(p, actors, p.Split, fill: true);
         else End(p, c.End!.Value);
     }
 

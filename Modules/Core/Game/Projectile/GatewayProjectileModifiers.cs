@@ -85,6 +85,11 @@ public static class GatewayProjectileModifiers
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get(Stat.ReturnedProjectileSpeedPlusPct) / 100d)
         };
         p = ReturnControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
+        p = p with
+        {
+            SplitOnTerrain = p.SplitOnTerrain || get(Stat.ProjectilesCanSplitFromTerrain) != 0,
+            SplitAtEndOfRange = p.SplitAtEndOfRange || get(Stat.ProjectilesCanSplitAtEndOfRange) != 0
+        };
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)
             p = p with { EndEmission = endEmission with { Child = ReturnControls(ProjectileParameters.Resolve(endEmission.Child,
