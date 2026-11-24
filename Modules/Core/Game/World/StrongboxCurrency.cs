@@ -38,7 +38,11 @@ public static partial class MapStrongboxes
         foreach (byte row in CurrencyRows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
                 return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
-        Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory");
+        if (StashOf(player) is { } stash)
+            for (int tab = 0; tab < stash.Count; tab++)
+                if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stashStack)
+                    return UseItemOnCore(player, new(stash.InventoryOf(tab), stashStack.Id, req.TargetObjectId), "0x0079");
+        Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory or stash");
         return Task.FromResult(true);
     }
 
