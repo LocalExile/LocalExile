@@ -152,7 +152,8 @@ public static partial class Game
             ReceiveWarcry(player.Area, recipient.Id, WarcryGrants.GetOrCreateValue(recipient), gift, now);
             UpdateWarcryStats(recipient);
         }
-        Grant(player);
+        // Call to Arms: "Your Warcries do not grant Buffs or Charges to You"; allies and minions still receive them.
+        if (playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0) Grant(player);
         foreach (var ally in player.Instance.PlayersExcept(player.Id))
             if (!ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius)
                 Grant(ally);

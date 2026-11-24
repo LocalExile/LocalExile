@@ -34,6 +34,10 @@ public static class SkillDurationModifiers
         Stat.PassiveMasteryMoreSkillEffectDurationPlusPctFinal, Stat.PassiveMasteryLessSkillEffectDurationPlusPctFinal,
     ];
 
+    /// <summary>Call to Arms (<c>keystone_call_to_arms</c>): "100% more Warcry Duration", a final multiplier on a warcry's
+    /// duration.</summary>
+    public static double CallToArmsMore(Func<uint, int> player) => player(Stat.KeystoneCallToArms) != 0 ? 2 : 1;
+
     public static int Total(int rawIncreasedDuration, int finalStrength, int increasedPerTenStrength) =>
         (int)Math.Clamp(rawIncreasedDuration + (long)(Math.Max(0, finalStrength) / 10) * increasedPerTenStrength,
             int.MinValue, int.MaxValue);

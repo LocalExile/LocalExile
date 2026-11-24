@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Eldritch pinnacle-presence implicits on player equipment apply within 80 cells of a living hostile pinnacle boss.
 - Ground items belong to the area instance and stay across logouts, disconnects and crashes; drops play native audio.
   Docs: [13](../docs/protocol/13-items.md) §5.
 - Life and mana flasks: recovery over time, flask mods, queueing, full-pool refusal and the drinking sound.
