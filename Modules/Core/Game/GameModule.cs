@@ -301,6 +301,7 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ReservationKill);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.GrantLinkedMinionRareModifiers);
         GameEvents.Kill.Add(module.Manifest.Id, Rules.ItemMinionsOnKill);
+        GameEvents.Kill.Add(module.Manifest.Id, Rules.AkoyaItemOnKill);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, Rules.ItemMinionStatSources);
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Slayer.Tick(player)));
         GameEvents.Kill.Add(module.Manifest.Id, global::Slayer.Kill);
