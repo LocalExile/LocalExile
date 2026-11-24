@@ -364,7 +364,8 @@ public static partial class Game
             {
                 var projected = new Dictionary<uint, int>(own);
                 if (cannotIgnite) projected[Stat.NeverIgnite] = 1;
-                if (scorch != 0) AddTo(projected, Stat.ChanceToScorchPct, scorch);
+                if (scorch != 0) projected[Stat.ChanceToScorchPct] =
+                    ActorScale.Add(Stat.ChanceToScorchPct, projected.GetValueOrDefault(Stat.ChanceToScorchPct), scorch);
                 own = projected;
                 admittedGem = admittedGem with { Stats = own };
                 merged = MergeSkillStats(playerStats, own);
