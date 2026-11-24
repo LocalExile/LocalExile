@@ -498,6 +498,8 @@ public static class AtlasFeature
         return Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.AtlasScryingUi, 1, sourceObjectId),
             $"0x007b open Atlas in scrying mode (kind 0x{InstanceWaypoints.AtlasScryingUi:x2}, source 0x{sourceObjectId:x})");
 
+    }
+
     // C→S 0x01a7: swap divination card drop pools between two Atlas maps (Atlas Scrying).
     internal static async Task ScrySwap(Player player, InstanceMapDevice.AtlasScryRequest req)
     {

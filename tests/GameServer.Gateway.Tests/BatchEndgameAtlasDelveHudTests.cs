@@ -21,10 +21,10 @@ public sealed class BatchEndgameAtlasDelveHudTests
         Assert.True(AtlasProgress.SetScry(data, chateau, alleyways));
         Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
         MapDevice.MapArea Map(AtlasProgress.Node node) => new(node.AreaHashes.First(), node.Areas.First(), node.Name, 1);
-        var destination = new GameServer.Modding.MapOpening(fixture.Player, [], false, new(Map(alleyways), MapMods.None), "");
+        var destination = new MapOpening(fixture.Player, [], false, new(Map(alleyways), MapMods.None), "");
         AtlasProgress.ApplyScry(destination);
         Assert.Contains(destination.Opening!.Area.DivinationCardArea!, chateau.Areas);
-        var original = new GameServer.Modding.MapOpening(fixture.Player, [], false, new(Map(chateau), MapMods.None), "");
+        var original = new MapOpening(fixture.Player, [], false, new(Map(chateau), MapMods.None), "");
         AtlasProgress.ApplyScry(original);
         Assert.Null(original.Opening!.Area.DivinationCardArea);
 
