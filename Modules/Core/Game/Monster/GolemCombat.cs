@@ -602,16 +602,26 @@ public static partial class Game
         int damage = MonsterTakesMitigated(target, mitigated, a.Attack.Spell, now, ignorePhysicalReduction: ignorePhysical, random: random);
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
-        if (ApplyMonsterHitLocked(player, target, damage, allyAt: from) is not { } hit) return false;
+        var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources) with { RecoverLifePct = 0 };
+        if (ApplyMonsterHitLocked(player, target, damage, allyAt: from, cull: cull) is not { } hit) return false;
+        if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)
+            MinionGainsLifeOnHitLocked(player, g, a);
         if (damage > 0 && profile is not null)
             GrantMinionLifeLeech(g, target, profile.LifeLeech, mitigated, damage, now);
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
+        ushort flags = MonsterHitFlags(blocked: false, critical);
+        byte kind = 3, angle = HitAngle(to.X - from.X, to.Y - from.Y);
+        ushort knockbackSpeed = 0, knockbackDistance = 0;
+        if (damage > 0 && (long)effects[KnockbackChanceStat] + GolemStat(a.Stats, KnockbackChanceStat) > 0
+            && KnockbackOnHitLocked(player, target, effects.Stats, a.Stats, now, random,
+            origin: from, attackerSize: LivingCollision.Size(g.Monster)))
+            ConsumeNativeKnockbackLocked(target, ref flags, ref kind, ref angle, out knockbackSpeed, out knockbackDistance);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
         player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(g.Id, 0xffff, id,
-            flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
-            angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, id, target, WorldId: g.Id));
+            flags: flags, kind: kind, code: HitCode(mitigated), angle: angle, u3c: knockbackSpeed, u3e: knockbackDistance),
+            null, id, target, WorldId: g.Id));
         PhantasmsOnHitLocked(player, target, g.Source, now, AreaRng(player), g);
         bool melee = MinionMelee(player, a);
         double physicalShare = rolled[DamageType.Physical].Min / Math.Max(1, rolled.MinTotal);
@@ -634,9 +644,26 @@ public static partial class Game
                 AreaRng(player));
             MinionAilmentsLocked(player, g, a, id, target, critical, now);
             MinionTauntOnHitLocked(player, g, a, supported.Stats, id, target, now);
+            if (damage > 0)
+                TryFleeFromHitLocked(player, target, from,
+                    MonsterFlee.Chance(a.Attack.Spell, name => effects[name], name => GolemStat(a.Stats, name)), now);
         }
         if (damage > 0) FeedingFrenzyOnHitLocked(player, g, now);
         return true;
+    }
+
+    static void MinionGainsLifeOnHitLocked(Player player, GolemState.Golem minion, GolemState.Ability ability)
+    {
+        var monster = minion.Monster;
+        if (monster.Life >= monster.MaxLife || monster.Effects[Stat.CannotRecoverLife] != 0) return;
+        var local = minion.Weapon?.LocalSources;
+        long gain = (long)monster.Effects[Stat.BaseLifeGainPerTarget] + GolemStat(ability.Stats, Stat.BaseLifeGainPerTarget)
+            + (local?.GetValueOrDefault(Stat.LocalLifeGainPerTarget) ?? 0)
+            + (local?.GetValueOrDefault(Stat.LocalLifeAndManaGainPerTarget) ?? 0);
+        if (gain <= 0) return;
+        monster.Life = (uint)Math.Min(monster.MaxLife, monster.Life + gain);
+        if (monster.Life == monster.MaxLife) MinionLifeLeeches.Remove(minion);
+        player.Minions.OutputQueue.Add(new([], null, minion.Id, monster, PlayerMinions.OutputKind.Life));
     }
 
     static bool MinionIgnoresPhysicalReduction(DamagePacket hit, MonsterModEffects effects, SpawnedMonster target, Random random,

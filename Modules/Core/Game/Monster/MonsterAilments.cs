@@ -378,17 +378,12 @@ public static partial class Game
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
-        if (!m.Fleeing && MonsterFlee.Rolls(fleeChance, m.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player)))
+        if (TryFleeFromHitLocked(player, m, player.Walk.Position(now), fleeChance, now))
         {
-            int size = Math.Max(0, LivingCollision.Size(m));
-            m.FleeTo = MonsterFlee.Point(m.Walk.Position(now), player.Walk.Position(now),
-                (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
-            m.Fleeing = m.FleeTo is not null;
             // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing
             // monster reads as broken AI (reported live 2026-11-23).
-            if (m.Fleeing)
-                Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
-                    $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
+            Console.WriteLine($"[gateway] monster 0x{targetId:x} ({m.Label}) flees from a {(spell ? "spell" : "hit")} " +
+                $"0x{sourceSkill:x4}: {fleeChance}% chance, {m.Effects[Stat.MonsterChanceToNotFleePct]}% not to, to {m.FleeTo}");
         }
         if (added.Count + alternate.Count == 0 || player.PlayerLife == 0
             || !RandomRolls.Chance(m.Effects[Stat.ReflectNonDamagingAilmentsPctChance], 100, random)) return;
@@ -397,6 +392,16 @@ public static partial class Game
         if (added.Count == 0) return;
         if (reflected is not null) reflected.AddRange(added);
         else ReflectAilmentsLocked(player, added, now, playerStats, random);
+    }
+
+    static bool TryFleeFromHitLocked(Player player, SpawnedMonster monster, (int X, int Y) from, int chance, double now)
+    {
+        if (chance <= 0 || monster.Fleeing
+            || !MonsterFlee.Rolls(chance, monster.Effects[Stat.MonsterChanceToNotFleePct], AreaRng(player))) return false;
+        int size = Math.Max(0, LivingCollision.Size(monster));
+        monster.FleeTo = MonsterFlee.Point(monster.Walk.Position(now), from,
+            (x, y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y)), AreaRng(player));
+        return monster.Fleeing = monster.FleeTo is not null;
     }
 
     internal static void ReflectPendingAilmentsLocked(Player player, List<MonsterElementalAilments.Effect> pending,
