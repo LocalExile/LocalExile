@@ -158,7 +158,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   and stun recovery) give their rolled value to enemies within the reach their own aura template states (60 cells),
   shown with the template's buff, and "Nearby Enemies are Blinded / Intimidated" lines work as the auras do. 17 map
   modifiers about players ("Players have Point Blank", "Players and Monsters take #% increased Fire Damage") count as
-  the player's own stat. Offline tests only so far.
+  the player's own stat. 27 flask lines "during Effect" that no code read (leech, regeneration, accuracy, rarity,
+  Vessel of Vinktar's lightning lines, Culling Strike, Cannot be Stunned) hold while that flask's effect runs, and
+  "when you use a Flask" lines (recover life, chance for Onslaught) run on every flask use. Offline tests only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

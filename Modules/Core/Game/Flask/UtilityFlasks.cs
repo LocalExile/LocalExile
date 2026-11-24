@@ -86,6 +86,10 @@ public static partial class Game
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
             UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
+            // The rules: the flask was used (its own "when used" lines and the character's), and its "during Effect"
+            // lines hold from the next stat phase.
+            RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id, "utility"));
+            if (EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);
             gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
@@ -239,6 +243,7 @@ public static partial class Game
         var ended = UtilityFlasks.EndDue(player, now, dead, Gone,
             () => RecomputePoolsAndSpeed(player), out _);
         if (ended.Count == 0) return;
+        if (EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);   // its "during Effect" rules end
         var state = Automation(player);
         foreach (var effect in ended)
         {

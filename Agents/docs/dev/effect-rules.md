@@ -301,12 +301,21 @@ The reverse-engineering behind the art and buff choices is in
 - An always-on item skill has `cast_on_gain_skill` in its stat set (the aegises, Death Aura, Blinding Aura, Abberath's
   Fury, Death Walk); most of them have no radius or period in their data.
 
+## Flasks
+
+A flask in the flask bar carries rules as a worn item does (source kind `item`, the flask's own local stat). Its
+`flask_use` rules run when that flask is used; its standing (`active`) rules hold only while its effect runs, which is
+"during Effect". `flask_use` is also a trigger for character stats ("when you use a Flask"), for every flask; the
+condition `flask_kind` tells utility, life, mana and hybrid apart. The flask code's own list (`UtilityFlasks.DuringEffect`)
+still gives the lines it names; the rules give the ones it never read. An effect that starts or ends has no stat of
+its own, so the flask code asks for the rules to be configured again (`TellStatsUpdated`).
+
 ## Not yet
 
 Real projectiles for the skills that are a volley (Bone Nova, Icicle Burst, Molten Burst, Starfall are one-hit
 stand-ins), ground effects, the "with this weapon" and "socketed in this item" facts, the four elemental aegises, minion
 and monster hits as events, areas and ground patches as carriers, and moving the charge rules over. For grants:
 monsters carrying rules and granted skills of their own (a bundle is stats only), allies and minions as receivers,
-flasks and scarabs as givers, a line without a stat of its own as a rule's source (an aura line whose only stat is
+a life or mana flask's recovery as an effect, a flask's "increased effect" on its rule lines, scarabs as givers, a line without a stat of its own as a rule's source (an aura line whose only stat is
 the one it gives), and the debuff auras of `generic_buff_aura` templates (Crushed, Scorched, Chilled, Covered in Ash,
 Malediction, Debilitated: the template's second list names the debuff).

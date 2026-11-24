@@ -25,8 +25,8 @@ public static class EffectRules
     /// SkillHit is the hit as the charge system counts it (ChargeEvent.Hit): one per monster hit by the character's own
     /// skill, with what the hit found already in it. Hit (HitLanded) is every hit of the character's side, totems,
     /// traps and mines included.
-    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse, Worn, SkillHit }
-    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn", "skill_hit"];
+    public enum What { Hit, Kill, WhenHit, Block, Stun, SkillUse, Worn, SkillHit, FlaskUse }
+    static readonly string[] WhatNames = ["hit", "kill", "when_hit", "block", "stun", "skill_use", "worn", "skill_hit", "flask_use"];
 
     /// <summary>Turns every rule off (the code a rule replaced runs again from the next stat build). A testing switch.</summary>
     public static bool Enabled
@@ -155,6 +155,11 @@ public static class EffectRules
         /// <summary>What the carrier is called in the game's data (a granted skill's GrantedEffects Id), for a rule
         /// that is for one carrier only ("only").</summary>
         public string? Name { get; init; }
+        /// <summary>The item the carrier is, for one that is an item (its id in the inventories); 0 otherwise.</summary>
+        public uint ItemId { get; init; }
+        /// <summary>Whether the carrier's standing ("worn") rules hold now. A flask in the flask bar carries its
+        /// "when used" rules always, and its "during Effect" rules only while its effect runs.</summary>
+        public bool Standing { get; init; } = true;
     }
 
     /// <summary>One effect of a rule that fired, with its numbers resolved for this actor.</summary>
@@ -228,6 +233,7 @@ public static class EffectRules
         [What.Block] = ["spell", "attack", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Stun] = ["melee"],
         [What.Worn] = [],
+        [What.FlaskUse] = ["utility", "life", "mana", "hybrid"],
         [What.SkillUse] = ["vaal", "curse", "trap", "attack", "spell", "melee", "bow", "travel", "movement", "warcry", "strike", "slam", "channelled", "brand", "aura", "guard"],
     };
 
@@ -517,6 +523,7 @@ public static class EffectRules
                 else if (sources is not null)
                     foreach (var source in sources)
                         if (source.Carrier == rule.Carrier && (rule.Only is null || rule.Only == source.Name)
+                            && (source.Standing || rule.When != What.Worn)
                             && source.Get(rule.Key) is var held and not 0) Add(rule, held, source);
             }
         // No live rule and nothing kept from before: the usual case, and it makes nothing.
@@ -563,7 +570,7 @@ public static class EffectRules
         int what = e switch
         {
             HitLanded => 0, ChargeEvent.Kill => 1, ChargeEvent.WhenHit => 2, ChargeEvent.Block => 3,
-            ChargeEvent.Stun => 4, ChargeEvent.SkillUse => 5, ChargeEvent.Hit => 7, _ => -1,
+            ChargeEvent.Stun => 4, ChargeEvent.SkillUse => 5, ChargeEvent.Hit => 7, ChargeEvent.FlaskUse => 8, _ => -1,
         };
         if (what < 0) return;
         var rules = Volatile.Read(ref live.ByWhat)[what];
@@ -572,6 +579,8 @@ public static class EffectRules
         foreach (var rule in rules)
         {
             if (rule.Rule.Who is { } who && who != e.Who) continue;
+            // A flask's own line fires for that flask's use, not for another flask's.
+            if (e is ChargeEvent.FlaskUse used && rule.Source is { ItemId: not 0 } carrier && carrier.ItemId != used.ItemId) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;
             if (!Passes(rule.Rule, e, player)) continue;
             double chance = rule.Terms is { } held ? SummedChance(rule.Rule, held, e, player)
@@ -632,6 +641,7 @@ public static class EffectRules
     // Monsters lock): nothing is worked out for a hit no rule checks.
     static bool Fact(string fact, CombatEvent e, Player player) => (fact, e) switch
     {
+        ("utility" or "life" or "mana" or "hybrid", ChargeEvent.FlaskUse used) => used.Kind == fact,
         // The character's own weapons, for a rule that asks ("while holding a Shield", "with Wands").
         ("shield", _) => Game.WeaponProfileFor(player).Shield,
         ("dual_wield", _) => Game.WeaponProfileFor(player).DualWield,

@@ -23,6 +23,8 @@ public static partial class Game
         {
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
+        RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id,
+            use.LifePerUse > 0 && use.ManaPerUse > 0 ? "hybrid" : use.LifePerUse > 0 ? "life" : "mana"));
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
         if (!appliesToPlayer) return;
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;

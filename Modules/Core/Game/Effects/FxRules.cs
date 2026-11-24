@@ -19,7 +19,7 @@ public static class FxRules
     static readonly Dictionary<string, string> Triggers = new(StringComparer.Ordinal)
     {
         ["hit"] = "hit", ["kill"] = "kill", ["when_hit"] = "when_hit", ["block"] = "block", ["stun"] = "stun",
-        ["skill_use"] = "skill_use", ["active"] = "worn", ["skill_hit"] = "skill_hit",
+        ["skill_use"] = "skill_use", ["active"] = "worn", ["skill_hit"] = "skill_hit", ["flask_use"] = "flask_use",
     };
 
     /// <summary>Every enabled fx rule the engine can carry out, one entry per stat that turns it on.
@@ -238,7 +238,7 @@ public static class FxRules
                     needs.Add(need);
                     break;
                 case "critical" or "has_mark": Add(facts, group, Fact(condition)); break;
-                case "enemy_rarity" or "enemy_state" or "skill_type":
+                case "enemy_rarity" or "enemy_state" or "skill_type" or "flask_kind":
                     Add(facts, group, Fact(Word("is") ?? throw new FormatException($"\"{condition}\" needs \"is\"")));
                     break;
                 case "damage_type":

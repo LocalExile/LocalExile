@@ -137,7 +137,20 @@ public static partial class Game
             if (!EffectRules.CarrierRuleFor(ItemCarrier, Get)) continue;
             // The key tells two worn items apart and changes when the item itself does (a new roll is a new item).
             (all ??= [.. skills]).Add(new(ItemCarrier, (worn.Id, System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item)),
-                Get, NoSourceData, item, $"worn item 0x{worn.Id:x}"));
+                Get, NoSourceData, item, $"worn item 0x{worn.Id:x}") { ItemId = worn.Id });
+        }
+        // The flasks in the flask bar: each carries its "when used" rules, and its "during Effect" rules while its
+        // effect runs (a utility flask's; a life or mana flask's recovery is not followed yet).
+        foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask))
+        {
+            var item = flask.Item;
+            var lines = OwnLines.GetValue(item, i => OwnLinesOf(i, mods));
+            if (lines.Count == 0) continue;
+            int Get(uint key) => lines.GetValueOrDefault(key);
+            if (!EffectRules.CarrierRuleFor(ItemCarrier, Get)) continue;
+            (all ??= [.. skills]).Add(new(ItemCarrier, (flask.Id, System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item)),
+                Get, NoSourceData, item, $"flask 0x{flask.Id:x}")
+                { ItemId = flask.Id, Standing = player.UtilityFlaskEffects.Of(flask.Id) is not null });
         }
         return all ?? skills;
     }

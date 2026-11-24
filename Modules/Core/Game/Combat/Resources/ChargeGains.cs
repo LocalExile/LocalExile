@@ -43,6 +43,10 @@ public abstract record ChargeEvent : CombatEvent
     public sealed record SkillUse(bool Vaal, bool Curse, bool Trap, int Effect = -1, (int X, int Y)? At = null,
         ushort SkillId = 0) : ChargeEvent;
 
+    /// <summary>The player used a flask and its charges were paid: the flask's item id, and what it is
+    /// ("utility", "life", "mana" or "hybrid").</summary>
+    public sealed record FlaskUse(uint ItemId, string Kind) : ChargeEvent;
+
     /// <summary>The player blocked a hit (an attack, or a spell with <paramref name="Spell"/>).</summary>
     public sealed record Block(bool Spell) : ChargeEvent;
 
