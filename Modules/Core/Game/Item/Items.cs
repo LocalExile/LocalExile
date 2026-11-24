@@ -1491,13 +1491,17 @@ public static partial class Game
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
         var items = ItemsOf(player);
-        if (StashOf(player).TabOf(use.InventoryId) is int stashTab)
+        if (StashOf(player) is { } stash && stash.TabOf(use.InventoryId) is int stashTab)
         {
-            var stash = StashOf(player);
             if (stash.Inventory(stashTab).Items.FirstOrDefault(i => i.Id == use.ItemId) is not { } stashItem
                 || ItemsFor(player).ByHash(stashItem.Item.TypeHash) is not { } stashType)
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: no such item in stash tab {stashTab}: {hex}");
+                return;
+            }
+            if (stash.IsPublic(stashTab))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: refused, item is in public stash tab {stashTab}");
                 return;
             }
             if (stashType.Id == StackedDeck)
@@ -1629,10 +1633,12 @@ public static partial class Game
             (InventoryItem? Left, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
             (() =>
         {
+            if (stash.IsPublic(tab)) return null;
+            if (stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == item.Id) is not { } current) return null;
             bool toCursor = items.Items(PlayerInventories.Cursor).Count == 0;
             if (!toCursor && !items.Fits(PlayerInventories.MainInventory, card, ShapeOf)) return null;
             InventoryItem? left = null;
-            if (item.Item.StackSize <= 1)
+            if (current.Item.StackSize <= 1)
             {
                 if (stash.Take(tab, item.Id) is null) return null;
             }

@@ -19,16 +19,19 @@ public class StackedDeckTests
     public async Task Right_clicking_stacked_deck_in_inventory_draws_card_to_cursor_or_inventory_and_refuses_when_full()
     {
         string save = Path.Combine(Path.GetTempPath(), $"stacked-deck-inv-{Guid.NewGuid():N}.db");
-        Saves.Open(save);
-        using var runtime = new PartyFollowerTests.Runtime();
-        using var wire = new PartyFollowerTests.Wire();
         string name = "StackedDeckInv" + Guid.NewGuid().ToString("N");
-        var player = runtime.PlayerOf(new(), wire, name);
-        var items = Game.ItemsOf(player);
-        const byte main = PlayerInventories.MainInventory;
-        uint mainInvId = PlayerInventories.InventoryId(main);
+        string stashKey = name;
         try
         {
+            Saves.Open(save);
+            using var runtime = new PartyFollowerTests.Runtime();
+            using var wire = new PartyFollowerTests.Wire();
+            var player = runtime.PlayerOf(new(), wire, name);
+            stashKey = AccountStash.Key(player.Character.Account ?? name, player.Character.League);
+            var items = Game.ItemsOf(player);
+            const byte main = PlayerInventories.MainInventory;
+            uint mainInvId = PlayerInventories.InventoryId(main);
+
             foreach (var existing in items.Items(main).ToArray()) items.Remove(main, existing.Id);
             var deckType = Program.Items.Find(Game.StackedDeck);
             Assert.NotNull(deckType);
@@ -69,7 +72,7 @@ public class StackedDeckTests
         finally
         {
             PlayerInventories.Forget(name);
-            AccountStash.Forget(name);
+            AccountStash.Forget(stashKey);
             TestEnvironment.ReleaseSaves(save);
         }
     }
@@ -78,23 +81,26 @@ public class StackedDeckTests
     public async Task Right_clicking_stacked_deck_in_stash_consumes_from_stash_and_delivers_card()
     {
         string save = Path.Combine(Path.GetTempPath(), $"stacked-deck-stash-{Guid.NewGuid():N}.db");
-        Saves.Open(save);
-        using var runtime = new PartyFollowerTests.Runtime();
-        using var wire = new PartyFollowerTests.Wire();
         string name = "StackedDeckStash" + Guid.NewGuid().ToString("N");
-        var player = runtime.PlayerOf(new(), wire, name);
-        var items = Game.ItemsOf(player);
-        var stash = Game.StashOf(player);
-        const int tab = 0;
-        uint stashInvId = stash.InventoryOf(tab);
+        string stashKey = name;
         try
         {
+            Saves.Open(save);
+            using var runtime = new PartyFollowerTests.Runtime();
+            using var wire = new PartyFollowerTests.Wire();
+            var player = runtime.PlayerOf(new(), wire, name);
+            stashKey = AccountStash.Key(player.Character.Account ?? name, player.Character.League);
+            var items = Game.ItemsOf(player);
+            var stash = Game.StashOf(player);
+            const int tab = 0;
+            uint stashInvId = stash.InventoryOf(tab);
+
             foreach (var existing in items.Items(PlayerInventories.MainInventory).ToArray())
                 items.Remove(PlayerInventories.MainInventory, existing.Id);
             var deckType = Program.Items.Find(Game.StackedDeck);
             Assert.NotNull(deckType);
             var placed = stash.Place(tab, 0, 0, new InventoryItem(1, 0, 0, ItemCatalog.Create(deckType!) with { StackSize = 2 }),
-                i => Program.Items.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null, out _);
+                Game.ShapeOf, out _);
             Assert.NotNull(placed);
             var deck = placed!.Value.Placed;
 
@@ -110,11 +116,27 @@ public class StackedDeckTests
             Assert.DoesNotContain(stash.Inventory(tab).Items, i => i.Id == deck.Id);
             var drawnInMain = Assert.Single(items.Items(PlayerInventories.MainInventory));
             Assert.Equal("DivinationCard", Program.Items.ByHash(drawnInMain.Item.TypeHash)?.Class);
+
+            // 3. Public stash tab: right-clicking a Stacked Deck is refused without consuming it or drawing a card.
+            items.Remove(PlayerInventories.Cursor, onCursor.Id);
+            int publicTab = stash.Records(null, new HashSet<int>()).First(t => t.Type == 1 && !t.Hidden && t.HiddenKey == 0).Index;
+            Assert.True(stash.SetPublic(publicTab, true));
+            Assert.True(stash.IsPublic(publicTab));
+            var pubPlaced = stash.Place(publicTab, 0, 0,
+                new InventoryItem(stash.NewItemId(), 0, 0, ItemCatalog.Create(deckType!) with { StackSize = 2 }),
+                Game.ShapeOf, out _);
+            Assert.NotNull(pubPlaced);
+            var pubDeck = pubPlaced!.Value.Placed;
+            byte[] pubPacket = UseItemClickPacket(stash.InventoryOf(publicTab), pubDeck.Id);
+            await Game.OnClientMessages([(InstanceItems.UseItemClickId, pubPacket)], [], player);
+            Assert.Empty(items.Items(PlayerInventories.Cursor));
+            Assert.Equal(drawnInMain.Id, Assert.Single(items.Items(PlayerInventories.MainInventory)).Id);
+            Assert.Equal(2, stash.Inventory(publicTab).Items.Single(i => i.Id == pubDeck.Id).Item.StackSize);
         }
         finally
         {
             PlayerInventories.Forget(name);
-            AccountStash.Forget(name);
+            AccountStash.Forget(stashKey);
             TestEnvironment.ReleaseSaves(save);
         }
     }
