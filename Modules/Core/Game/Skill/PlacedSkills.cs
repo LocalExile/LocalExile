@@ -769,7 +769,7 @@ public static partial class Game
             bear ? target.Key : null);
     }
 
-    sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
+    internal sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
     {
         public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1) =>
             PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true);
