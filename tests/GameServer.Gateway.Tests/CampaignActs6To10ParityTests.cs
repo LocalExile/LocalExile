@@ -33,9 +33,18 @@ public sealed class CampaignActs6To10ParityTests
             .ToArray();
         Assert.Empty(leakedReplicas);
 
-        // 2. All 8 restored canonical ASCII core uniques resolve with positive weights.
+        // Former encounter exclusives moved to the core pool and retain their positive drop weight.
+        foreach (string name in new[] { "Algor Mortis", "Assailum", "Beacon of Madness", "Perfidy", "The Torrent's Reclamation" })
+        {
+            var definitions = uniques.All.Where(u => u.Name == name).ToArray();
+            Assert.NotEmpty(definitions);
+            Assert.All(definitions, u => Assert.False(u.EncounterOnly));
+        }
+        Assert.True(uniques.All.First(u => u.Name == "The Broken Elegy").EncounterOnly);
+
+        // 2. The canonical unique weights resolve independently of encounter eligibility.
         var weightsByName = store.LoadUniqueWeights().ToDictionary(w => w.Name, StringComparer.Ordinal);
-        string[] restoredCoreUniques =
+        string[] restoredUniques =
         [
             "Emperor's Vigilance",
             "Rigwald's Charge",
@@ -46,7 +55,7 @@ public sealed class CampaignActs6To10ParityTests
             "The Broken Elegy",
             "Witchhunter's Judgment",
         ];
-        foreach (string name in restoredCoreUniques)
+        foreach (string name in restoredUniques)
         {
             Assert.NotNull(uniques.Find(name));
             Assert.True(weightsByName.TryGetValue(name, out var row), $"Missing unique_weights row for {name}");

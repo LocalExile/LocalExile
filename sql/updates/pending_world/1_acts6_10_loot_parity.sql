@@ -51,16 +51,16 @@ WHERE encounter_only = 0
     'Precursor''s Emblem',
     -- Delirium / Simulacrum exclusives
     'Voices', 'Megalomaniac', 'Split Personality', 'The Interrogation', 'Kitava''s Teachings',
-    'One With Nothing', 'Assailum', 'Beacon of Madness', 'Perfidy', 'Algor Mortis', 'Calamitous Visions',
+    'One With Nothing', 'Calamitous Visions',
     -- Synthesis boss exclusives
     'Bottled Faith', 'Circle of Ambition', 'Circle of Anguish', 'Circle of Fear',
     'Circle of Guilt', 'Circle of Nostalgia', 'Circle of Regret',
     'Garb of the Ephemeral', 'Mask of the Tribunal', 'Nebulis',
     'Offering to the Serpent', 'Perepiteia', 'Storm''s Gift',
-    -- Vendor-recipe, Labyrinth, Blight, Vaal, and race-reward exclusives
-    'The Retch', 'The Goddess Scorned', 'The Goddess Unleashed', 'The Anima Stone',
+    -- Boss, vendor-recipe, Labyrinth, Blight, Vaal, and race-reward exclusives
+    'The Broken Elegy', 'The Retch', 'The Goddess Scorned', 'The Goddess Unleashed', 'The Anima Stone',
     'Kingmaker', 'The Taming', 'Loreweave', 'Star of Wraeclast', 'Arborix', 'Duskdawn',
-    'The Flow Untethered', 'The Torrent''s Reclamation', 'The Adorned', 'Grand Spectrum',
+    'The Flow Untethered', 'The Adorned', 'Grand Spectrum',
     'Leadership''s Price', 'Heroic Tragedy',
     'Demigod''s Beacon', 'Demigod''s Bounty', 'Demigod''s Dominance', 'Demigod''s Eye',
     'Demigod''s Immortality', 'Demigod''s Presence', 'Demigod''s Stride',
