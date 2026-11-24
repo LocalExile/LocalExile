@@ -159,6 +159,9 @@ public static class PartyRoster
     static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Character.Account ?? CharacterName(c), CharacterName(c),
         c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Character.Account), LevelOf(c));
 
+    static bool IgnoresViewer(Player leader, Player viewer) =>
+        FriendsFeature.IsIgnoring(leader.Character.Account, viewer.Character.Account ?? CharacterName(viewer));
+
     /// <summary>Builds the noticeboard listing (S→C 0x00ad) of public parties in the same league as <paramref name="viewer"/>.</summary>
     public static List<InstanceSocial.PublicPartyEntry> PublicParties(Player viewer)
     {
@@ -169,7 +172,7 @@ public static class PartyRoster
             foreach (var (partyId, description) in PublicDescriptions)
             {
                 if (!Humans.TryGetValue(partyId, out var members) || members.Count == 0) continue;
-                if (!Compatible(members[0], viewer)) continue;
+                if (!Available(members[0]) || !Compatible(members[0], viewer) || IgnoresViewer(members[0], viewer)) continue;
                 byte minLevel = byte.MaxValue, maxLevel = 0;
                 foreach (var member in members)
                 {
@@ -204,7 +207,7 @@ public static class PartyRoster
         {
             if (!PublicDescriptions.TryGetValue(partyId, out description)
                 || !Humans.TryGetValue(partyId, out var list) || list.Count == 0
-                || !Compatible(list[0], viewer))
+                || !Available(list[0]) || !Compatible(list[0], viewer) || IgnoresViewer(list[0], viewer))
                 return;
             humans = [.. list];
             guests = Companions.TryGetValue(partyId, out var extra) ? [.. extra] : [];
@@ -342,9 +345,10 @@ public static class PartyRoster
                 }
                 changed = true;
             }
-            else if (PublicDescriptions.ContainsKey(party)
+            else if (Available(to) && PublicDescriptions.ContainsKey(party)
                 && Humans.TryGetValue(party, out var members) && members.Count > 0
-                && Compatible(members[0], to) && Find(to) == 0 && Count(party) < Capacity)
+                && Available(members[0]) && Compatible(members[0], to) && !IgnoresViewer(members[0], to)
+                && Find(to) == 0 && Count(party) < Capacity)
             {
                 // Noticeboard "Join" sends C→S 0x0095 with the public party's id directly (no prior invite).
                 members.Add(to);

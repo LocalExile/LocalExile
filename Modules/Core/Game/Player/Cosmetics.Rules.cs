@@ -20,15 +20,20 @@ public static partial class Game
             ? $"{player.Layout.Id}:{entry.Key}"
             : $"{player.Layout.Id}:obj:{targetId}";
 
+    static Dictionary<string, SavedMannequin> ParseMannequinMap(string? json)
+    {
+        if (json is not { Length: > 0 }) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<string, SavedMannequin>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
     static Dictionary<string, SavedMannequin> ReadMannequinMap(Player player)
     {
         string? account = player.Character.Account;
         string? json = account is not null
             ? AccountStash.For(account, ItemsFor(player)).ModuleData(MannequinsKey)
             : CharacterSaves.ModuleData(CharacterName(player), MannequinsKey);
-        if (json is not { Length: > 0 }) return [];
-        try { return JsonSerializer.Deserialize<Dictionary<string, SavedMannequin>>(json) ?? []; }
-        catch (JsonException) { return []; }
+        return ParseMannequinMap(json);
     }
 
     public static SavedMannequin LoadMannequin(Player player, uint targetId) =>
@@ -39,26 +44,15 @@ public static partial class Game
         string key = MannequinStorageKey(player, targetId);
         SavedMannequin updated = new();
         string? account = player.Character.Account;
-        if (account is not null)
+        string Transform(string? text)
         {
-            AccountStash.For(account, ItemsFor(player)).ChangeModuleData(MannequinsKey, text =>
-            {
-                var map = text is { Length: > 0 } ? JsonSerializer.Deserialize<Dictionary<string, SavedMannequin>>(text) ?? [] : [];
-                updated = change(map.GetValueOrDefault(key) ?? new SavedMannequin());
-                map[key] = updated;
-                return JsonSerializer.Serialize(map);
-            });
+            var map = ParseMannequinMap(text);
+            updated = change(map.GetValueOrDefault(key) ?? new SavedMannequin());
+            map[key] = updated;
+            return JsonSerializer.Serialize(map);
         }
-        else
-        {
-            CharacterSaves.ChangeModuleData(CharacterName(player), MannequinsKey, text =>
-            {
-                var map = text is { Length: > 0 } ? JsonSerializer.Deserialize<Dictionary<string, SavedMannequin>>(text) ?? [] : [];
-                updated = change(map.GetValueOrDefault(key) ?? new SavedMannequin());
-                map[key] = updated;
-                return JsonSerializer.Serialize(map);
-            });
-        }
+        if (account is not null) AccountStash.For(account, ItemsFor(player)).ChangeModuleData(MannequinsKey, Transform);
+        else CharacterSaves.ChangeModuleData(CharacterName(player), MannequinsKey, Transform);
         return updated;
     }
 
@@ -80,19 +74,26 @@ public static partial class Game
 
     public static byte SetCosmeticDisplayFlag(Player player, byte bitMask, bool enabled)
     {
-        byte updated = CosmeticDisplayFlags(player);
-        updated = enabled ? (byte)(updated | bitMask) : (byte)(updated & ~bitMask);
-        updated |= InstanceMicrotransactions.DefaultFlags;
-        CharacterSaves.ChangeModuleData(CharacterName(player), CosmeticDisplayFlagsKey, _ => updated.ToString());
+        byte updated = InstanceMicrotransactions.DefaultFlags;
+        CharacterSaves.ChangeModuleData(CharacterName(player), CosmeticDisplayFlagsKey, text =>
+        {
+            byte current = byte.TryParse(text, out byte f) ? f : InstanceMicrotransactions.DefaultFlags;
+            updated = enabled ? (byte)(current | bitMask) : (byte)(current & ~bitMask);
+            updated |= InstanceMicrotransactions.DefaultFlags;
+            return updated.ToString();
+        });
         return updated;
     }
 
-    public static List<SavedExtraCosmetic> SavedExtraCosmetics(Player player)
+    static List<SavedExtraCosmetic> ParseExtraCosmetics(string? json)
     {
-        if (CharacterSaves.ModuleData(CharacterName(player), ExtraCosmeticsKey) is not { Length: > 0 } json) return [];
+        if (json is not { Length: > 0 }) return [];
         try { return JsonSerializer.Deserialize<List<SavedExtraCosmetic>>(json) ?? []; }
         catch (JsonException) { return []; }
     }
+
+    public static List<SavedExtraCosmetic> SavedExtraCosmetics(Player player) =>
+        ParseExtraCosmetics(CharacterSaves.ModuleData(CharacterName(player), ExtraCosmeticsKey));
 
     public static List<InstanceMicrotransactions.ExtraSlot> ExtraCosmetics(Player player)
     {
@@ -103,8 +104,17 @@ public static partial class Game
         return list;
     }
 
-    public static void SaveExtraCosmetics(Player player, IReadOnlyList<SavedExtraCosmetic> entries) =>
-        CharacterSaves.ChangeModuleData(CharacterName(player), ExtraCosmeticsKey, _ => JsonSerializer.Serialize(entries));
+    public static T UpdateExtraCosmetics<T>(Player player, Func<List<SavedExtraCosmetic>, T> change)
+    {
+        T result = default!;
+        CharacterSaves.ChangeModuleData(CharacterName(player), ExtraCosmeticsKey, text =>
+        {
+            var list = ParseExtraCosmetics(text);
+            result = change(list);
+            return JsonSerializer.Serialize(list);
+        });
+        return result;
+    }
 
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
