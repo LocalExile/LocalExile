@@ -168,7 +168,7 @@ public static partial class Game
                                 return ProjectileHitResult.Miss;
                             double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
                             var pen = new Penetration.PerType(0, GolemStat(own, Stat.BaseReduceEnemyColdResistancePct), 0, 0);
-                            int damage = MonsterTakes(enemy, raw, spell: true, AreaRng(player), pen, now);
+                            int damage = MonsterTakes(enemy, raw, AreaRng(player), spell: true, pen, now);
                             return Damage(contact.Target.Id, enemy, damage, false, now) ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
                         }),
                     });
@@ -188,7 +188,7 @@ public static partial class Game
             double now = AreaTime(player);
             foreach (var (enemyId, enemy) in area.MonstersNear(at, radius).ToArray())
                 if (enemy.Hostile && !enemy.Dead && Dist(enemy.Walk.Position(now), at) <= radius)
-                    Damage(enemyId, enemy, MonsterTakes(enemy, packet, spell, AreaRng(player), now: now), false, now);
+                    Damage(enemyId, enemy, MonsterTakes(enemy, packet, AreaRng(player), spell, now: now), false, now);
         }
 
         bool Damage(uint enemyId, SpawnedMonster enemy, int amount, bool dot, double now)
