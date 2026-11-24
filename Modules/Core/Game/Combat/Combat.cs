@@ -3059,15 +3059,20 @@ public static partial class Game
                     }
                     rolled = WithOverexertion(rolled, skillStats, cryExerted == true);
                     // The shared roll meets each target's current chance: a source can change between targets.
+                    int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand, offCritical),
+                        SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
+                        SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
                     // Read an existing bleed before this attack can inflict its own.
-                    long bleedingCrit = !spell
-                        ? (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
-                            + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies) : 0;
-                    if (bleedingCrit != 0 && !m.Bleeds.IgnitedAt(ProjectileWorldTime(player))) bleedingCrit = 0;
-                    int criticalChance = CriticalChanceOn(player, id,
-                        SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
-                        SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
-                        SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
+                    if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
+                    {
+                        long bleedingCrit = (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
+                            + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
+                        if (bleedingCrit != 0)
+                            criticalChance = CriticalChanceOn(player, id,
+                                SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
+                                SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
+                                SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
+                    }
                     critical = RollCriticalStrike(player, criticalChance, skillStats,
                             attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
