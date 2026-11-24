@@ -140,6 +140,11 @@ public class StashTabReloadTests : IDisposable
             Assert.Null(stash.Place(blight, 19, 0, New(amulet), ShapeOf, out _));
             // An amulet anywhere else on the tab is still refused.
             Assert.Null(stash.Place(blight, 16, 0, New(amulet), ShapeOf, out _));
+            // Ctrl + click (0xe0 / 0xe1 affinity 13) takes a blighted map into the first free map cell, never an ordinary one.
+            Assert.True(stash.Holds(blight, Blighted("InfectedMap").Item));
+            Assert.False(stash.Holds(blight, New(map).Item));
+            Assert.Equal(((byte)19, (byte)0), stash.CellFor(blight, Blighted("InfectedMap").Item, ShapeOf));
+            Assert.Null(stash.CellFor(blight, New(map).Item, ShapeOf));
 
             // With an item in the anoint cell, one oil goes to the first free input (15 is taken), a Tainted Oil to its own
             // cell (78), and nothing moves once the inputs are full.

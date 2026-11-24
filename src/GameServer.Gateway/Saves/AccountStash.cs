@@ -711,6 +711,12 @@ public sealed partial class AccountStash
         return SlotCell(t, slot);
     }
 
+    // The blight tab's map row for a Ctrl + click (0xe1 affinity 13, or 0xe0): a Blighted or Blight-ravaged map, the same
+    // test CellIn makes on a map cell; an ordinary map has no Blight affinity.
+    bool TakesInMapRow(TabState t, Item item) =>
+        t.Saved.UniqueCategory == 0 && _rules.MapTier(item.TypeHash) is not null && _rules.IsBlightedMap(item)
+        && Enumerable.Range(0, t.Grid.W).Any(x => _rules.IsMapSlot(t.Saved.Type, x, 0));
+
     // Slot n is cell (n mod width, n / width): divination cards span two rows, and fragments use their Subtab row.
     static (int X, int Y) SlotCell(TabState t, int slot) => (slot % t.Grid.W, slot / t.Grid.W);
 
@@ -1020,6 +1026,9 @@ public sealed partial class AccountStash
         {
             if (tab < 0 || tab >= _tabs.Count || shapeOf(item) is not { } shape) return null;
             var t = _tabs[tab];
+            if (TakesInMapRow(t, item))   // the first free map cell; null when the row is full
+                return Enumerable.Range(0, t.Grid.W).Where(x => _rules.IsMapSlot(t.Saved.Type, x, 0) && !t.Items.Any(i => i.X == x && i.Y == 0))
+                    .Select(x => ((byte, byte)?)((byte)x, (byte)0)).FirstOrDefault();
             if (CellIn(t, item, 0, 0, out _) is not var (sx, sy)) return null;
             if (t.Saved.UniqueCategory != 0)
                 return t.Saved.Type == StashRules.Map

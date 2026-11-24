@@ -258,7 +258,9 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
   Blight tab's crafting rows are cells too (live 2026-11-24): CraftingItem (13) takes any item, CraftingInputs1–3 and
   CraftingInputCorrupt (15–17, 78) the tab's own items, and BlightedMapSlots (18, Width 60) in cells 18–77 maps with
-  the `InfectedMap` or `UberInfectedMap__` modifier (retail refuses an ordinary map there).
+  the `InfectedMap` or `UberInfectedMap__` modifier (retail refuses an ordinary map there). Ctrl + click on a blighted
+  map sends 0xe1 with affinity 13 and the Blight tab, though maps have no Blight affinity in the tables; it goes to the
+  first free map cell (`AccountStash.TakesInMapRow`).
   Its Anoint button is the client's: without the quest flag `CassiaOnAnointingOils` it shows
   BlightAnointErrorNoCassia ("Strange Growths") and sends nothing. The
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
