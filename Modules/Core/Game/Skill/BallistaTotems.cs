@@ -6,7 +6,8 @@ public static partial class Game
         // The artillery mortar needs a landing sequence, not a straight-arrow approximation.
         && SkillsFor(player).EffectId(effect) is not ("ArtilleryBallista" or "ArtilleryBallistaAltX" or "ArtilleryBallistaAltY");
 
-    static bool BallistaRain(Player player, int effect) => SkillsFor(player).EffectId(effect) == "BlastRain";
+    static bool BallistaRain(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is var id && (id == "BlastRain" || IsToxicRain(id));
 
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {

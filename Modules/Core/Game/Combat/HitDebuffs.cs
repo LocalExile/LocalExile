@@ -240,13 +240,35 @@ public static partial class Game
         m.PresentationChanged?.Invoke();
     }
 
-    /// <summary>The increased chaos damage its running Withered stacks give at <paramref name="now"/>, 0 without a time.</summary>
-    public static double WitheredTaken(SpawnedMonster m, double now)
+    /// <summary>The increased chaos damage from active Withered stacks at <paramref name="now"/>.</summary>
+    public static double WitheredTaken(SpawnedMonster m, double now) => ReadWithered(m, now).Taken;
+
+    // A Withering pod contributes once while an enemy is in its radius. It shares the timed stacks' cap, and
+    // leaving removes that pod immediately without changing any of the Withered stacks from hits or other skills.
+    static (int Count, double Taken, double Until, double DisplayPct) ReadWithered(SpawnedMonster m, double now)
     {
-        double taken = 0;
+        int count = 0;
+        double taken = 0, latest = 0, display = 0;
         foreach (var (until, pct) in m.Withered)
-            if (until > now) taken += pct;
-        return taken;
+        {
+            if (until <= now) continue;
+            count++;
+            taken += pct;
+            latest = Math.Max(latest, until);
+            display = pct;
+        }
+        if (count < WitheredMaxStacks && ToxicVines.TryGetValue(m, out var pods) && m.Mods.Effects[Stat.ImmuneToWither] == 0)
+            lock (pods)
+                foreach (var pod in pods)
+                {
+                    if (pod.Withered is not double pct || pod.Until <= now) continue;
+                    count++;
+                    taken += pct;
+                    latest = Math.Max(latest, pod.Until);
+                    display = pct;
+                    if (count == WitheredMaxStacks) break;
+                }
+        return (count, taken, latest, display);
     }
 
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's

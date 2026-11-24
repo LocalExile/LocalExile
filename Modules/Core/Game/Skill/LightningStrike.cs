@@ -7,9 +7,8 @@ static partial class Game
 {
     internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
 
-    // One paid use has a single melee contact and a volley. Both start at the strike's contact keyframe;
-    // the client already draws the bolts. A melee victim is excluded from this volley's contacts.
-    internal static Task ScheduleLightningStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+    // Strike projectiles release at the contact keyframe of each swing in the same paid use.
+    internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
@@ -21,6 +20,7 @@ static partial class Game
         int repeats = MeleeAttackRepeats(player, skillId);
         int action = player.ActionCount;
         var stats = SupportedSkill(player, skillId).Stats;
+        bool frostBlades = IsFrostBlades(gem.Effect);
         double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
@@ -30,8 +30,11 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || player.ActionCount == action), () =>
-                ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
-                    criticalRoll, sequence, index, cryExerted, ruthless));
+                frostBlades
+                    ? ReleaseFrostBlades(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless)
+                    : ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless));
         }
         return Task.CompletedTask;
     }
@@ -78,13 +81,13 @@ static partial class Game
     }
 
     internal static uint LightningStrikeTarget(Player player, (int X, int Y) from, (int X, int Y) aim,
-        uint targetId, double now)
+        uint targetId, double now, int extraReach = 0)
     {
-        var weapon = WeaponFor(player);
+        int range = WeaponFor(player).Range + extraReach;
         return player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                 && (targetId == 0 || e.Key == targetId)
-                && SwingInReach(player, e.Value, from, e.Value.Walk.Position(now), weapon.Range + 2)
-                && (targetId != 0 || Dist(e.Value.Walk.Position(now), aim) <= weapon.Range + e.Value.StopRange))
+                && SwingInReach(player, e.Value, from, e.Value.Walk.Position(now), range + 2)
+                && (targetId != 0 || Dist(e.Value.Walk.Position(now), aim) <= range + e.Value.StopRange))
             .OrderBy(e => Dist(e.Value.Walk.Position(now), aim)).ThenBy(e => e.Key)
             .Select(e => e.Key).FirstOrDefault();
     }

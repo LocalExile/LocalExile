@@ -65,6 +65,7 @@ public static partial class Game
                 + (g.Definition.IsGolem ? Player(Stat.GolemLifeRegenerationPerMinutePct) : 0)) / 6000.0;
         recovery += elapsed * (m.MaxLife * regen
             + Player(Stat.MinionLifeRegenerationRatePerSecond) + m.Mods.Effects[Stat.BaseLifeRegenerationRatePerMinute] / 60.0
+            + (m.Life < m.MaxLife ? RejuvenationMinionRegeneration(player, m, now) : 0)
             + (now - g.BlockedAt <= 4 ? m.MaxLife * m.Mods.Effects[Stat.LifeRegenerationRatePerMinutePctIfBlockedRecently] / 6000d : 0));
         if (g.Definition.Kind == "Spectre") recovery += SpectreLifeRecoveryLocked(player, g, elapsed, now);
         g.Regeneration += recovery * recoveryRate;

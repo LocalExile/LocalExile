@@ -41,8 +41,8 @@ public static partial class Game
     // movement), a blocker was added, and with the stat presentations (a stat change moves radii and grants).
     static readonly Func<Player, Task>[] NearbyPresentations =
     [
-        SendNearbyAuras, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld, SendQuestThresholds,
-        SendFlaskGrounds,
+        SendNearbyAuras, SendReceivedTotemAura, TickPassiveAuras, SendBlind, SendPushOut, SendNearbyWorld,
+        SendQuestThresholds, SendFlaskGrounds,
     ];
 
     // A monster that never dies reached its quest threshold (its PresentationChanged).

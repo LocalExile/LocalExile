@@ -176,7 +176,9 @@ public static partial class Game
             if (chance > 0 && RandomRolls.Chance((int)Math.Min(chance, 100), 100, random))
                 prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + effects[Stat.BaseSpellDamagePctSuppressed], 0, 100);
         }
-        long damage = 0;
+        var rejuvenation = RejuvenationTotemAt(player, m.Walk.Position(now));
+        long damage = 0, nonChaos = 0;
+        int chaos = 0;
         var mitigated = DamagePacket.Empty;
         int interceptedPct = 0;
         double soulDamageTaken = 1;
@@ -214,16 +216,41 @@ public static partial class Game
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
-                if (interceptedPct > 0 && player.EnergyShield.Current > 0)
-                {
-                    long share = interceptedCarry + (long)value * interceptedPct;
-                    int intercept = (int)(share / 100);
-                    interceptedCarry = share % 100;
-                    value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
-                }
-                damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
+                if (rejuvenation is null) TakePoolDamage(value, type == DamageType.Chaos);
+                else if (type == DamageType.Chaos) chaos = value;
+                else nonChaos += value;
             }
         }
+        if (rejuvenation is { } protection && nonChaos + chaos > 0)
+        {
+            int redirectable = (int)Math.Min(int.MaxValue, nonChaos);
+            var kept = RedirectTotemHitLocked(protection.Owner, protection.Totem, redirectable, chaos,
+                RejuvenationRedirectPct(protection.Owner, protection.Totem.Aura!), AreaTime(protection.Owner),
+                protection.Owner == player ? currentPlayer : PlayerStatValues(protection.Owner));
+            // Totem redirection reduces the mitigated hit before Soul Link and the minion's Energy Shield use it.
+            for (long overflow = nonChaos - redirectable; overflow > 0;)
+            {
+                int chunk = (int)Math.Min(int.MaxValue, overflow);
+                TakePoolDamage(chunk, false);
+                overflow -= chunk;
+            }
+            TakePoolDamage(kept.NonChaos, false);
+            TakePoolDamage(kept.Chaos, true);
+        }
+
+        void TakePoolDamage(int value, bool isChaos)
+        {
+            if (value <= 0) return;
+            if (interceptedPct > 0 && player.EnergyShield.Current > 0)
+            {
+                long share = interceptedCarry + (long)value * interceptedPct;
+                int intercept = (int)(share / 100);
+                interceptedCarry = share % 100;
+                value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
+            }
+            damage += g.ShieldPool.Damage(value, isChaos && !chaosNoBypass, now);
+        }
+
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         StealMapChargesLocked(player, attacker, source, g, now, random);

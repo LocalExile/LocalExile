@@ -65,12 +65,13 @@ public static class ItemModStats
     {
         // Influence thresholds count the full active equipment set supplied by the caller.
         var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        var influencedPool = subject.InfluencedEquipment ?? equipment;
         foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists, game))
             {
                 if (local || !InfluencedItemConditions.Read(Program.Stats.Name(value.Id), out string target, out var influence, out int required))
                     yield return value;
-                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                else if (influencedPool.Count(equipped => (equipped.Influences & influence) != 0) >= required)
                     foreach (uint stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
             }
     }

@@ -66,6 +66,17 @@ public static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        else if (effect == "BlazingSalvo")
+            p = p with
+            {
+                Lobbed = true,
+                LobbedEnemyContacts = true,
+                // An angular fan grows in world size with distance instead of rescaling to a fixed target width.
+                AimSpreadDistance = 0,
+                EndArea = new("blazing-salvo", 16),
+                EndAreaReasons = new HashSet<ProjectileEndReason>
+                    { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Landing },
+            };
         // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
         // The transfigured and Vaal versions share the rule.
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
@@ -81,7 +92,7 @@ public static class GatewayProjectileSkillProfiles
         // The client's bounces go straight on without seeking an enemy (Frida 2026-11-01, trace-chain-decisions.js).
         // shortcut: 16 cells between impacts and the 14-cell base radius (SkillArea.BaseRadius) are not read from the
         // client; it takes 375 ms per bounce, slower than this flight at the orb's speed, so a bounce's hits land ~0.1 s early.
-        else if (effect == "RollingMagma")
+        else if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale")
             p = p with
             {
                 Lobbed = true, DirectDamage = false, GroundBounceDistance = RollingMagmaBounceCells,
@@ -134,6 +145,7 @@ public static class GatewayProjectileSkillProfiles
                 => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
+            "BlazingSalvo" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"

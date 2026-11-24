@@ -96,6 +96,8 @@ public static partial class Game
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
+            if (player.UtilityFlaskEffects.NextExpiry(now) is double utilityFlask) StatsChangeIn(utilityFlask - now);
+            if (player.FlaskEffects.NextExpiry(now) is double recoveryFlask) StatsChangeIn(recoveryFlask - now);
             MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (player, stats, _) =>
@@ -111,8 +113,9 @@ public static partial class Game
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
-        Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
+        Step(PlayerStatStep.PanelDefaults, (player, stats, _) =>
         {
+            ApplyConvergenceStats(player, stats);
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });
