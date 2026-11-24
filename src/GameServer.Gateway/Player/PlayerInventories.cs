@@ -13,7 +13,9 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        HeistNpcEquipmentFirst = 45, HeistNpcEquipmentCount = 9,
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, DeepwaterCollection = 114,
+        Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 

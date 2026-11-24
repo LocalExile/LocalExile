@@ -832,7 +832,16 @@ public static partial class InstanceInventories
     public static byte[] RemoveInventory(uint inventoryId, byte manager = 0) =>
         new LoginWriter().U16(RemoveInventoryId).U8(manager).U32(inventoryId).ToArray();
 
-    public const ushort RemoveInventoryId = 0xc1;
+    public const ushort RemoveInventoryId = 0xc1, InventoryPermissionsId = 0xc2;
+
+    /// <summary>
+    /// S→C 0xc2 (class 0x1435e7560, read 0x1421aa500; dispatcher 0x142154016 → 0x141d65da0): marks an inventory
+    /// non-writable (<c>+0x160</c>, remove-only) and/or excluded from item scans (<c>+0x161</c>). u8 manager,
+    /// u32 BE inventory id, u8 notWritable, u8 skipScans (9 bytes total).
+    /// </summary>
+    public static byte[] InventoryPermissions(uint inventoryId, bool notWritable, bool skipScans = false, byte manager = 0) =>
+        new LoginWriter().U16(InventoryPermissionsId).U8(manager).U32(inventoryId)
+            .U8((byte)(notWritable ? 1 : 0)).U8((byte)(skipScans ? 1 : 0)).ToArray();
 }
 
 /// <summary>

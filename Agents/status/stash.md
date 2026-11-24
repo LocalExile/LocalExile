@@ -89,6 +89,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Stash affinity results (`0x00d5`), personal tab ids (`0x00d6`), and quick-moves (`0x00e2`, `0x002b`, `0x0114`).
+- Tab folders: Create New Folder, moving tabs in and out (C→S 0xd1) and Delete Folder (0xd2) are kept with the stash; a
+  deleted folder stays hidden so the later tabs keep their places, and S→C 0xd3 encodes guild stash affinity updates
+  (18 "C→S"). Checked offline; not yet in the real client.
 - Personal stash and gold are shared only within the same account and full league, including mode combinations.
   Guild stash storage is also league-scoped; Standard retains the legacy bank and other leagues use separate banks.
   SSF refuses guild opening, tab requests and inventory moves.

@@ -574,6 +574,21 @@ public sealed partial class AccountStash
             return inventoryId >= _firstInventoryId && inventoryId < _firstInventoryId + _tabs.Count ? (int)(inventoryId - _firstInventoryId) : null;
     }
 
+    /// <summary>Resolves a specialty sub-tab (Map page or Unique category) owned by <paramref name="parentTab"/> matching
+    /// <paramref name="subTabKey"/>, or <paramref name="parentTab"/> itself when <paramref name="subTabKey"/> is 0 or already matches it.</summary>
+    public int? FindSubTab(int parentTab, ulong subTabKey)
+    {
+        lock (_lock)
+        {
+            if (parentTab < 0 || parentTab >= _tabs.Count || _tabs[parentTab].Saved.Hidden) return null;
+            if (subTabKey == 0 || _tabs[parentTab].Saved.UniqueCategory == subTabKey) return parentTab;
+            for (int i = 0; i < _tabs.Count; i++)
+                if (_tabs[i].Saved.Parent == parentTab && _tabs[i].Saved.UniqueCategory == subTabKey && !_tabs[i].Saved.Hidden)
+                    return i;
+            return null;
+        }
+    }
+
     /// <summary>The tab list for S→C 0x21 / 0x136. The last tab carries affinity bit <paramref name="selectBit"/> (if
     /// any): S→C 0x7b kind 1 with that affinity makes the panel select it. Loaded tabs are the ones this connection
     /// already has the inventory of.</summary>

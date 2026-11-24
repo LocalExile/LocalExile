@@ -395,9 +395,15 @@ public sealed record InventoryItem(uint Id, byte X, byte Y, Item Item);
 
 public static class InstanceItems
 {
-    public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
+    public const ushort InventoryChangeId = 0xbf, GemExperienceId = 0xc3, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
         LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7, InventoryFullId = 0x117;
+
+    /// <summary>S→C 0x00c3 (class 0x1431767e8, read 0x140911270; dispatcher 0x142154507 → 0x14217a930):
+    /// grants every eligible gem socketed in equipped items (both weapon sets) its incremental XP share without
+    /// resending full item blobs. u16 BE 0x00c3, u32 BE experience (6 bytes total).</summary>
+    public static byte[] GemExperience(uint experience) =>
+        new LoginWriter().U16(GemExperienceId).U32(experience).ToArray();
 
     /// <summary>S→C 0x0117 (2 bytes, id only; dispatcher case 0x44 at 0x142155509 → subscriber 0x140d60680):
     /// plays the local character's <c>InvFull</c> audio event (<c>CharacterAudioEvents</c> row 247).</summary>
@@ -648,8 +654,27 @@ public static class InstanceItems
 
     public const int InventoryRequestLength = 8;
 
-    // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
-    // not mapped yet. The right-click item use is 0x58 below.
+    /// <summary>C→S 0x2d (8 bytes, class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0):
+    /// controller quick-move between player inventory and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u8 slot (0..8), u32 BE item id, u8 outOfTarget (0 = into target, 1 = out of target; opposite polarity to 0x00fd).</summary>
+    public readonly record struct InventoryRequest(byte Slot, uint ItemId, bool OutOfTarget)
+    {
+        public bool IntoTarget => !OutOfTarget;
+    }
+
+    public static InventoryRequest ReadInventoryRequest(ReadOnlySpan<byte> m) =>
+        new(m[2], System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[3..]), m[7] != 0);
+
+    /// <summary>C→S 0xfd (9 bytes, writer 0x141fa0230, sender 0x14216ecb0): keyboard/mouse Ctrl + click quick-move
+    /// between player inventory (main or expanded) and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u32 BE item id (+2), u8 fromExpanded (+6), u8 slot (0..8, +7), u8 intoTarget (+8: 1 = into target, 0 = out).</summary>
+    public const ushort InventoryQuickMoveId = 0xfd;
+    public const int InventoryQuickMoveLength = 9;
+
+    public readonly record struct InventoryQuickMove(uint ItemId, bool FromExpanded, byte Slot, bool IntoTarget);
+
+    public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
 
     public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
     public const int UseItemClickLength = 11;

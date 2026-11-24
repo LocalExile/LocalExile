@@ -703,7 +703,9 @@ public static partial class Game
                     again.TargetInventoryId, again.TargetId), Convert.ToHexString(bytes));
             }
             else if (id == InstanceItems.InventoryRequestId)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryRequest(bytes));
+            else if (id == InstanceItems.InventoryQuickMoveId)
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryQuickMove(bytes));
             else if (id == InstanceSkinTransfers.BindId)
                 await NativeSkinTransfer(player, InstanceSkinTransfers.ReadBind(bytes));
             else if (id == InstanceSkinTransfers.ReclaimId)
@@ -882,6 +884,10 @@ public static partial class Game
             }
             else if (id == InstanceStash.MoveToTabId)
                 await MoveToStash(player, InstanceStash.ReadMoveToTab(bytes));
+            else if (id == InstanceStash.QuickPlaceInTabId)
+                await QuickPlaceInStash(player, InstanceStash.ReadQuickPlaceInTab(bytes));
+            else if (id == InstanceStash.SubTabClickId)
+                await SubTabClickInStash(player, InstanceStash.ReadSubTabClick(bytes));
             else if (id == InstanceStash.MoveToAffinityTabId)
                 await MoveToAffinityTab(player, InstanceStash.ReadMoveToAffinityTab(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceStash.SetAffinitiesId)
@@ -919,6 +925,8 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
                     (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
                 await SendTabListAgain(player, kind);
+                if (kind == InstanceStash.Personal && done is int newFolder && folder == tab && newFolder != ushort.MaxValue)
+                    await SendPersonalStashTabId(player, (ushort)newFolder, $"{newFolder + 1:x8}");
             }
             else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
             {
