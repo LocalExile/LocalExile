@@ -95,7 +95,10 @@ public static class PlayerHitDamage
             var support = GemSupportDamage.Multipliers(path.History, modifiers, supportTypes, fullShield, shieldLeech);
             range = range.Scale(support.GeneralOrPhysical).Scale(support.ElementalOrChaos);
             if ((path.History & DamageTypeHistory.Physical) != 0)
+            {
                 range = range.Scale(Math.Max(0, 1 + get(Stat.HeraldOfPurityPhysicalDamagePlusPctFinal) / 100.0));
+                if (attack) range = range.Scale(Math.Max(0, 1 + get(Stat.CombinedAttackPhysicalDamagePlusPctFinal) / 100.0));
+            }
             if (melee && area)
                 range = range.Scale(Math.Max(0, 1 + get(get(Stat.InSandStance) != 0
                     ? Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinalInSandStance

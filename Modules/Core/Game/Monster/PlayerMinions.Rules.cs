@@ -28,8 +28,12 @@ public static partial class Game
         SaveSummons(left);
         // The held-back ones too: they are the instance's, wherever the players went.
         if (left.MonstersPlaced)
-            left.Instance.Monsters = [.. SavedMonster.Save(InstanceMonsters(left),
-                AreaTime(left), MonsterEmerge.Unrisen(left)), .. HeldBackLocked(left)];
+        {
+            var monsters = InstanceMonsters(left);
+            double now = AreaTime(left);
+            left.Instance.Monsters = [.. SavedMonster.Save(monsters, now, MonsterEmerge.Unrisen(left)),
+                .. KeepItemisedCorpses(monsters, now), .. HeldBackLocked(left)];
+        }
         RemoveLeavingMinionsLocked(left);
     }
 }

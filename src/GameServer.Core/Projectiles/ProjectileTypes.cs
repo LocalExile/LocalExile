@@ -109,6 +109,30 @@ public sealed record ProjectileNativeVolley
     }
 }
 
+/// <summary>Initial launch points on either side of the emitter, measured in cells.</summary>
+public sealed record ProjectileParallelOrigins(int PointsPerSide, double Lateral, double Forward)
+{
+    internal (int Point, int Index, int Count)[] Distribution(int count)
+    {
+        int points = Math.Clamp(PointsPerSide, 0, count);
+        int each = count / (2 * points + 1), extras = count % (2 * points + 1);
+        var layout = new (int Point, int Index, int Count)[count];
+        int next = 0;
+        void Add(int point, int group)
+        {
+            for (int i = 0; i < group; i++) layout[next++] = (point, i, group);
+        }
+        Add(0, each + extras % 2);
+        for (int k = 1; k <= points && next < count; k++)
+        {
+            int group = each + (k <= extras / 2 ? 1 : 0);
+            Add(k, group);
+            Add(-k, group);
+        }
+        return layout;
+    }
+}
+
 /// <summary>A self-steering flight (Spark's wander): the host's source picks every leg, as the client does for the
 /// projectiles it draws itself, so the server's flight is the one on screen.</summary>
 public interface IProjectileLegs
@@ -142,6 +166,7 @@ public sealed record ProjectileProfile(string Id)
     public bool RandomSpread { get; init; }
     /// <summary>The client's own volley, for projectiles the client draws itself. Overrides <see cref="SpreadRadians"/>.</summary>
     public ProjectileNativeVolley? NativeVolley { get; init; }
+    public ProjectileParallelOrigins? ParallelOrigins { get; init; }
     /// <summary>Zero keeps a fixed fan; positive values widen it as aim approaches the emitter.
     /// The host adopts/calibrates the reference distance, independently of projectile count.</summary>
     public double AimSpreadDistance { get; init; }
@@ -250,6 +275,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
 {
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
+    /// <summary>Extra split children granted by the current direct-hit recipient.</summary>
+    public Func<ProjectileActorKey, long, int>? TargetSplit { get; init; }
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
@@ -306,6 +333,7 @@ public sealed class ProjectileEntity
     public int GroundBounces { get; internal set; }
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
+    internal bool HasSplit;
     internal int TerrainChainChance;
     internal int GroundChains;
     internal int ReturnContacts = 0;

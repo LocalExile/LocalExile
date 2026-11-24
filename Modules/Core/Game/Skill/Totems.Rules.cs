@@ -638,7 +638,7 @@ public static partial class Game
         {
             if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
                 && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                ReleaseTotemNova(player, session, totem, strike.Radius, sequence);
+                TotemNovaLocked(player, session, totem, totem.At, strike.Radius, sequence);
         });
     }
 
@@ -692,7 +692,11 @@ public static partial class Game
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.
     static void ReleaseTotemNova(Player player, ProjectileSession session, TotemState.Totem totem, int radius,
-        ushort sequence, int? ringArt = null)
+        ushort sequence, int? ringArt = null) =>
+        TotemNovaLocked(player, session, totem, totem.At, radius, sequence, ringArt: ringArt);
+
+    static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
+        (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -707,7 +711,7 @@ public static partial class Game
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
-            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, totem.At) > radius
+            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
                 || MonsterBlocks(m, AreaRng(player), spell: true)) return;
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
@@ -721,6 +725,8 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
+            if (hitSummon)
+                HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     blind: blind, hitOrigin: totem.At, playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false);
@@ -739,9 +745,9 @@ public static partial class Game
         foreach (var (id, target) in player.Area.Monsters.ToArray())
         {
             if (ringArt is not int variation) { Contact(id, target); continue; }
-            double distance = Dist(target.Walk.Position(releasedAt), totem.At);
+            double distance = Dist(target.Walk.Position(releasedAt), centre);
             if (!TotemTargetable(target) || distance > radius) continue;
-            session.Runtime.Schedule(release + ProjectileRuntime.Time(IceNovaRing.Reach(distance, radius, variation)), () =>
+            session.Runtime.Schedule(release + ProjectileRuntime.Time(IceNovaRing.Reach(distance, (int)Math.Round(radius), variation)), () =>
             {
                 if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && player.PlayerLife != 0
                     && player.Area.Monsters.GetValueOrDefault(id) == target)

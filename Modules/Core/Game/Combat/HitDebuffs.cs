@@ -55,13 +55,19 @@ public static partial class Game
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
         Random random)
     {
-        if (!m.Hostile || m.Dead || m.Life == 0) return;
+        if (m.Hostile) ApplyContactDebuffsLocked(m, get, spell, critical, now, random);
+    }
+
+    static void ApplyContactDebuffsLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
+        Random random)
+    {
+        if (m.Dead || m.Life == 0) return;
         var (intimidate, unnerve) = HitDebuffRolls(get, spell, critical, random);
         if (intimidate) { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
             { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
-        TryMaimOnHitLocked(m, get(Stat.MaimOnHitPct),
+        TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
         if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
             { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
@@ -69,9 +75,12 @@ public static partial class Game
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
     /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
-    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
+    public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random) =>
+        m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random);
+
+    static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
-        if (!m.Hostile || m.Dead || m.Life == 0) return false;
+        if (m.Dead || m.Life == 0) return false;
         if (m.Effects[Stat.ImmuneToMaim] != 0 || RandomRolls.Chance(m.Effects[Stat.AvoidMaimPctChance], 100, random))
             return false;
         if (!RandomRolls.Chance(chance, 100, random)) return false;
