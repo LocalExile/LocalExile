@@ -15,8 +15,8 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static partial class LegionMonolith
 {
-    /// <summary>THE RADIUS IS A GUESS (live check): grid cells around a broken chest, before map_legion_chests_break_out_range_+%.</summary>
-    const double ChestRadius = 25;
+    /// <summary>THE RADIUS IS A GUESS (live check): grid cells around a broken chest (about 2.5 x the armies' mean spacing of 12-14; a constant because the spacing is not reachable here), before map_legion_chests_break_out_range_+%.</summary>
+    const double ChestRadius = 32;
     /// <summary>How long a one-shot effect object stays before it is removed.</summary>
     const double FlashSeconds = 3;
     /// <summary>GUESS: the rolls an opened chest and an opened War Hoard drop.</summary>

@@ -62,7 +62,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 ## Open questions for the live check
 
 - Does the HUD gauge need `LegionRules` (0x1f with row 94, then 0x2c9) or is 0x163 alone enough? Only 0x163 is sent.
-- Formation radii (`LegionStasis.MinRadius`, `MaxRadius`, the sector width) and the chest break-out radius are guesses.
+- The formation constants (`LegionFormation.cs`: front gap, body gap, area per member, width over depth, facing rotation) and the chest break-out radius are guesses.
 - Tier rarity (elite Magic, sergeant Rare, general Unique) is a guess.
 - Is the swap of a broken-out monster for a fresh fighting one visible, and does a hit on a frozen monster show a number or a flinch?
 - Does the joiner's life bar match the lowered life? At break-out the member's life is refilled to its maximum (the bar must not stay near 0: live test), so its bar disappears.
@@ -80,7 +80,12 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - The monolith is used from 12 cells away; charging lasts 1 s, then it shatters and the timer runs.
 - The factions: in The Climb Eternal Empire and Karui, in The Dried Lake Eternal Empire and one random; elsewhere two are
   drawn by `SpawnWeight` and the `map_legion_monoliths_chance_for_*` stats, among those whose balance row allows the level.
-- The army spawns frozen for every player in the area, 12 to 60 cells from the monolith, in a sector per army.
+- The army spawns frozen for every player in the area (`LegionFormation.cs`): a random axis through the monolith, one block per army
+  on each side, facing the other; width about 1.75 times depth, sized from the member count. Spacing between centres is max(12, 4.5 x ObjectSize) cells in rows (jitter 0.3 of it) and
+  max(13, 5 x ObjectSize) in loose groups, each member drawing a factor 0.85-1.4 for its minimum distance (ObjectSize is only the collision size; the coated soldier is drawn 6-8 cells wide); the fronts are
+  1.5 spacings apart. Eternal Empire and Templar stand in rows and columns, the others in loose groups. The band percent is the distance from
+  the front (0) to the rear (100): a member fills its band first and spills to the rows behind, then in front, only when the band is full.
+  The general is placed first, centred at the rear, and falls back to the rear half (loose groups) or any free slot (rows). A blocked cell tries its neighbours, then the member is skipped.
 - Only the player's own direct hits count: each lowers the frozen monster's life and its life bar, and at 0 it breaks out and its life is refilled (the bar goes). Damage over time does not count (the frozen buff makes the monster invulnerable, and no general hook lowers an invulnerable monster's life).
   Totems, brands, traps, mines and minions do not count yet.
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.

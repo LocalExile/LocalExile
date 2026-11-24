@@ -362,7 +362,7 @@ static partial class LegionMonolith
             if (m.Broken && !m.Chest)
             {
                 Holds.Remove(monster);   // its hits count again
-                if (await LegionStasis.Wake(player, m, monster)) { woken++; generalFought |= m.Tier == 3; }
+                if (await LegionStasis.Wake(player, m, monster, e.X, e.Y)) { woken++; generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }
             else if (m.Tier == 3 && !m.Chest) flee.Add(m);
