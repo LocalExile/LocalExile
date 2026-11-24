@@ -1788,7 +1788,10 @@ public static partial class Game
                 SkillStats: [.. supported.Stats.Select(kv => (kv.Key, kv.Value))],
                 SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                 ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
-                ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+                ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
+                // This aura's own named effect term, from the caster's raw sources; the reconcile re-stamps it
+                // whenever those sources change, so the record stays fresh without another read per hit.
+                PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(effectId, CharacterStatSources(player).Stats));
             bool blessing = IsBlessingAura(aura);
             bool eternal = EternalBlessingAura(aura);
             var proposedAuras = player.Auras.Values.Where(a => (!blessing || !IsBlessingAura(a))

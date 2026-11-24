@@ -229,10 +229,10 @@ public static partial class Game
     // created yet, so it is on no client and nothing acts on it or sends about it. RevealHeldBack creates it when a
     // player comes near: up to PopulationRevealPerPass nearest per pass within PopulationRevealCells (a screen is about
     // 50 cells across), and up to PopulationShownPerPass from the outer ring out to PopulationShowCells, the wake
-    // zone's return distance (Resync.cs), so walking into dense packs or teleporting into a full region never stalls a
+    // zone's half-side, so walking into dense packs or teleporting into a full region never stalls a
     // frame and none is created only to be put to sleep.
     public const int PopulationRevealCells = 120;
-    public const int PopulationShowCells = WakeZoneReturn;
+    public const int PopulationShowCells = WakeZoneHalfSide;
     public const int PopulationRevealPerPass = 12;
     public const int PopulationShownPerPass = 6;
 
@@ -696,7 +696,7 @@ public static partial class Game
         else
         {
             // A boss or buried monster far from the player (Dominus at the top of the Sceptre, The Faun in The Ledge)
-            // stays out of the wake zone until a player comes near: StepAreaWake wakes it at WakeZoneReturn (163 cells),
+            // stays out of the wake zone until a player comes near: StepAreaWake wakes it at WakeZoneHalfSide (172 cells),
             // long before a buried monster rises at MonsterEmerge.Range (24 cells). Woken at creation far away, the
             // client put its far copy to sleep on its own while the server still had it awake, and a 0x2bc update for
             // it crashed the client at 0x1401297ca (an Actor lookup on an object without components, live 2026-11-05).
@@ -1073,8 +1073,9 @@ public static partial class Game
             var bandit = BanditChoices.In(player);
             bool banditHeld = bandit is not null && BanditChoices.Held(player, bandit);
             // Only the monsters in the grid cells around the player: one beyond the wake zone sleeps on this client and
-            // gets no order (below), and one that targets another player acts on that player's pass.
-            foreach (var (id, m) in player.Area.MonstersNear((px, py), WakeZoneRadius + 16))
+            // gets no order (below), and one that targets another player acts on that player's pass. The query is a
+            // Euclid radius, so it must reach the square's corner (WakeZoneCorner), not just its half-side.
+            foreach (var (id, m) in player.Area.MonstersNear((px, py), WakeZoneCorner + 16))
             {
                 if (bandit is not null && m.Variety?.Id == bandit.Variety && m.Hostile)
                 {
