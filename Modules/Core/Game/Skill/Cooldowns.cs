@@ -431,9 +431,17 @@ public static partial class Game
         if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
-        return Send(player, [], "0x02bc player active cooldown progress/rate refresh",
-            atGate: () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
-                .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
-                .Select(g => (g.Id, g.Effect)).ToArray()));
+        Func<byte[]?> build = () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
+            .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
+            .Select(g => (g.Id, g.Effect)).ToArray());
+        // Queue behind same-frame world records (such as S->C 0x01ce instant actions) for this player alone so
+        // 0x02bc never overtakes 0x01ce on the wire and exhausts the client's stored uses before CanExecute runs.
+        if (InAreaFrame(player))
+        {
+            if (build() is { Length: > 0 } bytes)
+                Program.ToArea(player, bytes, "0x02bc player active cooldown progress/rate refresh", only: player);
+            return Task.CompletedTask;
+        }
+        return Send(player, [], "0x02bc player active cooldown progress/rate refresh", atGate: build);
     }
 }
