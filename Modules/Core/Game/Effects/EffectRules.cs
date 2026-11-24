@@ -227,14 +227,23 @@ public static class EffectRules
         lock (Gate) { Kinds[kind.Name] = kind; _table = new(-1, [], [], new()); }
     }
 
-    /// <summary>A hand-over for mods and modules: rules of their own, in the fx tables' shape (one
-    /// <see cref="GameDataStore.FxRuleRow"/> per rule, as LoadFxRules reads them), loaded with the tables' rules and by
-    /// the same loader. A stat the tables already have a rule for can get more rules this way; nothing is replaced.
-    /// Disposing the result takes the rules back. They reach a player at that player's next stat build.</summary>
-    public static IDisposable Add(IReadOnlyList<GameDataStore.FxRuleRow> rules)
+    /// <summary>One rule as a mod or module writes it: the rows the fx tables hold for one rule (fx_rule_sources,
+    /// fx_rule_when, fx_rule_if, fx_rule_do), each with the same columns in the same order and the same JSON.</summary>
+    public sealed record NewRule(string Id, string Title,
+        IReadOnlyList<(string Kind, string Key)> Sources, IReadOnlyList<(string Trigger, string Args)> When,
+        IReadOnlyList<(int Group, string Condition, bool Negate, string Args)> If,
+        IReadOnlyList<(string Action, string Args, string Target, string TargetArgs, string Value, string Timers)> Do);
+
+    /// <summary>A hand-over for mods and modules: rules of their own, loaded with the tables' rules and by the same
+    /// loader. A stat the tables already have a rule for can get more rules this way; nothing is replaced. Disposing
+    /// the result takes the rules back. They reach a player at that player's next stat build. The rows are this
+    /// module's own type because a mod is compiled against the server and the modules, not against the storage layer.</summary>
+    public static IDisposable Add(IReadOnlyList<NewRule> rules)
     {
-        lock (Gate) { _added = [.. _added, rules]; _addedVersion++; _table = new(-1, [], [], new()); }
-        return new Added(rules);
+        IReadOnlyList<GameDataStore.FxRuleRow> rows = [.. rules.Select(r =>
+            new GameDataStore.FxRuleRow(r.Id, "added", r.Title, null, "built", r.Sources, r.When, r.If, r.Do))];
+        lock (Gate) { _added = [.. _added, rows]; _addedVersion++; _table = new(-1, [], [], new()); }
+        return new Added(rows);
     }
 
     sealed class Added(IReadOnlyList<GameDataStore.FxRuleRow> rules) : IDisposable

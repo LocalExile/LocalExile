@@ -146,8 +146,9 @@ creatures, so `RuleSources` reads each worn item's own lines as rolled. The rule
 the stat. In those rows the game's data pairs the display stat with the stat meant for the nearby creature (54 Mods
 rows); the rules name the stats monster code reads instead, since several of the paired ones are player names.
 
-`EffectRules.Add` takes rules in the tables' shape from a mod or module and loads them with the tables' (disposing the
-result takes them back): how a mod ships rules of its own without a world.db update.
+`EffectRules.Add` takes rules in the tables' shape (`EffectRules.NewRule`: a mod is not compiled against the storage
+layer) from a mod or module and loads them with the tables' (disposing the result takes them back): how a mod ships
+rules of its own without a world.db update.
 
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
