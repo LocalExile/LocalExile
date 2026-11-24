@@ -205,6 +205,8 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
     public bool Lobbed { get; init; }
+    /// <summary>A lobbed flight may resolve an enemy impact before its intended landing.</summary>
+    public bool LobbedEnemyContacts { get; init; }
     /// <summary>A lobbed arc's apex in Positioned marker steps above the straight start-to-end line; the client's
     /// mortar template is 40. Arrow Nova's payload is fired high into the air, so it uses a much larger apex.</summary>
     public double ArcHeight { get; init; } = 40;

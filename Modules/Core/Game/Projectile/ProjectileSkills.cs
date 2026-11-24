@@ -25,6 +25,8 @@ public static partial class Game
         const string galvanicArrow = "Metadata/Projectiles/ShrapnelShot";
         foreach (string effect in new[] { "GalvanicArrow", "GalvanicArrowAltX", "GalvanicArrowAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, galvanicArrow, SkillProjectileParameters(effect, galvanicArrow));
+        const string ember = "Metadata/Projectiles/Ember";
+        definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));
@@ -130,6 +132,7 @@ public static partial class Game
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
+                if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 var shot = (ProjectileOffense)use.Payload!;
                 if (GatewayProjectileSkillProfiles.IsCausticArrow(effect) && effect != "CausticArrowAltX")
                 {
@@ -156,4 +159,17 @@ public static partial class Game
                 } } };
             }
         };
+
+    static ProjectileUse BlazingSalvoRelease(ProjectileUse use, Func<uint, int> get)
+    {
+        var profile = use.Profile;
+        if (profile.EndArea is not { } impact) return use;
+        // The patch notes give the close and maximum-distance blast radii. Interpolate between those endpoints.
+        double distance = (use.Aim - use.Origin).Length;
+        int basis = (int)Math.Round(16 + 6 * Math.Clamp(distance / profile.Range, 0, 1));
+        int radius = SkillArea.Radius(basis, get, spell: true);
+        double spread = Math.Min(Math.Tau, profile.SpreadRadians
+            * SkillArea.RadiusMultiplier(get(Stat.EmberProjectileSpreadAreaPlusPct)));
+        return use with { Profile = profile with { EndArea = impact with { Radius = radius }, SpreadRadians = spread } };
+    }
 }

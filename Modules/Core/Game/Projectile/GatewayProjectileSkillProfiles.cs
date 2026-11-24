@@ -65,6 +65,17 @@ public static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        else if (effect == "BlazingSalvo")
+            p = p with
+            {
+                Lobbed = true,
+                LobbedEnemyContacts = true,
+                // An angular fan grows in world size with distance instead of rescaling to a fixed target width.
+                AimSpreadDistance = 0,
+                EndArea = new("blazing-salvo", 16),
+                EndAreaReasons = new HashSet<ProjectileEndReason>
+                    { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Landing },
+            };
         // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
         // The transfigured and Vaal versions share the rule.
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).

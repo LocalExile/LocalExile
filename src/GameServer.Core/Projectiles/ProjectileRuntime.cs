@@ -277,7 +277,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             }
         int? contactLimit = p.Phase == 0 ? p.Profile.OutboundHitLimit : p.Profile.ReturnHitLimit;
         int contacts = p.Phase == 0 ? p.OutboundContacts : p.ReturnContacts;
-        if (!p.Profile.DirectDamage || p.Profile.Lobbed || contactLimit is int limit && contacts >= limit) return best;
+        if (!p.Profile.DirectDamage || p.Profile.Lobbed && !p.Profile.LobbedEnemyContacts
+            || contactLimit is int limit && contacts >= limit) return best;
         var directRule = DirectHitRule(p);
         bool skipDenied = p.Phase == 0 ? p.Profile.SkipDeniedContacts || p.Profile.OutboundHitLimit is not null
             : p.Profile.SkipDeniedReturnContacts || p.Profile.ReturnHitLimit is not null;
