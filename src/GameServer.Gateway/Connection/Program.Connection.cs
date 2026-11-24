@@ -258,6 +258,14 @@ public partial class Program
                 }
                 byte[]? terrainData = moduleHeader?.Terrain ?? (labyrinthNode is not null ? LabyrinthDay.ExtraData(labyrinthNode)
                     : pluginStates.Count > 0 ? InstanceProtocol.TerrainPluginStates(pluginStates) : null);
+                // A map area always carries the level it is played at, as the official does: over every first message
+                // of the decoded captures, an area whose level comes from the item that opens it carries it, while
+                // every campaign zone, town, hideout and league hub carries 0 and lets the client take the WorldAreas
+                // level. WorldAreas.IsMapArea is the client's own flag for the first set, so a map entered without a
+                // device open — a dev goto, a second entry into the same instance — carries the level the Gateway
+                // generated the layout at instead of 0.
+                if (areaLevel == 0 && ServerLevels.IsMapArea(layout.Id))
+                    areaLevel = (byte)Math.Clamp(ServerLevels.PlayedLevel(layout.Id, seed), 1, 100);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,

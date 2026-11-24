@@ -152,7 +152,8 @@ public static partial class Game
             ReceiveWarcry(player.Area, recipient.Id, WarcryGrants.GetOrCreateValue(recipient), gift, now);
             UpdateWarcryStats(recipient);
         }
-        Grant(player);
+        // Call to Arms: "Your Warcries do not grant Buffs or Charges to You"; allies and minions still receive them.
+        if (playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0) Grant(player);
         foreach (var ally in player.Instance.PlayersExcept(player.Id))
             if (!ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius)
                 Grant(ally);
@@ -242,8 +243,10 @@ public static partial class Game
                 foreach (var (targetId, m) in player.Area.MonstersNear(centre, blast).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
-                    int damage = MonsterTakes(m, hit, AreaRng(player), spell: false, now: now);
-                    if (ApplyMonsterHitLocked(player, m, damage) is not { } applied) continue;
+                    var rng = AreaRng(player);
+                    var resisted = DamageModel.Mitigate(hit.Roll(rng), type => MonsterHitResistance(m, type, default, now));
+                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng);
+                    if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, resisted, false, now, damage)) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
                         CommitBossStage(player, targetId, m, now);

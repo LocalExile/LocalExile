@@ -1410,6 +1410,10 @@ public static partial class Game
         int pairRes = Get(ResistanceOvercap.ColdAndLightningResistance);
         int fireColdRes = Get(Stat.FireAndColdDamageResistancePct);
         int fireLightningRes = Get(Stat.FireAndLightningDamageResistancePct);
+        // The three chaos pairs follow the same rule: each adds to both named resistances.
+        int fireChaosRes = Get(Stat.FireAndChaosDamageResistancePct);
+        int coldChaosRes = Get(Stat.ColdAndChaosDamageResistancePct);
+        int lightningChaosRes = Get(Stat.LightningAndChaosDamageResistancePct);
         // Reservation efficiency: generic efficiency applies to both pools; the mana/life-specific stats only to theirs.
         // Aura effect is the generic non-curse/aura effect; the Reservation mastery's self-aura effect is included.
         int manaReservation = Get(Stat.BaseManaReservationEfficiencyPlusPct) + Get(Stat.BaseReservationEfficiencyPlusPct)
@@ -1472,12 +1476,12 @@ public static partial class Game
             NoBodyArmour: Get(Stat.GainNoArmourFromBodyArmour) != 0,
             MeleePhysicalDamagePct: Get(Stat.MeleePhysicalDamagePlusPct),
             FireResistance: allRes + Get(Stat.BaseFireDamageResistancePct) + Get(Stat.FireDamageResistancePlusPct) + elementalRes
-                + fireColdRes + fireLightningRes,
+                + fireColdRes + fireLightningRes + fireChaosRes,
             ColdResistance: allRes + Get(Stat.BaseColdDamageResistancePct) + Get(Stat.ColdDamageResistancePlusPct) + elementalRes
-                + pairRes + fireColdRes,
+                + pairRes + fireColdRes + coldChaosRes,
             LightningResistance: allRes + Get(Stat.BaseLightningDamageResistancePct) + Get(Stat.LightningDamageResistancePlusPct)
-                + elementalRes + pairRes + fireLightningRes,
-            ChaosResistance: Get(Stat.BaseChaosDamageResistancePct),
+                + elementalRes + pairRes + fireLightningRes + lightningChaosRes,
+            ChaosResistance: Get(Stat.BaseChaosDamageResistancePct) + fireChaosRes + coldChaosRes + lightningChaosRes,
             FireMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumFireDamageResistancePct),
             ColdMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumColdDamageResistancePct),
             LightningMaxResistance: allMax + allElemMax + Get(Stat.BaseMaximumLightningDamageResistancePct),
@@ -2197,9 +2201,9 @@ public static partial class Game
     public static (List<byte[]> Packets, bool Leveled) CommitGemExperience(Player player, uint gain,
         List<(byte Row, uint[] Items)>? projectRows = null)
     {
-        if (HardcoreProgressBlocked(player)) return ([], false);
-        int share = LeagueFor(player).Rules.GemExperienceMultiplier is { } gemShare ? LeagueGameplay.GemExperience(gain, gemShare,
-            ref player.Character.GemExperienceCarry) : (int)Math.Min(gain / 10, int.MaxValue);
+        if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
+        double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
+        int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
         if (share == 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);

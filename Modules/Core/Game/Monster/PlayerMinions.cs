@@ -283,7 +283,7 @@ public static partial class Game
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+                if (ApplyTypedMonsterHitLocked(player, m, damage, blast.Type == DamageType.Chaos ? damage : 0, allyAt: at) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));

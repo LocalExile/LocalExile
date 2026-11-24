@@ -6,10 +6,9 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 
 ## 1. Quality of life
 
-Essence item crafting is implemented (105 currencies, class-specific guaranteed modifiers;
-see Status and protocol/13-items.md).
-Imprisoned essence encounters, Remnant of Corruption on monsters and stash-tab essence upgrading remain separate
-features.
+Essence item crafting (105 currencies, class-specific guaranteed modifiers) and campaign/map imprisoned Essence
+encounters are implemented (see Status and protocol/13-items.md). Remnant of Corruption on monsters and stash-tab
+essence upgrading remain separate features.
 
 ## 3. Gameplay
 

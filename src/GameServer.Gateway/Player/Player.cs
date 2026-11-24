@@ -101,7 +101,7 @@ public enum MonsterSkillShape
 /// each, <paramref name="Pulses"/> times <paramref name="PulseSeconds"/> apart.</summary>
 public sealed record MonsterSkillUse(MonsterSkillShape Shape, ushort BuffRow, double Seconds, IReadOnlyDictionary<uint, int> Stats,
     double MinRange = 0, bool OnCorpse = false, double Radius = 0, double Reach = 0, int Corpses = 1, int Pulses = 1,
-    double PulseSeconds = 0);
+    double PulseSeconds = 0, ChargeType? RallyCharge = null, int RallyCount = 0);
 
 /// <summary>A ground a monster skill leaves where it lands (Game.HostileGrounds): its GroundEffectTypes kind and skin
 /// (<c>ground_*_art_variation</c>), the stats its buff gives whoever stands in it, how far it reaches (cells) and for how
@@ -188,6 +188,9 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     public bool NoContact { get; init; }
     /// <summary>The action casts, but its contact is secondary damage rather than attack or spell damage.</summary>
     public bool Secondary { get; init; }
+    /// <summary>Monster Discharge skill: only usable while holding Endurance, Frenzy or Power charges, scales damage
+    /// from active charges, and consumes them on contact.</summary>
+    public bool IsDischarge { get; init; }
     /// <summary>The skill's native cooldown in seconds (GrantedEffectsPerLevel Cooldown) for non-kit monsters; 0 when none.</summary>
     public double CooldownSeconds { get; init; }
     /// <summary>It holds a weapon in each hand (<see cref="VisibleItem"/> lists it): the client sets the off hand's strike up
@@ -671,6 +674,18 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // A boss cannot be stunned again until then (HitReaction). Owned by the area's frame.
     public double StunImmuneUntil = double.NegativeInfinity;
     public bool Aggro, Dead;
+    /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when spawned standalone).</summary>
+    public int PackId { get; init; }
+    /// <summary>Original spawn cell for leash return when pulled past 2 × AggroRange.</summary>
+    public (int X, int Y) SpawnAnchor { get; init; }
+    /// <summary>True while walking back to <see cref="SpawnAnchor"/> after breaking pursuit.</summary>
+    public bool ReturningHome;
+    /// <summary>Earliest area time a ranged monster may perform another MinimumAttackDistance backoff move.</summary>
+    public double NextBackoffAt = double.NegativeInfinity;
+    /// <summary>Area time when a pack-triggered buried/lurking monster should emerge (NaN when not scheduled).</summary>
+    public double ScheduledEmergeAt = double.NaN;
+    /// <summary>One-shot guards so on-death skills and kin-death charges execute at most once per monster.</summary>
+    public bool DeathSkillsTriggered, KinDeathChargesGranted;
     /// <summary>The player the instance's monster acts for now (its chase, swings and damage run on that player's
     /// connection: SharedMonsters.cs MonsterTargetsLocked); null while it has none.</summary>
     public Player? Target;
