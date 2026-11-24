@@ -44,7 +44,8 @@ public static partial class Game
             StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity);
+    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity,
+        PlacedAreaHit? Placement);
 
     public static async Task PlaceStormCall(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at,
@@ -63,19 +64,19 @@ public static partial class Game
 
     static async Task TriggerStormCall(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        (int X, int Y)? origin, SkillCriticalRoll critical, SacrificeUse sacrifice, Func<bool> current)
+        (int X, int Y)? origin, SkillCriticalRoll critical, SacrificeUse sacrifice, Func<bool> current, PlacedAreaHit? placement = null)
     {
         if (!current()) return;
         var from = origin ?? player.Walk.Position(AreaTime(player));
         var areas = SpellCascadeAreas(player, gem.Effect, SupportedSkill(player, skillId).Stats, from, aim);
-        await PlaceStormCallMarker(player, skillId, gem, aim, 0, critical, sacrifice, 1, current);
+        await PlaceStormCallMarker(player, skillId, gem, aim, 0, critical, sacrifice, 1, current, placement);
         foreach (var area in areas)
-            await PlaceStormCallMarker(player, skillId, gem, area, 0, critical, sacrifice, 1, current);
+            await PlaceStormCallMarker(player, skillId, gem, area, 0, critical, sacrifice, 1, current, placement);
     }
 
     static async Task PlaceStormCallMarker(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) at, int repeat,
-        SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice, double damageMore, Func<bool> current)
+        SkillCriticalRoll? criticalRoll, SacrificeUse sacrifice, double damageMore, Func<bool> current, PlacedAreaHit? placement = null)
     {
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || !current()) return;
         var own = SupportedSkill(player, skillId).Stats;
@@ -90,7 +91,7 @@ public static partial class Game
         double now = AreaTime(player);
         var intensity = CastingIntensity(player, skillId);
         marker = new(player.TakeObjectId(), skillId, at, now + duration, repeat, player.ProjectileEpoch,
-            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity));
+            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity, placement));
         var markers = player.StormCall;
         lock (markers) markers.Place(marker);
         intensity?.Complete();
@@ -173,6 +174,13 @@ public static partial class Game
                 if (player.Closed || player.LeavingArea || player.ProjectileEpoch != marker.Epoch) return;
                 await Send(player, InstanceProtocol.RemoveObject(effect), null);
             });
+        }
+        if (use.Placement is { } placement)
+        {
+            using (ProjectileMutation(player))
+                if (!player.Closed && !player.LeavingArea && player.ProjectileEpoch == marker.Epoch && player.PlayerLife > 0)
+                    placement.Apply(player, marker.At, radius, ProjectileWorldTime(player), use.DamageMore);
+            return;
         }
         await AreaSkillHit(player, marker.Skill, gem, marker.At, marker.At, immediate: true,
             criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,

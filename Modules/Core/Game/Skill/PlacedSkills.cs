@@ -663,10 +663,11 @@ public static partial class Game
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
         bool arc = PlacedArcPayload(effect);
+        bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         if (!arc)
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
-            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc))
+            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -680,6 +681,16 @@ public static partial class Game
             if (TriggerSummonSpell(player, gem))
                 session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
                     useProxyOrigin: true));
+            else if (storm)
+            {
+                var placedHit = new PlacedAreaHit(placed, inventionMore);
+                var sacrifice = new SacrificeUse(player, placed.Skill, payload.Effect, payload.Gem, triggered: true);
+                var critical = CaptureSkillCriticalRoll(player, placed.Skill);
+                if (IsStormCall(effect))
+                    session.Enqueue(() => TriggerStormCall(player, placed.Skill, payload, placed.At, placed.At,
+                        critical, sacrifice, Current, placedHit));
+                else session.ScheduleFirestorm(payload, placed.At, 0, Current, sacrifice, critical, placedHit: placedHit);
+            }
             else if (arc)
                 session.Enqueue(() =>
                 {
@@ -752,6 +763,22 @@ public static partial class Game
             });
             if (!pyroclast) return;
         }
+        if (effect == "Vortex")
+            ProjectilesFor(player).PlaceVortexGround(placed, CharacterPlayerStats(player), inventionMore);
+        PlacedAreaDamageLocked(player, placed, placed.At, radius, now, inventionMore, currentSkill, spellDamage,
+            bear ? target.Key : null);
+    }
+
+    sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
+    {
+        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1) =>
+            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true);
+    }
+
+    static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
+        (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
+        uint? bearTarget = null)
+    {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
         var offenseSnapshot = placed.Offense;
@@ -759,8 +786,7 @@ public static partial class Game
             && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
             offenseSnapshot = active;
         var playerStats = offenseSnapshot?.Caster ?? owner;
-        if (effect == "Vortex")
-            ProjectilesFor(player).PlaceVortexGround(placed, owner, inventionMore);
+
         int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
         if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
             skitterPct = ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal);
@@ -768,8 +794,8 @@ public static partial class Game
         // PlayerHitDamage already applies Skitterbots' trap/mine more multiplier when placed.Offense was captured;
         // apply it here only for synthetic Offense-less placements, for ailments (AilmentPanelStats omits it),
         // and for Fire Trap's burning ground DoT below.
-        double hitMore = (placed.Offense is null ? skitterMore : 1) * inventionMore;
-        double ailmentMore = skitterMore * inventionMore;
+        double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
+        double ailmentMore = skitterMore * damageMore;
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
@@ -780,7 +806,7 @@ public static partial class Game
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || bearTarget is uint target && target != id || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), centre) > radius
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
@@ -789,7 +815,7 @@ public static partial class Game
             if (offenseSnapshot?.Spider is { } spider)
                 profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id, now),
                     m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
-                    spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))),
+                    spider.Melee && TargetAccuracy.InCloseRange(Dist(centre, m.Walk.Position(now))),
                     ContactDamage(player, m, now, spider.Stats));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
@@ -804,7 +830,7 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
                 LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
-            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placed.At, default, null, chaosDamage) is not { } hit) continue;
+            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
             var poison = profile.Poison with { Min = profile.Poison.Min * ailmentMore, Max = profile.Poison.Max * ailmentMore,
@@ -826,7 +852,7 @@ public static partial class Game
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "trap/mine", playerKill: false);
-            if (bear)
+            if (bearTarget is not null)
                 BearTrapOnHitLocked(m, damage, now, n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n));
         }
         if (GolemStat(placed.Own, Stat.BaseFireDamageToDealPerMinute) > 0)
@@ -841,7 +867,7 @@ public static partial class Game
                 .Aggregate(DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
                     (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * inventionMore;
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * damageMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get(Stat.BaseSkillEffectDuration);
