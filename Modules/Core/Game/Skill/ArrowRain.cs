@@ -91,17 +91,20 @@ public static partial class Game
         int Get(uint key) => Own(key) + Player(key);
         int variation = SkillArtVariation(player, gem.Gem);
         string? ArtOf(string key) => Art.Animated(key, variation) ?? Art.Animated(key, 0);
-        bool toxic = IsToxicRain(id), blast = id == "BlastRain";
+        bool toxic = IsToxicRain(id), blast = id == "BlastRain", artillery = IsArtilleryBallista(id);
+        int extraRain = Get(Stat.ModifiersToProjectileCountDoNotApply) != 0 ? 0
+            : (toxic ? Get(Stat.ToxicRainNumOfAdditionalProjectiles) : 0)
+            + (artillery ? Get(Stat.ArtilleryBallistaNumAdditionalArrows) : 0)
+            + (mirage ? Get(Stat.MirageArcherNumberOfAdditionalProjectiles) : 0);
         int count = Math.Clamp(GatewayProjectileDefaults.Resolve(GroundArrow.Metadata, Get, 1000, true, true).Count
-            + (toxic ? Get(Stat.ToxicRainNumOfAdditionalProjectiles) : 0)
-            + (mirage ? Get(Stat.MirageArcherNumberOfAdditionalProjectiles) : 0), 1, 256);
+            + extraRain, 1, 256);
         var (radius, spread) = RainArea(player, id, gem.Effect, own, playerStats);
         var enemies = session.Actors(session.Runtime.Now, session.Runtime.Now)
             .Where(a => a.Team != use.Team).Select(a => a.Position(session.Runtime.Now)).ToArray();
-        bool artillery = IsArtilleryBallista(id);
         var landings = artillery
             ? ArtilleryLandings(use.Origin, ProjectileSession.Vector(aim), count,
-                Own(Stat.ArtilleryBallistaCrossStrafePattern) != 0, Own(Stat.ArtilleryBallistaNumberOfArrowsIsEqualToNumberOfNearbyTargets) != 0,
+                Get(Stat.ArtilleryBallistaCrossStrafePattern) != 0,
+                Get(Stat.ArtilleryBallistaNumberOfArrowsIsEqualToNumberOfNearbyTargets) != 0,
                 TotemTargetRange(player, skill), enemies)
             : RainLandings(id, ProjectileSession.Vector(aim), count, spread, enemies, AreaRng(player));
         string? up = toxic ? ArtOf("toxic_rain_arrow_up") : blast ? "Metadata/Effects/Spells/blast_rain/arrow_up.ao" : ArtOf("expanding_rain_of_arrows_up");

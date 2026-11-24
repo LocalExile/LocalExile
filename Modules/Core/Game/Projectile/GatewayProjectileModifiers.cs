@@ -87,6 +87,8 @@ public static class GatewayProjectileModifiers
         double chainRangeFactor = Math.Max(0, 1 + get(Stat.ChainingRangePlusPct) / 100d);
         double forkAngleFactor = Math.Max(0, 1 + get(Stat.ForkingAnglePlusPct) / 100d);
         bool stopOnEnemy = get(Stat.ProjectileObjectCollisionBehaviourOnlyExplode) != 0;
+        bool splitOnTerrain = get(Stat.ProjectilesCanSplitFromTerrain) != 0;
+        bool splitAtEndOfRange = get(Stat.ProjectilesCanSplitAtEndOfRange) != 0;
         ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
             SplitRange = target.SplitRange ?? target.ChainRange,
@@ -94,6 +96,8 @@ public static class GatewayProjectileModifiers
             ForkAngleRadians = Math.Min(Math.PI, target.ForkAngleRadians * forkAngleFactor),
             StopOnEnemy = target.StopOnEnemy || stopOnEnemy,
             PierceAllAfterFork = target.PierceAllAfterFork || arrows && get(Stat.ArrowsAlwaysPierceAfterForking) != 0,
+            SplitOnTerrain = target.SplitOnTerrain || splitOnTerrain,
+            SplitAtEndOfRange = target.SplitAtEndOfRange || splitAtEndOfRange,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get(Stat.ProjectileReturnPctChance), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get(Stat.ReturningProjectilesAlwaysPierce) != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get(Stat.ReturnedProjectileSpeedPlusPct) / 100d)
@@ -102,9 +106,7 @@ public static class GatewayProjectileModifiers
         p = p with
         {
             SpeedVariationPercent = Math.Clamp(get(Stat.ProjectileSpeedVariationPlusPct)
-                + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99),
-            SplitOnTerrain = p.SplitOnTerrain || get(Stat.ProjectilesCanSplitFromTerrain) != 0,
-            SplitAtEndOfRange = p.SplitAtEndOfRange || get(Stat.ProjectilesCanSplitAtEndOfRange) != 0
+                + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99)
         };
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)
@@ -113,9 +115,21 @@ public static class GatewayProjectileModifiers
         if (p.TravelEmission is { } travelEmission)
             p = p with { TravelEmission = travelEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
-        int locusCount = get(Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport);
-        if (locusCount != 0 && p.Count > 0)
-            p = p with { Count = (int)Math.Clamp(Math.Floor(p.Count * (1 + locusCount / 100d)), 1, 256) };
+        int locusCount = get(Stat.ModifiersToProjectileCountDoNotApply) == 0
+            ? get(Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport) : 0;
+        if (locusCount != 0)
+        {
+            int ScaleCount(int n) => (int)Math.Clamp(Math.Floor(n * (1 + locusCount / 100d)), 1, 256);
+            p = p.CountConsumer switch
+            {
+                ProjectileCountConsumer.Primary when p.Count > 0 => p with { Count = ScaleCount(p.Count) },
+                ProjectileCountConsumer.Children when p.EndEmission is { Child.Count: > 0 } e =>
+                    p with { EndEmission = e with { Child = e.Child with { Count = ScaleCount(e.Child.Count) } } },
+                ProjectileCountConsumer.ContactAreas when p.ContactArea is { Count: > 0 } a =>
+                    p with { ContactArea = a with { Count = ScaleCount(a.Count) } },
+                _ => p
+            };
+        }
         if (get(Stat.MaximumNumberOfProjectilesToFireIs1) != 0)
             p = p with { Count = Math.Min(1, p.Count) };
         if (get(Stat.ProjectilesCanShotgun) != 0)

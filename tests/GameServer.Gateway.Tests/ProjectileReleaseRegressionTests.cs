@@ -7,11 +7,12 @@ public sealed class ProjectileReleaseRegressionTests
     [Fact]
     public async Task Artillery_ballista_shapes_resolve_after_paid_placement()
     {
-        foreach (var (name, hitsLateralEnemy) in new[]
+        foreach (var (name, crossEnchant, hitsLateralEnemy) in new[]
         {
-            ("Artillery Ballista", false),
-            ("Artillery Ballista of Cross Strafe", true),
-            ("Artillery Ballista of Focus Fire", true),
+            ("Artillery Ballista", false, false),
+            ("Artillery Ballista", true, true),
+            ("Artillery Ballista of Cross Strafe", false, true),
+            ("Artillery Ballista of Focus Fire", false, true),
         })
         {
             var clock = new Clock();
@@ -22,6 +23,7 @@ public sealed class ProjectileReleaseRegressionTests
                 if (!ReferenceEquals(owner, player)) return values;
                 values[Stat.GlobalAlwaysHit] = 1;
                 values[Stat.AttackMinimumAddedPhysicalDamage] = values[Stat.AttackMaximumAddedPhysicalDamage] = 500;
+                if (crossEnchant) values[Stat.ArtilleryBallistaCrossStrafePattern] = 1;
                 return values;
             });
             var previous = Game.AreaUpdateContext.Value;
@@ -103,6 +105,28 @@ public sealed class ProjectileReleaseRegressionTests
                 }
             }
         }
+
+        // Locus Mine respects modifiers_to_projectile_count_do_not_apply, scales child volleys, and Arrow Nova children inherit split flags.
+        var locked = GatewayProjectileSkillProfiles.Resolve("IceShotAltX", "Metadata/Projectiles/DefaultArrow", s => s switch
+        {
+            Stat.BaseNumberOfArrows => 5,
+            Stat.ModifiersToProjectileCountDoNotApply => 1,
+            Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport => -30,
+            _ => 0
+        }, 100, attack: true, arrows: true);
+        Assert.Equal(5, locked.Count);
+        var cloudburstMine = GatewayProjectileSkillProfiles.Resolve("TornadoShotAltX", "Metadata/Projectiles/TornadoShotArrow", s => s switch
+        {
+            Stat.BaseNumberOfArrows => 9,
+            Stat.ProjectilesRain => 1,
+            Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport => -30,
+            Stat.ProjectilesCanSplitFromTerrain => 1,
+            Stat.ProjectilesCanSplitAtEndOfRange => 1,
+            _ => 0
+        }, 100, attack: true, arrows: true);
+        Assert.Equal(6, cloudburstMine.EndEmission!.Child.Count);
+        Assert.True(cloudburstMine.EndEmission.Child.SplitOnTerrain);
+        Assert.True(cloudburstMine.EndEmission.Child.SplitAtEndOfRange);
     }
 
     static Player Prepare(TriggeredSummonTests.Fixture fixture, double now, string weapon)

@@ -39,8 +39,8 @@ public static partial class Game
                 MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
         var effects = m.Effects;
         int EffectStat(uint id) => effects[id];
-        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        double speed = Math.Max(0.1, ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED")));
         double distance = Math.Max(1, (aim - from).Length);
         var toward = (aim - from).Unit;
         // The release point: the clip's contact keyframe along the line to the aim (the Spitter's lies 4.2 cells behind a
