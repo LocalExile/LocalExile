@@ -1075,7 +1075,12 @@ public static partial class Game
             var weapon = WeaponProfileFor(player, activeSet: true);
             int basis;
             if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)
+            {
                 basis = shieldCritical;
+                int per10 = Own(Stat.OffHandCriticalStrikeChancePlusPer10EsOnShield);
+                if (per10 != 0 && ActiveShieldDefences(player) is { EnergyShield: > 0 } shield)
+                    basis = ActorScale.Saturate((long)basis + (shield.EnergyShield / 10) * (long)per10);
+            }
             else
                 basis = weapon.Unarmed && (!skills.IsMelee(gem.Effect) || skills.IsSpell(gem.Effect)) ? 0
                     : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
