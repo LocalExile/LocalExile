@@ -2843,6 +2843,10 @@ public static partial class Game
         int evasion = TimedBlind.Apply(PlayerEvasionBase(player, now), PlayerBlindValue(player, stats).Less);
         evasion = EvasionKeystones.Rating(evasion, a.Projectile is not null, !a.Ranged && !a.Spell, StatOf);
         int hitChance = DamageModel.AccuracyHitChance(evasion, monsterAccuracy);
+        bool cannotEvade = StatOf(Stat.KeystoneUnwaveringStance) != 0 || StatOf(Stat.CannotEvade) != 0
+            || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0;
+        if (attackHit && !cannotEvade && StatOf(Stat.ChanceToEvadeAttacksPct) is int additionalEvade and not 0)
+            hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
         if (attackHit && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)
@@ -2860,6 +2864,14 @@ public static partial class Game
         foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
+        var suppression = spellHit ? Suppression(player) : default;
+        bool RollSuppression() => spellHit && suppression.Chance > 0
+            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+        // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
+        bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
+        bool suppressed = suppressionChangesRoll && RollSuppression();
+        if (suppressed && gambler.EnemyDamageExtraRolls >= 0)
+            gambler = gambler with { EnemyDamageExtraRolls = gambler.EnemyDamageExtraRolls - 1 };
         var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
@@ -2881,9 +2893,7 @@ public static partial class Game
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
         // Then each type taken may be avoided, and ignite reads only the damage dealt that lands.
-        var suppression = spellHit ? Suppression(player) : default;
-        bool suppressed = spellHit && suppression.Chance > 0
-            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+        if (!suppressionChangesRoll) suppressed = RollSuppression();
         // "when you Suppress Spell Damage from a Unique Enemy" (Loyalty Tattoo of Ahuana).
         if (suppressed && m.Rarity == MonsterRarity.Unique && player.PlayerLife > 0)
             LoyaltySuppressedHitLocked(player, stats);

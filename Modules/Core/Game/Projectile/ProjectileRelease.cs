@@ -415,9 +415,10 @@ public static partial class Game
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, handWeapon is null ? PlayerAccuracy(player, playerStats) : HandAccuracy(player, swingHand, playerStats),
             SupportedCriticalChanceFor(player, skillId, release: true, weaponCritical: handCritical),
-            SupportedCriticalMultiplier(player, skillId), gem.Name)
+            SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            TargetCritical = TargetCriticalBonuses.From(playerStats, own),
             ProjectileAttack = !spell && SkillsFor(player).IsProjectile(gem.Effect),
             TinctureKill = weaponAttack && totem is null ? TinctureKillBonusFor(player, playerStats, swingHand) : null,
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(playerStats, own),
@@ -430,11 +431,11 @@ public static partial class Game
             HitPacket = true, ActionSequence = sequence,
             SkillStats = new Dictionary<uint, int>(own), FirstHit = new(),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
-                AddedEffectiveness(player, gem.Effect, gem.Level), local: local,
-                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow),
+                AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
+                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
             SpiderArea = areaHitInputs is null ? null : CaptureSpiderDamage(player, areaHitInputs,
-                AddedEffectiveness(player, gem.Effect, gem.Level), local: local,
-                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow),
+                AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
+                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),

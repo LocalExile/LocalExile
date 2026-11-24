@@ -84,7 +84,8 @@ public static partial class Game
             new GameServer.Core.World.DamageRange(Flat("minimum"), Flat("maximum")).Scale(Math.Max(0, 1 + m.Mods.Effects[Stat.DamagePlusPct] / 100.0)));
         if (supported is not null && player.Beasts.Active is { } companion)
             offense = offense.Scale(MeatShieldDamage(player, companion.SkillStats, t, now));
-        var mitigated = DamageModel.Mitigate(offense.Roll(random), type => MonsterHitResistance(t, type, default, now));
+        var mitigated = MitigateMonsterHit(t, offense.Roll(random), now,
+            cannotPenetrateOrIgnore: m.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
         int damage = MonsterTakesMitigated(t, mitigated, spell: false, now: now);
         var cull = player.Minions.Owns(id, m) ? MinionIgniteKillRule(PlayerStatValues(player), t, now) : default;
         int chaosDamage = MonsterHitChaosDamage(t, mitigated, spell: false, now, damage);
