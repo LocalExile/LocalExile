@@ -466,6 +466,11 @@ public static partial class Game
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            // Hostile monster profiles use Count as a simultaneous volley. Only the minion launcher
+            // expands a spiral into separately timed shots.
+            if (projectile is { SpiralAngle: not 0 } && Raw(Stat.NumberOfProjectilesOverride) <= 0
+                && Raw(Stat.BaseNumberOfProjectilesInSpiralNova) is > 0 and var spiralCount)
+                projectile = projectile with { Count = Math.Max(projectile.Count, spiralCount + Raw(Stat.NumberOfAdditionalProjectiles)) };
             if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             bool projectileSkill = projectile is not null || Raw(Stat.BaseIsProjectile) != 0 || catalog.IsProjectile(effect);

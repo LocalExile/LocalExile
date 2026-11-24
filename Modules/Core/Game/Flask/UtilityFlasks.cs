@@ -72,9 +72,14 @@ public static partial class Game
                     PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used"));
                 return;
             }
+            // The "during effect" suffix buffs this use sends — one buff instance per suffix, on the
+            // flask's slot with the flask's duration (UtilityFlasks.ShowBuffs), so the effect carries them and
+            // EndBuffs removes exactly those.
+            var suffixBuffs = UtilityFlasks.SuffixBuffRowsFor(local, ItemsFor(player).SuffixBuffRows)
+                .Select(row => (Buff: player.NextBuff++, Row: row)).ToArray();
             var effect = new UtilityFlasks.Active(flask.Id, (byte)slot, type.Name, utility, player.NextBuff++,
                 utility.Extra is null ? null : player.NextBuff++, stats, now, now + seconds)
-                { SelfChaosDamageLifePctPerMinute = selfChaosRate };
+                { SelfChaosDamageLifePctPerMinute = selfChaosRate, SuffixBuffs = suffixBuffs };
             AccrueUtilityFlaskDamage(player, now);
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");

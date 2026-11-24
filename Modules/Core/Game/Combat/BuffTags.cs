@@ -17,4 +17,6 @@ public enum BuffTag : ushort
     TotemAura,
     /// <summary>A Survivors run's herald auras (their rows are the heralds').</summary>
     SurvivorsHerald,
+    /// <summary>Blood and Sand stance buff (rows 1308/1309), beside Flesh and Stone.</summary>
+    BloodAndSand,
 }

@@ -312,6 +312,7 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -818,13 +819,27 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
-            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
-            if (overexertionMore != 1)
+            int projectileFreezeChance = 0;
+            if (shot.FreezingPulseFalloff)
+            {
+                // The gem loses up to half its damage over the flight. Its inherent freeze chance fades
+                // from 25% to zero during the first quarter, independently of other freeze sources.
+                var flight = contact.Projectile;
+                double range = Math.Min(flight.Profile.Range,
+                    flight.Profile.Speed * flight.Profile.Lifetime / ProjectileRuntime.QuantaPerSecond);
+                double progress = Math.Clamp(flight.Distance / range, 0, 1);
+                shot = shot.ScaleDamage(1 - progress * .5);
+                projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
+            }
+            double chainsMore = Math.Max(0, 1 + (double)shot.RemainingChainDamagePercent * contact.Projectile.ChainsRemaining / 100);
+            double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
+            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (ailmentMore != 1)
                 shot = shot with
                 {
-                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
-                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
-                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                    Ignite = RepeatAilment(shot.Ignite, ailmentMore),
+                    Bleed = RepeatAilment(shot.Bleed, ailmentMore),
+                    Poison = RepeatAilment(shot.Poison, ailmentMore),
                 };
             if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
@@ -836,7 +851,7 @@ public static partial class Game
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
-            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
+            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
@@ -869,8 +884,11 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
                 additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
             bool immune = target.Invulnerable;
-            LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
-                shot.Leech, contact.Target.Id);
+            if (shot.FromMine)
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+            else if (!shot.FromTrapOrMine)
+                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                    shot.Leech, contact.Target.Id);
             if (!immune)
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
@@ -933,7 +951,7 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
@@ -979,6 +997,7 @@ public static partial class Game
             if (valid && value.Kind == ProjectileEventKind.End)
             {
                 CausticGroundAtEnd(value);
+                LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
             }
@@ -1034,7 +1053,9 @@ public static partial class Game
             // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
             if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
-                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Player).EffectId(primary.Effect)))
+                && ((p.ParentId == 0 && (primary.ClientPredicted
+                        || !primary.FromTotem && !primary.FromTrapOrMine
+                            && ClientDrawsPrimaryProjectile(false, SkillsFor(Player).EffectId(primary.Effect))))
                     || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
@@ -1070,13 +1091,19 @@ public static partial class Game
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return CreateProjectileObject(id, obj);
-                }, () => Projected(visual));
+                }, () =>
+                {
+                    var anim = presentation.FlightClip is { } clip
+                        ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed)
+                        : null;
+                    var moves = Projected(visual);
+                    if (anim is null) return moves;
+                    return moves is { Length: > 0 } ? [anim, .. moves] : [anim];
+                });
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
                 // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
-                if (presentation.FlightClip is { } clip)
-                    World(id, () => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
                 Glide(p, visual);
             }

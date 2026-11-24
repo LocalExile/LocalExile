@@ -117,7 +117,7 @@ public static partial class Game
         }
         // Objects of a module or mod.
         if (await GameEvents.AnyObjectUse(player, use, requestedAt)) return;
-        if (use.TargetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint)
+        if (use.TargetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint)
         {
             await UseWaypoint(player, use, waypoint, requestedAt);
             return;
@@ -212,7 +212,7 @@ public static partial class Game
         if (player.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } totem) return totem.At;
         if (player.Placed.All.TryGetValue(targetId, out var placed)) return placed.At;
         if (player.Instance.Ground.Get(targetId) is { } ground) return (ground.GridX, ground.GridY);
-        if (targetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint) return (waypoint.GridX, waypoint.GridY);
+        if (targetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint) return (waypoint.GridX, waypoint.GridY);
         SpawnedNpc? npc;
         lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(targetId);
         if (npc is not null) return (npc.X, npc.Y);

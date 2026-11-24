@@ -243,6 +243,8 @@ public sealed class SupportHitDamageTests
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));
         Assert.Equal((100, 80), Game.PlacedProjectileAim((100, 100), (100, 130), []));
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (100, 100), []));
+        // With a random source and no enemy it fires any way, 20 cells out.
+        Assert.InRange(Game.Dist(Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)], new Random(3)), (100, 100)), 19, 21);
         // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
         foreach (var (stat, value) in new[] { (Stat.SupportTrapDamagePlusPctFinal, -20),
             (Stat.SupportTrapAndMineDamagePlusPctFinal, 30), (Stat.SupportClustertrapDamagePlusPctFinal, -61),
