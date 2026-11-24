@@ -43,7 +43,7 @@ public static partial class Game
         var m = golem.Monster;
         if (!(to > from) || !GolemCurrent(player, golem) || m.Dead || m.Life == 0) return;
         bool elementalImmune = GolemElementalImmune(golem);
-        bool ignoresDots = GolemIgnoresDots(golem);
+        bool ignoresDots = GolemIgnoresDots(golem) || m.Effects[Stat.BaseCannotBeDamaged] != 0;
         double supportReduction = GolemMeatShieldDamageFactor(golem) * CompanionshipDamageTaken(player, golem, to);
         double soulLink = MinionSoulLinkDamageTaken(player, golem, Math.BitDecrement(to));
         double fireFactor = elementalImmune || ignoresDots ? 0

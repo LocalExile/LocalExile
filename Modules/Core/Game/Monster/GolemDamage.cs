@@ -109,7 +109,7 @@ public static partial class Game
         var currentPlayer = CharacterPlayerStats(player);
         ExpireMinionChargesLocked(player, g, now);
         RefreshGolemLocked(player, g, currentPlayer, now);
-        if (g.Monster.Dead || g.Monster.Life == 0) return false;
+        if (g.Monster.Dead || g.Monster.Life == 0 || g.Monster.Effects[Stat.BaseCannotBeDamaged] != 0) return false;
         var m = g.Monster; var effects = m.Effects;
         var random = player.IncomingHitRandom;
         int Player(uint name) => GolemStat(g.Player, name);

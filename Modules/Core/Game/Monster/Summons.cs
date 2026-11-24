@@ -301,6 +301,8 @@ public static partial class Game
         var fighter = new GolemState.Golem(0, null!, native, source,
             definition.Family == "Spectre" ? gemSource : null)
         { GemLevel = gem.Level, Quality = gem.Quality, Own = new(gem.Stats), Player = new(playerStats), Limit = limit,
+            SummonedAt = replacement?.SummonedAt ?? reformingSpectre?.SummonedAt ?? AreaTime(player),
+            RestoredInArea = replacement?.Old.RestoredInArea ?? reformingSpectre?.RestoredInArea ?? arrival,
             FreshMeatUntil = replacingOld?.FreshMeatUntil ?? (freshMeat > 0 ? AreaTime(player) + freshMeat : 0),
             InheritedMods = inheritedMods ?? MonsterModSet.None, RetainedSkillStats = retainedStats is null ? [] : new(retainedStats),
             SourceIdentity = gem.SourceGem is null ? null : PlayerInventories.GemIdentity(gem.SourceGem) };

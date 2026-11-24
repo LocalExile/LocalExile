@@ -6,6 +6,7 @@ public static partial class Game
     const uint FreshMeatDurationPercent = Stat.SupportRecentMinionsEffectDurationIsPctSummonDuration;
     const uint WakenedFuryChance = Stat.SupportRecentMinionsAdditionalCriticalStrikeChanceFromWakenedFury;
     const uint WakenedFuryMultiplier = Stat.SupportRecentMinionsAdditionalCriticalStrikeMultiplierFromWakenedFury;
+    const string UsedMinionSkillRecently = "used_minion_skill";
 
     static double FreshMeatSeconds(IReadOnlyDictionary<uint, int> own, double summonSeconds)
     {
@@ -27,6 +28,18 @@ public static partial class Game
     public static int GolemRecentDamageIncrease(GolemState.Golem golem, double at) =>
         GolemSummonedInPastEightSeconds(golem, at)
             ? GolemStat(golem.Player, Stat.GolemDamagePlusPctIfSummonedInPast8Seconds) : 0;
+
+    static bool HasRecentCreationEffects(IReadOnlyDictionary<uint, int> stats) =>
+        GolemStat(stats, Stat.MinionSummonedRecentlyMovementSpeedPlusPct) != 0
+        || GolemStat(stats, Stat.MinionSummonedRecentlyAttackAndCastSpeedPlusPct) != 0
+        || GolemStat(stats, Stat.MinionSummonedRecentlyCannotBeDamaged) != 0;
+
+    static bool MinionCreatedRecently(GolemState.Golem golem, double now) =>
+        !golem.RestoredInArea && now >= golem.SummonedAt && now < golem.SummonedAt + RecentEvents.WindowSeconds;
+
+    static bool OwnerUsedMinionSkillRecently(Player player, IReadOnlyDictionary<uint, int> stats, double now) =>
+        GolemStat(stats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently) != 0
+        && player.RecentEvents.Happened(UsedMinionSkillRecently, now);
 
     public readonly record struct GolemOwnerResistances(int Fire, int Cold, int Lightning, int Chaos);
 
@@ -78,6 +91,18 @@ public static partial class Game
             values[id] = values.GetValueOrDefault(id) + value;
         }
         double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
+        if (OwnerUsedMinionSkillRecently(player, playerStats, now))
+            values[Stat.DamagePlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.DamagePlusPct)
+                + GolemStat(playerStats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently));
+        if (MinionCreatedRecently(golem, now) && HasRecentCreationEffects(playerStats))
+        {
+            values[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
+                + GolemStat(playerStats, Stat.MinionSummonedRecentlyMovementSpeedPlusPct));
+            values[Stat.AttackAndCastSpeedPlusPct] = ActorScale.Saturate((long)values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct)
+                + GolemStat(playerStats, Stat.MinionSummonedRecentlyAttackAndCastSpeedPlusPct));
+            if (GolemStat(playerStats, Stat.MinionSummonedRecentlyCannotBeDamaged) != 0)
+                values[Stat.BaseCannotBeDamaged] = 1;
+        }
         var link = MinionLinkOffenceAt(player, golem, playerStats, now);
         void AddLinkStat(uint stat, int value)
         {
@@ -493,6 +518,8 @@ public static partial class Game
         var hash = new HashCode();
         hash.Add(CombatLifetime);
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
+        hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
+        hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
         hash.Add(FreshMeatActive(golem, now));
         hash.Add(now < golem.OnslaughtUntil);
         hash.Add(SpectreArcaneSurgeActiveLocked(player, golem, now));

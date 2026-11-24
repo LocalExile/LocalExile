@@ -20,6 +20,7 @@ public sealed class GolemState
         public object? SourceIdentity;
         public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
+        public bool RestoredInArea;
         public double FreshMeatUntil;
         public double OnslaughtUntil;
         public double Regeneration;
