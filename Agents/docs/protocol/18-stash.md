@@ -160,7 +160,10 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
   (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
-  0x136 is what closes the window is not checked live yet. S→C **0xd3** uses the same class and wire layout for guild stash
+  0x136 is what closes the window is not checked live yet. The message's kind names the stash (guild kind 1 saves to
+  the guild stash), whichever panel is open. Live 2026-11-24: the guild tabs' settings show no affinities, though
+  retail has them; the guess is that the client wants guild rights this server never sends.
+  S→C **0xd3** uses the same class and wire layout for guild stash
   affinity broadcasts (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`, accepting `kind == 1` only), encoded by
   `InstanceStash.EncodeSetAffinities`.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
@@ -354,7 +357,8 @@ Gold stays with the personal stash.
   the stash or moving an item is not seen; the next login opens on the tab before it.
 - Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
 - Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
-  real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
+  real guilds (shared guild stash, members, rights; the guild tabs' affinity settings wait on them),
+  stashes per league, and stashes in the other towns.
 
 ### Delve inventory bounds and resonators
 
