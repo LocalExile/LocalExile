@@ -562,6 +562,8 @@ public static partial class Game
         foreach (var totem in player.Totems.Living(now))
             if (totem.Aura is not null) next = Math.Min(next ?? double.PositiveInfinity, totem.Until);
         if (next is double changes) StatsChangeIn(changes - now);
+        if (VaalWarchiefMeleeBonus(player, now) is > 0 and var melee)
+            stats[Stat.SlamAncestorTotemGrantedMeleeDamagePlusPctFinal] = melee;
         if (player.PlayerLife == 0 || covering is not { Totem.Aura: { } aura } source) return;
         if (source.Owner != player) StatsChangeIn(Math.Max(0, source.Totem.Until - AreaTime(source.Owner)));
         foreach (var (key, value) in aura.Stats)
@@ -601,11 +603,13 @@ public static partial class Game
             player.RemoveBlocker(t.Id);
             bytes.Remove(t.Id);
         }
-        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now).Where(t => t.Aura is not null)
-                .Select(t => (t.Id, t.Aura!.Radius, t.At)),
+        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now)
+                .Select(t => (t.Id, Radius: t.Aura?.Radius ?? VaalWarchiefActivationRange(t), t.At))
+                .Where(t => t.Radius > 0),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
         SyncRejuvenationAllyZones(player, now);
         SyncReceivedTotemAuraLocked(player, now, bytes);
+        SyncVaalWarchiefBuff(player, now, bytes);
         return bytes.Count == 0 ? null : bytes.Build();
     }
 
