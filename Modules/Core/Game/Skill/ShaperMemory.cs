@@ -162,9 +162,17 @@ public static partial class Game
                 (DamageType.Lightning, Stat.BaseLightningDamageToDealPerMinute),
             })
             {
+                if (DamageStats.Prohibited(type, Get)) continue;
+                double more = 1;
+                foreach (string stat in WintertideDotSupportMore)
+                {
+                    if (type != DamageType.Cold && stat is ("support_bonechill_cold_damage_+%_final"
+                        or "support_hypothermia_cold_damage_over_time_+%_final")) continue;
+                    more *= Math.Max(0, 1 + BrandStat(own, stat) / 100d);
+                }
                 double amount = GolemStat(own, term) / 600d * Math.Max(0, 1 + (Get(Stat.DamagePlusPct) + (double)Get(Stat.SpellDamagePlusPct)
-                    + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ElementalDamagePlusPct)) / 100d)
-                    * Math.Max(0, 1 + Get(Stat.DotMultiplierPlus) / 100d);
+                    + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ElementalDamagePlusPct) + Get(Stat.AreaDamagePlusPct)) / 100d)
+                    * Math.Max(0, 1 + Get(Stat.DotMultiplierPlus) / 100d) * more;
                 packet = packet.Add(type, new(amount, amount));
             }
             for (long at = finish + step; at <= until; at += step)
@@ -189,7 +197,8 @@ public static partial class Game
             var raw = SpellHit.Resolve(SkillHitPlan.ForSkill(catalog, effect, level, 0), Stats, stats, own, new DamageConversion(),
                 AddedEffectiveness(player, effect, level));
             const string projectile = "Metadata/Projectiles/ShaperProjectileLegacyRose";
-            var profile = new ProjectileProfile(projectile) { Speed = 90, Radius = 2, Range = 100, Pierce = -1, DirectDamage = true };
+            var profile = GatewayProjectileModifiers.Resolve(new ProjectileProfile(projectile)
+                { Speed = 90, Radius = 2, Range = 100, Pierce = -1, DirectDamage = true }, Get, attack: false);
             var key = session.ActorKey(id, body);
             for (int i = 0; i < repeatCount; i++)
                 session.Schedule(start + ProjectileRuntime.Time((i + 1d) * castMs / (1000d * repeatCount)), Alive, () =>
