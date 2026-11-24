@@ -225,7 +225,8 @@ public static partial class Game
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
     public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
-        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
+        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.KilledCursedEnemy,
+        StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
         StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
         StatConditions.BeenFrozen,

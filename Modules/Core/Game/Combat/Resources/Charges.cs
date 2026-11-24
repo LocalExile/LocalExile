@@ -87,7 +87,7 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         frozen = m.Ailments.FrozenAtDeath(now);
         int poisons = m.Poisons.Stacks(now);
-        player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+        RecordPlayerMonsterKill(player, m, now);
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
         ChargesOf(player).Enqueue(new ChargeEvent.Kill(m.Rarity, frozen, poisons));
@@ -95,6 +95,13 @@ public static partial class Game
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
         PlayerGrantsNearbyChargesLocked(player, kill: true, now);
+    }
+
+    static void RecordPlayerMonsterKill(Player player, SpawnedMonster monster, double now)
+    {
+        player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+        if (monster.CursedAtDeath)
+            player.RecentEvents.Record(StatConditions.KilledCursedEnemy, now);
     }
 
     // A monster's hit on the player that landed or was blocked (when hit), and on block when blocked: "if you've been hit

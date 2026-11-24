@@ -104,7 +104,7 @@ public static partial class Game
         {
             WitchbaneOnKill(player, monster, now);
             QueueMadnessExplosionLocked(player, victimId, monster);
-            player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            RecordPlayerMonsterKill(player, monster, now);
             SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
