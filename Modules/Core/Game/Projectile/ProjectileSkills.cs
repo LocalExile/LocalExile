@@ -27,6 +27,7 @@ public static partial class Game
             definitions[effect] = SkillProjectileDefinition(effect, galvanicArrow, SkillProjectileParameters(effect, galvanicArrow));
         const string ember = "Metadata/Projectiles/Ember";
         definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
+        RegisterSpectralShieldThrows(definitions);
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));
@@ -133,6 +134,7 @@ public static partial class Game
                     !Skills.IsAttack(context.Gem.Effect)) };
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
+                if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 var shot = (ProjectileOffense)use.Payload!;
                 if (GatewayProjectileSkillProfiles.IsCausticArrow(effect) && effect != "CausticArrowAltX")
                 {

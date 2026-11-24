@@ -405,9 +405,10 @@ public static partial class Game
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
-        var handWeapon = OffHandSwing(player, swingHand);
+        var shield = spell ? null : ShieldWeapon(player, skillId);
+        var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);
-        var local = spell ? null : HandLocalSources(player, swingHand);
+        var local = spell || shield is not null ? null : HandLocalSources(player, swingHand);
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
         string hand = spell ? "spell" : "main_hand";
         var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);

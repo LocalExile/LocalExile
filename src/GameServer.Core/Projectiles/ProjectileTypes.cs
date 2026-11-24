@@ -62,6 +62,11 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 {
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
+    public double DamageMultiplier { get; init; } = 1;
+    public bool ExcludeImpactTarget { get; init; }
+    public IReadOnlySet<ProjectileEndReason>? EndReasons { get; init; }
+    /// <summary>Optional individually timed groups emitted after the parent stops.</summary>
+    public IReadOnlyList<(long Delay, int Count)>? Waves { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);

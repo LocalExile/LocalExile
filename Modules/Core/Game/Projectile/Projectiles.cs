@@ -1080,7 +1080,8 @@ public static partial class Game
                 end.StaysAfterEnd = (presentation.ImpactClip is not null || presentation.StayOnImpact)
                     && (value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain or ProjectileEndReason.Landing
                         || value.Reason == ProjectileEndReason.Lifetime && p.Profile.EndArea is not null
-                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true);
+                            && p.Profile.EndAreaReasons?.Contains(ProjectileEndReason.Lifetime) == true)
+                    || presentation.StayAtEndOfRange && value.Reason == ProjectileEndReason.Distance;
                 var height = end.Arc is { } arc ? arc.Height(arc.Fraction(p.Distance))
                     : endRay is { } ray ? ray.MarkerAt(value.Position)
                     : end.Height;

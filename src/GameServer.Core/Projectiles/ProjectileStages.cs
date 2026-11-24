@@ -60,7 +60,23 @@ public sealed partial class ProjectileRuntime
         }
     }
 
-    void EmitChildren(ProjectileEntity parent, ProjectileEmissionRecipe recipe)
+    void EmitAfterEnd(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded)
+    {
+        if (recipe.Waves is { } waves)
+        {
+            foreach (var (delay, count) in waves)
+                Schedule(Now + delay, () =>
+                {
+                    parent.ChildEmission = 0;
+                    EmitChildren(parent, recipe with { Child = recipe.Child with { Count = count } }, excluded);
+                });
+            return;
+        }
+        if (recipe.Delay > 0) Schedule(Now + recipe.Delay, () => EmitChildren(parent, recipe, excluded));
+        else EmitChildren(parent, recipe, excluded);
+    }
+
+    void EmitChildren(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded = null)
     {
         var child = recipe.Child;
         Validate(child);
@@ -75,6 +91,8 @@ public sealed partial class ProjectileRuntime
             var use = parent.Use with { Profile = child, Origin = parent.Position,
                 Aim = parent.Position + direction * child.Range };
             var spawned = Spawn(use, parent.UseId, parent.ChildEmission, parent.Id, parent.Position, direction);
+            spawned.DamageMultiplier *= recipe.DamageMultiplier;
+            if (excluded is { } target) spawned.TurnaroundTarget = target;
             // Point Blank/Far Shot measure the whole continuation, not just the child's own segment.
             spawned.Distance = parent.Distance;
         }
