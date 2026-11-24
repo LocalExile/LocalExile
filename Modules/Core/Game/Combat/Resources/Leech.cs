@@ -176,6 +176,30 @@ public static partial class Game
         return recovery;
     }
 
+    static void LeechFromMinionDamageLocked(Player player, SpawnedMonster target, int damage, double now,
+        IReadOnlyDictionary<uint, int>? ownerStats)
+    {
+        if (damage <= 0 || player.PlayerLife == 0 || target.Effects[Stat.CannotHaveLifeLeechedFrom] != 0
+            || target.Effects[Stat.MapMonstersCannotBeLeechedFrom] != 0) return;
+        ownerStats ??= CharacterPlayerStats(player);
+        int rate = ownerStats.GetValueOrDefault(Stat.LifeLeechFromMinionDamagePct);
+        if (rate <= 0) return;
+        var session = LeechOf(player);
+        if (session.ConvertsLifeToEnergyShield && target.Effects[Stat.CannotHaveEnergyShieldLeechedFrom] != 0) return;
+        session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
+        var instant = session.Hit(now, (damage * (rate / 100d), 0, 0),
+            player.PlayerLife >= LifeCap(player), player.PlayerMana >= UnreservedMana(player),
+            player.EnergyShield.Current >= player.EnergyShield.Maximum);
+        if (instant.Life > 0 && !RecoverVampiricMinions(player, instant.Life, now))
+        {
+            uint before = player.PlayerLife;
+            player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, instant.Life, ref session.LifeInstantCarry, minimum: 1);
+            session.InstantLifeChanged |= player.PlayerLife != before;
+        }
+        player.EnergyShield.Gain(instant.EnergyShield);
+        TrimLeechLocked(player);
+    }
+
     /// <summary>
     /// The invisible life/mana/energy-shield leech recovery buffs the client draws on the resource orbs. Each buff
     /// carries the full current recovery per minute and its is-*-leeching flag. The rate is deliberately not reduced

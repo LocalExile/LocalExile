@@ -14,6 +14,8 @@ public static partial class Game
         OwnedKillLocked(monster, hit.Life);
         if (hit.Life == 0 && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             MinionOnslaughtOnKillLocked(player, fighter, now);
+        if (!damageOverTime && monster.Hostile && source is not null)
+            LeechFromMinionDamageLocked(player, monster, damage, now, fighter?.Player);
         CommitAcceptedHitLocked(player, id, monster, hit, damage, now, by, playerKill: false, stun: stun);
         if (!damageOverTime && monster.Hostile && fighter is not null && ReferenceEquals(source, fighter.Monster))
             ReleaseIntuitiveLinkLocked(player, fighter, monster.Walk.Position(now), now);

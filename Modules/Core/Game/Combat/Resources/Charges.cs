@@ -239,7 +239,11 @@ public static partial class Game
         stats ??= CharacterPlayerStats(player);
         int Get(uint key) => stats.GetValueOrDefault(key);
         var reduction = ChargeEffects.Reduction(Get);
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)), reduction.Elemental);
+        int perMinion = Get(Stat.AdditionalPhysicalDamageReductionPctPerMinionUpTo10Pct);
+        long minionReduction = perMinion <= 0 ? 0 : Math.Min(10,
+            (long)perMinion * player.Minions.All.Count(minion => !minion.Monster.Dead && minion.Monster.Life > 0
+                && player.Area.Monsters.GetValueOrDefault(minion.Id) == minion.Monster));
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
