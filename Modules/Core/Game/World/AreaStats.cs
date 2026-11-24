@@ -24,8 +24,16 @@ public static partial class Game
         var types = new SkillArea.Types(known && skills.IsMelee(effect), known && skills.IsAttack(effect),
             known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
             Get(Stat.IsTotem) != 0, Get(Stat.IsTrap) != 0, Get(Stat.IsRemoteMine) != 0);
-        if (SkillArea.TypedIncrease(Get, types) is int typed and not 0)
+        int typed = SkillArea.TypedIncrease(Get, types);
+        if (known && skills.EffectId(effect) is { } id && IsHeraldAura(id))
+            typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+        if (Get(Stat.AreaOfEffectPlusPctWhileWieldingBow) is int bow and not 0 && WeaponFor(player).Bow)
+            typed += bow;
+        if (typed != 0)
             stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
+        if (Get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) is int totemMore and not 0)
+            stats[Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem] = types.Totem
+                ? ActorScale.Saturate((long)totemMore * TotemAllowance(player, effect, own, stats)) : 0;
         return stats;
     }
 

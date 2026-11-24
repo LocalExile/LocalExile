@@ -171,4 +171,93 @@ public class ProjectileContactSearchTests
                 + $"{value.Projectile.Remaining:R}\n");
         }
     }
+
+    [Fact]
+    public void Returning_piercing_volley_uses_direct_actor_lookup_and_terrain_cache_with_identical_contacts()
+    {
+        static (string Log, int ActorLookups, int FullScans, int Traces) Run(bool indexed, bool directActor)
+        {
+            var log = new StringBuilder();
+            var world = new CountingCrowd(seed: 73, count: 80, log, directActor);
+            var runtime = new ProjectileRuntime(world) { IndexActorsFrom = indexed ? 48 : int.MaxValue, KeepContacts = indexed };
+            var profile = new ProjectileProfile("nimis-return")
+            {
+                Count = 5, Speed = 180, Range = 120, Lifetime = ProjectileRuntime.Time(2.5),
+                Returns = true, ReturnOvershoot = 120, PierceAllOnReturn = true, ContactCells = 1,
+                NativeVolley = new() { Angles = [0.2, 1.5, 2.8, 4.1, 5.4] }
+            };
+            for (int tick = 0; tick < 12; tick++)
+            {
+                runtime.Release(new(profile, world.Player.Key, world.Player.Key, 1, new(200, 200), new(220, 200))
+                    { ReturnAnchor = world.Player.Key, Seed = tick + 1 });
+                runtime.AdvanceTo((tick + 1) * ProjectileRuntime.TickQuanta);
+            }
+            runtime.AdvanceTo(60 * ProjectileRuntime.TickQuanta);
+            return (log.ToString(), world.DirectActorCalls, world.ActorsCalls, world.TraceCalls);
+        }
+
+        var baseline = Run(indexed: false, directActor: false);
+        var fast = Run(indexed: true, directActor: true);
+        Assert.Equal(baseline.Log, fast.Log);
+        Assert.True(fast.ActorLookups > 0);
+        Assert.True(fast.FullScans < baseline.FullScans);
+        Assert.True(fast.Traces > 0);
+    }
+
+    sealed class CountingCrowd : IProjectileWorld
+    {
+        readonly StringBuilder log;
+        readonly bool directActor;
+        readonly List<ProjectileActor> all = [];
+        readonly Dictionary<ProjectileActorKey, ProjectileActor> map = [];
+        public ProjectileActor Player { get; }
+        public int DirectActorCalls { get; private set; }
+        public int ActorsCalls { get; private set; }
+        public int TraceCalls { get; private set; }
+
+        public CountingCrowd(int seed, int count, StringBuilder log, bool directActor)
+        {
+            this.log = log;
+            this.directActor = directActor;
+            var r = new Random(seed);
+            Player = new ProjectileActor(new(0x1000, 1), 1, _ => new(200, 200), 0) { Size = 2 };
+            all.Add(Player);
+            map[Player.Key] = Player;
+            for (int i = 0; i < count; i++)
+            {
+                var pos = new ProjectileVector(130 + r.NextDouble() * 140, 130 + r.NextDouble() * 140);
+                var a = new ProjectileActor(new((uint)(0x2000 + i), 1), 2, _ => pos, 0) { Size = 2 };
+                all.Add(a);
+                map[a.Key] = a;
+            }
+        }
+
+        public IReadOnlyList<ProjectileActor> Actors(long from, long until)
+        {
+            ActorsCalls++;
+            return all;
+        }
+
+        public ProjectileActor? Actor(ProjectileActorKey key, long at)
+        {
+            if (!directActor) return Actors(at, at).FirstOrDefault(a => a.Key == key);
+            DirectActorCalls++;
+            return map.GetValueOrDefault(key);
+        }
+
+        public TerrainContact? TraceTerrain(ProjectileVector from, ProjectileVector to)
+        {
+            TraceCalls++;
+            return ProjectileGeometry.TraceGrid(from, to, (x, y) => x < 10 || y < 10 || x > 390 || y > 390);
+        }
+
+        public ProjectileHitResult Hit(ProjectileDamage damage)
+        {
+            log.Append($"H {damage.Projectile.Id} {damage.Target.Id} {damage.At} {damage.Phase}\n");
+            return ProjectileHitResult.Hit;
+        }
+
+        public void Publish(ProjectileEvent value) =>
+            log.Append($"E {value.Kind} {value.Projectile.Id} {value.At} {value.Reason}\n");
+    }
 }

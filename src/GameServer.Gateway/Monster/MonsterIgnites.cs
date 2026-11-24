@@ -31,8 +31,17 @@ public sealed class MonsterIgnites
 
         /// <summary>Whether a hit of <paramref name="hit"/> (rolled, before mitigation) can ignite: its fire damage, or any
         /// damage with "All Damage can Ignite" (<see cref="AllDamage"/>, Shaper of Flames).</summary>
-        public bool CanIgnite(DamagePacket hit) =>
-            AllDamage ? hit.Components.Any(c => c.Range.Max > 0) : hit[DamageType.Fire].Max > 0;
+        public bool CanIgnite(DamagePacket hit)
+        {
+            if (!AllDamage)
+                return (!FireCannotIgnite && hit[DamageType.Fire].Max > 0) || (ColdCanIgnite && hit[DamageType.Cold].Max > 0);
+            foreach (var type in DamageTypes.ConversionOrder)
+                if ((type != DamageType.Fire || !FireCannotIgnite) && hit[type].Max > 0) return true;
+            return false;
+        }
+
+        public bool FireCannotIgnite { get; init; }
+        public bool ColdCanIgnite { get; init; }
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
@@ -46,9 +55,11 @@ public sealed class MonsterIgnites
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault(Stat.Of($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
-            // Shaper of Flames: "Hits always Ignite" (always_ignite). Weapon tincture ignite stats apply to weapon hands only.
-            bool tinctureWeapon = hand is "main_hand" or "off_hand" && get(Stat.TinctureApplied) != 0;
+            // Shaper of Flames: "Hits always Ignite" (always_ignite). Attack and weapon tincture ignite stats apply to weapon hands only.
+            bool attackHand = hand is "main_hand" or "off_hand";
+            bool tinctureWeapon = attackHand && get(Stat.TinctureApplied) != 0;
             long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct)
+                + (attackHand ? get(Stat.AttackIgniteChancePct) : 0)
                 + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
                 + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
@@ -60,7 +71,11 @@ public sealed class MonsterIgnites
                 FireExposure: get(Stat.IgnitesApplyFireResistancePlus),
                 AllDamage: get(Stat.AllDamageCanIgnite) != 0 || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0,
                 NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
-                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0)
+            {
+                FireCannotIgnite = get(Stat.UniqueFireDamageShocks) != 0,
+                ColdCanIgnite = get(Stat.UniqueColdDamageIgnites) != 0,
+            };
         }
     }
 
@@ -192,8 +207,13 @@ public sealed class MonsterIgnites
     }
 
     /// <summary>Whether this monster or its intact corpse still has an unexpired ignite.</summary>
-    public bool IgnitedAt(double now) => active.Count > 0
-        ? active.Any(i => i.From <= now && now < i.Until) : now < corpseIgnitedUntil;
+    public bool IgnitedAt(double now)
+    {
+        if (active.Count == 0) return now < corpseIgnitedUntil;
+        foreach (var ignite in active)
+            if (ignite.From <= now && now < ignite.Until) return true;
+        return false;
+    }
 
     /// <summary>The strongest ignite's damage per second at <paramref name="now"/> (0 when none burns; the
     /// <see cref="Stacks"/> strongest together).</summary>

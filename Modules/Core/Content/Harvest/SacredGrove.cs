@@ -365,7 +365,7 @@ public static class SacredGrove
     internal static void Block(Player player, GroveObject o)
     {
         var (size, hull) = StationaryCollision.Resolve(o.Type);
-        if (size >= 0) player.SetBlocker(o.Id, o.X, o.Y, size, hull);
+        if (size >= 0) player.SetObjectBlocker(o.Id, o.X, o.Y, size, QuestObjectTypes.Find(o.Type)?.ActorOrChest == true, hull);
         else player.RemoveBlocker(o.Id);
     }
 
@@ -455,8 +455,8 @@ public static class SacredGrove
             await End(player.ActionCount);
             return true;
         }
-        // The walk stops at the post's footprint, as for an NPC: its blocker size is the reach.
-        int reach = Math.Max(0, StationaryCollision.Resolve(target.Type).Size);
+        // The walk stops at the post's footprint even when adjacent seeds/structures occupy the nearest cell.
+        int reach = Math.Max(2, StationaryCollision.Resolve(target.Type).Size);
         if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
@@ -469,7 +469,7 @@ public static class SacredGrove
         {
             if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
                 // The walk's stop, not the position now: the delay can end a frame before the last cell.
-                || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
+                || !PlayerWalk.InReach(stop, (target.X, target.Y), reach, (x, y) => player.Layout.WalkableFor(x, y, 1))) return true;
             await Start(player, area, grove, index);
         }
         finally
@@ -503,9 +503,15 @@ public static class SacredGrove
         crop.Phase = Phase.Running;
         area.Running = true;
         grove.Activations++;
-        var changes = new List<(uint, string, int)> { (crop.Extractor, "start_encounter", 1) };
-        foreach (var other in grove.Crops.Where(c => c != crop))
-            changes.AddRange([(other.Extractor, "in_combat", 1), (other.Irrigator, "in_combat", 1)]);
+        var changes = new List<(uint, string, int)>
+        {
+            (crop.Extractor, "start_encounter", 1),
+            (crop.Extractor, "active", 0),
+            (crop.Irrigator, "inactive", 1),
+        };
+        // Do not send ("in_combat", 1) to other idle plots here: placedobject.ot schedules Delay(3.0, DisableTargetable),
+        // which can fire after a fast (<3s) crop clear and permanently lock remaining idle plots. area.Running already
+        // prevents activating a second crop concurrently.
         string withered = "";
         if (grove.Crops.FirstOrDefault(c => c.Site == crop.Site && c != crop) is { Phase: Phase.Idle } pair)
         {
@@ -513,6 +519,8 @@ public static class SacredGrove
             {
                 pair.Phase = Phase.Withered;
                 changes.Add((pair.Extractor, "current_state", 4));
+                changes.Add((pair.Extractor, "active", 0));
+                changes.Add((pair.Irrigator, "inactive", 1));
                 changes.AddRange(pair.SeedObjects.Select(id => (id, "withered", 1)));
                 withered = $", site {pair.Site}.{pair.Slot} withered";
             }
@@ -548,10 +556,33 @@ public static class SacredGrove
             }
         }
         // MonsterSeed.ot: hatched 1 is the infusion (the crop started), 2 the hatch itself, which ends the infusion effect
-        // and plays the colour's hatch effect.
+        // and plays the colour's hatch effect; then remove hatched seed objects and collision blockers.
         await SetStates(player, grove, crop.SeedObjects.Select(id => (id, "hatched", 2)));
+        await RemoveSeedObjects(player, grove, crop.SeedObjects);
+        Keep(player, grove);
         Console.WriteLine($"[harvest] site {crop.Site}.{crop.Slot}: {spawned} monsters hatched"
             + (unsupported > 0 ? $", {unsupported} seeds of unsupported varieties" : ""));
+    }
+
+    static async Task RemoveSeedObjects(Player player, Grove grove, IEnumerable<uint> ids)
+    {
+        var list = ids.ToList();
+        if (list.Count == 0) return;
+        foreach (uint id in list) grove.Objects.Remove(id);
+        foreach (var member in Members(player))
+        {
+            var shown = Presented.GetOrCreateValue(member);
+            var toRemove = new List<uint>();
+            foreach (uint id in list)
+            {
+                member.RemoveBlocker(id);
+                if (shown.Remove(id)) toRemove.Add(id);
+            }
+            // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
+            // area.Gate for a frame per seed object.
+            if (toRemove.Count > 0)
+                await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null)));
+        }
     }
 
     /// <summary>Completes a running crop whose monsters are all dead (GameEvents.AreaTick): its Extractor is done, the other
@@ -586,8 +617,13 @@ public static class SacredGrove
     {
         var tables = HarvestTables.Current;
         crop.Phase = Phase.Done;
-        var changes = new List<(uint, string, int)> { (crop.Extractor, "current_state", 4) };
-        foreach (var other in grove.Crops.Where(c => c != crop))
+        var changes = new List<(uint, string, int)>
+        {
+            (crop.Extractor, "current_state", 4),
+            (crop.Extractor, "active", 0),
+            (crop.Irrigator, "inactive", 1),
+        };
+        foreach (var other in grove.Crops.Where(c => c != crop && c.Phase == Phase.Idle))
             changes.AddRange([(other.Extractor, "in_combat", 0), (other.Irrigator, "in_combat", 0)]);
         // Crop Rotation. A changed crop's Extractor and Irrigator and its changed seed objects are created again: a seed's
         // model is part of its creation, and HarvestWorldObject's 0x2bc reader (its creation reader) sets a count per seed

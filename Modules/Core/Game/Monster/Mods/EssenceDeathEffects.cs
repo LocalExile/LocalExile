@@ -7,12 +7,28 @@ using GameServer.Core.World;
 public static partial class Game
 {
     public const string EssenceExplosiveInsect = "Metadata/Monsters/InsectMinion/EssenceInsectWildExplosiveColossal";
+    public const string EssenceExplosiveCrawler = "Metadata/Monsters/InsectMinion/EssenceInsectWildExplosive";
     public const uint EssenceInsectDeathStat = Stat.EssenceDeliriumSpawnMonsterOnDeathVariation;
     public const string EssenceInsectDeathMod = "EssenceInsectSummonedOnDeath";
+    public const uint SufferingDeathStat = Stat.EssenceSufferingSpawnMonsterOnDeathVariation;
+    public const string SufferingArcticGolem = "Metadata/Monsters/RockGolem/EssenceArcticGolemSummoned";
+    public const uint RemnantDeathStat = Stat.EssenceCorruptSpawnMonsterOnDeathVariation;
+    public const string RemnantFleshmonster = "Metadata/Monsters/Essence/EssenceFleshmonsterSummonedOnDeath";
     const string EssenceInsectEffect = "InsectSuicideExplosionHuge";
+    const string EssenceCrawlerEffect = "InsectSuicideExplosionLarge";
     // SuicideExplosion::execute (3.29.3d, 141a462cc): floor(15 * radius_percentage / 100).
     const int EssenceInsectBaseRadius = 15;
-    public sealed record EssenceDeathDefinition(int Variety, int Count);
+    public static bool IsEssenceExplosiveInsect(string? varietyId) =>
+        varietyId is EssenceExplosiveInsect or EssenceExplosiveCrawler;
+    public static string EssenceInsectEffectFor(string? varietyId) =>
+        varietyId == EssenceExplosiveCrawler ? EssenceCrawlerEffect : EssenceInsectEffect;
+    public sealed record EssenceDeathDefinition(int Variety, int Count)
+    {
+        /// <summary>A staged death spawn: the stat and variation the spawned monster carries so its own death brings the
+        /// next stage (Anguish's rubble fractures 1st → 2nd → 3rd). Null for a one-stage spawn.</summary>
+        public uint? NextStat { get; init; }
+        public int NextVariation { get; init; }
+    }
     public sealed class EssenceDeathSpawn(InstanceState instance, uint parent, byte level, (int X, int Y) at,
         EssenceDeathDefinition definition)
     {
@@ -28,23 +44,53 @@ public static partial class Game
     static readonly RuleTable<InstanceState, EssenceDeathQueue> EssenceDeathQueues = new();
     static readonly RuleTable<SpawnedMonster, EssenceDeathSpawn> EssenceDeathReceipts = new();
 
-    public static EssenceDeathDefinition? EssenceDeathDefinitionFor(int variation)
+    /// <summary>The essence on-death stats and the variety each accepts. Anguish's rubble stages chain through
+    /// NextStat/NextVariation; Delirium's insect, Suffering's Arctic Golem and Remnant's Fleshmonsters are one stage.</summary>
+    static readonly (uint Stat, string Variety)[] EssenceDeathSources =
+    [
+        (EssenceInsectDeathStat, EssenceExplosiveInsect),
+        (SufferingDeathStat, SufferingArcticGolem),
+        (RemnantDeathStat, RemnantFleshmonster),
+        (Stat.EssenceAnguishSpawnMonsterOnDeathVariation, MapEssences.AnguishRubbleFirst),
+        (Stat.EssenceAnguishSpawnMonsterOnDeathVariation, MapEssences.AnguishRubbleSecond),
+        (Stat.EssenceAnguishSpawnMonsterOnDeathVariation, MapEssences.AnguishRubbleThird),
+    ];
+
+    public static EssenceDeathDefinition? EssenceDeathDefinitionFor(int variation, string? accept = null)
     {
         if (variation <= 0 || ClientTables.Table("SummonedSpecificMonstersOnDeath").Row(variation - 1) is not { } row
-            || row.IntOrNull("MonsterVarietiesKey") is not int variety || Monsters.Find(variety.ToString())?.Id != EssenceExplosiveInsect)
+            || row.IntOrNull("MonsterVarietiesKey") is not int variety || (accept is not null && Monsters.Find(variety.ToString())?.Id != accept))
             return null;
-        return new(variety, Math.Max(1, row.Int("__col4")));
+        var definition = new EssenceDeathDefinition(variety, Math.Max(1, row.Int("__col4")));
+        return accept == MapEssences.AnguishRubbleFirst
+            ? definition with { NextStat = Stat.EssenceAnguishSpawnMonsterOnDeathVariation, NextVariation = 7 }
+            : accept == MapEssences.AnguishRubbleSecond
+                ? definition with { NextStat = Stat.EssenceAnguishSpawnMonsterOnDeathVariation, NextVariation = 8 }
+                : definition;
     }
 
     public static bool QueueEssenceDeathSpawnLocked(Player player, uint id, SpawnedMonster source)
     {
         if (!CurrentGameWork || !source.Hostile || !source.Dead && source.Life > 0 || player.Instance is not { } instance
             || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), source)
-            || EssenceDeathReceipts.TryGetValue(source, out _) || source.Effects[EssenceInsectDeathStat] is not (> 0 and var variation)
-            || EssenceDeathDefinitionFor(variation) is not { } definition) return false;
-        var spawn = new EssenceDeathSpawn(instance, id, source.Level, source.Walk.Position(AreaTime(player)), definition);
-        EssenceDeathReceipts.Add(source, spawn);
-        EssenceDeathQueues.GetOrCreateValue(instance).Pending.Add(spawn);
+            || EssenceDeathReceipts.TryGetValue(source, out _)) return false;
+        // A multi-essence rare can carry more than one on-death summon (e.g. Suffering + Anguish + Delirium); queue
+        // every matching source while recording one receipt so the same death is never queued twice.
+        List<EssenceDeathDefinition>? definitions = null;
+        foreach (var (stat, accept) in EssenceDeathSources)
+            if (source.Effects[stat] is > 0 and var v && EssenceDeathDefinitionFor(v, accept) is { } d)
+                (definitions ??= []).Add(d);
+        if (definitions is null) return false;
+        var at = source.Walk.Position(AreaTime(player));
+        var queue = EssenceDeathQueues.GetOrCreateValue(instance).Pending;
+        EssenceDeathSpawn? first = null;
+        foreach (var definition in definitions)
+        {
+            var spawn = new EssenceDeathSpawn(instance, id, source.Level, at, definition);
+            first ??= spawn;
+            queue.Add(spawn);
+        }
+        EssenceDeathReceipts.Add(source, first!);
         return true;
     }
 
@@ -85,16 +131,19 @@ public static partial class Game
             try
             {
                 if (Monsters.Find(spawn.Definition.Variety.ToString()) is not { Supported: true } variety) continue;
+                var deathKit = IsEssenceExplosiveInsect(variety.Id) ? null : BossKits.SummonKit(player, variety, spawn.Level);
                 while (true)
                 {
                     if (!EssenceDeathSpawnCurrentLocked(player, spawn)) break;
                     uint created = await SpawnMonster(player, variety, spawn.Level, MonsterRarity.Normal,
-                        spawn.At.X, spawn.At.Y, alone: true, unrisen: false,
+                        spawn.At.X, spawn.At.Y, alone: true, unrisen: false, extraKit: deathKit,
                         ownedAdmission: () => EssenceDeathSpawnCurrentLocked(player, spawn),
                         owned: (_, child) =>
                         {
                             child.SummonerId = spawn.Parent; // not linked to the already-dead parent's Life
                             child.Aggro = true;
+                            if (spawn.Definition.NextStat is { } next && spawn.Definition.NextVariation > 0)
+                                child.EncounterStats = new Dictionary<uint, int> { [next] = spawn.Definition.NextVariation };
                             CompleteEssenceDeathSpawnLocked(player, spawn, true);
                         });
                     if (created == 0) break;
@@ -108,15 +157,16 @@ public static partial class Game
         }
     }
 
-    static (int Effect, Dictionary<uint, int> Stats) EssenceInsectStats(Player player, byte level)
+    static (int Effect, Dictionary<uint, int> Stats) EssenceInsectStats(Player player, byte level, string effectId = EssenceInsectEffect)
     {
-        int effect = SkillsFor(player).EffectRow(EssenceInsectEffect);
+        int effect = SkillsFor(player).EffectRow(effectId);
         return (effect, GolemData.Skill(SkillsFor(player), effect, level).Stats);
     }
 
-    public static MonsterAttack EssenceInsectAttack(Player player, byte level, ushort skillId, MonsterModEffects mods)
+    public static MonsterAttack EssenceInsectAttack(Player player, byte level, ushort skillId, MonsterModEffects mods,
+        string effectId = EssenceInsectEffect)
     {
-        var (effect, stats) = EssenceInsectStats(player, level);
+        var (effect, stats) = EssenceInsectStats(player, level, effectId);
         int Get(uint k) => stats.GetValueOrDefault(k);
         var damage = DamagePacket.Of(DamageType.Fire, Get(Stat.SecondaryMinimumBaseFireDamage), Get(Stat.SecondaryMaximumBaseFireDamage));
         double seconds = mods.CastSeconds(SkillsFor(player).CastTimeMs(effect) / 1000d);
@@ -125,9 +175,9 @@ public static partial class Game
     }
 
     public static IReadOnlyList<(uint, int)> EssenceInsectSkillStats(Player player, MonsterAttack attack,
-        IReadOnlyList<(uint, int)> own, MonsterModEffects? effects = null)
+        IReadOnlyList<(uint, int)> own, MonsterModEffects? effects = null, string effectId = EssenceInsectEffect)
     {
-        var (_, raw) = EssenceInsectStats(player, 1);
+        var (_, raw) = EssenceInsectStats(player, 1, effectId);
         var stats = new Dictionary<uint, int>(raw);
         int Get(uint k) => stats.GetValueOrDefault(k) + (effects?[k] ?? 0);
         stats[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(Get, spell: true);
@@ -137,9 +187,9 @@ public static partial class Game
         return [.. stats.Select(s => (s.Key, s.Value))];
     }
 
-    public static int EssenceInsectRadius(Player player, MonsterModEffects? effects = null)
+    public static int EssenceInsectRadius(Player player, MonsterModEffects? effects = null, string effectId = EssenceInsectEffect)
     {
-        var (_, stats) = EssenceInsectStats(player, 1);
+        var (_, stats) = EssenceInsectStats(player, 1, effectId);
         return SkillArea.Radius(EssenceInsectBaseRadius,
             k => stats.GetValueOrDefault(k) + (effects?[k] ?? 0), spell: true);
     }
@@ -172,7 +222,7 @@ public static partial class Game
 
     public static EssenceInsectBlast? CommitEssenceInsectExplosionLocked(Player player, uint id, SpawnedMonster insect, int action)
     {
-        if (insect.Variety?.Id != EssenceExplosiveInsect || player.Paused || !MonsterActionCurrent(player, id, insect, action)
+        if (!IsEssenceExplosiveInsect(insect.Variety?.Id) || player.Paused || !MonsterActionCurrent(player, id, insect, action)
             || MonsterActionFactor(insect, AreaTime(player)) <= 0) return null;
         var at = insect.Walk.Position(AreaTime(player));
         insect.Life = 0;
@@ -180,7 +230,7 @@ public static partial class Game
         insect.NoRewards = true; // self-destruction has no killer and earns no kill rewards
         insect.ActionGeneration++;
         insect.Walk.Teleport(at.X, at.Y, AreaTime(player));
-        return new(player.Instance, at, EssenceInsectRadius(player, insect.Mods.Effects));
+        return new(player.Instance, at, EssenceInsectRadius(player, insect.Mods.Effects, EssenceInsectEffectFor(insect.Variety?.Id)));
     }
 
     public static bool InEssenceInsectBlast(EssenceInsectBlast blast, (int X, int Y) at) =>

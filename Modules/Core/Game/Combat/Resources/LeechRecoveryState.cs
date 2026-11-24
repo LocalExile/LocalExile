@@ -57,6 +57,15 @@ public sealed class LeechRecoveryState
         return instant;
     }
 
+    public double OfferedPerSecond(double now)
+    {
+        Settle(now);
+        return baseRate * settings.TotalMultiplier;
+    }
+
+    public double MaximumPerSecond => settings.MaximumPerSecond;
+    public double RecoveryMultiplier => settings.RecoveryMultiplier;
+
     public double TakeRecovery(double now)
     {
         Settle(now);

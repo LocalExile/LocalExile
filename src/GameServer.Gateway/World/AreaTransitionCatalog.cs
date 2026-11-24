@@ -448,13 +448,19 @@ public static class AreaTransitionCatalog
     }
 
     /// <summary>Where a player arriving from <paramref name="from"/> belongs in a generated layout: the named point of the
-    /// "entranceN" (enabled or not) whose connection is that area, e.g. The Submerged Passage's Depths return
-    /// (entrance4disabled) for a player coming up from The Flooded Depths.</summary>
-    public static (int X, int Y)? EntrancePoint(ushort hash, IReadOnlyList<EntrancePoint> entrances, ushort from)
+    /// "entranceN" (enabled or not) whose connection is that area, e.g. The Coast's authored entrance slot or The
+    /// Submerged Passage's Depths return (entrance4disabled) for a player coming up from The Flooded Depths.</summary>
+    public static (int X, int Y, bool NamedPoint)? EntrancePoint(ushort hash, IReadOnlyList<EntrancePoint> entrances,
+        ushort from, int? entrance = null)
     {
+        if (entrance is int n && entrances.FirstOrDefault(p => p.Number == n) is { } exact)
+            return (exact.X, exact.Y, exact.NamedPoint);
         if (Atlas?.GetValueOrDefault(hash)?.Connections is not { } connections) return null;
         var numbers = connections.Where(c => c.Hash16 == from).Select(c => c.Index).ToHashSet();
-        return entrances.Where(p => numbers.Contains(p.Number)).OrderBy(p => p.Enabled ? 1 : 0).Select(p => ((int, int)?)(p.X, p.Y)).FirstOrDefault();
+        return entrances.Where(p => numbers.Contains(p.Number))
+            .OrderBy(p => p.Enabled ? 1 : 0)
+            .Select(p => ((int, int, bool)?)(p.X, p.Y, p.NamedPoint))
+            .FirstOrDefault();
     }
 
     public static bool TryDelveEntrance(string area, string? model, out ushort destination)

@@ -20,6 +20,7 @@ public sealed class GolemState
         public object? SourceIdentity;
         public Dictionary<uint, int> RetainedSkillStats = [];
         public double SummonedAt, NextMove, LastStep, ReviveAt = double.PositiveInfinity;
+        public double FreshMeatUntil;
         public double Regeneration;
         public readonly EnergyShield ShieldPool = new();
         public uint Shield => ShieldPool.Current;
@@ -34,6 +35,7 @@ public sealed class GolemState
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
         public Dictionary<uint, int> Auras = [], Utility = [];
         public readonly Dictionary<ushort, ushort> UtilityBuffs = [];
+        public ushort SpectreBuff;
         public double RecallUntil, RecallRate, BlockedAt = double.NegativeInfinity;
         public Dictionary<byte, Item> Equipment = [];
         public Dictionary<uint, int> Gear = [];

@@ -1,22 +1,23 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
     public static SingleUseCooldown? CooldownFor(Player player, int effect, int level, int quality)
     {
+        var skills = SkillsFor(player);
+        if (skills.CooldownMs(effect, level) <= 0 && skills.EffectId(effect) != "SummonSkeletons") return null;
         var sources = GemSkillEffects(player).Where(g => g.Effect == effect).ToArray();
-        if (SkillsFor(player).CooldownMs(effect, level) <= 0) return null;
         if (sources.Length == 0)
         {
-            if (!IsDashEffect(SkillsFor(player).EffectId(effect))) return null;
-            var fallback = SingleUseCooldown.ForSkill(SkillsFor(player), Stats, effect, level,
-                CharacterPlayerStats(player), SkillsFor(player).EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
+            if (skills.CooldownMs(effect, level) <= 0 || !IsDashEffect(skills.EffectId(effect))) return null;
+            var fallback = SingleUseCooldown.ForSkill(skills, Stats, effect, level,
+                CharacterPlayerStats(player), skills.EffectStats(effect, level, quality).ToDictionary(s => s.Item1, s => s.Item2));
             return WithMapCooldown(player, fallback is { } dash ? dash with { SharedGroup = 9 } : null);
         }
-        ushort source;
-        source = player.CooldownSources.GetValueOrDefault(effect);
+        ushort source = player.CooldownSources.GetValueOrDefault(effect);
         return CooldownForSkill(player, sources.FirstOrDefault(g => g.Id == source).Name is not null ? source : sources[0].Id);
     }
 
@@ -64,10 +65,45 @@ public static partial class Game
                 own = new Dictionary<uint, int>(own) { [travelRecovery] = ActorScale.Saturate((long)own.GetValueOrDefault(travelRecovery)
                     + flat + coefficient * Math.Max(0, GolemStat(playerStats, Stat.CurrentFrenzyCharges))) };
         }
-        if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own) is not { } plan) return null;
+        long Bonus(uint key) => (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
+        bool retaliation = skills.IsRetaliation(effect);
+        long scoped = 0;
+        long trapRecovery = Bonus(Stat.PlacingTrapsCooldownRecoveryPlusPct);
+        int perMine = ActorScale.Saturate(Bonus(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation));
+        long trapUses = Bonus(Stat.TrapSkillAddedCooldownCount);
+        if ((trapRecovery != 0 || perMine != 0 || trapUses != 0) && PlacedKind(supported).Trap)
+        {
+            scoped += trapRecovery;
+            if (perMine != 0)
+                scoped += (long)perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
+        }
+        else trapUses = 0;
+        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
+                or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
+            scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
+        uint scopedRecovery = skills.IsGuard(effect) ? Stat.GuardSkillCooldownRecoveryPlusPct
+            : retaliation ? Stat.CounterattacksCooldownRecoveryPlusPct : 0;
+        if (scopedRecovery != 0 || scoped != 0)
+        {
+            if (scopedRecovery != 0) scoped += Bonus(scopedRecovery);
+            if (scoped != 0)
+                own = new Dictionary<uint, int>(own) { [Stat.BaseCooldownSpeedPlusPct] =
+                    ActorScale.Saturate(scoped + own.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)) };
+        }
+        int addedMilliseconds = skills.EffectId(effect) == "SummonSkeletons"
+            ? ActorScale.Saturate((long)playerStats.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)
+                + own.GetValueOrDefault(Stat.SummonSkeletonsCooldownModifierMs)) : 0;
+        if (SingleUseCooldown.ForSkill(skills, Stats, effect, supported.Level, playerStats, own, addedMilliseconds) is not { } plan)
+            return null;
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
+        if (trapUses != 0)
+        {
+            long capacity = plan.Uses + trapUses;
+            if (capacity is < 1 or > 255) return null;
+            plan = plan with { Uses = (int)capacity };
+        }
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {
             9 => 9,   // Blink
@@ -75,7 +111,12 @@ public static partial class Game
             1 when skills.IsWarcry(effect) && GolemStat(playerStats, Stat.WarcrySkillsShareCooldowns) != 0 => 1,
             _ => null
         };
-        return WithMapCooldown(player, plan with { SharedGroup = shared });
+        var mapped = WithMapCooldown(player, plan with { SharedGroup = shared });
+        long more = retaliation ? Bonus(Stat.SupportExpertRetaliationCooldownSpeedPlusPctFinal) : 0;
+        if (more == 0 || mapped is not { } current) return mapped;
+        double rate = current.RecoveryRate * Math.Max(0, 1 + more / 100.0);
+        int finalRecovery = (int)Math.Clamp(Math.Round((rate - 1) * 100), -100, int.MaxValue - 100);
+        return current with { RecoveryPercent = finalRecovery };
     }
 
     // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
@@ -204,7 +245,7 @@ public static partial class Game
             // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
             // a bypass charge or a cost is spent.
             if (skillId is not null && SkillsFor(player).IsGuard(effect)
-                && !TriggerGuardReady(player, AreaTime(player))) return false;
+                && !GuardReadyFor(player, SkillsFor(player).EffectId(effect), AreaTime(player))) return false;
             VaalUseReservation? vaal = null;
             double? vaalAttackDeadline = null;
             if (skillId is ushort requested && GemSkillEffects(player)
@@ -233,7 +274,8 @@ public static partial class Game
                 attack = (attacking, at, seconds);
             }
             if (admit is not null && !admit()) return false;
-            bool bypassed = false;
+            bool bypassed = false, cooldownReset = false;
+            int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
             if (payer is ushort paying && !CanPaySkillCost(player, paying)) return false;
@@ -242,7 +284,14 @@ public static partial class Game
                 double now = AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
-                if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
+                state.Refresh(now, cooldown.RecoveryRate);
+                state.Capacity(cooldown.Uses);
+                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player)))
+                {
+                    cooldownReset = true;
+                    resetBaseMilliseconds = cooldown.BaseMilliseconds;
+                }
+                else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
                     if (CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
@@ -250,7 +299,7 @@ public static partial class Game
                     bypassed = true;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
-                if (reserve && !bypassed)
+                if (reserve && !bypassed && !cooldownReset)
                     sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, cooldown, now, peers);
             }
             // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
@@ -271,9 +320,34 @@ public static partial class Game
                 ? ApplyStancePlanLocked(player, receiptSkill, committedPlan, player.ActionCount, player.ProjectileEpoch)
                 : null;
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
-                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance) { SharedUses = sharedUses, Paid = paid, Attack = attack };
+                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance)
+            {
+                SharedUses = sharedUses, Paid = paid, Attack = attack,
+                CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
+            };
             return true;
         }
+    }
+
+    // Native instant cooldown reset / prevention stats (Client/Game.exe 0x141ef06bd..0x141ef0765, 0x141ef0b83):
+    // 0x50cd (retaliation_skill_keep_use_requirement_and_prevent_cooldown_on_use_chance_%) for Retaliation skills,
+    // and 0x52e2 (base_cooldown_refresh_chance_%) for any skill with a cooldown.
+    internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
+    internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
+
+    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random)
+    {
+        // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
+        // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
+        if (SkillsFor(player).IsGuard(effect)) return false;
+        var stats = PlayerStatValues(player);
+        var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
+        int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),
+            int.MinValue, int.MaxValue);
+        if (SkillsFor(player).IsRetaliation(effect)
+            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random))
+            return true;
+        return RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
     }
 
     // A link gem links its target with no upfront cost, only its cost over time (CastLink).
@@ -343,7 +417,11 @@ public static partial class Game
 
     public static Task SendNativeCooldownRefresh(Player player)
     {
-        if (!player.SingleUseCooldowns.Values.Any(s => s.NeedsNativeRefresh)) return Task.CompletedTask;
+        if (player.SingleUseCooldowns.Count == 0) return Task.CompletedTask;
+        bool dirty = false;
+        foreach (var s in player.SingleUseCooldowns.Values)
+            if (s.NeedsNativeRefresh) { dirty = true; break; }
+        if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
         return Send(player, [], "0x02bc player active cooldown progress/rate refresh",

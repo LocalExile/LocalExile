@@ -87,11 +87,14 @@ public static partial class Game
                     var (damage, carry) = MonsterBurn(m, damageOverTime, seconds, now);   // its resistance, its shock
                     m.Burn = carry;
                     if (damage == 0) continue;
-                    (m.Life, bool stageStarts) = TakeOwnerDamageLocked(player, m, damage);
+                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: false, AreaTime(player));
+                    bool stageStarts = false;
+                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {
                         m.Dead = true;
+                        CleanupDeadMonsterLocked(player.Area, id.Value, m);
                         CollectVaalSoulAtDeathLocked(player, m);
                         ShockOnKillLocked(player, m, stats, now);
                         if (aura.Marks.Remove(id.Value, out ushort b)) aura.Left.Add((id.Value, b));

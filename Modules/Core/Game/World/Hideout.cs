@@ -34,6 +34,11 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 guild stash ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
+        player.StashOpen = false;
+        player.BenchOpen = false;
+        player.ModuleWindow = null;
+        player.ModuleWindowAnchor = null;
+        await RefreshBenchBalance(player, clear: true);
         player.GuildStashOpen = true;
         var guild = GuildStashOf(player);
         var tabs = guild.Records(null, player.Connection.GuildStashTabsSent, ItemsFor(player));

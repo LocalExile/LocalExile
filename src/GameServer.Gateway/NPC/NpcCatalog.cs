@@ -126,6 +126,12 @@ public sealed class NpcCatalog
         public string? OpensScreen => System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*\)") is { Success: true } m
             ? m.Groups[1].Value : null;
 
+        /// <summary><c>StartTimer()</c> in Script2 (Act 3 Fairgraves NPCTalk 502): starts the NPC's scripted countdown timer.</summary>
+        public bool StartsTimer => Script2.Contains("StartTimer(", StringComparison.Ordinal);
+
+        /// <summary><c>IncrementCounter()</c> in Script2 (Act 3 Fairgraves NPCTalk 503): advances the NPC's scripted state counter.</summary>
+        public bool IncrementsCounter => Script2.Contains("IncrementCounter(", StringComparison.Ordinal);
+
         /// <summary>A top-level <c>DirtyTransition();</c>: the NPC itself steps to its next Transitionable state (Dialla at
         /// the Rapture Device, NPCTalk 534: state 1 → 2, withered).</summary>
         public bool TransitionsSelf => System.Text.RegularExpressions.Regex.Replace(Scripts, @"\{[^{}]*\}", "")
@@ -161,38 +167,9 @@ public sealed class NpcCatalog
         [StashCatalog.MenagerieHub] = [new("Metadata/NPC/League/Bestiary/EinharMenagerie", 495, 485, 290 * MathF.PI / 180,
             Model: "Metadata/NPC/League/Bestiary/Einhar.ao")],
         // The Forbidden Sanctum (SanctumFoyer_Fellshrine): Divinia by the waypoint (126, 149), to be placed live with /npc_place.
-        // Kingsmarch (KalguuranSettlersLeague): its NPCs around the arrival (offsets, StashCatalog.FromArrival), to be placed
-        // live with /npc_place. Dannig, Faustus and Isla (Functions or ControlZone, which NpcObject now writes) come back
-        // with their live placement: their offsets are unchecked, and VillageFaustus has no currency exchange.
-        [StashCatalog.Kingsmarch] =
-        [
-            new("Metadata/NPC/League/Kalguur/VillageMayor", 0, -14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageTujen", 10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageGwennen", -10, -12, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRog", 14, -4, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageFarmer", 8, 14, 4.0f),
-            new("Metadata/NPC/League/Kalguur/VillageRecruiter", -8, 14, 4.0f),
-        ],
-        // The Rogue Harbour (HeistHub): Kurai, Faustus, Adiyah, Whakano and the nine rogues in a ring around the arrival
-        // (offsets, StashCatalog.FromArrival), to be placed live with /npc_place.
-        [StashCatalog.HeistHub] =
-        [
-            new("Metadata/NPC/League/Heist/TheBoss", 18, 0, 4.0f),
-            new("Metadata/NPC/League/Heist/Fence", 16, 8, 4.0f),
-            new("Metadata/NPC/League/Heist/Driver", 10, 15, 4.0f),
-            new("Metadata/NPC/League/Heist/Barber", 2, 18, 4.0f),
-            new("Metadata/NPC/League/Heist/Lockpick1", -6, 17, 4.0f),
-            new("Metadata/NPC/League/Heist/Interrogator1", -13, 12, 4.0f),
-            new("Metadata/NPC/League/Heist/Soldier1", -17, 4, 4.0f),
-            new("Metadata/NPC/League/Heist/HeavyLifter1", -17, -4, 4.0f),
-            new("Metadata/NPC/League/Heist/Detector1", -13, -12, 4.0f),
-            new("Metadata/NPC/League/Heist/Demolitionist1", -6, -17, 4.0f),
-            new("Metadata/NPC/League/Heist/CatBurglar1", 2, -18, 4.0f),
-            new("Metadata/NPC/League/Heist/Illusionist1", 10, -15, 4.0f),
-            new("Metadata/NPC/League/Heist/Engineer1", 16, -8, 4.0f),
-        ],
-        // The Monastery of the Keepers (ChayulaLeague): Ailith (ChayulaFarmerHub, ControlZone) comes with her live placement
-        // (/npc_place); an offset from the arrival is a guess.
+        // Kingsmarch (KalguuranSettlersLeague), the Rogue Harbour (HeistHub) and the Monastery of the Keepers
+        // (ChayulaLeague) are not here: their hub rooms name their NPCs, so they are placed from their rooms' lines
+        // (TownNpcs), as a campaign town's are.
         [StashCatalog.SanctumHub] = [new("Metadata/NPC/League/Sanctum/SanctumNPCTown", 136, 158, 4.0f)],
     };
 
@@ -251,18 +228,21 @@ public sealed class NpcCatalog
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags)
     {
         int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags));
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+            && t.Category != "BanditRespec" && t.Available(flags));
     }
 
     public bool HasAvailableReward(Npc npc, int offer, IReadOnlySet<string> flags, IReadOnlySet<int> leagueFlags)
     {
         int source = TalkSource(npc).Row;
-        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer && t.Available(flags, leagueFlags));
+        return _talk.Values.Any(t => t.Npc == source && t.RewardOffer == offer
+            && t.Category != "BanditRespec" && t.Available(flags, leagueFlags));
     }
 
     /// <summary>The quest reward offers any NPC currently shows (the quests complete), for the vendors' gem stock.</summary>
     public IReadOnlySet<int> AvailableRewards(IReadOnlySet<string> flags) =>
-        _talk.Values.Where(t => t.RewardOffer is { } offer && t.Available(flags)).Select(t => t.RewardOffer!.Value).ToHashSet();
+        _talk.Values.Where(t => t.RewardOffer is { } offer && t.Category != "BanditRespec" && t.Available(flags))
+            .Select(t => t.RewardOffer!.Value).ToHashSet();
 
     /// <summary>The NPC whose NPCTalk rows (and shop) this one uses: itself, or for a copy without rows of its own (the
     /// hideout Kirac, NPCs.dat row 412) the first row of the same name that has them (Kirac, 410).</summary>

@@ -6,7 +6,8 @@ using GameServer.Core.Protocol.Instance;
 /// resolver, while <see cref="For"/> exposes every grant so later trigger, minion, aspect and temporary-state owners
 /// can use the same source identity without placing a non-executable skill in the player's Actor.
 /// </summary>
-public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool ruthless = false, string folder = "data")
+public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool ruthless = false, string folder = "data",
+    IReadOnlyDictionary<string, string>? legacyGrantMods = null)
 {
     /// <summary>
     /// One item-granted effect source. <paramref name="Socket"/> is a negative synthetic host slot, so an active gem
@@ -20,9 +21,9 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
     }
 
     readonly record struct Template(int ModRow, string ModId, int EffectsPerLevelRow, int Effect,
-        string EffectId, int Level, bool ManuallyCast, bool Support);
+        string EffectId, int Level, bool ManuallyCast, bool Support, ushort? PreferredMod = null);
 
-    readonly Dictionary<ushort, Template[]> _byHash = Load(skills, mods, ruthless, folder);
+    readonly Dictionary<ushort, Template[]> _byHash = Load(skills, mods, ruthless, folder, legacyGrantMods);
 
     /// <summary>
     /// Every active and support grant on these equipped hosts, in equipment then mod order. The caller decides which
@@ -39,6 +40,7 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
                 if (!_byHash.TryGetValue(item.Item.Mods[modIndex].Hash, out var templates)) continue;
                 foreach (var template in templates)
                 {
+                    if (template.PreferredMod is ushort preferred && item.Item.Mods.Any(mod => mod.Hash == preferred)) continue;
                     // One synthetic socket per host/GEPL occurrence. It is unaffected by another host, active gem
                     // socket or passive node and is unique even if an item carries the same mod twice.
                     int socket = -1 - sourceSlot++;
@@ -55,7 +57,8 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
         For(equipment).Any(current => current.Identity == grant.Identity
             && current.EffectsPerLevelRow == grant.EffectsPerLevelRow);
 
-    static Dictionary<ushort, Template[]> Load(SkillCatalog skills, ModCatalog mods, bool ruthless, string folder)
+    static Dictionary<ushort, Template[]> Load(SkillCatalog skills, ModCatalog mods, bool ruthless, string folder,
+        IReadOnlyDictionary<string, string>? legacyGrantMods)
     {
         var result = new Dictionary<ushort, Template[]>();
         foreach (var mod in mods.All)
@@ -75,6 +78,15 @@ public sealed class WornGrantedSkills(SkillCatalog skills, ModCatalog mods, bool
             }
             if (grants.Count > 0) result.TryAdd(mod.Hash, [.. grants]);
         }
+        if (legacyGrantMods is not null)
+            foreach (var (legacyId, nativeId) in legacyGrantMods)
+            {
+                var legacy = mods.All.FirstOrDefault(mod => mod.Id == legacyId);
+                var native = mods.All.FirstOrDefault(mod => mod.Id == nativeId);
+                if (legacy is not null && native is not null && result.TryGetValue(native.Hash, out var templates))
+                    result.TryAdd(legacy.Hash, [.. templates.Select(template => template with
+                        { ModRow = legacy.Row, ModId = legacy.Id, PreferredMod = native.Hash })]);
+            }
         return result;
     }
 }
