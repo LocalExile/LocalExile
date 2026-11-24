@@ -67,6 +67,11 @@ rebuilt for every mod, passive or area modifier that carries it.
 | `fx_rules` with `fx_rule_sources`, `fx_rule_when`, `fx_rule_if`, `fx_rule_do` | a rule: what switches it on, any of its triggers, its condition groups (all in a group, any group), its actions in order |
 | `fx_stats` | every stat: its kind, how it is handled (modifier, rule, item, code, display, deferred, none), the files that read it, and for one not rebuilt, why and how it could fit |
 
+`fx_modifiers.counts_as` (added by an update, so it is not in the base file) is the plain stat a conditional stat's
+amount is counted onto while its conditions hold; a condition there may carry `"not": true`. The first 1,856 rows were
+read from the code (the plain stats it names, and what `StatConditions` decides and folds for each stat) and record
+what happens today; `StatConditions` still does the work.
+
 A plain number is granted to the calculator the game module already has (the stat graph); `fx_modifiers` records what
 the number means so that a formula can later move to a table one quantity at a time, each measured. Nothing reads these
 tables during play: they are loaded at startup into arrays by stat id, and an actor's rules are worked out when its
