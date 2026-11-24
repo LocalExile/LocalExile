@@ -164,9 +164,20 @@ public static partial class Game
     public static Task GainKillCharges(Player player, MonsterRarity rarity, string why) =>
         GainKillCharges(player, rarity, why, 0);
 
-    static Task GainKillCharges(Player player, MonsterRarity rarity, string why, int grantedPct) =>
-        FlaskCharges.FullShortcut ? GainFlaskCharges(player, int.MaxValue, why)
-            : GainFlaskCharges(player, (_, _) => FlaskCharges.KillCharges(rarity, ItemsFor(player).Mods, grantedPct), why);
+    static Task GainKillCharges(Player player, MonsterRarity rarity, string why, int grantedPct)
+    {
+        if (FlaskCharges.FullShortcut) return GainFlaskCharges(player, int.MaxValue, why);
+        double? killGain = null;
+        return GainFlaskCharges(player, (_, _) =>
+        {
+            if (killGain is double computed) return computed;
+            var stats = PlayerStatValues(player);
+            long finalPct = Math.Max(0, 100L + stats.GetValueOrDefault(Stat.FlaskChargesGainedFromKillsPlusPctFinalFromUnique));
+            double gain = FlaskCharges.KillCharges(rarity, ItemsFor(player).Mods, grantedPct) * finalPct / 100d;
+            killGain = gain;
+            return gain;
+        }, why);
+    }
 
     // A critical strike the player dealt (a hit that landed): each flask with "#% chance to gain a Flask Charge when you deal
     // a Critical Strike" (local_recharge_on_crit_%) rolls for one charge, and the character's chance and sure charges
