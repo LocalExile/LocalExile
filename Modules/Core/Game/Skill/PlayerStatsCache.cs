@@ -468,26 +468,32 @@ public static partial class Game
     sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
     static readonly Store<Player, SentSkillList> SentSkillLists = new();
 
-    public static byte[] PlayerSkillsIfChanged(Player player, IReadOnlyList<GrantedSkill> skills)
+    public static byte[] PlayerSkillsIfChanged(Player player, IReadOnlyList<GrantedSkill> skills) =>
+        [.. PlayerSkillsBatchesIfChanged(player, skills).SelectMany(p => p)];
+
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills)
     {
-        var bytes = InstanceEntities.PlayerSkillsChange(player.Id, skills, [], canDetonateMines: CanDetonateMines(player));
+        var batches = InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, [], canDetonateMines: CanDetonateMines(player));
+        byte[] flat = batches.Length == 1 ? batches[0] : [.. batches.SelectMany(p => p)];
         var sent = SentSkillLists.GetOrCreateValue(player);
         lock (sent)
         {
-            if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
+            if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(flat)) return [];
             if (DeferMomentumChannelSkills(player) && player.ClientSkillIds.SetEquals(skills.Select(s => s.Id))) return [];
-            (sent.Bytes, sent.Skills) = (bytes, skills);
+            (sent.Bytes, sent.Skills) = (flat, skills);
         }
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.
         _ = RestoreSkillBarAfterActorUpdate(player);
-        return bytes;
+        return batches;
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.
     public static void RecordPlayerSkills(Player player, IReadOnlyList<GrantedSkill> skills)
     {
+        var batches = InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, [], canDetonateMines: CanDetonateMines(player));
+        byte[] flat = batches.Length == 1 ? batches[0] : [.. batches.SelectMany(p => p)];
         var sent = SentSkillLists.GetOrCreateValue(player);
-        lock (sent) (sent.Bytes, sent.Skills) = (InstanceEntities.PlayerSkillsChange(player.Id, skills, [], canDetonateMines: CanDetonateMines(player)), skills);
+        lock (sent) (sent.Bytes, sent.Skills) = (flat, skills);
     }
 
     /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),

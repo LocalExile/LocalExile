@@ -11,7 +11,7 @@ public static partial class Game
         {
             if (knifeBlades is not { } blades) return;
             Player.LingeringBladeSources.Remove(blades);
-            foreach (var blade in blades.Blades) Player.ProjectileObjects.Remove(blade.Id);
+            foreach (var blade in blades.Blades) Player.UntrackProjectileObject(blade.Id);
             blades.Blades.Clear();
             knifeBlades = null;
         }
@@ -51,7 +51,7 @@ public static partial class Game
             float rotation = (float)Math.Atan2(flight.Direction.X, -flight.Direction.Y);
             int bladeType = value.Reason is ProjectileEndReason.Enemy or ProjectileEndReason.Terrain ? 1 : 2;
             var blade = new GroundBladeObject(at.X, at.Y, rotation, (uint)art, bladeType);
-            Player.ProjectileObjects.Add(id);
+            Player.TrackProjectileObject(id);
             Create(id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(BladefallVolleys.GroundBlade), blade.Blob()));
             World(id, InstanceEntities.ComponentUpdate(id, GroundBladeObject.AnimatedIndex, GroundBladeObject.Landed()));
             Runtime.Schedule(expires, () =>
@@ -65,7 +65,7 @@ public static partial class Game
 
         void RemoveKnifeBlade(uint id)
         {
-            Player.ProjectileObjects.Remove(id);
+            Player.UntrackProjectileObject(id);
             WorldRecords(id, () => [InstanceProtocol.RemoveObject(id)], remove: true);
         }
     }

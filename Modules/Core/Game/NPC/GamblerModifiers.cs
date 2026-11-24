@@ -67,13 +67,19 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
 
     /// <summary>Risky Exploit overrides elemental resistance to exactly 90% for this enemy hit, even if the ordinary
     /// maximum is 75%. Chaos/physical damage and damage over time retain their usual rules.</summary>
-    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random)
+    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random) =>
+        MitigateIncomingHit(hit, resistance, random, out _);
+
+    /// <summary><paramref name="ninety"/> is the hit's one roll, for a caller that reports each part's resistance.</summary>
+    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random,
+        out bool ninety)
     {
-        bool ninety = RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
+        bool chosen = RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
+        ninety = chosen;
         return hit.Select((type, range) =>
         {
             if (type == DamageType.Physical) return range; // physical armour/reduction is a separate caller stage
-            var r = ninety && DamageTypes.IsElemental(type) ? new DamageModel.ResistanceValue(90, 90) : resistance(type);
+            var r = chosen && DamageTypes.IsElemental(type) ? new DamageModel.ResistanceValue(90, 90) : resistance(type);
             return new(DamageModel.Mitigate(range.Min, r.Value, r.Maximum), DamageModel.Mitigate(range.Max, r.Value, r.Maximum));
         });
     }

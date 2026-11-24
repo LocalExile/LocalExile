@@ -73,17 +73,19 @@ public static partial class Game
         => ApplyCurseLocked(player, monster, skill, now, aura, captured, sources, 0, 1);
 
     static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
-        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier)
+        SupportedGem? captured, IReadOnlyDictionary<uint, int>? sources, int addedEffect, double effectMultiplier,
+        bool fromPlacement = false)
     {
         // An item's triggered variant is the curse it names (CurseFamily).
         var gem = captured ?? SupportedSkill(player, skill);
         return gem.RequirementsMet && ApplyCurseDataLocked(player, monster, skill, CurseFamily(SkillsFor(player).EffectId(gem.Effect)),
-            gem.Stats, now, aura, sources, addedEffect, effectMultiplier);
+            gem.Stats, now, aura, sources, addedEffect, effectMultiplier, fromPlacement: fromPlacement);
     }
 
     static bool ApplyCurseDataLocked(Player player, SpawnedMonster monster, ushort skill, string effect,
         IReadOnlyDictionary<uint, int> curseStats, double now, bool aura, IReadOnlyDictionary<uint, int>? sources,
-        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null)
+        int addedEffect = 0, double effectMultiplier = 1, uint? casterId = null, int additionalCapacity = 0, uint? auraSource = null,
+        bool fromPlacement = false)
     {
         if (!CurseCatalog.All.TryGetValue(effect, out var definition) || casterId is null && ExternalTemporalChains(player, effect)
             || monster.Dead || monster.Life == 0 || !monster.Hostile) return false;
@@ -143,12 +145,12 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
-        if (!aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
+        if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
             monster.Ignites.Refresh(now);
         }
-        if (newlyCursed && !aura && casterId is null)
+        if (newlyCursed && !fromPlacement && !aura && casterId is null)
         {
             if (Get(Stat.NonCursedEnemiesYouCurseAreBlindedFor4Seconds) != 0)
                 InflictMonsterBlind(player, monster.ObjectId, monster, now, 100, Get(Stat.BlindEffectPlusPct), BlindSeconds(Get), null);

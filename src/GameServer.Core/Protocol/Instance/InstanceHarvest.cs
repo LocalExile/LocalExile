@@ -22,6 +22,13 @@ public static class InstanceHarvest
     public static MoveItem ReadMoveItem(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], BinaryPrimitives.ReadUInt16BigEndian(m[7..]), m[9] != 0);
 
+    /// <summary>C→S 0x275 (6 bytes, class 0x1431767e8 / writer 0x140911210 / sender 0x140c8c070): clicking the
+    /// Harvest crop label's button sends the crop Irrigator's object id (u32 BE).</summary>
+    public const ushort ActivateCropId = 0x275;
+    public const int ActivateCropLength = 6;
+
+    public static uint ReadActivateCrop(ReadOnlySpan<byte> m) => BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
     // S→C 0x276 (dispatcher case 0xce): four raw payload bytes whose first u16 is dispatched to the local event list at
     // instance +0x4e70. The Harvest panel looks that item id up in HarvestCraftingItem, finishes the pending craft and
     // refreshes the slot; two unused bytes follow.

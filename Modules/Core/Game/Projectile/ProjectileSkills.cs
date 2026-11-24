@@ -28,6 +28,16 @@ public static partial class Game
         const string ember = "Metadata/Projectiles/Ember";
         definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
         RegisterSpectralShieldThrows(definitions);
+        RegisterEyeOfWinter(definitions);
+        const string creepingFrost = "Metadata/Projectiles/ArcticBreath";
+        foreach (string effect in new[] { "CreepingFrost", "CreepingFrostAltX", "CreepingFrostAltY", "CreepingFrostRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, creepingFrost, SkillProjectileParameters(effect, creepingFrost));
+        const string coldMine = "Metadata/Projectiles/ColdProjectileMine";
+        foreach (string effect in new[] { "IcicleMine", "IcicleMineAltX", "IcicleMineAltY" })
+            definitions[effect] = SkillProjectileDefinition(effect, coldMine, SkillProjectileParameters(effect, coldMine));
+        const string pyroclast = "Metadata/Projectiles/MortarBarrageMine";
+        foreach (string effect in new[] { "PyroclastMine", "PyroclastMineAltX", "PyroclastMineAltY" })
+            definitions[effect] = SkillProjectileDefinition(effect, pyroclast, SkillProjectileParameters(effect, pyroclast));
         const string fissureProjectile = "Metadata/Projectiles/VolcanicSlamMortar";
         definitions["VolcanicFissure"] = SkillProjectileDefinition("VolcanicFissure", fissureProjectile,
             SkillProjectileParameters("VolcanicFissure", fissureProjectile));
@@ -135,6 +145,15 @@ public static partial class Game
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
+                if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")
+                {
+                    // Use the native shard rig's contact marker as the current flight expiry estimate.
+                    var profile = NativeVolley(use.Profile, context.Get) with
+                    {
+                        Lifetime = ProjectileRuntime.Time(.32),
+                    };
+                    return use with { Profile = profile };
+                }
                 var shot = (ProjectileOffense)use.Payload!;
                 if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
                     && use.Profile.EndArea is { } magma)

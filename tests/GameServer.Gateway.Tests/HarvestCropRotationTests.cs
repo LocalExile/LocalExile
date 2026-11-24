@@ -284,6 +284,54 @@ public sealed class HarvestCropRotationTests
         public void Dispose() => lifetime.Stop(e => throw e);
     }
 
+    [Fact]
+    public async Task Crop_label_button_0x0275_decodes_and_activates_plot_via_irrigator_id()
+    {
+        var tables = HarvestTables.Current;
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        await using var enterWire = new CaptureWire();
+        var player = NewConn(layout, instance, seed: 7, enterWire);
+        await SacredGrove.Enter(player);
+        enterWire.CloseWriter();
+        await enterWire.ReadAllAsync();
+
+        var initial = ReadGrove(instance);
+        var chosen = initial.Crops[0];
+
+        Assert.Equal(6, InstanceProtocol.KnownClientLength(InstanceHarvest.ActivateCropId));
+        byte[] pkt = new byte[6];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(pkt, InstanceHarvest.ActivateCropId);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(pkt.AsSpan(2), chosen.Irrigator);
+        uint decoded = InstanceHarvest.ReadActivateCrop(pkt);
+        Assert.Equal(chosen.Irrigator, decoded);
+
+        Assert.False(await SacredGrove.ActivateFromLabel(player, 0x999999u));
+
+        // Player at (10, 10) is far outside label range: activation is rejected.
+        Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));
+        Assert.Equal(SacredGrove.Phase.Idle, ReadGrove(instance).Crops.Single(c => c.Irrigator == chosen.Irrigator).Phase);
+
+        var chosenIrrigator = initial.Objects[chosen.Irrigator];
+        player.Walk.Teleport(chosenIrrigator.X, chosenIrrigator.Y, 0);
+
+        await using var startWire = new CaptureWire();
+        player.Connection.Session = new("harvest-label-start", startWire.Stream, startWire.Ciphers);
+        Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));
+        startWire.CloseWriter();
+        await startWire.ReadAllAsync();
+
+        var after = ReadGrove(instance);
+        Assert.Equal(SacredGrove.Phase.Running, after.Crops.Single(c => c.Irrigator == chosen.Irrigator).Phase);
+        Assert.Equal(SacredGrove.Phase.Withered, after.Crops.Single(c => c.Site == chosen.Site && c.Slot != chosen.Slot).Phase);
+    }
+
     static byte[] BlobOf(SacredGrove.GroveObject o)
     {
         var type = HarvestTables.Current.Objects[o.Type];

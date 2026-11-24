@@ -43,16 +43,7 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): refused, {refused}");
             return false;
         }
-        int adjacentEffect = AdjacentTinctureFlaskEffect(player, (byte)slot, Get, AreaTime(player));
-        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? Get
-            : stat => stat == Stat.FlaskEffectPlusPct ? Get(stat) + adjacentEffect : Get(stat);
-        double finalMultiplier = MapFlaskEffectMultiplier(player);
-        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask.Item, local, flaskCharacter, playerLevel, finalMultiplier);
-        int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
-        int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);
-        double effectPower = heal > 0 || selfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
-            local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier) : 1;
-        int selfChaosRate = selfChaos > 0 ? UtilityFlasks.Scale(selfChaos, effectPower) : 0;
+        var (stats, seconds, effectPower, selfChaosRate) = UtilityFlaskUseFor(player, (byte)slot, flask.Item, utility, local, Get, playerLevel);
         bool gainedSouls = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
@@ -69,6 +60,7 @@ public static partial class Game
             FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
             if (Get(Stat.CannotBeAffectedByFlasks) != 0)
             {
+                TryGrantAlchemistsGenius(player);
                 state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
                 state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
                     PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used"));
@@ -103,6 +95,7 @@ public static partial class Game
                 if (local.GetValueOrDefault(stat) is int count and > 0)
                     ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
             MakeFlaskGroundsLocked(player, local, seconds, now, character);
+            TryGrantAlchemistsGenius(player);
             state.StatRevision++;
             state.Enqueue(new(FlaskEnchantments.Trigger.Adjacent, flask.Id, (byte)slot), signal?.Chain);
         }) is null) return false;
@@ -114,6 +107,29 @@ public static partial class Game
         }
         return true;
     }
+
+    /// <summary>What one use of a utility flask applies, from the character's stats <paramref name="get"/>: the effect's
+    /// stats and duration, the effect power the on-use recovery and self damage scale with, and the self chaos damage rate.
+    /// A use and Alchemist's Genius's rescale of a running effect both come through here, so they take the same inputs
+    /// (the adjacent tincture's flask effect, the map's flask effect, the flask's own mods).</summary>
+    static UtilityFlaskUse UtilityFlaskUseFor(Player player, byte slot, Item flask, UtilityFlasks.Utility utility,
+        IReadOnlyDictionary<uint, int> local, Func<uint, int> get, int playerLevel)
+    {
+        int adjacentEffect = AdjacentTinctureFlaskEffect(player, slot, get, AreaTime(player));
+        Func<uint, int> flaskCharacter = adjacentEffect == 0 ? get
+            : stat => stat == Stat.FlaskEffectPlusPct ? get(stat) + adjacentEffect : get(stat);
+        double finalMultiplier = MapFlaskEffectMultiplier(player);
+        var (stats, seconds) = ItemUtilityFlaskFor(utility, flask, local, flaskCharacter, playerLevel, finalMultiplier);
+        int heal = local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife);
+        int selfChaos = local.GetValueOrDefault(Stat.LocalUniqueFlaskChaosDamagePctOfMaximumLifeToDealPerMinuteWhileHealing);
+        double effectPower = heal > 0 || selfChaos > 0 ? FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel,
+            local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier) : 1;
+        int selfChaosRate = selfChaos > 0 ? UtilityFlasks.Scale(selfChaos, effectPower) : 0;
+        return new(stats, seconds, effectPower, selfChaosRate);
+    }
+
+    readonly record struct UtilityFlaskUse(IReadOnlyList<UtilityFlasks.Source> Stats, double Seconds, double EffectPower,
+        int SelfChaosRate);
 
     static string? NamedFlaskRecent(string baseTypeId) => baseTypeId switch
     {
@@ -233,7 +249,8 @@ public static partial class Game
     // the unchanged accepted effect is claimed by the replacement, even if its deadline passed in that gap.
     public static void AdvanceUtilityFlasks(Player player, PlayerUpdatesState updates)
     {
-        if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea || !player.UtilityFlaskEffects.Any) return;
+        if (!PlayerUpdatesCurrent(player, updates) || player.LeavingArea
+            || !player.UtilityFlaskEffects.Any && !player.AlchemistsGenius.Active) return;
         bool dead = player.PlayerLife == 0;
         double now = updates.Schedule.Now(player);
         if (dead) ClearUtilityFlaskDamage(player, now);
@@ -242,8 +259,9 @@ public static partial class Game
         bool Gone(UtilityFlasks.Active effect) => UtilityFlasks.LeftItsCell(effect, bar);
         var ended = UtilityFlasks.EndDue(player, now, dead, Gone,
             () => RecomputePoolsAndSpeed(player), out _);
-        if (ended.Count == 0) return;
-        if (EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);   // its "during Effect" rules end
+        bool geniusEnded = EndAlchemistsGeniusIfDue(player, now, dead);
+        if (ended.Count == 0 && !geniusEnded) return;
+        if (ended.Count > 0 && EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);   // its "during Effect" rules end
         var state = Automation(player);
         foreach (var effect in ended)
         {

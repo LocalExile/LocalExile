@@ -256,7 +256,7 @@ public static partial class Game
     /// without a time.</summary>
     public static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
     {
-        int strongest = 0;
+        int strongest = type == DamageType.Fire ? PyroclastExposure(m, now) : 0;
         foreach (var ((t, magnitude), until) in m.Exposures)
             if (t == type && until > now) strongest = Math.Min(strongest, magnitude);
         return strongest;
