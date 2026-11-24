@@ -30,7 +30,7 @@ public static partial class Game
                     RemoveDivineBlastOrb(divineBlastOrbs.First(o => o.Repeating));
             }
             int radius = SkillRadius(Player, source.Stats, spell: false, gem.Effect);
-            double damageMore = Math.Max(0, 1 + Own(Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d);
+
             double spacing = repeating
                 ? Math.Max(TickSeconds, rate / 1000d / Math.Max(.01, 1 + SupportedMainHandAttackSpeedPct(Player, gem.Id) / 100d))
                 : duration;
@@ -59,7 +59,7 @@ public static partial class Game
                     ShowDivineBlastExplosion(at, radius);
                     var blast = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true,
                         radiusOverride: radius, criticalRoll: critical, triggeredCurrent: Current, scheduledSession: this,
-                        cryExerted: false, phaseDamageMore: damageMore);
+                        cryExerted: false);
                     if (!blast.IsCompletedSuccessfully) Enqueue(() => blast);
                     if (repeating) Schedule(when + step);
                     else RemoveDivineBlastOrb(orb);

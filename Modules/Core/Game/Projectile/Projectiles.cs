@@ -312,11 +312,11 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
-            RetireBannerLocked(Player);
-            ClearDivineBlastOrbs();
             ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();
+            RetireBannerLocked(Player);
+            ClearDivineBlastOrbs();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
             if (ShaperMemories.TryGetValue(Player, out var memory)) memory.RemoveActor?.Invoke(true);
