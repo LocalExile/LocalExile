@@ -958,8 +958,12 @@ public static partial class Game
             if (new[] { Stat.GlobalCannotCrit, Stat.VirtualGlobalCannotCrit, Stat.CannotCriticalStrikeWithAttacks }
                 .Any(name => Player(name) != 0 || Own(name) != 0)) return 0;
             var weapon = WeaponProfileFor(player, activeSet: true);
-            int basis = weapon.Unarmed && (!SkillsFor(player).IsMelee(gem.Effect) || SkillsFor(player).IsSpell(gem.Effect)) ? 0
-                : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
+            int basis;
+            if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)
+                basis = shieldCritical;
+            else
+                basis = weapon.Unarmed && (!skills.IsMelee(gem.Effect) || skills.IsSpell(gem.Effect)) ? 0
+                    : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
             if (Own(Stat.AdditionalCriticalStrikeChancePermyriadWhileAffectedByElusive) is int elusiveBase and not 0
                 && ElusiveFactor(player) > 0)
                 basis = ActorScale.Saturate((long)basis + elusiveBase);
