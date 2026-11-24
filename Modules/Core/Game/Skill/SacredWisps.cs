@@ -32,6 +32,8 @@ public static partial class Game
             if (!source.RequirementsMet || source.Effect != shot.Effect
                 || source.Supports.FirstOrDefault(s => s.Effect.Id == SacredWispSupport) is not { } support
                 || PlacedKind(source) != (false, false) || GolemStat(source.Stats, Stat.IsTotem) != 0) return;
+            if (sacredWisps is { } active && active.Skill == shot.SourceSkill && Runtime.Now < active.Expires
+                && CurrentSacredWisps(active)) return;
             var catalog = SkillsFor(Player);
             int effect = catalog.EffectRow("SummonSacredWisp");
             var native = catalog.EffectStats(effect, support.Gem.Level).ToDictionary(pair => pair.Item1, pair => pair.Item2);
@@ -42,11 +44,6 @@ public static partial class Game
                 key => GolemStat(stats, key), key => GolemStat(source.Stats, key));
             if (cap <= 0 || duration <= 0) return;
             long until = Runtime.Now + ProjectileRuntime.Time(duration);
-            if (sacredWisps is { } old && old.Skill == shot.SourceSkill && CurrentSacredWisps(old))
-            {
-                old.Expires = until;
-                return;
-            }
 
             EndSacredWisps();
             var current = sacredWisps = new(shot.SourceSkill, source, cap, Get(Stat.SupportSacredWispsWispPctChanceToAttack),
@@ -119,7 +116,8 @@ public static partial class Game
                 Runtime.Release(use with
                 {
                     Seed = ++seed, Emitter = new(id), Origin = Vector(from), ReturnAnchor = new(id),
-                    Payload = Copy(shot), CanEmit = () => Active && Player.PlayerLife > 0,
+                    Payload = Copy(shot), CanEmit = () => CurrentSacredWisps(wisps) && Runtime.Now < wisps.Expires
+                        && !body.Dead && ReferenceEquals(Player.Area.Monsters.GetValueOrDefault(id), body),
                     ProjectilePayloads = use.ProjectilePayloads?.Select(payload => payload is ProjectileOffense offense
                         ? Copy(offense) : payload).ToArray(),
                 });

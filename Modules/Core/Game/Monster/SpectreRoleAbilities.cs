@@ -26,9 +26,13 @@ public static partial class Game
         };
         if (partner is null) return false;
         var at = fighter.Monster.Walk.Position(now);
-        return player.Summons.Fighters.Values.Any(other => other.Definition.Kind == "Spectre"
-            && other.Monster.Variety?.Id == partner && !other.Monster.Dead && other.Monster.Life > 0
-            && GolemCurrent(player, other) && Dist(other.Monster.Walk.Position(now), at) <= CannibalPartnerRadius);
+        return HasPartner(player) || player.Instance.PlayersExcept(player.Id).Any(
+            ally => ReferenceEquals(player.Area, ally.Area) && HasPartner(ally));
+
+        bool HasPartner(Player owner) => owner.PlayerLife > 0 && owner.Summons.Fighters.Values.Any(other =>
+            other.Definition.Kind == "Spectre" && other.Monster.Variety?.Id == partner
+            && !other.Monster.Dead && other.Monster.Life > 0 && GolemCurrent(owner, other)
+            && Dist(other.Monster.Walk.Position(now), at) <= CannibalPartnerRadius);
     }
 
     static bool SpectreActionAllowed(GolemState.Golem fighter, GolemState.Ability ability, bool defensive,
