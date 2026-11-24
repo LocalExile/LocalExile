@@ -1166,7 +1166,10 @@ public static class KingsmarchTown
     /// the three farming attributes is 0 -the file exists so the two yield bonuses and the speed bonus can be measured
     /// against the real client without an upgrade UI.</summary>
     const string StatsFile = "data/kingsmarch-stats.txt";
-    static readonly Dictionary<int, double> StatValues = Stats();
+    static Dictionary<int, double> _stats = [];
+    // When the overrides were last read: editing the file is how a stat is calibrated against the real client, so a
+    // change is picked up on the next tick rather than on the next module load.
+    static DateTime _statsStamp;
 
     static Dictionary<int, double> Stats()
     {
@@ -1190,7 +1193,17 @@ public static class KingsmarchTown
 
     /// <summary>The town's farming attributes as the formula reads them (RE C.1/C.2). A stat the town has no override for
     /// reads as its base value, which is 0 for all three.</summary>
-    static double FarmStat(int id) => StatValues.TryGetValue(id, out double value) ? value : 0;
+    static double FarmStat(int id)
+    {
+        var stamp = File.Exists(StatsFile) ? File.GetLastWriteTimeUtc(StatsFile) : DateTime.MinValue;
+        if (stamp != _statsStamp)
+        {
+            _stats = Stats();
+            _statsStamp = stamp;
+            Console.WriteLine($"[gateway] kingsmarch stats: {_stats.Count} override(s)");
+        }
+        return _stats.TryGetValue(id, out double value) ? value : 0;
+    }
 
     /// <summary>A click on a farm plot (C->S 0x24, skill 0x266): plants a crop on a bare plot, harvests a ripe one and says
     /// what happened. The crop is the plot object's own <c>plant</c> StateMachine state (the client swaps its model to
@@ -1246,6 +1259,44 @@ public static class KingsmarchTown
                 ? $"Plot {plot.Order + 1}: {Crops[plot.Crop - 1]} -the town has halted, the treasury is empty (fund it with Johan)."
                 : $"Plot {plot.Order + 1}: {Crops[plot.Crop - 1]}, {rate * 3600:0.#} an hour from {hands} worker(s), {plot.Produced} grown so far, {InStore(progress, Crops[plot.Crop - 1])} in the town.");
         return true;
+    }
+
+    /// <summary>Puts a named crop on a plot, replacing whatever it was growing. The farm panel that would let a player pick
+    /// one cannot be opened in this build, so this is the planting half of the farm: a click on a bare plot takes the next
+    /// crop in turn, and this picks a particular one. Crops cost nothing and start producing at their rate immediately
+    /// (RE 0.1), so changing one only loses the fraction it had accumulated - what is already grown stays in the town.</summary>
+    /// <param name="plotOrder">The plot, 1..6, as the report and the panel number them.</param>
+    /// <param name="crop">The crop's name, any case ("wheat", "corn", "pumpkin", "globulora", "orbisfera").</param>
+    public static async Task<string> Choose(IPlayer player, int plotOrder, string crop)
+    {
+        int chosen = -1;
+        for (int i = 0; i < Crops.Length; i++)
+            if (string.Equals(Crops[i], crop, StringComparison.OrdinalIgnoreCase)) chosen = i + 1;
+        if (chosen < 0) return $"no crop \"{crop}\": the town grows {string.Join(", ", Crops)}";
+        var progress = State(player);
+        Plot? plot;
+        lock (_lock) plot = progress.Plots.Values.FirstOrDefault(p => p.Order == plotOrder - 1);
+        if (plot is null)
+            return progress.Plots.Count == 0
+                ? $"the town's plots are not loaded yet: walk into Kingsmarch (/goto {Area}) and try again"
+                : $"no plot {plotOrder}: the town has {progress.Plots.Count} (1-{progress.Plots.Count})";
+        double now = UtcNow();
+        if (now - plot.CreatedAt < Quiet)
+            return $"plot {plotOrder} is still settling ({plot.CreatedAt + Quiet - now:0} s)";
+        if (plot.Crop == chosen)
+            return $"plot {plotOrder} is already growing {Crops[chosen - 1]}";
+        // What it has grown so far belongs to the town before the crop is swapped out.
+        Settle(progress, plot, now);
+        uint id = plot.ObjectId;
+        bool bare = plot.Crop == 0;
+        plot.Crop = chosen;
+        plot.SettledAt = now;
+        await SetPlant(player, progress, id, plot);
+        Persist(progress);
+        bool someone = progress.Workers.Any(w => w.Plot == plot.Order);
+        return $"plot {plotOrder}: {(bare ? "now growing" : "switched to")} {Crops[chosen - 1]} "
+            + $"({CropTable[chosen - 1].ExportValue} a unit at the port)"
+            + (someone ? ", a worker is on it." : $", but nobody tends it (/village assign <worker> {plotOrder}).");
     }
 
     /// <summary>How fast a plot turns time into crops, in crops a second (RE C.1/C.2):

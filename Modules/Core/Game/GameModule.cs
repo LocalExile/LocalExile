@@ -240,11 +240,17 @@ public sealed class GameModule : IModule, IDisposable
             // The Kingsmarch rules carry the modding-layer player (World/KingsmarchTown.cs); the game's own
             // connection, layout and walk stay on the game's player.
             IPlayer me = Program.PlayerOf(player);
-            commands.Add("village", "/village [hire | assign <worker> <plot 1-6 | mine | smelter>] (the Kingsmarch farm, mine and smeltery)",
+            commands.Add("village", "/village [hire | assign <worker> <plot 1-6 | mine | smelter> | crop <plot> <crop>] (the Kingsmarch farm, mine and smeltery)",
                 async args =>
                 {
                     if (args.Length > 0 && args[0] == "hire")
                     { await me.Tell("Kingsmarch: " + await KingsmarchTown.Hire(me)); return; }
+                    if (args.Length >= 3 && args[0] == "crop")
+                    {
+                        if (!int.TryParse(args[1], out int which)) { await me.Tell("usage: /village crop <plot 1-6> <wheat | corn | pumpkin | globulora | orbisfera>"); return; }
+                        await me.Tell("Kingsmarch: " + await KingsmarchTown.Choose(me, which, args[2]));
+                        return;
+                    }
                     if (args.Length >= 2 && args[0] == "assign")
                     {
                         if (!int.TryParse(args[1], out int worker)) { await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter>"); return; }
