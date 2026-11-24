@@ -140,6 +140,32 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>The "unscalable" flags of the fx tables: per stat (fx_stats.unscalable, every row) and per item line
+    /// (fx_lines, a Mods Id). Empty when the column or the table is not there (an older world.db in a test).</summary>
+    public (IReadOnlyDictionary<string, bool> Stats, IReadOnlyDictionary<string, bool> Lines) LoadFxUnscalable()
+    {
+        lock (_gate)
+        {
+            var stats = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var lines = new Dictionary<string, bool>(StringComparer.Ordinal);
+            using (var column = Command("SELECT 1 FROM pragma_table_info('fx_stats') WHERE name = 'unscalable'"))
+                if (column.ExecuteScalar() is not null)
+                {
+                    using var command = Command("SELECT stat, unscalable FROM fx_stats");
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read()) stats[reader.GetString(0)] = reader.GetInt32(1) != 0;
+                }
+            using (var table = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_lines'"))
+                if (table.ExecuteScalar() is not null)
+                {
+                    using var command = Command("SELECT mod, unscalable FROM fx_lines");
+                    using var reader = command.ExecuteReader();
+                    while (reader.Read()) lines[reader.GetString(0)] = reader.GetInt32(1) != 0;
+                }
+            return (stats, lines);
+        }
+    }
+
     /// <summary>One fx_modifiers row of an area modifier that gives the area's monsters a stat they already act on: the
     /// area's stat, the monster's stat (the row's quantity) and how many of it one point gives.</summary>
     public sealed record FxAreaMonsterRow(string Stat, string MonsterStat, double Scale);

@@ -17,9 +17,10 @@ public static partial class Game
     ///             Resistance" gives the -9 its own item rolled.
     ///   "name":   what to call it in logs and keys (otherwise the unique's or the mod's own name).
     /// A stat that describes the item itself (a local stat: "Has no Sockets", an armour piece's own armour) is left out:
-    /// there is no item for it to describe.
+    /// there is no item for it to describe. An unscalable number (ModScaling: "Cannot be Knocked Back" is 1 and stays
+    /// 1) is given as it is whatever the bundle's effect; only an effect of 0 gives none of it.
     /// </summary>
-    public sealed record StatBundle(string Name, (uint Stat, int Min, int Max, double PerOwn)[] Stats, int LeftOut)
+    public sealed record StatBundle(string Name, (uint Stat, int Min, int Max, double PerOwn, ModCatalog.Mod? Line, int Index)[] Stats, int LeftOut)
     {
         /// <summary>How a list of live rules shows it.</summary>
         public override string ToString() => $"\"{Name}\" ({Stats.Length} stat(s))";
@@ -31,11 +32,12 @@ public static partial class Game
         {
             double t = Math.Clamp(roll, 0, 100) / 100, scale = effect / 100;
             var result = new Dictionary<uint, int>();
-            foreach (var (stat, min, max, perOwn) in Stats)
+            foreach (var (stat, min, max, perOwn, line, index) in Stats)
             {
-                long value = (long)Math.Round((perOwn != 0 ? own * perOwn : min + (max - min) * t) * scale, MidpointRounding.AwayFromZero);
-                // A flag ("cannot be knocked back": 1) stays a flag at any effect above 0.
-                if (value == 0 && min == max && min != 0 && scale > 0) value = Math.Sign(min);
+                // Asked now, not when the bundle was read: a mod may have opened the number up since (ModScaling.Override).
+                bool unscalable = line is null ? ModScaling.Unscalable(stat) : ModScaling.Unscalable(line, index);
+                double part = unscalable ? (scale == 0 ? 0 : 1) : scale;
+                long value = (long)Math.Round((perOwn != 0 ? own * perOwn : min + (max - min) * t) * part, MidpointRounding.AwayFromZero);
                 if (value != 0) result[stat] = ActorScale.Saturate(result.GetValueOrDefault(stat) + value);
             }
             return result;
@@ -46,7 +48,7 @@ public static partial class Game
     public static StatBundle BundleOf(JsonElement written)
     {
         if (written.ValueKind != JsonValueKind.Object) throw new FormatException("a bundle is an object: \"unique\", \"mod\" or \"stats\"");
-        var stats = new List<(uint, int, int, double)>();
+        var stats = new List<(uint, int, int, double, ModCatalog.Mod?, int)>();
         string? name = null;
         int leftOut = 0;
         void Mod(string id, UniqueCatalog.Definition? of, bool isImplicit)
@@ -58,7 +60,7 @@ public static partial class Game
                 // The unique's own range for the stat where it has one, as the item itself would roll.
                 var (min, max) = !mod.RangeOverridden(i) && of?.Ranges?.FirstOrDefault(r => r.Mod == mod.Id && r.Stat == i && r.Implicit == isImplicit) is { } own
                     ? (own.Min, own.Max) : mod.RangeAt(i);
-                stats.Add((mod.Stats[i].Id, Math.Min(min, max), Math.Max(min, max), 0));
+                stats.Add((mod.Stats[i].Id, Math.Min(min, max), Math.Max(min, max), 0, mod, i));
             }
         }
         foreach (var part in written.EnumerateObject())
@@ -108,14 +110,14 @@ public static partial class Game
                                 throw new FormatException($"the stat \"{stat.Name}\" of a bundle takes {{\"from\": \"roll\"}} with an optional \"scale\"");
                             double perOwn = stat.Value.TryGetProperty("scale", out var scaled) ? scaled.GetDouble() : 1;
                             if (perOwn == 0) throw new FormatException($"the stat \"{stat.Name}\" of a bundle has a scale of 0");
-                            stats.Add((id, 0, 0, perOwn));
+                            stats.Add((id, 0, 0, perOwn, null, 0));
                             continue;
                         }
                         var (min, max) = stat.Value.ValueKind == JsonValueKind.Array && stat.Value.GetArrayLength() == 2
                             ? (stat.Value[0].GetInt32(), stat.Value[1].GetInt32())
                             : stat.Value.ValueKind == JsonValueKind.Number ? (stat.Value.GetInt32(), stat.Value.GetInt32())
                             : throw new FormatException($"the stat \"{stat.Name}\" of a bundle needs a number, [min, max] or {{\"from\": \"roll\"}}");
-                        stats.Add((id, Math.Min(min, max), Math.Max(min, max), 0));
+                        stats.Add((id, Math.Min(min, max), Math.Max(min, max), 0, null, 0));
                     }
                     break;
                 default: throw new FormatException($"a bundle has no \"{part.Name}\"");

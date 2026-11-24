@@ -129,7 +129,9 @@ public static class ItemModStats
                         }
                         // The condition holds: a conditional stat with no consumer of its own moves onto its plain
                         // name, which is what the pools read (issue #504).
-                        int value = IsEffectStat(row.Stats[s].Id) ? mod.Values[s]
+                        // An unscalable number stays as rolled (ModScaling); asked only when something would scale it.
+                        int value = IsEffectStat(row.Stats[s].Id) || (percent != 0 || rule is not null) && ModScaling.Unscalable(row, s)
+                            ? mod.Values[s]
                             : rule?.Invoke(mod, row, s, percent) ?? Scale(mod.Values[s], percent);
                         value = StatConditions.Counted(name, value, state, subject, statExists, out var targets);
                         if (targets is null) yield return (id, value);

@@ -29,8 +29,7 @@ static class HeistModifierMagnitudes
             var stat = row.Stats[index];
             int value = mod.Values[index];
             if (Tag(stat.Name) is not null || stat.Id == Stat.LocalEnchantStatMagnitudePlusPct) return value;
-            if (row.Unscalable
-                || row.GrantedEffects != 0 || !stat.Scalable) return null;
+            if (row.GrantedEffects != 0 || ModScaling.Unscalable(row, index)) return null;
 
             long effect = 0;
             if (mod.Section == ModSection.Explicit && effects is not null)

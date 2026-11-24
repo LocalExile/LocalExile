@@ -95,6 +95,7 @@ public static class GameData
         var fxModifiers = store.LoadFxModifiers();
         var fxPerRows = store.LoadFxPerRows();
         var fxAreaMonsterStats = store.LoadFxAreaMonsterRows();
+        var fxUnscalable = store.LoadFxUnscalable();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
         GameDataCatalog.Reload(store);
@@ -110,6 +111,7 @@ public static class GameData
         Volatile.Write(ref _fxAreaMonsterStats, fxAreaMonsterStats);
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);
+        ModScaling.LoadTable(fxUnscalable.Stats, fxUnscalable.Lines);
         StatConditions.SetRecorderStats(fxRules.Where(r => r.Status != "not built" && r.Do.Any(d => d.Action == "raise"))
             .SelectMany(r => r.Sources.Where(s => s.Kind == "stat").Select(s => s.Key)));
         Volatile.Write(ref _snapshot, snapshot);

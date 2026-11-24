@@ -146,6 +146,13 @@ creatures, so `RuleSources` reads each worn item's own lines as rolled. The rule
 the stat. In those rows the game's data pairs the display stat with the stat meant for the nearby creature (54 Mods
 rows); the rules name the stats monster code reads instead, since several of the paired ones are player names.
 
+A number that is set in stone once rolled is "unscalable" (`ModScaling`): the game marks it per stat (Stats
+`IsScalable`) and per line (Mods `IsUnscalable`), and the tables hold the same marks as rows the server reads
+(`fx_stats.unscalable`, `fx_lines`), so a new unique's line can be marked or an existing one opened up by a row; a mod
+does it while loaded with `ModScaling.Override`. Asked by everything that changes a line's number after it is rolled:
+increased effect of modifiers, catalysts and enchantment magnitudes, and a bundle's `effect` (an unscalable number is
+given whole at any effect above 0). Whatever rewrites an item later asks the same question.
+
 `EffectRules.Add` takes rules in the tables' shape (`EffectRules.NewRule`: a mod is not compiled against the storage
 layer) from a mod or module and loads them with the tables' (disposing the result takes them back): how a mod ships
 rules of its own without a world.db update.

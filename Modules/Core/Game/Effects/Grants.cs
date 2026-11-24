@@ -39,10 +39,10 @@ public static partial class Game
     static readonly ConditionalWeakTable<Player, GrantSet> GrantSets = new();
     static readonly ConditionalWeakTable<SpawnedMonster, StrongBox<bool>> GrantLifeFollows = new();
     // A bundle at one roll and effect, built once: an on-hit grant asks for the same one at every hit.
-    static readonly ConditionalWeakTable<StatBundle, System.Collections.Concurrent.ConcurrentDictionary<(double, double, double), IReadOnlyDictionary<uint, int>>> BundleRolls = new();
+    static readonly ConditionalWeakTable<StatBundle, System.Collections.Concurrent.ConcurrentDictionary<(double, double, double, int), IReadOnlyDictionary<uint, int>>> BundleRolls = new();
 
     static IReadOnlyDictionary<uint, int> BundleAt(StatBundle bundle, double roll, double effect, double own) =>
-        BundleRolls.GetOrCreateValue(bundle).GetOrAdd((roll, effect, own), key => bundle.At(key.Item1, key.Item2, key.Item3));
+        BundleRolls.GetOrCreateValue(bundle).GetOrAdd((roll, effect, own, ModScaling.Version), key => bundle.At(key.Item1, key.Item2, key.Item3));
 
     /// <summary>A "worn" rule's grant starts: the bundle goes to the enemies its "to" names for as long as the rule stands.</summary>
     static void StandGrant(EffectRules.Standing standing)
