@@ -114,7 +114,7 @@ public static partial class Game
         lock (MinionSaveLocks.GetOrCreateValue(player))
         {
             string text, guardian, character;
-            if (!player.Summons.Restored || player.Summons.LostPersistentOnDeath) return;
+            if (!player.Summons.Restored || player.Summons.LostPersistentOnDeath || InTown(player)) return;
             double now = AreaTime(player);
             text = JsonSerializer.Serialize(player.Summons.Fighters.Values.Where(g => !g.Monster.Dead && g.Monster.Life > 0
                     && player.Summons.Definitions.GetValueOrDefault(g.Id)?.Persistent == true

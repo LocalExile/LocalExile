@@ -292,6 +292,47 @@ public sealed class HitSummonTests
     }
 
     [Fact]
+    public async Task Town_suppresses_persistent_summons_and_golems_without_wiping_saves()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var ids = f.Equip(("Raise Zombie", 20), ("Summon Stone Golem", 20));
+        var zombieDef = Game.SummonData.Find("RaiseZombie")!;
+        var savedZombie = new SummonedMinions.Saved("RaiseZombie", ids[0], zombieDef.Variety, 1);
+        var savedGolem = new GolemState.Saved("SummonStoneGolem", ids[1], 1);
+        CharacterSaves.ChangeModuleData(f.Player.Character.Name!, "Game.SummonedMinions",
+            _ => System.Text.Json.JsonSerializer.Serialize(new[] { savedZombie }));
+        CharacterSaves.ChangeModuleData(f.Player.Character.Name!, "Game.Golems",
+            _ => System.Text.Json.JsonSerializer.Serialize(new[] { savedGolem }));
+
+        // Entering Town (1_1_town, 0x235c): summons and golems do not spawn, and saved data is preserved.
+        f.Player.Use(new AreaLayout(0x235c, "1_1_town", 1000, 1000, 100, 100, null, []));
+        f.Player.Summons.Restored = false;
+        f.Player.Golems.Restored = false;
+        await Game.SummonsTick(f.Player, 0);
+        await Game.GolemsTick(f.Player, 0);
+        Assert.Empty(f.Player.Summons.Fighters);
+        Assert.Empty(f.Player.Golems.All);
+        Assert.False(f.Player.Summons.Restored);
+        Assert.False(f.Player.Golems.Restored);
+        Game.SaveSummons(f.Player);
+        Game.SaveGolems(f.Player);
+        Assert.Single(System.Text.Json.JsonSerializer.Deserialize<SummonedMinions.Saved[]>(
+            CharacterSaves.Load(f.Player.Character.Name!)!.ModuleData!["Game.SummonedMinions"])!);
+        Assert.Single(System.Text.Json.JsonSerializer.Deserialize<GolemState.Saved[]>(
+            CharacterSaves.ModuleData(f.Player.Character.Name!, "Game.Golems")!)!);
+
+        // Entering Hideout / combat area: saved persistent minions and golems restore cleanly.
+        var hideout = HideoutCatalog.Default!;
+        f.Player.Use(new AreaLayout(hideout.AreaHash16, hideout.AreaId, 1000, 1000, 100, 100, null, []));
+        await Game.SummonsTick(f.Player, 1);
+        await Game.GolemsTick(f.Player, 1);
+        Assert.Single(f.Player.Summons.Fighters);
+        Assert.Single(f.Player.Golems.All);
+        Assert.True(f.Player.Summons.Restored);
+        Assert.True(f.Player.Golems.Restored);
+    }
+
+    [Fact]
     public async Task Spectre_receives_spectral_buff_ownership_and_cosmetic_visual()
     {
         using var f = new MinionUtilityTests.Fixture();
