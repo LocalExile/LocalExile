@@ -395,7 +395,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             p.Contacts.Add(target.Key);
             if (p.Phase > 0) p.ReturnContacts++;
             else p.OutboundContacts++;
-            int splitBonus = p.Profile is { DirectDamage: true, CannotSplit: false } && !p.HasSplit
+            int splitBonus = p.Profile is { DirectDamage: true, CannotSplit: false, StopOnEnemy: false } && !p.HasSplit
                 ? Math.Clamp(p.Use.TargetSplit?.Invoke(target.Key, Now) ?? 0, 0, 256) : 0;
             var terminal = p.Profile.EndArea is { } endArea && AllowsEndArea(p, ProjectileEndReason.Enemy)
                 && splitBonus == 0 && !CanContinue(p, actors) && ReturnAnchor(p, ProjectileEndReason.Enemy) is null ? endArea : null;
@@ -408,7 +408,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 TargetedHits(p, target, strikes);
             if (result != ProjectileHitResult.Hit) splitBonus = 0;
             bool needsNearby = (!p.Profile.CannotSplit && (p.Split > 0 || splitBonus > 0)) || (!p.Profile.CannotChain && p.Chain > 0);
-            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus)) return;
+            if (Continue(p, needsNearby ? world.Actors(Now, Now) : [], splitBonus, target.Key)) return;
             End(p, ProjectileEndReason.Enemy, victim: target.Key, hitTarget: result == ProjectileHitResult.Hit ? target.Key : null);
         }
         else if (c.End == ProjectileEndReason.Terrain && p.Legs is { } blockedLegs && p.Phase == 0
@@ -498,12 +498,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (publish) Publish(ProjectileEventKind.Redirect, p);
     }
 
-    bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => p.Phase == 0 && p.Profile.OutboundHitLimit is not null
-        || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
-        || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
-        || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors, p.Profile.SplitRange).Any()))
-        || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
-        || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any());
+    bool CanContinue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors) => !p.Profile.StopOnEnemy
+        && (p.Phase == 0 && p.Profile.OutboundHitLimit is not null
+            || p.Phase == 0 && p.Legs is { TurnsOnEnemy: true }
+            || p.Phase > 0 && p.Profile.PierceAllOnReturn && !p.Profile.CannotPierce
+            || (!p.Profile.CannotSplit && p.Split > 0 && (p.Profile.SplitWithoutTargets || Nearby(p, actors, p.Profile.SplitRange).Any()))
+            || (!p.Profile.CannotPierce && p.Pierce != 0) || (!p.Profile.CannotFork && p.Fork > 0)
+            || (!p.Profile.CannotChain && p.Chain > 0 && Nearby(p, actors).Any()));
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
@@ -526,9 +527,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     static ProjectileHitRule DirectHitRule(ProjectileEntity p) =>
         p.Phase > 0 ? p.Profile.ReturnHitRule ?? p.Profile.HitRule : p.Profile.HitRule;
 
-    bool Continue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int splitBonus)
+    bool Continue(ProjectileEntity p, IReadOnlyList<ProjectileActor> actors, int splitBonus, ProjectileActorKey recipient)
     {
         var profile = p.Profile;
+        if (profile.StopOnEnemy) return false;
         // Explicit contact budgets limit actor attempts, never the remaining flight.
         if (p.Phase == 0 && profile.OutboundHitLimit is not null) return true;
         int split = p.Split + Math.Min(splitBonus, Math.Max(0, 256 - p.Split));
@@ -538,7 +540,8 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             ApplyLegTurn(p, turn);
             return true;
         }
-        if (p.Phase > 0 && profile.PierceAllOnReturn && !profile.CannotPierce) return true;
+        if (!profile.CannotPierce
+            && (p.Phase > 0 && profile.PierceAllOnReturn || p.Use.TargetPierce?.Invoke(recipient) == true)) return true;
         if (!profile.CannotPierce && p.Pierce != 0) { if (p.Pierce > 0) p.Pierce--; return true; }
         if (!profile.CannotFork && p.Fork > 0)
         {
@@ -658,6 +661,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>
         p.Phase == 0 && p.Profile.Returns && !p.Profile.CannotReturn
         && Now < p.ExpiresAt
+        && (reason != ProjectileEndReason.Enemy || !p.Profile.StopOnEnemy)
         && (reason != ProjectileEndReason.Distance || p.Profile.ReturnOnDistance)
         && reason is ProjectileEndReason.Enemy or ProjectileEndReason.Distance or ProjectileEndReason.Lifetime or ProjectileEndReason.Terrain
         && p.Use.ReturnAnchor is { } key ? world.Actor(key, Now) : null;

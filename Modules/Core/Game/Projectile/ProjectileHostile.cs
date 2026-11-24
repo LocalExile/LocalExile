@@ -82,6 +82,7 @@ public static partial class Game
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets,
+                TargetPierce = target => target.Id == player.Id && PlayerStat(player, Stat.ProjectilesAlwaysPierceYou) != 0,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
                     { Presentation = presentation, Sequence = sequence,
                         OnEnd = a.Ground is null ? null : at => LeaveSkillGround(player, id, a, at) } };

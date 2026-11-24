@@ -209,6 +209,7 @@ public sealed record ProjectileProfile(string Id)
     public bool CannotChain { get; init; }
     public bool CannotSplit { get; init; }
     public bool CannotReturn { get; init; }
+    public bool StopOnEnemy { get; init; }
     public int TerrainBounces { get; init; }
     /// <summary>Chance (0-100) that a terrain collision redirects the projectile to a nearby enemy instead of ending,
     /// from "Projectiles have X% chance to be able to Chain when colliding with terrain"; one terrain chain per
@@ -267,6 +268,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public ProjectileActorKey? ReturnAnchor { get; init; }
     /// <summary>Extra split children granted by the current direct-hit recipient.</summary>
     public Func<ProjectileActorKey, long, int>? TargetSplit { get; init; }
+    /// <summary>The current recipient grants a pierce without using a point of the projectile's own pierce budget.</summary>
+    public Func<ProjectileActorKey, bool>? TargetPierce { get; init; }
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }

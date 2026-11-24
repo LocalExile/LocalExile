@@ -97,6 +97,7 @@ public static class GatewayProjectileModifiers
         p = ContinuationControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
         p = p with
         {
+            StopOnEnemy = p.StopOnEnemy || get(Stat.ProjectileObjectCollisionBehaviourOnlyExplode) != 0,
             SplitOnTerrain = p.SplitOnTerrain || get(Stat.ProjectilesCanSplitFromTerrain) != 0,
             SplitAtEndOfRange = p.SplitAtEndOfRange || get(Stat.ProjectilesCanSplitAtEndOfRange) != 0
         };
