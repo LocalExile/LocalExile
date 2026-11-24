@@ -18,8 +18,9 @@ public static partial class Game
         if (HideoutCatalog.ByArea(player.Layout.Hash) is null || player.Layout.Waypoint is not { } waypoint) return;
         if (SavedHideoutPlacements(player)?.GetValueOrDefault("waypoint") is { } p)
             player.MoveWaypoint(waypoint = waypoint with { GridX = p.X, GridY = p.Y, Rotation = p.Rotation });
-        // A hideout always starts on its saved waypoint, including logins and portal returns.
-        player.Use(player.Layout with { SpawnX = waypoint.GridX, SpawnY = waypoint.GridY });
+        // Portal returns arrive at their recorded cell beside the map device (ArriveAt); logins and waypoint/command warps start at the waypoint.
+        if (player.ArriveAt is null)
+            player.Use(player.Layout with { SpawnX = waypoint.GridX, SpawnY = waypoint.GridY });
         player.HideoutEditor.Register(WaypointCatalog.ObjectId, "waypoint", waypoint.GridX, waypoint.GridY,
             waypoint.Rotation, -1);
     }
