@@ -488,6 +488,7 @@ public static partial class Game
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         return gem.Name is not null && !IsTotemSkill(player, skill) && !SkillsFor(player).IsChannelled(gem.Effect)
             && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
+            && PlacedKind(SupportedSkill(player, skill)) is { Trap: false, Mine: false }
             && (!SkillsFor(player).IsProjectile(gem.Effect)
                 || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)));
     }
@@ -587,8 +588,9 @@ public static partial class Game
         ushort requested = player.LockstepSkill.Skill;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == requested);
         bool spell = gem.Name is not null && SkillsFor(player).IsSpell(gem.Effect) && !SkillsFor(player).IsAttack(gem.Effect);
+        bool thrown = gem.Name is not null && PlacedKind(SupportedSkill(player, requested)) is not { Trap: false, Mine: false };
         bool isAttack = requested == SkillCatalog.FirstSkillId
-            || gem.Name is not null && !IsTotemSkill(player, requested) && SkillsFor(player).IsAttack(gem.Effect);
+            || gem.Name is not null && !thrown && !IsTotemSkill(player, requested) && SkillsFor(player).IsAttack(gem.Effect);
         double frameLen = FrameMs / 1000.0;
         double frameEnd = player.Connection.LockstepFrame?.End ?? (frameStart + frameLen);
         bool earlyCancel = player.LockstepCastWindow is { } cw && frameStart < cw.Start + cw.Duration
@@ -600,11 +602,11 @@ public static partial class Game
         player.LockstepActionStartedAt = actualStart;
         player.LockstepActionScheduledAt = actualStart;
         // Only skills that go through LockstepAttackStart or StartLockstepGroundMelee defer their hold until the
-        // walk-up reaches its swing; immediate casts on a monster (spells, totems, movement skills, and attack gems
-        // with "always attack without moving", Flags bit 0) hold from here.
+        // walk-up reaches its swing; immediate casts on a monster (spells, totems, traps/mines, movement skills, and
+        // attack gems with "always attack without moving", Flags bit 0) hold from here.
         bool defersHold = monster
             ? requested == SkillCatalog.FirstSkillId
-                || gem.Name is not null && !IsTotemSkill(player, requested)
+                || gem.Name is not null && !thrown && !IsTotemSkill(player, requested)
                     && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).IsMovement(gem.Effect)
                     && (player.LockstepSkill.Flags & 0x1) == 0
             : LockstepGroundMelee(player, requested, player.LockstepSkill.Flags);

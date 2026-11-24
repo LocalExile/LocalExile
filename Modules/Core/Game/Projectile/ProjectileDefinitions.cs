@@ -110,7 +110,8 @@ public static partial class Game
     // Module reload replaces this dictionary together with the providers that define the recipes.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<int, ProjectileSkillDefinition?> ProjectileRecipes = new();
     public static ProjectileSkillDefinition? ResolveProjectileDefinition(int effect) =>
-        ProjectileRecipes.GetOrAdd(effect, static row => ProjectileDefinition(Skills.EffectId(row) ?? "")
+        ProjectileRecipes.GetOrAdd(effect, static row => IsArtilleryBallista(Skills.EffectId(row)) ? GroundArrow
+            : ProjectileDefinition(Skills.EffectId(row) ?? "")
             ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
                 : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row)));
 
