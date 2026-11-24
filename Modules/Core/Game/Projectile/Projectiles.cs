@@ -313,6 +313,7 @@ public static partial class Game
             ClearPods();
             ClearDamageGrounds();
             RetireBannerLocked(Player);
+            ClearDivineBlastOrbs();
             ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();
