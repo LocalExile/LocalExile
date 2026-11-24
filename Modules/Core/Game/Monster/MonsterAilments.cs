@@ -334,6 +334,9 @@ public static partial class Game
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(player, m, playerStats);
         if (playerHit && !spell && player.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(player, targetId, m, now);
+        if (playerHit && !spell && m.Hostile && skill?.GetValueOrDefault(Stat.GainVaalSoulOnHitCooldownMs) is int soulInterval and > 0
+            && skill.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) == 0)
+            HarvestVaalSoulOnHitLocked(player, soulInterval, now, playerStats);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;

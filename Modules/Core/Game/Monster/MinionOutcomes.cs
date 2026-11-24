@@ -90,8 +90,7 @@ public static partial class Game
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
         var state = player.Minions;
-        if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
-            state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
+        QueueVaalSoulPresentationLocked(player, "Vaal souls after minion kill");
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
         var partyShares = PartyExperienceShares(player, at);
