@@ -673,12 +673,12 @@ public static partial class Game
                 || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
-                ? Blinded(player, id) ? captured.Blinded : captured.Normal
+                ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
             if (offenseSnapshot?.Spider is { } spider)
-                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
-                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m), m.MaimedUntil > now,
+                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id, now),
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
                     spider.Melee && TargetAccuracy.InCloseRange(Dist(placed.At, m.Walk.Position(now))),
                     ContactDamage(player, m, now, spider.Stats));
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,

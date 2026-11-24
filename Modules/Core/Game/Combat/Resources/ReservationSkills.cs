@@ -208,9 +208,9 @@ public static partial class Game
                     || MonsterAsleep(player, id)
                     || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                 // Select the target profile before any RNG, outgoing effects, or this contact's own Blind.
-                bool targetWasBlinded = Blinded(player, id);
+                bool targetWasBlinded = Blinded(player, id, now);
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
-                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
                 var targetPacket = profile.Hit;
                 bool spell = aura.EffectId == "TempestShield";
                 int Player(uint n) => GolemStat(playerStats, n);

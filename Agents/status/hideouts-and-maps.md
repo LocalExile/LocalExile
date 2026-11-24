@@ -436,7 +436,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
-  Such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+  Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
   the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart

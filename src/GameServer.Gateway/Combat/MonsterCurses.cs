@@ -31,7 +31,7 @@ public sealed class MonsterCurses(Action? changed = null)
     {
         if (!hasCriticalPrevention) return false;
         foreach (var curse in All.Values)
-            if (curse.PreventsCriticalStrikes && !(curse.Until <= now)) return true;
+            if (curse.PreventsCriticalStrikes && curse.Until > now) return true;
         return false;
     }
     public int this[uint stat] => stats.GetValueOrDefault(stat);
@@ -90,6 +90,14 @@ public sealed class MonsterCurses(Action? changed = null)
     // boundaries settles the elapsed portion at the old speed. The source chooses which rate a curse follows.
     public void Retime(double now, double effectRate, double baseRate)
     {
+        bool any = false;
+        foreach (var curse in All.Values)
+            if (double.IsFinite(curse.Until) && curse.Rate != (curse.UsesBaseExpiryRate ? baseRate : effectRate))
+            {
+                any = true;
+                break;
+            }
+        if (!any) return;
         double Rate(Curse curse) => curse.UsesBaseExpiryRate ? baseRate : effectRate;
         foreach (var curse in All.Values.Where(c => double.IsFinite(c.Until) && c.Rate != Rate(c)).ToArray())
         {
