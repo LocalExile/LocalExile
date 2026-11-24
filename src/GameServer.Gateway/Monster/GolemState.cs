@@ -32,7 +32,7 @@ public sealed class GolemState
         public readonly Dictionary<uint, double> Taunts = [];
         public bool CorpseEmpowered;
         public bool DeathBurstDone;
-        public double WrathUntil, NextOrb;
+        public double WrathUntil;
         public int InputHash;
         public Dictionary<uint, int> Own = [], OwnerBuff = [], Player = [];
         public Dictionary<uint, int> Auras = [], Utility = [];
@@ -66,7 +66,7 @@ public sealed class GolemState
         GameServer.Core.World.DamageType Type, bool Follows = false, bool Wither = false,
         double UnitDamagePerSecond = 0, int NormalDamageIncrease = 0)
     {
-        public double LastAt;
+        public double LastAt, NextDischarge;
         public uint? Object;
         public readonly Dictionary<uint, double> Carry = [];
         public readonly Dictionary<uint, double> DamageCarry = [];

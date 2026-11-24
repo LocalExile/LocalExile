@@ -970,8 +970,12 @@ public static partial class Game
                 if (!m.Hostile || m.Dead || m.Invulnerable || Dist(m.Walk.Position(now), centre) > hazard.Radius) continue;
                 if (hazard.Effect == 5908)
                 {
-                    if (now >= g.NextOrb && g.Abilities.FirstOrDefault(a => a.Effect == 5908) is { } orb)
-                    { GolemHitLocked(player, g, orb, id, m, now); g.NextOrb = now + 1; }
+                    if (now < hazard.Until && now >= hazard.NextDischarge
+                        && g.Abilities.FirstOrDefault(a => a.Effect == 5908) is { } orb)
+                    {
+                        GolemHitLocked(player, g, orb, id, m, now);
+                        hazard.NextDischarge = now + 1;
+                    }
                     continue;
                 }
                 if (hazard.Wither && now >= hazard.Carry.GetValueOrDefault(id, double.NegativeInfinity))
