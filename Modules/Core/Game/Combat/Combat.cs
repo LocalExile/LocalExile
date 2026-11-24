@@ -1638,7 +1638,7 @@ public static partial class Game
         if (SkillsFor(player).IsBrand(effect))
             RecordBrandSkillUsedLocked(player, acceptedAt);
         SpiritBurstOnSkillUse(player, aim, acceptedAt);
-        TriggerCraftedWeaponSpells(player, aim);
+        TriggerCraftedWeaponSpells(player, aim, acceptedAt);
     }
 
     // Lockstep instant replies join the ordinary action sequence. At 0x14219c1f0, flag 0x100 reaches
@@ -1701,11 +1701,7 @@ public static partial class Game
                     committed = true;
                     return PlayerInstantAction(player, skillId, at, targetId);
                 });
-            if (committed)
-            {
-                guardStart?.Invoke();
-                RecordAcceptedGemUse(player, gem.Effect, at);
-            }
+            if (committed) guardStart?.Invoke();
             await SendNativeCooldownRefresh(player);
         }
     }

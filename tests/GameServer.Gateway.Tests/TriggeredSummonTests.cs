@@ -262,12 +262,30 @@ public sealed class TriggeredSummonTests
             Assert.NotNull(Game.GemSkillInstanceDisabled(f.Player, entry.Effect, entry.Id));
         }
 
-        // First active skill use triggers Desecrate (index 0) and creates corpses via RecordAcceptedGemUseAt.
+        // 3 consecutive active skill uses within 1s trigger Desecrate -> Flesh Offering -> Convocation round-robin
+        // (each spell keeps its own 8s cooldown instead of a global 8s block).
         f.Player.ProjectileRuntime = f.Session;
+        f.Player.PlayerMana = 1000;
         var arc = gemMap["Arc"];
         Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.0);
         await Drain(f.Session);
         Assert.Equal(5, f.Player.Summons.Corpses.Count);
+
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.2);
+        await Drain(f.Session);
+        Assert.Contains(f.Player.Summons.Offerings, o => o.Effect == "FleshOffering");
+        Assert.Contains(f.Player.Area.Monsters.Values, m => m.CorpseConsumed);
+
+        uint manaBeforeConvocation = f.Player.PlayerMana;
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.4);
+        await Drain(f.Session);
+        Assert.True(f.Player.PlayerMana < manaBeforeConvocation, "Convocation should trigger on the 3rd use within 1s");
+
+        // A 4th use while all three are on their individual 8s cooldowns triggers nothing.
+        uint manaAfterAllThree = f.Player.PlayerMana;
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.6);
+        await Drain(f.Session);
+        Assert.Equal(manaAfterAllThree, f.Player.PlayerMana);
     }
 
     internal sealed class Fixture : IDisposable
