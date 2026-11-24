@@ -150,6 +150,27 @@ public class HinekoraLockGatewayTests
             Assert.Equal(before, Current(items, target.Id).Item);
             Assert.Equal(2, Current(items, currency.Id).Item.StackSize);
         });
+
+        // The preview and its commit with the currency and the target in a stash tab (the same tab: one 0xbf for both).
+        await WithSession(async (player, items, sessionStash, send, sendRaw, readPreview) =>
+        {
+            // The stash the server uses for this player: its key depends on the league catalog other tests may load.
+            var stash = global::Game.StashOf(player);
+            InventoryItem InTab(Item item, byte x) => stash.Place(0, x, 0, new InventoryItem(stash.NewItemId(), 0, 0, item), Shape, out _)!.Value.Placed;
+            var target = InTab(LockedWand(), 4);
+            var currency = InTab(ItemCatalog.Create(Program.Items.Find(CurrencyEffects.ChaosOrb)!) with { StackSize = 2 }, 0);
+            uint tab = stash.InventoryOf(0);
+
+            await sendRaw(new LoginWriter().U16(0x29d).U16(12).U32(tab).U32(currency.Id).U32(tab).U32(target.Id).ToArray());
+            var preview = await readPreview();
+            Assert.Equal((ushort)0, preview.Status);
+            await send(new LoginWriter().U16(0x71).U32(tab).U32(currency.Id).U32(tab).U32(target.Id).ToArray());
+
+            var after = stash.Inventory(0).Items.Single(i => i.Id == target.Id).Item;
+            Assert.False(after.Foreseeing);
+            Assert.Equal(preview.Payload, after.Payload());
+            Assert.Equal(1, stash.Inventory(0).Items.Single(i => i.Id == currency.Id).Item.StackSize);
+        });
     }
 
     static Item LockedWand() => new ItemRolls(Program.Items).ApplyLock(FourModWand(), new Random(11))!;

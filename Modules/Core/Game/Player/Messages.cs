@@ -1035,11 +1035,11 @@ public static partial class Game
             {
                 // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
                 var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
+                // The currency and the target can each be in a stash tab, as for 0x71 (Locate).
                 var items = ItemsOf(player);
-                var currency = items.RowOf(req.CurrencyId) is byte currencyRow
-                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == req.CurrencyId) : null;
-                var target = items.RowOf(req.TargetId) is byte targetRow
-                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == req.TargetId) : null;
+                var stash = StashOf(player);
+                var currency = Locate(items, stash, req.CurrencyInventory, req.CurrencyId).Item;
+                var target = Locate(items, stash, req.TargetInventory, req.TargetId).Item;
                 Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
@@ -1070,10 +1070,9 @@ public static partial class Game
                 uint currencyInventory = U32(unknown, 4), currencyId = U32(unknown, 8);
                 uint targetInventory = U32(unknown, 12), targetId = U32(unknown, 16);
                 var items = ItemsOf(player);
-                var currency = items.RowOf(currencyId) is byte currencyRow
-                    ? items.Items(currencyRow).FirstOrDefault(i => i.Id == currencyId) : null;
-                var target = items.RowOf(targetId) is byte targetRow
-                    ? items.Items(targetRow).FirstOrDefault(i => i.Id == targetId) : null;
+                var stash = StashOf(player);
+                var currency = Locate(items, stash, currencyInventory, currencyId).Item;
+                var target = Locate(items, stash, targetInventory, targetId).Item;
                 Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
                     ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
                         ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))

@@ -1135,6 +1135,7 @@ u32 target inventory, u32 target item (all BE)
 Captured: `029C 0001 00000001 0000054D 00000001 0000054F` = key 1, Orb of Alchemy 1357 on wand 1359. Sender
 `0x142173fa0`, reader `0x141fa52d0`; it only sends when both inventories are the player inventory (`client+0xc9d0`).
 The client sends 0x71 immediately after the 0x29d on the same use: 0x29d asks for the preview, 0x71 is the commit.
+The currency and the target are looked up as for 0x71 (`Game.Locate`), so either can be in a stash tab.
 
 The answer is **S→C 0x02a0 CurrencyApplicationForesightResult**: `u16 0x02a0`, `u16 BE keyA` (the 0x29d key),
 `u16 raw status` (0: preview, non-zero: failure; 0x04FA is the client's own fail code), `u64 raw count`, then
