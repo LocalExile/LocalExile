@@ -338,7 +338,7 @@ public static partial class Game
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
-        hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
+        hit = GameEvents.WithAttackHit(RageStats.ApplyAttack(hit, Get), Get);
         return ApplyRoilingTempest(hit, Get).Scale(HitRollsFor(stats).DamageFactor);
     }
 
