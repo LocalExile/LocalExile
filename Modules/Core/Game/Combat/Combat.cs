@@ -2711,9 +2711,10 @@ public static partial class Game
             : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
-        // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
-        // the Vaal blast keeps its radial hit.
+        // once here, so the log after the sweep can report them). Vaal Ground Slam has a radial wave of its own.
         bool wave = !immediate && !spell && SkillsFor(player).ActionHash(gem.Effect) == GroundSlamWave.Action;
+        bool vaalSlam = SkillsFor(player).EffectId(gem.Effect) == "VaalGroundSlam";
+        bool vaalWave = !immediate && !spell && vaalSlam;
         bool fissure = !immediate && IsVolcanicFissure(gem.Effect);
         double waveLength = wave ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(global::Stat.ActiveSkillBaseRadiusPlus)) : 0;
         int waveCloseDamage = wave ? Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal) : 0;
@@ -2723,7 +2724,7 @@ public static partial class Game
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
         var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
-            : wave || SkillsFor(player).EffectId(gem.Effect) is "VaalGroundSlam" or "VaalSweep" ? from
+            : wave || vaalSlam || SkillsFor(player).EffectId(gem.Effect) == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
@@ -2779,6 +2780,7 @@ public static partial class Game
         // Ice Nova's ring reaches each victim in turn (IceNovaRing) and Ground Slam's wave does the same by distance
         // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(player).ActionHash(gem.Effect) == IceNovaRing.Action;
+        bool travellingSweep = ring || wave || vaalWave || fissure;
         int frostboltCap = ring ? Stat(global::Stat.IceNovaNumberOfFrostBoltsToCastOn) : 0;
         double frostboltMore = 1;
         bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
@@ -2848,12 +2850,14 @@ public static partial class Game
             }
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
-            if (ring || wave || fissure)
+            if (travellingSweep)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
-                reach = wave || fissure
-                    ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
-                    : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
+                reach = vaalWave
+                    ? [.. found.Select(f => GroundSlamWave.VaalAdvanceSeconds(f.Distance, radius))]
+                    : wave || fissure
+                        ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
+                        : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
                 sweepStart = AreaTime(player);
             }
             if (fissure)
@@ -2930,16 +2934,19 @@ public static partial class Game
                 var (id, m) = targets[victim];
                 // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
                 // front reaches it. A retired wave (death, area change, a closed connection) stops the rest of the sweep.
-                if ((ring || wave || fissure) && victim < reach.Length && reach[victim] > 0
+                if (travellingSweep && victim < reach.Length && reach[victim] > 0
                     && !await WaitProjectileTime(player, sweepStart + reach[victim], epoch))
 
                 {
-                    if (wave) Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
+                    if (wave || vaalWave) Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: the wave was retired "
                         + $"{AreaTime(player) - sweepStart:0.###} s in, {targets.Count - victim} monster(s) left unhit");
                     break;
                 }
-                if (wave && victim < reach.Length)
-                    Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * GroundSlamWave.CellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
+                if ((wave || vaalWave) && victim < reach.Length)
+                {
+                    double cellsPerSecond = vaalWave ? radius / GroundSlamWave.VaalTravelSeconds : GroundSlamWave.CellsPerSecond;
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} wave reaches 0x{id:x} at {reach[victim] * cellsPerSecond:0.#} cells {reach[victim]:0.###} s after the slam");
+                }
                 MonsterHit? applied;
                 byte hitCode;
                 int damage;
@@ -2954,7 +2961,7 @@ public static partial class Game
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
                     // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
                     if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused
-                        || !(ring || wave || fissure || hammer is not null) && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(player, action))) break;
+                        || !(travellingSweep || hammer is not null) && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null && triggeredCurrent is null && !PlayerActionCurrent(player, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
                         || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
                     bool freshPlayer = playerStats is null;
@@ -3133,11 +3140,13 @@ public static partial class Game
                     if (waveCloseDamage != 0 && victim < reach.Length)
                         contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
                             reach[victim] * GroundSlamWave.CellsPerSecond, waveLength, waveCloseDamage));
-                    else if (SkillsFor(player).EffectId(gem.Effect) == "VaalGroundSlam")
+                    else if (vaalSlam)
                     {
-                        double distance = Dist(player.Walk.Position(ProjectileWorldTime(player)), m.Walk.Position(ProjectileWorldTime(player)));
-                        contactHit = contactHit.Scale(1 + Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal)
-                            / 100.0 * Math.Max(0, 1 - distance / Math.Max(1, radius)));
+                        double distance = vaalWave && victim < reach.Length
+                            ? reach[victim] * radius / GroundSlamWave.VaalTravelSeconds
+                            : Dist(from, m.Walk.Position(ProjectileWorldTime(player)));
+                        contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(distance, radius,
+                            Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal)));
                     }
                     if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         contactHit = WithMeleeProximityLocked(player, playerStats, skillStats, m, contactHit, ProjectileWorldTime(player));
