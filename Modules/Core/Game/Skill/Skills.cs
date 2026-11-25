@@ -1282,7 +1282,15 @@ public static partial class Game
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
-        if (Fits(ActiveMainHand(player), UnarmedClassRow))
+        var main = ActiveMainHand(player);
+        if (IceCrashUse.Cadence(skills.EffectId(effect)))
+        {
+            bool CadenceWeapon((Item Item, ItemCatalog.BaseType? Type)? hand) =>
+                WeaponIdentity.OneHandMelee(hand?.Type?.Class) && Fits(hand, null);
+            return CadenceWeapon(main) && CadenceWeapon(ActiveOffHand(player))
+                ? null : "Ice Crash of Cadence requires two compatible one-handed melee weapons";
+        }
+        if (Fits(main, UnarmedClassRow))
         {
             // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.
             if (!allowed.Contains(UnarmedClassRow) || skills.EffectId(effect) != "DoryanisTouch"
