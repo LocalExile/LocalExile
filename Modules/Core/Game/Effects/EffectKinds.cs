@@ -101,18 +101,22 @@ public static partial class Game
         // A hex on the monster of the hit, as a cast of it at gem "level" would put it (curse limit, hexproof). "curse":
         // its GrantedEffects Id. "refresh_after": a hit within this many seconds of the last application leaves the
         // running curse alone (0: every hit applies it again).
-        EffectRules.Register(new("curse", ["level", "refresh_after"], ["curse"], fire =>
+        EffectRules.Register(new("curse", ["level", "refresh_after"], ["curse", "ignore"], fire =>
         {
+            // "curse": a hex by name, or "random" for one of all hexes. "ignore":"curse_limit": beyond the curse limit.
+            bool unlimited = EffectLimits.Ignores(fire, EffectLimits.CurseLimit);
+            string hex = HexNamed(fire.Word("curse"), AreaRng(fire.Conn));
             if (fire.Event is HitLanded { Monster: { } target } hit && hit.PlayerStats is { } hitStats)
-                CurseOnHitLocked(fire.Conn, target, fire.Word("curse") ?? "", (int)Math.Round(fire.Number("level")), hitStats,
-                    hit.At ?? fire.Now, fire.Number("refresh_after"));
+                CurseOnHitLocked(fire.Conn, target, hex, (int)Math.Round(fire.Number("level")), hitStats,
+                    hit.At ?? fire.Now, fire.Number("refresh_after"), unlimited);
             // A monster's hit that reached the actor (when hit, on block): the attacker is cursed.
             else if (fire.Event is ChargeEvent { Monster: { } attacker } taken and (ChargeEvent.WhenHit or ChargeEvent.Block))
-                CurseOnHitLocked(fire.Conn, attacker, fire.Word("curse") ?? "", (int)Math.Round(fire.Number("level")),
-                    taken.PlayerStats ?? StatSourceValues(fire.Conn), taken.HitAt ?? fire.Now, fire.Number("refresh_after"));
+                CurseOnHitLocked(fire.Conn, attacker, hex, (int)Math.Round(fire.Number("level")),
+                    taken.PlayerStats ?? StatSourceValues(fire.Conn), taken.HitAt ?? fire.Now, fire.Number("refresh_after"), unlimited);
         })
         {
             Defaults = new Dictionary<string, double> { ["level"] = 1, ["refresh_after"] = 1 },
+            NameDefaults = new Dictionary<string, string> { ["ignore"] = "" },
         });
 
         // An ailment without damage on the monster whose hit reached the actor (when hit, on block): "ailment" chill,

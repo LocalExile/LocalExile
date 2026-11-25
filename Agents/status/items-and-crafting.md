@@ -202,8 +202,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   (Ylfeban's Trickery, enemies on it Shocked at 15%), on the flask grounds; the radius is a guess. Not seen in the
   client yet.
 - Voidfletcher: Void Charges (one every interval up to the maximum, counted in code, not shown on screen) and Void
-  Shot for a charge on a bow attack, as one area hit with no art. Ylfeban's Trickery curses what hits you with one of
-  six hexes (the curse limit still counts). Offline tests only.
+  Shot for a charge on a bow attack, as one area hit with no art. Ylfeban's Trickery curses what hits you with a random
+  hex beyond the curse limit (a rule with `ignore`: `curse_limit`). Offline tests only.
 - Damage returned to attackers: "Reflects # Damage to Melee Attackers", "Reflects # Damage to Attackers on Block" and
   "#% of Melee Physical Damage taken reflected to Attacker" (Bramblejack, Wall of Brambles, The Anvil, The Blood
   Thorn, Veil of the Night; the map modifier for players too). The monster mitigates it; it is not a hit of the

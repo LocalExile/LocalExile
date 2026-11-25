@@ -330,6 +330,8 @@ public static class FxRules
                     effect["kind"] = "curse";
                     effect["curse"] = with["curse"]?.DeepClone() ?? throw new FormatException("the action \"curse\" needs \"curse\"");
                     if (with.ContainsKey("refresh_after")) effect["refresh_after"] = with["refresh_after"]!.DeepClone();
+                    // "ignore": the limits this curse does not count against (EffectLimits), such as "curse_limit".
+                    if (with.ContainsKey("ignore")) effect["ignore"] = with["ignore"]!.DeepClone();
                     if (Value(JsonNode.Parse(value)) is { } level) effect["level"] = level;
                     break;
                 case "charge" when with["type"]?.GetValue<string>() == "spirit":

@@ -329,6 +329,14 @@ character: while the item is worn and active in `slot` (`any`, `left_ring`, `rig
 poison, chill freeze, ignite, shock, corrupted blood, elemental, ailments; the value is seconds of protection after
 it) with the removal a flask's own suffix uses. Curses and other debuffs are not removed by it.
 
+## Ignoring a limit
+
+An action can be told which limits not to count against in its `ignore` argument (names from `fx_limits`, several
+with commas); `EffectLimits.Ignores(fire, name)` asks. The action that owns a limit honours its name: today the
+`curse` action knows `curse_limit` (the hex takes a place of its own beyond the actor's curse limit). The other rows
+of `fx_limits` are names kept for lines that say "ignoring ...", with `built = 0` until their action reads them.
+`curse` also takes `"curse":"random"` for one of all hexes.
+
 ## Flasks
 
 A flask in the flask bar carries rules as a worn item does (source kind `item`, the flask's own local stat). Its
