@@ -1113,8 +1113,11 @@ public static partial class Game
     // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
     // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
     // equipment resolver can read it before the pools exist.
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct) =>
+        SocketedGemRequirements(player, gem, attributePct, ignoreAttributes: false);
+
     public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem,
-        int attributePct, bool ignoreAttributes = false)
+        int attributePct, bool ignoreAttributes)
     {
         if (ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return default;
         int effect = type.Variant(gem.GemVariant).Effect;

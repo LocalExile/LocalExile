@@ -2915,6 +2915,8 @@ public static partial class Game
             || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0;
         if (attackHit && !cannotEvade && StatOf(Stat.ChanceToEvadeAttacksPct) is int additionalEvade and not 0)
             hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
+        if (attackHit && !cannotEvade && StatOf(Stat.KeystoneWindDancer) != 0 && player.RecentEvents.Happened(EnemyAttackHit, now))
+            hitChance = Math.Max(5, 100 - (100 - hitChance) * 110 / 100);
         if (attackHit && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)

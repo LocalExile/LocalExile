@@ -9,9 +9,6 @@ public sealed class ImpaleState
     public const double BaseDuration = 8;
     public const double StoredShare = 0.10;
 
-    const int ImpalerStacks = 6;
-    const double ImpalerLockSeconds = 5;
-
     readonly List<(double Stored, int HitsLeft, double ExpiresAt)> _stacks = [];
     double _cannotBeImpaledUntil = double.NegativeInfinity;
 
@@ -55,17 +52,6 @@ public sealed class ImpaleState
         }
     }
 
-    public (double Reflected, bool Applied) OnHit(double physicalDamage, double now, ImpaleStats.Settings settings, Random random,
-        int avoidChance = 0)
-    {
-        Expire(now);
-        double reflected = Bonus;
-        AfterHit(now);
-        bool applied = physicalDamage > 0 && settings.Chance > 0 && random.Next(100) < settings.Chance
-            && TryInflict(physicalDamage, now, settings, random, avoidChance);
-        return (reflected, applied);
-    }
-
     /// <summary>A successful impale can also apply to a nearby enemy without registering a hit on it.</summary>
     public bool Spread(double physicalDamage, double now, ImpaleStats.Settings settings, Random random, int avoidChance)
     {
@@ -78,14 +64,21 @@ public sealed class ImpaleState
         if (now < _cannotBeImpaledUntil
             || avoidChance > 0 && random.Next(100) < Math.Clamp(avoidChance, 0, 100)) return false;
         bool applied = Store(physicalDamage, now, settings.EffectPercent, settings.Hits, settings.Duration,
-            settings.TheImpaler ? ImpalerStacks : 1);
-        if (applied && settings.TheImpaler) _cannotBeImpaledUntil = now + ImpalerLockSeconds;
+            Math.Max(1, settings.Applications));
+        if (applied && settings.ReapplicationDelay > 0) _cannotBeImpaledUntil = now + settings.ReapplicationDelay;
         return applied;
     }
 
-    public void Clear()
+    public (double Reflected, bool Applied) OnHit(double physicalDamage, double now, ImpaleStats.Settings settings, Random random,
+        int avoidChance = 0)
     {
-        _stacks.Clear();
-        _cannotBeImpaledUntil = double.NegativeInfinity;
+        Expire(now);
+        double reflected = Bonus;
+        AfterHit(now);
+        bool applied = physicalDamage > 0 && settings.Chance > 0 && random.Next(100) < settings.Chance
+            && TryInflict(physicalDamage, now, settings, random, avoidChance);
+        return (reflected, applied);
     }
+
+    public void Clear() => _stacks.Clear();
 }

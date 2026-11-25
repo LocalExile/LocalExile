@@ -534,8 +534,8 @@ public static partial class Game
                 var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
                 var resMods = HitResistMods(playerStats, skillStats);
                 int critMult = SupportedCriticalMultiplier(player, skillId);
-                var impale = ImpaleStats.From(playerStats, Stats, attack: true, skillStats, local);
-                var critImpale = ImpaleStats.From(playerStats, Stats, attack: true, skillStats, local, critical: true);
+                var impale = PlayerImpaleSettings(playerStats, Stats, attack: true, skillStats, local);
+                var critImpale = PlayerImpaleSettings(playerStats, Stats, attack: true, skillStats, local, critical: true);
                 bool isArea = Supports.Of(gem.Effect)?.Types.Contains(7) == true
                     || SkillsFor(player).IsChannelled(gem.Effect);
                 int radius = isArea

@@ -212,6 +212,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
         SettleDegeneration(now);
+        observed[Stat.KeystoneQuietMight] = stats(Stat.KeystoneQuietMight);
         if (e is ChargeEvent.WhenHit) { LastHitAt = now; Degeneration.HitUntil = now + RecentlySeconds; }
         if (e is ChargeEvent.Hit { Critical: true }) Degeneration.CritUntil = now + RecentlySeconds;
         if (e is ChargeEvent.Set set)
@@ -224,7 +225,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             log.Add(set.Type is { } t ? $"{Charges.Name(t)} charges set to {set.Count}" : "charges cleared");
             return;
         }
-        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log, stats);
+        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
     }
 
     StepResult Finish(double now, List<string> log, Random? rng = null)
@@ -273,10 +274,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         }
     }
 
-    void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log, Func<uint, int>? stats = null)
+    void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
     {
-        if (gain is { Type: ChargeType.Frenzy, Count: > 0 }
-            && (stats?.Invoke(Stat.KeystoneQuietMight) ?? Observed(Stat.KeystoneQuietMight)) != 0)
+        if (gain is { Type: ChargeType.Frenzy, Count: > 0 } && Observed(Stat.KeystoneQuietMight) != 0)
             gain = gain with { Type = ChargeType.Power };
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)

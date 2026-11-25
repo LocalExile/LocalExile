@@ -7,7 +7,8 @@ public static class ImpaleStats
     public readonly record struct Settings(int Chance, int EffectPercent = 0,
         int Hits = ImpaleState.HitsPerStack, double Duration = ImpaleState.BaseDuration)
     {
-        public bool TheImpaler { get; init; }
+        public int Applications { get; init; } = 1;
+        public double ReapplicationDelay { get; init; }
     }
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
@@ -21,10 +22,7 @@ public static class ImpaleStats
         long effect = Get(Stat.ImpaleDebuffEffectPlusPct) + (attack ? 0 : Get(Stat.ImpaleEffectPlusPctForImpalesInfictedBySpells));
         return new((int)Math.Clamp(chance, 0, 100), (int)Math.Clamp(effect, int.MinValue, int.MaxValue),
             (int)Math.Clamp(ImpaleState.HitsPerStack + Get(Stat.ImpaledDebuffNumberOfReflectedHits), 0, int.MaxValue),
-            ImpaleState.BaseDuration * Math.Max(0, 1 + Get(Stat.ImpaledDebuffDurationPlusPct) / 100.0))
-        {
-            TheImpaler = character.GetValueOrDefault(Stat.KeystoneImpale) != 0
-        };
+            ImpaleState.BaseDuration * Math.Max(0, 1 + Get(Stat.ImpaledDebuffDurationPlusPct) / 100.0));
     }
 
     public static int AddReflected(int direct, int reflected) => (int)Math.Clamp((long)direct + reflected, 0, int.MaxValue);

@@ -63,6 +63,7 @@ public static class CharacterStats
         // Calculated zero attributes are valid; legacy partial pool records may still need class defaults.
         public bool AttributesResolved { get; init; }
         public bool IgnoreAttributeRequirements { get; init; }
+        public bool EvasionBasedOnWard { get; init; }
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
         // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
         public int MapTemporalChainsActionSpeedPct { get; init; }

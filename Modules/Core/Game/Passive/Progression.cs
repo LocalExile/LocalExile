@@ -184,6 +184,8 @@ public static partial class Game
                 + sources.GetValueOrDefault(Stat.MinionAttackSpeedPlusPct) + sources.GetValueOrDefault(Stat.MinionAttackAndCastSpeedPlusPct));
         ApplyRecoveryKeystoneStats(sources);
         ApplyDamageTakenKeystoneStats(sources);
+        if (sources.GetValueOrDefault(Stat.KeystoneQuietMight) != 0)
+            sources.TryAdd(Stat.QuietMightKeystoneSpellDamagePlusPctFinalPerPowerCharge, 3);
         if (sources.GetValueOrDefault(Stat.KeystoneFirePurist) != 0)
             sources[Stat.DealNoNonFireDamage] = 1;
         if (sources.GetValueOrDefault(Stat.KeystoneColdPurist) != 0)
@@ -1422,6 +1424,7 @@ public static partial class Game
         return pools with
         {
             IgnoreAttributeRequirements = ignoreAttributeRequirements,
+            EvasionBasedOnWard = EquipmentInput(Stat.KeystoneVoranasAdaption) != 0,
             AccuracyAreaMorePct = areaAccuracy,
             AccuracyWeaponMorePct = weaponAccuracy,
             AccuracyChargeMorePct = chargeAccuracyMore,
