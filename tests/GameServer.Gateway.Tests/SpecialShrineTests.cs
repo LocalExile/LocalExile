@@ -258,7 +258,8 @@ public sealed partial class ShrineTests
         Assert.True(Game.MonsterAvoidsProjectile(monster, new Random(1)));
         Assert.Equal(10, Game.MonsterPenetration(monster.Effects, DamageType.Cold));
         monster.SetTemporaryStats("hexproof", new Dictionary<uint, int> { [Stat.Hexproof] = 1 });
-        Assert.False(Game.ApplyCurseDataLocked(player, monster, 0, "ElementalWeakness", new Dictionary<uint, int>(), 0, false));
+        var hex = new Game.SupportedGem(Game.SkillsFor(player).EffectRow("ElementalWeakness"), 1, 0, [], new Dictionary<uint, int>());
+        Assert.False(Game.ApplyCurseLocked(player, monster, 0, 0, false, captured: hex));
     }
 
     static async Task EvolutionLifecycle(Player player)
