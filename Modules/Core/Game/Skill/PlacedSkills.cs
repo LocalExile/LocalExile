@@ -665,7 +665,7 @@ public static partial class Game
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
         bool arc = PlacedArcPayload(effect);
-        bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
+        bool storm = IsPlayerStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = effect == "FrostBomb";
         if (!arc)
@@ -693,7 +693,7 @@ public static partial class Game
             else if (storm)
             {
                 var placedHit = new PlacedAreaHit(placed, inventionMore);
-                if (IsStormCall(effect))
+                if (IsPlayerStormCall(effect))
                     session.SchedulePlacedStormCall(payload, placedHit, Current);
                 else
                 {

@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 /// <summary>
 /// Storm Call: each landing of the cast (the aim, Spell Cascade's areas, every Spell Echo repeat) sets a marker
@@ -15,7 +16,19 @@ public static partial class Game
 {
     public static bool IsStormCall(string? effectId) => effectId == "StormCall";
 
+    static bool IsPlayerStormCall(string? effectId) => IsStormCall(effectId) || effectId == "StormCallAltX";
+
     const double StormCallImpactArtSeconds = 1.5;
+    const int TrarthusBloodArt = 10; // GroundEffects row 136: Blood / stormcall_blood_ground.
+
+    static readonly uint[] StormCallGroundMore =
+    [
+        Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.SupportControlledDestructionSpellDamagePlusPctFinal,
+        Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportEfficacyDamageOverTimePlusPctFinal,
+        Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.CrueltyDamageOverTimePlusPctFinal,
+        Stat.SupportTrapAndMineDamagePlusPctFinal, Stat.SupportTrapDamagePlusPctFinal,
+        Stat.SupportRemoteMine2DamagePlusPctFinal,
+    ];
 
     static (string? Loop, string? Impact, int Variation) StormCallArt(Player player, uint gem)
     {
@@ -167,13 +180,15 @@ public static partial class Game
         }
         if (removeMarker) await Send(player, InstanceProtocol.RemoveObject(marker.Object), null);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == marker.Skill);
-        if (marker.Use is not StormCallUse use || !use.Sacrifice.Current || gem.Name is null || !IsStormCall(SkillsFor(player).EffectId(gem.Effect)) || player.PlayerLife == 0)
+        if (marker.Use is not StormCallUse use || !use.Sacrifice.Current || gem.Name is null
+            || !IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)) || player.PlayerLife == 0)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} storm call marker 0x{marker.Object:x} strikes nothing (gem gone or player dead)");
             return;
         }
         using var intensity = use.Intensity is { } cast ? new IntensityScope(cast) : null;
-        int radius = SkillRadius(player, SupportedSkill(player, marker.Skill).Stats, spell: true, gem.Effect);
+        var source = SupportedSkill(player, marker.Skill);
+        int radius = SkillRadius(player, source.Stats, spell: true, gem.Effect);
         var (_, impact, _) = StormCallArt(player, gem.Gem);
         if (impact is not null)
         {
@@ -191,9 +206,17 @@ public static partial class Game
             });
         }
 
+        bool Current() => !player.Closed && !player.LeavingArea && player.ProjectileEpoch == marker.Epoch && player.PlayerLife > 0;
         await AreaSkillHit(player, marker.Skill, gem, marker.At, marker.At, immediate: true,
             criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,
-            triggeredCurrent: () => !player.Closed && !player.LeavingArea && player.ProjectileEpoch == marker.Epoch && player.PlayerLife > 0);
+            triggeredCurrent: Current);
+        if (SkillsFor(player).EffectId(gem.Effect) == "StormCallAltX")
+        {
+            using (ProjectileMutation(player))
+                if (Current() && use.Sacrifice.Current && SameTriggerSource(source, SupportedSkill(player, marker.Skill)))
+                    ProjectilesFor(player).PlaceStormCallBlood(marker.At, radius, source.Stats,
+                        CharacterPlayerStats(player), use.DamageMore);
+        }
     }
 
     public sealed partial class ProjectileSession
@@ -255,6 +278,31 @@ public static partial class Game
             if (use.Impact is { } art)
                 Effect(marker.At.X, marker.At.Y, art, ProjectileRuntime.Time(StormCallImpactArtSeconds), radius);
             use.Placement.Apply(Player, marker.At, radius, ProjectileWorldTime(Player));
+            if (SkillsFor(Player).EffectId(device.Effect) == "StormCallAltX")
+                PlaceStormCallBlood(marker.At, radius, device.Own,
+                    device.Offense?.Caster ?? TotemCasterStats(CharacterPlayerStats(Player)), use.Placement.DamageMore, device.Mine);
+        }
+
+        internal void PlaceStormCallBlood((int X, int Y) at, int radius, IReadOnlyDictionary<uint, int> own,
+            IReadOnlyDictionary<uint, int> caster, double damageMore, bool? mine = null)
+        {
+            int Own(uint stat) => own.GetValueOrDefault(stat);
+            int Caster(uint stat) => caster.GetValueOrDefault(stat);
+            long Get(uint stat) => (long)Own(stat) + Caster(stat);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSecondarySkillEffectDuration), Caster, Own,
+                SkillDurationModifiers.Kinds.Secondary);
+            double increased = Get(Stat.DamagePlusPct) + Get(Stat.PhysicalDamagePlusPct) + Get(Stat.AreaDamagePlusPct)
+                + Get(Stat.DamageOverTimePlusPct) + Get(Stat.PhysicalDamageOverTimePlusPct);
+            if (Own(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
+            if (mine is { } isMine)
+                increased += Get(isMine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
+            double more = StormCallGroundMore.Aggregate(damageMore, (m, key) => m * Math.Max(0, 1 + Own(key) / 100d));
+            double multiplier = Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.PhysicalDotMultiplierPlus)) / 100d);
+            double dps = Own(Stat.BasePhysicalDamageToDealPerMinute) / 60d
+                * Math.Max(0, 1 + increased / 100d) * more * multiplier;
+            var damage = new SkillDamageContext(SkillHitKind.Spell, caster)
+                .OverTime(new DamageOverTime(DamageType.Physical, dps, duration));
+            PlaceDamageGround(Vector(at), radius, duration, DamageType.Physical, damage.DamagePerSecond, Runtime.Now, TrarthusBloodArt);
         }
     }
 }

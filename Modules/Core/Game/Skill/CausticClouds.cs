@@ -37,7 +37,7 @@ public static partial class Game
             public GroundMovement? Movement { get; init; }
         }
 
-        sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
+        sealed class GroundDamageCarry { public double Fire, Cold, Chaos, Physical; }
 
         sealed class AreaDamageGrounds
         {
@@ -102,6 +102,7 @@ public static partial class Game
             {
                 DamageType.Fire => "Fire",
                 DamageType.Cold => "Maelstorm",
+                DamageType.Physical => "Blood",
                 _ => "CausticCloud",
             }, artVariation);
             if (kind is { Art.Length: > 0 })
@@ -204,7 +205,7 @@ public static partial class Game
         sealed class GroundExposure(SpawnedMonster monster)
         {
             public readonly SpawnedMonster Monster = monster;
-            public DamageGround? Fire, Cold, Chaos;
+            public DamageGround? Fire, Cold, Chaos, Physical;
 
             public void Consider(DamageGround ground)
             {
@@ -218,6 +219,9 @@ public static partial class Game
                         break;
                     case DamageType.Chaos:
                         if (ground.Dps > (Chaos?.Dps ?? 0)) Chaos = ground;
+                        break;
+                    case DamageType.Physical:
+                        if (ground.Dps > (Physical?.Dps ?? 0)) Physical = ground;
                         break;
                 }
             }
@@ -278,11 +282,13 @@ public static partial class Game
                 int fire = Accrue(exposure.Fire, ref carry.Fire);
                 int cold = Accrue(exposure.Cold, ref carry.Cold);
                 int chaos = Accrue(exposure.Chaos, ref carry.Chaos);
-                int damage = ActorScale.Saturate((long)fire + cold + chaos);
+                int physical = Accrue(exposure.Physical, ref carry.Physical);
+                int damage = ActorScale.Saturate((long)fire + cold + chaos + physical);
                 if (damage == 0) continue;
                 int lifeDamage = AbsorbMonsterEnergyShieldLocked(area, monster, damage, chaos, at);
                 if (lifeDamage <= 0) continue;
-                var source = (fire >= cold && fire >= chaos ? exposure.Fire : cold >= chaos ? exposure.Cold : exposure.Chaos)!.Source;
+                var source = (physical > Math.Max(fire, Math.Max(cold, chaos)) ? exposure.Physical
+                    : fire >= cold && fire >= chaos ? exposure.Fire : cold >= chaos ? exposure.Cold : exposure.Chaos)!.Source;
                 var player = source.Player;
                 var (life, stage) = TakeOwnerDamageLocked(player, monster, lifeDamage);
                 monster.Life = life;

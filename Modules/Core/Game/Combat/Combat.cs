@@ -2165,7 +2165,7 @@ public static partial class Game
         bool darkBargain = IsDarkBargain(player, gem.Effect);
         bool wintryBlast = SkillsFor(player).EffectId(gem.Effect) == "FrostblinkAltX";
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
-        bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
+        bool stormCall = IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect));
         var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
             ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
         bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);

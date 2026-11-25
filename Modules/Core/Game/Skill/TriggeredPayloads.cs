@@ -21,7 +21,7 @@ public static partial class Game
         if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
-                || IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
+                || IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)))
             && SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
     }
 
@@ -37,7 +37,7 @@ public static partial class Game
                 ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;
         if (TriggerSummonSpell(player, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(player, session, id, aim, current));
-        if (IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
+        if (IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)))
         {
             var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
             var critical = CaptureSkillCriticalRoll(player, id);
