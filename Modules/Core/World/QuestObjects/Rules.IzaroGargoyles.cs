@@ -60,7 +60,7 @@ static partial class QuestobjectsRules
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y, rotation: at.Angle,
             placement: MonsterPlacement.Established);
         if (player.Area.Monsters.GetValueOrDefault(id) is not { } m) return null;
-        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, true, 0);
+        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId, m.ScriptHeld) = (double.PositiveInfinity, false, true, 0, true);
         m.StunImmuneUntil = double.PositiveInfinity;
         m.EncounterStats = Dormant;
         return new GargoyleSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"), Emerges.Seconds(variety))

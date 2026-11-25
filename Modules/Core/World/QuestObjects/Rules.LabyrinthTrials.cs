@@ -633,7 +633,7 @@ static partial class QuestobjectsRules
                     continue;
                 }
                 uint mob = await SpawnMonster(player, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
-                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro) = (double.PositiveInfinity, false);
+                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro, m.ScriptHeld) = (double.PositiveInfinity, false, true);
                 await global::Game.SendWorldRecord(player, mob, InstanceProtocol.Orientation(mob, statue.Angle), null);
                 if (Emerges.ClipIndex(monster) is uint clip) await global::Game.SendWorldRecord(player, mob, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
                 waiting.Add((mob, statue, monster));

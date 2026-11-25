@@ -261,7 +261,7 @@ static partial class QuestobjectsRules
             boss = player.Area.Monsters.GetValueOrDefault(izaro);
             if (boss is not null)
             {
-                (boss.BusyUntil, boss.Aggro, boss.EntranceGrace) = (double.PositiveInfinity, false, true);
+                (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.ScriptHeld) = (double.PositiveInfinity, false, true, true);
                 if (!trial.Last) boss.LifePhases = new([trial.LeavesAtPercent]);
             }
             if (boss is null) return;
@@ -308,7 +308,7 @@ static partial class QuestobjectsRules
                 {
                     leaves = true;
                     free = boss.BusyUntil;   // the end of his swing, if one is on
-                    (boss.BusyUntil, boss.Aggro) = (double.PositiveInfinity, false);
+                    (boss.BusyUntil, boss.Aggro, boss.ScriptHeld) = (double.PositiveInfinity, false, true);
                     boss.SwingGeneration = null;
                     action = ++boss.ActionGeneration;
                 }

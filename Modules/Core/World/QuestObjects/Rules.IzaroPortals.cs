@@ -128,7 +128,7 @@ static partial class QuestobjectsRules
                     placement: MonsterPlacement.Established, movement: IzaroPortals.GuardianMovement, owned: (_, s) =>
                     {
                         (s.SummonerId, s.NoRewards) = (p.Id, summon.NoRewards);
-                        s.BusyUntil = double.PositiveInfinity;
+                        (s.BusyUntil, s.ScriptHeld) = (double.PositiveInfinity, true);
                     });
                 if (id != 0) await WalkOutOfIzaroPortal(player, id, to);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} {p.Effect.Id} 0x{p.Id:x} brings {guardian.Name} from ({at.X}, {at.Y}) to ({to.X}, {to.Y}), {living + 1} of its own alive");

@@ -552,6 +552,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly GameServer.Core.World.EvasionEntropy AttackEvasion = new();
     // While a swing runs (Clock seconds) the monster neither chases nor swings again.
     public double BusyUntil;
+    // A script holds this monster with an infinite BusyUntil (a boss waiting for its fight, a phase controller, a kneeling
+    // member): minions do not pick it. A lurking or winding-up monster is also busy forever but is not held; see Game.MinionMayTarget.
+    public bool ScriptHeld;
     // Every AI order owns a generation. A flinch invalidates queued echoes and contact work from that order.
     // SwingGeneration identifies ordinary attack recovery so canceling it does not clear an emerge or boss stage.
     public int ActionGeneration;
