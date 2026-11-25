@@ -131,7 +131,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   GUESS: area level `80 + min(4, uberCount)` (`WorldAreas` say 80; no level stat is in the emblem mods).
 - The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal`
   (`active`) at `LegionEndgame_EncounterLocator`; quest flag `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`.
-  GUESS: the `ControlZone` radius of 28 cells and the (333, 333) fallback.
+  The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells
+  (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
+  there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
+  fallback, and `map_legion_endless_monolith_pulse_time_ms` (20000) as the shortest time between two waves.
 - Monsters come from `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival cooldowns
   `6 s / 6 s / 16 s / 24 s`); the end `MiscAnimated` 3357.
 - A soldier that does not fight is a ghost running the client's `LegionRevive` action (type 0xd59a, skill 0x159a; wire layout:

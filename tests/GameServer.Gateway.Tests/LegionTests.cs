@@ -68,6 +68,13 @@ public sealed class LegionTests
         byte[] fall = LegionRevive.FallenPayload(16f);
         Assert.Equal((21, 3, 1), (fall.Length, fall[0], fall[4]));
         Assert.Equal((3f, 16f), (BinaryPrimitives.ReadSingleLittleEndian(fall.AsSpan(13)), BinaryPrimitives.ReadSingleLittleEndian(fall.AsSpan(17))));
+        // The 3.29 wave: every ready sergeant and general, half the ready soldiers (rounded up, at least one).
+        var waveOf = LegionDomain.PickWave([(0, 0), (1, 1), (2, 0), (3, 2), (4, 3), (5, 1), (6, 0)], new Random(5));
+        Assert.Equal(2 + 3, waveOf.Count);
+        Assert.Contains(3, waveOf);
+        Assert.Contains(4, waveOf);
+        Assert.Single(LegionDomain.PickWave([(9, 0)], new Random(5)));
+        Assert.Equal([7], LegionDomain.PickWave([(7, 2)], new Random(5)));
         // Non-lethal life floor in TakeDamageLocked: lowers life normally, stops at 1 and invokes callback once without killing.
         var frozen = new SpawnedMonster("frozen", new(100, 100, 0), 40, 4, 100);
         int floorHits = 0;

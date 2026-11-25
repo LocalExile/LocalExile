@@ -11,8 +11,9 @@ namespace GameServer.Modules.Legion;
 /// Resolves 2–5 normal or Unrelenting Timeless Emblems in the Map Device (<see cref="ResolveOpening"/>), claims the
 /// <c>"Legion"</c> scarab content tag for standard maps, places the central <see cref="InitiatorType"/> (ControlZone)
 /// and <see cref="RewardCrystalType"/> on <see cref="GameEvents.PlayerEntered"/> (Domain areas have 0 MonsterPacks),
-/// drives the endless radial armies with per-rank revival cooldowns (<c>MinLevel = 101</c>: 6 s / 16 s / 24 s), manual
-/// ControlZone resets and 20 s auto-pulses, Unrelenting per-revival monster scaling, reward accumulation, and the
+/// drives the endless radial armies as LegionRevive ghosts (<see cref="LegionRevive"/>) with per-rank revival cooldowns
+/// (<c>MinLevel = 101</c>: 6 s / 16 s / 24 s) and revival waves while a player stands in the control zone (<see cref="PickWave"/>),
+/// Unrelenting per-revival monster scaling, reward accumulation, and the
 /// end-of-timer Timeless Jewel / Stasis Prison / reward burst around the central crystal.
 /// </summary>
 static class LegionDomain
@@ -25,11 +26,16 @@ static class LegionDomain
     /// <summary>MiscAnimated 3357 LegionSoulercoaster1.</summary>
     const int SoulercoasterKey = 3357;
     const string SaveKey = "LegionDomain";
-    /// <summary>Radius around LegionEndlessInitiator that starts or resets the Domain encounter.</summary>
-    const double ControlZoneRadius = 28.0;
-    /// <summary>Minimum seconds between player-triggered ControlZone resets (prevents instant spam while standing inside).</summary>
-    const double ManualResetCooldownSeconds = 4.0;
-    const double DefaultAutoPulseSeconds = 20.0;
+    /// <summary>GUESS: how near LegionEndlessInitiator a player starts the Domain (walking there, or using the monolith).</summary>
+    const double StartRadius = 28.0;
+    /// <summary>The control zone: revival waves need a living player this near the monolith. The client's own check (0x141629580,
+    /// the counter.epk it shows) is a grid distance squared below 3601: 60 cells.</summary>
+    const double ZoneRadius = 60.0;
+    /// <summary>GUESS: the shortest time between two revival waves, map_legion_endless_monolith_pulse_time_ms (20000 on the Domain's
+    /// area mod 21261); this when the area has no such stat.</summary>
+    const double DefaultWaveSeconds = 20.0;
+    /// <summary>A player in the zone with nothing ready: the slots are looked at again this often, not every frame.</summary>
+    const double WaveRetrySeconds = 1.0;
     const double EffectLifetimeSeconds = 2.5;
     /// <summary>Base timer length (client 0x1416290a0: LegionBalancePerLevel MinLevel 101 = 15 s) before adding 60 s per emblem.</summary>
     const double BaseTimerSeconds = 15.0;
@@ -52,10 +58,10 @@ static class LegionDomain
         uint GhostId = 0, ushort Sequence = 0, double RiseAt = double.NegativeInfinity, int RiseStep = 0);
 
     sealed record SavedDomain(uint InitiatorId, uint CrystalId, int X, int Y, float? Z, int Level, int Phase,
-        string[] Factions, int UberCount, double TimerSeconds, double AutoPulseSeconds,
-        double StartedAt, double EndsAt, double LastResetAt, double LastAutoPulseAt,
-        int Resets, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
-        FighterSlot[] Slots, bool ControlZoneReady = true);
+        string[] Factions, int UberCount, double TimerSeconds, double WaveSeconds,
+        double StartedAt, double EndsAt, double LastWaveAt,
+        int Waves, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
+        FighterSlot[] Slots);
 
     sealed class DomainState(SavedDomain s)
     {
@@ -65,14 +71,15 @@ static class LegionDomain
         public DomainPhase Phase = (DomainPhase)s.Phase;
         public string[] Factions = s.Factions;
         public int UberCount = s.UberCount;
-        public double TimerSeconds = s.TimerSeconds, AutoPulseSeconds = s.AutoPulseSeconds;
+        public double TimerSeconds = s.TimerSeconds, WaveSeconds = s.WaveSeconds;
         public double StartedAt = s.StartedAt, EndsAt = s.EndsAt;
-        public double LastResetAt = s.LastResetAt, LastAutoPulseAt = s.LastAutoPulseAt;
-        public int Resets = s.Resets, TotalKills = s.TotalKills;
+        public double LastWaveAt = s.LastWaveAt;
+        /// <summary>Not before this is the zone's next wave looked for (not saved).</summary>
+        public double NextWaveCheck;
+        public int Waves = s.Waves, TotalKills = s.TotalKills;
         public Dictionary<string, int> GeneralKills = new(s.GeneralKills, StringComparer.Ordinal);
         public List<int> BankedRewards = [.. s.BankedRewards];
         public FighterSlot[] Slots = s.Slots;
-        public bool ControlZoneReady = s.ControlZoneReady;
         /// <summary>True when individual kill updates have not yet been flushed to ContentState JSON.</summary>
         public bool Dirty;
         public double LastFlushAt;
@@ -118,8 +125,8 @@ static class LegionDomain
         }
 
         public SavedDomain Snapshot() => new(InitiatorId, CrystalId, X, Y, Z, Level, (int)Phase,
-            Factions, UberCount, TimerSeconds, AutoPulseSeconds, StartedAt, EndsAt, LastResetAt, LastAutoPulseAt,
-            Resets, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ControlZoneReady);
+            Factions, UberCount, TimerSeconds, WaveSeconds, StartedAt, EndsAt, LastWaveAt,
+            Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots]);
     }
 
     static readonly ConditionalWeakTable<object, DomainState> Domains = new();
@@ -402,7 +409,7 @@ static class LegionDomain
             int level = Math.Clamp(mapLevel > 0 ? mapLevel : 80 + Math.Min(4, uberCount), 1, 100);
             double timerSec = TimerSecondsFor(stats, factions.Length);
             int pulseMs = stats.GetValueOrDefault(Stat.MapLegionEndlessMonolithPulseTimeMs);
-            double autoPulseSec = pulseMs >= 3000 ? pulseMs / 1000.0 : DefaultAutoPulseSeconds;
+            double waveSec = pulseMs >= 3000 ? pulseMs / 1000.0 : DefaultWaveSeconds;
 
             var locator = player.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == LocatorType);
             int cx = locator is not null ? locator.X : Math.Clamp(333, 1, Math.Max(1, player.Layout.GridW - 2));
@@ -418,7 +425,7 @@ static class LegionDomain
             var slots = BuildRadialSlots(player, near.X, near.Y, plan, rng);
             var saved = new SavedDomain(player.TakeObjectId(), CrystalSupported ? player.TakeObjectId() : 0,
                 near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions, uberCount,
-                timerSec, autoPulseSec, 0, 0, double.NegativeInfinity, double.NegativeInfinity,
+                timerSec, waveSec, 0, 0, double.NegativeInfinity,
                 0, 0, [], [], slots);
             state = Domains.GetValue(instance, _ => new DomainState(saved));
             lock (state) Keep(player, state);
@@ -636,12 +643,12 @@ static class LegionDomain
 
     static async Task ShowObjects(Player player, DomainState state)
     {
-        DomainPhase phase; bool zoneReady;
-        lock (state) (phase, zoneReady) = (state.Phase, state.ControlZoneReady);
+        DomainPhase phase;
+        lock (state) phase = state.Phase;
         int obeliskState = phase switch { DomainPhase.Waiting => 0, DomainPhase.Active => 1, _ => 3 };
 
         if (InitiatorSupported && !player.Area.Objects.Has(state.InitiatorId)
-            && BuildInitiatorObject(state.X, state.Y, state.Z, obeliskState, phase != DomainPhase.Finished && zoneReady) is { } initObj)
+            && BuildInitiatorObject(state.X, state.Y, state.Z, obeliskState, phase == DomainPhase.Active) is { } initObj)
         {
             var create = InstanceEntities.CreateObject(state.InitiatorId, InstanceEntities.ObjectTypeHash(InitiatorType), initObj.Blob());
             await LegionOutput.ToArea(player, async p =>
@@ -690,9 +697,9 @@ static class LegionDomain
             await PlayerOf(player).Send(done, "0x02c9 LegionRules state (2,5 domain)");
     }
 
-    static bool AnyPlayerInControlZone(Player player, DomainState state, double now)
+    static bool AnyPlayerNear(Player player, DomainState state, double now, double radius)
     {
-        double r2 = ControlZoneRadius * ControlZoneRadius;
+        double r2 = radius * radius;
         foreach (var member in LegionOutput.Members(player))
         {
             if (member.PlayerLife == 0) continue;
@@ -707,7 +714,7 @@ static class LegionDomain
     {
         if (StateOf(player) is not { } state || use.TargetId != state.InitiatorId) return false;
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
-        if (!await WorldOf(player).WalkUpTo(state.X, state.Y, (int)ControlZoneRadius, requestedAt)) return true;
+        if (!await WorldOf(player).WalkUpTo(state.X, state.Y, (int)StartRadius, requestedAt)) return true;
         bool start = false;
         lock (state)
             if (state.Phase == DomainPhase.Waiting) start = true;
@@ -719,7 +726,8 @@ static class LegionDomain
     {
         if (player.Closed || player.LeavingArea || StateOf(player) is not { } state) return;
         double now = global::Game.AreaTime(player);
-        int action = 0; // 1 = start, 2 = finish, 3 = manual reset, 4 = auto pulse, 5 = restore control zone visual
+        int action = 0; // 1 = start, 2 = finish, 3 = revival wave
+        List<int>? wave = null;
         List<(int Slot, uint Ghost, ushort Sequence)>? revived = null;
         List<int>? swaps = null;
         List<(int Slot, uint Corpse)>? fallen = null;
@@ -728,7 +736,7 @@ static class LegionDomain
         {
             if (state.Phase == DomainPhase.Waiting)
             {
-                if (AnyPlayerInControlZone(player, state, now)) action = 1;
+                if (AnyPlayerNear(player, state, now, StartRadius)) action = 1;
             }
             else if (state.Phase == DomainPhase.Active)
             {
@@ -741,34 +749,25 @@ static class LegionDomain
                 if (now >= state.EndsAt)
                 {
                     state.Phase = DomainPhase.Finished;
-                    state.ControlZoneReady = false;
                     Keep(player, state);
                     action = 2;
                 }
-                else
+                // 3.29: a wave only while a player stands in the zone (no wave without one), at most every WaveSeconds; the slots
+                // are scanned only then.
+                else if (now - state.LastWaveAt >= state.WaveSeconds && now >= state.NextWaveCheck
+                    && AnyPlayerNear(player, state, now, ZoneRadius))
                 {
-                    bool cooldownDone = now - state.LastResetAt >= ManualResetCooldownSeconds;
-                    if (!state.ControlZoneReady && cooldownDone)
+                    var ready = new List<(int Slot, int Tier)>();
+                    for (int i = 0; i < state.Slots.Length; i++)
+                        if (IsReady(state, i, now)) ready.Add((i, state.Slots[i].Tier));
+                    if (ready.Count == 0) state.NextWaveCheck = now + WaveRetrySeconds;
+                    else
                     {
-                        state.ControlZoneReady = true;
-                        action = 5;
-                    }
-                    bool anyReady = AnyReadyToRevive(state, now);
-                    if (cooldownDone && anyReady && AnyPlayerInControlZone(player, state, now))
-                    {
-                        state.LastResetAt = now;
-                        state.LastAutoPulseAt = now;
-                        state.ControlZoneReady = false;
-                        state.Resets++;
+                        wave = PickWave(ready, global::Game.AreaRng(player));
+                        state.LastWaveAt = now;
+                        state.Waves++;
                         Keep(player, state);
                         action = 3;
-                    }
-                    else if (now - state.LastAutoPulseAt >= state.AutoPulseSeconds && anyReady)
-                    {
-                        state.LastAutoPulseAt = now;
-                        state.Resets++;
-                        Keep(player, state);
-                        action = 4;
                     }
                 }
             }
@@ -776,8 +775,35 @@ static class LegionDomain
         if (revived is not null) await StepRising(module, player, state, revived, swaps!, fallen!, falls!);
         if (action == 1) await StartDomain(module, player, state);
         else if (action == 2) await FinishDomain(module, player, state);
-        else if (action is 3 or 4) await PulseReset(module, player, state, manual: action == 3);
-        else if (action == 5) await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: true);
+        else if (action == 3) await Wave(module, player, state, wave!);
+    }
+
+    /// <summary>The 3.29 revival wave ("returning to the monolith respawns half the killed enemies, boss spawns are limited by a
+    /// cooldown"): every ready sergeant and general (their rank's cooldown is their readiness), and half the ready normal soldiers,
+    /// at least one, drawn at random.</summary>
+    internal static List<int> PickWave(IReadOnlyList<(int Slot, int Tier)> ready, Random rng)
+    {
+        var wave = new List<int>();
+        var normal = new List<int>();
+        foreach (var (slot, tier) in ready)
+            if (tier >= 2) wave.Add(slot); else normal.Add(slot);
+        int count = normal.Count == 0 ? 0 : Math.Max(1, (normal.Count + 1) / 2);
+        for (int i = 0; i < count; i++)
+        {
+            int pick = rng.Next(normal.Count);
+            wave.Add(normal[pick]);
+            normal.RemoveAt(pick);
+        }
+        return wave;
+    }
+
+    /// <summary>A revival wave: the picked ghosts stand up where they lie (StartRising).</summary>
+    static async Task Wave(IModuleContext module, Player player, DomainState state, List<int> wave)
+    {
+        int bosses;
+        lock (state) bosses = wave.Count(i => state.Slots[i].Tier >= 2);
+        int rising = await StartRising(module, player, state, wave, revival: true);
+        module.Log($"Domain revival wave #{state.Waves}: {rising} ghosts rising ({bosses} sergeants/generals, {wave.Count - bosses} soldiers)");
     }
 
     /// <summary>A slot is ready to revive when it is dead long enough, is not being spawned right now and can be spawned at all.
@@ -787,14 +813,6 @@ static class LegionDomain
         var s = state.Slots[i];
         return s is { Alive: false, GhostId: not 0, RiseStep: 0 } && now - s.DeadAt >= s.RevivalMs / 1000.0
             && !state.Spawning.Contains(i) && !state.NoSpawn.Contains(i);
-    }
-
-    static bool AnyReadyToRevive(DomainState state, double now)
-    {
-        lock (state)
-            for (int i = 0; i < state.Slots.Length; i++)
-                if (IsReady(state, i, now)) return true;
-        return false;
     }
 
     static async Task UpdateInitiatorState(Player player, DomainState state, int obeliskState, bool checkingControlZone)
@@ -852,9 +870,7 @@ static class LegionDomain
             state.Phase = DomainPhase.Active;
             state.StartedAt = now;
             state.EndsAt = now + state.TimerSeconds;
-            state.LastResetAt = now;
-            state.LastAutoPulseAt = now;
-            state.ControlZoneReady = false;
+            state.LastWaveAt = now;
             for (int i = 0; i < plannedSlots.Length; i++)
             {
                 plannedSlots[i] = plannedSlots[i] with { DeadAt = now };
@@ -1001,46 +1017,6 @@ static class LegionDomain
         return id;
     }
 
-    static async Task PulseReset(IModuleContext module, Player player, DomainState state, bool manual)
-    {
-        double now = global::Game.AreaTime(player);
-        var rng = global::Game.AreaRng(player);
-        var toRevive = new List<int>();
-        var deadCommon = new List<int>();
-        lock (state)
-        {
-            if (state.Phase != DomainPhase.Active) return;
-            for (int i = 0; i < state.Slots.Length; i++)
-            {
-                if (!IsReady(state, i, now)) continue;
-                var s = state.Slots[i];
-                if (s.Tier >= 2) toRevive.Add(i);
-                else deadCommon.Add(i);
-            }
-            // Per poewiki: reset revives half of dead soldiers/elites (at least 1 when any are ready) + all ready Sergeants & Generals.
-            if (deadCommon.Count > 0)
-            {
-                int count = Math.Max(1, (deadCommon.Count + 1) / 2);
-                for (int i = 0; i < count; i++)
-                {
-                    int pick = rng.Next(deadCommon.Count);
-                    toRevive.Add(deadCommon[pick]);
-                    deadCommon.RemoveAt(pick);
-                }
-            }
-            Keep(player, state);
-        }
-        if (toRevive.Count == 0) return;
-
-        await UpdateInitiatorState(player, state, obeliskState: 2, checkingControlZone: false);
-        await PlayEffect(player, PulseModel, state.X, state.Y, scale: 5f);
-        // The ghosts stand up where they lie; the client plays the beam (3377) itself at their state 1.
-        int revived = await StartRising(module, player, state, toRevive, revival: true);
-        lock (state) Keep(player, state);
-        await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: false);
-        module.Log($"Domain {(manual ? "manual reset" : "auto-pulse")} #{state.Resets}: revived {revived} fighters");
-    }
-
     static bool RecordKill(Player player, DomainState state, uint monsterId, out FighterSlot? killedSlot)
     {
         killedSlot = null;
@@ -1125,7 +1101,7 @@ static class LegionDomain
             bankedRewards = [.. state.BankedRewards];
             generalKills = new(state.GeneralKills, StringComparer.Ordinal);
             totalKills = state.TotalKills;
-            resets = state.Resets;
+            resets = state.Waves;
             factionCount = state.Factions.Length;
             uberCount = state.UberCount;
             level = state.Level;
@@ -1189,7 +1165,7 @@ static class LegionDomain
         }
 
         int generalsSlain = generalKills.Values.Sum();
-        string summary = $"Domain of Timeless Conflict complete: {totalKills} slain ({generalsSlain} Generals), {resets} resets, {dropped} rewards dropped.";
+        string summary = $"Domain of Timeless Conflict complete: {totalKills} slain ({generalsSlain} Generals), {resets} revival waves, {dropped} rewards dropped.";
         foreach (var member in LegionOutput.Members(player))
             await PlayerOf(member).Send(InstanceChat.ChatLine(summary), $"0x0017 chat line \"{summary}\"");
         module.Log(summary);
