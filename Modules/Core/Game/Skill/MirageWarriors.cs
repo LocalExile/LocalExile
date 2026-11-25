@@ -583,7 +583,7 @@ public static partial class Game
                     }
                 }
 
-                var gambler = GamblerFor(playerStats);
+                var hitRolls = HitRollsFor(playerStats);
                 int SkillStat(uint k) => skillStats.GetValueOrDefault(k);
                 var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
                 foreach (var (id, m, targetAt) in victims)
@@ -597,7 +597,7 @@ public static partial class Game
                     var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
-                            (gambler with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
+                            (hitRolls with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
                                 .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                     int critChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                         SupportedCriticalChanceVsBlinded(player, skillId, release: false, null),
@@ -608,7 +608,7 @@ public static partial class Game
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
-                        gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                        hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,

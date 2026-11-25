@@ -6,6 +6,8 @@ using GameServer.Modding;
 public interface IAscendancyFamilyPolicy
 {
     AscendancyFamily Family { get; }
+    /// <summary>The family's choices and passive graph, built once: read on every lookup of a choice.</summary>
+    AscendancyTree Tree { get; }
     bool Supports(AscendancyIdentity identity);
     void RequirePlayable(AscendancyIdentity identity);
     IReadOnlyDictionary<uint, int>? AreaStats { get; }
@@ -18,6 +20,17 @@ public static class AscendancyPolicies
 {
     static ImmutableDictionary<AscendancyFamily, Registration> _providers = ImmutableDictionary<AscendancyFamily, Registration>.Empty;
     static readonly ConditionalWeakTable<Player, Registration> Attachments = new();
+    static AscendancyTree[] _trees = [];
+
+    /// <summary>The loaded families' trees. The array is replaced when a provider comes or goes.</summary>
+    public static AscendancyTree[] Trees => Volatile.Read(ref _trees);
+
+    /// <summary>A loaded family's tree; null for the ordinary family (the catalog's own) and a family with no provider.</summary>
+    public static AscendancyTree? Tree(AscendancyFamily family) =>
+        _providers.TryGetValue(family, out var entry) ? Volatile.Read(ref entry.Policy)?.Tree : null;
+
+    static void TreesChanged() =>
+        Volatile.Write(ref _trees, [.. _providers.Values.Select(e => Volatile.Read(ref e.Policy)?.Tree).OfType<AscendancyTree>()]);
 
     public static IDisposable Register(IModuleLifetime owner, IAscendancyFamilyPolicy policy)
     {
@@ -25,7 +38,8 @@ public static class AscendancyPolicies
         if (policy.Family == AscendancyFamily.Normal) throw new InvalidOperationException("Normal ascendancies are built in");
         var entry = new Registration(owner, policy);
         if (!ImmutableInterlocked.TryAdd(ref _providers, policy.Family, entry))
-            throw new InvalidOperationException($"An ascendancy provider already owns {policy.Family}");
+            throw new InvalidOperationException($"An ascendancy provider already owns {policy.Family.Name()}");
+        TreesChanged();
         // Own also disposes immediately if Stop raced registration.
         return owner.Own(entry);
     }
@@ -126,7 +140,7 @@ public static class AscendancyPolicies
     }
 
     static AscendancyRuleException Unavailable(AscendancyIdentity selection) => new(
-        $"{selection.Family}/{selection.Id} is unavailable: this league needs its loaded ascendancy module, " +
+        $"{selection.Family.Name()}/{selection.Id} is unavailable: this league needs its loaded ascendancy module, " +
         "implemented class and explicit compatibility opt-in. Saved progress is retained.");
 
     sealed class Registration(IModuleLifetime owner, IAscendancyFamilyPolicy policy) : IDisposable
@@ -152,6 +166,7 @@ public static class AscendancyPolicies
                 affected = Connections.Select(pair => pair.Key).ToArray();
                 Connections.Clear();
             }
+            TreesChanged();
             // Do not acquire a connection lock while holding the provider lock: mutations take them in the reverse order.
             // A reload conservatively ends affected areas. Re-entry binds current code without a missing-drawback interval.
             foreach (var player in affected)
@@ -162,7 +177,7 @@ public static class AscendancyPolicies
                 player.Rampage.Clear();
                 player.RetireOwnedCombat();
                 player.InvalidateIncomingHits();
-                Console.WriteLine($"[gateway] {Program.CharacterName(player)}: {_family} module reloaded; reconnect to retain current rules");
+                Console.WriteLine($"[gateway] {Program.CharacterName(player)}: {_family.Name()} module reloaded; reconnect to retain current rules");
                 player.Connection.Session.Stream?.Close();
             }
         }

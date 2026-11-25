@@ -1,7 +1,7 @@
 using GameServer.Core;
 
 /// <summary>
-/// The client's passive skill graphs (the PSG files of the normal and Phrecia trees and the Atlas tree), as client.db's passive_graphs,
+/// The client's passive skill graphs (its PSG files, by name: "normal", "atlas" and what else was extracted), as client.db's passive_graphs,
 /// passive_graph_nodes, passive_graph_groups, passive_graph_group_nodes and passive_graphs_info (data/
 /// passive-skill-graphs.json from scripts/re/passive-graphs).
 /// </summary>
@@ -18,10 +18,7 @@ public static class PassiveGraphs
             throw new InvalidDataException($"passive_graphs_info: expected {what} data revision {expected}, found {revision ?? "none"}");
     }
 
-    /// <summary>The family's row in passive_graphs, or null.</summary>
-    public static ClientRow? Graph(AscendancyFamily family) => Graph(family == AscendancyFamily.Normal ? "normal" : "phrecia");
-
-    /// <summary>The named graph's row in passive_graphs ("normal", "phrecia" or "atlas"), or null.</summary>
+    /// <summary>The named graph's row in passive_graphs, or null.</summary>
     public static ClientRow? Graph(string name)
     {
         foreach (var g in ClientTables.TableOrEmpty("passive_graphs"))
@@ -29,17 +26,11 @@ public static class PassiveGraphs
         return null;
     }
 
-    /// <summary>The family's nodes in graph order.</summary>
-    public static IEnumerable<ClientRow> Nodes(AscendancyFamily family) => Nodes(family == AscendancyFamily.Normal ? "normal" : "phrecia");
-
     /// <summary>The named graph's nodes in graph order.</summary>
     public static IEnumerable<ClientRow> Nodes(string name) =>
         Graph(name) is { } g ? ClientTables.Table("passive_graph_nodes").By("graph")[g.Index] : [];
 
-    /// <summary>Each node's links, undirected: the PSG stores a drawing edge in either direction.</summary>
-    public static Dictionary<ushort, HashSet<ushort>> Links(AscendancyFamily family) => Links(family == AscendancyFamily.Normal ? "normal" : "phrecia");
-
-    /// <summary>The named graph's links, undirected.</summary>
+    /// <summary>The named graph's links, undirected: the PSG stores a drawing edge in either direction.</summary>
     public static Dictionary<ushort, HashSet<ushort>> Links(string name)
     {
         var result = new Dictionary<ushort, HashSet<ushort>>();

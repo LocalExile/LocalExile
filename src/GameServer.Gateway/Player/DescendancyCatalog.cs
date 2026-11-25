@@ -79,7 +79,7 @@ public sealed class DescendancyCatalog
     {
         var definitions = new Dictionary<byte, Definition>();
         if (!ClientTables.Has("PassiveSkills")) return definitions;
-        var links = PassiveGraphs.Available ? PassiveGraphs.Links(AscendancyFamily.Normal) : [];
+        var links = PassiveGraphs.Available ? PassiveGraphs.Links(AscendancyCatalog.NormalGraph) : [];
         var perRow = new Dictionary<byte, Dictionary<ushort, Node>>();
         foreach (var r in ClientTables.Table("PassiveSkills"))
         {
