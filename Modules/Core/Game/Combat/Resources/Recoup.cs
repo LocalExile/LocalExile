@@ -17,10 +17,12 @@ public static partial class Game
 
     /// <summary>The Life a hit's taken damage recoups: the general percentage of all of it plus the per-type ones,
     /// raised by the Life recovery rate; cannot_recover_life stops it.</summary>
-    public static double LifeRecoupOf(Func<uint, int> get, DamagePacket taken)
+    public static double LifeRecoupOf(Func<uint, int> get, DamagePacket taken) => LifeRecoupOf(get, taken, 0);
+
+    static double LifeRecoupOf(Func<uint, int> get, DamagePacket taken, int additionalPct)
     {
         if (LifeRecovery.NonLeechBlocked(get)) return 0;
-        double life = taken.MinTotal * get(Stat.DamageTakenGoesToLifeOver4SecondsPct);
+        double life = taken.MinTotal * ((long)get(Stat.DamageTakenGoesToLifeOver4SecondsPct) + additionalPct);
         foreach (var (type, stat) in LifeRecoupByType) life += taken[type].Min * get(stat);
         return life / 100 * Math.Max(0, 1 + get(Stat.LifeRecoveryRatePlusPct) / 100.0);
     }
@@ -40,7 +42,9 @@ public static partial class Game
     {
         if (player.Immune || player.PlayerLife == 0 || taken.IsZero) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
-        player.LifeRecoup.Add(now, LifeRecoupOf(Get, taken), LifeRecoupSeconds(Get));
+        int whileFrozen = Get(Stat.DamageTakenWhileFrozenRecoupedAsLifePct);
+        if (whileFrozen != 0 && player.ElementalAilments.FreezeStatusUntil(now) <= now) whileFrozen = 0;
+        player.LifeRecoup.Add(now, LifeRecoupOf(Get, taken, whileFrozen), LifeRecoupSeconds(Get));
     }
 
     static void RecoupTotemHitLocked(Player owner, uint taken, double now, IReadOnlyDictionary<uint, int>? stats = null)
