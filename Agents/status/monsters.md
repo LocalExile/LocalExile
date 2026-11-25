@@ -195,7 +195,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
   Docs: [league encounters](../docs/game/league-encounters.md).
-- Ritual: a map instance rolls 3-4 altars, shared by its players; guards, click, waves, tribute; not seen live.
+- Ritual: maps and retail Act 2 campaign areas (`1_2_8`, `1_2_13`) roll 3-4 shared altars with guards, arena ring containment,
+  revived waves, daemon hazards, Tribute, full Favour window (reveal, buy, persisted defer, reroll), Ritual/Blood-filled Vessels
+  (item component 157 + Map Device injection), Ritual Scarabs, Atlas passives, and all 16 Omens.
+  Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons, helmets, back attachments, `MonsterArmours` slots, and deterministic non-zero `Actor`

@@ -1,19 +1,37 @@
+using System.Buffers.Binary;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Modules.Ritual;
 
 /// <summary>
-/// The Ritual objects' create blobs and the Ritual messages, byte for byte as the official captures give them.
+/// The Ritual objects' create blobs and the Ritual S→C / C→S messages, byte for byte as the official 3.29.3c/d client
+/// binary and captures define them.
 /// <para>
-/// Messages 0x165 / 0x166 / 0x167 are below 0x296, so the numbers hold in 3.29.3c (Agents/docs/protocol/schema.md: 0x165
-/// raw4 raw4 raw4 raw1, min 13; 0x166 a list, raw1, raw1; 0x167 raw4). The create, the component update and the removal are
-/// the framework's own 0x2bb / 0x2bc / 0x2bd.
+/// S→C: 0x165 (altar state), 0x166 (favours window metadata), 0x167 (tribute), 0x007b kind 0x38 (open favours window).
+/// C→S: 0x168 (reroll favours), 0x169 (open favours window), 0x283 (buy/claim favour item), 0x284 (defer favour item).
 /// </para>
 /// </summary>
 static class RitualWire
 {
     public const ushort AltarStateId = 0x165, FavoursId = 0x166, TributeId = 0x167;
+    public const ushort RerollFavoursId = 0x168, OpenFavoursId = 0x169, BuyFavourId = 0x283, DeferFavourId = 0x284;
+
+    /// <summary>S→C 0x007b kind 0x38 (56): opens RitualRewardWindow bound to the Manager-1 inventory id in arg a.</summary>
+    public const byte FavoursUiKind = 0x38;
+
+    /// <summary>Manager-1 inventory id used for the instance's Ritual favour rewards shop (distinct from NPC shop 0x600+).</summary>
+    public const uint ShopInventoryId = 0x620;
+
+    /// <summary>Manager-1 inventory slot for the Ritual favour window (12×7, flags 0x60 passed to AddInventory).</summary>
+    public static readonly InstanceInventories.Slot ShopSlot = new(0, 0x00, 12, 7);
+
+    /// <summary>Manager-0 Inventories.dat row 57 (RitualSavedRewards1, invId 58): client checks 50 - count for defer cap.</summary>
+    public const byte SavedRewardsRow = 57;
+    public const uint SavedRewardsInventoryId = SavedRewardsRow + 1;
+
+    /// <summary>0x0166 per-item flag values verified from RitualRewardWindow (0x140320c60).</summary>
+    public const byte FlagNormal = 0, FlagDeferred = 1, FlagDeferredWarning = 2, FlagDeferredExpiring = 3;
 
     /// <summary>Properties: the RitualRuneTypes row (u32), the kill progress (f32), a pool's altar (u32, the Interactable's id).</summary>
     public const uint PropRune = 0x027aa346, PropProgress = 0x460e6134, PropPoolOwner = 0x1723d91c;
@@ -115,13 +133,54 @@ static class RitualWire
     /// <summary>0x167: u32 BE the area's tribute.</summary>
     public static byte[] Tribute(int total) => new LoginWriter().U16(TributeId).U32((uint)Math.Max(0, total)).ToArray();
 
-    /// <summary>0x166, the favours window: u32 BE tribute, u16 BE n, n x (u32 BE id, u16 BE cost, u16 BE cost, u8 flag),
-    /// u8 altars, u8 done. The window's buy and defer messages are in no capture, so the server sends the window's
-    /// rows and does not act on a choice.</summary>
-    public static byte[] Favours(int tribute, IReadOnlyList<(uint Id, ushort Cost, ushort Cost2, byte Flag)> rows, int altars, int done)
+    /// <summary>0x166, the favours window (reader 0x1421b5aa0 → 0x14250f110 → 0x14250f280):
+    /// u32 BE tribute, u8 rerollsUsed, u8 count, count × (u32 BE itemId, u16 BE buyCost, u16 BE originalCost, u8 flag),
+    /// u8 totalAltars, u8 completedAltars. Rows MUST be sorted ascending by ItemId (binary searched by 0x140320c60).</summary>
+    public static byte[] Favours(int tribute, int rerollsUsed,
+        IReadOnlyList<(uint Id, ushort BuyCost, ushort OriginalCost, byte Flag)> rows, int altars, int done)
     {
-        var w = new LoginWriter().U16(FavoursId).U32((uint)Math.Max(0, tribute)).U16((ushort)rows.Count);
-        foreach (var (id, cost, cost2, flag) in rows) w.U32(id).U16(cost).U16(cost2).U8(flag);
-        return w.U8((byte)altars).U8((byte)done).ToArray();
+        int count = Math.Min(rows.Count, byte.MaxValue);
+        var w = new LoginWriter().U16(FavoursId)
+            .U32((uint)Math.Max(0, tribute))
+            .U8((byte)Math.Clamp(rerollsUsed, 0, byte.MaxValue))
+            .U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var (id, buy, orig, flag) = rows[i];
+            w.U32(id).U16(buy).U16(orig).U8(flag);
+        }
+        return w.U8((byte)Math.Clamp(altars, 0, byte.MaxValue))
+            .U8((byte)Math.Clamp(done, 0, byte.MaxValue))
+            .ToArray();
+    }
+
+    public static byte[] Favours(int tribute, IReadOnlyList<(uint Id, ushort BuyCost, ushort OriginalCost, byte Flag)> rows, int altars, int done) =>
+        Favours(tribute, 0, rows, altars, done);
+
+    /// <summary>S→C 0x007b kind 0x38: opens the Ritual favour window bound to Manager-1 <paramref name="inventoryId"/>.</summary>
+    public static byte[] OpenFavoursWindow(uint inventoryId = ShopInventoryId) =>
+        InstanceWaypoints.OpenUi(FavoursUiKind, inventoryId);
+
+    /// <summary>C→S 0x0283 (18 bytes, writer 0x141fa43e0): buy/claim a revealed favour item.
+    /// <see cref="DestX"/> / <see cref="DestY"/> are -1 on Ctrl+click (auto-place).</summary>
+    public readonly record struct BuyFavour(uint ItemId, uint DestInventoryRow, int DestX, int DestY);
+
+    public static bool TryReadBuyFavour(ReadOnlySpan<byte> message, out BuyFavour buy)
+    {
+        if (message.Length < 18) { buy = default; return false; }
+        buy = new(
+            BinaryPrimitives.ReadUInt32BigEndian(message[2..6]),
+            BinaryPrimitives.ReadUInt32BigEndian(message[6..10]),
+            BinaryPrimitives.ReadInt32BigEndian(message[10..14]),
+            BinaryPrimitives.ReadInt32BigEndian(message[14..18]));
+        return true;
+    }
+
+    /// <summary>C→S 0x0284 (6 bytes, sender 0x14061cd90): defer a revealed favour item by itemId.</summary>
+    public static bool TryReadDeferFavour(ReadOnlySpan<byte> message, out uint itemId)
+    {
+        if (message.Length < 6) { itemId = 0; return false; }
+        itemId = BinaryPrimitives.ReadUInt32BigEndian(message[2..6]);
+        return true;
     }
 }

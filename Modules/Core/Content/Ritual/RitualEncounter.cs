@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -9,20 +10,9 @@ using GameServer.Modding;
 namespace GameServer.Modules.Ritual;
 
 /// <summary>
-/// An instance's Ritual: the altars, their guards, the monsters tied to them, the start, the revived waves, the daemon, the
-/// tribute and the end. The bodies of the objects and the messages are <see cref="RitualWire"/>.
-/// <para>
-/// The altars are rolled and placed once when the instance's monsters are placed, and belong to the instance, not to a
-/// player: every client of the instance sees and drives the same altars, one who enters later is given the area's objects as
-/// the others have them (the area's object records) and the messages again (<see cref="EnterMessages"/>,
-/// <see cref="Entered"/>), and nothing is torn down when a player leaves. The area's tick, on the connection that runs the
-/// instance's monsters, steps them.
-/// </para>
-/// <para>
-/// Times are seconds summed from the area tick; a capture frame is 1/30 s (<see cref="RitualTables.Frame"/>). Every object
-/// goes out only on a cell inside the area's grid (the client crashed on an object outside the map), and a natural Ritual
-/// sends nothing until a player comes near an altar.
-/// </para>
+/// An instance's Ritual: campaign &amp; map placement, guards, tied monsters, circular arena containment, revived waves,
+/// combat daemons, Tribute calculation (with Atlas &amp; Scarab modifiers), Blood-filled Vessel capture/injection,
+/// Favour window progression, and multiplayer/re-entry replay.
 /// </summary>
 public sealed class RitualEncounter
 {
@@ -31,30 +21,27 @@ public sealed class RitualEncounter
     public const string LightType = "Metadata/Terrain/Leagues/Ritual/RitualRuneLight";
     public const string PoolType = "Metadata/Terrain/Leagues/Ritual/BloodPool";
     public const string BlockerType = "Metadata/Terrain/Leagues/Ritual/RitualBlocker";
+    public const string VesselsContentKey = "ritual.vessels";
+    const string MapOwnerFlag = "IsMapOwner";
 
-    /// <summary>An altar's state, as 0x165 carries it: the .ot's "0 = inactive (monsters around), 1 = ready", 2 running,
-    /// 3 done [capture].</summary>
+    /// <summary>An altar's state, as 0x165 carries it: 0 inactive, 1 ready, 2 running, 3 done.</summary>
     public const int Inactive = 0, Ready = 1, Running = 2, Done = 3;
 
-    /// <summary>CoreLeagues row 20 (Ritual) is the bit of map_disable_leagues; the client's roll reads it.</summary>
     const uint RollSalt = 0x52697475;
-
-    /// <summary>The seconds between two looks at the area's monsters for ones that stand in an inactive altar's circle.</summary>
     const double ScanSeconds = 0.5;
-
-    /// <summary>The seconds between two tests of whether a player came near a hidden altar.</summary>
     const double RevealSeconds = 0.25;
+    static readonly string[] OwnerFlags = [MapOwnerFlag], NoFlags = [];
 
     public sealed class Altar
     {
         public required (int X, int Y) Cell;
         public required float Rotation;
         public required RitualTables.Rune Rune;
-        /// <summary>The guard packs' monsters (MonsterVarieties rows), spawned when the altar shows.</summary>
         public required List<List<int>> Guards;
         public uint Interactable, Object, Light;
         public int State;
         public bool Shown;
+        public bool Bottled;
         public readonly HashSet<uint> Tied = [];
         public readonly HashSet<uint> Dead = [];
         public readonly List<(string Path, MonsterRarity Rarity)> Credit = [];
@@ -88,6 +75,7 @@ public sealed class RitualEncounter
         public readonly Dictionary<uint, Revived> Alive = [];
         public readonly List<uint> Daemons = [];
         public int DaemonsDue;
+        public double NextHazardAt;
         public uint Blocker;
         public int Killed;
     }
@@ -95,52 +83,147 @@ public sealed class RitualEncounter
     public sealed class State
     {
         public readonly List<Altar> Altars = [];
+        public string Owner = "";
         public int Seed;
         public int Level;
         public int Completed;
         public int Tribute;
-        /// <summary>The area's map_ritual_tribute_+%.</summary>
+        public int RerollsUsed;
+        public uint ShopRevision;
+        // Cached area/Atlas/Scarab stats for this instance.
         public int TributePct;
+        public int TributeMorePct;           // Immutable Dogma: map_ritual_tribute_+%_final_from_atlas_keystone
+        public int UniqueTributeMorePct;     // Answered Appeals: map_unique_monster_tribute_multiplier_final_+%
+        public int AdditionalRerolls;        // map_ritual_additional_reward_rerolls
+        public int FreeRerolls;              // map_ritual_number_of_free_rerolls
+        public int RerollCostPctFinal;       // map_ritual_rewards_reroll_cost_+%_final
+        public bool CannotReroll;            // map_ritual_cannot_reroll_rewards
+        public bool VariableCosts;           // map_ritual_offered_rewards_have_additional_variable_cost
+        public bool AllRewardsRevealed;      // map_ritual_all_rewards_revealed
+        public int DeferCostPct;             // map_ritual_defer_reward_tribute_cost_+%
+        public int DeferSoonerPct;           // map_ritual_deferred_rewards_are_offered_again_+%_sooner
+        public int RewardCountPct;           // map_ritual_reward_count_+%
+        public int SplinterStackPct;         // map_ritual_offered_ritual_splinter_reward_stack_size_+%
+        public int FreeRerollRewardPermyriad;// map_ritual_offered_rewards_from_rerolls_have_permyriad_chance_to_cost_no_tribute
+        public int SpawnSpeedPct;            // map_ritual_monster_spawning_speed_+%
+        public int MaxAlivePct;              // map_ritual_maximum_monsters_alive_at_once_+%
+        public int VesselDropChancePct;      // map_ritual_%_chance_to_drop_vessel_from_final_encounter
+        public bool SpawnWisp;               // ritual_altars_spawn_wisp (ScarabRitual2)
+        public int ExtraCorpses;             // map_ritual_x_additional_itemised_corpses_encountered (ScarabRitual4)
+        public bool OpenedWithBloodVessel;
+        public int VesselCount;
+        public readonly List<(string Path, MonsterRarity Rarity)> VesselMonsters = [];
+        public double WispBuffUntil;
+
+        public List<RitualFavours.Offer> Offers = [];
+        public readonly HashSet<uint> ShopSentTo = [];
         public double Now;
         public double ScanAt;
         public double RevealAt;
         public Run? Run;
         public List<Revived> Revived = [];
-        /// <summary>The tied monsters: their altar and what comes back when it starts.</summary>
         public readonly Dictionary<uint, (int Altar, string Path, MonsterRarity Rarity)> Tie = [];
         public readonly HashSet<uint> Seen = [];
         public readonly HashSet<uint> Mine = [];
         public bool Done;
-        /// <summary>One tick, one click or one entry at a time.</summary>
         public readonly SemaphoreSlim Gate = new(1, 1);
-        /// <summary>The area the objects are in: a kept instance generated again has none of them (<see cref="Sync"/>).</summary>
         public GameArea? Area;
     }
 
     readonly ConditionalWeakTable<InstanceState, State> _states = new();
 
-    /// <summary>The module's unload: the encounters go with it (the objects stay in their areas).</summary>
     public void Clear() => _states.Clear();
 
-    /// <summary>The player's instance's Ritual, or null when it placed none.</summary>
     public State? Of(Player player) => player.Instance is { } instance && _states.TryGetValue(instance, out var state) ? state : null;
+
+    public bool IsOwner(Player player, State state) =>
+        string.IsNullOrEmpty(state.Owner) || string.Equals(state.Owner, CharacterName(player), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Grants <c>IsMapOwner</c> (QuestFlags 2020) to the instance owner so client Buy/Defer/Reroll buttons unlock.</summary>
+    public IReadOnlyList<string> QuestFlags(Player player) =>
+        Of(player) is { Altars.Count: > 0 } state && IsOwner(player, state) ? OwnerFlags : NoFlags;
+
+    /// <summary>Applies <c>Stat.IsInRitual = 1</c> and active Wildwood Wisp tribute bonus while inside an active Ritual.</summary>
+    public void ApplyStats(StatSheet sheet)
+    {
+        if (Of(sheet.Player) is not { } state) return;
+        if (state.Run is { } run)
+        {
+            var altar = state.Altars[run.Altar];
+            var pos = sheet.Player.Walk.Position(AreaTime(sheet.Player));
+            if (Distance(pos, altar.Cell) <= RitualTables.RadiusCells + 6)
+                sheet.Add(Stat.IsInRitual, 1);
+        }
+        if (state.WispBuffUntil > state.Now)
+            sheet.Add(Stat.RitualTributePlusPct, 100);
+    }
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
-    static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
-
-    /// <summary>A message that is the area's, not an object's (0x165, 0x166, 0x167, 0xdf), to every client of the instance.</summary>
-    static async Task Broadcast(Player player, byte[] message, string log)
+    public IEnumerable<Player> InstanceClients(Player player)
     {
-        var members = Clients(player).ToList();
+        var members = InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
         if (!members.Contains(player)) members.Insert(0, player);
+        return members;
+    }
+
+    async Task Broadcast(Player player, byte[] message, string log)
+    {
+        var members = InstanceClients(player).ToList();
         for (int i = 0; i < members.Count; i++) await Send(members[i], message.ToArray(), i == 0 ? log : null);
     }
 
-    // ---- the roll and the placement -------------------------------------------------------------------------------------
+    // ---- Map Device Opening: Scarabs & Blood-filled Vessels ------------------------------------------------------------
 
-    /// <summary>The test chance <c>Game_LEAGUE_CHANCES=Ritual=N</c> gives the Ritual row, as <see cref="LeagueChances"/> reads it.</summary>
+    /// <summary>Handles <c>GameEvents.MapOpening</c>: claims <c>"Ritual"</c> content (silencing unhandled scarab warnings),
+    /// validates and extracts up to 4 Blood-filled Vessels (<c>RitualFragment</c>), applies their stacking bonuses
+    /// (+5% IIQ, +20% spawn speed, +20% max alive, +20% improved rewards), and forwards captured monsters to the map run.</summary>
+    public void OnMapOpening(MapOpening request)
+    {
+        if (request.Opening is not { } opening || request.Campaign) return;
+        var vessels = new List<RitualEncounterData>();
+        bool hasRitualScarab = false;
+        foreach (var slot in request.Slots)
+        {
+            if (slot.IsMap) continue;
+            if (slot.BaseId.StartsWith("Metadata/Items/Scarabs/ScarabRitual", StringComparison.Ordinal))
+                hasRitualScarab = true;
+            if (slot.BaseId == RitualTables.BloodFilledVesselId)
+                vessels.Add(slot.SourceItem?.RitualEncounter ?? new RitualEncounterData(opening.Area.Level, 0, []));
+        }
+        if (hasRitualScarab || vessels.Count > 0)
+            request.HandledContent.Add("Ritual");
+        if (vessels.Count == 0) return;
+
+        // Blood-filled Vessels cannot open monsterless / boss-only arenas without natural monsters.
+        if (opening.Area.Id.Contains("Boss", StringComparison.OrdinalIgnoreCase) && !opening.Area.Id.StartsWith("MapWorlds", StringComparison.Ordinal))
+        {
+            request.Opening = null;
+            request.Reason = "Blood-filled Vessels cannot be used on this map.";
+            return;
+        }
+
+        int n = Math.Min(4, vessels.Count);
+        var mods = opening.Mods
+            .WithFragmentStat(Stat.MapAreaContainsRituals, 1)
+            .WithFragmentStat(Stat.MapItemDropQuantityPlusPct, 5 * n)
+            .WithFragmentStat(Stat.MapRitualMonsterSpawningSpeedPlusPct, 20 * n)
+            .WithFragmentStat(Stat.MapRitualMaximumMonstersAliveAtOncePlusPct, 20 * n);
+
+        var content = opening.ContentData is null
+            ? new Dictionary<string, string>(StringComparer.Ordinal)
+            : new Dictionary<string, string>(opening.ContentData, StringComparer.Ordinal);
+        content[VesselsContentKey] = JsonSerializer.Serialize(vessels.Take(n).ToList(), CharacterSaves.Opts);
+
+        request.Opening = opening with
+        {
+            Mods = mods,
+            ContentData = content,
+        };
+    }
+
+    // ---- Roll & Placement (Maps + Retail Campaign Act 2) ---------------------------------------------------------------
+
     public static int? ForcedChance(string? setting)
     {
         foreach (var entry in (setting ?? "").Split(',', StringSplitOptions.TrimEntries))
@@ -149,59 +232,70 @@ public sealed class RitualEncounter
         return null;
     }
 
-    /// <summary>
-    /// Whether the area has Ritual, by the client's own roll for CoreLeagues row 20 (the level generator's league roll,
-    /// <see cref="ExtraTerrainFeatures.LeagueCount"/>): the area's WorldAreaLeagueChances chance raised by
-    /// <c>map_league_base_chance_+%_final</c>, <c>map_league_content_additional_chance_%</c>, the row's
-    /// <c>map_area_ritual_additional_chance_%</c> and <c>map_ritual_encounter_chance_+%</c>, off by
-    /// <c>map_disable_leagues</c>' bit, <c>atlas_keystone_no_extra_content</c>, <c>map_nuke_everything</c>,
-    /// <c>map_area_underlevelled</c> and <c>map_disable_ritual_from_chance</c>, forced by <c>map_area_contains_rituals</c>.
-    /// <c>Game_LEAGUE_CHANCES=Ritual=N</c> is a test's base chance. The stats are the instance's own.
-    /// </summary>
-    static (int Count, string Roll) Roll(AreaPopulated area, IReadOnlyDictionary<uint, int> stats)
+    static (int Count, int ForcedAltars, string Roll) Roll(AreaPopulated area, IReadOnlyDictionary<uint, int> stats, bool isMap)
     {
         var player = area.Player;
         var rng = new Random(unchecked(area.Seed ^ (int)RollSalt));
+        // 1. Explicit test override: Game_LEAGUE_CHANCES=Ritual=N (works in both maps and campaign areas!).
         if (ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")) is int forced)
-            return (LeagueChances.Current.Count(player.Layout.Id, LeagueChances.Ritual, rng), $"Game_LEAGUE_CHANCES {forced}%");
+        {
+            int c = forced >= 100 ? 1 : forced <= 0 ? 0 : rng.Next(100) < forced ? 1 : 0;
+            return (c, 0, $"Game_LEAGUE_CHANCES {forced}%");
+        }
+        // 2. Retail 3.29 campaign integration: WorldAreas.ModsKeys -> MapActsRitualSpawn (Act 2 Northern Forest & Dread Thicket).
+        int campaignForced = RitualTables.CampaignForcedAltars(player.Layout.Id);
+        if (!isMap)
+        {
+            if (campaignForced > 0) return (1, campaignForced, "campaign MapActsRitualSpawn");
+            return (0, 0, "campaign area without Ritual");
+        }
+        // 3. Map roll via native ExtraTerrainFeatures.LeagueCount (handles WorldAreaLeagueChances, Atlas, Scarabs, Secular Focus).
         AreaInfo info;
         try { info = AreaInfo.Load(GamePack.Default.TryRead, player.Layout.Id, area.Level); }
         catch (Exception e) when (e is ArgumentException or IOException or KeyNotFoundException)
         {
-            return (0, $"area row not read ({e.GetType().Name})");
+            return (0, 0, $"area row not read ({e.GetType().Name})");
         }
         var byId = stats.ToDictionary(s => (int)s.Key, s => s.Value);
         return (ExtraTerrainFeatures.LeagueCount(info with { Stats = byId }, new LevelRandom(unchecked((uint)area.Seed ^ RollSalt), false),
-            LeagueChances.Ritual), "the area's roll");
+            LeagueChances.Ritual), 0, "the area's roll");
     }
 
-    /// <summary>
-    /// A new instance's monsters are placed (<see cref="GameEvents.AreaPopulated"/>, once per instance): the roll, then the
-    /// altars on <see cref="AreaPopulation.EncounterSpot"/> cells, each as far from the arrival and the packs as the other
-    /// encounters keep, and from the other altars by <see cref="RitualTables.SpacingMin"/> where the area has room, else by
-    /// their circles. Three to four altars at a level, four with map_ritual_encounter_count_is_four. The entry sends 0x167 = 0
-    /// then 0x166 (tribute 0, none done). An altar shows when a player comes near. Returns why none was placed, null when
-    /// some were.
-    /// </summary>
     public string? Populate(AreaPopulated area)
     {
         var player = area.Player;
         if (player.Instance is not { } instance) return "no instance";
         if (_states.TryGetValue(instance, out _)) return "the instance has its Ritual already";
         var layout = player.Layout;
-        if (!MapDevices.IsMapArea(layout.Hash)) return "not a map";
+        if (InTown(player) || HideoutCatalog.ByArea(layout.Hash) is not null) return "town or hideout";
         if (layout.Walkable is not { } walkable || !RitualTables.Loaded) return "no walk map or no Ritual tables";
+
+        bool isMap = MapDevices.IsMapArea(layout.Hash);
         var stats = instance.KeptAreaStats ?? AreaLeagueStats(player) ?? new Dictionary<uint, int>();
         int S(uint name) => stats.GetValueOrDefault(name);
-        var (count, roll) = Roll(area, stats);
+
+        // Extract any Blood-filled Vessels attached to this map run.
+        List<RitualEncounterData> vessels = [];
+        if (instance.Map?.ContentData is { } cd && cd.TryGetValue(VesselsContentKey, out string? vJson) && !string.IsNullOrWhiteSpace(vJson))
+        {
+            try { vessels = JsonSerializer.Deserialize<List<RitualEncounterData>>(vJson, CharacterSaves.Opts) ?? []; }
+            catch (JsonException) { }
+        }
+
+        var (count, forcedAltars, roll) = Roll(area, stats, isMap);
+        if (vessels.Count > 0 && count < 1) (count, roll) = (1, "Blood-filled Vessel");
         if (count < 1) return $"the roll gave none ({roll})";
-        // The encounter's own draws, apart from the packs' (the same instance gets the same altars).
+
         var rng = new Random(area.Seed ^ (int)RollSalt);
         int level = Math.Clamp((int)area.Level, 1, 100);
         var (lo, hi) = RitualTables.AltarRange(level);
-        if (S(Stat.MapRitualEncounterCountIsFour) > 0) (lo, hi) = (4, 4);
-        var rune = RitualTables.PickRune(level, rng);
+        if (forcedAltars > 0) (lo, hi) = (forcedAltars, forcedAltars);
+        else if (S(Stat.MapRitualEncounterCountIsFour) > 0) (lo, hi) = (4, 4);
+        else if (S(Stat.MapForcedRitualSpawns) > 0) (lo, hi) = (S(Stat.MapForcedRitualSpawns), S(Stat.MapForcedRitualSpawns));
+
+        var rune = RitualTables.PickRune(level, rng, S(Stat.MapRitualUberRuneTypeWeightingPlusPct), isMap);
         if (rune is null) return "no rune for the level";
+
         var taken = area.Taken.ToList();
         var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         int wanted = rng.Next(lo, hi + 1);
@@ -210,24 +304,67 @@ public sealed class RitualEncounter
         {
             if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
                 is not { } at) break;
-            // The first half of the draws keep the captured spacing; a small area then settles for two circles.
             double apart = attempt < wanted * 12 ? RitualTables.SpacingMin : 2 * RitualTables.RadiusCells;
             if (cells.Any(c => Distance(c, at) < apart)) continue;
             cells.Add(at);
             taken.Add(at);
         }
         if (cells.Count == 0) return "no open ground for an altar";
-        var state = new State { Seed = area.Seed, Level = level, TributePct = S(Stat.MapRitualTributePlusPct), Area = player.Area };
-        // Every altar of an area has the same rune [capture: two areas].
+
+        string owner = instance.Map?.Owner is { Length: > 0 } mapOwner ? mapOwner : CharacterName(player);
+        var state = new State
+        {
+            Owner = owner,
+            Seed = area.Seed,
+            Level = level,
+            TributePct = S(Stat.MapRitualTributePlusPct),
+            TributeMorePct = S(Stat.MapRitualTributePlusPctFinalFromAtlasKeystone),
+            UniqueTributeMorePct = S(Stat.MapUniqueMonsterTributeMultiplierFinalPlusPct),
+            AdditionalRerolls = S(Stat.MapRitualAdditionalRewardRerolls),
+            FreeRerolls = S(Stat.MapRitualNumberOfFreeRerolls),
+            RerollCostPctFinal = S(Stat.MapRitualRewardsRerollCostPlusPctFinal),
+            CannotReroll = S(Stat.MapRitualCannotRerollRewards) != 0,
+            VariableCosts = S(Stat.MapRitualOfferedRewardsHaveAdditionalVariableCost) != 0,
+            AllRewardsRevealed = S(Stat.MapRitualAllRewardsRevealed) != 0,
+            DeferCostPct = S(Stat.MapRitualDeferRewardTributeCostPlusPct),
+            DeferSoonerPct = S(Stat.MapRitualDeferredRewardsAreOfferedAgainPlusPctSooner),
+            RewardCountPct = S(Stat.MapRitualRewardCountPlusPct),
+            SplinterStackPct = S(Stat.MapRitualOfferedRitualSplinterRewardStackSizePlusPct),
+            FreeRerollRewardPermyriad = S(Stat.MapRitualOfferedRewardsFromRerollsHavePermyriadChanceToCostNoTribute),
+            SpawnSpeedPct = S(Stat.MapRitualMonsterSpawningSpeedPlusPct),
+            MaxAlivePct = S(Stat.MapRitualMaximumMonstersAliveAtOncePlusPct),
+            VesselDropChancePct = S(Stat.MapRitualPctChanceToDropVesselFromFinalEncounter),
+            SpawnWisp = S(Stat.RitualAltarsSpawnWisp) > 0,
+            ExtraCorpses = Math.Max(0, S(Stat.MapRitualXAdditionalItemisedCorpsesEncountered)),
+            OpenedWithBloodVessel = vessels.Count > 0,
+            VesselCount = vessels.Count,
+            Area = player.Area,
+        };
+
+        // Resolve captured Blood-filled Vessel monsters by MonsterVarieties HASH16.
+        if (vessels.Count > 0)
+        {
+            var byHash16 = new Dictionary<ushort, MonsterCatalog.Variety>();
+            var mvRows = ClientTables.TableOrEmpty("MonsterVarieties");
+            for (int r = 0; r < mvRows.Count && r < Monsters.All.Count; r++)
+                if (mvRows[r].IntOrNull("HASH16") is int h16 && Monsters.All[r] is { Supported: true } mv)
+                    byHash16.TryAdd((ushort)h16, mv);
+            foreach (var v in vessels)
+                foreach (var m in v.Monsters)
+                    if (byHash16.TryGetValue(m.VarietyHash, out var variety))
+                        for (int c = 0; c < Math.Min((int)m.Count, 20); c++)
+                            state.VesselMonsters.Add((variety.Id, MonsterRarity.Normal));
+        }
+
         foreach (var cell in cells) state.Altars.Add(MakeAltar(cell, rune, level, rng));
+        RitualFavours.TickDeferredCooldowns(player);
+        RitualFavours.EnsureOffers(player, state);
         _states.AddOrUpdate(instance, state);
-        Console.WriteLine($"[ritual] {layout.Id}: {roll} gave {count}; level {level}, {state.Altars.Count} altar(s), rune {rune.Id}");
+        Console.WriteLine($"[ritual] {layout.Id}: {roll} gave {count}; level {level}, {state.Altars.Count} altar(s), rune {rune.Id}, offers {state.Offers.Count}"
+            + (state.VesselCount > 0 ? $", {state.VesselCount} vessel(s) ({state.VesselMonsters.Count} captured monsters)" : ""));
         return null;
     }
 
-    /// <summary>The entry's first messages for the instance's Ritual (<see cref="GameEvents.EnterMessages"/>: before the
-    /// area's objects): 0x167 the tribute, then 0x166 the favours window [capture: 0x167 then 0x166 at the area's start].
-    /// The first client's come from <see cref="Placed"/>, as the Ritual does not exist before the area is populated.</summary>
     public IEnumerable<(string Log, byte[] Message)> EnterMessages(Player player) =>
         Of(player) is { Altars.Count: > 0 } state ? Entry(state) : [];
 
@@ -235,14 +372,14 @@ public sealed class RitualEncounter
     {
         yield return ($"0x167 Ritual tribute {state.Tribute}", RitualWire.Tribute(state.Tribute));
         yield return ($"0x166 Ritual favours ({state.Completed}/{state.Altars.Count} done)",
-            RitualWire.Favours(state.Tribute, RitualTables.FavoursRows(state.Completed), state.Altars.Count, state.Completed));
+            RitualWire.Favours(state.Tribute, state.RerollsUsed, RitualFavours.BuildRows(state), state.Altars.Count, state.Completed));
     }
 
-    /// <summary>The entry messages for the populating client, once the Ritual is placed.</summary>
     public async Task Placed(Player player)
     {
         if (Of(player) is not { } state) return;
-        foreach (var (log, message) in Entry(state)) await Send(player, message, log);
+        await RitualFavours.SyncSavedRewardsInventory(player);
+        await RitualFavours.SendShopState(player, state, openWindow: false);
     }
 
     static Altar MakeAltar((int X, int Y) cell, RitualTables.Rune rune, int level, Random rng)
@@ -254,12 +391,8 @@ public sealed class RitualEncounter
         return new Altar { Cell = cell, Rotation = (float)(rng.NextDouble() * Math.Tau), Rune = rune, Guards = guards };
     }
 
-    // ---- entering and the re-created area -----------------------------------------------------------------------------------
+    // ---- Entering & Re-entry Replay ------------------------------------------------------------------------------------
 
-    /// <summary>A player entered the instance (the first time, again by portal or after a death, or as a second party
-    /// member): the area's objects reach them through its object records and the area's monster types with its join; what
-    /// is theirs to be told again is each altar's latest 0x165 and the environment override while a ritual runs. A kept
-    /// instance generated again is the area that has none of the objects, and gets them here.</summary>
     public async Task Entered(Player player)
     {
         if (Of(player) is not { } state || !Current(player)) return;
@@ -267,18 +400,23 @@ public sealed class RitualEncounter
         try
         {
             await Sync(player, state);
+            await RitualFavours.SyncSavedRewardsInventory(player);
+            await RitualFavours.SendShopState(player, state, openWindow: false);
             foreach (var altar in state.Altars)
                 if (altar.Shown && altar.Interactable != 0 && altar.State >= Ready)
-                    await Send(player, RitualWire.AltarState(altar.Interactable, altar.Cell, altar.State), $"0x165 Ritual altar 0x{altar.Interactable:x} state {altar.State}");
-            if (state.Run is { } run && state.Altars[run.Altar].Rune.Environment is int env)
-                await Send(player, InstanceEnvironments.Data(((ushort)env, 0)), $"0xdf Ritual environment {env} on");
+                    await Send(player, RitualWire.AltarState(altar.Interactable, altar.Cell, altar.State),
+                        $"0x165 Ritual altar 0x{altar.Interactable:x} state {altar.State}");
+            if (state.Run is { } run)
+            {
+                var runningAltar = state.Altars[run.Altar];
+                player.SetRingBlocker(run.Blocker, runningAltar.Cell.X, runningAltar.Cell.Y, RitualTables.RadiusCells);
+                if (runningAltar.Rune.Environment is int env)
+                    await Send(player, InstanceEnvironments.Data(((ushort)env, 0)), $"0xdf Ritual environment {env} on");
+            }
         }
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>The objects the encounter holds, made again in an area that is not the one they were made in, as they stand
-    /// now. The monsters of the old area are gone with it: the run's that are not in the new one leave the run without
-    /// tribute.</summary>
     async Task Sync(Player player, State state)
     {
         if (ReferenceEquals(state.Area, player.Area)) return;
@@ -292,7 +430,6 @@ public sealed class RitualEncounter
             foreach (uint pool in altar.Pools.Concat(altar.Faded.Select(f => f.Pool)))
                 await CreatePool(player, altar, pool, altar.Cell);
         }
-        // The old area's monsters are not dead: they leave the altars' ties, so none credits an altar.
         foreach (var (id, (k, _, _)) in state.Tie.Where(t => !MonsterShown(player, t.Key)).ToList())
         {
             state.Tie.Remove(id);
@@ -308,11 +445,8 @@ public sealed class RitualEncounter
         }
     }
 
-    // ---- the tick -----------------------------------------------------------------------------------------------------
+    // ---- Tick ----------------------------------------------------------------------------------------------------------
 
-    /// <summary>One tick (<see cref="GameEvents.AreaTick"/>), by the connection that steps the area's monsters: the altars a
-    /// player came near show, deaths of tied monsters credit their altar, an altar whose tied monsters are all dead is ready,
-    /// and a running ritual steps.</summary>
     public async Task Advance(Player runner, double seconds)
     {
         if (runner.Paused || Of(runner) is not { Done: false, Altars.Count: > 0 } state || !IsMonsterRunner(runner) || !Current(runner)) return;
@@ -326,7 +460,7 @@ public sealed class RitualEncounter
             if (state.Now >= state.RevealAt && state.Altars.Any(a => !a.Shown))
             {
                 state.RevealAt = state.Now + RevealSeconds;
-                var here = Clients(runner).Select(c => c.Walk.Position(AreaTime(c))).DefaultIfEmpty(runner.Walk.Position(now)).ToList();
+                var here = InstanceClients(runner).Select(c => c.Walk.Position(AreaTime(c))).DefaultIfEmpty(runner.Walk.Position(now)).ToList();
                 for (int k = 0; k < state.Altars.Count; k++)
                     if (!state.Altars[k].Shown && here.Any(p => Distance(p, state.Altars[k].Cell) <= RitualTables.RevealDistance))
                         await Reveal(runner, state, k);
@@ -339,8 +473,6 @@ public sealed class RitualEncounter
         finally { state.Gate.Release(); }
     }
 
-    /// <summary>The altar's three objects at its cell (the create order Interactable, Object, Light), then its guard packs,
-    /// every guard tied to it.</summary>
     async Task Reveal(Player player, State state, int k)
     {
         var altar = state.Altars[k];
@@ -356,10 +488,18 @@ public sealed class RitualEncounter
         altar.Light = player.TakeObjectId();
         await CreateAltar(player, altar);
         await SpawnGuards(player, state, k);
+
+        // Campaign & tutorial quest flags on first Ritual sight.
+        var flags = new List<string>();
+        if (!ClientHasQuestFlag(player, "RitualFound")) flags.Add("RitualFound");
+        if (!ClientHasQuestFlag(player, "RitualAltarSeen")) flags.Add("RitualAltarSeen");
+        if (player.Layout.Id == "1_2_8" && !ClientHasQuestFlag(player, "ForcedRitualUsedNorthernForest"))
+            flags.Add("ForcedRitualUsedNorthernForest");
+        else if (player.Layout.Id == "1_2_13" && !ClientHasQuestFlag(player, "ForcedRitualUsedDreadThicket"))
+            flags.Add("ForcedRitualUsedDreadThicket");
+        if (flags.Count > 0) await SetQuestFlags(player, flags);
     }
 
-    /// <summary>The altar's objects as its state has them now: the Interactable, the Object and, until it is done, the Light
-    /// [capture: states 0/0, 1/1, 2/0 and 3/1 for the Interactable, the others the same value].</summary>
     static async Task CreateAltar(Player player, Altar altar)
     {
         float progress = Progress(altar);
@@ -375,7 +515,6 @@ public sealed class RitualEncounter
                 $"0x2bb Ritual altar light 0x{altar.Light:x}");
     }
 
-    /// <summary>One object of the area: its create, woken at once (a blob whose first byte has 0x02 wakes itself).</summary>
     static Task Create(Player player, uint id, string type, byte[] blob, string log) =>
         SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), blob), log,
             wake: (blob[0] & 0x02) == 0, awaitBirth: false);
@@ -389,8 +528,9 @@ public sealed class RitualEncounter
         if (altar.Guards.Count == 0) return;
         var layout = player.Layout;
         var rng = new Random(HashCode.Combine(state.Seed, altar.Cell.X, altar.Cell.Y, k));
-        foreach (var pack in altar.Guards)
+        for (int p = 0; p < altar.Guards.Count; p++)
         {
+            var pack = altar.Guards[p];
             (int X, int Y)? spot = null;
             for (int t = 0; t < 20 && spot is null; t++)
             {
@@ -400,23 +540,24 @@ public sealed class RitualEncounter
                 if (Floor(layout, c)) spot = c;
             }
             if (spot is not { } at) continue;
-            foreach (int row in pack)
+            for (int m = 0; m < pack.Count; m++)
             {
+                int row = pack[m];
                 var c = Snap(layout, (at.X + rng.Next(-RitualTables.GuardScatter, RitualTables.GuardScatter + 1),
                     at.Y + rng.Next(-RitualTables.GuardScatter, RitualTables.GuardScatter + 1))) ?? at;
-                uint id = await Spawn(player, state, row, MonsterRarity.Normal, c, mine: false, rune: altar.Rune);
+                // Promote first monster of pack 0 to Magic/Rare with ScarabRitual4 or naturally for richer tribute.
+                var rarity = p == 0 && m == 0 && state.ExtraCorpses > 0 ? MonsterRarity.Rare
+                    : m == 0 && rng.Next(4) == 0 ? MonsterRarity.Magic
+                    : MonsterRarity.Normal;
+                uint id = await Spawn(player, state, row, rarity, c, mine: false, rune: altar.Rune);
                 if (id == 0) continue;
-                state.Tie[id] = (k, Monsters.All[row].Id, MonsterRarity.Normal);
+                state.Tie[id] = (k, Monsters.All[row].Id, rarity);
                 state.Seen.Add(id);
                 altar.Tied.Add(id);
             }
         }
     }
 
-    /// <summary>Ties the monsters seen for the first time inside an inactive altar's circle (the nearest altar), and credits
-    /// a tied monster's death to its altar: a BloodPool in the circle and the light's scale. Only while an altar is still
-    /// inactive does it look at the area's monsters, twice a second; a hidden altar ties nothing (its monsters are the ones
-    /// around it once a player has come near).</summary>
     async Task Deaths(Player player, State state)
     {
         var died = new List<(int Altar, string Path, MonsterRarity Rarity)>();
@@ -429,7 +570,6 @@ public sealed class RitualEncounter
             {
                 if (state.Seen.Contains(id) || state.Mine.Contains(id) || m.Life == 0) continue;
                 state.Seen.Add(id);
-                // A friendly monster and a summon never join.
                 if (!m.Hostile || m.OwnerId is not null || m.SummonerId is not null || m.Variety is null) continue;
                 var cell = m.Walk.Position(now);
                 int best = -1;
@@ -477,8 +617,6 @@ public sealed class RitualEncounter
             RitualWire.LightScale(LightScale(Progress(altar)))), $"0x2bc Ritual light 0x{altar.Light:x} scale", null);
     }
 
-    /// <summary>Ready when every monster tied to the altar is dead (nothing tied: at once): 0x165 1, the Interactable's 07 01
-    /// and StateMachine (1, 1), the Object's and the Light's StateMachine 1 [capture].</summary>
     async Task CheckReady(Player player, State state, int k)
     {
         var altar = state.Altars[k];
@@ -501,17 +639,22 @@ public sealed class RitualEncounter
                 RitualWire.LightStates, new StateMachineData([state], 0)), "0x2bc Ritual light states", null);
     }
 
-    // ---- the click ------------------------------------------------------------------------------------------------------
+    // ---- Clicking an Altar (Start Ready OR Open Favours on Done) -------------------------------------------------------
 
-    /// <summary>A click on an altar (<see cref="GameEvents.ObjectUse"/>): walk up to a ready one, start it only in reach with
-    /// the action still current, one ritual at a time, and always end the action. Anything else is swallowed: the client
-    /// opens the favours window from the last 0x166. False when the click was not this instance's altar.</summary>
     public async Task<bool> OnUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
         if (Of(player) is not { } state || state.Altars.FirstOrDefault(a => a.Interactable != 0 && a.Interactable == use.TargetId) is not { } altar)
             return false;
-        // A dead, leaving or just-arrived player's click is the altar's too, and does nothing.
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
+
+        // Clicking a completed altar opens the Ritual Favour window!
+        if (altar.State == Done)
+        {
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
+            await RitualFavours.HandleOpen(player, this);
+            return true;
+        }
+
         if (altar.State != Ready || state.Run is not null)
         {
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null);
@@ -520,7 +663,7 @@ public sealed class RitualEncounter
         int size = QuestObjectTypes.Find(InteractableType)?.Size ?? 4;
         if (!TryBeginObjectWalk(player, requestedAt, altar.Cell.X, altar.Cell.Y, size, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
-        if (!use.Started)   // a lockstep client got its start from the frame pass
+        if (!use.Started)
             await SendWorldRecord(player, player.Id, InstanceProtocol.ActionStarted(player.Id, here.X, here.Y,
                 altar.Cell.X, altar.Cell.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId),
                 $"0x01ab player starts Ritual altar 0x{altar.Interactable:x} from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s",
@@ -545,16 +688,136 @@ public sealed class RitualEncounter
         return true;
     }
 
-    /// <summary>The start: the revived are the altar's credited monsters and, once more, every one an earlier altar of the
-    /// area revived [one pool shared by the altars]; their places the rune .ao's locators in the RitualSpawnPatterns order.
-    /// 0x165 2, 0xdf on, the Interactable's 07 00 and StateMachine (2, 0), the Object's and the Light's 2, the
-    /// RitualBlocker [capture: the 0xdf follows the 0x165 by 6 records].</summary>
+    // ---- Ritual Vessel Bottling (C→S 0x0074 / 0x0079) ------------------------------------------------------------------
+
+    static readonly byte[] CurrencyRows = [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
+
+    public Task<bool> OnUseItemOnObject(Player player, byte[] message) =>
+        message.Length != InstanceItems.UseItemOnObjectLength
+            ? Task.FromResult(false)
+            : BottleAltar(player, InstanceItems.ReadUseItemOnObject(message));
+
+    public Task<bool> OnUseItemTypeOnObject(Player player, byte[] message)
+    {
+        if (message.Length < InstanceItems.UseItemTypeOnObjectLength) return Task.FromResult(false);
+        var req = InstanceItems.ReadUseItemTypeOnObject(message);
+        if (Of(player) is not { } state || state.Altars.All(a => a.Interactable != req.TargetObjectId))
+            return Task.FromResult(false);
+        var items = ItemsOf(player);
+        foreach (byte row in CurrencyRows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
+                return BottleAltar(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId));
+        return Task.FromResult(true);
+    }
+
+    async Task<bool> BottleAltar(Player player, InstanceItems.UseItemOnObject use)
+    {
+        if (Of(player) is not { } state) return false;
+        var altar = state.Altars.FirstOrDefault(a => a.Interactable != 0 && a.Interactable == use.TargetObjectId);
+        if (altar is null) return false;
+        var items = ItemsOf(player);
+        if (PlayerInventories.Row(use.InventoryId) is not byte row
+            || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } stack
+            || ItemsFor(player).ByHash(stack.Item.TypeHash) is not { Id: RitualTables.RitualVesselId })
+            return false;
+
+        await state.Gate.WaitAsync();
+        try
+        {
+            if (state.OpenedWithBloodVessel)
+            {
+                await Send(player, InstanceChat.ChatLine("Ritual Vessels cannot be used in a map opened with a Blood-filled Vessel"),
+                    "0x0017 Ritual Vessel blocked (blood vessel map)");
+                return true;
+            }
+            if (altar.State != Done)
+            {
+                await Send(player, InstanceChat.ChatLine("Ritual Vessels can only be used on a completed Ritual Altar"),
+                    "0x0017 Ritual Vessel blocked (not done)");
+                return true;
+            }
+            if (altar.Bottled)
+            {
+                await Send(player, InstanceChat.ChatLine("Ritual Vessels cannot be used on a Ritual Altar more than once"),
+                    "0x0017 Ritual Vessel blocked (already bottled)");
+                return true;
+            }
+            var vesselItem = BuildBloodFilledVessel(player, state, altar);
+            if (vesselItem is null) return true;
+
+            var consumed = items.ConsumeOne(row, stack.Id);
+            if (consumed is null) return true;
+            altar.Bottled = true;
+
+            var removed = new List<uint> { stack.Id };
+            var added = new List<InventoryItem>();
+            if (consumed.Left is { } left) added.Add(left);
+
+            if (items.Fits(row, vesselItem, ShapeOf))
+            {
+                var placed = items.AddStacked(row, vesselItem, ShapeOf);
+                removed.AddRange(placed.Changed.Select(i => i.Id));
+                added.AddRange(placed.Changed);
+                added.AddRange(placed.Added);
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), removed, added),
+                    "0x00bf Ritual Vessel bottled -> Blood-filled Vessel");
+            }
+            else
+            {
+                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), removed, added),
+                    "0x00bf Ritual Vessel consumed");
+                await DropMadeItem(player, vesselItem, altar.Cell, "Ritual Vessel bottling");
+            }
+            await Send(player, InstanceChat.ChatLine("Captured the monsters of this Ritual Altar in a Blood-filled Vessel."),
+                "0x0017 Ritual Vessel bottled chat");
+        }
+        finally { state.Gate.Release(); }
+        return true;
+    }
+
+    static Item? BuildBloodFilledVessel(Player player, State state, Altar altar)
+    {
+        if (ItemsFor(player).Find(RitualTables.BloodFilledVesselId) is not { Supported: true } type) return null;
+        var mvRows = ClientTables.TableOrEmpty("MonsterVarieties");
+        var counts = new Dictionary<ushort, int>();
+        foreach (var (path, _) in altar.Credit)
+        {
+            if (Monsters.Find(path) is not { } variety || variety.Row < 0 || variety.Row >= mvRows.Count) continue;
+            if (mvRows[variety.Row].IntOrNull("HASH16") is not int hash16) continue;
+            ushort h = (ushort)hash16;
+            counts[h] = counts.GetValueOrDefault(h) + 1;
+        }
+        var monsters = counts
+            .OrderByDescending(kv => kv.Value)
+            .Take(16)
+            .Select(kv => new RitualEncounterMonster(kv.Key, (ushort)Math.Clamp(kv.Value, 1, ushort.MaxValue)))
+            .ToList();
+        return ItemCatalog.Create(type) with
+        {
+            ItemLevel = (byte)Math.Clamp(state.Level, 1, 100),
+            RitualEncounter = new RitualEncounterData(state.Level, player.Layout.Hash, monsters),
+        };
+    }
+
+    static async Task DropMadeItem(Player player, Item item, (int X, int Y) at, string source)
+    {
+        var (x, y) = player.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? player.Layout.Near(at) : at;
+        var ground = new WorldItemObject(x, y, item);
+        uint id = player.Instance.Ground.Add(ground, player, shared: false);
+        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(WorldItemObject.MetadataPath), ground.Blob(justDropped: true)),
+            $"0x02bb Blood-filled Vessel 0x{id:x} from {source} at ({x}, {y})", wake: true, awaitBirth: false);
+    }
+
+    // ---- Start, Step, Daemons & Finish ---------------------------------------------------------------------------------
+
     async Task Start(Player player, State state, int k)
     {
         var altar = state.Altars[k];
         var rng = new Random(HashCode.Combine(state.Seed, altar.Cell.X, altar.Cell.Y, state.Completed));
         var monsters = altar.Credit.Select(c => new Revived { Path = c.Path, Rarity = c.Rarity, N = 1 })
-            .Concat(state.Revived.Select(m => new Revived { Path = m.Path, Rarity = m.Rarity, N = m.N + 1 })).ToList();
+            .Concat(state.Revived.Select(m => new Revived { Path = m.Path, Rarity = m.Rarity, N = m.N + 1 }))
+            .Concat(state.VesselMonsters.Select(v => new Revived { Path = v.Path, Rarity = v.Rarity, N = 1 }))
+            .ToList();
         Shuffle(monsters, rng);
         var locators = RitualTables.LocatorsOf(altar.Rune.Ao);
         var order = new List<(double X, double Y)>();
@@ -566,9 +829,31 @@ public sealed class RitualEncounter
         }
         if (order.Count == 0) order = locators.Outside.Count > 0 ? [.. locators.Outside] : [(0, 0)];
         altar.State = Running;
-        var run = new Run { Altar = k, StartedAt = state.Now, Monsters = monsters, Order = order, Rng = rng, Blocker = player.TakeObjectId() };
+        var run = new Run
+        {
+            Altar = k,
+            StartedAt = state.Now,
+            Monsters = monsters,
+            Order = order,
+            Rng = rng,
+            Blocker = player.TakeObjectId(),
+            NextHazardAt = 2.5,
+        };
         state.Run = run;
         state.Revived = [];
+
+        // Apply server-side circular arena containment ring + IsInRitual stat refresh for all clients in the instance.
+        foreach (var peer in InstanceClients(player))
+        {
+            peer.SetRingBlocker(run.Blocker, altar.Cell.X, altar.Cell.Y, RitualTables.RadiusCells);
+            if (state.SpawnWisp)
+            {
+                state.WispBuffUntil = state.Now + 60.0;
+                peer.Area.Buffs.Set(peer.Id, new(RitualTables.WispBuffRow, peer.Id, U68: Buff.Seconds(60.0)));
+            }
+            await SendCharacterStats(peer, PlayerStatChange.Build);
+        }
+
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Running), $"0x165 Ritual altar 0x{altar.Interactable:x} starts");
         if (altar.Rune.Environment is int env)
             await Broadcast(player, InstanceEnvironments.Data(((ushort)env, 0)), $"0xdf Ritual environment {env} on");
@@ -576,24 +861,22 @@ public sealed class RitualEncounter
         await Create(player, run.Blocker, BlockerType, RitualWire.Blocker(altar.Cell, RitualTables.RadiusCells), $"0x2bb Ritual blocker 0x{run.Blocker:x}");
     }
 
-    /// <summary>The running ritual: the daemon every EveryMs, the waves, the tribute of each revived monster killed (0x167),
-    /// the faded pools' removal, and the end once every revived monster is spawned and dead.</summary>
     async Task RunStep(Player player, State state, Run run)
     {
         var altar = state.Altars[run.Altar];
         var layout = player.Layout;
         double t = state.Now - run.StartedAt;
+
+        // 1. Daemon spawning & combat hazard pulses.
         if (altar.Rune.Daemon is { Varieties.Count: > 0, EveryMs: > 0 } daemon)
+        {
             while (run.DaemonsDue < Math.Max(1, daemon.Max) && t >= run.DaemonsDue * daemon.EveryMs / 1000.0)
             {
                 var spots = RitualTables.LocatorsOf(altar.Rune.Ao).Daemon;
                 var xy = spots.Count > 0 ? spots[run.Rng.Next(spots.Count)] : (0, 0);
                 run.DaemonsDue++;
                 if (Snap(layout, RitualTables.LocatorCell(altar.Cell, altar.Rotation, xy)) is not { } c) continue;
-                int row = daemon.Varieties[0];
-                // A daemon variety whose object type is a real monster (its .ot extends a monster base) spawns as one, at
-                // the run's level, and counts like the run's other monsters: the run waits for it, its death adds tribute
-                // and it comes back at the next altar. A variety with no monster base stays a daemon object.
+                int row = daemon.Varieties[run.Rng.Next(daemon.Varieties.Count)];
                 if (row >= 0 && row < Monsters.All.Count && Monsters.All[row] is { Supported: true } variety
                     && RitualTables.IsMonsterType(variety)
                     && await Spawn(player, state, row, MonsterRarity.Normal, c, mine: true, rune: altar.Rune) is uint monster and not 0)
@@ -601,13 +884,25 @@ public sealed class RitualEncounter
                 else if (await CreateDaemon(player, state, row, c) is uint id and not 0)
                     run.Daemons.Add(id);
             }
-        double first = RitualTables.FirstWaveFrames * RitualTables.Frame, spacing = RitualTables.WaveSpacingFrames * RitualTables.Frame,
-            gap = RitualTables.WaveGapFrames * RitualTables.Frame;
+            if (run.Daemons.Count > 0 && t >= run.NextHazardAt)
+            {
+                double period = Math.Clamp(daemon.EveryMs / 1000.0, 2.5, 6.0);
+                run.NextHazardAt = t + period;
+                await PulseDaemonHazard(player, state, altar, run);
+            }
+        }
+
+        // 2. Wave spawning with SpawnSpeed +% and MaxAlive +% (RitualBalancePerLevel + Atlas + Blood-filled Vessels).
+        double speedScale = Math.Max(0.25, 1.0 + state.SpawnSpeedPct / 100.0);
+        int maxAlive = Math.Max(8, RitualTables.MaxAlive(state.Level) * Math.Max(50, 100 + state.MaxAlivePct) / 100);
+        double first = RitualTables.FirstWaveFrames * RitualTables.Frame,
+            spacing = RitualTables.WaveSpacingFrames * RitualTables.Frame / speedScale,
+            gap = RitualTables.WaveGapFrames * RitualTables.Frame / speedScale;
         if (run.Waves.Count == 0 && t >= first) run.Waves.Add(new Wave { At = t });
         if (run.Waves.Count > 0)
         {
             var wave = run.Waves[^1];
-            while (wave.Spawned < RitualTables.WaveSize && run.Next < run.Monsters.Count && t >= wave.At + wave.Spawned * spacing)
+            while (wave.Spawned < RitualTables.WaveSize && run.Next < run.Monsters.Count && run.Alive.Count < maxAlive && t >= wave.At + wave.Spawned * spacing)
             {
                 var m = run.Monsters[run.Next];
                 run.Next++;
@@ -637,14 +932,24 @@ public sealed class RitualEncounter
                     run.Waves.Add(new Wave { At = t });
             }
         }
+
+        // 3. Revived monster deaths -> Tribute calculation (Area +% + Wisp +% + Immutable Dogma MORE + Answered Appeals Unique MORE).
         foreach (var (id, m) in run.Alive.Where(kv => !Alive(player, kv.Key)).ToList())
         {
             run.Alive.Remove(id);
             run.Killed++;
-            state.Tribute += RitualTables.TributeOf(m.Rarity, m.N) * Math.Max(0, 100 + state.TributePct) / 100;
+            int baseTribute = RitualTables.TributeOf(m.Rarity, m.N);
+            int incPct = state.TributePct + (state.WispBuffUntil > state.Now ? 100 : 0);
+            double gained = baseTribute * Math.Max(0, 100 + incPct) / 100.0;
+            if (state.TributeMorePct != 0)
+                gained *= Math.Max(0, 100 + state.TributeMorePct) / 100.0;
+            if (m.Rarity == MonsterRarity.Unique && state.UniqueTributeMorePct != 0)
+                gained *= Math.Max(0, 100 + state.UniqueTributeMorePct) / 100.0;
+            state.Tribute += (int)gained;
             await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
             state.Revived.Add(m);
         }
+
         foreach (var faded in altar.Faded.Where(f => state.Now - f.At >= RitualTables.PoolFadeFrames * RitualTables.Frame).ToList())
         {
             await SendWorldRemoval(player, faded.Pool, $"0x2bd Ritual BloodPool 0x{faded.Pool:x}");
@@ -654,18 +959,69 @@ public sealed class RitualEncounter
             await Finish(player, state, run);
     }
 
-    /// <summary>The end: 0x165 3, 0xdf off, 0x166 with the new tribute and done, 0x167 [capture: both runs of the level 77 area
-    /// send them in this order], the Interactable's 07 01 and StateMachine (3, 1), the Object's and the Light's 3, then the
-    /// daemons, the blocker, the light and the pools go.</summary>
+    /// <summary>Executes the rune's daemon arena hazard (elemental/chaos/physical pulses, or golden coin tribute).</summary>
+    async Task PulseDaemonHazard(Player player, State state, Altar altar, Run run)
+    {
+        string id = altar.Rune.Id;
+        // Golden/Opulent coin shower grants bonus Tribute on pulse!
+        if (id.Contains("Golden", StringComparison.OrdinalIgnoreCase))
+        {
+            state.Tribute += 15 + state.Level / 4;
+            await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual golden coin +{15 + state.Level / 4} -> {state.Tribute}");
+            return;
+        }
+        DamageType dmgType = id.Contains("Fire", StringComparison.OrdinalIgnoreCase) || id.Contains("Apocalyp", StringComparison.OrdinalIgnoreCase) ? DamageType.Fire
+            : id.Contains("Cold", StringComparison.OrdinalIgnoreCase) || id.Contains("Glacial", StringComparison.OrdinalIgnoreCase) ? DamageType.Cold
+            : id.Contains("Lightning", StringComparison.OrdinalIgnoreCase) || id.Contains("Volatile", StringComparison.OrdinalIgnoreCase) ? DamageType.Lightning
+            : id.Contains("Chaos", StringComparison.OrdinalIgnoreCase) || id.Contains("Malevolent", StringComparison.OrdinalIgnoreCase) || id.Contains("Nameless", StringComparison.OrdinalIgnoreCase) ? DamageType.Chaos
+            : DamageType.Physical;
+
+        // Pick a hazard strike point near a random inside player (offset slightly so moving players naturally dodge!).
+        var targets = InstanceClients(player)
+            .Where(c => c.PlayerLife > 0 && !c.Immune && !InGracePeriod(c)
+                && Distance(c.Walk.Position(AreaTime(c)), altar.Cell) <= RitualTables.RadiusCells)
+            .ToList();
+        if (targets.Count == 0) return;
+        var chosen = targets[run.Rng.Next(targets.Count)];
+        var pPos = chosen.Walk.Position(AreaTime(chosen));
+        var strike = (pPos.X + run.Rng.Next(-14, 15), pPos.Y + run.Rng.Next(-14, 15));
+        int baseDmg = Math.Max(8, (int)(state.Level * state.Level * 0.14 + state.Level * 4));
+        if (altar.Rune.IsUber) baseDmg = baseDmg * 135 / 100;
+        const double hazardRadius = 12.0;
+
+        foreach (var target in targets)
+        {
+            if (Distance(target.Walk.Position(AreaTime(target)), strike) > hazardRadius) continue;
+            if (!TrySyntheticEnemyHit(target, dmgType, baseDmg, block: true, spell: true, suppress: true, out var hit)) continue;
+            if (hit.Damage > 0)
+            {
+                var pStats = CharacterPlayerStats(target);
+                ApplyPlayerAilmentsLocked(target, DamagePacket.Of(dmgType, baseDmg, baseDmg), hit.Taken,
+                    false, hit.Blocked, AreaTime(target), pStats);
+            }
+            await SendPlayerEnergyShield(target);
+            if (hit.Mana != hit.ManaBefore) await SendPlayerMana(target, "ritual daemon mana");
+            if (target.PlayerLife == 0) await PlayerDied(target, $"death from Ritual {altar.Rune.Id} daemon");
+        }
+    }
+
     async Task Finish(Player player, State state, Run run)
     {
         var altar = state.Altars[run.Altar];
         altar.State = Done;
         state.Completed++;
+
+        // Clear circular arena blocker & refresh IsInRitual stat for every client in the instance.
+        foreach (var peer in InstanceClients(player))
+            peer.RemoveBlocker(run.Blocker);
+
+        // Reveal newly unlocked Favour items before broadcasting 0x0166!
+        await RitualFavours.RevealForProgress(player, state, InstanceClients);
+
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Done), $"0x165 Ritual altar 0x{altar.Interactable:x} done");
         if (altar.Rune.Environment is int env)
             await Broadcast(player, InstanceEnvironments.Data(((ushort)env, RitualTables.EndEnvironmentSeconds)), $"0xdf Ritual environment {env} off");
-        await Broadcast(player, RitualWire.Favours(state.Tribute, RitualTables.FavoursRows(state.Completed), state.Altars.Count, state.Completed),
+        await Broadcast(player, RitualWire.Favours(state.Tribute, state.RerollsUsed, RitualFavours.BuildRows(state), state.Altars.Count, state.Completed),
             $"0x166 Ritual favours ({state.Completed}/{state.Altars.Count} done)");
         await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
         await States(player, altar, 1, [3, 1], 3);
@@ -678,13 +1034,28 @@ public sealed class RitualEncounter
         altar.Faded.Clear();
         altar.Light = 0;
         state.Run = null;
-        if (state.Altars.All(a => a.State >= Done)) state.Done = true;
+
+        // Refresh stats now that state.Run is null so IsInRitual clears immediately.
+        foreach (var peer in InstanceClients(player))
+            await SendCharacterStats(peer, PlayerStatChange.Build);
+
+        // Final altar completion: Sacrificial Due Atlas passive (15% chance to drop a Blood-filled Vessel).
+        bool allDone = state.Altars.All(a => a.State >= Done);
+        if (allDone)
+        {
+            state.Done = true;
+            if (state.VesselDropChancePct > 0 && run.Rng.Next(100) < state.VesselDropChancePct
+                && BuildBloodFilledVessel(player, state, altar) is { } vessel)
+                await DropMadeItem(player, vessel, altar.Cell, "Sacrificial Due final Ritual altar");
+            if (!ClientHasQuestFlag(player, "RitualCompleteAll"))
+                await SetQuestFlags(player, ["RitualCompleteAll"]);
+        }
+        if (!ClientHasQuestFlag(player, "RitualFightComplete"))
+            await SetQuestFlags(player, ["RitualFightComplete"]);
     }
 
-    // ---- monsters -----------------------------------------------------------------------------------------------------
+    // ---- Monsters & Daemons --------------------------------------------------------------------------------------------
 
-    /// <summary>A ritual monster: the rune's buff rides on it, its BuffDefinitions stats as the spawn's extra stats and its
-    /// ModsKey rows as extra mods. A rune with neither spawns as any monster does.</summary>
     async Task<uint> Spawn(Player player, State state, int row, MonsterRarity rarity, (int X, int Y) cell, bool mine, RitualTables.Rune rune)
     {
         var all = Monsters.All;
@@ -700,8 +1071,6 @@ public sealed class RitualEncounter
         return id;
     }
 
-    /// <summary>A daemon as the client sees it: its 0x20 type (every client of the area is told once) and its create; not in
-    /// the fight. 0 when the catalogue cannot write it.</summary>
     static async Task<uint> CreateDaemon(Player player, State state, int row, (int X, int Y) cell)
     {
         var all = Monsters.All;
@@ -722,11 +1091,10 @@ public sealed class RitualEncounter
         return id;
     }
 
-    /// <summary>A monster counts as living while it is awake and alive or waits dormant to emerge.</summary>
     static bool Alive(Player player, uint id) =>
         player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0 || player.Area.DormantMonsters.ContainsKey(id);
 
-    // ---- helpers ------------------------------------------------------------------------------------------------------
+    // ---- Helpers -------------------------------------------------------------------------------------------------------
 
     static float Progress(Altar altar) => altar.Tied.Count == 0 ? 0 : (float)altar.Dead.Count / altar.Tied.Count;
 
@@ -736,7 +1104,6 @@ public sealed class RitualEncounter
 
     static bool Floor(AreaLayout layout, (int X, int Y) c) => InMap(layout, c) && layout.WalkableFor(c.X, c.Y, 0);
 
-    /// <summary>The cell itself when it is floor, else the nearest floor cell within 6; null if none.</summary>
     static (int X, int Y)? Snap(AreaLayout layout, (int X, int Y) c)
     {
         if (Floor(layout, c)) return c;

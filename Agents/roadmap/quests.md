@@ -16,6 +16,6 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
 - **Start:** a run of the whole campaign on the modules with the client: Acts 2 to 10, the Epilogue and the Pantheon
   have not had one yet (check the Pantheon panel highlight, Divine Vessel soul capture and Sin's "Unlock Power":
   [pantheon](../docs/game/campaign/pantheon.md) §1). Wire campaign league introductions and
-  encounters (Vaal Side Areas, Bestiary/Einhar, Blight/Cassia, Ritual, Delirium Mirrors) once their league modules land.
+  encounters (Vaal Side Areas, Bestiary/Einhar, Blight/Cassia, Delirium Mirrors) once their league modules land.
   The Strand's gate animation ([12](../docs/protocol/12-quests.md) §6) and a1q4's waterfall animation (§4) are low priority.
 - **Done when:** the campaign's quests can be played through, with their world changes, logs and rewards.
