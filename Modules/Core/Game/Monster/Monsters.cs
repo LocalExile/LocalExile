@@ -2997,7 +2997,7 @@ public static partial class Game
             hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
         if (attackHit && !cannotEvade && StatOf(Stat.KeystoneWindDancer) != 0 && player.RecentEvents.Happened(EnemyAttackHit, now))
             hitChance = Math.Max(5, 100 - (100 - hitChance) * 110 / 100);
-        if (attackHit && EvadesLocked(player, hitChance, now))
+        if (attackHit && !cannotEvade && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
