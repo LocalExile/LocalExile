@@ -266,9 +266,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   prediction, and a stat-only skill refresh (a guard or self buff starting/ending) no longer rebuilds the skill bar; a
   skill-list refresh during the buff (movement, conditional item stats) re-publishes the held entry, since the client's
   skill replacement would otherwise refresh its zero-rate entry: the ring does not sweep or replay on the first press or
-  while moving (#1127). A stat-value-only skill refresh (flask, charge, aura, Rage) sends one `0x01b4` per changed
-  stat set, not the whole `0x02bc`; every other case sends the whole list.
   while moving (#1127).
+  A stat-value-only skill refresh (flask, charge, aura, Rage) sends one `0x01b4` per changed stat set, not the whole
+  `0x02bc`; every other case sends the whole list.
   Blink cooldown refreshes use the same gem copy as the shared debit.
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
