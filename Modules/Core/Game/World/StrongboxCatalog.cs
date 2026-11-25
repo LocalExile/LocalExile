@@ -163,13 +163,14 @@ public static class StrongboxCatalog
 
     /// <param name="unique">A unique box: its own model, and its name (Words) in ObjectMagicProperties.</param>
     public static byte[] Blob(Definition type, int x, int y, bool started, bool opened, byte rarity,
-        IReadOnlyList<ItemMod>? mods, IReadOnlyList<(uint Key, int Value)>? stats, UniqueBox? unique, byte chestFlags = 0) =>
+        IReadOnlyList<ItemMod>? mods, IReadOnlyList<(uint Key, int Value)>? stats, UniqueBox? unique, byte chestFlags = 0, bool corrupted = false) =>
         new QuestObject(x, y, type.Components, Model: unique?.Model ?? type.Model, Opened: opened)
         {
             StateMachine = type.States?.Set("started", started ? 1 : 0).Set("opened", opened ? 1 : 0),
             Mods = mods ?? type.Mods, Rarity = rarity, Stats = stats ?? [],
             NameWords = unique is null ? [] : [unique.NameWord],
             ChestFlags = chestFlags,
+            Corrupted = corrupted,
         }.Blob();
 
     /// <summary>A unique strongbox (UniqueChests): its name (a Words row's HASH32), its own model, the area level from which

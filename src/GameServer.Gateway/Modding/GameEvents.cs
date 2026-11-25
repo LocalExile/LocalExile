@@ -151,7 +151,7 @@ public static class GameEventOwners
 
     const double SlowMilliseconds = 30;
 
-    static void Failed(string owner, string name, Exception ex) =>
+    internal static void Failed(string owner, string name, Exception ex) =>
         Console.WriteLine($"[events] {owner} {name} failed (skipped): {ex}");
 }
 
@@ -216,6 +216,49 @@ public static class GameEvents
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
+    /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
+    /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
+    /// client's flag set (the player's create and every quest flag update) and the server's checks
+    /// (<c>Game.ClientHasQuestFlag</c>, a combat hot path) both read it, so the two agree; it is read at every check, so answer
+    /// from state that is already known, and return an array that is kept (nothing is allocated per call).
+    /// <see cref="RunAreaQuestFlags"/> sums the answers.</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<string>>> AreaQuestFlags = new();
+
+    /// <summary>The flags the subscribers grant the player in this area; null when none does.</summary>
+    public static IReadOnlySet<string>? RunAreaQuestFlags(Player player)
+    {
+        if (!AreaQuestFlags.Any) return null;
+        HashSet<string>? flags = null;
+        foreach (var (owner, run) in AreaQuestFlags.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaQuestFlags), () =>
+            {
+                foreach (string flag in run(player)) (flags ??= []).Add(flag);
+            });
+        return flags;
+    }
+
+    /// <summary>Whether a subscriber grants the player this flag in this area. It allocates nothing (no iterator, closure or
+    /// set), because the combat code asks it for every flag it reads.</summary>
+    public static bool HasAreaQuestFlag(Player player, string flag)
+    {
+        var subscribers = AreaQuestFlags.Snapshot;
+        if (subscribers.IsEmpty) return false;
+        var league = Program.LeagueFor(player);
+        for (int i = 0; i < subscribers.Length; i++)
+        {
+            var subscriber = subscribers[i];
+            if (!subscriber.AppliesTo(league)) continue;
+            try
+            {
+                var granted = subscriber.Run(player);
+                for (int k = 0; k < granted.Count; k++)
+                    if (granted[k] == flag) return true;
+            }
+            catch (Exception ex) { GameEventOwners.Failed(subscriber.Owner, nameof(AreaQuestFlags), ex); }
+        }
+        return false;
+    }
+
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
     /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
     public static readonly GameEvent<Func<AreaPopulated, Task>> AreaPopulated = new();
@@ -242,8 +285,28 @@ public static class GameEvents
     /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
     public static readonly GameEvent<Func<Player, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
 
+    /// <summary>Static objects created for each joining player before the world activates, alongside area transitions.</summary>
+    public static readonly GameEvent<Func<Player, (uint Id, string Type, QuestObject Object)?>> BeforeEnterObject = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<Player, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>Rulesets needed when this map's terrain and world are created. Evaluated after terrain overrides.</summary>
+    public static readonly GameEvent<Func<Player, (byte Row, byte? PreloadGroup)?>> AreaRuleset = new();
+
+    public static (List<byte> Rows, List<byte> PreloadGroups) AreaRulesets(Player player)
+    {
+        var rows = new List<byte>();
+        var groups = new List<byte>();
+        foreach (var (owner, run) in AreaRuleset.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaRuleset), () =>
+            {
+                if (run(player) is not { } entry) return;
+                if (!rows.Contains(entry.Row)) rows.Add(entry.Row);
+                if (entry.PreloadGroup is { } group && !groups.Contains(group)) groups.Add(group);
+            });
+        return (rows, groups);
+    }
 
     /// <summary>A map device's checked input before any item is consumed.</summary>
     public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
