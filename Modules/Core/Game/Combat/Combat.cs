@@ -3957,7 +3957,10 @@ public static partial class Game
     // the target's chill and shock: a player hit path uses MonsterHitDamage.
     public static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen = default, bool invertElemental = false)
-        => MonsterDamage(m, rolled, critical, attack, mods, pen, out _, invertElemental);
+    {
+        var (damage, resistance, _, _) = ResolveMonsterHit(m, rolled, critical, attack, double.NaN, mods, pen, invertElemental);
+        return (damage, resistance);
+    }
 
     public static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen, out DamagePacket taken, bool invertElemental = false)
