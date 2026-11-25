@@ -309,6 +309,7 @@ public static partial class Game
     {
         double now = AreaTime(player);
         double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
+        extra += get(Stat.ActionSpeedPlusPctWhileAffectedByHaste);
         int mapSpeed = MapSkillActionSpeedPerUse(player);
         if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
         double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
