@@ -26,12 +26,34 @@ Mods/Binaries/<id>/
 ```
 
 - Every field of `mod.json` is optional. `id` must be the folder's name; `version` is free text (default `0`); `kind`
-  is `feature` (default), `league` or `script`; `depends` lists the ids that load first; `assembly` defaults to
+  is `feature` (default), `league` (a package, below) or `script`; `depends` lists the ids that load first; `assembly` defaults to
   `<id>.dll`; `enabled: false` keeps it unloaded until `/mod_enable`. Comments and trailing commas are allowed.
 - A mod whose dependency is missing or failed does not load (`/mod` says which). It loads by itself once that
   dependency does.
 - `Mods/Binaries/` is relative to the repository root, like `data/`, and gitignored. `Game_MODS_FOLDER` moves it;
   `Game_MODS=0` loads no mods.
+
+## Packages
+
+A mod's folder may carry leagues and modules, laid out as the repository's own: a league or a game system that is not
+part of the current game ships this way, and moves between the repository and a package with its folder.
+
+```
+Mods/Binaries/<id>/
+  mod.json            { "id": "<id>", "kind": "league", ... }   its own assembly is optional
+  Leagues/<Name>/     league.json, modules.json, Source/
+  Modules/.../<id>/   module.json and the module's build, at any depth
+```
+
+- Its leagues and modules join the repository's when a server starts, and are [leagues and modules](modules.md) in
+  every way: any league may list its modules. A change to which packages are on needs a restart; a new build of a
+  loaded one hot-reloads.
+- A name is one league and an id one module: the repository's own comes first, and a second is a log line.
+- Off (`enabled: false`, `/mod_disable`, `Game_MODS=0`) gives no leagues or modules at the next start. Their characters
+  are listed and cannot be entered, as for a deleted league.
+- A module's project in another repository imports `src/GameServer.Modding/Module.props` from its LocalExile checkout, as
+  `Modules/Directory.Build.props` does, and reaches another module by `$(LocalExileDir)Modules\...`. It sees what is
+  public: the internals the repository's modules open to each other stay theirs.
 
 ## Scripts
 
@@ -243,6 +265,8 @@ LocalExile Update").
 ## Limits
 
 - A mod can use the framework, the server's `GameServer.*` assemblies, the assemblies of the mods and modules it depends
-  on and the files in its folder. A league never lists a mod, so `ProvideLeagueRules` is a module's only.
+  on and the files in its folder. A league's rules come from its modules, so `ProvideLeagueRules` is a module's only.
+- A mod's hooks run in every league, unless a league's `league.json` says which mods it takes (`"mods"`:
+  [leagues](modules.md)). What a mod sets outside its hooks (a chat route, exchange rates) is not held back.
 - Not built yet: a mod replacing rows of the catalogs (`Catalogs` only picks between the game files' two data sets), and the rest of
   the systems moved behind the API ([roadmap](../../roadmap/setup-and-tooling.md)).
