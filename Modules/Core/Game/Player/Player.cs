@@ -1756,6 +1756,7 @@ public static partial class Game
 
     static void RestorePlayerOnResurrect(Player player)
     {
+        ClearConsecratedGroundOnResurrect(player);
         player.PlayerLife = LifeCap(player);
         InitializePlayerEnergyShield(player);
         player.HitRecovery.Clear();

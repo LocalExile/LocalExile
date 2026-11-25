@@ -99,6 +99,104 @@ public sealed class EquipmentAndUniqueFlaskTests
             Assert.Equal(5, items.Items(PlayerInventories.Flask).Single().Item.Charges);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+
+        var withoutMod = await SulphurGroundLinger(withMod: false, zealotry: true);
+        var withMod = await SulphurGroundLinger(withMod: true, zealotry: true);
+        var withoutAura = await SulphurGroundLinger(withMod: true, zealotry: false);
+        var toggledOff = await SulphurGroundLinger(withMod: true, zealotry: true, toggleBeforePayment: true);
+        var toggledOn = await SulphurGroundLinger(withMod: true, zealotry: false, toggleBeforePayment: true);
+        var expired = await SulphurGroundLinger(withMod: true, zealotry: true, afterExpiry: true);
+        Assert.Equal((false, false), withoutMod);
+        Assert.Equal((true, false), withMod);
+        Assert.Equal((false, false), withoutAura);
+        Assert.Equal((false, false), toggledOff);
+        Assert.Equal((true, false), toggledOn);
+        Assert.Equal((false, false), expired);
+    }
+
+    static async Task<(bool FirstCheck, bool SecondCheck)> SulphurGroundLinger(bool withMod, bool zealotry,
+        bool toggleBeforePayment = false, bool afterExpiry = false)
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var clock = new CastClock { At = 10 };
+        var updates = new PlayerUpdatesState(fixture.Lifetime, clock);
+        player.PlayerUpdatesState = updates;
+        Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            player.Walk.Teleport(100, 100, clock.At);
+            var items = Game.ItemsOf(player);
+            const byte jewelSlot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(jewelSlot)!.Value);
+            const string modId = "ZealotryConsecratedGroundEffectLingersForMsAfterLeavingTheArea";
+            var jewel = ModItem("Prismatic Jewel", ItemRarity.Unique,
+                withMod ? [(modId, new[] { 2000 })] : []);
+            Assert.Null(Game.PassiveJewelRefusal(player, jewelSlot, 0, jewel));
+            items.Add(PlayerInventories.PassiveJewels, jewelSlot, 0, jewel);
+            ushort skill = fixture.Equip(("Zealotry", 1)).Single();
+            var aura = Game.GemSkillEffects(player).Single();
+            async Task ToggleZealotry()
+            {
+                Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
+            }
+            if (zealotry) await ToggleZealotry();
+            Assert.Equal(zealotry, Game.AffectingAuras(player).Any(a => a.EffectId == "Zealotry"));
+            Assert.Equal(withMod && zealotry ? 2000 : 0, Game.CharacterPlayerStats(player)
+                .GetValueOrDefault(Stat.ConsecratedGroundEffectLingersForMsAfterLeavingTheAreaWhileAffectedByZealotry));
+
+            foreach (var flask in items.Items(PlayerInventories.Flask).ToArray())
+                items.Remove(PlayerInventories.Flask, flask.Id);
+            var sulphur = ItemCatalog.Create(Program.Items.Find("Sulphur Flask")!) with { Charges = 60 };
+            items.Add(PlayerInventories.Flask, 0, 0, sulphur);
+            if (toggleBeforePayment)
+            {
+                await player.FlaskBarGate.WaitAsync();
+                Task use;
+                try
+                {
+                    use = Game.UseFlask(player, 0);
+                    Assert.False(use.IsCompleted);
+                    await ToggleZealotry();
+                    Assert.Equal(!zealotry, Game.AffectingAuras(player).Any(a => a.EffectId == "Zealotry"));
+                }
+                finally { player.FlaskBarGate.Release(); }
+                await use;
+            }
+            else await Game.UseFlask(player, 0);
+            Assert.True(items.Items(PlayerInventories.Flask).Single().Item.Charges < sulphur.Charges);
+            var ground = Assert.Single(player.FlaskGrounds.Grounds);
+            Assert.Equal(FlaskGrounds.Kind.ConsecratedGround, ground.Kind);
+            Game.AdvanceFlaskGrounds(player, updates);
+            Assert.True(player.FlaskGrounds.Consecrated);
+            Assert.Contains((Stat.LifeRegenerationRatePerMinutePct, 300), player.FlaskGrounds.PlayerStats());
+
+            if (afterExpiry) clock.At = ground.Ends + 2;
+            else
+            {
+                player.Walk.Teleport(160, 100, clock.At);
+                Assert.False(ground.Covers(player.Walk.Position(clock.At)));
+                Game.AdvanceFlaskGrounds(player, updates);
+                clock.At += .5;
+            }
+            Game.AdvanceFlaskGrounds(player, updates);
+            bool firstCheck = player.FlaskGrounds.Consecrated;
+            Assert.Equal(firstCheck, player.FlaskGrounds.PlayerStats().Any(s => s.Stat == Stat.LifeRegenerationRatePerMinutePct));
+            clock.At += 1.5;
+            Game.AdvanceFlaskGrounds(player, updates);
+            Console.WriteLine($"Sulphur ground, mod {withMod}, initial Zealotry {zealotry}, toggle {toggleBeforePayment}, " +
+                $"delayed expiry {afterExpiry}: stored {ground.AdditionalLingerMs}ms, checks {firstCheck}, {player.FlaskGrounds.Consecrated}");
+            return (firstCheck, player.FlaskGrounds.Consecrated);
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+            player.PlayerUpdatesWorker.Complete(updates.Rules, null, updates, updates.Generation);
+            player.RetirePlayerUpdates();
+        }
     }
 
     [Fact]

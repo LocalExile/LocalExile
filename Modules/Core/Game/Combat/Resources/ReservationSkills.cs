@@ -73,9 +73,7 @@ public static partial class Game
             {
                 double now = AreaTime(player);
                 var at = target.Walk.Position(now);
-                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
-                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                player.FlaskGrounds.Add(CreateOwnConsecratedGroundLocked(player, at, 14, now + 8, playerStats));
                 PresentNearby(player);
             }
         }

@@ -35,7 +35,7 @@ public class RationalDoctrineTests
     }
 
     [Fact]
-    public void Profane_ground_applies_to_monsters_and_lingers_after_they_leave()
+    public async Task Profane_ground_applies_to_monsters_and_lingers_after_they_leave()
     {
         Assert.True(FlaskGrounds.LoadArt("data").ContainsKey(FlaskGrounds.Kind.ProfaneGround));
         Assert.Equal((ushort)1569, FlaskGrounds.ProfaneBuffRow);
@@ -75,5 +75,89 @@ public class RationalDoctrineTests
         Assert.True(consecrated.OnConsecrated(alive: true, (10, 10), now));
         Assert.True(consecrated.OnConsecrated(alive: true, (100, 100), now + 3.9));
         Assert.False(consecrated.OnConsecrated(alive: true, (100, 100), now + 4));
+
+        var overlap = new FlaskGrounds.State();
+        overlap.Add(new(FlaskGrounds.Kind.ConsecratedGround, 10, 10, 10, 100)
+        {
+            AdditionalLingerMs = 2000,
+            GrantsCurseImmunity = true,
+        });
+        overlap.Add(new(FlaskGrounds.Kind.ConsecratedGround, 24, 10, 10, 100));
+        bool CoveredAt(bool alive, (int X, int Y) at, double when) =>
+            Game.OnConsecratedGround(overlap, alive, overlap.Grounds.Where(g => g.Covers(at)), when);
+        Assert.True(CoveredAt(alive: true, (17, 10), now));
+        Assert.True(CoveredAt(alive: true, (24, 10), now + 1));
+        Assert.True(CoveredAt(alive: true, (100, 100), now + 2.5));
+        Assert.True(overlap.CurseImmune);
+        Assert.False(CoveredAt(alive: true, (100, 100), now + 3));
+        Assert.True(CoveredAt(alive: true, (10, 10), now + 4));
+        Assert.False(CoveredAt(alive: false, (100, 100), now + 5));
+        Assert.False(CoveredAt(alive: true, (100, 100), now + 5.5));
+        Assert.False(overlap.CurseImmune);
+
+        await CheckpointResurrectionClearsConsecratedLinger();
+    }
+
+    static async Task CheckpointResurrectionClearsConsecratedLinger()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var clock = new ResurrectClock { At = 10 };
+        var updates = new PlayerUpdatesState(fixture.Lifetime, clock);
+        player.PlayerUpdatesState = updates;
+        Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            var instance = player.Instance;
+            var checkpoint = player.Layout.Checkpoint(waypointActivated: false);
+            var ground = new FlaskGrounds.Ground(FlaskGrounds.Kind.ConsecratedGround, checkpoint.X + 20, checkpoint.Y + 20,
+                5, clock.At + 8) { AdditionalLingerMs = 2000, GrantsCurseImmunity = true };
+            player.FlaskGrounds.Add(ground);
+            player.Walk.Teleport(ground.X, ground.Y, clock.At);
+            Game.AdvanceFlaskGrounds(player, updates);
+            Assert.True(player.FlaskGrounds.Consecrated);
+            Assert.True(player.FlaskGrounds.CurseImmune);
+
+            clock.At += .25;
+            player.Walk.Teleport(ground.X + 20, ground.Y, clock.At);
+            Assert.False(ground.Covers(player.Walk.Position(clock.At)));
+            Game.AdvanceFlaskGrounds(player, updates);
+            Assert.True(player.FlaskGrounds.Consecrated);
+            Assert.True(player.FlaskGrounds.CurseImmune);
+
+            player.PlayerLife = 0;
+            await Game.Resurrect(player, inTown: false);
+            Assert.True(player.PlayerLife > 0);
+            Assert.Same(instance, player.Instance);
+            Assert.Equal(checkpoint, player.Walk.Position(clock.At));
+            Assert.False(ground.Covers(checkpoint));
+            Assert.True(clock.At < 12.25);
+            Assert.Same(ground, Assert.Single(player.FlaskGrounds.Grounds));
+            Console.WriteLine($"Checkpoint resurrect: consecrated {player.FlaskGrounds.Consecrated}, curse immune {player.FlaskGrounds.CurseImmune}");
+            Assert.False(player.FlaskGrounds.Consecrated);
+            Assert.False(player.FlaskGrounds.CurseImmune);
+            Assert.Empty(player.FlaskGrounds.PlayerStats());
+            Assert.False(player.Area.Buffs.Has(player.Id, FlaskGrounds.ConsecratedBuffRow, player.Id));
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+            player.PlayerUpdatesWorker.Complete(updates.Rules, null, updates, updates.Generation);
+            player.RetirePlayerUpdates();
+        }
+    }
+
+    sealed class ResurrectClock : IPlayerUpdateSchedule
+    {
+        public double At;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 }
