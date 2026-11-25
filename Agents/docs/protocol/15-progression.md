@@ -233,8 +233,9 @@ comparison.
 ### Main ascendancies
 
 `AscendancyCatalog` joins the exact target's Ascendancy/Characters/PassiveSkills tables with the generated PSG
-topology (`data/passive-skill-graphs.json`, extraction manifest entry `passive-graphs`). It retains 21 ordinary and
-19 Phrecia choices, including all ordinary Scion alternatives. The durable identity is family + stable table Id +
+topology (`data/passive-skill-graphs.json`, extraction manifest entry `passive-graphs`). It retains the 21 ordinary
+choices, including all ordinary Scion alternatives; a loaded family module adds its own through
+`IAscendancyFamilyPolicy.Tree`. The durable identity is family + stable table Id +
 revision, not a packed class byte or a table row. See [the feature and limitations](../game/ascendancies.md).
 
 `MainAscendancy` stores that identity, its own allocated nodes and the four idempotent Labyrinth-tier awards (two

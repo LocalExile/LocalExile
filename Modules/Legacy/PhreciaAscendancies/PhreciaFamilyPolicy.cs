@@ -57,7 +57,7 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
     {
         var implementation = Find(identity)
             ?? throw new AscendancyRuleException(
-                $"Ascendancy {identity.Family}/{identity.Id}@{identity.Revision} has no implemented Phrecia class policy; "
+                $"Ascendancy {identity.Family.Name()}/{identity.Id}@{identity.Revision} has no implemented Phrecia class policy; "
                 + "see Agents/docs/game/ascendancies.md");
         implementation.RequirePlayable();
     }

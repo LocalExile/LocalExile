@@ -40,8 +40,13 @@ public static class AscendancyFamilies
 
     public sealed class Json : JsonConverter<AscendancyFamily>
     {
+        // A number is read as before for the ordinary family (a build converter writes 0); another family's number
+        // means nothing outside the run that gave it, so it is refused.
         public override AscendancyFamily Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) =>
-            reader.GetString() is { Length: > 0 } name ? Named(name) : AscendancyFamily.Normal;
+            reader.TokenType == JsonTokenType.Number
+                ? reader.GetInt32() == 0 ? AscendancyFamily.Normal
+                    : throw new JsonException("An ascendancy family other than the ordinary one is given by its name")
+                : reader.GetString() is { Length: > 0 } name ? Named(name) : AscendancyFamily.Normal;
         public override void Write(Utf8JsonWriter writer, AscendancyFamily value, JsonSerializerOptions options) =>
             writer.WriteStringValue(value.Name());
     }

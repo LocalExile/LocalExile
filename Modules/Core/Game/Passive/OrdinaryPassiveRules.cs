@@ -75,14 +75,14 @@ public sealed class OrdinaryPassiveRules
             "Passive graph data is missing; run scripts/dev/extract-data.ps1");
         if (!data.TryGraph(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
             !graph.ContainsKey(start))
-            throw new AscendancyRuleException($"No ordinary passive start for class {baseClass} in the {family} client graph");
+            throw new AscendancyRuleException($"No ordinary passive start for class {baseClass} in the {family.Name()} client graph");
 
         var allocated = new HashSet<ushort>();
         foreach (ushort id in requested)
         {
             if (!allocated.Add(id)) throw new AscendancyRuleException($"Duplicate ordinary passive {id}");
             if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var node))
-                throw new AscendancyRuleException($"Ordinary passive {id} is absent from the {family} client graph");
+                throw new AscendancyRuleException($"Ordinary passive {id} is absent from the {family.Name()} client graph");
             if (node.IsAscendancy) throw new AscendancyRuleException($"Ascendancy passive {id} is not an ordinary passive");
             if (node.Starts.Count != 0) throw new AscendancyRuleException($"Class start {id} is implicit and cannot be allocated");
             if (node.RequiresExpansion)
@@ -103,7 +103,7 @@ public sealed class OrdinaryPassiveRules
         foreach (ushort id in ascendancyNodes ?? [])
         {
             if (!graph.ContainsKey(id) || !data.Nodes.TryGetValue(id, out var node) || !node.IsAscendancy)
-                throw new AscendancyRuleException($"Ascendancy passive {id} is absent from the {family} client graph");
+                throw new AscendancyRuleException($"Ascendancy passive {id} is absent from the {family.Name()} client graph");
             if (node.GrantedStart is { } granted && data.Starts.TryGetValue(granted, out ushort additional) &&
                 graph.ContainsKey(additional))
                 roots.Add(additional);
