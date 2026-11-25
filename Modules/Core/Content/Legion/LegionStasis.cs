@@ -171,13 +171,15 @@ static class LegionStasis
         var skippedBy = new int[plan.Factions.Length];
         int skipped = 0, sergeants = 0, generals = 0, chests = 0;
         var counts = new int[plan.Factions.Length];
+        var skipReasons = new int[5];   // unsupported variety, area closing, no free spot, spawn failed; [4]: how many of those skips were chests
         bool stopped = false;   // the timer ended while the army was being spawned
 
         async Task Add(int faction, int row, MonsterRarity rarity, int tier, bool chest, bool hoard, int from, int to, int[]? rewards = null)
         {
             if (stopped) return;
-            if (FindVariety(row) is not { Supported: true } variety || player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; return; }
-            if (formations[faction].Place(from, to, variety.ObjectSize, tier == 3) is not { } at) { skipped++; skippedBy[faction]++; return; }
+            if (FindVariety(row) is not { Supported: true } variety) { skipped++; skippedBy[faction]++; skipReasons[0]++; if (chest) skipReasons[4]++; return; }
+            if (player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; skipReasons[1]++; if (chest) skipReasons[4]++; return; }
+            if (formations[faction].Place(from, to, variety.ObjectSize, tier == 3) is not { } at) { skipped++; skippedBy[faction]++; skipReasons[2]++; if (chest) skipReasons[4]++; return; }
             // bulk: no wait for the client's birth per monster (a frame each, 5-8 s for 150-250). The action is in its create (hidden from the first frame).
             ushort sequence = NextSequence();
             var action = BreakoutAction(player, variety, row, sequence, Hidden, 100);
@@ -188,7 +190,7 @@ static class LegionStasis
                 extraStats: RewardStats(rewards, true),
                 placement: MonsterPlacement.Established,   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
                 shape: monolithId == 0 ? null : o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("present", 0).Set("owning_initiator", (int)monolithId) });
-            if (id == 0) { skipped++; return; }
+            if (id == 0) { skipped++; skippedBy[faction]++; skipReasons[3]++; if (chest) skipReasons[4]++; return; }
             // Logistical Support (+50% more life per reward) & map_legion_monster_life_+%_final_from_sextant scale stasis MaxLife too.
             if (!chest && player.Area.Monsters.TryGetValue(id, out var spawned))
             {
@@ -210,16 +212,17 @@ static class LegionStasis
         for (int f = 0; f < plan.Factions.Length; f++)
         {
             var faction = plan.Factions[f];
+            // The chests first, as the general: they are few, and a block packed by the soldiers has no slot left in their band (live 2026-11: every chest skipped).
+            foreach (var chest in faction.Chests)
+                await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct, chest.Rewards);
             foreach (var squad in faction.Squads.OrderByDescending(q => q.Tier))   // the general first: its rear-centre spot is still free
             {
                 // The rarity is rolled in the plan from the LegionRanks weights (a GUESS: soldiers mostly Normal, elites some Magic, sergeants Rare, the general Unique); an old save has none: by tier.
                 for (int i = 0; i < squad.Count; i++) await Add(f, squad.Monster, (MonsterRarity)(squad.Rarities is { } rs && i < rs.Length ? rs[i] : LegionArmy.TierRarity(squad.Tier)), squad.Tier, false, false, squad.FromPct, squad.ToPct, squad.Rewards is { } r && i < r.Length ? r[i] : null);
             }
-            foreach (var chest in faction.Chests)
-                await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct, chest.Rewards);
         }
         string names = string.Join(" + ", plan.Factions.Select((f, i) => $"{f.Id} {counts[i]}"));
-        module.Log($"army spawned: {names} ({sergeants} sergeants, {generals} general, {chests} chests), {skipped} skipped, formations {string.Join(", ", formations.Select((f, i) => $"{f.Describe()} skipped {skippedBy[i]}"))}");
+        module.Log($"army spawned: {names} ({sergeants} sergeants, {generals} general, {chests} chests), {skipped} skipped (unsupported {skipReasons[0]}, area closing {skipReasons[1]}, no free spot {skipReasons[2]}, spawn failed {skipReasons[3]}; {skipReasons[4]} of them chests), formations {string.Join(", ", formations.Select((f, i) => $"{f.Describe()} skipped {skippedBy[i]}"))}");
     }
 
     /// <summary>The attack clip a hidden soldier is created in (R11 section 4): the server names the clip, the client picks the time inside it at
