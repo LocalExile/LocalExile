@@ -156,16 +156,22 @@ public sealed class SkillCatalog
         if (_tables is not { } t || effectRow < 0 || effectRow >= t.Effects.Count) return [];
         var e = t.Effects[effectRow];
         var stats = new Dictionary<uint, int>();
-        var constant = new HashSet<uint>();
+        var resolved = new HashSet<uint>();
         if (e.StatSet >= 0 && e.StatSet < t.StatSetBase.Count)
         {
             var (implicits, constants) = t.StatSetBase[e.StatSet];
             foreach (int s in implicits) stats[(uint)s + 1] = 1;
-            foreach (var (s, v) in constants) { stats[(uint)s + 1] = v; constant.Add((uint)s + 1); }
+            foreach (var (s, v) in constants) { stats[(uint)s + 1] = v; resolved.Add((uint)s + 1); }
         }
         int gesspl = PickLevel(t.StatSetsPerLevel, e.StatSet, level);
-        // A per-level stat that is also a constant adds to it (Righteous Fire: radius 18 + 0 at level 1, + 5 at level 20).
-        if (gesspl >= 0) foreach (var (s, v) in t.StatSetLevelStats[gesspl]) stats[(uint)s + 1] = (constant.Contains((uint)s + 1) ? stats[(uint)s + 1] : 0) + v;
+        // Per-level entries add to constants and to earlier per-level entries. Vortex of Projection has a resolved
+        // cold damage rate and a negative additional entry for that same stat. Implicit flags are still replaced.
+        if (gesspl >= 0)
+            foreach (var (s, v) in t.StatSetLevelStats[gesspl])
+            {
+                uint key = (uint)s + 1;
+                stats[key] = (resolved.Add(key) ? 0 : stats[key]) + v;
+            }
         int gepl = PickLevel(t.PerLevel, effectRow, level);
         if (e.CastTime > 0)
         {
@@ -178,6 +184,8 @@ public sealed class SkillCatalog
             Put(Stat.VirtualAdditionalProjectilesFireParallelXDist, parallelDist);
         if (gepl >= 0 && t.RageCost[gepl] > 0) { Put(Stat.BaseRageCost, t.RageCost[gepl]); Put(Stat.TotalBaseRageCost, t.RageCost[gepl]); }
         if (gepl >= 0 && t.ManaCost[gepl] > 0) { Put(Stat.BaseManaCost, t.ManaCost[gepl]); Put(Stat.ManaCost, t.ManaCost[gepl]); }
+        // Manabond uses CostTypes 4, a percent of maximum Mana, with the same support and skill cost modifiers.
+        if (gepl >= 0 && t.ManaPercentCost[gepl] > 0) Put(Stat.BaseManaCostPct, t.ManaPercentCost[gepl]);
         if (gepl >= 0 && t.LifeCost[gepl] > 0) { Put(Stat.BaseLifeCost, t.LifeCost[gepl]); Put(Stat.LifeCost, t.LifeCost[gepl]); }
         // An Energy Shield cost (CostTypes 2: Energy Blade, Wild Strike of Extremes).
         if (gepl >= 0 && t.EsCost[gepl] > 0) { Put(Stat.BaseEsCost, t.EsCost[gepl]); Put(Stat.EsCost, t.EsCost[gepl]); }
@@ -1875,7 +1883,7 @@ public sealed class SkillCatalog
     // StatSetLevelStats: per GESSPL row its (FloatStats, BaseResolvedValues) and (AdditionalStats, AdditionalStatsValues).
     // Effectiveness: resolved permyriad, 10000 + the GESSPL DamageEffectiveness offset; 0 for missing data.
     // ManaCost: per GEPL row the CostAmounts entry of CostTypes 0 (mana), else 0; LifeCost of CostTypes 1, EsCost of
-    // CostTypes 2, ManaPerMinute of CostTypes 7, ManaPercentPerMinute of CostTypes 9.
+    // CostTypes 2, ManaPercentCost of CostTypes 4, ManaPerMinute of CostTypes 7, ManaPercentPerMinute of CostTypes 9.
     // Reservations: per GEPL row the Mana/LifeReservationFlat and -Percent (permyriad), parallel to PerLevel.
     // Cooldowns: per GEPL row its Cooldown (ms), StoredUses, CooldownBypassType and Group, parallel to PerLevel. VaalSouls: per GEPL row its VaalSouls.
     // Quality: per GrantedEffects row its (quality stat, permille).
@@ -1887,7 +1895,7 @@ public sealed class SkillCatalog
         List<int> VaalSouls, List<int> VaalStoredUses, List<int?> ActiveSkills, List<int> SoulPrevention, List<int> RageCost,
         Dictionary<int, (int, int)[]> Quality, List<int> Effectiveness, List<(int? Spell, int? Attack)> CriticalChances, List<int> AttackSpeedMultipliers,
         List<int> ManaPerMinute, List<int> ManaPercentPerMinute, List<(int Base, int Added)> DamageCoefficients,
-        List<int> EsCost)
+        List<int> EsCost, List<int> ManaPercentCost)
     {
         public FrozenDictionary<int, string> EffectIds { get; } = EffectRows
             .GroupBy(p => p.Value.Row).ToFrozenDictionary(g => g.Key, g => g.First().Key);
@@ -1940,6 +1948,7 @@ public sealed class SkillCatalog
             var mana = new List<int>();
             var life = new List<int>();
             var es = new List<int>();
+            var manaPercent = new List<int>();
             var manaPerMinute = new List<int>();
             var manaPercentPerMinute = new List<int>();
             var reservations = new List<(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)>();
@@ -1959,6 +1968,8 @@ public sealed class SkillCatalog
                 life.Add(lifeIndex >= 0 && lifeIndex < amounts.Length ? amounts[lifeIndex] : 0);
                 int esIndex = Array.IndexOf(types, 2);
                 es.Add(esIndex >= 0 && esIndex < amounts.Length ? amounts[esIndex] : 0);
+                int percentIndex = Array.IndexOf(types, 4);
+                manaPercent.Add(percentIndex >= 0 && percentIndex < amounts.Length ? amounts[percentIndex] : 0);
                 int m = Array.IndexOf(types, 7);
                 manaPerMinute.Add(m >= 0 && m < amounts.Length ? amounts[m] : 0);
                 int mp = Array.IndexOf(types, 9);
@@ -2000,7 +2011,7 @@ public sealed class SkillCatalog
             }
             return new Tables(effects, statSets, perLevel, setLevels, effectInfo, baseStats, levelStats, levelReqs, mana, life, reservations, cooldowns,
                 vaalSouls, vaalStoredUses, activeSkills, soulPrevention, rageCost, quality, effectiveness, criticalChances, attackSpeedMultipliers, manaPerMinute,
-                manaPercentPerMinute, damageCoefficients, es);
+                manaPercentPerMinute, damageCoefficients, es, manaPercent);
 
             static int Coefficient(int? offset) => offset is int value
                 ? (int)Math.Clamp(10_000L + value, 0, int.MaxValue) : 10_000;

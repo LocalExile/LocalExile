@@ -36,8 +36,9 @@ public class InstanceChatTests
     public void Chat_line_is_the_bytes_the_client_printed()
     {
         // Sent live with /raw 2026-10-20: the chat panel showed "3 Items identified".
+        Func<string, string, ushort, IReadOnlyList<ChatLineItem>?, byte[]> legacyChatLine = InstanceChat.ChatLine;
         Assert.Equal("0017" + "0000" + "0012" + "33204974656D73206964656E746966696564" + "0000" + "0000" + "00" + "00" +
-            "0000000000000000" + "00" + "00", Convert.ToHexString(InstanceChat.ChatLine("3 Items identified")));
+            "0000000000000000" + "00" + "00", Convert.ToHexString(legacyChatLine("3 Items identified", "", 0, null)));
     }
 
     [Fact]

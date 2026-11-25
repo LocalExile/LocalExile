@@ -322,13 +322,36 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
-    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    // The area's type set is shared. Every existing viewer needs the registration before
+    // an ordinary spawn or a restored summon publishes a create using that type.
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level,
+        Func<bool>? ownedCurrent = null)
     {
         if (player.MonsterTypes.Contains((variety.Row, level))) return;
-        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
-            CurrentGameWork && !player.Closed && !player.LeavingArea
-                && player.MonsterTypes.Add((variety.Row, level))
-                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+        string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
+        if (player.Area.Owned)
+        {
+            if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                && (ownedCurrent is null || ownedCurrent()))
+                await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
+        }
+        else
+        {
+            byte[]? typeBytes = null;
+            await Send(player, [], typeLog, atGate: () =>
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea
+                    || (ownedCurrent is not null && !ownedCurrent())
+                    || !player.MonsterTypes.Add((variety.Row, level)))
+                    return null;
+                typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
+                return typeBytes.ToArray();
+            });
+            if (typeBytes is not null)
+                foreach (var peer in player.Frames.Players())
+                    if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
+                        await Send(peer, typeBytes.ToArray(), typeLog);
+        }
     }
 
     public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
@@ -344,11 +367,14 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false) =>
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape);
 
     static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
@@ -363,7 +389,10 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false)
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null)
     {
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
@@ -635,7 +664,7 @@ public static partial class Game
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Chain = variety.Chain, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(player, variety),
             AnimationSeed = animationSeed,
@@ -644,6 +673,7 @@ public static partial class Game
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
+        if (shape is not null) monster = shape(monster);
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2bb type is its hash.
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
@@ -654,33 +684,7 @@ public static partial class Game
             // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
             // In the area's frame, register via Area.Delta (Kind.Message, WorldOrder.First) so every party member
             // receives 0x0020 before the 0x02bb create (WorldOrder.Last) in the same frame.
-            if (!player.MonsterTypes.Contains((variety.Row, level)))
-            {
-                string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
-                if (player.Area.Owned)
-                {
-                    if (CurrentGameWork && !player.Closed && !player.LeavingArea
-                        && (ownedCurrent is null || ownedCurrent()))
-                        await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
-                }
-                else
-                {
-                    byte[]? typeBytes = null;
-                    await Send(player, [], typeLog, atGate: () =>
-                    {
-                        if (!CurrentGameWork || player.Closed || player.LeavingArea
-                            || (ownedCurrent is not null && !ownedCurrent())
-                            || !player.MonsterTypes.Add((variety.Row, level)))
-                            return null;
-                        typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
-                        return typeBytes.ToArray();
-                    });
-                    if (typeBytes is not null)
-                        foreach (var peer in player.Frames.Players())
-                            if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
-                                await Send(peer, typeBytes.ToArray(), typeLog);
-                }
-            }
+            await EnsureMonsterTypeSent(player, variety, level, ownedCurrent);
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
@@ -2928,7 +2932,9 @@ public static partial class Game
         foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
-        var suppression = spellHit ? Suppression(player) : default;
+        var map = MapModsOf(player);
+        var suppression = spellHit && (map?.Get(Stat.MapPlayerCannotSuppressSpellDamage) ?? 0) == 0
+            ? Suppression(player) : default;
         bool RollSuppression() => spellHit && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
@@ -2975,6 +2981,9 @@ public static partial class Game
         int blockChance = a.Spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
         if (projectile)
             blockChance = stats.GetValueOrDefault(a.Spell ? Stat.SpellProjectileBlockPct : Stat.ProjectileAttackBlockPct, blockChance);
+        if (map is not null && (map.Get(Stat.MapPlayerCannotBlock) != 0
+            || map.Get(a.Spell ? Stat.MapPlayerCannotBlockSpells : Stat.MapPlayerCannotBlockAttacks) != 0))
+            blockChance = 0;
         bool blocked = !a.Secondary && DamageModel.Blocks(blockChance,
             player.IncomingHitRandom.NextDouble() * 100, a.Spell ? player.Pools.SpellBlockLucky : player.Pools.AttackBlockLucky,
             a.Spell ? player.Pools.SpellBlockUnlucky : player.Pools.AttackBlockUnlucky);
@@ -2984,7 +2993,8 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
+        int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
+            + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3050,6 +3060,11 @@ public static partial class Game
         int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
             ailmentTaken);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
+        if (!blocked)
+        {
+            ApplyEqualisingHitLocked(player, m);
+            if (player.PlayerLife > 0) QueueMonsterFlaskChargeLossLocked(player, m);
+        }
         TrimLeechLocked(player);
         var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
@@ -3128,15 +3143,18 @@ public static partial class Game
 
     static PlayerElementalAilments.HitSettings MergeMonsterModAilments(PlayerElementalAilments.HitSettings skill, MonsterModEffects e)
     {
-        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : 0;
-        int freeze = Math.Max(0, e[Stat.BaseChanceToFreezePct]);
-        int shock = e[Stat.AlwaysShock] > 0 ? 100 : 0;
-        if (ignite == 0 && freeze == 0 && shock == 0) return skill;
+        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToIgnitePct]);
+        int freeze = e[Stat.AlwaysFreeze] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToFreezePct]);
+        int shock = e[Stat.AlwaysShock] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToShockPct]);
+        bool all = e[Stat.AllDamageCanIgniteFreezeShock] != 0;
         return skill with
         {
-            IgniteChance = Math.Min(100, skill.IgniteChance + ignite),
-            FreezeChance = Math.Min(100, skill.FreezeChance + freeze),
-            ShockChance = Math.Min(100, skill.ShockChance + shock),
+            IgniteChance = (int)Math.Min(100, (long)skill.IgniteChance + ignite),
+            FreezeChance = (int)Math.Min(100, (long)skill.FreezeChance + freeze),
+            ShockChance = (int)Math.Min(100, (long)skill.ShockChance + shock),
+            AllDamageCanIgnite = skill.AllDamageCanIgnite || all || e[Stat.AllDamageCanIgnite] != 0,
+            AllDamageCanFreeze = skill.AllDamageCanFreeze || all || e[Stat.AllDamageCanFreeze] != 0,
+            AllDamageCanShock = skill.AllDamageCanShock || all || e[Stat.AllDamageCanShock] != 0,
         };
     }
 

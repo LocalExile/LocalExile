@@ -74,6 +74,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     [System.Text.Json.Serialization.JsonIgnore]
     public bool TinctureActive { get; init; }
     public ushort StackSize { get; init; } = 1;
+    public ushort? ScryingAreaHash { get; init; }
     public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
     /// <summary>Complete native skin-transfer donor, retained independently of the target mods and sockets.</summary>
@@ -172,7 +173,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -259,6 +260,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20 (1 active in belt, 0 inactive/stored).
                 case "Tincture": w.U8((byte)(TinctureActive ? 1 : 0)); break;
+                case "ScryingOrb": w.U16(ScryingAreaHash ?? 0); break; // WorldAreas HASH16, 0x14250a320
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
@@ -580,6 +582,41 @@ public static class InstanceItems
     {
         var r = new LoginReader(m[2..]);
         return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
+
+    /// <summary>
+    /// C→S 0x29e DualCurrencyApplicationForesightRequest (writer 0x141fa5510, caller 0x1402d0514;
+    /// 28 bytes): u16 id, u16 BE key, u32 BE currency inventory, u32 BE currency item id, u32 BE first target inventory,
+    /// u32 BE first target item id, u32 BE second target inventory, u32 BE second target item id. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort DualCurrencyApplicationForesightRequestId = 0x29e;
+    public const int DualCurrencyApplicationForesightRequestLength = 28;
+
+    public sealed record DualCurrencyApplicationForesightRequest(ushort Key, uint CurrencyInventory, uint CurrencyId,
+        uint FirstTargetInventory, uint FirstTargetId, uint SecondTargetInventory, uint SecondTargetId);
+
+    public static DualCurrencyApplicationForesightRequest ReadDualCurrencyApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
+
+    /// <summary>
+    /// C→S 0x29f CurrencyTypeApplicationForesightRequest (writer 0x141fa57e0, caller 0x1402d0599;
+    /// 25 bytes): Shift-repeat Hinekora's Lock preview naming the currency by <c>BaseItemTypes.HASH32</c>: u16 id,
+    /// u16 BE key, u32 BE currency type hash, u32 BE currency inventory, u16 BE tab index, u16 BE sub index,
+    /// u32 BE target inventory, u32 BE target item id, u8 flags. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort CurrencyTypeApplicationForesightRequestId = 0x29f;
+    public const int CurrencyTypeApplicationForesightRequestLength = 25;
+
+    public sealed record CurrencyTypeApplicationForesightRequest(ushort Key, uint CurrencyTypeHash, uint CurrencyInventory,
+        ushort TabIndex, ushort SubIndex, uint TargetInventory, uint TargetId, byte Flags);
+
+    public static CurrencyTypeApplicationForesightRequest ReadCurrencyTypeApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U16(), r.U16(), r.U32(), r.U32(), r.U8());
     }
 
     public const ushort CurrencyApplicationForesightResultId = 0x2a0;

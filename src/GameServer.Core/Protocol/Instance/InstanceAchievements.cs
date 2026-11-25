@@ -24,6 +24,9 @@ public static class InstanceAchievements
     /// <summary><c>AchievementSetsDisplay.Id</c> for permanent Achievements (default set in ctor <c>0x1421aca80</c>).</summary>
     public const byte PermanentAchievementSetId = 2;
 
+    /// <summary>Default 3.29 league challenge set IDs (<c>AchievementSetsDisplay.Id</c>: 79 standard, 80 Ruthless).</summary>
+    public const byte DefaultLeagueChallengeSetId = 79, DefaultRuthlessChallengeSetId = 80;
+
     /// <summary>
     /// Exact capacity of the client's bitset buffer at <c>msg + 0x16</c> (ctor <c>0x1421aca80</c> zeroes <c>0x100</c>
     /// bytes; object allocation at <c>0x1421acc00</c> is <c>0x118</c> bytes). Reader <c>0x1421acb70</c> copies

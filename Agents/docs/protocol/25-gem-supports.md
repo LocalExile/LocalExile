@@ -333,3 +333,15 @@ The falling arrow of a rain skill is one clip, index 0, that reaches the ground 
 `rain_of_arrows/rig.ao` (no default animation) at 0.218 s, `blast_rain/arrow_drop.ao` at its contact, 0.333 s.
 The existing spell volley and Spark wander/duration specialization still runs before server presentation is selected.
 Native targeting, visual parity and threshold timing require client verification.
+
+## Native linked spell payloads
+
+3.29.3d skill rows supply the offset pulse and split counts for Shock Nova of Procession and Arc of Surging,
+Glacial Cascade's burst sequence and last-burst multiplier, and the target limit for Lightning Conduit of the Heavens.
+The server estimates lance hitboxes, ring spacings, cascade spacings and the first single-meteor delay.
+The base Cascade knocks enemies along the burst axis.
+
+The catalogue combines repeated per-level stat entries, including the cold adjustment for Vortex of Projection.
+Its ground can replace nearby Frostbolts. Manabond's cost uses maximum Mana, while its wing reach and added Lightning
+Damage read the filled and missing portions of unreserved Mana respectively.
+Triggered Firestorm uses the same storm and impact objects as the placed release.
