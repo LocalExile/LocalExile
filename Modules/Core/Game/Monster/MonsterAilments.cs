@@ -430,6 +430,10 @@ public static partial class Game
         }
         if (m.Dead || m.Life == 0)
         {
+            int intimidate = Player(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct);
+            if (intimidate > 0 && (ownHit ?? playerHit) && !spell && !projectileDamage
+                && sourceEffect >= 0 && SkillsFor(player).IsMelee(sourceEffect))
+                FearsomeWarriorOnMeleeKillLocked(player, m, now, intimidate, random);
             if (playerHit && Player(Stat.ExplodeOnKillPctFireDamageToDeal) > 0
                 && (spell || sourceSkill != 0 && SkillsFor(player).IsAttack(SupportedSkill(player, sourceSkill).Effect)))
                 CaptureEquippedHitExplosionLocked(m, playerStats);

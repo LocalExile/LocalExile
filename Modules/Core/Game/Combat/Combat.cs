@@ -652,6 +652,9 @@ public static partial class Game
                 int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, afterShell, chaosDamage, contactAt);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, lifeDamage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
+                if (m.Life == 0 && weapon.Melee)
+                    FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
+                        playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct), AreaRng(player));
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
                 CaptureAttackKillExplosionLocked(m, playerStats);

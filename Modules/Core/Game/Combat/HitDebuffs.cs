@@ -6,6 +6,22 @@ using GameServer.Core.World;
 // EnemyDebuffsTick shows the buff.
 public static partial class Game
 {
+    static void FearsomeWarriorOnMeleeKillLocked(Player player, SpawnedMonster killed, double now, int chance, Random random)
+    {
+        if (!killed.Hostile || !RandomRolls.Chance(chance, 100, random)) return;
+        const int radius = 40; // Fearsome Warrior: within four metres of the melee kill.
+        var at = killed.Walk.Position(now);
+        var nearby = new List<EntityId>();
+        player.Area.Grid.Near(at, radius, nearby);
+        foreach (var id in nearby)
+        {
+            if (!player.Area.Monsters.TryGetValue(id.Value, out var monster) || !monster.Hostile
+                || monster.Dead || monster.Life == 0 || monster.Invulnerable || Dist(monster.Walk.Position(now), at) > radius) continue;
+            monster.IntimidatedUntil = Math.Max(monster.IntimidatedUntil, now + HitDebuffSeconds);
+            monster.PresentationChanged?.Invoke();
+        }
+    }
+
     public const double HitDebuffSeconds = 4;
     public const int HitDebuffTakenPct = 10;
     // BuffDefinitions intimidated and unnerved; neither is IsRecovery, so 0x1c1 carries no values.

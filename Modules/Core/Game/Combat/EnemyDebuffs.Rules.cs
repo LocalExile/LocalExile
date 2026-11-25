@@ -372,7 +372,7 @@ public static partial class Game
             return on;
         }
         int tauntedTaken = StepPlayerTauntLocked(player, id, m, now, counts);
-        Timed(ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
+        PresentTimedIntimidateLocked(player.Area, id, m, now, counts);
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
@@ -478,6 +478,25 @@ public static partial class Game
             lock (steps.Gate) if (steps.Wakes.GetValueOrDefault(id) == wake) steps.Wakes.Remove(id);
             MonsterDebuffsChanged(player, id);
         });
+    }
+
+    static void PresentTimedIntimidateLocked(GameArea area, uint id, SpawnedMonster m, double now, int[] counts)
+    {
+        if (m.Dead || m.Life == 0 || !m.Hostile || m.IntimidatedUntil <= now)
+        {
+            m.IntimidatedUntil = double.NegativeInfinity;
+            if (m.IntimidateBuff == 0) return;
+            area.Buffs.Clear(id, IntimidatedBuffRow, id);
+            m.IntimidateBuff = 0;
+            counts[1]++;
+            return;
+        }
+        if (m.IntimidateBuff != 0 && m.IntimidateShownUntil == m.IntimidatedUntil) return;
+        area.Buffs.Set(id, new(IntimidatedBuffRow, id,
+            U68: double.IsFinite(m.IntimidatedUntil) ? Buff.Seconds(m.IntimidatedUntil - now) : null));
+        m.IntimidateShownUntil = m.IntimidatedUntil;
+        m.IntimidateBuff = 1;
+        counts[0]++;
     }
 
     // Flesh and Stone's Blood Stance on a hit: its value falls off with the monster's distance from the player, full at 0
