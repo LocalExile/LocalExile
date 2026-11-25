@@ -478,7 +478,8 @@ public static partial class Game
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
             bool gatheringLightning = IsGatheringLightning(effect);
-            if (IsLeapSlam(player, effect) || gatheringLightning)
+            // SpikeSlam's timer only auto-detonates skill behaviour 2 (Earthshatter of Fragility).
+            if (skills.ActionHash(effect) is LeapSlam.Action or EarthshatterFissures.Action || gatheringLightning)
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
             if (gatheringLightning)
                 stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
