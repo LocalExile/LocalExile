@@ -105,8 +105,10 @@ public static class InstanceEvents
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyList<(ushort Plugin, byte[] State)>?>> TerrainPluginStates = new();
 
     /// <summary>The league's answers to <see cref="TerrainPluginStates"/>, the last per plugin, a failing answer counting as
-    /// none. Only a state for the area's own plugin, of a plugin the server's generator ports, is kept: the client would
-    /// build any other plugin's part of the level and the server could not.</summary>
+    /// none. Only a state the server's generator supports is kept: the area's own plugin when its generation is ported
+    /// and the ordinary Mirror's default state (LevelGenerator.SupportsPluginState), or another plugin whose extra
+    /// terrain feature row is ported (LevelGenerator.LeaguePluginFeature). The client would build any other plugin's
+    /// part of the level and the server could not.</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)> ComposeTerrainPluginStates(LeagueRuntime league, AreaStatsRequest request)
     {
         var states = new Dictionary<ushort, byte[]>();
@@ -127,11 +129,13 @@ public static class InstanceEvents
         }
         var own = AreaTerrainPlugins.Of(request.Area);
         foreach (var plugin in states.Keys.ToList())
-            if (own is not { } o || o.Id != plugin || !GameServer.Data.Terrain.Generation.LevelGenerator.PortsPlugin(o.Name))
-            {
-                Console.WriteLine($"[gateway] terrain plugin {plugin} state of 0x{request.Area:x4} dropped: not the area's own plugin, or not ported");
-                states.Remove(plugin);
-            }
+        {
+            if (GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(plugin, states[plugin], own?.Id, own?.Name)) continue;
+            if ((own is not { } o || o.Id != plugin)
+                && GameServer.Data.Terrain.Generation.LevelGenerator.LeaguePluginFeature(AreaTerrainPlugins.NameOf(plugin), states[plugin]) is not null) continue;
+            Console.WriteLine($"[gateway] unsupported terrain plugin {plugin} state of 0x{request.Area:x4} dropped");
+            states.Remove(plugin);
+        }
         return [.. states.Select(p => (p.Key, p.Value))];
     }
 
@@ -148,7 +152,12 @@ public static class InstanceEvents
 
 /// <summary>What an instance's area stats are composed from: the character whose connection opens it, its league, the
 /// area (WorldAreas HASH16) and the map it was opened with (<see cref="InstanceState.Map"/>), null outside a map.</summary>
-public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map);
+public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map)
+{
+    public uint Seed { get; init; }
+    public bool HardMode { get; init; }
+    public IReadOnlyDictionary<uint, int>? AreaStats { get; init; }
+}
 
 public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
 {

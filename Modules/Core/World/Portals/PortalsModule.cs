@@ -28,7 +28,7 @@ public sealed class PortalsModule : IModule
             Program.ViewOf.Value = player;
             try
             {
-                await SpawnHideoutDoodads(player);
+                await global::Game.SpawnHideoutDevice(player);
                 await SpawnMapReturnPortal(player);
                 await SpawnTownPortals(player);
                 // A hideout's instance is gone six minutes after its last player leaves, and its device with it: a run whose
@@ -84,7 +84,13 @@ public sealed class PortalsModule : IModule
             }
             HideoutCatalog.Doodad? doodad;
             lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(use.TargetId);
-            if (doodad is null) return false;
+            // A device variant's button opens its device: walk to the button, open the device's window.
+            if (doodad is null && global::Game.MapDeviceOfButton(player, use.TargetId) is var (device, button))
+            {
+                await UseMapDevice(player, use with { TargetId = device }, button, requestedAt);
+                return true;
+            }
+            if (doodad is null || !HideoutCatalog.IsPlaced(doodad)) return false;
             await UseMapDevice(player, use, doodad, requestedAt);
             return true;
         });
