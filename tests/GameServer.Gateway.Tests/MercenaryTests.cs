@@ -37,7 +37,14 @@ public sealed class MercenaryTests
     // One mercenary of a new map instance, from the roll to the hire: placed once for the instance, given to a player who enters
     // later, pressed, chosen, replaced by its hostile duel opponent after the countdown, and left as the hired one when that dies.
     [GameFilesFact]
-    public async Task A_mercenary_is_placed_for_the_instance_talked_to_duelled_and_hired()
+    public Task A_mercenary_is_placed_for_the_instance_talked_to_duelled_and_hired() => PlaceDuelAndHire(nobleBlood: false);
+
+    // The same encounter for a Luminary with Noble Blood allocated: the hire is kept, and an instance that was restored
+    // without its monsters has the hired mercenary stand again when a player enters.
+    [GameFilesFact]
+    public Task A_Noble_Blood_hire_is_kept_and_stands_again_in_a_restored_instance() => PlaceDuelAndHire(nobleBlood: true);
+
+    static async Task PlaceDuelAndHire(bool nobleBlood)
     {
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
         var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapMercenaryLeague] = 1 });
@@ -99,6 +106,15 @@ public sealed class MercenaryTests
             Assert.Equal(MercenaryWire.DuelStates, opponent.States!.SharedStates);
 
             // Its death leaves the hired mercenary, in the hired states and its own team.
+            if (nobleBlood)
+            {
+                // Luminary's Noble Blood node, found by its PassiveSkills Id; its stat reaches the player through the stat graph.
+                var luminary = Assert.Single(new AscendancyCatalog().Definitions,
+                    d => d.Identity.Family == AscendancyFamily.Normal && d.Identity.Id == "Luminary");
+                ushort node = luminary.Nodes.Values.Single(n => n.PassiveId == "AscendancyLuminary9_").Id;
+                owner.Player.Character.MainAscendancy = new(luminary.Identity, [node], ["normal"]);
+                Game.CharacterPlayerStats(owner.Player);
+            }
             opponent.Dead = true;
             await GameEvents.RunKill(new KillContext(owner.Player, opponent, opponent.Variety!.Id, (duel.X, duel.Y)));
             var hired = Read();
@@ -106,6 +122,16 @@ public sealed class MercenaryTests
             Assert.NotEqual(0u, hired.Hired);
             Assert.Equal(MercenaryWire.HiredStates, owner.Player.Area.Monsters[hired.Hired].States!.SharedStates);
             Assert.Equal(MercenaryWire.AlliedTeam, instance.World.MonsterOrigins[hired.Hired].Object.Team);
+            Assert.Equal(nobleBlood, hired.Permanent);
+            if (nobleBlood)
+            {
+                owner.Player.Area.Monsters.Remove(hired.Hired);
+                await GameEvents.RunPlayerEntered(peer.Player);
+                var again = Read();
+                Assert.NotEqual(hired.Hired, again.Hired);
+                Assert.True(again.Permanent);
+                Assert.True(owner.Player.Area.Monsters.ContainsKey(again.Hired));
+            }
         }
         finally
         {

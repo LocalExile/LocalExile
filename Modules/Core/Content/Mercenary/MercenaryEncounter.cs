@@ -109,7 +109,7 @@ public sealed partial class MercenaryModule
         lock (run)
         {
             run.Stage = Stage.Met; run.Class = kind.Row; run.Build = build.Row; run.X = at.X; run.Y = at.Y;
-            run.Level = level; run.Seed = seed; run.Body = id; run.Hired = 0; run.Clock = 0; run.Steps = 0;
+            run.Level = level; run.Seed = seed; run.Body = id; run.Hired = 0; run.Permanent = false; run.Clock = 0; run.Steps = 0;
         }
         Register(player, run);
         Save(player, run);
@@ -173,6 +173,21 @@ public sealed partial class MercenaryModule
                 finally { lock (run) run.Busy = false; }
             }
             Register(player, run);
+        }
+        else if (run is { Stage: Stage.Hired, Permanent: true })
+        {
+            // A Noble Blood hire is kept: an instance that was kept and restored has lost its monsters, so it stands again.
+            var host = player.Instance.World.Runner ?? player;
+            if (!host.Area.Monsters.ContainsKey(run.Hired) && !host.Area.DormantMonsters.ContainsKey(run.Hired))
+            {
+                lock (run)
+                {
+                    if (run.Busy) return;
+                    run.Busy = true;
+                }
+                try { await Hire(player, run, (run.X, run.Y), keep: true); }
+                finally { lock (run) run.Busy = false; }
+            }
         }
         await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed));
     }
@@ -343,7 +358,7 @@ public sealed partial class MercenaryModule
     /// <summary>The hire, as the official one is created: the <c>*Allied</c> variety of the class in the states (0, 1, 0, 1), team
     /// 0x8001 and the same build. It stands where the duel ended: that it follows and fights for the player, and is bound to
     /// them, is not built.</summary>
-    async Task Hire(Player player, Run run, (int X, int Y) at)
+    async Task Hire(Player player, Run run, (int X, int Y) at, bool keep = false)
     {
         if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
             || Monsters.Find(kind.AlliedPath) is not { Supported: true } allied
@@ -355,7 +370,9 @@ public sealed partial class MercenaryModule
             });
         if (id == 0) return;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;
-        lock (run) run.Hired = id;
+        // Noble Blood (can_have_active_mercenary_follower): read once, as the hire is made, from the player's stat sources.
+        bool permanent = keep || player.StatSourcesCache is { } cached && cached.Sources.GetValueOrDefault(Stat.CanHaveActiveMercenaryFollower) > 0;
+        lock (run) { run.Hired = id; run.Permanent = permanent; }
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary hired as 0x{id:x} ({allied.Id})");
     }
