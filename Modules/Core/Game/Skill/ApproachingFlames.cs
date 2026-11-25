@@ -67,7 +67,7 @@ public static partial class Game
     {
         if (FlameTouchedOf(player) is not { Source: not null } flame) return;
         flame.End(now);
-        player.Antiquarian.EndSustainedAdrenaline(flame.RemoveAdrenaline);
+        player.WardBreak.EndSustainedAdrenaline(flame.RemoveAdrenaline);
         player.Area.Buffs.Clear(player.Id, FlameTouchedBuffRow, player.Id);
         MarkPlayerStats(player, PlayerStatStep.Sources);
     }
@@ -76,7 +76,7 @@ public static partial class Game
     {
         if (owner.FlameTouched is { Source: not null } flame)
         {
-            player.Antiquarian.EndSustainedAdrenaline(flame.RemoveAdrenaline);
+            player.WardBreak.EndSustainedAdrenaline(flame.RemoveAdrenaline);
             player.Area.Buffs.Clear(player.Id, FlameTouchedBuffRow, player.Id);
             MarkPlayerStats(player, PlayerStatStep.Sources);
         }
@@ -103,7 +103,7 @@ public static partial class Game
                 flame.Start(source, now, stats.GetValueOrDefault(Stat.FireDamageTakenPerSecondWhileFlameTouched),
                     stats.GetValueOrDefault(Stat.LoseAdrenalineOnLosingFlameTouched) != 0);
                 if (stats.GetValueOrDefault(Stat.GainAdrenalineOnGainingFlameTouched) != 0)
-                    player.Antiquarian.SustainAdrenaline(now);
+                    player.WardBreak.SustainAdrenaline(now);
                 player.Area.Buffs.Set(player.Id, new(FlameTouchedBuffRow, player.Id));
                 MarkPlayerStats(player, PlayerStatStep.Sources);
             }
@@ -112,7 +112,7 @@ public static partial class Game
             toggled = true;
             return [];
         });
-        if (toggled) await SendAntiquarian(player);
+        if (toggled) await SendWardBreak(player);
         return toggled;
     }
 

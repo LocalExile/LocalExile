@@ -1590,7 +1590,7 @@ public static partial class Game
         var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
         if (hitMore != 1.0) hit = hit.Scale(hitMore);
 
-        var gambler = GamblerFor(playerStats);
+        var hitRolls = HitRollsFor(playerStats);
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,
             GameEvents.WithOutgoingDamage(player, playerStats, m, hit.Roll(AreaRng(player))), now);
 
@@ -1612,7 +1612,7 @@ public static partial class Game
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
         var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            gambler.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null);
+            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null);
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 

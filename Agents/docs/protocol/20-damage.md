@@ -64,7 +64,7 @@ A DoT adds the target's per-type damage taken to its general increase: Izaro's T
 and Maim Support's 10% while maimed. Pride stays a separate more multiplier; hits still multiply physical taken
 separately. A hit that applies Maim settles the target's bleed first, so damage already earned keeps the old value.
 
-Before the per-type roll, `GamblerModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
+Before the per-type roll, `HitRollModifiers.RollOutgoingHit` rolls one damage multiplier per hit: triple damage
 (`base_chance_to_deal_triple_damage_%`), and only when that misses, double damage. PoB CalcOffence does the same
 ("Triple Damage overrides Double Damage"), so a hit with both chances is tripled at the triple chance and doubled at
 (1 - triple) × double.

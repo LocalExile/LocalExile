@@ -6,10 +6,10 @@
 
 For each one: whether it really conflicts with main (the merge is tried in memory, with main's rules for the list
 files), which open pull request it is stacked on, which protected paths it changes and who owns them, and which of
-the labels needs-author, BLOCKED and protected-files that adds up to, next to the labels it has. Nothing clears a
-label by itself, so it ends with the labels to add and the ones nothing was found for, each with its reason: for
-needs-author, whether the author has pushed or replied since it was set. It only reads: nothing is checked out,
-merged, labelled or posted. Needs Git 2.41 or newer. Exit code: 0, or 1 when something could not be read.
+the labels BLOCKED and protected-files that adds up to, next to the labels it has, along with conflicts, requested
+changes and failing checks. Nothing clears a label by itself, so it ends with the labels to add and the ones nothing
+was found for. It only reads: nothing is checked out, merged, labelled or posted. Needs Git 2.41 or newer. Exit code:
+0, or 1 when something could not be read.
 """
 import argparse
 import json
@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))    # python -I leaves the script's folder out
 from pr_warnings import REPO, ROOT, gh, git, run, scan_docs  # noqa: E402
 
-LABELS = ("needs-author", "BLOCKED", "protected-files")
+LABELS = ("BLOCKED", "protected-files")
 FAILED = ("FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE", "ERROR")
 
 
@@ -99,35 +99,9 @@ class Queue:
         return {"conflicts": conflicts, "inherited": inherited, "stackedOn": stacked_on, "protected": protected}
 
 
-def moves_since_label(rows, author, label="needs-author"):
-    """What the author did after the label was last set. rows: (event, time, label, login) from the timeline."""
-    set_at = max((time for event, time, name, _ in rows if event == "labeled" and name == label), default=None)
-    if set_at is None:
-        return None
-    later = [(event, login) for event, time, _, login in rows if time > set_at]
-    return {"set": set_at[:10],
-            "pushed": any(event == "committed" or event == "head_ref_force_pushed" and login == author
-                          for event, login in later),
-            "replied": any(event == "commented" and login == author for event, login in later)}
-
-
-def timeline_rows(repo, number):
-    """(event, time, label, login) for a pull request's timeline; a commit's time is its committer date."""
-    lines = gh("api", f"repos/{repo}/issues/{number}/timeline", "--paginate", "--jq",
-               '.[] | [.event, (.created_at // .committer.date // ""), (.label.name // ""),'
-               ' (.actor.login // .user.login // "")] | @tsv').splitlines()
-    return [tuple((line.split("\t") + ["", "", "", ""])[:4]) for line in lines if line]
-
-
 def wanted_labels(entry, pull):
     """The labels the facts add up to, each with its reasons."""
     wanted = {}
-    if entry["conflicts"] and not entry["inherited"]:
-        wanted.setdefault("needs-author", []).append("conflicts with main")
-    if pull.get("review") == "CHANGES_REQUESTED":
-        wanted.setdefault("needs-author", []).append("changes requested")
-    if pull.get("failing"):
-        wanted.setdefault("needs-author", []).append("failing check")
     if entry["stackedOn"] is not None:
         wanted["BLOCKED"] = [f"stacked on #{entry['stackedOn']}"]
     if entry["protected"]:
@@ -147,27 +121,18 @@ def report(results):
         wanted = list(result["wanted"])
         if result["mergeable"] == "CONFLICTING" and not result["conflicts"]:
             list_files_only.append(name)
-        if not wanted and not has:
+        needs_attention = bool(result["conflicts"] or result["review"] == "CHANGES_REQUESTED" or result["failing"])
+        if not wanted and not has and not needs_attention:
             waiting_on_nothing.append(name)
             continue
         add = [label for label in wanted if label not in has]
         unexplained = [label for label in has if label not in wanted]
         notes = (["add " + ", ".join(add)] if add else []) + (
             ["has " + ", ".join(unexplained) + ": nothing found for it"] if unexplained else [])
-        since = result.get("sinceLabel") or {}
-        moved = " and ".join(word for word in ("pushed", "replied") if since.get(word))
         to_add += [f"  {name} {label}" for label in add]
         for label in unexplained:
-            if label == "protected-files":
-                why = "it changes no protected path now"
-            elif label == "BLOCKED":
-                why = "it is not stacked on an open pull request now"
-            elif result["inherited"]:
-                why = f"its conflict is in the same files as #{result['stackedOn']}, which it waits for"
-            elif moved:
-                why = f"nothing is left to fix, and the author has {moved} since it was set"
-            else:
-                why = "no conflict, requested changes or failing check"
+            why = ("it changes no protected path now" if label == "protected-files"
+                   else "it is not stacked on an open pull request now")
             stale.append(f"  {name} {label}: {why}")
         draft = " (draft)" if result["draft"] else ""
         out.append(f"{name} {safe(result['author'])}{draft}: {', '.join(wanted) or 'no label'}"
@@ -186,12 +151,10 @@ def report(results):
                                                      for pattern, found in result["protected"].items()))
         if result["assignees"]:
             out.append("    assigned: " + ", ".join(safe(login) for login in result["assignees"]))
-        if moved:
-            out.append(f"    the author has {moved} since needs-author was set on {since['set']}")
         out.append("")
     if to_add:
         out += ["Labels to add:"] + to_add
-    if stale:   # a person may have set needs-author or BLOCKED for a reason Git does not show, so nothing is certain
+    if stale:   # a person may have set BLOCKED for a reason Git does not show, so nothing is certain
         out += ["Labels nothing was found for (look before taking one off):"] + stale
     if list_files_only:
         out.append("GitHub shows a conflict, a local merge is clean (only the list files): "
@@ -242,10 +205,7 @@ def main(argv=None):
             continue
         try:    # one pull request that cannot be read does not stop the others
             entry, pull = queue.entry(number), pulls[number]
-            since = (moves_since_label(timeline_rows(args.repo, number), pull["author"])
-                     if "needs-author" in pull["labels"] else None)
-            results.append({"number": number, **pull, **entry, "wanted": wanted_labels(entry, pull),
-                            "sinceLabel": since})
+            results.append({"number": number, **pull, **entry, "wanted": wanted_labels(entry, pull)})
         except RuntimeError as error:
             results.append({"number": number, "error": scan_docs.safe(str(error))})
 

@@ -169,7 +169,7 @@ public static partial class Game
         sources = WithTinctures(player, sources);
         sources = WithAlchemistsGenius(player, sources);
         AddBannerAuraStats(player, sources);
-        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
+        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithWardBreak(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy) is int perEnemy and not 0)
             sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + (long)Math.Min(8, sources.GetValueOrDefault(Stat.NumberOfNearbyEnemies)) * perEnemy);
@@ -1395,7 +1395,7 @@ public static partial class Game
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
             pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
-        player.AppliedAdrenaline = player.Antiquarian.Adrenaline(AreaTime(player));
+        player.AppliedAdrenaline = player.WardBreak.Adrenaline(AreaTime(player));
         ConfigureFortificationRecovery(player, pools.Life, sources);
         int lifeAsEnergyShield = ActorScale.Saturate((long)EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield)
             + (EquipmentInput(Stat.KeystoneCorruptedDefences) != 0 ? 15 : 0));
@@ -2124,7 +2124,7 @@ public static partial class Game
                 freeReset: HasPassiveFreeReset(player)),
             $"0x0033 passive skill tree: level {player.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
             $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
-            $"ascendancy {player.Character.MainAscendancy.Selection?.Family}/{player.Character.MainAscendancy.Selection?.Id}, {player.Character.MainAscendancy.EarnedPoints} earned, {player.Character.MainAscendancy.Allocated.Count} nodes" +
+            $"ascendancy {player.Character.MainAscendancy.Selection?.Family.Name()}/{player.Character.MainAscendancy.Selection?.Id}, {player.Character.MainAscendancy.EarnedPoints} earned, {player.Character.MainAscendancy.Allocated.Count} nodes" +
             (descendancyPoints > 0 ? $" + {descendancyPoints} descendancy points (row {player.Character.DescendancyRow})" : ""));
     }
 
@@ -2138,6 +2138,10 @@ public static partial class Game
     public static byte PackedClass(Player player)
     {
         byte baseClass = (byte)SkillsFor(player).ClassFor(player.Character.ClassRow).IntegerId;
+        // A choice of a family whose module is away for a moment (a reload) has no definition: the base class, as
+        // ClassDisplayName shows it.
+        if (player.Character.MainAscendancy.Selection is { } selection && Ascendancies.Find(selection) is null)
+            return CharacterClassByte.Encode(baseClass, 0);
         byte number = Game.AscendancyRules.Validate(baseClass, player.Character.MainAscendancy)?.ClassNo ?? 0;
         return CharacterClassByte.Encode(baseClass, number);
     }
