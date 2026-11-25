@@ -223,7 +223,7 @@ public static partial class Game
         if (Replaced()) return;
 
         List<uint> spirit = [];
-        (int X, int Y)? echo = null;
+        ((int X, int Y) Player, (int X, int Y) Centre)? echo = null;
         byte[]? memoryBuff = null;
         using (ProjectileMutation(player))
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, startStats, from, to,
@@ -281,7 +281,7 @@ public static partial class Game
             foreach (uint sid in spirit)
                 if (struck.Add(sid) && player.Area.Monsters.TryGetValue(sid, out var sm) && sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null)
                     targets.Add((sid, sm, true));
-            if (echo is { } echoAt
+            if (echo?.Centre is { } echoAt
                 && MoltenStrikeGeometry.SelectGroundStrikeTarget(
                     player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null && !struck.Contains(e.Key))
                         .Select(e => (e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),

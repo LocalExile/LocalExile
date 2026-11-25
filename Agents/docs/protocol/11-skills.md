@@ -2667,19 +2667,17 @@ on the monsters the client strikes.
   active-skill hash and that use as the first entry).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
-  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Wild Strike and their transfigured gems except Frost
-  Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes through the
-  projectile runtime (`ScheduleGemProjectile`), which launches only its projectiles: the server has no melee hit for
-  these gems, so it has no spirit strikes or previous location for them either and sends them no
-  `skill_location_memory`. Molten Strike is the exception: its melee hit (`MoltenStrike.cs`, a copy of `AreaSkillHit`'s
-  per-target pipeline) takes the spirit strikes and the previous location too, and launches its balls from the struck
-  enemies.
-  The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
-  damage on the server.
+  Frost Blades and Lightning Strike use the same target selection at their scheduled melee contact. The client's
+  extra strike has a start cell eight cells behind its chosen enemy (`0x141c9d7c0`, per-axis rounding). Lightning
+  Strike resolves the main and extra contacts and their projectile actions in `0x1413f2ac0` via `0x141c95340`.
+  Each Frost Blades contact emits its ice blades from the struck enemy. The extra-location action uses the stored
+  start and aim (`0x141ca9940`). Molten Strike also takes spirit targets and the previous location into its melee
+  contact and launches its balls from the struck enemies. Other projectile Strikes still need their own checks.
   The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
   nearest the old centre within the weapon's reach.
   Every extra hit rolls accuracy, block, crit and on-hit effects as the main one does.
-  A use grants at most one Fortification and one Rage gain, and each monster takes at most one hit of a use.
+  The melee sweep grants at most one Fortification and one Rage gain. Each monster takes at most one melee hit
+  in the sweep. A projectile volley excludes the target of its own originating strike on the outbound leg.
 
 Not mirrored: the client's line-of-sight test (`0x141d8a7f0`), which 20 candidates it keeps when more qualify (the
 server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
