@@ -70,7 +70,8 @@ internal static class ArenaHazards
             if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
             var stats = CharacterPlayerStats(p);
             int Get(uint key) => stats.GetValueOrDefault(key);
-            var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
+            var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty
+                : PlayerDamageTaken.ShiftOverTime(rawAt(p.Walk.Position(now), false), Get);
             var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
             uint manaBefore = p.PlayerMana;
             int loss = 0;

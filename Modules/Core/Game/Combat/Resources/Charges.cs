@@ -271,7 +271,10 @@ public static partial class Game
         int tukohamaPerSec = Get(Stat.WhileStationaryGainAdditionalPhysicalDamageReductionPct);
         if (tukohamaPerSec > 0 && !player.Walk.Moving(now) && double.IsFinite(player.StationarySince))
             pantheonPhysical += Math.Min(9L, (long)Math.Min(3, (int)Math.Floor(Math.Max(0, now - player.StationarySince))) * tukohamaPerSec);
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction + pantheonPhysical), reduction.Elemental);
+        int leechReduction = Get(Stat.KeystoneStrengthOfBlood) != 0
+            ? LeechOf(player).StrengthOfBloodReduction(ProjectileWorldTime(player)) : 0;
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)
+            + minionReduction + pantheonPhysical + leechReduction), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
@@ -318,7 +321,9 @@ public static partial class Game
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased));
+        double now = AreaTime(player);
+        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+            * WindDancerHitFactor(player, attack, now, stats));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
