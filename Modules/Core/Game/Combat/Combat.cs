@@ -1949,7 +1949,8 @@ public static partial class Game
         if (effectId == "TemporalRift" && player.Auras.ContainsKey(skillId))
         {
             var packets = RecallTemporalRiftLocked(player);
-            if (packets.Length > 0) player.Minions.OutputQueue.Add(new(packets, "Temporal Rift recalls resources and position"));
+            if (packets.Length == 0) return false;
+            player.Minions.OutputQueue.Add(new(packets, "Temporal Rift recalls resources and position"));
             started = player.Auras[skillId];
         }
         else if (player.Auras.Remove(skillId, out var old))
