@@ -301,6 +301,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+  A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
