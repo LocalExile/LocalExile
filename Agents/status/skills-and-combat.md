@@ -246,6 +246,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Infernal Blow charges detonate on expiry or the sixth charge, and marked corpses explode in a separate radius;
+  Immolation charges the attacker.
 - Pestilent Strike spreads a marked corpse's remaining poison damage as a separate chaos debuff.
 - Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
   Docs: [11](../docs/protocol/11-skills.md).
