@@ -221,13 +221,14 @@ public static partial class Game
 
     public static bool TryBeginCooldownUseCore(Player player, int effect, SingleUseCooldown? plan, bool instant,
         Action sideEffects, out CooldownUseTicket? ticket, int? actionToken, bool reserve, double? requestedAt,
-        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false)
+        ushort? skillId, Func<bool>? admit = null, bool reserveAttack = false, bool triggered = false)
     {
         using (ProjectileMutation(player, advance: !reserveAttack))
         {
             using var sourceAdmission = AscendancyPolicies.Enter(player, player.Character.MainAscendancy.Selection);
             ticket = null;
-            if (SkillsFor(player).EffectId(effect) is TwisterEffect or CatStealthCryEffect) return false;
+            string? effectId = SkillsFor(player).EffectId(effect);
+            if (effectId is TwisterEffect or CatStealthCryEffect) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
             int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey) : effect;
@@ -246,7 +247,7 @@ public static partial class Game
                 double acceptedAt = AreaTime(player);
                 if (reserve && !TryPlanStanceLocked(player, requestedSkill, effect, acceptedAt, out stancePlan)) return false;
             }
-            if (skillId is ushort manual && TriggerOnlyReason(SupportedSkill(player, manual)) is not null) return false;
+            if (!triggered && skillId is ushort manual && TriggerOnlyReason(SupportedSkill(player, manual)) is not null) return false;
             // A guard skill shares one cooldown with the other guard skills, and its own buff has to be over before a
             // new one starts: Immortal Call's cooldown does not recover during its effect, so it is ready again only
             // after the buff and its 3 s cooldown (real game and Path of Building). Refuse here, before a cooldown use,
@@ -280,8 +281,13 @@ public static partial class Game
                 if (!AttackTiming.Ready(at, MeleeRepeatAttackDeadline(player, at), seconds)) return false;
                 attack = (attacking, at, seconds);
             }
+            if (skillId is ushort banner && BannerAuraRow(SkillsFor(player).EffectId(effect)) != 0
+                && !CanUseBanner(player, banner)) return false;
+            bool vengeful = effectId == VengefulCryEffect;
+            if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
+                return false;
             if (admit is not null && !admit()) return false;
-            bool bypassed = false, cooldownReset = false;
+            bool bypassed = false, cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
@@ -293,7 +299,7 @@ public static partial class Game
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
                 state.Refresh(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
-                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player)))
+                if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player), out retainRetaliationUse))
                 {
                     cooldownReset = true;
                     resetBaseMilliseconds = cooldown.BaseMilliseconds;
@@ -301,7 +307,7 @@ public static partial class Game
                 else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
-                    if (CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
+                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
                     if (reserve ? !ChargesOf(player).Spend(charge) : !ChargesOf(player).CanSpend(charge)) return false;
                     bypassed = true;
                 }
@@ -318,6 +324,7 @@ public static partial class Game
                 if (!PayMana(player, accepted, out uint mana, out uint life)) return false;
                 paid = (mana, life);
             }
+            if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -342,8 +349,12 @@ public static partial class Game
     internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
     internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
 
-    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random)
+    internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random) =>
+        CooldownResetTriggered(player, effect, skillId, random, out _);
+
+    static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random, out bool retainRetaliationUse)
     {
+        retainRetaliationUse = false;
         // Guard skills hold their cooldown frozen until their buff ends (Hold/Resume + guard.RecoverySeconds);
         // skipping instant reset keeps the held cooldown bar and server guard lockout synchronized.
         if (SkillsFor(player).IsGuard(effect)) return false;
@@ -351,10 +362,9 @@ public static partial class Game
         var own = skillId is ushort id ? SupportedSkill(player, id).Stats : null;
         int Value(uint key) => (int)Math.Clamp((long)stats.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0),
             int.MinValue, int.MaxValue);
-        if (SkillsFor(player).IsRetaliation(effect)
-            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random))
-            return true;
-        return RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
+        retainRetaliationUse = SkillsFor(player).IsRetaliation(effect)
+            && RandomRolls.Chance(Value(RetaliationPreventCooldownStat), 100, random);
+        return retainRetaliationUse || RandomRolls.Chance(Value(BaseCooldownRefreshChanceStat), 100, random);
     }
 
     // A link gem links its target with no upfront cost, only its cost over time (CastLink).
@@ -366,7 +376,8 @@ public static partial class Game
 
     // Whether a use of the skill pays its cost when it starts (CastGemSkill's PayMana), not a link's or a toggle's.
     static bool PaysOnUse(Player player, ushort skillId, int effect) =>
-        !IsLinkSkill(player, effect) && ToggledReservation(player, skillId) is null;
+        !IsLinkSkill(player, effect) && BannerAuraRow(SkillsFor(player).EffectId(effect)) == 0
+        && ToggledReservation(player, skillId) is null;
 
     // The charge a skill spends to be used while it cools down (CooldownBypass), null when it has no bypass.
     static ChargeType? CooldownBypassCharge(Player player, int effect, ushort? skillId)
@@ -431,9 +442,17 @@ public static partial class Game
         if (!dirty) return Task.CompletedTask;
         int epoch;
         epoch = player.ProjectileEpoch;
-        return Send(player, [], "0x02bc player active cooldown progress/rate refresh",
-            atGate: () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
-                .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
-                .Select(g => (g.Id, g.Effect)).ToArray()));
+        Func<byte[]?> build = () => NativeCooldownRefresh(player, epoch, () => GemSkillEffects(player)
+            .Where(g => CooldownFor(player, g.Effect, g.Level, g.Quality) is not null)
+            .Select(g => (g.Id, g.Effect)).ToArray());
+        // Queue behind same-frame world records (such as S->C 0x01ce instant actions) for this player alone so
+        // 0x02bc never overtakes 0x01ce on the wire and exhausts the client's stored uses before CanExecute runs.
+        if (InAreaFrame(player))
+        {
+            if (build() is { Length: > 0 } bytes)
+                Program.ToArea(player, bytes, "0x02bc player active cooldown progress/rate refresh", only: player);
+            return Task.CompletedTask;
+        }
+        return Send(player, [], "0x02bc player active cooldown progress/rate refresh", atGate: build);
     }
 }

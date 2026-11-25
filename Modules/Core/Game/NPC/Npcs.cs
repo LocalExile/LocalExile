@@ -94,6 +94,7 @@ public static partial class Game
         lock (player.Npcs) id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
         player.StashOpen = false;
         player.GuildStashOpen = false;
+        player.TradeStashOpen = false;
         player.BenchOpen = false;
         player.ModuleWindow = null;
         player.ModuleWindowAnchor = null;

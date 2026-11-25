@@ -31,9 +31,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Guild lines are not sent. A `%` party line reaches every member of the sender's party, in whatever area each one is
-  (S→C 0x17 with the sender prefixed `%`); a player in no party is sent none (tested, not yet checked with the real
-  client).
+  Guild (`&`) lines reach online members of the sender's guild with the tag. A `%` party line reaches every member of
+  the sender's party, in whatever area each one is (S→C 0x17 with the sender prefixed `%`); a player in no party is
+  sent none (tested, not yet checked with the real client).
   A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
   Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
@@ -93,15 +93,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Guilds (`0x0140`–`0x014f`, `0x0146`–`0x014c`, `&` chat, shared stash & `0x00cc` reorder): offline verified.
 - PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d): protocol encoders and queue/challenge leave and withdraw handlers
   in `Modules/Core/Player/Social` (not yet checked live).
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,
-  distinct `0x2f9` refusal codes for gold/currency/slots/market, and cursor vs Ctrl-click `0x2ed` claim modes.
+  distinct `0x2f9` refusal codes for gold/currency/slots/market, `0x2ef` query results, and `0x2ed` claim modes.
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
   Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
+- Localized chat (`0x18`), broadcasts (`0x19`), awards (`0x1d5`/`0x1d6`), notices (`0x2cc`) and trackers (`0x15f`).
+  Encoders and emitters are wired (live check pending); docs: [30](../docs/protocol/30-hud-signals-and-timers.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.

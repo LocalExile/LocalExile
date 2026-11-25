@@ -48,9 +48,7 @@ penalties."), up to the threshold of the first level whose requirement the chara
 does not meet and the last level's threshold (a support gem too; a gem in an
 inactive item, at its last level, or at experience -1, a corrupted gem over its cap, nothing). All the gems change in
 one step under the inventory's lock (`PlayerInventories.ChangeSocketedGems`), written into the gem inside the socket
-list, and are sent as the socket's equipment row 0x00bf item change, each item once with all its gems — the same item
-id removed and added again, the replace idiom: an addition of a known id alone is dropped as a duplicate and the client
-keeps the stale gem (live 2026-10-23). One item change per row per kill; the client's XP bar and tooltip follow. A
+list, and are sent incrementally via **S→C 0x00c3** (6 bytes, class `0x1431767e8`, read `0x140911270`, dispatcher `0x142154507` → `0x14217a930`: `u32 BE experience` carrying the already-10% share directly without resending full item blobs). Because `0x14217a930` scales by player stats `214`/`3005`, blue-socket item stat `6648`, and local gem stat `234`, and does not skip inactive items or character-level stalls, the server falls back to the equipment row `0x00bf` replace idiom whenever any of those conditions or a level-up applies. A
 level's costs, damage and reservation ride the skills, so a level-up also re-sends the skills (the 0x20 Actor update,
 `SendSkills`), the same thing an equipment change does.
 

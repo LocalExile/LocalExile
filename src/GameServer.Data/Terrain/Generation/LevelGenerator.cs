@@ -108,19 +108,24 @@ public static class LevelGenerator
     /// <summary>The terrain plugins (TerrainPlugins Id) whose generation is ported, so a state for them can be sent.</summary>
     public static bool PortsPlugin(string? pluginId) => pluginId == DeepwaterGeneration.PluginId;
 
+    // The ordinary Mirror uses the default Affliction terrain variant and leaves the underlying tiles unchanged.
+    public static bool SupportsPluginState(ushort id, ReadOnlySpan<byte> state, ushort? areaPlugin, string? areaPluginName) =>
+        id == 0x0871 ? state is [0] : id == areaPlugin && PortsPlugin(areaPluginName);
+
     /// <summary>Generates the area. Pass <paramref name="rng"/> (seeded, with the area's randomness flag) to keep its draw
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.
     /// <paramref name="pluginStates"/>: the terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c> →
     /// bytes). The client creates a plugin per state, then the area's own with an empty state (<c>0x141eca930</c>); only
-    /// the area's own plugin, when ported, can be given one.</summary>
+    /// the area's own ported plugin and the optional fog grid are supported.</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
         List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
         byte[]? delveTerrain = null, IReadOnlyDictionary<ushort, byte[]>? pluginStates = null)
     {
-        foreach (var id in pluginStates?.Keys ?? [])
-            if (id != area.TerrainPlugin || !PortsPlugin(area.TerrainPluginId))
-                throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
+        if (pluginStates is not null)
+            foreach (var (id, state) in pluginStates)
+                if (!SupportsPluginState(id, state, area.TerrainPlugin, area.TerrainPluginId))
+                    throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
         var features = ExtraTerrainFeatures.Roll(area, rng);
