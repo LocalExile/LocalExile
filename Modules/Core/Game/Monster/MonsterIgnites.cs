@@ -7,7 +7,7 @@ public static partial class Game
 {
     static MonsterIgnites.Settings IgniteSettingsFrom(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
     {
-        var settings = MonsterIgnites.Settings.From(rows, hand, get);
+        var settings = MonsterIgnites.Settings.From(rows, hand, get, get(Stat.BaseElementalStatusAilmentDurationPlusPct));
         double factor = Math.Max(0, 1 + get(Stat.EmberglowIgniteDurationPlusPctFinal) / 100d)
             * Math.Max(0, 1 + get(Stat.UniqueReplicaVolkuursGuidanceIgniteDurationPlusPctFinal) / 100d);
         return settings with { Seconds = settings.Seconds * factor };

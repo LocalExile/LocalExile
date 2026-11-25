@@ -62,7 +62,11 @@ public sealed class MonsterIgnites
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
         /// prohibitions (<see cref="MonsterElementalAilments.CannotInflict"/>) and never_damaging_ailments stop it. faster_burn_% and damaging_ailments_deal_damage_+%_faster multiply the damage
         /// per second and divide the duration (wiki Ignite; PoB IgniteBurnFaster).</summary>
-        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get) =>
+            From(rows, hand, get, 0);
+
+        public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
+            int additionalDurationPct)
         {
             if (MonsterElementalAilments.CannotInflict("ignite", get) || get(Stat.NeverDamagingAilments) != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
@@ -78,7 +82,7 @@ public sealed class MonsterIgnites
                 + (tinctureWeapon ? get(Stat.ChanceToIgnitePctWithTincturedWeapons) : 0)
                 + (get(Stat.AlwaysIgnite) != 0 ? 100 : 0);
             double seconds = Ailments.IgniteDurationSeconds
-                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+                * Math.Max(0, 1 + ((double)get(Stat.IgniteDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct) + additionalDurationPct
                     + (tinctureWeapon ? get(Stat.ElementalAilmentDurationPlusPctWithTincturedWeapons) : 0)) / 100) / faster
                 * DurationMultiplier(get);
             return new((int)Math.Clamp(chance, 0, 100), Row("minimum", "non_critical"), Row("maximum", "non_critical"),
