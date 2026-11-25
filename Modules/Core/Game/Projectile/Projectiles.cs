@@ -956,6 +956,7 @@ public static partial class Game
                 random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
+            int directDamage = damage;
             int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
                 additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
             bool immune = target.Invulnerable;
@@ -979,6 +980,7 @@ public static partial class Game
                 cullPlayer: null, chaosDamage: chaosDamage,
                 preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (shot.FromTotem && !immune) LeechFromTotemHitLocked(Player, target, directDamage, at, player);
             if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
