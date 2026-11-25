@@ -2956,7 +2956,8 @@ public static partial class Game
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
-        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now);
+        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now)
+            * SigilEnemyDamageFactor(player, m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
@@ -3045,6 +3046,13 @@ public static partial class Game
         // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
+        if (m.Hostile && damage > 0 && FrostShieldCovers(player))
+        {
+            int kept = AbsorbFrostShield(player, player.Walk.Position(now), m.Walk.Position(now), damage, now);
+            chaosDamage = (int)((long)chaosDamage * kept / damage);
+            physicalDamage = (int)((long)physicalDamage * kept / damage);
+            damage = kept;
+        }
         uint manaBefore = player.PlayerMana;
         if (blocked) RecoverOnBlockLocked(player, stats, now, attackHit);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).

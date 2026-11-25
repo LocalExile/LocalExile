@@ -141,6 +141,7 @@ public static partial class Game
     {
         if (amount == 0 || player.LeavingArea || player.PlayerLife == 0 || !CurrentGameRules) return;
         player.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(player), amount);
+        SigilManaSpent(player, amount, AreaTime(player));
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state)) return;
         int Get(uint key) => playerStats.GetValueOrDefault(key);

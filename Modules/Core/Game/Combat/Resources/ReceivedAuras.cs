@@ -157,6 +157,7 @@ public static partial class Game
         }
         var fortAlly = MinionAllyFortificationLocked(player, minion, at, auraTime);
         Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
+        AddMinionSigilLightning(player, at, auraTime, values);
         return values;
     }
 }
