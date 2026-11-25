@@ -354,10 +354,10 @@ public static partial class Game
                     Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                     continue;
                 }
-                var gambler = GamblerFor(playerStats);
+                var hitRolls = HitRollsFor(playerStats);
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert(
-                        (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
+                        (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
                             intelligence: player.Pools.Intelligence), cryExerted)
                         .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
@@ -378,7 +378,7 @@ public static partial class Game
                 rolled = resonance.Packet;
                 var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
                     resonance.Mods, resonance.Penetration,
-                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                 var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);

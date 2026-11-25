@@ -27,5 +27,5 @@ public readonly record struct SkillDamageContext(SkillHitKind Kind, IReadOnlyDic
         return DamageStats.Prohibited(type, Get, attack: Kind == SkillHitKind.Attack);
     }
 
-    double DamageFactor => Game.GamblerFor(ActualCaster).DamageFactor;
+    double DamageFactor => Game.HitRollsFor(ActualCaster).DamageFactor;
 }

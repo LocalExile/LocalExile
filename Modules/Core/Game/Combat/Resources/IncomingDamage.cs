@@ -43,7 +43,7 @@ public static partial class Game
             lifeDamage: toLife, damaged: taken.MaxTotal > 0, enemy: false);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
-        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
     }
 
@@ -230,7 +230,7 @@ public static partial class Game
         int physicalAbsorbed = Math.Min(physicalEligible, nonChaosAbsorbed);
         if (!wasBroken && player.Ward.Broken)
         {
-            if (player.Antiquarian.GrantAdrenaline(now, Get(AntiquarianEffects.AdrenalineSource)))
+            if (player.WardBreak.GrantAdrenaline(now, Get(WardBreakEffects.AdrenalineSource)))
             {
                 player.Pools = PoolsFor(player, player.Pools.Level);
                 player.ApplyMovementSpeed();

@@ -32,8 +32,6 @@ sealed class BotControlLease(string controller, int seconds, TimeProvider? clock
 
 sealed partial class BotDirector
 {
-    static IControlledPlayerCommands CommandRules => Program.GameLogicOrNull as IControlledPlayerCommands
-        ?? throw new InvalidOperationException("The current game module does not expose controlled-player commands.");
 
     internal object McpConfiguration() => new
     {
@@ -44,7 +42,7 @@ sealed partial class BotDirector
             var range = LevelsForTown(town);
             return new { act, town, minimum = range.Min, maximum = range.Max };
         }).ToArray(),
-        controls = new { maximumLeaderDistance = (Program.GameLogicOrNull as IControlledPlayerCommands)?.MaximumLeaderDistance, gapGraceGameSeconds = 1.25,
+        controls = new { maximumLeaderDistance = BotPlay.ControlledFollowerLeash, gapGraceGameSeconds = 1.25,
             immediateRecoveryDistance = 100, orderLifetimeGameSeconds = 5, observationEnemyLimit = 64,
             leaseSeconds = _settings.McpLeaseSeconds, partyBotsOnly = true, fallback = "ordinary following and combat AI" },
     };
@@ -73,7 +71,7 @@ sealed partial class BotDirector
                         { botId = b.CharacterId, name = b.Name, peerId = b.PeerId, controller = b.Control?.Controller }).ToArray(),
                     players = PartyRoster.Players(bot.Party).Select(c => new
                         { name = Program.CharacterName(c), peerId = c.Id, leader = ReferenceEquals(c, bot.Leader) }).ToArray(),
-                    observation = CommandRules.ObserveControlledPlayer(bot.Combat!, bot.Leader!) };
+                    observation = BotPlay.ObserveControlledPlayer(bot.Combat!, bot.Leader!) };
             }
             if (tool == "claim_bot")
             {
@@ -81,7 +79,7 @@ sealed partial class BotDirector
                 if (bot.Control is not null) throw new InvalidOperationException("Bot is already leased; its controller must release it or let the lease expire.");
                 var claimed = new BotControlLease(BotMcpProtocol.Text(args, "controller", 80), _settings.McpLeaseSeconds);
                 var player = bot.Combat!;
-                CommandRules.QueueControlledIntent(player, new(Guid.NewGuid().ToString("N"), "hold",
+                BotPlay.QueueControlledIntent(player, new(Guid.NewGuid().ToString("N"), "hold",
                     player.Frames.Now(player) + 3, WallDeadline: claimed.Deadline));
                 bot.Control = claimed;
                 _console($"bots MCP: {bot.Name} claimed by {bot.Control.Controller}");
@@ -94,7 +92,7 @@ sealed partial class BotDirector
             if (tool == "renew_control") { lease.Renew(); return new { botId = bot.CharacterId, seconds = lease.Remaining }; }
             if (tool == "release_bot")
             {
-                if (bot.Combat is { } old) CommandRules.ClearControlledIntent(old);
+                if (bot.Combat is { } old) BotPlay.ClearControlledIntent(old);
                 bot.Control = null;
                 _console($"bots MCP: {bot.Name} released to ordinary party AI");
                 return new { botId = bot.CharacterId, released = true };
@@ -128,7 +126,7 @@ sealed partial class BotDirector
             {
                 var player = bot.Combat!;
                 string command = Guid.NewGuid().ToString("N");
-                CommandRules.QueueControlledIntent(player, new(command, action, player.Frames.Now(player) + seconds,
+                BotPlay.QueueControlledIntent(player, new(command, action, player.Frames.Now(player) + seconds,
                     skill, target, x, y, flask, lease.Deadline));
                 return new { botId = bot.CharacterId, commandId = command, sequence, status = "queued",
                     detail = "Observe lastCommand for execution; queuing does not certify a cast, hit or flask effect." };
@@ -136,14 +134,14 @@ sealed partial class BotDirector
         }
     }
 
-    static bool Ready(Bot b) => PartyRoster.ContainsCompanion(b.Party, b.Account) && Program.GameLogicOrNull is IControlledPlayerCommands && b.Phase == BotPhase.Following && b.Leader is { Controlled: false, Closed: false, LeavingArea: false, Connection.PlayerSent: true }
-        && b.Combat is { Closed: false, LeavingArea: false, ControlledPrepared: true, Connection.PlayerSent: true }
+    static bool Ready(Bot b) => PartyRoster.ContainsCompanion(b.Party, b.Account) && Program.GameLogicOrNull is not null && b.Phase == BotPhase.Following && b.Leader is { HasClient: true, Closed: false, LeavingArea: false, Connection.PlayerSent: true }
+        && b.Combat is { Closed: false, LeavingArea: false, Connection.PlayerSent: true } && BotPlay.BodyOf(b.Combat).Prepared
         && ReferenceEquals(b.Combat.Instance, b.Leader.Instance);
 
     static void ExpireControl(Bot bot)
     {
         if (bot.Control is not { Active: false }) return;
-        if (bot.Combat is { } player) CommandRules.ClearControlledIntent(player);
+        if (bot.Combat is { } player) BotPlay.ClearControlledIntent(player);
         bot.Control = null;
     }
 }

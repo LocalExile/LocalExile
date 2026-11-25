@@ -56,7 +56,7 @@ public sealed class JewelPathAttributeTests
             ushort root = Program.Passives.JewelNodeForSlot(12)!.Value;
             ushort start = (ushort)ClientTables.Table("PassiveSkills").Single(p => p.Ints("Characters")
                 .Any(c => ClientTables.Table("Characters")[c].Int("IntegerId") == 1)).Int("PassiveSkillGraphId");
-            var graph = PassiveGraphs.Links(AscendancyFamily.Normal);
+            var graph = PassiveGraphs.Links(AscendancyCatalog.NormalGraph);
             var previousNode = new Dictionary<ushort, ushort> { [start] = start };
             var queue = new Queue<ushort>(); queue.Enqueue(start);
             while (!previousNode.ContainsKey(root) && queue.TryDequeue(out ushort node))

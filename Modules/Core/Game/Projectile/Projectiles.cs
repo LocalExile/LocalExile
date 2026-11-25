@@ -919,17 +919,17 @@ public static partial class Game
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
-            if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
-            if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
+            if (!shot.Spell && shot.FarShot) more *= WardBreakEffects.FarShot(contact.Projectile.Distance);
+            if (!shot.Spell && shot.PointBlank) more *= WardBreakEffects.PointBlank(contact.Projectile.Distance);
             if (shot.ShatteringSteelAmmoHitBonus > 0)
                 more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
-            var gambler = GamblerFor(player);
+            var hitRolls = HitRollsFor(player);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
+                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
                     .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
@@ -953,7 +953,7 @@ public static partial class Game
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
-                resonance.Penetration, gambler.InvertsResistance(random, shot.SkillResistanceInversionChance),
+                resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);

@@ -168,7 +168,7 @@ public static partial class Game
         }
         if (FreshMeatActive(golem, now))
         {
-            foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
+            foreach (var (key, value) in WardBreakEffects.AdrenalineStats)
                 values[key] = ActorScale.Saturate((long)values.GetValueOrDefault(key) + value);
             values[WakenedFuryChance] = GolemStat(golem.Own, WakenedFuryChance);
             values[Stat.BaseCriticalStrikeMultiplierPlus] = ActorScale.Saturate(

@@ -639,7 +639,7 @@ mode-pure (`0x1421660b0`, `0x1421664c0`, `0x142166660`, `0x142166800`, `0x14216c
 0x18f, 0x192, 0x195, 0x196, 0x197 and 0x198, predictive only 0x24, 0x25 and 0x199.
 
 The Gateway has no mode setting and asks nothing. `ClientPackets` lists every C→S message with the mode that sends it (Shared, Predictive-only, Lockstep-only); the first mode-only message of a connection (one area) is the mode its handlers serve (`Player.NotePacket`). Messages of both modes in one area, which one client never sends, are logged and shown six times in the client's chat with their ids, for the player to report. Nothing else tells the modes apart for certain, so until then a client is served in
-Lockstep, the default (a server-controlled player, which sends predictive messages, in Predictive). Latency adds input delay, not position error: both sides count the
+Lockstep, the default (a player the server drives, in the mode its driver sets: Program.DriveByServer). Latency adds input delay, not position error: both sides count the
 same frames, so a client on a slower link plays the same frames later.
 
 The tick's u8 is no mode test. Only a lockstep world counts frames behind: its only writers are the world's

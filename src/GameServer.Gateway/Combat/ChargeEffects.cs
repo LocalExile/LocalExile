@@ -155,7 +155,7 @@ public static class ChargeEffects
         P(Stat.LightningDamagePctToAddAsChaosPerPowerCharge, Stat.LightningDamagePctToAddAsChaos),
         // All three
         new(Stat.DamagePlusPctPerFrenzyPowerOrEnduranceCharge, null, [Stat.DamagePlusPct]),
-        // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' gambler roll)
+        // Brutal (Endurance Charges converted): Character.ot's 3% chance to deal triple damage (the hits' hitRolls roll)
         // and 10% increased stun threshold per charge (PanelStatDefaults). Affliction's more ailment damage is
         // DamageMore(ailment); its more effect of non-damaging ailments and Absorption's recoup of elemental damage
         // taken as energy shield have no server consumer yet (11-skills.md §15).

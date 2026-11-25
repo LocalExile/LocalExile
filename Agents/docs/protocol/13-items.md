@@ -517,7 +517,7 @@ Headhunter mechanics count those as an exception to "you"; Replica Headhunter is
 totems, totem projectiles) mark the monster first; a Mirage Archer's kills and an ownerless damage-over-time death are
 not marked.
 
-**Paradoxica** (`GamblerModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
+**Paradoxica** (`HitRollModifiers.ForWeapon`): `local_double_damage_with_attacks` is weapon-local (Stats `IsWeaponLocal`;
 its hand aliases are `base_main_hand_number_of_times_damage_is_doubled` and the off-hand one). Every hit of an attack
 made with that weapon doubles, before the triple-damage roll can override it. The server's attack hits are the main
 hand's (a shield skill's are the shield's), so a Paradoxica in the off hand doubles nothing: dual-wield swings do not

@@ -2999,7 +2999,7 @@ public static partial class Game
         GainLifeBeforeEnemyHitLocked(player, stats);
         // Roll the whole monster-mod packet (the Gambler's incoming luck included), then mitigate each component
         // with this hit's one armour decision.
-        var gambler = GamblerFor(stats);
+        var hitRolls = HitRollsFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
         var hitDamage = a.Damage;
         if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);
@@ -3014,9 +3014,9 @@ public static partial class Game
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
         bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
         bool suppressed = suppressionChangesRoll && RollSuppression();
-        if (suppressed && gambler.EnemyDamageExtraRolls >= 0)
-            gambler = gambler with { EnemyDamageExtraRolls = gambler.EnemyDamageExtraRolls - 1 };
-        var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
+        if (suppressed && hitRolls.EnemyDamageExtraRolls >= 0)
+            hitRolls = hitRolls with { EnemyDamageExtraRolls = hitRolls.EnemyDamageExtraRolls - 1 };
+        var rolled = hitRolls.RollIncomingHit(hitDamage, player.IncomingHitRandom);
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
             : MonsterBaseCritChancePermyriad;
@@ -3047,7 +3047,7 @@ public static partial class Game
             projectile, projectile && player.RecentEvents.Happened(TakenProjectileDamage, now));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         int elemPen = Math.Max(0, m.Effects[Stat.ReduceEnemyElementalResistancePct]);
-        var mitigated = gambler.MitigateIncomingHit(taken, type =>
+        var mitigated = hitRolls.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(player, type), MaxResistance(player, type),
                 Penetration: type is DamageType.Fire or DamageType.Cold or DamageType.Lightning ? elemPen : 0), player.IncomingHitRandom);
         var immune = PlayerImmunities(player, stats);
@@ -3091,7 +3091,7 @@ public static partial class Game
             // unless ranged.
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
-                value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
+                value = WardBreakEffects.RangedPhysical(value, a.Ranged, StatOf);
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
@@ -3181,7 +3181,7 @@ public static partial class Game
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
-        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
@@ -3197,7 +3197,7 @@ public static partial class Game
             if (alwaysStun || AreaRng(player).NextDouble() * 100 < PlayerHitRecovery.Chance(stunCheckDamage, player.PlayerMaxLife, StatOf))
                 player.LastStunnedOrBlockedStunAt = now;
         }
-        else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
+        else if (WardBreakEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         if (recovery is not null && StatOf(Stat.DamageTakenPctRecoveredAsLifeFromStunningHits) is > 0 and var recoverPct
