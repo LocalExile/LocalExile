@@ -408,6 +408,10 @@ public static partial class Game
     public static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         Stat.ManaCost is var k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
+    static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
+        out uint es, out uint fromEs, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100) =>
+        SkillCostLocked(player, skillId, own, out cost, out life, out es, out fromEs, out _, out playerStats, costPercent);
+
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called in the area's frame.
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
