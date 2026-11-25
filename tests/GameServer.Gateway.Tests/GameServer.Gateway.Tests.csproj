@@ -43,5 +43,6 @@
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
     <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>
