@@ -206,7 +206,7 @@ public static partial class Game
         if (player.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(player).Clear(now); FortificationOf(player).Clear();
-            player.EnergyShield.Empty(); ClearAntiquarianOnDeath(player); return false;
+            player.EnergyShield.Empty(); ClearWardBreakOnDeath(player); return false;
         }
         var state = ResourceEffectsOf(player);
         double recoup = ResourceEffectsCurrent(player, state) ? state.Mana.Take(now) : 0;

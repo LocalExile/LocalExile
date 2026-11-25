@@ -31,7 +31,7 @@ internal sealed partial class HarbingerGameplay(Func<DateTimeOffset>? utcNow = n
     sealed record Pending(HarbingerCompanionCatalog.Companion Source, ushort Skill, double At, Func<bool> Current);
     HarbingerCompanionCatalog Catalog(Player player) => LeagueFor(player).HardMode ? hard : normal;
     static bool Enabled(Player player) => player.Character.MainAscendancy.Selection is
-        { Family: AscendancyFamily.Phrecia, Id: "Occultist" } selection
+        { Id: "Occultist" } selection && selection.Family == PhreciaFamilyPolicy.Phrecia
         && AscendancyCatalog.IsKnownRevision(selection.Revision)
         && AscendancyPolicies.SourceOwner(player) is not null;
     State Get(Player player)

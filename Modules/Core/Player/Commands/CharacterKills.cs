@@ -26,7 +26,7 @@ public sealed class CharacterKills(Func<double>? time = null) : IDisposable
 
     Pending? Session(Player player)
     {
-        if (retired || player.Controlled || player.Character.Name is not { Length: > 0 } name || player.Closed || player.LeavingArea) return null;
+        if (retired || !player.EarnsProgress || player.Character.Name is not { Length: > 0 } name || player.Closed || player.LeavingArea) return null;
         lock (sessions)
         {
             if (retired) return null;

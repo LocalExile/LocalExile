@@ -197,7 +197,7 @@ public sealed class BlightEncounter
 
     static List<Player> Members(Player player)
     {
-        var members = InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
+        var members = InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
         if (!members.Contains(player) && Current(player)) members.Insert(0, player);
         return members;
     }

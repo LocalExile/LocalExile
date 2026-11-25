@@ -11,20 +11,25 @@ public partial class Program
     public static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
     public static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
 
+    // A package (a mod's folder with Leagues/ and Modules/ in it, Core's Packages) adds its leagues and modules to the repository's.
     public static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
+        More = () => Packages.Roots("Leagues"),
         GameValues = GameValuesOf,
     };
 
     public static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
     {
+        More = () => Packages.Roots("Modules"),
         Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
         GameValues = GameValuesOf,
     };
-    // A mod gets what a module gets, in every league: the server's assemblies, the modules it depends on, the player's world.
-    public static readonly ModHost ServerMods = new(Environment.GetEnvironmentVariable("Game_MODS_FOLDER") ?? "Mods/Binaries", Console.WriteLine)
+    // A mod gets what a module gets, in the leagues that take it (every league, unless its league.json says): the server's
+    // assemblies, the modules it depends on, the player's world.
+    public static readonly ModHost ServerMods = new(Packages.Folder, Console.WriteLine)
     {
         Modules = ServerModules,
+        Leagues = ServerLeagueCode,
         GameValues = GameValuesOf,
     };
 
@@ -37,10 +42,11 @@ public partial class Program
         if (leagues.FindLoaded(LeagueCatalog.Standard) is null)
             throw new InvalidOperationException($"The Standard league is required: no {Path.Combine(LeaguesFolder, LeagueCatalog.Standard, ModHost.LeagueManifestFile)}");
         foreach (string error in leagues.Errors) Console.WriteLine($"[leagues] not loaded: {error}");
+        var modules = ServerModules.Ids();
         foreach (var league in leagues.Loaded)
             foreach (string path in league.Modules)
-                if (!File.Exists(Path.Combine(ModulesFolder, path, ModHost.ModuleManifestFile)))
-                    Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/");
+                if (!modules.Contains(Packages.Id(path)))
+                    Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/ or a package");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
         ModLoadContext.DeleteOldCopies();
         ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));

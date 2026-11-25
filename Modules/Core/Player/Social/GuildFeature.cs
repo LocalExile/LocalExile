@@ -58,25 +58,25 @@ public static class GuildFeature
 
     static void Register(Player player)
     {
-        if (!player.Closed && !player.LeavingArea && !player.Controlled)
+        if (!player.Closed && !player.LeavingArea && player.Listed)
             Online[AccountOf(player)] = player;
     }
 
     static Player? FindOnlineByAccount(string account)
     {
-        if (Online.TryGetValue(account, out var p) && !p.Closed && !p.LeavingArea && !p.Controlled) return p;
-        return InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+        if (Online.TryGetValue(account, out var p) && !p.Closed && !p.LeavingArea && p.Listed) return p;
+        return InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed && !c.LeavingArea
             && string.Equals(AccountOf(c), account, StringComparison.OrdinalIgnoreCase));
     }
 
     static Player? FindOnlineByNameOrAccount(string name) =>
-        InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+        InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(AccountOf(c), name, StringComparison.OrdinalIgnoreCase)))
-        ?? (Online.TryGetValue(name, out var p) && !p.Closed && !p.LeavingArea && !p.Controlled ? p : null);
+        ?? (Online.TryGetValue(name, out var p) && !p.Closed && !p.LeavingArea && p.Listed ? p : null);
 
     static bool CanAct(Player player) =>
-        Saves.IsOpen && !player.Closed && !player.LeavingArea && !player.Controlled;
+        Saves.IsOpen && !player.Closed && !player.LeavingArea && player.Listed;
 
     /// <summary>Clears in-memory runtime caches on module unload/hot-reload.</summary>
     public static void ResetRuntime()
@@ -88,7 +88,7 @@ public static class GuildFeature
     /// <summary>Whether <paramref name="player"/> may manage shared guild stash tabs (Officer/Leader, or solo when not in a guild).</summary>
     public static bool CanManageStash(Player player)
     {
-        if (player.Character.Ssf || player.Controlled) return false;
+        if (player.Character.Ssf || !player.Listed) return false;
         if (!Saves.IsOpen) return true;
         string account = AccountOf(player);
         var cache = Cache;
@@ -205,7 +205,7 @@ public static class GuildFeature
     public static IEnumerable<(string Log, byte[] Message)> Enter(Player player)
     {
         Register(player);
-        if (!Saves.IsOpen || player.Controlled) yield break;
+        if (!Saves.IsOpen || !player.Listed) yield break;
         string account = AccountOf(player);
         (string Name, string Tag, string Status, ulong CreatedAt, List<InstanceGuilds.Member> Members)? guildInfo = null;
         List<(ushort Index, string Name, string Tag, string Status, ulong CreatedAt, string Inviter)> pendingInvites = [];
@@ -760,7 +760,7 @@ public static class GuildFeature
         bool delivered = false;
         foreach (var peer in peers)
         {
-            if (peer is not { Controlled: false, Closed: false, Connection.Outbox: { } outbox }) continue;
+            if (peer is not { HasClient: true, Closed: false, Connection.Outbox: { } outbox }) continue;
             if (GameEvents.GetChatAvailability(peer).Dnd) continue;
             if (!ReferenceEquals(peer, player) && FriendsFeature.IsIgnoring(peer.Character.Account, account)) continue;
             try

@@ -339,7 +339,7 @@ public static partial class Game
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
         hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
-        return ApplyRoilingTempest(hit, Get).Scale(GamblerFor(stats).DamageFactor);
+        return ApplyRoilingTempest(hit, Get).Scale(HitRollsFor(stats).DamageFactor);
     }
 
     public static double AddedEffectiveness(Player player, int effect, int level) => SkillsFor(player).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
@@ -1438,8 +1438,7 @@ public static partial class Game
     {
         if (!string.IsNullOrEmpty(ascendancyId) && Ascendancies is { } catalog)
         {
-            AscendancyFamily? family = Enum.TryParse<AscendancyFamily>(ascendancyFamily, ignoreCase: true, out var parsed)
-                && Enum.IsDefined(parsed) ? parsed : null;
+            AscendancyFamily? family = string.IsNullOrEmpty(ascendancyFamily) ? null : AscendancyFamilies.Named(ascendancyFamily);
             if (catalog.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
                 && (family is null || d.Identity.Family == family)
                 && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)
@@ -1457,7 +1456,7 @@ public static partial class Game
         foreach (var recipient in InGame.Keys.Append(player))
         {
             if (!seen.Add(recipient)
-                || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
+                || recipient is not { HasClient: true, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
                 || !ReferenceEquals(recipient.Instance?.Presence, presence)) continue;
             try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -1524,7 +1523,7 @@ public static partial class Game
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired) return;
         RefreshVaalSouls(player);
         RefreshSingleUseCooldowns(player);
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
         foreach (var id in player.Auras.Keys.ToList())
         {

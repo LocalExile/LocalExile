@@ -1,14 +1,19 @@
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
-public static partial class Game
+using static Game;
+
+namespace GameServer.Modules.PlayerBots;
+
+// How a bot plays: the game's own rules, run for a player the server drives.
+public static partial class BotPlay
 {
     public static async Task InitializeControlledPlayer(Player player, Player leader)
     {
         RegisterVitalsAdmission(player);
         PrepareCharacterForArea(player, player.Pools.Level);
         InitializeCharacterVitals(player);
-        player.ControlledPrepared = true;
+        BodyOf(player).Prepared = true;
         var at = ControlledFollowerPoint(player, leader, arrival: true);
         player.Walk.Teleport(at.X, at.Y, AreaTime(player));
         player.PeerType = InstanceEntities.ObjectTypeHash(SkillsFor(player).ClassFor(player.Character.ClassRow).ObjectType);
@@ -31,25 +36,25 @@ public static partial class Game
         double now = AreaTime(player);
         if (player.PlayerLife == 0)
         {
-            if (double.IsNaN(player.ControlledDeadSince)) player.ControlledDeadSince = now;
-            if (now - player.ControlledDeadSince >= 3)
+            if (double.IsNaN(BodyOf(player).DeadSince)) BodyOf(player).DeadSince = now;
+            if (now - BodyOf(player).DeadSince >= 3)
             {
                 await Resurrect(player, inTown: false);
-                player.ControlledDeadSince = double.NaN;
+                BodyOf(player).DeadSince = double.NaN;
             }
             return;
         }
         bool following = KeepControlledFollowerNear(player, leader, now, ControlledExternalMovement(player, leader, now));
-        if (now < player.ControlledNextAction) return;
-        player.ControlledNextAction = now + .35;
+        if (now < BodyOf(player).NextAction) return;
+        BodyOf(player).NextAction = now + .35;
         if (player.Character.Passives.Count < player.Pools.Level - 1)
         {
             var cls = (GameServer.Core.Accounts.CharacterClass)SkillsFor(player).ClassFor(player.Character.ClassRow).IntegerId;
             var nodes = BuildControlledPlayer(cls, player.Pools.Level).Passives!;
-            CharacterSaves.SetMainAscendancy(CharacterName(player), player.Character.MainAscendancy, nodes, player.Character.MasteryEffects,
+            CharacterSaves.SetMainAscendancy(Program.CharacterName(player), player.Character.MainAscendancy, nodes, player.Character.MasteryEffects,
                 expected: player.Character.SavedPassiveProgress);
             player.Character.Passives = [.. nodes];
-            player.Character.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(CharacterSaves.Load(CharacterName(player))!);
+            player.Character.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(CharacterSaves.Load(Program.CharacterName(player))!);
             player.Pools = PoolsFor(player, player.Pools.Level);
             player.ApplyMovementSpeed();
             await SendCharacterStats(player, PlayerStatChange.Build);
