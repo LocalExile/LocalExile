@@ -387,6 +387,11 @@ public static partial class Game
         var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell), coldTakenFromChill: Player(Stat.KeystoneColdPurist) != 0,
             freezeDamageMultiplier: Math.Max(0, 1 + glacialFreezeMore / 100.0));
+        if (!spell && m.Hostile && !m.Dead && m.Life > 0 && !m.Invulnerable
+            && Skill(Stat.LocalChillOnHitMsIfInOffHand) is > 0 and var chillMs
+            && m.Ailments.WithoutDamage(Kind.Chill, chillMs / 1000d, now, Attacker, name => m.Effects[name],
+                AilmentArea(Player, Skill, spell)) is { } weaponChill)
+            added.Add(weaponChill);
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)

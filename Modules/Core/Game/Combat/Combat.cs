@@ -680,7 +680,8 @@ public static partial class Game
                     }
                 }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
-                    ownPenetration, at, AreaRng(player), poison: prehit.Poison,
+                    WithOffHandChill(ownPenetration, hand == AttackHand.Off ? weapon.LocalSources : null),
+                    at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
                 nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
@@ -3330,6 +3331,9 @@ public static partial class Game
                                 };
                             }
                         }
+                        if (weaponAttack)
+                            ailmentSkillStats = WithOffHandChill(ailmentSkillStats,
+                                hand == AttackHand.Off ? local : offInputs is not null ? bothOff?.LocalSources : null);
                     }
                     // The target's condition is chosen before accuracy, crit RNG, on-hit hooks and the hit's own Blind.
                     var profile = Blinded(player, id) && blindedProfile is not null

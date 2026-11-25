@@ -50,6 +50,16 @@ public static partial class Game
     public static double BlindSeconds(Func<uint, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
+    static IReadOnlyDictionary<uint, int>? WithOffHandChill(IReadOnlyDictionary<uint, int>? skill,
+        IReadOnlyDictionary<uint, int>? offHand)
+    {
+        int duration = offHand?.GetValueOrDefault(Stat.LocalChillOnHitMsIfInOffHand) ?? 0;
+        if (duration <= 0) return skill;
+        Dictionary<uint, int> hit = skill is null ? new() : new(skill);
+        hit[Stat.LocalChillOnHitMsIfInOffHand] = duration;
+        return hit;
+    }
+
     // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; others pass AreaRng(player).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
