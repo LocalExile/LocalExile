@@ -13,8 +13,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Flicker Strike: the server teleports the player to the target, with its charge speed and buff; with no monster in
   range the use is refused and costs nothing.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
-- Cooldown bypass: a use during the cooldown spends a charge; a cooldown skill pays its cost when its use is
-  accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
+- Cooldown bypass: the accepted skill use spends the required charge together with its cost before the charge changes.
+  A cooldown skill otherwise pays its cost when accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
 - Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
