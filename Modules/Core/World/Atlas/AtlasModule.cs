@@ -36,27 +36,42 @@ public sealed class AtlasModule : IModule
             $"0x0018 Atlas passive point(s) earned: +{earned} ({player.Character.AtlasPassivePoints}/{MapCompletionPoints})");
     }
 
+    static IEnumerable<Player> InstanceClients(Player player)
+    {
+        var peers = InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance)
+            && c.Connection.PlayerSent && !c.LeavingArea && !c.Closed).ToList();
+        return peers.Contains(player) ? peers : [player, .. peers];
+    }
+
     static async Task CompleteMapOnBossKill(Player player, MonsterInfo monster)
     {
-        var modPlayer = PlayerOf(player);
-        if (AtlasProgress.OfArea(modPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, monster)) return;
-        var data = WorldOf(modPlayer).CharacterData;
+        if (AtlasProgress.OfArea(PlayerOf(player).AreaId) is not { } node
+            || !AtlasProgress.CompletesMap(node, monster, player.Area)) return;
         await AtlasFeature.DropScryingOrbOnCompletion(player, monster, node);
-        bool completed = AtlasProgress.Complete(data, [node]);
-        bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
-            && AtlasProgress.CompleteBonus(data, [node]);
-        int earned = bonus ? ApplyBonusPoints(player, data) : 0;
-        if (completed)
+        foreach (var peer in InstanceClients(player))
         {
-            await Send(player, AtlasProgress.NodeMessage(node, bonus),
-                $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {monster.Name}");
-            await AtlasFeature.Refresh(player);
-            await modPlayer.Tell($"Atlas: {node.Name} completed.");
+            try
+            {
+                var modPeer = PlayerOf(peer);
+                var data = WorldOf(modPeer).CharacterData;
+                bool completed = AtlasProgress.Complete(data, [node]);
+                bool bonus = global::Game.MapRunOf(peer) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
+                    && AtlasProgress.CompleteBonus(data, [node]);
+                int earned = bonus ? ApplyBonusPoints(peer, data) : 0;
+                if (completed)
+                {
+                    await Send(peer, AtlasProgress.NodeMessage(node, bonus),
+                        $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {monster.Name}");
+                    await AtlasFeature.Refresh(peer);
+                    await modPeer.Tell($"Atlas: {node.Name} completed.");
+                }
+                else if (bonus)
+                    await AtlasFeature.Refresh(peer);
+                if (bonus) await PublishBonusPoints(peer, modPeer, earned, "Atlas bonus objective completed");
+                else if (completed) await AtlasFeature.SyncTreeFlags(peer);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         }
-        else if (bonus)
-            await AtlasFeature.Refresh(player);
-        if (bonus) await PublishBonusPoints(player, modPlayer, earned, "Atlas bonus objective completed");
-        else if (completed) await AtlasFeature.SyncTreeFlags(player);
     }
 
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
@@ -90,8 +105,11 @@ public sealed class AtlasModule : IModule
         // Minion, party, and non-playerKill deaths emit GameEvents.Kill without MonsterKilled.
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
+            if (kill.PlayerKill) return;
+            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is not { } node
+                || !node.FinalBosses.Contains(kill.VarietyId)) return;
             var monster = global::Game.ModMonster(kill.Monster, kill.At);
-            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is not { } node || !AtlasProgress.CompletesMap(node, monster)) return;
+            if (!AtlasProgress.CompletesMap(node, monster, kill.Player.Area)) return;
             kill.Later(() => CompleteMapOnBossKill(kill.Player, monster));
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
