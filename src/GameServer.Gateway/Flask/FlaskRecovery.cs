@@ -54,10 +54,11 @@ public static class FlaskRecovery
         double effect = FlaskEffectScaling.Multiplier(character, playerLevel, L(Stat.LocalFlaskEffectPlusPct), finalMultiplier: finalMultiplier);
         // The low-life more multiplier is not scaled by flask effect (Path of Building CalcPerform: "More life recovery
         // while on low life is not affected by flask effect (verified ingame)"): × (effect + more − 1), not × more × effect.
-        double Amount(int baseAmount, uint localSpecific, uint characterSpecific) =>
+        double Amount(int baseAmount, uint localSpecific, uint characterSpecific, int extraCharacterPct = 0) =>
             baseAmount * quality * (100 + L(Stat.LocalFlaskAmountToRecoverPlusPct) + L(localSpecific)) / 100.0
-            * (100 + character(characterSpecific) + character(Stat.FlaskLifeAndManaToRecoverPlusPct)) / 100.0 * (effect + lowLifeMore - 1);
-        double life0 = Amount(type.LifePerUse, Stat.LocalFlaskLifeToRecoverPlusPct, Stat.FlaskLifeToRecoverPlusPct);
+            * (100 + character(characterSpecific) + character(Stat.FlaskLifeAndManaToRecoverPlusPct) + extraCharacterPct) / 100.0 * (effect + lowLifeMore - 1);
+        double life0 = Amount(type.LifePerUse, Stat.LocalFlaskLifeToRecoverPlusPct, Stat.FlaskLifeToRecoverPlusPct,
+            lowLife ? character(Stat.LifeRecoveryPlusPctFromFlasksWhileOnLowLife) : 0);
         double mana0 = Amount(type.ManaPerUse, Stat.LocalFlaskManaToRecoverPlusPct, Stat.FlaskManaToRecoverPlusPct);
         double commonRate = (100.0 + L(Stat.LocalFlaskRecoverySpeedPlusPct)) / 100.0
             * (100.0 + character(Stat.FlaskRecoverySpeedPlusPct)) / 100.0;

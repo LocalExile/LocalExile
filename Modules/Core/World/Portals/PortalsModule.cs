@@ -28,7 +28,7 @@ public sealed class PortalsModule : IModule
             Program.ViewOf.Value = player;
             try
             {
-                await SpawnHideoutDoodads(player);
+                await global::Game.SpawnHideoutDevice(player);
                 await SpawnMapReturnPortal(player);
                 await SpawnTownPortals(player);
                 // A hideout's instance is gone six minutes after its last player leaves, and its device with it: a run whose
@@ -67,6 +67,14 @@ public sealed class PortalsModule : IModule
                 await UseMapReturnPortal(player, use, (back.X, back.Y), requestedAt);
                 return true;
             }
+            (string Owner, int X, int Y, ushort ReturnToTown)? peerPortal = null;
+            lock (player.PeerPortals)
+                if (player.PeerPortals.TryGetValue(use.TargetId, out var pp)) peerPortal = pp;
+            if (peerPortal is { } clickedPeer)
+            {
+                await UseMapReturnPortal(player, use, (clickedPeer.X, clickedPeer.Y), requestedAt, clickedPeer.ReturnToTown);
+                return true;
+            }
             (int X, int Y, int Index)? portal;
             lock (player.MapPortals) portal = player.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
             if (portal is { } p)
@@ -76,7 +84,13 @@ public sealed class PortalsModule : IModule
             }
             HideoutCatalog.Doodad? doodad;
             lock (player.HideoutDoodads) doodad = player.HideoutDoodads.GetValueOrDefault(use.TargetId);
-            if (doodad is null) return false;
+            // A device variant's button opens its device: walk to the button, open the device's window.
+            if (doodad is null && global::Game.MapDeviceOfButton(player, use.TargetId) is var (device, button))
+            {
+                await UseMapDevice(player, use with { TargetId = device }, button, requestedAt);
+                return true;
+            }
+            if (doodad is null || !HideoutCatalog.IsPlaced(doodad)) return false;
             await UseMapDevice(player, use, doodad, requestedAt);
             return true;
         });

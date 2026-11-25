@@ -16,11 +16,13 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
 
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
-    /// spell_echo_plus_chance_double_damage_%_final.</summary>
-    public GamblerModifiers ForSkill(Func<uint, int> skill, bool spell, bool finalRepeat = false) => this with
+    /// spell_echo_plus_chance_double_damage_%_final. Attribute-scaled skill stats use complete groups of ten.</summary>
+    public GamblerModifiers ForSkill(Func<uint, int> skill, bool spell, bool finalRepeat = false, int intelligence = 0) => this with
     {
-        DoubleDamageChance = DoubleDamageChance + skill(Stat.ChanceToDealDoubleDamagePct) + (spell ? SpellDoubleDamageChance : 0)
-            + (spell && finalRepeat ? skill(Stat.SpellEchoPlusChanceDoubleDamagePctFinal) : 0),
+        DoubleDamageChance = ActorScale.Saturate((long)DoubleDamageChance + skill(Stat.ChanceToDealDoubleDamagePct)
+            + (long)(Math.Max(0, intelligence) / 10) * skill(Stat.ChanceToDealDoubleDamagePctPer10Intelligence)
+            + (spell ? SpellDoubleDamageChance : 0)
+            + (spell && finalRepeat ? skill(Stat.SpellEchoPlusChanceDoubleDamagePctFinal) : 0)),
     };
 
     /// <summary>"Attacks with this Weapon deal Double Damage" (Paradoxica's weapon-local local_double_damage_with_attacks):
@@ -31,6 +33,8 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>
     public bool InvertsResistance(Random random) => RandomRolls.Chance(InvertElementalResistanceChance, 100, random);
+    public bool InvertsResistance(Random random, int skillChance) =>
+        RandomRolls.Chance(ActorScale.Saturate((long)InvertElementalResistanceChance + skillChance), 100, random);
     public bool UsesNinetyResistance(Random random) => RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
 
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);
@@ -67,13 +71,19 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
 
     /// <summary>Risky Exploit overrides elemental resistance to exactly 90% for this enemy hit, even if the ordinary
     /// maximum is 75%. Chaos/physical damage and damage over time retain their usual rules.</summary>
-    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random)
+    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random) =>
+        MitigateIncomingHit(hit, resistance, random, out _);
+
+    /// <summary><paramref name="ninety"/> is the hit's one roll, for a caller that reports each part's resistance.</summary>
+    public DamagePacket MitigateIncomingHit(DamagePacket hit, Func<DamageType, DamageModel.ResistanceValue> resistance, Random random,
+        out bool ninety)
     {
-        bool ninety = RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
+        bool chosen = RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
+        ninety = chosen;
         return hit.Select((type, range) =>
         {
             if (type == DamageType.Physical) return range; // physical armour/reduction is a separate caller stage
-            var r = ninety && DamageTypes.IsElemental(type) ? new DamageModel.ResistanceValue(90, 90) : resistance(type);
+            var r = chosen && DamageTypes.IsElemental(type) ? new DamageModel.ResistanceValue(90, 90) : resistance(type);
             return new(DamageModel.Mitigate(range.Min, r.Value, r.Maximum), DamageModel.Mitigate(range.Max, r.Value, r.Maximum));
         });
     }

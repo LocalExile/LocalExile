@@ -20,4 +20,15 @@ public class BenchProtocolTests
         Assert.Equal((561u, false), InstanceBench.ReadMove(Convert.FromHexString("00E90000023100")));
         Assert.Equal((561u, false), InstanceBench.ReadMove(Convert.FromHexString("00E90000023140")));
     }
+
+    [Fact]
+    public void Close_bench_0x02b1_reads_flags_and_ui_kind()
+    {
+        byte[] msg = Convert.FromHexString("02B10033");
+        var messages = InstanceProtocol.SplitClientMessages(msg, out var partial, out var unknown);
+        Assert.Equal(InstanceBench.CloseId, Assert.Single(messages).Id);
+        Assert.Equal(((byte)0, InstanceWaypoints.CraftingBenchUi), InstanceBench.ReadClose(messages[0].Bytes));
+        Assert.Empty(partial);
+        Assert.Empty(unknown);
+    }
 }

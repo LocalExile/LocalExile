@@ -62,6 +62,7 @@ public static partial class Game
                          .Where(id => id is "AvianMightShared" or "AvianFlightShared" && !previousAvian.Contains(id)))
                 QueueTwisterGainLocked(player);
             player.AuraStatsDirty = true;
+            MarkPlayerStats(player, PlayerStatStep.VaalAura);
             player.Pools = BuildPoolsFor(player, player.Pools.Level);
             player.ApplyMovementSpeed();
             player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
@@ -77,7 +78,7 @@ public static partial class Game
         bool linkedOnly = player.Auras.Count > 0 && NonCurseAurasOnlyReachLinks(player);
         bool linked = linkedOnly && minion.Monster is not null && ActiveMinionLink(player, minion, AreaTime(player)) is not null;
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
-            .Where(a => SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
+            .Where(a => !a.SelfOnly && SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
@@ -126,14 +127,38 @@ public static partial class Game
         Add(Stat.DeterminationAuraArmourPlusPctFinal, bonus.ArmourMorePct);
         Add(Stat.BaseEvasionRating, bonus.Evasion); Add(Stat.GraceAuraEvasionRatingPlusPctFinal, bonus.EvasionMorePct);
         double auraTime = AreaTime(player);
+        var at = minion.Monster?.Walk.Position(auraTime) ?? player.Walk.Position(auraTime);
+        if (player.PlayerLife > 0 && !InTown(player)
+            && (minion.Monster is null || Dist(at, player.Walk.Position(auraTime)) <= AuraCatalog.BaseRadius))
+        {
+            var (_, ownCommanderRes, ownCommanderDamage) = CommanderOfDarkness(StatSourceValues(player));
+            if (ownCommanderRes > 0 || ownCommanderDamage > 0)
+            {
+                int auraRes = 0, auraDmg = 0;
+                foreach (var a in auras)
+                    if (AuraCatalog.CommanderEligible(a, skills))
+                    {
+                        auraRes = Math.Max(auraRes, a.CommanderElementalResistancePct);
+                        auraDmg = Math.Max(auraDmg, a.CommanderDamagePct);
+                    }
+                if (ownCommanderRes > auraRes)
+                {
+                    int extraRes = ownCommanderRes - auraRes;
+                    Add(Stat.BaseFireDamageResistancePct, extraRes);
+                    Add(Stat.BaseColdDamageResistancePct, extraRes);
+                    Add(Stat.BaseLightningDamageResistancePct, extraRes);
+                }
+                if (ownCommanderDamage > auraDmg) Add(Stat.DamagePlusPct, ownCommanderDamage - auraDmg);
+            }
+        }
         if (minion.Monster is not null)
         {
             AddMinionNecromancerCorpseAuras(player, minion, values, auraTime);
             AddSpectreSkeletonDamage(player, minion, values, auraTime);
         }
-        var at = minion.Monster?.Walk.Position(auraTime) ?? player.Walk.Position(auraTime);
         var fortAlly = MinionAllyFortificationLocked(player, minion, at, auraTime);
         Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
+        AddMinionSigilLightning(player, at, auraTime, values);
         return values;
     }
 }

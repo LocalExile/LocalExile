@@ -144,4 +144,169 @@ public sealed class MinionSupportExecutionTests
         Assert.Equal(10000u, f.Player.Area.Monsters[997].Life);
         Assert.Equal(10000u, f.Player.Area.Monsters[996].Life);
     }
+
+    [Fact]
+    public async Task Spell_echo_repeats_spectre_spell_and_launches_spiral_nova_with_returning_projectiles()
+    {
+        bool wall = true;
+        using var f = new AnimatedAdmissionTests.Fixture(new AreaLayout(1, "defiler-spiral-test", 200, 200, 100, 100, null, [])
+        {
+            Sight = (x, _) => wall && x == 110 ? 0 : 1,
+        });
+        var time = new Clock();
+        var before = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, time);
+        try
+        {
+            var items = Game.ItemsOf(f.Player);
+            foreach (var p in items.Items(PlayerInventories.Weapon1)) items.Remove(PlayerInventories.Weapon1, p.Id);
+            Item Gem(string name)
+            {
+                var type = Program.Items.FindGem(name)!.Value;
+                return ItemCatalog.Create(type.Type) with
+                {
+                    GemVariant = type.Variant.Index,
+                    GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(20)
+                };
+            }
+            var names = new[] { "Raise Spectre", "Spell Echo Support", "Returning Projectiles Support" };
+            items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Gnarled Branch")!) with
+            {
+                Sockets = names.Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(),
+                Links = [(byte)names.Length]
+            });
+            ushort source = Game.GemSkillEffects(f.Player).Single().Id;
+            var defilerVariety = Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantMapBossStandalone_AtlasUber")!;
+            uint id = await Game.SummonFighter(f.Player, source,
+                Game.SummonData.Find("RaiseSpectre")!, (100, 100), restoredVariety: defilerVariety.Id);
+            var fighter = f.Player.Summons.Fighters[id];
+            fighter.Monster.Walk.Teleport(100, 100, 0);
+            Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+            fighter.Abilities = Game.GolemAbilities(f.Player, defilerVariety, 84, fighter, Game.CharacterPlayerStats(f.Player));
+            var spell = Assert.Single(fighter.Abilities, a => a.Id == "RevenantBossSpellProjectile");
+            Assert.Equal(9, spell.Projectile!.Count);
+            Assert.Equal(50, spell.Projectile.SpiralAngle);
+            Assert.Equal(750, spell.Projectile.SpiralTimeMs);
+            Assert.Equal(1, Game.SkillsFor(f.Player).MonsterProjectile(spell.Effect)!.Count);
+            var enemy = new SpawnedMonster("target", new(120, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+            f.Player.Area.Monsters[999] = enemy;
+
+            var session = Game.ProjectilesFor(f.Player);
+            fighter.Abilities = [spell];
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Null(fighter.Pending);
+            wall = false;
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Equal(spell.Id, fighter.Pending?.Ability.Id);
+            for (int repeat = 0; repeat < 2; repeat++)
+            {
+                Invoke("GolemActionRecords", f.Player, new PlayerMinions.Output([], null, fighter.Id, fighter.Monster,
+                    PlayerMinions.OutputKind.GolemAction, Action: fighter.Monster.ActionGeneration));
+                var pending = fighter.Pending!;
+                Assert.Equal(repeat, pending.RepeatIndex);
+                time.Time = pending.At;
+                Game.GolemStepLocked(f.Player, fighter, time.Time);
+                using (Game.ProjectileMutation(f.Player, advance: false))
+                {
+                    var shots = new Dictionary<long, long>();
+                    for (int step = 1; step <= 100; step++)
+                    {
+                        session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.01));
+                        foreach (var shot in session.Runtime.Projectiles.Where(p => p.CreatedAt >= GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time)))
+                        {
+                            if (shots.Count == 0)
+                                Assert.Equal(-20, Math.Atan2(shot.Direction.Y, shot.Direction.X) * 180 / Math.PI, 5);
+                            Assert.True(shot.Profile.Returns);
+                            shots.TryAdd(shot.Id, shot.CreatedAt);
+                        }
+                    }
+                    Assert.Equal(9, shots.Count);
+                    double sweep = .750 * spell.Attack.Seconds / (Game.SkillsFor(f.Player).CastTimeMs(spell.Effect) / 1000d);
+                    long span = GameServer.Core.Projectiles.ProjectileRuntime.Time(sweep);
+                    Assert.InRange(shots.Values.Max() - shots.Values.Min(), span - 1, span + 1);
+                    Assert.Equal(9, shots.Values.Distinct().Count());
+                }
+                if (repeat == 0)
+                {
+                    Assert.NotNull(fighter.Repeat);
+                    time.Time = Math.Max(time.Time + 1.0, fighter.Monster.BusyUntil);
+                    Game.GolemStepLocked(f.Player, fighter, time.Time);
+                    Assert.NotNull(fighter.Pending);
+                }
+                else
+                {
+                    Assert.Null(fighter.Repeat);
+                }
+            }
+            Assert.True(enemy.Life < 1_000_000u);
+        }
+        finally { Game.AreaUpdateContext.Value = before; }
+    }
+
+    [Fact]
+    public async Task Minion_hypothermia_low_life_cursed_penetration_and_accuracy_mastery_apply()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        int cursedPen = 0, accMastery = 0;
+        using var hook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+        {
+            if (!ReferenceEquals(p, f.Player)) return s;
+            if (cursedPen != 0) s[Stat.MinionsPenetrateElementalResistancesPctVsCursedEnemies] = cursedPen;
+            if (accMastery != 0) s[Stat.MinionsAccuracyIsEqualToYours] = accMastery;
+            return s;
+        });
+
+        var fighter = await Skeleton(f, "Hypothermia Support", "Behead Support");
+        fighter.Gear[Stat.BasePhysicalDamagePctToConvertToCold] = 100;
+        fighter.Gear[Stat.GlobalMinimumAddedColdDamage] = fighter.Gear[Stat.GlobalMaximumAddedColdDamage] = 40_000;
+        fighter.Gear[Stat.AccuracyRating] = 1_000_000;
+        fighter.InputHash = 0;
+        Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+        var ability = fighter.Abilities.First(a => !a.Attack.Spell);
+        uint noCrit = Program.Stats.Key("self_take_no_extra_damage_from_critical_strikes")!.Value;
+
+        SpawnedMonster Target(uint maxLife, uint life)
+        {
+            var m = new SpawnedMonster("target", new(105, 100, 0), 100, 3, maxLife) { Hostile = true, Life = life };
+            m.Mods = m.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.BaseColdDamageResistancePct] = 75, [noCrit] = 1 }) };
+            return m;
+        }
+
+        var plain = Target(1_000_000, 1_000_000);
+        f.Player.Area.Monsters[950] = plain;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 950, plain, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint baseDmg = 1_000_000u - plain.Life;
+        Assert.False(plain.HasCurses);
+
+        // Expired curses do not grant cursed-enemy penetration.
+        cursedPen = 8;
+        f.Player.MarkStatsDirty(StatInput.Items);
+        var expired = Target(1_000_000, 1_000_000);
+        expired.Curses.All[(1u, "Frostbite")] = new(1u, "Frostbite", 1, 1, 1, 0d, 0d, false, false, new Dictionary<uint, int>());
+        f.Player.Area.Monsters[953] = expired;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 953, expired, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint expiredDmg = 1_000_000u - expired.Life;
+        Assert.InRange(expiredDmg, (uint)(baseDmg * 0.9), (uint)(baseDmg * 1.1));
+
+        // Chilled + Low Life + Cursed (8% penetration mastery) boosts damage well beyond plain target.
+        var scaled = Target(1_000_000, 400_000);
+        scaled.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 4.0, 0d, _ => 0, _ => 0, stated: 15);
+        scaled.Curses.All[(1u, "Frostbite")] = new(1u, "Frostbite", 1, 1, 1, 0d, 10d, false, false, new Dictionary<uint, int>());
+        f.Player.Area.Monsters[951] = scaled;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 951, scaled, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint scaledDmg = 400_000u - scaled.Life;
+        Assert.True(scaledDmg > baseDmg * 1.5, $"Expected Hypothermia + Low Life + Cursed Pen scaling ({scaledDmg} vs base {baseDmg})");
+
+        // Accuracy mastery ("Minions have Accuracy equal to yours"): uses player Pools.Accuracy.
+        accMastery = 1;
+        f.Player.Pools = f.Player.Pools with { Accuracy = 1_000_000 };
+        f.Player.MarkStatsDirty(StatInput.Items);
+        Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+        fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.AccuracyRating] = 1 }) };
+        var evasive = new SpawnedMonster("evasive", new(105, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+        evasive.Mods = evasive.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.EvasionRating] = 100_000, [noCrit] = 1 }) };
+        f.Player.Area.Monsters[952] = evasive;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 952, evasive, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        Assert.True(evasive.Life < 1_000_000u);
+    }
 }

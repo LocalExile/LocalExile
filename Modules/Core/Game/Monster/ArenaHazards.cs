@@ -70,7 +70,8 @@ internal static class ArenaHazards
             if (!CurrentGameWork || !current() || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
             var stats = CharacterPlayerStats(p);
             int Get(uint key) => stats.GetValueOrDefault(key);
-            var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty : rawAt(p.Walk.Position(now), false);
+            var raw = p.PlayerLife == 0 || p.Immune || Get(global::Stat.BaseCannotBeDamaged) != 0 ? DamagePacket.Empty
+                : PlayerDamageTaken.ShiftOverTime(rawAt(p.Walk.Position(now), false), Get);
             var immune = PlayerImmunities(p); uint before = p.PlayerLife; double shield = p.EnergyShield.Current;
             uint manaBefore = p.PlayerMana;
             int loss = 0;
@@ -78,8 +79,11 @@ internal static class ArenaHazards
             {
                 int slot = (int)type;
                 double resistance = type == DamageType.Physical ? PlayerDamageReduction(p, stats).Physical
-                    : Math.Min(Resistance(p, type), MaxResistance(p, type));
+                    : Math.Min(Resistance(p, type) + (type == DamageType.Chaos ? Get(global::Stat.AdditionalChaosResistanceAgainstDamageOverTimePct) : 0), MaxResistance(p, type));
+                int conditional = type == DamageType.Physical && p.Walk.Moving(now) ? Get(global::Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving)
+                    : type == DamageType.Chaos && p.InCausticCloud ? Get(global::Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0;
                 double factor = p.ElementalAilments.DamageTakenFactor(now, Get(global::Stat.BaseDamageTakenPlusPct)
+                    + Get(global::Stat.DegenEffectPlusPct) + conditional
                     + Get(global::Stat.Of(type.ToString().ToLowerInvariant() + "_damage_taken_+%")))
                     * IncomingResourceDefences.FinalTakenFactor(p.Pools, Get);
                 double amount = (immune.Contains(type) ? 0 : raw[type].Min * Math.Max(0, 1 - resistance / 100d) * seconds * factor) + e.Carry[slot];

@@ -23,6 +23,17 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    const ushort MarkedForDeathBuffRow = 2431;
+    static readonly IReadOnlyDictionary<uint, int> MarkedForDeathStats =
+        new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 50 };
+
+    static int MapDeathMarkDuration(Player player, SpawnedMonster monster) =>
+        monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            ? MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) ?? 0 : 0;
+
+    static Task ApplyMapDeathMarkOnKill(Player player, int milliseconds) =>
+        AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d);
+
     static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
     {
         if (map is null) return;
@@ -97,18 +108,30 @@ public static partial class Game
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+        Gain(Stat.MapMonsterSkillsChainXAdditionalTimes, Stat.NumberOfChains);
+        Gain(Stat.MapMonsterProjectileChainFromTerrainChancePct, Stat.ProjectileChainFromTerrainChancePct);
+        if (mods.Get(Stat.DelveBiomeMonsterProjectilesAlwaysPierce) != 0)
+            extra[Stat.AlwaysPierce] = 1;
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
         if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
         Gain(Stat.MapMonsterDebuffTimePassedPlusPct, Stat.DebuffTimePassedPlusPct);
+        Gain(Stat.MapMonstersAddFrenzyChargeOnHitPct, Stat.AddFrenzyChargeOnSkillHitPct);
+        Gain(Stat.MapMonstersAddPowerChargeOnHitPct, Stat.AddPowerChargeOnSkillHitPct);
+        Gain(Stat.MapMonsterChanceToGainEnduranceChargeWhenHitPct, Stat.ChanceToGainEnduranceChargeWhenHitPct);
+        Gain(Stat.MapMonsterMaximumEnduranceCharges, Stat.MapMonsterMaximumEnduranceCharges);
+        Gain(Stat.MapMonsterMaximumFrenzyCharges, Stat.MapMonsterMaximumFrenzyCharges);
+        Gain(Stat.MapMonsterMaximumPowerCharges, Stat.MapMonsterMaximumPowerCharges);
         Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
+        Gain(Stat.MapMonstersMaximumLifePctToAddToMaximumEnergyShield, Stat.MaximumLifePctToAddAsMaximumEnergyShield);
         Gain(Stat.MapMonstersBaseBlockPct, Stat.MonsterBaseBlockPct);
         Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);
         Gain(Stat.MapMonstersAdditionalChaosResistance, Stat.BaseChaosDamageResistancePct);
         Gain(Stat.MapMonstersSpellSuppressionChancePct, Stat.BaseSpellSuppressionChancePct);
         if (mods.Get(Stat.MapMonstersAreHexproof) != 0)
             extra[Stat.Hexproof] = 1;
+        Gain(Stat.MapMonsterCurseEffectOnSelfPlusPct, Stat.CurseEffectOnSelfPlusPct);
         Gain(Stat.MapMonstersCurseEffectOnSelfPlusPctFinal, Stat.MapMonstersCurseEffectOnSelfPlusPctFinal);
         Gain(Stat.MapMonstersChanceToBlindOnHitPct, Stat.GlobalChanceToBlindOnHitPct);
         Gain(Stat.MapMonstersCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct);
@@ -123,8 +146,16 @@ public static partial class Game
         if (mods.Get(Stat.MapMonstersPoisonOnHit) != 0)
             extra[Stat.BaseChanceToPoisonOnHitPct] =
                 extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
+        Gain(Stat.MapMonstersChanceToImpalePct, Stat.MapMonstersChanceToImpalePct);
+        Gain(Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs, Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs);
         Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
         Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToIgnitePct);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToFreezePct);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToShockPct);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanIgnite);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanFreeze);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanShock);
         return extra;
     }
 
@@ -161,8 +192,20 @@ public static partial class Game
             chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPctFinalFromUberMod,
                 Stat.MapUnscaledMapItemDropChancePlusPctFinalFromUberMod);
         }
+        chanceFactor *= ItemQuantityFactor(player);
+        int voidstones = 0;
+        if (tier > 0 && MapBossFights.Current is { } fights)
+        {
+            int mask = 0;
+            var catalog = ItemsFor(player);
+            foreach (var entry in ItemsOf(player).Items(PlayerInventories.AtlasUpgrades))
+                if (catalog.ByHash(entry.Item.TypeHash) is { } type && fights.StoneByItem(type.Id) is { } stone)
+                    mask |= 1 << stone.Slot;
+            voidstones = System.Numerics.BitOperations.PopCount((uint)mask);
+        }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        return DropsFor(player).Map(level, rarity, tier, rng, chanceFactor: chanceFactor, tierUpgradePermillage: upgrade);
+        return DropsFor(player).Map(level, rarity, tier, rng, voidstones: voidstones, chanceFactor: chanceFactor,
+            tierUpgradePermillage: upgrade, increasedRarity: IncreasedItemRarity(player));
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and

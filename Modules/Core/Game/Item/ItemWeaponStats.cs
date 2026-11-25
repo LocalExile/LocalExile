@@ -45,8 +45,8 @@ public static class ItemWeaponStats
             long minimum = (type == DamageType.Physical ? basis.Min : 0L) + Get(Stat.Of($"local_minimum_added_{slug}_damage"));
             long maximum = (type == DamageType.Physical ? basis.Max : 0L) + Get(Stat.Of($"local_maximum_added_{slug}_damage"));
             long increased = type == DamageType.Physical ? Get(Stat.LocalPhysicalDamagePlusPct)
-                : DamageTypes.IsElemental(type) ? Get(Stat.LocalElementalDamagePlusPct)
-                    + Get(Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct) : 0;
+                : DamageTypes.IsElemental(type) ? Get(Stat.LocalElementalDamagePlusPct) : 0;
+
             int lo = Bound(minimum, increased, type == DamageType.Physical ? quality : 0);
             int hi = Bound(maximum, increased, type == DamageType.Physical ? quality : 0);
             hit = hit.Add(type, new DamageRange(lo, Math.Max(lo, hi)));

@@ -158,7 +158,7 @@ static partial class Game
     /// do not. Under the Monsters lock, after the hit's damage.</summary>
     internal static bool KnockbackOnHitLocked(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int> playerStats,
         IReadOnlyDictionary<uint, int>? skill, double now, Random random, (int X, int Y)? origin = null,
-        int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
+        int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true, bool guaranteed = false, bool area = false)
     {
         if (!KnockbackAllowed(m)) return false;
         int Stat(uint name)
@@ -167,7 +167,10 @@ static partial class Game
             return (int)Math.Clamp((long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0),
                 int.MinValue, int.MaxValue);
         }
-        if (!RandomRolls.Chance(Stat(KnockbackChanceStat), 100, random)) return false;
+        int chance = guaranteed ? 100 : Stat(KnockbackChanceStat);
+        if (!guaranteed && (area || skill?.GetValueOrDefault(global::Stat.IsAreaDamage) > 0))
+            chance = ActorScale.Saturate((long)chance + Stat(global::Stat.AreaSkillKnockbackChancePct));
+        if (Stat(global::Stat.GlobalKnockback) == 0 && !RandomRolls.Chance(chance, 100, random)) return false;
         var at = m.Walk.Position(now);
         var from = origin ?? player.Walk.Position(now);
         bool reversed = Stat(KnockbackReversedStat) != 0;

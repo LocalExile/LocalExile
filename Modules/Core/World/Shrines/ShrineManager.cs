@@ -249,10 +249,10 @@ public static class ShrineManager
                 shrine.State = ShrineState.Used;
                 var ctx = new ShrineContext(player, AreaTime(player));
                 foreach (var effect in shrine.Before) await effect.OnActivation(ctx, shrine);
+                await Spent(player, shrine, player.Id);
                 uint party = PartyRoster.PartyOf(player);
                 foreach (var member in Members(player))
                 {
-                    await Spent(member, shrine);
                     if (member.PlayerLife == 0) continue;
                     if (!ReferenceEquals(member, player) && (shrine.Definition.Monster is null || party == 0
                         || PartyRoster.PartyOf(member) != party || Dist(member.Walk.Position(ctx.Now), shrine.At) > NearbyRadius)) continue;
@@ -277,6 +277,7 @@ public static class ShrineManager
                         }
                     }
                 }
+                if (shrine.Definition.Lesser) CleanupLesser(player, state.Area, shrine);
             }
         }
         finally { state.Area.Gate.Release(); }
@@ -285,27 +286,26 @@ public static class ShrineManager
         return true;
     }
 
-    /// <summary>The claimed shrine's object again, in the same place with the same model, but with the Shrine component's
-    /// "no shrine" key (<see cref="NoShrineRow"/>): the icon it drew and its interaction are gone with the row. The object
-    /// id is kept, so the client replaces the one it has (the opened-chest pattern).</summary>
-    // A used shrine changes for every client at once (its members' loops call this for each of them).
-    static async Task Spent(Player player, ShrineInstance shrine)
+    static void CleanupLesser(Player player, SharedArea area, ShrineInstance shrine)
+    {
+        area.Shown.Remove(shrine.ObjectId);
+        area.Instances.Remove(shrine.ObjectId);
+        player.Instance?.ContentState.TryRemove($"Shrines/lesser/{shrine.ObjectId}", out _);
+        player.Instance?.ContentState.TryRemove(ClaimKey(shrine), out _);
+    }
+
+    /// <summary>Updates the shrine's Shrine component in place via S→C 0x2bc (reader 0x1415e49f0) with the claimed flag
+    /// and the taker's object id so the client plays the claim clip, ShrineSounds, and Shrines.Description for the
+    /// local taker without deleting and recreating the shrine.</summary>
+    // A used shrine changes for every client in the area.
+    static async Task Spent(Player player, ShrineInstance shrine, uint takerObjectId)
     {
         if (!Of(player).Area.Spent.Add(shrine.ObjectId)) return;
-        await SendWorldRemoval(player, shrine.ObjectId, null);
+        await SendWorldRecord(player, shrine.ObjectId,
+            InstanceEntities.ShrineUpdate(shrine.ObjectId, (byte)shrine.Definition.Row, takerObjectId, claimed: true),
+            $"0x02bc shrine 0x{shrine.ObjectId:x} {shrine.Definition.Id} claimed by 0x{takerObjectId:x}");
         if (shrine.Definition.Lesser)
-        {
-            Of(player).Area.Shown.Remove(shrine.ObjectId);
-            Of(player).Instances.Remove(shrine.ObjectId);
-            player.Instance?.ContentState.TryRemove($"Shrines/lesser/{shrine.ObjectId}", out _);
-            player.Instance?.ContentState.TryRemove(ClaimKey(shrine), out _);
-            return;
-        }
-        await SendWorldCreate(player, shrine.ObjectId,
-            InstanceEntities.CreateObject(shrine.ObjectId, InstanceEntities.ObjectTypeHash(ShrinePlacement.Type),
-                new ShrineObject(shrine.At.X, shrine.At.Y, shrine.Rotation, Model: shrine.Model, Row: NoShrineRow).Blob()),
-            $"0x02bb shrine 0x{shrine.ObjectId:x} {shrine.Definition.Id} used (no row, no icon, not interactable)");
-        await SendWorldRecord(player, shrine.ObjectId, InstanceProtocol.EnterWakeZone(shrine.ObjectId), null);
+            await SendWorldRemoval(player, shrine.ObjectId, null);
     }
 
     /// <summary>Whether this shrine's buff grants a stat the client only reads from the skill panel, so the panel has to
@@ -465,7 +465,8 @@ public static class ShrineManager
             foreach (var expired in state.Instances.Values.Where(s => s.ExpiresAt <= now).ToArray())
             {
                 expired.State = ShrineState.Used;
-                foreach (var member in Members(player)) await Spent(member, expired);
+                await Spent(player, expired, 0);
+                if (expired.Definition.Lesser) CleanupLesser(player, state.Area, expired);
             }
             // One driver for the physical area's hazards and auras, even when a party shares it.
             if (ReferenceEquals(Members(player).Where(c => c.Connection.PlayerSent).MinBy(c => c.Id), player))
@@ -577,7 +578,7 @@ public static class ShrineManager
             if (hit.Damage > 0)
             {
                 var stats = CharacterPlayerStats(player);
-                ApplyPlayerAilmentsLocked(player, DamagePacket.Of(type, amount, amount), DamagePacket.Of(type, hit.Damage, hit.Damage),
+                ApplyPlayerAilmentsLocked(player, DamagePacket.Of(type, amount, amount), hit.Taken,
                     false, hit.Blocked, AreaTime(player), stats);
             }
             Note("shrine spell hit");

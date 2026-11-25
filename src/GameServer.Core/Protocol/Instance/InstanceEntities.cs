@@ -346,6 +346,49 @@ public static class InstanceEntities
     public static byte[] TransitionableUpdate(uint entityId, byte componentIndex, byte state) =>
         ComponentUpdate(entityId, componentIndex, [state]);
 
+    /// <summary>S→C 0x2bc to a Shrine component (slot 20 reader <c>0x1415e49f0</c>): creation layout plus u32 LE taker
+    /// object id. Claiming flips bit 7 (0 → 1) and plays Animated clip 0, ShrineSounds, and Shrines.Description.</summary>
+    public static byte[] ShrineUpdate(uint entityId, byte shrineRow, uint takerObjectId, bool claimed = true,
+        byte state = 0, byte componentIndex = ShrineObject.ShrineComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, ShrineObject.UpdateBlob(shrineRow, takerObjectId, claimed, state));
+
+    /// <summary>S→C 0x2bc to a GroundEffect component (slot 20 reader <c>0x141e1ea90</c> → <c>0x141e1ead0</c>):
+    /// u8 state (+0x38) and f32 LE remaining seconds (+0x44); values &lt;= 0 trigger the component's EndEffect.</summary>
+    public static byte[] GroundEffectUpdate(uint entityId, byte state, float remainingSeconds,
+        byte componentIndex = GroundEffectObject.GroundEffectComponentIndex) =>
+        ComponentUpdate(entityId, componentIndex, new BlobWriter().U8(state).F32(remainingSeconds).ToArray());
+
+    /// <summary>S→C 0x2bc to a Beam component (slot 20 reader <c>0x1416710c0</c>, shared with slot 17 creation):
+    /// updates the MiscBeams art row and/or start and end endpoints.</summary>
+    public static byte[] BeamUpdate(uint entityId, BeamEffectObject beam,
+        byte componentIndex = BeamEffectObject.BeamComponentIndex)
+    {
+        var w = new BlobWriter();
+        beam.WriteBeamComponent(w);
+        return ComponentUpdate(entityId, componentIndex, w.ToArray());
+    }
+
+    public const ushort SkillStatsUpdateId = 0x1b4;
+
+    /// <summary>
+    /// One skill's stats again (S→C 0x1b4, reader <c>0x141fe5330</c>, Actor case <c>0x14219adf2</c>, 11-skills.md §3.1):
+    /// entity header, u16 skill id, u8 stat-set selector (0 = the skill's own stats, n = its additional stat set n − 1),
+    /// unsigned compact count, then the same (compact key, compact value) pairs the skill record carries. Each pair goes
+    /// through the raw stat setter, so the message can only set a value, never drop a key.
+    /// </summary>
+    public static byte[] SkillStatsUpdate(uint entityId, ushort skill, byte statSet,
+        IReadOnlyList<(uint Stat, int Value)> stats)
+    {
+        var w = new LoginWriter().U16(SkillStatsUpdateId).U32(entityId).U32(0).U16(0).U16(skill).U8(statSet);
+        InstanceProtocol.CompactUInt(w, (uint)stats.Count);
+        foreach (var (stat, value) in stats)
+        {
+            InstanceProtocol.CompactUInt(w, stat);
+            InstanceProtocol.CompactInt(w, value);
+        }
+        return w.ToArray();
+    }
+
     public const ushort BlockageUpdateId = 0x1c6;
 
     /// <summary>
@@ -387,19 +430,130 @@ public static class InstanceEntities
     /// Unlike the 0x40 list it removes skills, and it tells the client's UI that the skills changed
     /// (<c>0x140b37970</c> before and after, when there is a record or an id): the character panel's skill list follows it.
     /// </summary>
+    /// <summary>Conservative u16 Blob payload cap (LoginWriter.Blob throws OverflowException above 65,535 bytes).</summary>
+    public const int MaxSkillBlobBytes = 56_000;
+
     public static byte[] PlayerSkillsChange(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
         IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
         bool canDetonateMines = false)
     {
-        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+        var w = new BlobWriter().U8(canDetonateMines ? (byte)0xa0 : (byte)0x20).U8(0)
+            .U8(checked((byte)skills.Count)).U8(checked((byte)removed.Count));
         foreach (var s in skills) PlayerObject.WriteSkillRecord(w, s);
         foreach (var id in removed) w.U16(id);
+        WriteSoulChanges(w, soulSeeds, soulUpdates);
+        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
+    }
+
+    static void WriteSoulChanges(BlobWriter w, IReadOnlyList<VaalSoulSeed>? soulSeeds, IReadOnlyList<VaalSoulUpdate>? soulUpdates)
+    {
         w.U8(checked((byte)(soulSeeds?.Count ?? 0)));
         foreach (var s in soulSeeds ?? []) w.U32(s.ActiveSkillsRow).U32(s.Capacity);
         w.U8(checked((byte)(soulUpdates?.Count ?? 0)));
         foreach (var s in soulUpdates ?? []) w.U32(s.ActiveSkillsRow).U32(s.Current).U32(s.NewCapacity);
-        return ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray());
     }
+
+    /// <summary>Encodes <see cref="PlayerSkillsChange"/> as one or more Actor 0x20 packets so each <see cref="ComponentUpdate"/>
+    /// stays within the 65,535-byte wire u16 length limit even for characters with many socketed skills and stats.</summary>
+    public static byte[][] PlayerSkillsChangeBatches(uint playerId, IReadOnlyList<GrantedSkill> skills, IReadOnlyList<ushort> removed,
+        IReadOnlyList<VaalSoulSeed>? soulSeeds = null, IReadOnlyList<VaalSoulUpdate>? soulUpdates = null,
+        bool canDetonateMines = false, int maxBlobBytes = MaxSkillBlobBytes)
+    {
+        byte flag0 = canDetonateMines ? (byte)0xa0 : (byte)0x20;
+        // Single-pass fast path: encode once directly when counts fit in u8 and total blob fits in maxBlobBytes.
+        if (skills.Count <= 255 && removed.Count <= 255)
+        {
+            var single = new BlobWriter().U8(flag0).U8(0).U8((byte)skills.Count).U8((byte)removed.Count);
+            foreach (var s in skills) PlayerObject.WriteSkillRecord(single, s);
+            foreach (var id in removed) single.U16(id);
+            WriteSoulChanges(single, soulSeeds, soulUpdates);
+            if (1 + single.Length <= maxBlobBytes)
+                return [ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, single.ToArray())];
+        }
+
+        var skillBytes = new byte[skills.Count][];
+        for (int i = 0; i < skills.Count; i++)
+        {
+            var probe = new BlobWriter();
+            PlayerObject.WriteSkillRecord(probe, skills[i]);
+            skillBytes[i] = probe.ToArray();
+        }
+        int soulsBytes = 1 + 8 * (soulSeeds?.Count ?? 0) + 1 + 12 * (soulUpdates?.Count ?? 0);
+        int fullTailBytes = 2 * removed.Count + soulsBytes;
+
+        var packets = new List<byte[]>();
+        bool tailAttached = false;
+        int start = 0;
+        while (start < skills.Count)
+        {
+            int count = 0;
+            int bodySkills = 0;
+            while (start + count < skills.Count && count < 255)
+            {
+                int nextLen = skillBytes[start + count].Length;
+                bool wouldEnd = start + count + 1 == skills.Count;
+                int needed = 1 + 4 + bodySkills + nextLen + (wouldEnd && removed.Count <= 255 ? fullTailBytes : 2);
+                if (count > 0 && needed > maxBlobBytes) break;
+                bodySkills += nextLen;
+                count++;
+            }
+            bool lastSkills = start + count == skills.Count;
+            bool attachTail = lastSkills && removed.Count <= 255 && 1 + 4 + bodySkills + fullTailBytes <= maxBlobBytes;
+            var w = new BlobWriter().U8(flag0).U8(0).U8((byte)count).U8(attachTail ? (byte)removed.Count : (byte)0);
+            for (int i = 0; i < count; i++) w.Bytes(skillBytes[start + i]);
+            if (attachTail)
+            {
+                foreach (var id in removed) w.U16(id);
+                WriteSoulChanges(w, soulSeeds, soulUpdates);
+                tailAttached = true;
+            }
+            else
+            {
+                w.U8(0).U8(0);
+            }
+            packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+            start += count;
+        }
+        if (!tailAttached)
+        {
+            bool soulsAttached = false;
+            int maxRemovedPerBatch = Math.Max(1, Math.Min(255, (maxBlobBytes - 1 - 4 - 2) / 2));
+            int remStart = 0;
+            while (remStart < removed.Count)
+            {
+                int remCount = Math.Min(maxRemovedPerBatch, removed.Count - remStart);
+                bool attachSouls = remStart + remCount == removed.Count
+                    && 1 + 4 + 2 * remCount + soulsBytes <= maxBlobBytes;
+                var w = new BlobWriter().U8(flag0).U8(0).U8(0).U8((byte)remCount);
+                for (int i = 0; i < remCount; i++) w.U16(removed[remStart + i]);
+                if (attachSouls)
+                {
+                    WriteSoulChanges(w, soulSeeds, soulUpdates);
+                    soulsAttached = true;
+                }
+                else
+                {
+                    w.U8(0).U8(0);
+                }
+                packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+                remStart += remCount;
+            }
+            if (!soulsAttached && (packets.Count == 0 || soulSeeds is { Count: > 0 } || soulUpdates is { Count: > 0 }))
+            {
+                var w = new BlobWriter().U8(flag0).U8(0).U8(0).U8(0);
+                WriteSoulChanges(w, soulSeeds, soulUpdates);
+                packets.Add(ComponentUpdate(playerId, PlayerObject.ActorComponentIndex, w.ToArray()));
+            }
+        }
+        return [.. packets];
+    }
+
+    /// <summary>
+    /// The action an actor runs now (0x2bc to the Actor, flag f0 0x04 → <c>0x142199c20</c>): the client builds it from the
+    /// actor's skill and replaces its current action with it (<see cref="ActorAction"/>). The Actor's index is the type's.
+    /// </summary>
+    public static byte[] ActorCurrentAction(uint entityId, byte actorIndex, ActorAction action) =>
+        ComponentUpdate(entityId, actorIndex, action.Write(new BlobWriter().U8(ActorAction.ActorFlag).U8(0)).ToArray());
 
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
     /// other entries append, so changing a source/type first requires a removal.</summary>
@@ -505,7 +659,80 @@ public static class InstanceEntities
     public static byte[] PlayerPortraitUpdate(uint playerId, ushort portrait) =>
         ComponentUpdate(playerId, PlayerObject.PlayerComponentIndex, new BlobWriter().U16(0x40).U16(portrait).ToArray());
 
-    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278;
+    public const ushort GoldId = 0x2aa, WorldPopupIconId = 0x278, MiscObjectSpawnId = 0x01ca, EntityVariantDeltaId = 0x02d9;
+
+    /// <summary>
+    /// S→C 0x01ca <c>MiscObjectSpawn</c> (class <c>0x1435e65e8</c>, reader <c>0x1421afcc0</c>, dispatcher case 0x83
+    /// <c>0x1421527eb..0x142152c30</c>): spawns a <c>MiscObjects</c> (flags bit 0 clear) or <c>MiscAnimated</c>
+    /// (flags bit 0 set) visual by HASH16. Bit 1 selects world cell coords (<c>i32 BE x, i32 BE y</c>) instead of an
+    /// attached entity (<c>u32 BE entityId</c> when bit 3 is clear, plus optional <c>i16 BE offsetX, i16 BE offsetY</c>
+    /// when bit 2 is set). Bit 5 adds <c>u32 BE delayMs</c>; bit 6 adds <c>f32 BE rotation</c>.
+    /// </summary>
+    public static byte[] MiscObjectSpawn(ushort tableHash16, bool miscAnimated = false, uint? entityId = null,
+        (int X, int Y)? coords = null, (short X, short Y)? offset = null, uint? delayMs = null, float? rotation = null,
+        byte extraFlags = 0)
+    {
+        byte flags = (byte)((extraFlags & 0x90) | (miscAnimated ? 0x01 : 0));
+        if (coords is not null) flags |= 0x02;
+        else
+        {
+            if (entityId is null) flags |= 0x08;
+            if (offset is not null) flags |= 0x04;
+        }
+        if (delayMs is not null) flags |= 0x20;
+        if (rotation is not null) flags |= 0x40;
+        var w = new LoginWriter().U16(MiscObjectSpawnId).U8(flags).U16(tableHash16);
+        if (coords is { } c) w.U32((uint)c.X).U32((uint)c.Y);
+        else
+        {
+            if (entityId is { } id) w.U32(id);
+            if (offset is { } o) w.U16((ushort)o.X).U16((ushort)o.Y);
+        }
+        if (delayMs is { } d) w.U32(d);
+        if (rotation is { } r) w.U32(BitConverter.SingleToUInt32Bits(r));
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x02d9 <c>EntityVariantDelta</c> (class <c>0x1435e6928</c>, reader <c>0x1421b8d30</c>, writer
+    /// <c>0x1421b8aa0</c>, variant dispatch table <c>0x1435e6c78</c>, dispatcher case 0xf0): u8 flag, CompactUInt
+    /// count, then count entries of u32 BE entityId, u16 BE <c>(kind &amp; 0x7fff) | (hasVariant ? 0x8000 : 0)</c>,
+    /// optional <c>i32 BE x, i32 BE y</c> when <c>(kind &amp; 0x7fff) != 0</c>, and optional tagged raw-LE variant
+    /// (tag 0/2 = u16 LE, tag 1 = u32 LE).
+    /// </summary>
+    public static byte[] EntityVariantDelta(byte flag, IReadOnlyList<EntityVariantDeltaEntry> entries)
+    {
+        var w = new LoginWriter().U16(EntityVariantDeltaId).U8(flag);
+        InstanceProtocol.CompactUInt(w, (uint)entries.Count);
+        foreach (var entry in entries)
+        {
+            ushort kind = (ushort)(entry.Kind & 0x7fff);
+            ushort raw = (ushort)(kind | (entry.Variant is not null ? 0x8000 : 0));
+            w.U32(entry.EntityId).U16(raw);
+            if (kind != 0)
+            {
+                var pos = entry.Position ?? default;
+                w.U32((uint)pos.X).U32((uint)pos.Y);
+            }
+            if (entry.Variant is { } v)
+            {
+                w.U8(v.Tag);
+                switch (v.Tag)
+                {
+                    case 0:
+                    case 2:
+                        w.U8((byte)v.Value).U8((byte)(v.Value >> 8));
+                        break;
+                    case 1:
+                        w.RawU32(v.Value);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(entries), v.Tag, "S→C 0x02d9 variant tag must be 0, 1, or 2");
+                }
+            }
+        }
+        return w.ToArray();
+    }
 
     /// <summary>S→C 0x2aa (class 0x1431767e8, read 0x140911270): u32 BE, the character's gold. The instance dispatcher (case
     /// 0xe2, 0x142154531) stores it at session +0xc40c (the inventory's and the gold respec's amount) and plays
@@ -633,7 +860,16 @@ public static partial class InstanceInventories
     public static byte[] RemoveInventory(uint inventoryId, byte manager = 0) =>
         new LoginWriter().U16(RemoveInventoryId).U8(manager).U32(inventoryId).ToArray();
 
-    public const ushort RemoveInventoryId = 0xc1;
+    public const ushort RemoveInventoryId = 0xc1, InventoryPermissionsId = 0xc2;
+
+    /// <summary>
+    /// S→C 0xc2 (class 0x1435e7560, read 0x1421aa500; dispatcher 0x142154016 → 0x141d65da0): marks an inventory
+    /// non-writable (<c>+0x160</c>, remove-only) and/or excluded from item scans (<c>+0x161</c>). u8 manager,
+    /// u32 BE inventory id, u8 notWritable, u8 skipScans (9 bytes total).
+    /// </summary>
+    public static byte[] InventoryPermissions(uint inventoryId, bool notWritable, bool skipScans = false, byte manager = 0) =>
+        new LoginWriter().U16(InventoryPermissionsId).U8(manager).U32(inventoryId)
+            .U8((byte)(notWritable ? 1 : 0)).U8((byte)(skipScans ? 1 : 0)).ToArray();
 }
 
 /// <summary>
@@ -781,21 +1017,49 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
     public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
 
+    /// <summary>The type's .ot chain (object-types.json), for lineage-gated extras in <see cref="CanSerialize"/>:
+    /// empty when the caller does not know it, in which case no lineage-gated extra is allowed.</summary>
+    public IReadOnlyList<string> Chain { get; init; } = [];
+
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
     /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
     public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
+    /// <summary>The blob's base data entries (key, kind byte, u32 value); none for an ordinary monster. A raised zombie's create
+    /// carries <see cref="OwnerKey"/> (the player's object id), <see cref="SourceKey"/> and <see cref="SelfKey"/> (its own).</summary>
+    public IReadOnlyList<(uint Key, byte Kind, uint Value)> BaseData { get; init => field = Owned.List(value); } = [];
+    /// <summary><see cref="SourceKey"/>: the object it came from (a raised zombie's corpse).</summary>
+    public const uint OwnerKey = 0x9cfcf040, SelfKey = 0x3aac50b3, SourceKey = 0x79c80077;
+
+    /// <summary>The blob's first byte. An official raised zombie carries 0x02 with its base data (the flag wakes it in its create); ordinary monsters 0.</summary>
+    public byte ObjectFlags { get; init; }
+
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
+    /// <summary>The NPC component's second byte (+0x21): 0xff when no component must be alive, as on a boss that speaks; 1 on a
+    /// mercenary that waits to be talked to.</summary>
+    public byte NpcFlags { get; init; } = 0xff;
+    /// <summary>InteractionAction's flags byte (0x141e218a0): 0 for an ordinary monster; 1 lets the client click it, as on a
+    /// mercenary that waits for its duel. Bit 2 adds fields this blob does not write and is left out.</summary>
+    public byte InteractionFlags { get; init; }
+    /// <summary>The Mercenary component, which every Mercenaries variety reads: one u16, the HASH16 of the MercenaryBuilds row the
+    /// client shows the mercenary as.</summary>
+    public ushort MercenaryBuild { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
     public byte ActorStance { get; init; }
+    /// <summary>Clip index within <see cref="PlayerObject.DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Actor animation seed (0x142199562 -> +0x21c); varies unseeded clip selection across identical pack
     /// monsters (0x141e9f579). Defaults to 0 so unconfigured fixtures keep the legacy blob.</summary>
     public ushort AnimationSeed { get; init; }
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
+
+    /// <summary>The action the client creates the monster running (Actor f0 0x04, <see cref="ActorAction"/>), from its first
+    /// frame; null: none. Kept on the instance's record, so a client that joins later is created with it too.</summary>
+    public ActorAction? CurrentAction { get; init; }
 
     /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
     /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
@@ -826,10 +1090,27 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// lists from the .ot) needs <see cref="StateMachineData"/>; DiesAfterTime's primary vtable 0x1435a7888 and Timer's
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
     /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC;
+    /// Mercenary (the Mercenaries varieties) reads a u16, <see cref="MercenaryBuild"/>;
     /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
-    /// 0x141e47880 as <see cref="QuestObject"/> writes it.</summary>
+    /// 0x141e47880 as <see cref="QuestObject"/> writes it. BlightTower's only vtable (0x1435b5728) has a bare `ret` slot 17
+    /// (Agents/docs/re/components.md), so it reads nothing. SectorEvents is not in this set: it reads nothing, but
+    /// it is writable only for the Heist rogue-allies lineage (see <see cref="LineageExtras"/>).</summary>
+    // LimitedLifespan (0x1435b2e28) also reads no bytes at creation.
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
-        "NPC", "InteractionAction", "Timer", "TriggerableBlockage"];
+        "NPC", "InteractionAction", "Timer", "Mercenary", "TriggerableBlockage", "BlightTower", "LimitedLifespan"];
+
+    /// <summary>Components that read nothing but are writable only for types whose .ot chain includes a base type a
+    /// module registered (<see cref="AllowExtraFor"/>); the other types that carry the component stay uncreatable.
+    /// A registration needs the same evidence as <see cref="Extras"/>: the component reads nothing.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> LineageExtras = new(StringComparer.Ordinal);
+
+    /// <summary>Lets <paramref name="component"/>, a component the client's create reads nothing for, be written for the
+    /// types whose .ot chain includes <paramref name="baseType"/>. Called by a module at data load.</summary>
+    public static void AllowExtraFor(string component, string baseType) => LineageExtras[component] = baseType;
+
+    static bool IsLineageExtra(string component, IReadOnlyList<string>? chain) =>
+        chain is not null && LineageExtras.TryGetValue(component, out string? lineage)
+            && chain.Contains(lineage, StringComparer.Ordinal);
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -837,16 +1118,21 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
-    public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
+    /// <param name="chain">The type's .ot chain (object-types.json). A lineage-gated extra is allowed only when
+    /// the chain includes its base type; null or empty allows none.</param>
+    public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false, IReadOnlyList<string>? chain = null) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone" || IsLineageExtra(c, chain)) && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
-        if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
+        if (!CanSerialize(Components, StateMachine is not null, Chain)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
-        w.U8(0);            // object flags
-        w.U8(0);            // base data entry count
+        w.U8(ObjectFlags);            // object flags
+        w.U8((byte)BaseData.Count);            // base data entry count
+        // Each entry: its key (big-endian), a kind byte, count 1, value type 1 (a u32).
+        foreach (var (key, kind, value) in BaseData)
+            w.U8((byte)(key >> 24)).U8((byte)(key >> 16)).U8((byte)(key >> 8)).U8((byte)key).U8(kind).U8(1).U8(1).U32(value);
         foreach (string c in Components)
         {
             switch (c)
@@ -874,12 +1160,16 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                             .U8(AttachKind).U8(AttachFlags).F32(0).F32(0).F32(0);
                     break;
                 case "Inventories": PlayerObject.WriteInventories(w, Equipped); break;
-                // path, u16 animation seed (+0x21c), u8 stance (+0x21e), (life >= 1: no conditional bytes), u32, u32,
-                // then slot 20's two flag bytes.
+                // path, u16 animation seed (+0x21c), u8 stance (+0x21e); when Life <= 0, Actor reader 0x1421993f0 reads
+                // two dead-pose bytes (Animation.dat row → +0x230, clip index → +0x234) before u32, u32 and slot 20.
                 case "Actor":
-                    w.WStr32("").U16(AnimationSeed).U8(ActorStance).U32(0).U32(0);
-                    if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
-                    else w.U8(0).U8(0);
+                    w.WStr32("").U16(AnimationSeed).U8(ActorStance);
+                    if (Life == 0) w.U8(PlayerObject.DeadPoseAnimation).U8(DeadPoseClip);
+                    w.U32(0).U32(0);
+                    // Slot 20's flags: 0x40 its skills (11-skills.md §3), read first; 0x04 the action it runs (read after).
+                    w.U8((byte)((Skills is { Count: > 0 } ? 0x40 : 0) | (CurrentAction is null ? 0 : ActorAction.ActorFlag))).U8(0);
+                    if (Skills is { Count: > 0 }) PlayerObject.WriteSkillList(w, Skills);
+                    CurrentAction?.Write(w);
                     break;
                 // 0x1421c8e20: u8 = state (low 7 bits, → +0x120) | bit 7 (+0x122, "transitioning"). States run 1..num_states
                 // (.ot Transitionable num_states, default 2); num_states = fully transitioned (create_transitioned).
@@ -891,9 +1181,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // A boss that speaks (Fairgraves, Merveil, the Siren: their .ot chain reads NPC after Transitionable): the NPC
                 // component's two bytes as NpcObject writes them, without dialogue (+0x20 0: no NPCTalk rows offered) and
                 // no component that must be alive (+0x21 0xff), 17-npcs.md.
-                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(0xff); break;
+                case "NPC": w.U8(HasDialogue ? (byte)1 : (byte)0).U8(NpcFlags); break;
                 // 0x141e218a0: u8 flags (bit 2 adds a u8 and a u16); 0, as NpcObject and AreaTransitionObject write it.
-                case "InteractionAction": w.U8(0); break;
+                case "InteractionAction": w.U8((byte)(InteractionFlags & ~0x04)); break;
+                case "Mercenary": w.U16(MercenaryBuild); break;
                 // Timer (0x1435ab790): slot 17 is `ret`, nothing to write.
                 // 0x141e42430: u8 shared-state count, u8 shared-timer count (the client throws unless they match the
                 // type); per define_shared_state a compact int value + u8 flags (0x02 keeps the sent value), per
@@ -903,7 +1194,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // unblocked: its own body is what stands in the way.
                 case "TriggerableBlockage": w.U8(0); break;
                 // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
-                // Functions, PlayerClass, DiesAfterTime, Timer: no data.
+                // Functions, PlayerClass, DiesAfterTime, Timer, LimitedLifespan, BlightTower, SectorEvents: no data.
             }
         }
         w.U8(0);            // tasks
@@ -934,6 +1225,8 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 {
     public IReadOnlyList<string>? Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public static readonly string[] BaseComponents = ["Positioned", "Stats", "Pathfinding", "Buffs", "Life", "Animated", "Actor", "PetAi"];
+    /// <summary>Facing in radians (a hideout pet's saved rotation).</summary>
+    public float Rotation { get; init; }
 
     static readonly HashSet<string> Extras = ["StateMachine", "Functions", "BaseEvents"];
 
@@ -949,7 +1242,7 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
         w.U8(0).U8(0);                                                        // object flags, base data entries
         // Positioned: team 0 (the player's), and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
         // collision test (0x141e65ae0) skips: walkers, the player's own included, pass through the pet.
-        w.Positioned(GridX, GridY, blocksNoWalker: true);
+        w.Positioned(GridX, GridY, Rotation, blocksNoWalker: true);
         w.Stats([]).U32(0).U32(0).U8(0);                                      // Stats
         w.U16(0);                                                             // Buffs
         Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);                          // Life: alive
@@ -1106,6 +1399,8 @@ public sealed record EffectObject(int GridX, int GridY, string AnimatedObject)
 public sealed record GroundEffectObject(int GridX, int GridY, ushort GroundEffectRow, string AnimatedObject, float Seconds)
 {
     public const string TypePath = "Metadata/Effects/Spells/ground_effects/VisibleServerGroundEffect";
+    /// <summary>GroundEffect in <c>VisibleServerGroundEffect</c>'s component order (Positioned, BaseEvents, GroundEffect, Buffs, Animated).</summary>
+    public const byte GroundEffectComponentIndex = 2;
 
     /// <summary>The art's uniform scale (Positioned flags0 0x20); 1 sends none.</summary>
     public float Scale { get; init; } = 1;
@@ -1139,16 +1434,14 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
     uint EndObject, ushort BeamRow = 0, string? StartBone = null)
 {
     public const string TypePath = "Metadata/Effects/ServerBeamEffect";
+    /// <summary>Beam in <c>ServerBeamEffect</c>'s component order (Positioned, BaseEvents, Animated, LimitedLifespan, Beam).</summary>
+    public const byte BeamComponentIndex = 4;
     /// <summary>Positioned x/y are cells; the Beam's endpoints are world units (ten per cell).</summary>
     public const float WorldPerCell = 10;
 
-    public byte[] Blob()
+    /// <summary>Writes the Beam component body (0x1416710c0, used for both 0x2bb creation and 0x2bc updates).</summary>
+    internal void WriteBeamComponent(BlobWriter w)
     {
-        var w = new BlobWriter();
-        w.U8(0).U8(0);                                                  // object flags, base data entries
-        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
-        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
-        w.U8(0);                                                        // Animated: the Beam row's art
         // Beam, exactly as the official server's (3.29.3c capture): row + 1, flags A0|A1|A2|A4|A7|B2|B3, then each end's
         // world position and object id (the client follows the objects; the positions are their snapshot).
         w.U16((ushort)(BeamRow + 1)).U8((byte)(StartBone is null ? 0x97 : 0xD7)).U8(0x0C).U8(0x00)
@@ -1160,6 +1453,16 @@ public sealed record BeamEffectObject(int StartGridX, int StartGridY, uint Start
             w.U32((uint)bone.Length).Bytes(bone);
         }
         w.F32(EndWorldX).F32(EndWorldY).U32(EndObject).U32(0);
+    }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        w.U8(0).U8(0);                                                  // object flags, base data entries
+        // Positioned: the corpse's cell, no rotation, team 0, no extra flags or visibility bytes (19 bytes before Beam).
+        w.I32(StartGridX).I32(StartGridY).F32(0).U16(0).U8(0).U8(0);
+        w.U8(0);                                                        // Animated: the Beam row's art
+        WriteBeamComponent(w);
         w.U8(0);                                                        // tasks
         return w.ToArray();
     }
@@ -1292,6 +1595,19 @@ public readonly record struct MinionOwnershipChange(uint Id, ushort Source, usho
 public readonly record struct SingleUseCooldownUpdate(ushort SkillId, float RemainingBaseSeconds,
     float TotalBaseSeconds, float RecoveryRate, int SpentUses = 1);
 
+/// <summary>3-arm tagged variant payload inside S→C 0x02d9 (<c>0x1421b8d30</c>, table <c>0x1435e6c78</c>):
+/// tags 0 and 2 carry raw little-endian u16 values; tag 1 carries a raw little-endian u32 value.</summary>
+public readonly record struct EntityVariantValue(byte Tag, uint Value)
+{
+    public static EntityVariantValue Tag0(ushort value) => new(0, value);
+    public static EntityVariantValue Tag1(uint value) => new(1, value);
+    public static EntityVariantValue Tag2(ushort value) => new(2, value);
+}
+
+/// <summary>One entry of S→C 0x02d9 (<see cref="InstanceEntities.EntityVariantDelta"/>).</summary>
+public readonly record struct EntityVariantDeltaEntry(uint EntityId, ushort Kind,
+    (int X, int Y)? Position = null, EntityVariantValue? Variant = null);
+
 /// <summary>ObjectMagicProperties rarity (flags bits 0-2 → +0x7c).</summary>
 public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 
@@ -1299,6 +1615,9 @@ public enum MonsterRarity : byte { Normal = 0, Magic = 1, Rare = 2, Unique = 3 }
 public sealed class BlobWriter
 {
     private readonly List<byte> _b = [];
+    public int Length => _b.Count;
+    internal void SetByte(int index, byte value) => _b[index] = value;
+    internal void Truncate(int length) => _b.RemoveRange(length, _b.Count - length);
     public byte[] ToArray() => [.. _b];
     /// <summary>
     /// The Positioned component (reader 0x141e323f0), written in the reader's order: x, y, rotation, u16 team (+0x1e0), u8
@@ -1381,6 +1700,10 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
     public float Rotation { get; init; }
     // All seven 3.29.3b character .act files put WashedUp at stance index 68 (0 is the base stance).
     public const byte WashedUpStance = 68;
+    /// <summary>Animation.dat row 6 (<c>Death</c>): written after stance in Actor creation (0x1421993f0) when Life == 0.</summary>
+    public const byte DeadPoseAnimation = 6;
+    /// <summary>Clip index within <see cref="DeadPoseAnimation"/> when created dead (<c>Life == 0</c>).</summary>
+    public byte DeadPoseClip { get; init; }
     /// <summary>The Player component's index in the player object's component order (04 §3).</summary>
     public const byte PlayerComponentIndex = 6;
     /// <summary>The Animated component's index in the same order.</summary>
@@ -1425,9 +1748,8 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         foreach (var (block, bits) in blocks) w.U8((byte)block).U32((uint)bits).U32((uint)(bits >> 32));
     }
 
-    public byte[] Blob()
+    void WriteHeader(BlobWriter w)
     {
-        var w = new BlobWriter();
         w.U8(0);            // object flags (0x141ec4a40: bit0 → +0x8c|0x80, bit1 → +0x8d|2)
         w.U8(0);            // base data entry count (0x141dedf80)
         // Positioned (BlobWriter.Positioned): the type's +0x21 prefix (Sector) is off; blocking is the character type's
@@ -1469,11 +1791,19 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
          .U32(0)             // u32 count + u32 list (vtable +0x158)
          .U8(0);             // microtransaction counters (0x141e89d10)
         WriteInventories(w, Equipped);   // Inventories (0x141e22490): what the model wears
-        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8; two more u8 (+0x230, +0x234) only
-        // when a runtime value is < 1 (false here: traced live, comp9 read 15 bytes); u32 +0x26c, u32 +0x274; then its
-        // vtable+0xa0 reader 0x142199c20: two flag bytes. f0 0x40 = the skill list (0x14219e480); the rest stay off.
+        // comp9 = Actor (0x1421993f0): u32-counted UTF-16 string, u16 +0x21c, u8 stance; when Life <= 0 (0x1421995dc),
+        // two dead-pose bytes follow (Animation.dat row → +0x230, clip index → +0x234); then u32 +0x26c, u32 +0x274
+        // and its vtable+0xa0 reader 0x142199c20 (two flag bytes: f0 0x40 = the skill list 0x14219e480).
         // Player's WashedUp flag selects that stance, but Actor is read afterwards and replaces it with this byte.
-        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0).U32(0).U32(0);
+        w.WStr32(ActorFile ?? "").U16(0).U8(WashedUp ? WashedUpStance : (byte)0);
+        if (Life == 0) w.U8(DeadPoseAnimation).U8(DeadPoseClip);
+        w.U32(0).U32(0);
+    }
+
+    public byte[] Blob()
+    {
+        var w = new BlobWriter();
+        WriteHeader(w);
         if (Skills is { Count: > 0 } || Souls is { Count: > 0 })
         {
             w.U8(0x40).U8(0);
@@ -1482,6 +1812,49 @@ public sealed record PlayerObject(string Name, byte ClassIndex, int GridX, int G
         else w.U8(0).U8(0);
         w.U8(0);            // tasks (0x141ee6950)
         return w.ToArray();
+    }
+
+    /// <summary>Splits <see cref="Skills"/> when the full <see cref="Blob"/> exceeds <paramref name="maxBlobBytes"/>
+    /// or the u8 skill-count limit (255) so <c>0x02bb CreateObject</c> stays valid; overflow skills follow via <c>0x02bc</c>.</summary>
+    public (PlayerObject Fitted, IReadOnlyList<GrantedSkill> OverflowSkills) FitSkillList(
+        int maxBlobBytes = InstanceEntities.MaxSkillBlobBytes) => FitSkillList(out _, maxBlobBytes);
+
+    /// <summary>Single-pass <see cref="FitSkillList(int)"/> that also returns the encoded <c>Fitted</c> blob so callers
+    /// do not serialize the <see cref="PlayerObject"/> twice.</summary>
+    public (PlayerObject Fitted, IReadOnlyList<GrantedSkill> OverflowSkills) FitSkillList(
+        out byte[] fittedBlob, int maxBlobBytes = InstanceEntities.MaxSkillBlobBytes)
+    {
+        if (Skills is not { Count: > 0 })
+        {
+            fittedBlob = Blob();
+            return (this, []);
+        }
+        var w = new BlobWriter();
+        WriteHeader(w);
+        w.U8(0x40).U8(0);
+        int countOffset = w.Length;
+        w.U8(0);
+        int suffixBytes = 1 + 12 * (Souls?.Count ?? 0) + 4 + 1;
+        int fittedCount = 0;
+        for (int i = 0; i < Skills.Count && fittedCount < 255; i++)
+        {
+            int beforeSkill = w.Length;
+            WriteSkillRecord(w, Skills[i]);
+            if (fittedCount > 0 && w.Length + suffixBytes > maxBlobBytes)
+            {
+                w.Truncate(beforeSkill);
+                break;
+            }
+            fittedCount++;
+        }
+        w.SetByte(countOffset, (byte)fittedCount);
+        WriteSoulBudgets(w, Souls);
+        w.U32(0);
+        w.U8(0);            // tasks (0x141ee6950)
+        fittedBlob = w.ToArray();
+        if (fittedCount == Skills.Count)
+            return (this, []);
+        return (this with { Skills = [.. Skills.Take(fittedCount)] }, [.. Skills.Skip(fittedCount)]);
     }
 
     /// <summary>Actor slot 20, f0 0x40 (0x14219e480): u8 n × skill (0x14219d650), u8 m × (u32 row, u32, u32), u32 k ×

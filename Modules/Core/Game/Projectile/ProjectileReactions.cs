@@ -141,6 +141,8 @@ public static partial class Game
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
         StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
+        QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
+        SpreadPestilentStrike(player, id, monster, at / (double)ProjectileRuntime.QuantaPerSecond);
         // A soul only moves on some kills: an unchanged balance must not take a gate turn through the presentation.
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
@@ -163,6 +165,8 @@ public static partial class Game
         if (playerKill)
         {
             WitchbaneOnKill(player, monster, now);
+            if (MapDeathMarkDuration(player, monster) is > 0 and var markMs)
+                session.EnqueueLater(() => ApplyMapDeathMarkOnKill(player, markMs));
             // The kill's bookkeeping goes behind the presentation queued with it (EnqueueLater): queued in line, it ended
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             if (GameEvents.MonsterKilled.Any)

@@ -101,7 +101,11 @@ public static partial class Game
         }
     }
 
-    public static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false) =>
+        GolemTakeHitLocked(player, g, attacker, source, attack, now, area, reflectedPhysical: false);
+
+    static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source,
+        MonsterAttack attack, double now, bool area, bool reflectedPhysical)
     {
         if (!GolemCurrent(player, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (GolemIgnoresDots(g)) return false;
@@ -158,13 +162,23 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical,
+        bool critical = false;
+        var rolled = reflectedPhysical ? attack.Damage
+            : MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out critical,
             now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
-            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now));
+            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now)
+                * SigilEnemyDamageFactor(player, source, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
-        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
+        if (reflectedPhysical && (effects[Stat.CannotTakeReflectedPhysicalDamage] != 0
+            || effects[Stat.VirtualCannotTakeReflectedPhysicalDamage] != 0))
+            return false;
+        int reflectedTaken = reflectedPhysical ? ActorScale.Saturate((long)effects[Stat.PhysicalReflectDamageTakenPlusPct]
+            + effects[Stat.ReflectDamageTakenPlusPct] + Player(Stat.MinionsReflectedDamageTakenPlusPct)
+            + Player(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)
+            + Player(Stat.PhysicalReflectDamageTakenAndMinionPhysicalReflectDamageTakenPlusPct)) : 0;
+        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now) + reflectedTaken
             + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationHitFactor(player, g, now)
             * CompanionshipDamageTaken(player, g, now) * HallowedMonarchDamageTaken(link, currentPlayer);
         int prevented = 0;
@@ -176,7 +190,9 @@ public static partial class Game
             if (chance > 0 && RandomRolls.Chance((int)Math.Min(chance, 100), 100, random))
                 prevented = Math.Clamp(DamageModel.SpellSuppressionEffect + effects[Stat.BaseSpellDamagePctSuppressed], 0, 100);
         }
-        long damage = 0;
+        var rejuvenation = RejuvenationTotemAt(player, m.Walk.Position(now));
+        long damage = 0, nonChaos = 0;
+        int chaos = 0;
         var mitigated = DamagePacket.Empty;
         int interceptedPct = 0;
         double soulDamageTaken = 1;
@@ -214,21 +230,62 @@ public static partial class Game
             if (value > 0)
             {
                 mitigated = mitigated.Add(type, new(value, value));
-                if (interceptedPct > 0 && player.EnergyShield.Current > 0)
-                {
-                    long share = interceptedCarry + (long)value * interceptedPct;
-                    int intercept = (int)(share / 100);
-                    interceptedCarry = share % 100;
-                    value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
-                }
-                damage += g.ShieldPool.Damage(value, type == DamageType.Chaos && !chaosNoBypass, now);
+                if (rejuvenation is null) TakePoolDamage(value, type == DamageType.Chaos);
+                else if (type == DamageType.Chaos) chaos = value;
+                else nonChaos += value;
             }
         }
+        if (rejuvenation is { } protection && nonChaos + chaos > 0)
+        {
+            int redirectable = (int)Math.Min(int.MaxValue, nonChaos);
+            var kept = RedirectTotemHitLocked(protection.Owner, protection.Totem, redirectable, chaos,
+                RejuvenationRedirectPct(protection.Owner, protection.Totem.Aura!), AreaTime(protection.Owner),
+                protection.Owner == player ? currentPlayer : PlayerStatValues(protection.Owner));
+            // Totem redirection reduces the mitigated hit before Soul Link and the minion's Energy Shield use it.
+            for (long overflow = nonChaos - redirectable; overflow > 0;)
+            {
+                int chunk = (int)Math.Min(int.MaxValue, overflow);
+                TakePoolDamage(chunk, false);
+                overflow -= chunk;
+            }
+            TakePoolDamage(kept.NonChaos, false);
+            TakePoolDamage(kept.Chaos, true);
+        }
+
+        void TakePoolDamage(int value, bool isChaos)
+        {
+            if (value <= 0) return;
+            if (interceptedPct > 0 && player.EnergyShield.Current > 0)
+            {
+                long share = interceptedCarry + (long)value * interceptedPct;
+                int intercept = (int)(share / 100);
+                interceptedCarry = share % 100;
+                value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
+            }
+            if (source.Hostile && value > 0 && HasFrostShieldZones(player))
+                value = AbsorbFrostShield(player, m.Walk.Position(now), source.Walk.Position(now), value, now);
+            damage += g.ShieldPool.Damage(value, isChaos && !chaosNoBypass, now);
+        }
+
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
+        if (reflectedPhysical)
+        {
+            player.Minions.OutputQueue.Add(new([], "minion takes reflected physical damage", g.Id, m, PlayerMinions.OutputKind.Life));
+            if (m.Life == 0) GolemDieLocked(player, g, now);
+            else MinionInstabilityLocked(player, g, now);
+            return true;
+        }
         StealMapChargesLocked(player, attacker, source, g, now, random);
+        GainMonsterHitChargesLocked(player.Area, attacker, source, now, random);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
+        if (EqualisingPercent(player, source) is > 0 and var equalising)
+        {
+            m.Life -= HitResourceLoss(m.Life, m.MaxLife, equalising);
+            uint removedShield = HitResourceLoss(g.Shield, g.MaximumShield, equalising);
+            if (removedShield > 0 && g.ShieldPool.Spend(removedShield)) PublishEnergyShieldLocked(player, g);
+        }
         if (m.Life > 0)
         {
             if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
@@ -290,6 +347,7 @@ public static partial class Game
     {
         if (g.Monster.Dead && double.IsFinite(g.ReviveAt)) return;
         g.Monster.Dead = true; g.Monster.Life = 0; g.Monster.ActionGeneration++; g.Pending = null;
+        MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
         OwnedMinionDeathEffectsLocked(player, g, now);
         ClearSharedMinionAuras(player, g.Id);
         ClearMinionFlasksLocked(player, g, now);

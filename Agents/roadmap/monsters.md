@@ -33,8 +33,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Automated cadence and lifecycle checks retain interruption and stage-completion guards.
   Ordinary Melee follows resolved native clip clocks, including slow spans and published action-speed changes.
 - **Start:** the systems the 74 unsupported monster mods need (auras on allies, retaliation and on-death skills, ailments and
-  curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), remaining post-Act-5 boss controllers and
-  live calibration of Act 1–5 boss controllers, pack `Grounds`, the varieties with BlightTower / Mercenary … components
+  curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), live calibration of Act 1–10 boss controllers,
+  pack `Grounds`, the varieties with BlightTower / Mercenary … components
   (each needs its deserializer, schema.md; NPC, InteractionAction and Timer are written), tile spawner bosses
   (Marceus), and wiring campaign Bestiary, Blight, Ritual, Delirium and Vaal Side Area encounters once their league
   modules are implemented.

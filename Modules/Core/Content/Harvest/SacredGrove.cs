@@ -376,8 +376,14 @@ public static class SacredGrove
         var shown = Presented.GetOrCreateValue(player);
         if (shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
-        await SendWorldCreate(player, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
-            wake: true, awaitBirth: false);
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
+        {
+            await SendWorldCreate(player, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+                wake: true, awaitBirth: false);
+        }
+        finally { Program.ViewOf.Value = previousView; }
         if (Blocks(o)) Block(player, o);
         else player.RemoveBlocker(o.Id);
         shown.Add(o.Id);
@@ -425,15 +431,21 @@ public static class SacredGrove
         foreach (var member in Members(player))
         {
             var shown = Presented.GetOrCreateValue(member);
-            foreach (var o in changed)
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = member;
+            try
             {
-                if (Describe(o) is not var (quest, type)) continue;
-                if (!Blocks(o)) member.RemoveBlocker(o.Id);
-                if (!shown.Contains(o.Id)) continue;
-                int index = type.Components.ToList().IndexOf("StateMachine");
-                await SendWorldRecord(member, o.Id,
-                    InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                foreach (var o in changed)
+                {
+                    if (Describe(o) is not var (quest, type)) continue;
+                    if (!Blocks(o)) member.RemoveBlocker(o.Id);
+                    if (!shown.Contains(o.Id)) continue;
+                    int index = type.Components.ToList().IndexOf("StateMachine");
+                    await SendWorldRecord(member, o.Id,
+                        InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                }
             }
+            finally { Program.ViewOf.Value = previousView; }
         }
     }
 
@@ -448,15 +460,21 @@ public static class SacredGrove
         var target = grove.Objects[use.TargetId];
         Task End(int action) => SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null,
             still: () => PlayerActionCurrent(player, action));
-        if (crop.Phase != Phase.Idle) { await End(player.ActionCount); return true; }
+        if (crop.Phase != Phase.Idle)
+        {
+            if (crop.Phase == Phase.Withered) await PlayerOf(player).Tell("This crop has withered.");
+            else if (crop.Phase == Phase.Done) await PlayerOf(player).Tell("This crop has already been harvested.");
+            await End(player.ActionCount);
+            return true;
+        }
         if (area.Running)
         {
             await PlayerOf(player).Tell(Refusal);
             await End(player.ActionCount);
             return true;
         }
-        // The walk stops at the post's footprint even when adjacent seeds/structures occupy the nearest cell.
-        int reach = Math.Max(2, StationaryCollision.Resolve(target.Type).Size);
+        // The walk stops near the post's footprint even when adjacent seeds/structures surround it.
+        int reach = Math.Max(14, StationaryCollision.Resolve(target.Type).Size);
         if (!TryBeginObjectWalk(player, requestedAt, target.X, target.Y, reach, out var walk)) return true;
         var (action, now, here, stop, arrive) = walk;
         if (!use.Started)
@@ -468,8 +486,7 @@ public static class SacredGrove
         try
         {
             if (crop.Phase != Phase.Idle || area.Running || !PlayerActionCurrent(player, action) || player.PlayerLife == 0
-                // The walk's stop, not the position now: the delay can end a frame before the last cell.
-                || !PlayerWalk.InReach(stop, (target.X, target.Y), reach, (x, y) => player.Layout.WalkableFor(x, y, 1))) return true;
+                || !PlayerWalk.InWalkUpRange(stop, (target.X, target.Y), reach)) return true;
             await Start(player, area, grove, index);
         }
         finally
@@ -477,6 +494,42 @@ public static class SacredGrove
             area.Gate.Release();
             await End(action);
         }
+        return true;
+    }
+
+    const int LabelActivateMaxDistance = 100;
+
+    /// <summary>C→S 0x275: a click on a crop label's Harvest button icon (carries the crop's Irrigator or Extractor id).</summary>
+    public static async Task<bool> ActivateFromLabel(Player player, uint targetId)
+    {
+        if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area) || area.Grove is not { } grove) return false;
+        int index = grove.Crops.FindIndex(c => c.Irrigator == targetId || c.Extractor == targetId);
+        if (index < 0 || !grove.Objects.TryGetValue(targetId, out var target)) return false;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+        await area.Gate.WaitAsync();
+        try
+        {
+            if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+            double now = AreaTime(player);
+            if (PlayerActionBlocked(player, now, now)) return true;
+            var pos = player.Walk.Position(now);
+            long dx = pos.X - target.X, dy = pos.Y - target.Y;
+            if (dx * dx + dy * dy > (long)LabelActivateMaxDistance * LabelActivateMaxDistance) return true;
+            var crop = grove.Crops[index];
+            if (crop.Phase != Phase.Idle)
+            {
+                if (crop.Phase == Phase.Withered) await PlayerOf(player).Tell("This crop has withered.");
+                else if (crop.Phase == Phase.Done) await PlayerOf(player).Tell("This crop has already been harvested.");
+                return true;
+            }
+            if (area.Running)
+            {
+                await PlayerOf(player).Tell(Refusal);
+                return true;
+            }
+            await Start(player, area, grove, index);
+        }
+        finally { area.Gate.Release(); }
         return true;
     }
 
@@ -581,7 +634,12 @@ public static class SacredGrove
             // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
             // area.Gate for a frame per seed object.
             if (toRemove.Count > 0)
-                await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null)));
+            {
+                var previousView = Program.ViewOf.Value;
+                Program.ViewOf.Value = member;
+                try { await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null))); }
+                finally { Program.ViewOf.Value = previousView; }
+            }
         }
     }
 
@@ -667,13 +725,19 @@ public static class SacredGrove
             var again = regrown.Where(o => shown.Contains(o.Id)).ToList();
             // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
             // this tick for a frame per object.
-            await Task.WhenAll(again.Select(o => SendWorldRemoval(member, o.Id, null)));
-            if (member.Closed || member.LeavingArea) continue;
-            foreach (var o in again)
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = member;
+            try
             {
-                shown.Remove(o.Id);
-                await Present(member, o);
+                await Task.WhenAll(again.Select(o => SendWorldRemoval(member, o.Id, null)));
+                if (member.Closed || member.LeavingArea) continue;
+                foreach (var o in again)
+                {
+                    shown.Remove(o.Id);
+                    await Present(member, o);
+                }
             }
+            finally { Program.ViewOf.Value = previousView; }
         }
     }
 }

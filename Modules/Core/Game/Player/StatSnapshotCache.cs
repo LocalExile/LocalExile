@@ -216,6 +216,12 @@ public static partial class Game
             if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
                 stats[damageKey] = (int)Math.Clamp(Get(Stat.DamagePlusPct) + (long)perFive
                     * (Math.Min(Get(Stat.Strength), Math.Min(Get(Stat.Dexterity), Get(Stat.Intelligence))) / 5), int.MinValue, int.MaxValue);
+            // Prodigal Perfection counts complete hundreds of final maximum mana, with the native description's 40% cap.
+            if (Get(Stat.SpellDamagePlusPctPer100MaximumManaUpTo60Pct) is int perHundredMana and not 0)
+            {
+                long increased = (long)Math.Max(0, Get(Stat.MaximumMana)) / 100 * perHundredMana;
+                stats[Stat.SpellDamagePlusPct] = ActorScale.Saturate(Get(Stat.SpellDamagePlusPct) + Math.Min(40, increased));
+            }
             // Aristocrat: "cannot be X if A is higher than B" becomes the plain cannot_be_X while it holds (strictly higher),
             // which the Defence tab shows and the ailment consumer reads.
             foreach (var (conditional, plain, higher, lower) in AttributeAilmentConditions)
@@ -233,7 +239,8 @@ public static partial class Game
                 if (stat is var key) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
-            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack())
+            { WeaponStats = mainWeapon.LocalSources };
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
                 SupportedAttackDamage.Raw(mainWeapon, Get, new(mainAccuracy), melee: ailmentContext.Melee), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
@@ -243,7 +250,7 @@ public static partial class Game
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 var offConversion = SupportedAttackDamage.WithWeaponGains(
                     DamageStats.Conversion(stats, Stats, attack: true), offWeapon, Get);
-                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
+                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand", WeaponStats = offWeapon.LocalSources },
                     SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }
             foreach (var (stat, value) in ailmentRows)

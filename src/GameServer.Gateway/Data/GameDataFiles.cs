@@ -62,6 +62,8 @@ public static class GameDataFiles
         ("item_types", "items, quest items' Quest flags"),
         ("area_transition_areas", "area transitions of fixed layouts"),
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
+        // hideouts v4: the collision radii of the Decorations panel's map device variants too, and the device models' own
+        // portal places (hideout_portal_spawns) and the MapDevices row a model picks (hideout_device_variations).
         ("hideout_layouts", "hideouts and native stationary model collision radii"),
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
         ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),
@@ -96,7 +98,7 @@ public static class GameDataFiles
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 10, "class rig animation indices, spell cancellation events, every contact frame, all named event times, lengths even for clips without a contact keyframe, and single-clip skill actions"),
+        ("animation-contacts", 11, "class rig animation indices, spell cancellation events, every contact frame, all named event times, and single-clip skill actions, including the ShieldBash waves"),
         ("monster-contacts", 8, "monster clip contact frames, effect-specific animation pools, Throw-stage contacts, variety AO slow spans, ACT budgets, explicit clock metadata availability and weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),

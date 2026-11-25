@@ -43,7 +43,7 @@ public static class WeaponTypeDamage
     };
 
     // A bow is two-handed (PoB weaponTypeInfo) but not a melee weapon, and has no family row here.
-    static bool TwoHanded(string? itemClass) => itemClass is "Two Hand Mace" or "Two Hand Axe" or "Two Hand Sword"
+    internal static bool TwoHanded(string? itemClass) => itemClass is "Two Hand Mace" or "Two Hand Axe" or "Two Hand Sword"
         or "Staff" or "Warstaff" or "Bow";
 
     static bool TwoHanded(int weaponType) => weaponType is 2 or 4 or 8 or 11 or 17 or WeaponTypeStats.Bow;
@@ -52,12 +52,26 @@ public static class WeaponTypeDamage
     /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
     /// rows, which are the Two Hand Mastery's 60% and its attack speed cost).</summary>
     public static int Any(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        ActorScale.Saturate((long)Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false)
+            + (!weapon.OffHand && weapon.ItemClass is not null && get(Stat.IsDualWielding) != 0
+                ? get(Stat.MainHandDamagePlusPctWhileDualWielding) : 0));
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
-    public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+    public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get)
+    {
+        var weaponIncreases = Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        int rangedPhysical = weapon.Bow || weapon.WieldingWand ? get(Stat.RangedWeaponPhysicalDamagePlusPct) : 0;
+        int localElemental = weapon.LocalSources?.GetValueOrDefault(Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct) ?? 0;
+        return weaponIncreases with
+        {
+            Physical = ActorScale.Saturate((long)weaponIncreases.Physical + rangedPhysical),
+            Elemental = ActorScale.Saturate((long)weaponIncreases.Elemental + localElemental),
+            MeleePhysicalMorePct = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
+        };
+    }
+
+
 
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>

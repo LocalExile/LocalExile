@@ -31,8 +31,11 @@ public sealed class QuestObjectsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        QuestobjectsRules.LoadDivineFontData();
         GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
-            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/League/Delve/DelveMinerHub"
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/Epilogue/Helena"
+            or "Metadata/NPC/Epilogue/Kirac" or "Metadata/NPC/Epilogue/KiracHideout"
+            or "Metadata/NPC/League/Delve/DelveMinerHub"
             or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
@@ -40,6 +43,24 @@ public sealed class QuestObjectsModule : IModule
         GameEvents.Packet(InstanceNpcs.VoteAnswerId).Add(module.Manifest.Id, async (conn, bytes) =>
         {
             if (bytes.Length >= InstanceNpcs.VoteAnswerLength && bytes[2] <= 1) await BanditChoices.VoteAnswer(conn, bytes[2] == 1);
+            return true;
+        });
+        GameEvents.Packet(InstanceLabyrinth.CraftSelectId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftSelectLength) return false;
+            await QuestobjectsRules.UseDivineFontOption(player, InstanceLabyrinth.ReadCraftSelect(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceLabyrinth.CraftApplyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftApplyLength) return false;
+            await QuestobjectsRules.UseDivineFontIndex(player, InstanceLabyrinth.ReadCraftApply(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceLabyrinth.CraftResultSelectId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceLabyrinth.CraftResultSelectLength) return false;
+            await QuestobjectsRules.PickDivineFontResult(player, InstanceLabyrinth.ReadCraftResultSelect(bytes));
             return true;
         });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (conn, why) => BanditChoices.OnPlayerLeaving(conn, why));
@@ -174,6 +195,7 @@ public sealed class QuestObjectsModule : IModule
                         Act3Objects.LabyrinthSelect => () => QuestobjectsRules.UseLabyrinthSelect(player),
                         Act3Objects.ReturnPortal or Act3Objects.ChamberPortal => () => QuestobjectsRules.UsePlazaReturnPortal(player),
                         Act3Objects.AscendancyFont => () => QuestobjectsRules.UseAscendancyFont(player),
+                        Act3Objects.DivineFont => () => QuestobjectsRules.UseDivineFont(player),
                         Act7Objects.Orrery => () => Send(player,
                             InstanceWaypoints.OpenUi(InstanceWaypoints.MapDeviceUi, use.TargetId), "0x007b open the Reverie Device"),
                         _ => null,

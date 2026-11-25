@@ -24,11 +24,40 @@ public static partial class Game
         var types = new SkillArea.Types(known && skills.IsMelee(effect), known && skills.IsAttack(effect),
             known && skills.IsWarcry(effect), known && skills.IsVaal(effect),
             Get(Stat.IsTotem) != 0, Get(Stat.IsTrap) != 0, Get(Stat.IsRemoteMine) != 0);
+        if (Get(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace) != 0
+            && !WeaponProfileFor(player, activeSet: true).Mace
+            && ActiveMainHand(player)?.Type?.Class != "Sceptre" && ActiveOffHand(player)?.Type?.Class != "Sceptre")
+            stats.Remove(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace);
         int typed = SkillArea.TypedIncrease(Get, types);
-        if (known && skills.EffectId(effect) is { } id && IsHeraldAura(id))
-            typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+        if (known && skills.EffectId(effect) is { } id)
+        {
+            if (IsHeraldAura(id)) typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
+            if (IsDischarge(id) && Get(Stat.DischargeAreaOfEffectPlusPctFinal) is int dischargeArea and not 0)
+            {
+                const uint more = Stat.SkillAreaOfEffectPlusPctFinalFromSkillSpecificStat;
+                stats[more] = ActorScale.Saturate(Math.Max(0L, 100L + Get(more))
+                    * Math.Max(0L, 100L + dischargeArea) / 100 - 100);
+            }
+            if (IsGalvanicArrow(id))
+            {
+                typed += Get(Stat.ShrapnelShotRadiusPlusPct);
+                if (Get(Stat.AdditiveArrowSpeedModifiersApplyToAreaOfEffect) != 0)
+                    typed += stats.GetValueOrDefault(Stat.ProjectileSpeedPlusPct)
+                        + own.GetValueOrDefault(Stat.BaseProjectileSpeedPlusPct)
+                        + Get(Stat.GalvanicArrowProjectileSpeedPlusPct);
+            }
+        }
         if (Get(Stat.AreaOfEffectPlusPctWhileWieldingBow) is int bow and not 0 && WeaponFor(player).Bow)
             typed += bow;
+        if (Get(Stat.AoePlusPctPerSecondWhileStationaryUpTo50) is int stationaryRate and > 0)
+        {
+            StatGraph.ReadInput((int)StatInput.Walk);
+            double now = AreaTime(player), rest = player.Walk.ArrivesAt;
+            double fullSeconds = Math.Max(0, Math.Floor(now - rest));
+            int increase = (int)Math.Min(50, fullSeconds * stationaryRate);
+            if (increase < 50) StatsChangeIn(rest + fullSeconds + 1 - now);
+            typed = ActorScale.Saturate((long)typed + increase);
+        }
         if (typed != 0)
             stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
         if (Get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) is int totemMore and not 0)

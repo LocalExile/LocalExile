@@ -90,12 +90,22 @@ public static partial class Game
                 AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
                 AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
                 AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
+                if (map.Get(Stat.MapPlayerActionSpeedPlusPctPerRecentSkillUse) != 0)
+                    MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
+            if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
+            {
+                AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
+                AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
+            }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
+            if (player.UtilityFlaskEffects.NextExpiry(now) is double utilityFlask) StatsChangeIn(utilityFlask - now);
+            if (player.FlaskEffects.NextExpiry(now) is double recoveryFlask) StatsChangeIn(recoveryFlask - now);
             MarkLaterStep(player, PlayerStatStep.Onslaught);
         });
         Step(PlayerStatStep.Siphoning, (player, stats, _) =>
@@ -111,8 +121,9 @@ public static partial class Game
         });
         Step(PlayerStatStep.Golems, (player, stats, _) => AddGolemStats(player, stats));
         Step(PlayerStatStep.Offerings, (player, stats, _) => AddSelfOfferingStats(player, stats));
-        Step(PlayerStatStep.PanelDefaults, (_, stats, _) =>
+        Step(PlayerStatStep.PanelDefaults, (player, stats, _) =>
         {
+            ApplyConvergenceStats(player, stats);
             foreach (var (stat, value) in PanelStatDefaults.Compute(name => GetIn(stats, name)))
                 if (stat is var key) stats[key] = value;
         });
@@ -129,10 +140,24 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            int damagePerHerald = GetIn(stats, Stat.DamagePlusPctForEachHeraldAffectingYou);
+            int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+            int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
+            if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
-            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
+            var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
+            // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
+            // with zero active auras, deduplicated against any Commander damage already counted by AuraCatalog.
+            int ownCommanderDamage = Math.Max(0, GetIn(stats, Stat.DamagePlusPctForYouAndAlliesAffectedByYourAuras));
+            if (ownCommanderDamage > 0)
+            {
+                int auraCommanderDamage = auras.Where(a => a.AffectsSelf && AuraCatalog.CommanderEligible(a, SkillsFor(player)))
+                    .Select(a => a.CommanderDamagePct).DefaultIfEmpty(0).Max();
+                if (ownCommanderDamage > auraCommanderDamage) AddTo(stats, Stat.DamagePlusPct, ownCommanderDamage - auraCommanderDamage);
+            }
             // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
             // skills affecting them, scaled by that aura's effect as its other stats are.
             // shortcut: allies and minions do not get it yet.
@@ -228,11 +253,7 @@ public static partial class Game
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
         });
         Step(PlayerStatStep.VaalPrevention, (player, stats, _) => WithVaalPrevention(player, stats));
-        Step(PlayerStatStep.VaalAura, (player, stats, _) =>
-        {
-            WithVaalAura(player, stats);
-            WithTemporaryAuraStats(player, stats);
-        });
+        Step(PlayerStatStep.VaalAura, (player, stats, _) => WithTemporaryAuraStats(player, stats));
         Step(PlayerStatStep.SpiritLeadership, (player, stats, _) => AddSpiritLeadershipStats(player, stats));
         Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
         Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
@@ -248,6 +269,13 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
+                && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
+            {
+                AddTo(stats, Stat.LifeRecoveryRatePlusPct, stoppedDotRec);
+                AddTo(stats, Stat.EnergyShieldRecoveryRatePlusPct, stoppedDotRec);
+                StatsChangeIn(player.LastStoppedTakingDotAt + RecentEvents.WindowSeconds - statsAt + 1e-6);
+            }
             bool moving = player.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)

@@ -38,7 +38,8 @@ public static class SupportedAttackDamage
         var sources = ItemModStats.Local(item, mods);
         var other = Game.PlainItemSum(item, mods);
         foreach (uint name in new[] { ColdPerDexterityMin, ColdPerDexterityMax, Stat.WeaponPhysicalDamagePctToAddAsEachElement,
-            Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower, Stat.HitsHaveLeechPctIsInstantPerMonsterPower })
+            Stat.HitsHaveCriticalStrikeMultiplerPlusPerMonsterPower, Stat.HitsHaveLeechPctIsInstantPerMonsterPower,
+            Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct })
             if (other.TryGetValue(name, out int value)) sources[name] = value;
         return sources.ToFrozenDictionary();
     }
@@ -47,7 +48,15 @@ public static class SupportedAttackDamage
     // "with Claws" (Claw + Hit, not an ailment increase). WeaponTypeDamage reads the hand's family through
     // WeaponIdentity, so a weapon that counts as all one-hand melee types (Varunastra) takes every family's row.
     public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        WeaponTypeDamage.Any(weapon, get);
+        WeaponIncrease(weapon, get, skillProjectileSpeed: 0);
+
+    internal static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get, int skillProjectileSpeed)
+    {
+        int increased = WeaponTypeDamage.Any(weapon, get);
+        if (weapon.Bow && get(Stat.ArrowSpeedAdditiveModifiersAlsoApplyToBowDamage) != 0)
+            increased = ActorScale.Saturate((long)increased + get(Stat.ProjectileSpeedPlusPct) + skillProjectileSpeed);
+        return increased;
+    }
 
     public static void AddWandGains(DamageConversion conversion, Func<uint, int> get)
     {
@@ -113,6 +122,12 @@ public static class SupportedAttackDamage
             int esPct = source.GetValueOrDefault(EphemeralEdgeLightningFromEs);
             if (esPct > 0 && get(Stat.MaximumEnergyShield) is int maxEnergyShield and > 0)
                 added = added.Add(DamageType.Lightning, new(0, (long)maxEnergyShield * esPct / 100.0));
+            int lifePct = source.GetValueOrDefault(Stat.LocalFireDamageFromLifePct);
+            if (lifePct > 0 && get(Stat.MaximumLife) is int life and > 0)
+            {
+                double fire = (long)life * lifePct / 100.0;
+                added = added.Add(DamageType.Fire, new(fire, fire));
+            }
         }
         foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
             if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)

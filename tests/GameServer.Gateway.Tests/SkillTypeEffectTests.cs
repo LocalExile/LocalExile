@@ -1,9 +1,43 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class SkillTypeEffectTests
 {
+    [Fact]
+    public void Crystalfall_accepts_unarmed_ice_crash_and_rejects_an_incompatible_weapon()
+    {
+        using var f = new TriggeredSummonTests.Fixture();
+        var player = f.Player;
+        var items = Game.ItemsOf(player);
+        items.Remove(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id);
+        var iceCrash = Program.Items.FindGem("Ice Crash")!.Value;
+        var crystalfall = Program.Items.FindGem("Crystalfall Support")!.Value;
+        var armour = ItemCatalog.Create(Program.Items.Find("Plate Vest")!) with
+        {
+            Sockets = [new(SocketColour.White, ItemCatalog.Create(iceCrash.Type)),
+                new(SocketColour.White, ItemCatalog.Create(crystalfall.Type))],
+            Links = [2]
+        };
+        items.Add(PlayerInventories.BodyArmour, 0, 0, armour);
+        ushort skill = Game.GemSkillEffects(player).Single(g => g.Name == "Ice Crash").Id;
+
+        bool CrystalfallApplied() => Game.SupportedSkill(player, skill).Supports
+            .Any(s => s.Effect.Id == "SupportCrystalfall");
+        Assert.True(CrystalfallApplied());
+        Assert.Single(Game.PlayerSkills(player).Single(g => g.Id == skill).Supports);
+        var shield = items.Add(PlayerInventories.Offhand1, 0, 0,
+            ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!));
+        Assert.True(CrystalfallApplied());
+        items.Remove(PlayerInventories.Offhand1, shield.Id);
+        var mace = items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        Assert.True(CrystalfallApplied());
+        items.Remove(PlayerInventories.Weapon1, mace.Id);
+        items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        Assert.False(CrystalfallApplied());
+    }
+
     [Fact]
     public void Skill_type_passives_scale_trap_crit_guard_recovery_retaliation_speed_and_heralds()
     {

@@ -11,6 +11,7 @@ public static partial class Game
     public readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
     {
         public bool AgainstBleedingWithWeapon { get; init; }
+        internal bool ShatterFrozen { get; init; }
 
         public Cull WithWeapon(IReadOnlyDictionary<uint, int>? local) => local is null ? this
             : this with { AgainstBleedingWithWeapon = local.GetValueOrDefault(Stat.LocalCullingStrikeVsBleedingEnemies) != 0 };
@@ -77,7 +78,17 @@ public static partial class Game
             threshold = 0;
         }
         uint beforeHit = m.Life;
+        bool shatter = cull.ShatterFrozen && !cull.CannotKill && m.Rarity != MonsterRarity.Unique
+            && beforeHit * 3L < m.MaxLife
+            && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, ProjectileWorldTime(player)) > 0;
         var hit = TakeOwnerDamageLocked(player, m, damage, rampageSource, playerStats);
+        // Glacial Hammer's shatter has its own condition and leaves no overkill damage or cull recovery.
+        if (shatter && hit.Life > 0 && !hit.StageStarts && !m.StageRunning)
+        {
+            m.Overkill = 0;
+            m.Life = hit.Life;
+            return TakeOwnerDamageLocked(player, m, (int)Math.Min(int.MaxValue, hit.Life), rampageSource, playerStats);
+        }
         // The direct hit's excess feeds overkill effects; a subsequent cull contributes no overkill.
         m.Overkill = beforeHit > 0 && hit.Life == 0
             ? (int)Math.Clamp((long)damage - beforeHit, 0, int.MaxValue) : 0;
@@ -126,19 +137,19 @@ public static partial class Game
     // Burning covers the supported non-ignite sources too. Righteous Fire only puts its aura on the monsters in range
     // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own. `m.Burn` is only
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
-    static bool BurningTarget(Player player, SpawnedMonster m)
+    static bool BurningTarget(Player player, SpawnedMonster m, double? at = null)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning
+        double now = at ?? ProjectileWorldTime(player);
+        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now)
             || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
         foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
             if (other.PlayerLife > 0 && other.Instance == player.Instance
                 && InfernalLegionFields.TryGetValue(other, out var otherField) && otherField.Burning.Contains(m)) return true;
         if (player.Placed.Grounds.Count > 0)
         {
-            double now = AreaTime(player);
-            var at = m.Walk.Position(now);
+            var position = m.Walk.Position(now);
             foreach (var ground in player.Placed.Grounds)
-                if (now < ground.Until && Dist(at, ground.At) <= ground.Radius) return true;
+                if (now < ground.Until && Dist(position, ground.At) <= ground.Radius) return true;
         }
         return player.RighteousFire is { } rf && player.Area.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));

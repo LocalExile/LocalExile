@@ -42,6 +42,7 @@ public sealed class ItemCatalog
         _defences = LoadDefences(folder);
         _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
         _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        _suffixBuffRows = UtilityFlasks.SuffixBuffRows();
         _tinctures = Tinctures.Load(folder, _rows.Rows);
         _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
         _visualsById = LoadVisualsById(folder);
@@ -315,7 +316,7 @@ public sealed class ItemCatalog
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest") && !t.Id.Contains("Royale")
                 // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
                 && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
                     or "Metadata/Items/Gems/SkillGemConvocation")
@@ -486,6 +487,12 @@ public sealed class ItemCatalog
 
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
+
+    /// <summary>The BuffDefinitions row of each "during effect" suffix buff (<see cref="UtilityFlasks.SuffixBuffRows"/>),
+    /// by the character stat it grants: the flask_bonus_* rows, read from the tables once at load.</summary>
+    public IReadOnlyDictionary<uint, ushort> SuffixBuffRows => _suffixBuffRows;
+
+    private readonly Dictionary<uint, ushort> _suffixBuffRows;
 
     private readonly Tinctures.Catalog _tinctures;
 

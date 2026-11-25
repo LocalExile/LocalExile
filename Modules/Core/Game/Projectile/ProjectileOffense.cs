@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
 
@@ -27,6 +28,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public double AilmentProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
+    internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
     public int ImpaleChance { get; init; }
@@ -44,6 +46,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
+    public sealed record GroundBladeSpec(int EveryProjectile, int Maximum, long Lifetime);
+    public GroundBladeSpec? GroundBlade { get; init; }
+    internal Game.UnearthCorpse? Unearth { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
@@ -54,6 +59,10 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FromTotem { get; init; }
     /// <summary>Thrown by a trap or mine: Bear Trap's damage taken from traps and mines applies (MonsterTakesTrapOrMineHit).</summary>
     public bool FromTrapOrMine { get; init; }
+    public bool FromMine { get; init; }
+    internal bool FreezingPulseFalloff { get; init; }
+    internal int RemainingChainDamagePercent { get; init; }
+    internal int CompletedChainDamagePercent { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     public string? WeaponClass { get; init; }
@@ -76,6 +85,15 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FarShot { get; init; }
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
+    public int DamageMorePerGroundBounce { get; init; }
+    internal sealed class LancingSteelHitSeries(double repeatMultiplier)
+    {
+        public readonly HashSet<ProjectileActorKey> Targets = [];
+        public double RepeatMultiplier { get; } = repeatMultiplier;
+    }
+
+    internal LancingSteelHitSeries? LancingSteelHits { get; init; }
+    internal double ShatteringSteelAmmoHitBonus { get; init; }
     public BlindHitInput Blind { get; init; }
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>
@@ -102,6 +120,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    internal int ScourgePods { get; init; }
+    internal bool ScourgePodsPerProjectile { get; init; }
+    internal Game.SomaticShellApplications? SomaticApplications { get; init; }
+    internal bool PreventsSomaticShellBreak { get; init; }
+    internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }

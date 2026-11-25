@@ -88,6 +88,9 @@ public static partial class Game
                     "cold_damage_resistance_%" => Stat.BaseColdDamageResistancePct,
                     "lightning_damage_resistance_%" => Stat.BaseLightningDamageResistancePct,
                     "chaos_resistance_%" => Stat.BaseChaosDamageResistancePct,
+                    // The stripped name nothing on the minion reads; the minion reader
+                    // (GolemDamage) takes the base stat.
+                    "spell_suppression_chance_%" => Stat.BaseSpellSuppressionChancePct,
                     "additional_physical_damage_reduction_%" => Stat.BaseAdditionalPhysicalDamageReductionPct,
                     "chance_to_impale_on_attack_hit_%" => Stat.AttacksImpaleOnHitPctChance,
                     "skill_area_of_effect_+%" or "area_of_effect_+%" => Stat.BaseSkillAreaOfEffectPlusPct,
@@ -112,7 +115,9 @@ public static partial class Game
                 {
                     Stat.MinionElementalResistancePct => Stat.BaseResistAllElementsPct,
                     Stat.MinionMaximumAllElementalResistancesPct => Stat.AdditionalMaximumAllElementalResistancesPct,
+                    Stat.MinionChaosResistancePct => Stat.BaseChaosDamageResistancePct,
                     Stat.MinionChanceToImpaleOnAttackHitPct => Stat.AttacksImpaleOnHitPctChance,
+                    Stat.MinionSpellSuppressionChancePct => Stat.BaseSpellSuppressionChancePct,
                     _ => Stat.Of(name),
                 };
             }
@@ -261,6 +266,9 @@ public static partial class Game
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
         GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));
+        // "Minions have X% increased Damage over Time Multiplier": the id carries the
+        // minion prefix in the middle, so the strip above never reaches it.
+        GolemAdd(values, Stat.DotMultiplierPlus, Get(Stat.BaseMinionDotMultiplierPlus));
         GolemAdd(values, Stat.WitheredOnHitFor2SecondsPctChance, Get(Stat.MinionsHavePctChanceToInflictWitherOnHit));
         int ashChance = golem.Definition.Kind switch
         {
@@ -457,6 +465,11 @@ public static partial class Game
             int Raw(uint name) => GolemStat(raw, name);
             bool spell = catalog.IsSpell(effect) && !catalog.IsAttack(effect);
             var projectile = catalog.MonsterProjectile(effect, includeWeaponAttacks: true) ?? GolemProjectile(effect, catalog);
+            // Hostile monster profiles use Count as a simultaneous volley. Only the minion launcher
+            // expands a spiral into separately timed shots.
+            if (projectile is { SpiralAngle: not 0 } && Raw(Stat.NumberOfProjectilesOverride) <= 0
+                && Raw(Stat.BaseNumberOfProjectilesInSpiralNova) is > 0 and var spiralCount)
+                projectile = projectile with { Count = Math.Max(projectile.Count, spiralCount + Raw(Stat.NumberOfAdditionalProjectiles)) };
             if (effect != 9511 && !spell && (variety.RangedWeapon || golem.Weapon is { Melee: false }))
                 projectile ??= new(golem.Weapon is { WieldingWand: true } ? OrdinaryRangedAttack.Wand : OrdinaryRangedAttack.Arrow, 750, false, 2);
             bool projectileSkill = projectile is not null || Raw(Stat.BaseIsProjectile) != 0 || catalog.IsProjectile(effect);
@@ -758,8 +771,11 @@ public static partial class Game
             hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctPhysicalToChaos));
             hash.Add(GolemStat(playerStats, Stat.SummonedSkeletonPctChanceToWitherFor2Seconds));
         }
-        foreach (var p in playerStats.Where(p => (Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
-            || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal)).OrderBy(p => p.Key)) hash.Add(p);
+        // The active-minion counts are published numbers, not inputs of a minion's abilities: counting them would rebuild
+        // every minion's abilities each time a minion appears or dies.
+        foreach (var p in playerStats.Where(p => p.Key is not (Stat.NumberOfActiveMinions or Stat.NumberOfActivePermanentMinions)
+            && ((Stats.Name(p.Key) ?? "").Contains("minion", StringComparison.Ordinal)
+                || (Stats.Name(p.Key) ?? "").Contains("golem", StringComparison.Ordinal))).OrderBy(p => p.Key)) hash.Add(p);
         if (Stat.Dexterity is var dexKey) hash.Add((dexKey, playerStats.GetValueOrDefault(dexKey)));
         hash.Add(OwnerMaximumPowerCharges(playerStats));
         if (GolemStat(playerStats, Stat.MinionsHaveSameMaximumNumOfChargesAsOwner) != 0)

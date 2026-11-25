@@ -16,6 +16,7 @@ public static partial class Game
     {
         ["VaalClarity"] = 158,
         ["VaalGrace"] = 159,
+        ["VaalDiscipline"] = 160,
         ["VaalHaste"] = 161,
         ["VaalImpurityOfFire"] = 971,
         ["VaalImpurityOfIce"] = 972,
@@ -85,12 +86,19 @@ public static partial class Game
         var support = AuraSupport(player, id);
         var (artVariation, hideVisual, sourceVisual, buffVisual) =
             ReservationCosmeticVisuals(player, id, family, hasSource: true);
+        if (family == "VaalDiscipline")
+        {
+            sourceVisual ??= 329; // BuffDefinitions 160 uses BuffVisuals 329.
+            buffVisual ??= 329;
+            // Recasting starts a new HUD countdown even when the row and source are unchanged.
+            player.Area.Buffs.Clear(player.Id, row, player.Id, tag: (ushort)BuffTag.VaalAura);
+        }
         var aura = new AuraCatalog.Aura(id, source.Effect, family, family,
             player.NextBuff++, row, 0, 0, source.Level, source.Quality, SourceBuff: player.NextBuff++,
             SkillStats: [.. source.Stats.Select(p => (p.Key, p.Value))],
             SupportEffectPct: support.EffectPct, AffectsSelf: support.AffectsSelf,
-            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual,
-            PerAuraEffectPct: AuraCatalog.PerAuraEffectPctFor(family, CharacterStatSources(player).Stats));
+            ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+        aura = WithCasterAuraStamps(player, aura, CharacterStatSources(player).Stats);
         state.Active[id] = new(aura, AreaTime(player) + seconds, source, blessing);
         state.StatsPending = false; // The activation publishes its new character snapshot itself.
         player.Auras[id] = aura;
@@ -151,6 +159,12 @@ public static partial class Game
         await SendCharacterStats(player, PlayerStatChange.Auras);
         return true;
     }
+
+    // A Vaal aura's buff: buff_duration_+% and the Vaal skills' increased duration add to its increased duration
+    // (kinds); its soul gain prevention takes the buff duration modifiers only (VaalUses).
+    static double VaalAuraSeconds(int baseMilliseconds, IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
+        SkillDurationModifiers.Kinds kinds = SkillDurationModifiers.Kinds.Vaal | SkillDurationModifiers.Kinds.Buff) =>
+        SkillDurationModifiers.Seconds(baseMilliseconds, n => GolemStat(player, n), n => GolemStat(own, n), kinds);
 
     static bool SharedPlayerAura(string effect) => AuraCatalog.Shared(effect) || effect == "Smite" || TimedVaalAuraBuffRows.ContainsKey(effect);
 
@@ -230,6 +244,7 @@ public static partial class Game
             switch (aura.EffectId)
             {
                 case "VaalClarity": stats[Stat.NoManaCost] = 1; break;
+                case "VaalDiscipline": stats[Stat.EnergyShieldRechargeNotDelayedByDamage] = 1; break;
                 case "VaalGrace": stats[Stat.DamageTakenFromSuppressedHitsIsUnlucky] = 1; break;
                 case "VaalImpurityOfFire": stats[Stat.BaseImmuneToIgnite] = stats[Stat.ImmuneToIgnite] = 1; break;
                 case "VaalImpurityOfIce":

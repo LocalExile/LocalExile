@@ -40,6 +40,11 @@ public static partial class Game
             var activeBuff = player.Area.Buffs.Find(player.Id, buffInstance);
             // Any live AreaBuffs entry whose BuffDefinitions row is not Removable is rejected immediately.
             if (activeBuff is null || !IsRemovableBuff(activeBuff.Row)) return false;
+            if (CancelCooldownTriggerLocked(player, activeBuff))
+            {
+                if (publish) postPublish = () => SendOwnAuraChanges(player);
+                return true;
+            }
 
             // 1. Grace Period (row 6, Removable = 1).
             if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id
@@ -81,35 +86,23 @@ public static partial class Game
                 return true;
             }
 
-            // 4. Vaal auras (Vaal Discipline row 160, etc.; Removable = 1).
-            if (activeBuff.Tag == (ushort)BuffTag.VaalAura && activeBuff.Source == player.Id
-                && VaalAuraStates.TryGetValue(player, out var vaalAura) && vaalAura.Buff != 0
-                && vaalAura.Row == activeBuff.Row)
-            {
-                ClearVaalAuraBuffs(player, vaalAura);
-                vaalAura.Buff = vaalAura.Source = 0;
-                vaalAura.Until = 0;
-                vaalAura.Stat = null;
-                ++vaalAura.Token;
-                if (publish) postPublish = () => SendCharacterStats(player, PlayerStatChange.Auras);
-                return true;
-            }
-
-            // 5. Temporary auras (Divine Blessing / Vaal Haste / Smite; all Removable = 1).
-            if (activeBuff.Tag == 0 && activeBuff.Source == player.Id
+            // 4. Temporary auras (Divine Blessing / Vaal Haste / Smite; all Removable = 1).
+            if (activeBuff.Tag is 0 or (ushort)BuffTag.BloodAndSand or (ushort)BuffTag.VaalAura
+                && activeBuff.Source == player.Id
                 && TemporaryAuraStates.TryGetValue(player, out var tempState))
             {
                 foreach (var (skillId, entry) in tempState.Active.ToArray())
                 {
                     if (entry.Aura.BuffRow != activeBuff.Row
+                        || OwnAuraBuffTag(entry.Aura) != activeBuff.Tag
                         || activeBuff.SourceSkill != 0 && entry.Aura.SkillId != activeBuff.SourceSkill)
                         continue;
                     RemoveTemporaryAura(player, tempState, skillId);
                     tempState.StatsPending = false;
                     player.Pools = BuildPoolsFor(player, player.Pools.Level);
                     player.ApplyMovementSpeed();
-                    player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id);
-                    player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id, auraSource: true);
+                    player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id, tag: activeBuff.Tag);
+                    player.Area.Buffs.Clear(player.Id, entry.Aura.BuffRow, player.Id, auraSource: true, tag: activeBuff.Tag);
                     if (publish) postPublish = async () =>
                     {
                         await SendOwnAuraChanges(player);
@@ -119,9 +112,10 @@ public static partial class Game
                 }
             }
 
-            // 6. Player toggled own auras (Determination, Grace, Discipline, etc.; Removable = 1).
-            if (activeBuff.Tag == 0 && activeBuff.Source == player.Id
+            // 5. Player toggled own auras (Determination, Grace, Discipline, etc.; Removable = 1).
+            if (activeBuff.Tag is 0 or (ushort)BuffTag.BloodAndSand && activeBuff.Source == player.Id
                 && player.Auras.Values.FirstOrDefault(a => a.BuffRow == activeBuff.Row
+                    && OwnAuraBuffTag(a) == activeBuff.Tag
                     && (activeBuff.SourceSkill == 0 || a.SkillId == activeBuff.SourceSkill)) is { } ownAura
                 && player.Auras.Remove(ownAura.SkillId))
             {
@@ -139,8 +133,8 @@ public static partial class Game
                 if (wasEternal)
                     ReconcileOwnAuras(player, validateSkills: true);
                 ClampReservedResources(player);
-                player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id);
-                player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id, auraSource: true);
+                player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id, tag: activeBuff.Tag);
+                player.Area.Buffs.Clear(player.Id, ownAura.BuffRow, player.Id, auraSource: true, tag: activeBuff.Tag);
                 if (publish) postPublish = async () =>
                 {
                     await SendOwnAuraChanges(player);

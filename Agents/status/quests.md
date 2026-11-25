@@ -143,16 +143,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `Acts/Act4.cs`, `Acts/Act5.cs`, `Acts/Act6.cs` (QuestObjects module), Highgate's two Diallas in `NPC/TownNpcs.cs`.
   Docs: [12](../docs/protocol/12-quests.md) §13–15; [act 4](../docs/game/campaign/act4.md),
   [act 5](../docs/game/campaign/act5.md), [act 6](../docs/game/campaign/act6.md).
-- The Pantheon (live 2026-10-30 before the game moved into modules: the campaign runner chose The Brine King and
-  Tukohama; on the modules checked by the oracle and the data test, not yet with the client): a god unlocks with its
-  boss's kill flag (Act 6's four, the later acts' as their tables come); C→S 0x1ee chooses the major or minor god of a
-  PantheonPanelLayout row in a town, a hideout, the Rogue Harbour or after Sin's god row (`CanChangePantheon`), saved
-  per character and shown by the Player component (creation blob and update 0x0080); the god's power (and the souls'
-  upgrades once `EndGameAvailable` is earned: every character is given it at login, so it counts only after a quest
-  set it) joins the stat sources. `/pantheon` and /state's `pantheon` for the driver.
-  The panel's highlight of the choice is not checked; the souls (Divine Vessels) are not built.
-  Code: the Pantheon module (`Modules/Core/Player/Pantheon`), Gateway `Player/PantheonCatalog.cs`, Core
-  `InstancePantheon.cs`. Docs: [pantheon](../docs/game/campaign/pantheon.md).
+- The Pantheon: all 12 gods unlock from their boss kills, C→S 0x1ee saves and publishes major/minor choices, every god
+  power and upgrade stat evaluates in combat/recovery/flasks, Divine Vessels capture souls in maps into the Map Device,
+  and Sin's `UnlockPantheonPowerFromItem()` consumes filled vessels and opens the panel (not checked live).
+  Code: `Modules/Core/Player/Pantheon`, Gateway `Player/PantheonCatalog.cs`, `World/MapDevice.cs`, Core
+  `InstancePantheon.cs`.
+  Docs: [pantheon](../docs/game/campaign/pantheon.md).
 - Acts 7–10 and the Epilogue (live 2026-10-31, seed 1, on the engine before the modules: one Witch from
   `/quest_preset E3StartOfAct7`, the runner unattended per act, no `/goto`; on the modules checked by the oracle and
   the offline exit audit; firefly pickup and Arakaali entry checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
@@ -166,7 +162,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
-  barrier, Shakari retreats at 65% life and resumes in her second arena), a9q4, a9q2 (the feather to Irasha), a9q1
+  barrier, Shakari retreats at 65% life and resumes in her second arena, and the last Oasis gate is the checkpoint),
+  a9q4, a9q2 (the feather to Irasha), a9q1
   (both ingredients in one click, the membrane, the three spirit gauntlets, the Trinity, Lilly's voyage); a10q1 (Plaguewing comes near Bannon), a10q6, a10q4, a10q5, a10q2
   (Bannon becomes Innocence: Oriath Docks' two stages; the Chambers shortcut waits for the instance's kill), a10q3 (the horns, Kitava's scripted end: `EndGameAvailable`
   earned, −60% with Act 5's, before him −30%; Sin's portal) and A11q0 (Lilly sails). Both routes arrive at
@@ -179,7 +176,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   `Quests.EndgameOnly`). Every quest object, chest and NPC the rules name is placed at seed 1 but The Crossroads'
   BanditBlock (its sight is optional).
   Driver step files `scripts/dev/campaign/quests/a7q*.py` … `a10q*.py`, `A11q0.py`, `a10q3a11.py`.
-  Code: `Acts/Act7.cs` … `Acts/Act10.cs` (QuestObjects module), Oriath Docks' InnocenceTown line in `NPC/TownNpcs.cs`.
+  Code: `Acts/Act7.cs` … `Acts/Act11.cs` (QuestObjects module), `NPC/TownNpcs.cs`, `CharacterVoiceLines.cs`.
+  Act 6–10 quest/NPC fixes cover dual Shavronne/Brutus kill, Karui blockers, prerequisite-free Strand clear, all four
+  Ralakesh avatars, Nessa/Yeena post-kill NPCs, Tolman/Kira kills, Bannon town gating and Epilogue `a11q1` Map Device
+  progression (not checked live).
   Docs: [12](../docs/protocol/12-quests.md) §16–19; [act 7](../docs/game/campaign/act7.md) …
   [act 10](../docs/game/campaign/act10.md).
 

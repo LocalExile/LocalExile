@@ -10,9 +10,9 @@ it does not establish those skills' special mechanics. Missing metadata or damag
 Bow and wand attack gems (`skill_can_fire_arrows`, `skill_can_fire_wand_projectiles`) have no row named after their
 effect. They fire the held weapon's projectile: Projectiles.dat has skill art by weapon (`FrenzyArrow`/`FrenzyWand`,
 `PunctureArrow`, `PowerSiphonProjectile`), matched by name like the other rows (the client's link is not known), else
-`DefaultArrow`/`WandProjectile`. Area, channelled, rain, melee, Vaal and Barrage (`projectiles_barrage`) gems are not
-straight shots and stay refused: Explosive, Galvanic, Ensnaring and Scourge Arrow, Snipe, Kinetic Rain/Fusillade,
-Somatic Shell, Barrage, Vaal Power Siphon.
+`DefaultArrow`/`WandProjectile`. Skills with area, channel, rain, melee, Vaal or Barrage stages require a dedicated recipe.
+Barrage uses one accepted attack with per-arrow admission. Galvanic Arrow and Ensnaring Arrow use their own projectile
+recipes. Snipe and Vaal Power Siphon still need their dedicated stages.
 
 ## Implemented behavior
 

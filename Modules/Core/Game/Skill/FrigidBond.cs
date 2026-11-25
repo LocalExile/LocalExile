@@ -3,7 +3,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     // The client exposes the beam's effect pack, but no width stat. Use a narrow 4-cell corridor around the actual link.
-    const int FrigidBondBeamRadius = 4;
+    const int BondBeamRadius = 4;
     static readonly RuleTable<GameArea, HashSet<uint>> FrigidBondTargets = new();
     static readonly RuleTable<SpawnedMonster, MonsterIgnites> FrigidBondDamage = new();
 
@@ -29,7 +29,7 @@ public static partial class Game
         if (seconds <= 0) return;
 
         double dps = ColdSpellDamageOverTime(skill, Get);
-        int radius = SkillArea.Radius(FrigidBondBeamRadius, Get, spell: true);
+        int radius = SkillArea.Radius(BondBeamRadius, Get, spell: true);
         double time = ProjectileWorldTime(player);
         ulong source = ((ulong)player.Id << 32) | link.Target;
         var center = ((from.X + to.X) / 2d, (from.Y + to.Y) / 2d);
@@ -37,7 +37,7 @@ public static partial class Game
         {
             if (!monster.Hostile || monster.Dead || monster.Life == 0 || monster.Invulnerable
                 || monster.Effects[Stat.BaseCannotBeDamaged] != 0
-                || !InsideFrigidBondBeam(monster.Walk.Position(now), from, to, radius)) continue;
+                || !InsideBondBeam(monster.Walk.Position(now), from, to, radius)) continue;
             if (dps > 0)
             {
                 var damage = FrigidBondDamage.GetOrCreateValue(monster);
@@ -59,10 +59,11 @@ public static partial class Game
         double more = WintertideDotSupportMore.Aggregate(1.0, (factor, name) =>
             factor * Math.Max(0, 1 + BrandStat(skill, name) / 100d));
         double dotMultiplier = Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ColdDotMultiplierPlus)) / 100d);
-        return basis * Math.Max(0, 1 + increased / 100d) * more * dotMultiplier;
+        return basis * Math.Max(0, 1 + increased / 100d) * more * dotMultiplier
+            * DamageStats.ElementalMore(get(Stat.CombinedElementalDamagePlusPctFinal));
     }
 
-    static bool InsideFrigidBondBeam((int X, int Y) at, (int X, int Y) from, (int X, int Y) to, int radius)
+    static bool InsideBondBeam((int X, int Y) at, (int X, int Y) from, (int X, int Y) to, int radius)
     {
         double x = to.X - from.X, y = to.Y - from.Y;
         double squareLength = x * x + y * y;

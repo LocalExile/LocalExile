@@ -100,6 +100,22 @@ public static partial class Game
     static bool InFlaskGround(Player player, FlaskGrounds.Kind kind, uint id) =>
         player.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(player, player.Id, FlaskGroundZones, g.Id, id));
 
+    // Bottled Faith checks the target's ground independently of who created it.
+    static bool EnemyOnConsecratedGround(Player player, uint id)
+    {
+        if (!player.Area.Monsters.ContainsKey(id)) return false;
+        foreach (var owner in AreaPlayers(player))
+        {
+            if (owner.Closed || owner.LeavingArea || !owner.FlaskGrounds.Any) continue;
+            double now = AreaTime(owner);
+            foreach (var ground in owner.FlaskGrounds.Grounds)
+                if (ground.Kind == FlaskGrounds.Kind.ConsecratedGround && now < ground.Ends
+                    && (ground.SourceAlive?.Invoke(now) ?? true) && InZone(owner, owner.Id, FlaskGroundZones, ground.Id, id))
+                    return true;
+        }
+        return false;
+    }
+
     // The increased damage taken a monster gets from the consecrated grounds covering it: the strongest one.
     static int ConsecratedEnemyDamageTaken(Player player, uint id) => player.FlaskGrounds.Grounds
         .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(player, player.Id, FlaskGroundZones, g.Id, id))
@@ -119,6 +135,7 @@ public static partial class Game
         foreach (uint gone in state.ProfaneMonsters().Except(player.Area.Monsters.Keys))
             state.SetProfane(gone, false, false, now, () => 0);
         SyncFlaskGroundZones(player);
+        bool chilledAny = false;
         foreach (var (id, monster) in player.Area.Monsters)
         {
             bool inside = monster.Hostile && !monster.Dead && monster.Life > 0 && monster.Mods.Effects[Stat.CannotBeBlinded] == 0
@@ -130,12 +147,22 @@ public static partial class Game
             }
             bool aliveMonster = monster.Hostile && !monster.Dead && monster.Life > 0;
             bool inProfane = aliveMonster && InFlaskGround(player, FlaskGrounds.Kind.ProfaneGround, id);
+            // Aquamarine Flask's chilled ground: the same chill Arctic Armour's trail applies
+            // (ReservationSkills): 0.3 s at the stated 10% action-speed slow, refreshed every 0.2 s while
+            // a monster remains in the ground.
+            if (aliveMonster && InFlaskGround(player, FlaskGrounds.Kind.ChilledGround, id))
+            {
+                chilledAny = true;
+                InflictedLocked(player, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
+                    .3, now, _ => 0, n => monster.Mods.Effects[n], stated: 10));
+            }
             if (state.SetProfane(id, inProfane, aliveMonster, now, () => 1) is { } profane)
             {
                 if (profane.Added) player.Area.Buffs.Set(id, new(FlaskGrounds.ProfaneBuffRow, player.Id));
                 else player.Area.Buffs.Clear(id, FlaskGrounds.ProfaneBuffRow, player.Id);
             }
         }
+        if (chilledAny) PresentIn(player, .2);
         bool alive = player.PlayerLife > 0;
         var here = player.Walk.Position(now);
         var (stale, make) = state.Stationary(alive && !player.Walk.Moving(now) && !InTown(player), here);

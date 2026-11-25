@@ -18,6 +18,9 @@ public static partial class Game
         get(Stat.ActiveSkillIgniteDamagePlusPctFinal))
     {
         NeverFreeze = get(Stat.NeverFreeze) != 0,
+        AllDamageCanIgnite = get(Stat.AllDamageCanIgnite) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
+        AllDamageCanFreeze = get(Stat.AllDamageCanFreeze) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
+        AllDamageCanShock = get(Stat.AllDamageCanShock) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
         // Scorch and Brittle (AlternateAilmentsOnPlayerLocked) read the boss skills' chance_to_scorch_% and the like.
         SourceStats = get,
     };
@@ -35,11 +38,20 @@ public static partial class Game
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
+                && !settings.AllDamageCanIgnite && !settings.AllDamageCanFreeze && !settings.AllDamageCanShock
                 && Get(Stat.AllDamageTakenCanChill) == 0) return;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
-        int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(player.IncomingHitRandom) : 0;
-        var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+        var ailmentBase = DamagePacket.Empty;
+        if (critical || settings.IgniteChance > 0)
+        {
+            if (settings.AllDamageCanIgnite) ailmentBase = baseHit.Roll(player.IncomingHitRandom);
+            else
+            {
+                int fire = baseHit[DamageType.Fire].Roll(player.IncomingHitRandom);
+                ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+            }
+        }
         double durationFactor = LetheShadeAilmentDuration(Get);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
             ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, Get, player.IncomingHitRandom, settings, source,
@@ -125,12 +137,14 @@ public static partial class Game
         {
             var physical = DamageType.Physical;
             var chaos = DamageType.Chaos;
+            int chaosDotRes = Resistance(player, chaos) + Get(Stat.AdditionalChaosResistanceAgainstDamageOverTimePct);
             lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + player.IncomingAilments.Advance(from, until,
                 player.Pools, player.EnergyShield, Get, Resistance(player, physical), MaxResistance(player, physical),
-                Resistance(player, chaos), MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
+                chaosDotRes, MaxResistance(player, chaos), player.Immune || Get(Stat.BaseCannotBeDamaged) > 0,
                 immunities.Contains(physical), immunities.Contains(chaos), player.Walk.MovingSeconds,
                 ref player.NonChaosDotBypassCarry, ref player.ChaosDotBypassCarry, letheFactor,
-                (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats)));
+                (poisonDmg, poisonAt) => DamagePlayerChaosOverTime(player, poisonDmg, poisonAt, stats),
+                inCausticCloud: player.InCausticCloud));
         }
         lifeDamage = (int)Math.Min(int.MaxValue, (long)lifeDamage + AdvancePlayerDecayLocked(player, until, stats,
             immunities.Contains(DamageType.Chaos), letheFactor));
@@ -162,12 +176,13 @@ public static partial class Game
     /// </summary>
     public static void ApplyMonsterDamagingAilmentsLocked(Player player, uint source, SpawnedMonster m,
         DamagePacket hit, bool blocked, double now, bool attack = true, IReadOnlyDictionary<uint, int>? prepared = null,
-        int skillPoisonChance = 0, double skillPoisonSeconds = 0)
+        int skillPoisonChance = 0, double skillPoisonSeconds = 0, bool critical = false)
     {
         if (blocked || player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return;
         var effects = m.Mods.Effects;
         var playerStats = prepared ?? CharacterPlayerStats(player);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
+        int critAvoid = critical ? Math.Max(0, Player(Stat.AvoidAilmentsPctFromCrit)) : 0;
         int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
             attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
         if (attack) bleedChance += Player(Stat.ReceiveBleedingChancePctWhenHitByAttack);
@@ -188,7 +203,7 @@ public static partial class Game
             && Player(Stat.BaseCannotGainBleeding) == 0
             && Player(Stat.VirtualImmuneToBleeding) == 0 && Player(Stat.ImmuneToBleeding) == 0
             && GameServer.Core.World.RandomRolls.Chance(bleedChance, 100, player.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidBleedPct), 100, player.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidBleedPct) + critAvoid, 100, player.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0);
             double seconds = Ailments.BleedDurationSeconds
@@ -200,7 +215,7 @@ public static partial class Game
         if (poisonChance > 0 && poisonable && Player(Stat.CannotBePoisoned) == 0
             && Player(Stat.ImmuneToPoison) == 0
             && GameServer.Core.World.RandomRolls.Chance(poisonChance, 100, player.IncomingHitRandom)
-            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct), 100, player.IncomingHitRandom))
+            && !GameServer.Core.World.RandomRolls.Chance(Player(Stat.AvoidPoisonPct) + critAvoid, 100, player.IncomingHitRandom))
         {
             double more = Math.Max(0, 1 + effects[Stat.BasePoisonDamagePlusPct] / 100.0);
             double seconds = (skillPoisonSeconds > 0 ? skillPoisonSeconds : Ailments.PoisonDurationSeconds)
@@ -254,8 +269,9 @@ public static partial class Game
         }
     }
 
-    public static bool PlayerActionBlocked(Player player, double requestedAt, double now) =>
-        player.HitRecovery.BlocksInput(requestedAt, now) || player.ElementalAilments.ActionFactor(now) == 0;
+    public static bool PlayerActionBlocked(Player player, double requestedAt, double now, bool instant = false) =>
+        player.HitRecovery.BlocksInput(requestedAt, now) || player.ElementalAilments.ActionFactor(now) == 0
+        || !instant && VaalArcticArmourActive(player, now);
 
     /// <summary>The signed <c>action_speed_-%</c> from the character's raw sources and dev overrides: positive is slower.
     /// The client's own action-speed bucket, and the planned ActionSpeed/EffectClock contract (#246), keep it separate
@@ -286,10 +302,16 @@ public static partial class Game
         }));
     }
 
+    static int MapSkillActionSpeedPerUse(Player player) =>
+        MapModsOf(player)?.Get(Stat.MapPlayerActionSpeedPlusPctPerRecentSkillUse) ?? 0;
+
     public static double PlayerActionFactorFrom(Player player, Func<uint, int> get)
     {
+        double now = AreaTime(player);
         double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
-        double factor = player.ElementalAilments.TotalActionFactor(AreaTime(player), get(Stat.ActionSpeedMinusPct) - extra)
+        int mapSpeed = MapSkillActionSpeedPerUse(player);
+        if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
+        double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
             * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is

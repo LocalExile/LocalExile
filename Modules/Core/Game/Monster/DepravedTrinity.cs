@@ -1,8 +1,7 @@
-using System.Runtime.CompilerServices;
 using System.Collections.Concurrent;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
-using GameServer.Core;
 using GameServer.Data.Terrain.Generation;
 using static Game;
 using static Program;
@@ -12,6 +11,8 @@ public static class DepravedTrinity
 {
     public const string Area = "2_9_10_2", Boss = "Metadata/Monsters/UnholyTrio/UnholyTrio";
     const string Art = "Metadata/Effects/Spells/monsters_effects/act9/The_Trio/";
+    const string PhaseKey = "DepravedTrinity";
+    static readonly int[] PhaseThresholds = [66, 33];
     public static readonly string[] Souls = ["Metadata/Monsters/Doedre/DoedreSoul", "Metadata/Monsters/Maligaro/MaligaroSoul", "Metadata/Monsters/Shavronne/ShavronneSoul"];
     public static StateMachineData? StartStates(MonsterCatalog.Variety variety) =>
         variety.Id == Souls[0] ? variety.StateMachine?.Set("visible", 1) : null;
@@ -68,38 +69,43 @@ public static class DepravedTrinity
                     Replace(id, gate, pads[0], Label(names[n] + "ArenaName"), false);
             }
         }
-        foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
-            if (AreaTransitionCatalog.HashOf("2_9_10_1") is { } destination)
-                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = destination, TeleportTo = null, Label = null, Kind = 0 });
+        // The hub's teleport2-%areaname% returns to telepad2 at the Black Core entrance. Its room
+        // shares the organ portal slots, so use the graph destination with the authored return object.
+        if (level.Exits.FirstOrDefault(e => e is
+                { Room: "boss_2.arm", Kind: ExitKind.Teleport, Number: 2, Label: "%areaname%" })?.Target is { } backToCore)
+            foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
+                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = c.Layout.Hash, TeleportTo = backToCore, Label = null, Kind = 1 });
     }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly Store<Player, SeedScene> Seeds = new();
+    static readonly Store<InstanceState, SeedScene> Seeds = new();
     sealed class CleanupClock { public double Next; }
     static readonly Store<InstanceState, CleanupClock> CleanupClocks = new();
     const string SeedType = "Metadata/QuestObjects/Act9/HarvestFinalBossAnimate";
     sealed class SeedScene
     {
         public uint Id;
+        public Player? LastRunner;
         bool open;
         public async Task Tick(Player c)
         {
             if (c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == SeedType) is not { } point
                 || QuestObjectTypes.Find(SeedType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
-            bool wanted;
-            wanted = Enumerable.Range(0, 3).All(n => Dead(Soul(c, n))) && c.Character.HasQuestFlag("a9q1-BlackHeartOpen");
+            LastRunner = c;
+            bool wanted = Enumerable.Range(0, 3).All(n => Dead(Soul(c, n)))
+                && c.Frames.Players().Any(p => ReferenceEquals(p.Instance, c.Instance) && p.Character.HasQuestFlag("a9q1-BlackHeartOpen"));
             if (Id == 0)
             {
-                Id = c.TakeObjectId();
+                Id = c.Instance.World.TakeObjectId();
                 open = wanted;
-                await Send(c, [.. InstanceEntities.CreateObject(Id, InstanceEntities.ObjectTypeHash(SeedType),
-                    new QuestObject(point.X, point.Y, info.Components, point.Rotation, point.Z, point.Model, (byte)(open ? 2 : 1)).Blob()),
-                    .. InstanceProtocol.EnterWakeZone(Id)], "[Rotting Core] seed of corruption", still: () => CurrentGameWork && !c.Closed && !c.LeavingArea);
+                var blob = new QuestObject(point.X, point.Y, info.Components, point.Rotation, point.Z, point.Model, (byte)(open ? 2 : 1)).Blob();
+                await SendWorldCreate(c, Id, () => InstanceEntities.CreateObject(Id, InstanceEntities.ObjectTypeHash(SeedType), blob),
+                    "[Rotting Core] seed of corruption", still: () => CurrentGameWork && !c.Closed && !c.LeavingArea, wake: true, awaitBirth: false);
             }
             else if (open != wanted)
             {
                 open = wanted;
-                await Send(c, InstanceEntities.TransitionableUpdate(Id,
+                await SendWorldRecord(c, Id, InstanceEntities.TransitionableUpdate(Id,
                     (byte)QuestObject.TransitionableIndex(info.Components), (byte)(open ? 2 : 1)), "[Rotting Core] Black Heart opens",
                     still: () => CurrentGameWork && !c.Closed && !c.LeavingArea);
             }
@@ -193,17 +199,24 @@ public static class DepravedTrinity
     }
     public static (int X, int Y)? Landing(Player c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
         o.Type == "Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator") is { } point ? c.Layout.Near((point.X, point.Y)) : null;
-    public static void CarryLoot(Player c, (int X, int Y) from, (int X, int Y) to)
+    public static async Task CarryLoot(Player c, (int X, int Y) from, (int X, int Y) to)
     {
         var ground = c.Instance.Ground;
         foreach (var (id, item) in ground.Within(from.X, from.Y, 160, _ => true))
         {
-            // Take checks the exact object atomically: a concurrent pickup wins rather than being restored or duplicated.
-            // Private quest items keep their ownership and place. Existing drops move silently, not as new filter events.
-            if (!ground.Origin(id).Shared || ground.Take(id, item) is null) continue;
-            double scale = Math.Min(1, 18 / Math.Max(1, Distance((item.GridX, item.GridY), from)));
-            var at = c.Layout.Near((to.X + (int)((item.GridX - from.X) * scale), to.Y + (int)((item.GridY - from.Y) * scale)));
-            ground.Add(item with { GridX = at.X, GridY = at.Y }, null, shared: true, justDropped: false);
+            // Match the original object so a competing pickup can take it only once.
+            var (owner, shared) = ground.Origin(id);
+            if (!shared || ground.Take(id, item) is null) continue;
+
+            double scale = Math.Min(1, 6 / Math.Max(1, Distance((item.GridX, item.GridY), from)));
+            int x = to.X + (int)((item.GridX - from.X) * scale);
+            int y = to.Y + (int)((item.GridY - from.Y) * scale);
+            if (!c.Layout.WalkableFor(x, y, 1)) (x, y) = to;
+
+            var relocated = item with { GridX = x, GridY = y };
+            uint newId = ground.Add(relocated, owner, shared: true, justDropped: false);
+            await SendWorldRemoval(c, id, $"[Rotting Core] removed carried item 0x{id:x}");
+            await SendGroundItem(c, newId, relocated, $"[Rotting Core] carried item 0x{newId:x} to ({x}, {y})");
         }
     }
     public static List<uint> RetireCreatures(Player c)
@@ -217,7 +230,7 @@ public static class DepravedTrinity
                 || m.Value.Rarity != MonsterRarity.Unique && safe.Any(at => Distance(at, m.Value.Walk.Position(now)) < 65))).ToArray();
         foreach (var (id, monster) in gone)
         {
-            monster.Dead = true; monster.Life = 0; monster.ActionGeneration++;
+            monster.Dead = true; monster.Life = 0; monster.NoRewards = true; monster.ActionGeneration++;
             c.Area.Monsters.Remove(id); c.Instance.World.MonsterOrigins.TryRemove(id, out _);
         }
         return [.. gone.Select(m => m.Key)];
@@ -294,24 +307,21 @@ public static class DepravedTrinity
         if (c.Layout.Id != Area || !CurrentGameWork || !c.Connection.PlayerSent || c.Closed || c.LeavingArea || c.Paused) return;
         // Flags and deaths may change the gates for another member of the same instance as well.
         await UpdateShownTransitions(c, "Rotting Core encounter");
-        await Seeds.GetValue(c, _ => new()).Tick(c);
         if (IsMonsterRunner(c))
         {
+            await Seeds.GetValue(c.Instance, _ => new()).Tick(c);
             var clock = CleanupClocks.GetValue(c.Instance, _ => new());
             double now = AreaTime(c);
             if (now >= clock.Next)
             {
                 clock.Next = now + 1;
                 foreach (uint id in RetireCreatures(c))
-                {
-
-                    await Send(c, InstanceProtocol.RemoveObject(id), "[Rotting Core] encounter creature retired");
-                }
+                    await SendWorldRemoval(c, id, "[Rotting Core] encounter creature retired");
             }
         }
-        (uint Key, SpawnedMonster Value) found;
-        var p = c.Area.Monsters.FirstOrDefault(p => IsBoss(p.Value.Variety)); if (p.Value is null) return; found = (p.Key, p.Value);
-        var f = Fights.GetValue(c.Instance, _ => new(found.Key, found.Value, c));
+        var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
+        if (p.Value is null) return;
+        var f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
         await f.Gate.WaitAsync();
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
@@ -324,8 +334,8 @@ public static class DepravedTrinity
             foreach (var f in Fights) f.Value.Stop();
             foreach (var e in Exposures) _ = Leaving(e.Key);
             foreach (var s in Seeds)
-                if (s.Value.Id != 0 && !s.Key.Closed && !s.Key.LeavingArea)
-                    _ = Send(s.Key, InstanceProtocol.RemoveObject(s.Value.Id), null);
+                if (s.Value.Id != 0 && s.Value.LastRunner is { Closed: false, LeavingArea: false } runner)
+                    _ = SendWorldRemoval(runner, s.Value.Id, null);
         }
     }
     sealed record Hit(double At, int Effect, (int X, int Y) Aim, double Radius, string Model, double Duration = 0, int Colour = -1, int Generation = 0,
@@ -337,6 +347,7 @@ public static class DepravedTrinity
         public readonly SemaphoreSlim Gate = new(1);
         public bool Stopped;
         readonly uint id; readonly SpawnedMonster boss;
+        readonly GameArea area;
         readonly (int X, int Y) centre;
         readonly List<Player> players = [];
         readonly HashSet<Player> actors = [];
@@ -351,30 +362,42 @@ public static class DepravedTrinity
         int rotation;
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
-            id = objectId; boss = monster;
+            id = objectId; boss = monster; area = c.Area;
             centre = c.LaterFormPoints.GetValueOrDefault(Boss, monster.Walk.Position(AreaTime(c)));
-            boss.LifePhases ??= new([66, 33]);
-            started = !boss.EntranceGrace; submerged = boss.LifePhases.Active;
+            // Sync SavedMonster re-entry against persisted InstanceState so completed [66, 33] scorpion phases never replay.
+            CampaignBossHelpers.SyncSavedPhases(c.Instance, boss, PhaseKey, PhaseThresholds);
+            started = !boss.EntranceGrace;
+            submerged = boss.LifePhases!.Active;
             hideApplied = submerged;
-            if (submerged) foreach (var add in c.Area.Monsters.Where(m => m.Value.Variety?.Id == "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge" && !Dead(m.Value))) adds.Add(add.Key);
+            if (submerged)
+            {
+                CampaignBossHelpers.SetInvulnerable(c, id, boss, true);
+                foreach (var add in c.Area.Monsters.Where(m => m.Value.Variety?.Id == "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge" && !Dead(m.Value)))
+                {
+                    add.Value.SummonerId = id;
+                    add.Value.NoRewards = true;
+                    adds.Add(add.Key);
+                }
+            }
         }
         IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea);
         bool Awake(Player p) => MonsterShown(p, id) && !MonsterAsleep(p, id);
-        async Task All(byte[] bytes, bool actor = false)
+        async Task AllRecord(uint targetId, byte[] bytes, bool actor = false)
         {
-            foreach (var p in Present.Where(p => !actor || Awake(p)).ToArray())
-            { await Send(p, [.. bytes], null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea); }
+            if (Present.FirstOrDefault(p => !actor || Awake(p)) is { } p)
+                await SendWorldRecord(p, targetId, [.. bytes], null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea);
+        }
+        async Task AllRemove(uint targetId)
+        {
+            if (Present.FirstOrDefault() is { } p)
+                await SendWorldRemoval(p, targetId, null, still: () => !Stopped && CurrentGameWork && !p.Closed && !p.LeavingArea);
         }
         public async Task Bind(Player c)
         {
             players.RemoveAll(p => p.Closed || p.LeavingArea);
-            if (!players.Contains(c))
-            {
-                players.Add(c);
-                foreach (var fx in effects) await CreateFx(c, fx);
-            }
+            if (!players.Contains(c)) players.Add(c);
             if (boss.Dead || !Awake(c) || !actors.Add(c)) return;
-            await Send(c, InstanceEntities.PlayerSkillsChange(id, SkillsFor(c, boss.Variety!, boss.Level)!, []), "[Rotting Core] Trinity native skills");
+            await SendWorldRecord(c, id, InstanceEntities.PlayerSkillsChange(id, SkillsFor(c, boss.Variety!, boss.Level)!, []), "[Rotting Core] Trinity native skills");
         }
         async Task Visibility(bool visible)
         {
@@ -384,12 +407,12 @@ public static class DepravedTrinity
                 if (p.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     p.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { StateMachine = boss.States } };
             int component = boss.Variety!.ComponentsOrBase.ToList().IndexOf("StateMachine");
-            if (component >= 0) await All(InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), true);
+            if (component >= 0) await AllRecord(id, InstanceEntities.StateMachineUpdate(id, (byte)component, boss.States), true);
         }
         public async Task Step(Player c, double now)
         {
             if (Stopped || !CurrentGameWork) return;
-            foreach (var fx in effects.Where(f => f.Until <= now).ToArray()) { effects.Remove(fx); await All(InstanceProtocol.RemoveObject(fx.Id)); }
+            foreach (var fx in effects.Where(f => f.Until <= now).ToArray()) { effects.Remove(fx); await AllRemove(fx.Id); }
             pools.RemoveAll(p => p.Until <= now);
             foreach (var p in Present)
             {
@@ -400,13 +423,14 @@ public static class DepravedTrinity
             }
             if (boss.Dead || boss.Life == 0)
             {
+                CampaignBossHelpers.SetInvulnerable(c, id, boss, false);
                 hits.Clear(); pools.Clear();
                 if (double.IsNaN(deathAt)) { deathAt = now; Console.WriteLine("[Rotting Core] Trinity defeated; blood evacuation starts"); }
                 if (double.IsNaN(evacuationAt) && now >= deathAt + 3)
                 { await Fx(c, centre, Art + "blood_vortex/rig.ao", now + 8); evacuationAt = now + 2.5; }
                 if (!returned && now >= evacuationAt && Landing(c) is { } landing)
                 {
-                    CarryLoot(c, centre, landing);
+                    await CarryLoot(c, centre, landing);
                     returned = true;
                     foreach (var p in Present.Where(p => p.PlayerLife > 0 && Distance(p.Walk.Position(now), centre) < 160).ToArray())
                         await BloodReturn(p, now);
@@ -422,7 +446,8 @@ public static class DepravedTrinity
             if (!started)
             {
                 started = true; ready = now + 3;
-                await All(InstanceEntities.TransitionableUpdate(id, (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable"), 2), true);
+                CampaignBossHelpers.MarkStarted(c.Instance, PhaseKey);
+                await AllRecord(id, InstanceEntities.TransitionableUpdate(id, (byte)boss.Variety!.ComponentsOrBase.ToList().IndexOf("Transitionable"), 2), true);
                 if (c.Instance.World.MonsterOrigins.TryGetValue(id, out var origin))
                     c.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { TransitionState = 2, StateMachine = boss.States } };
                 boss.EntranceGrace = false;
@@ -433,23 +458,33 @@ public static class DepravedTrinity
             if (!submerged && boss.LifePhases!.Begin(boss.Life, boss.MaxLife))
             {
                 submerged = true; hiddenUntil = now + 3; hits.Clear(); releases.Clear(); released.Clear();
+                CampaignBossHelpers.SetInvulnerable(c, id, boss, true);
                 hideApplied = false; hideAt = now + Attack(c, boss.Variety!, boss.Level, 8546).Seconds;
                 await Cast(target, 8546, now, centre);
                 var markers = c.Layout.Level?.RoomObjects.Where(o => o.Type == "Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmergeSpawner").ToArray() ?? [];
                 var v = Monsters.Find("Metadata/Monsters/SpiderPlated/SpiderPlatedUnholyEmerge");
                 if (v is { Supported: true })
                     foreach (var point in markers)
-                    { uint add = await SpawnMonster(c, v, boss.Level, MonsterRarity.Normal, point.X, point.Y); if (add != 0) adds.Add(add); }
+                    {
+                        await SpawnMonster(c, v, boss.Level, MonsterRarity.Normal, point.X, point.Y,
+                            instanceOwned: true,
+                            owned: (add, m) => { m.SummonerId = id; m.NoRewards = true; m.Aggro = true; adds.Add(add); },
+                            ownedCurrent: () => !Stopped && !boss.Dead);
+                    }
                 Console.WriteLine($"[Rotting Core] scorpion phase {boss.LifePhases.Completed + 1}: {adds.Count} aberrations");
             }
             if (submerged)
             {
                 if (!hideApplied && now >= hideAt) { hideApplied = true; await Visibility(false); }
                 if (now < hiddenUntil || adds.Any(a => c.Area.Monsters.TryGetValue(a, out var m) && !Dead(m))) return;
-                adds.Clear(); submerged = false; boss.LifePhases!.Finish(); await Visibility(true);
+                adds.Clear(); submerged = false;
+                CampaignBossHelpers.MarkPhaseCompleted(c.Instance, PhaseKey, boss.LifePhases!.Completed);
+                boss.LifePhases.Finish();
+                CampaignBossHelpers.SetInvulnerable(c, id, boss, false);
+                await Visibility(true);
                 var aim = target.Walk.Position(now); var floor = c.Layout.Near((aim.X + 12, aim.Y + 12));
                 boss.Walk.Teleport(floor.X, floor.Y, now);
-                await All(InstanceProtocol.Teleport(id, floor.X, floor.Y), true);
+                await AllRecord(id, InstanceProtocol.Teleport(id, floor.X, floor.Y), true);
                 await Cast(target, 5606, now, aim); ready = now + 2;
                 Console.WriteLine("[Rotting Core] Trinity resurfaced"); return;
             }
@@ -472,8 +507,7 @@ public static class DepravedTrinity
             double distance = Distance(boss.Walk.Position(now), to);
             if (distance > 35 && now < nextSpecial && now < nextSludge && now < nextBlood)
             {
-                int generation;
-                generation = ++boss.ActionGeneration;
+                int generation = ++boss.ActionGeneration;
                 await SendMonsterAction(c, id, boss, generation, () =>
                 {
                     double at = AreaTime(c); var here = boss.Walk.Position(at);
@@ -493,8 +527,8 @@ public static class DepravedTrinity
         }
         async Task Cast(Player c, int effect, double now, (int X, int Y) aim)
         {
-            var attack = Attack(c, boss.Variety!, boss.Level, effect); var from = boss.Walk.Position(now); int generation;
-            generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.Walk.Order(from.X, from.Y, now); ready = boss.BusyUntil = now + attack.Seconds + .3;
+            var attack = Attack(c, boss.Variety!, boss.Level, effect); var from = boss.Walk.Position(now);
+            int generation = ++boss.ActionGeneration; boss.SwingGeneration = null; boss.Walk.Order(from.X, from.Y, now); ready = boss.BusyUntil = now + attack.Seconds + .3;
             await SendMonsterAction(c, id, boss, generation,
                 () => [.. InstanceProtocol.ActionStarted(id, from.X, from.Y, aim.X, aim.Y, Skill(effect), c.NextActionSequence(), 0x0408), .. InstanceProtocol.ActionEnded(id)],
                 $"[Rotting Core] {Game.SkillsFor(c).EffectId(effect)}");
@@ -553,14 +587,14 @@ public static class DepravedTrinity
         async Task Damage(Player p, Hit hit, double now)
         {
             MonsterHitOutcome? outcome = null; var attack = Attack(p, boss.Variety!, boss.Level, hit.Effect);
-            await Send(p, [], null, atGate: () =>
+            await SendWorldRecord(p, id, [], null, atGate: () =>
             {
                 if (Stopped || !CurrentGameWork || boss.Dead || submerged || p.Closed || p.LeavingArea || p.Paused || InGracePeriod(p)) return null;
                 bool Inside((int X, int Y) at) => Distance(at, hit.Aim) <= hit.Radius && (hit.Facing is not { } facing
                     || (long)(at.X - hit.Aim.X) * (facing.X - hit.Aim.X) + (long)(at.Y - hit.Aim.Y) * (facing.Y - hit.Aim.Y) >= 0);
                 var minionAttack = attack with { Damage = attack.Damage.Scale(Math.Max(0, 1 + Stat(p, hit.Effect,
                     Game.SkillsFor(p).MaxLevelAt(hit.Effect, boss.Level), global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d)) };
-                foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).ToArray())
+                foreach (var minion in p.Golems.All.Values.Concat(p.Reservations.Fighters.Values).Concat(p.Summons.Fighters.Values).ToArray())
                     if (!minion.Monster.Dead && Inside(minion.Monster.Walk.Position(now))) GolemTakeHitLocked(p, minion, id, boss, minionAttack, now, area: true);
                 if (p.PlayerLife == 0 || !Inside(p.Walk.Position(now))) return null;
                 outcome = CommitMonsterHitLocked(p, id, boss, attack, now, p.Walk.Position(now), boss.Walk.Position(now), false, p.NextActionSequence());
@@ -570,22 +604,24 @@ public static class DepravedTrinity
         }
         async Task Fx(Player c, (int X, int Y) at, string model, double until, uint animation = 0)
         {
-            uint fx; fx = c.TakeObjectId();
+            uint fx = c.TakeObjectId();
             var visual = new Visual(fx, at, model, until, animation); effects.Add(visual);
-            foreach (var p in Present) await CreateFx(p, visual);
+            await CreateFx(c, visual);
         }
         static async Task CreateFx(Player p, Visual fx)
         {
-            await Send(p, [.. InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob()),
-                .. InstanceProtocol.EnterWakeZone(fx.Id), .. InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Animation, 1)], null,
-                still: () => !p.Closed && !p.LeavingArea && CurrentGameWork);
+            var blob = new EffectObject(fx.At.X, fx.At.Y, fx.Model).Blob();
+            await SendWorldCreate(p, fx.Id, () => InstanceEntities.CreateObject(fx.Id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), blob),
+                null, still: () => !p.Closed && !p.LeavingArea && CurrentGameWork, wake: true, awaitBirth: false,
+                afterCreation: () => [InstanceProtocol.AnimationUpdate(fx.Id, 0, fx.Animation, 1)]);
         }
         public void Stop()
         {
             Stopped = true;
-            foreach (var p in Present.ToArray())
+            CampaignBossHelpers.ClearInvulnerableOnUnload(area, id, boss);
+            if (Present.FirstOrDefault() is { } any)
                 foreach (var fx in effects.ToArray())
-                    _ = Send(p, InstanceProtocol.RemoveObject(fx.Id), null, still: () => !p.Closed && !p.LeavingArea);
+                    _ = SendWorldRemoval(any, fx.Id, null, still: () => !any.Closed && !any.LeavingArea);
         }
         async Task BloodReturn(Player p, double now)
         {

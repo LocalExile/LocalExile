@@ -55,7 +55,7 @@ public static partial class Game
         {
             _ = ProjectilesFor(player);
             uint id = player.TakeObjectId();
-            player.ProjectileObjects.Add(id);
+            player.TrackProjectileObject(id);
             var visual = new EffectObject(cell.X, cell.Y, animation);
             player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(id,
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), visual.Blob()), null, WorldId: id, CreatesObject: true));

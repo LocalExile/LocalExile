@@ -33,6 +33,12 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     double Multiplier = 1, ProjectileHitScope Scope = ProjectileHitScope.Projectile)
 {
     public bool ExcludeContactTarget { get; init; }
+    /// <summary>Radius sampled with the number of completed ground bounces at the impact.</summary>
+    public Func<int, double>? RadiusForGroundBounce { get; init; }
+    /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
+    public double ConeHalfAngle { get; init; }
+    /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
+    public bool ReplacesDirectContact { get; init; } = true;
     /// <summary>Lower placement radius; offset is the upper radius.</summary>
     public double MinimumOffset { get; init; }
     /// <summary>Place one independently sampled centre in each angular sector.</summary>
@@ -58,6 +64,16 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
 {
     /// <summary>Wait this long after the parent's end before emitting (Arrow Nova's rain delay).</summary>
     public long Delay { get; init; }
+    /// <summary>Adapts the parent's release data once for each group of child projectiles.</summary>
+    public Func<object?, object?>? ChildPayload { get; init; }
+    public bool ExcludeImpactTarget { get; init; }
+    /// <summary>Stop a travel recipe after this many emitted groups. Null keeps emitting until the flight ends.</summary>
+    public int? TravelGroups { get; init; }
+    /// <summary>Emit children on continuing enemy contacts (chain, fork, split, pierce) as well as terminal stops.</summary>
+    public bool EmitOnContinueContact { get; init; }
+    public IReadOnlySet<ProjectileEndReason>? EndReasons { get; init; }
+    /// <summary>Optional individually timed groups emitted after the parent stops.</summary>
+    public IReadOnlyList<(long Delay, int Count)>? Waves { get; init; }
 }
 public sealed record ProjectileFormRecipe(double Distance, double SpeedMultiplier, int Pierce,
     double DamageMultiplier = 1);
@@ -168,18 +184,24 @@ public sealed record ProjectileProfile(string Id)
     /// max(CollisionRadius, CollisionCandidateRadius). Set, a flight cell contacts an actor whose Chebyshev cell distance
     /// is at most this plus the actor's <see cref="ProjectileActor.Size"/>, and <see cref="Radius"/> is not used for actors.</summary>
     public int? ContactCells { get; init; }
+    /// <summary>Symmetric speed variation sampled for each initial launch with no explicit speed.</summary>
+    public int SpeedVariationPercent { get; init; }
     public long Lifetime { get; init; } = 1200000;
     public long SequentialDelay { get; init; }
     public bool ShareSequentialHits { get; init; }
     public bool DirectDamage { get; init; } = true;
     public int Pierce { get; init; }
     public int Fork { get; init; }
+    public double ForkAngleRadians { get; init; } = Math.PI / 6;
+    public bool PierceAllAfterFork { get; init; }
     /// <summary>"X% chance for an additional Projectile when Forking" (Greater Fork): the extra child flies straight
     /// ahead between the fork's two.</summary>
     public int ForkExtraProjectileChancePercent { get; init; }
     public int Chain { get; init; }
     public int Split { get; init; }
     public double ChainRange { get; init; } = 60;
+    /// <summary>When provided, keeps split targeting independent of modifiers to chain range.</summary>
+    public double? SplitRange { get; init; }
     public bool Returns { get; init; }
     public int ReturnChancePercent { get; init; }
     /// <summary>The host's 0–99 return roll of each initial projectile, for projectiles the client rolls itself; null
@@ -205,6 +227,7 @@ public sealed record ProjectileProfile(string Id)
     public bool CannotChain { get; init; }
     public bool CannotSplit { get; init; }
     public bool CannotReturn { get; init; }
+    public bool StopOnEnemy { get; init; }
     public int TerrainBounces { get; init; }
     /// <summary>Chance (0-100) that a terrain collision redirects the projectile to a nearby enemy instead of ending,
     /// from "Projectiles have X% chance to be able to Chain when colliding with terrain"; one terrain chain per
@@ -213,6 +236,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileHitRule HitRule { get; init; } = new();
     /// <summary>Optional direct-hit admission during return. Null inherits HitRule.</summary>
     public ProjectileHitRule? ReturnHitRule { get; init; }
+    public ProjectileAreaRecipe? LaunchArea { get; init; }
     public ProjectileAreaRecipe? EndArea { get; init; }
     public IReadOnlySet<ProjectileEndReason>? EndAreaReasons { get; init; }
     /// <summary>Emit an allowed end area before a successful return turnaround; end emissions stay deferred.</summary>
@@ -224,7 +248,11 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? EndEmission { get; init; }
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
+    /// <summary>Linear increase to the contact multiplier over this flight's lifetime, as a percentage.</summary>
+    public int LifetimeDamageGainPercent { get; init; }
     public bool Lobbed { get; init; }
+    /// <summary>A lobbed flight may resolve an enemy impact before its intended landing.</summary>
+    public bool LobbedEnemyContacts { get; init; }
     /// <summary>A lobbed arc's apex in Positioned marker steps above the straight start-to-end line; the client's
     /// mortar template is 40. Arrow Nova's payload is fired high into the air, so it uses a much larger apex.</summary>
     public double ArcHeight { get; init; } = 40;
@@ -237,6 +265,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileFormRecipe? FormChange { get; init; }
     public ProjectileSplitFormRecipe? SplitForm { get; init; }
     public bool SplitOnTerrain { get; init; }
+    public bool SplitAtEndOfRange { get; init; }
     /// <summary>Fill this skill's split count even when there are fewer available target actors.</summary>
     public bool SplitWithoutTargets { get; init; }
     public ProjectileTargetedRecipe? ContactTargets { get; init; }
@@ -262,12 +291,16 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public ProjectileActorKey? ReturnAnchor { get; init; }
     /// <summary>Extra split children granted by the current direct-hit recipient.</summary>
     public Func<ProjectileActorKey, long, int>? TargetSplit { get; init; }
+    /// <summary>The current recipient grants a pierce without using a point of the projectile's own pierce budget.</summary>
+    public Func<ProjectileActorKey, bool>? TargetPierce { get; init; }
     public object? Payload { get; init; }
     /// <summary>Optional initial-projectile snapshots; continuation children inherit their parent's selected payload.</summary>
     public IReadOnlyList<object?>? ProjectilePayloads { get; init; }
     /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
     /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Optional aim chosen at each initial emission. The selected direction keeps the projectile's flight range.</summary>
+    public Func<ProjectileVector, ProjectileVector?>? InitialAim { get; init; }
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }
@@ -316,6 +349,7 @@ public sealed class ProjectileEntity
     public double Speed { get; internal set; }
     public int Form { get; internal set; }
     public int GroundBounces { get; internal set; }
+    public int ChainsRemaining => Chain;
     public double DamageMultiplier { get; internal set; } = 1;
     internal int Pierce, Fork, Chain, Split, TerrainBounces;
     internal bool HasSplit;

@@ -16,7 +16,8 @@ public static partial class Game
         Dictionary<string, Dictionary<string, HideoutPlacement>> Placements,
         Dictionary<string, List<CharacterSaves.SavedMonsterStatue>> Statues,
         Dictionary<string, List<SavedHideoutDecoration>>? Decorations = null,
-        Dictionary<string, ushort>? Music = null);
+        Dictionary<string, ushort>? Music = null,
+        Dictionary<string, SavedHideoutDecoration>? MapDevices = null);
     public sealed class HideoutMigrationSettings
     {
         public string? LegacySourceCharacter { get; set; }
@@ -211,14 +212,38 @@ public static partial class Game
             var decorations = p.Decorations is null ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
             decorations.Remove(area);
             var placements = p.Placements;
+            var devices = p.MapDevices;
             if (resetPlacements)
             {
                 placements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
                 placements.Remove(area);
+                devices = devices is null ? null : new(devices);
+                devices?.Remove(area);
             }
-            return p with { Placements = placements, Decorations = decorations };
+            return p with { Placements = placements, Decorations = decorations, MapDevices = devices };
         });
         return true;
+    }
+
+    public const string MapDeviceKey = "map-device";
+
+    /// <summary>The map device variant placed in this hideout instead of its template's device, or null.</summary>
+    public static SavedHideoutDecoration? AccountMapDevice(Player player) =>
+        SharedHideout(player, instanceOwner: true)?.MapDevices?.GetValueOrDefault(player.Layout.Id);
+
+    /// <summary>Saves the hideout's map device variant (null: back to the template's) and where the device stands.</summary>
+    public static void SetAccountMapDevice(Player player, SavedHideoutDecoration? device, HideoutPlacement? at)
+    {
+        if (player.Character.Account is null) return;
+        ChangeSharedHideout(player, p =>
+        {
+            var devices = p.MapDevices is null ? new Dictionary<string, SavedHideoutDecoration>() : new(p.MapDevices);
+            if (device is null) devices.Remove(player.Layout.Id); else devices[player.Layout.Id] = device;
+            var placements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
+            if (at is not null)
+                placements[player.Layout.Id] = new(placements.GetValueOrDefault(player.Layout.Id) ?? []) { [MapDeviceKey] = at };
+            return p with { MapDevices = devices, Placements = placements };
+        });
     }
 
     public static ushort? AccountHideoutMusic(Player player, string? area = null)
@@ -239,6 +264,47 @@ public static partial class Game
             return p with { Music = music };
         });
     }
+
+    /// <summary>Atomically replaces an area's saved custom decorations, functional placements and optional music row
+    /// for C→S 0x0213 template import. Refuses if any Item Display Case in this area holds a stored item.</summary>
+    public static bool ReplaceAccountHideoutLayout(Player player, string area,
+        IReadOnlyDictionary<string, HideoutPlacement> placements,
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow) =>
+        ReplaceAccountHideoutLayout(player, area, placements, decorations, musicRow, null);
+
+    public static bool ReplaceAccountHideoutLayout(Player player, string area,
+        IReadOnlyDictionary<string, HideoutPlacement> placements,
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow, SavedHideoutDecoration? device) => Saves.Atomically(() =>
+    {
+        if (player.Character.Account is null || HideoutHasStoredDisplayCaseItems(player, area)) return false;
+        if (decorations.Count > MaxHideoutDecorations) return false;
+        ChangeSharedHideout(player, p =>
+        {
+            var nextPlacements = new Dictionary<string, Dictionary<string, HideoutPlacement>>(p.Placements);
+            if (placements.Count > 0)
+            {
+                var merged = nextPlacements.TryGetValue(area, out var old)
+                    ? new Dictionary<string, HideoutPlacement>(old) : [];
+                foreach (var (k, v) in placements) merged[k] = v;
+                nextPlacements[area] = merged;
+            }
+            var nextDecorations = p.Decorations is null
+                ? new Dictionary<string, List<SavedHideoutDecoration>>() : new(p.Decorations);
+            if (decorations.Count > 0) nextDecorations[area] = [.. decorations];
+            else nextDecorations.Remove(area);
+            var nextMusic = p.Music is null ? new Dictionary<string, ushort>() : new(p.Music);
+            if (musicRow is ushort row)
+            {
+                if (row == InstanceHideoutEditing.DefaultMusicRow) nextMusic.Remove(area);
+                else nextMusic[area] = row;
+            }
+            var devices = p.MapDevices;
+            if (device is not null)
+                devices = new Dictionary<string, SavedHideoutDecoration>(devices ?? []) { [area] = device };
+            return p with { Placements = nextPlacements, Decorations = nextDecorations, Music = nextMusic, MapDevices = devices };
+        });
+        return true;
+    });
 
     static Dictionary<string, Dictionary<string, CharacterSaves.SavedItem>>? ReadDisplayCaseMap(AccountStash stash) =>
         stash.ModuleData(LeagueDisplayCasesKey) is { } text
