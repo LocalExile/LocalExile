@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Protocol.Instance;
 
@@ -14,8 +15,44 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceTimers
 {
+    public const ushort NonQuestTrackerRecordId = 0x15f;
     public const ushort CountdownTimerId = 0x162;
     public const ushort MissionTimerId = 0x163;
+
+    /// <summary>One entry in <see cref="NonQuestTrackerRecord"/> (S→C 0x015f, write <c>0x1421ae770</c> +
+    /// <c>0x1429a5f50</c>, read <c>0x141fa9720</c> + <c>0x1429a60d0</c>): <c>u16 BE key</c>,
+    /// <c>u16 BE clientStringRow1Based</c> (0 = none, else 1-based <c>ClientStrings.dat</c> row),
+    /// <c>u16 BE value</c>, plus optional numeric/string format arguments.</summary>
+    public sealed record TrackerEntry(
+        ushort Key,
+        ushort ClientStringRow1Based,
+        ushort Value = 0,
+        IReadOnlyList<(byte Slot, int Value)>? NumericArgs = null,
+        IReadOnlyList<string>? StringArgs = null);
+
+    /// <summary>S→C 0x015f (write <c>0x1421ae770</c>, read <c>0x1421ae910</c> -> <c>0x141fa9720</c>,
+    /// dispatcher case 0x67): non-quest HUD tracker record (<c>u16 BE trackerId</c>, <c>u8 flags</c>, <c>u8 count</c>,
+    /// followed by <c>count</c> × <see cref="TrackerEntry"/>).</summary>
+    public static byte[] NonQuestTrackerRecord(ushort trackerId, byte flags, IReadOnlyList<TrackerEntry> entries)
+    {
+        int count = Math.Min(entries.Count, byte.MaxValue);
+        var w = new LoginWriter().U16(NonQuestTrackerRecordId).U16(trackerId).U8(flags).U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var e = entries[i];
+            int numCount = Math.Min(e.NumericArgs?.Count ?? 0, byte.MaxValue);
+            int strCount = Math.Min(e.StringArgs?.Count ?? 0, byte.MaxValue);
+            w.U16(e.Key).U16(e.ClientStringRow1Based).U16(e.Value).U8((byte)numCount).U8((byte)strCount);
+            for (int n = 0; n < numCount; n++)
+            {
+                var (slot, value) = e.NumericArgs![n];
+                w.U8(slot);
+                InstanceProtocol.CompactInt(w, value);
+            }
+            for (int s = 0; s < strCount; s++) w.WStr(e.StringArgs![s]);
+        }
+        return w.ToArray();
+    }
 
     /// <summary>1-based <c>CountdownTimers.dat</c> row 0 (<c>MercenaryCountdown</c>).</summary>
     public const uint MercenaryCountdownTimerId = 1;

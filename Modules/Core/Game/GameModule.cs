@@ -76,6 +76,9 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
         Rules.LoadAlchemistsGeniusData();
+        // The Heist rogue allies carry SectorEvents, which the client's create reads nothing for; the other types that
+        // carry it (Kirac, the Sanctum NPC, Expedition, pirates, Delve) stay uncreatable.
+        MonsterObject.AllowExtraFor("SectorEvents", "Metadata/Monsters/LeagueHeist/NPCAllies/NPCAlliesBase");
         Rules.LoadBuffCancelData();
         Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
@@ -244,6 +247,7 @@ public sealed class GameModule : IModule, IDisposable
         string id = module.Manifest.Id;
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
@@ -342,7 +346,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
-        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.AreaHeader.Add(id, player => new AreaHeader(null, Rules.ActiveAchievementSets(player)));
         GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
         GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
         GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);

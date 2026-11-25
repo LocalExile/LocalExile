@@ -34,7 +34,11 @@ jobs:
         id: build
         run: dotnet build GameServer.slnx -c Release
 
+      - name: Published mod binary compatibility
+        run: dotnet run --project scripts/dev/mod-compat -c Release
+
       - name: Data tests
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: dotnet test tests/GameServer.Data.Tests -c Release --no-build
 
       # Each suite runs when the build worked, whatever the suite before it did: one failure does not hide the others.

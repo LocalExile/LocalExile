@@ -14,9 +14,10 @@ public sealed partial class DeepwaterModule
     // NPCs rows whose NPCTalk rows carry the chart device and the planner: ValerieTutorial (Valerie 789 and ValeriePostStory 794
     // use its rows) and ValerieVesperRevive.
     static readonly int[] ValerieNpcs = [790, 793];
-    /// <summary>S→C 0x7b kinds: DeepwaterChartWindow (the 1 × 1 device over inventory 103) and DeepwaterVoyageWindow (the
-    /// board over 104). Both ignore the u32s and need ruleset 172 before 0x21 (03 §8).</summary>
-    const byte ChartUi = 0x67, VoyageUi = 0x6a;
+    /// <summary>S→C 0x7b kinds: DeepwaterChartWindow (the 1 × 1 device over inventory 103), DeepwaterVoyageWindow (the
+    /// board over 104), and DeepwaterActiveVoyageWindow (0x72, the active Chart/Voyage). All ignore the u32s and need
+    /// ruleset 172 before 0x21 (03 §8).</summary>
+    const byte ChartUi = 0x67, VoyageUi = 0x6a, CurrentVoyageUi = InstanceWaypoints.DeepwaterActiveVoyageUi;
     const string DeviceEvent = "open_deepwater_device", DeviceEvent1x1 = "open_deepwater_device_1x1";
     /// <summary>QuestFlags 3554, offer 130's taken flag.</summary>
     const string TutorialChartTaken = "DeepwaterNPCQuestItemTaken";
@@ -284,7 +285,10 @@ public sealed partial class DeepwaterModule
         player.NpcFinishLeagueFlag = null;
         player.NpcTalkScript = null;
         await modPlayer.Send(InstanceNpcs.Talk(0), $"0x0084 object 0: Valerie's dialogue ends (FinishNPCChat, NPCTalk {talk.Row})");
-        if (chart)
+        var state = _states.GetOrCreateValue(modPlayer);
+        if (state.ArmedPlan is not null || (chart && ItemsOf(player).Items(DeepwaterLocker.ActiveRow).Count > 0))
+            await OpenCurrentVoyage(player, $"NPCTalk {talk.Row}");
+        else if (chart)
             await modPlayer.Send(InstanceWaypoints.OpenUi(ChartUi), $"0x007b open DeepwaterChartWindow (kind 0x{ChartUi:x2}, NPCTalk {talk.Row} {DeviceEvent1x1})");
         else
         {
@@ -293,6 +297,11 @@ public sealed partial class DeepwaterModule
         }
         return false;
     }
+
+    /// <summary>Opens <c>DeepwaterActiveVoyageWindow</c> (S→C 0x7b kind 0x72, CurrentVoyage) when ruleset 172 is present.</summary>
+    internal Task OpenCurrentVoyage(Player player, string reason) =>
+        PlayerOf(player).Send(InstanceWaypoints.OpenUi(CurrentVoyageUi),
+            $"0x007b open DeepwaterActiveVoyageWindow (kind 0x{CurrentVoyageUi:x2}, {reason})");
 
     // ---- ruleset 172 ----
 
