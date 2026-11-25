@@ -958,6 +958,12 @@ public static class CrucibleEncounter
                     encounter.Theme = null;
                     encounter.BreakoutAt = 0;
                     lock (encounter.Channellers) encounter.Channellers.Clear();
+                    static void PurgeAreaObject(Player owner, uint id)
+                    {
+                        byte[] remove = InstanceProtocol.RemoveObject(id);
+                        owner.Area.Objects.RecordDirect(id, remove, AreaDelta.Kind.Remove, owner);
+                        if (owner.Area.Owned) owner.Area.Delta.RemoveSharedObject(id, remove);
+                    }
                     foreach (var held in encounter.Held)
                     {
                         if (player.Area.Monsters.Remove(held.Id, out var body))
@@ -968,7 +974,10 @@ public static class CrucibleEncounter
                         }
                         player.Instance.World.MonsterOrigins.TryRemove(held.Id, out _);
                         player.Area.Buffs.Removed(held.Id);
+                        PurgeAreaObject(player, held.Id);
                     }
+                    foreach (var fissure in encounter.Fissures) PurgeAreaObject(player, fissure.Id);
+                    foreach (var pool in encounter.Pools) PurgeAreaObject(player, pool.Id);
                     encounter.Held.Clear();
                     encounter.Fissures.Clear();
                     encounter.Pools.Clear();
@@ -979,6 +988,7 @@ public static class CrucibleEncounter
                         dev.States["channelling"] = 0;
                         dev.States["in_zone"] = 0;
                         encounter.AllObjects.Add(dev);
+                        RecordDeviceState(player, dev);
                     }
                 }
             }
@@ -991,7 +1001,18 @@ public static class CrucibleEncounter
         {
             device.States["in_zone"] = 0;
             if (other is not null) await Settle(SendStates(other, [device]));
+            else RecordDeviceState(player, device);
         }
+    }
+
+    static void RecordDeviceState(Player player, WorldObj device)
+    {
+        if (Describe(device) is not var (quest, components, _) || quest.StateMachine is null) return;
+        int smIndex = components.ToList().IndexOf("StateMachine");
+        if (smIndex < 0) return;
+        byte[] smBytes = InstanceEntities.StateMachineUpdate(device.Id, (byte)smIndex, quest.StateMachine);
+        if (player.Area.Owned) player.Area.Delta.Add(device.Id, smBytes, null, AreaDelta.Kind.World);
+        else player.Area.Objects.RecordDirect(device.Id, smBytes, AreaDelta.Kind.World, recipient: null!);
     }
 
     /// <summary>Every monster is dead: each channeller's target item gets the experience ("only on completion", GGG

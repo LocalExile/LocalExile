@@ -40,26 +40,13 @@ public static class CrucibleItemActions
             return true;
         }
 
-        InventoryItem? leftCurrency;
-        InventoryItem changedTarget;
+        if (curTab is int pubCur && stash.IsPublic(pubCur)) return true;
 
-        if (curTab is not null || tgtTab is not null)
-        {
-            if (ItemMoves.UseAcross(items, stash,
-                new(curTab, curRow, curItem.Id),
-                new(tgtTab, tgtRow, tgtItem.Id),
-                _ => updated) is not var (left, changed))
-                return true;
-            leftCurrency = left;
-            changedTarget = changed;
-        }
-        else
-        {
-            if (ItemMoves.UseOn(items, curRow, curItem.Id, tgtRow, tgtItem.Id, _ => updated) is not var (taken, changed))
-                return true;
-            leftCurrency = taken.Left;
-            changedTarget = changed;
-        }
+        if (ItemMoves.Use(items, stash,
+            new(curTab, curRow, curItem.Id),
+            new(tgtTab, tgtRow, tgtItem.Id),
+            updated, held: null) is not var (leftCurrency, changedTarget, _) || changedTarget is null)
+            return true;
         if (tgtItem.Item.Foreseeing && player.ForesightRequest?.TargetId == tgtItem.Id)
             player.ForesightRequest = null;
 
