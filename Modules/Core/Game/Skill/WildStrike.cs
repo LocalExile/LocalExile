@@ -33,8 +33,8 @@ public static partial class Game
         var contact = AreaSkillHitForUse(ruthless, player, skillId, gem, from, at,
             immediate: true, sequence: sequence, criticalRoll: critical, targetId: primary,
             radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
-            singleStrikeTarget: primary, onHit: NoteContact, scheduledSession: session,
-            cryExerted: cryExerted, repeat: repeat);
+            onHit: NoteContact, scheduledSession: session, cryExerted: cryExerted, repeat: repeat,
+            targetFilter: (id, _) => id == primary);
         if (!contact.IsCompleted) throw new InvalidOperationException("Scheduled Wild Strike contact must not yield.");
         contact.GetAwaiter().GetResult();
         if (contacts.Count == 0) return null;

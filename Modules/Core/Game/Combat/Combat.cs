@@ -2787,8 +2787,7 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null && (singleStrikeTarget is null || wildStrike)
-            && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
+        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
             using (ProjectileMutation(player, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(player));
