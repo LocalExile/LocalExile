@@ -112,18 +112,22 @@ public sealed partial class DeliriumModule : IModule
         mirror.Attach(module);
         module.Lifetime.Own(new Cleanup(() => { runs.Clear(); views.Clear(); mirror.Clear(); }));
         GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, global::Game.AreaRng(request.Player)));
+        InstanceEvents.TerrainPluginStates.Add(module.Manifest.Id, DeliriumMirrorEncounter.PlanTerrain);
+        GameEvents.AreaRuleset.Add(module.Manifest.Id, player =>
+            DeliriumMirrorEncounter.IsEligibleMap(player) && AfflictionRuleset.EncounterRow is { } row
+                ? (row, AfflictionRuleset.PreloadGroup) : null);
         GameEvents.AreaHeader.Add(module.Manifest.Id, player => SimulacrumRules.IsArena(player.Layout.Id)
             ? new AreaHeader(null, null) { Level = (byte)SimulacrumRules.Level(State(player).Wave == 0 ? 1 : State(player).Wave) } : null);
-        // Row 103 AfflictionEndGameRules for Simulacrum arenas; row 102 AfflictionEncounterRules for map Delirium Mirrors.
+        GameEvents.BeforeEnterMessages.Add(module.Manifest.Id, mirror.BeforeEnterMessages);
+        GameEvents.BeforeEnterObject.Add(module.Manifest.Id, mirror.EntryObject);
         GameEvents.EnterMessages.Add(module.Manifest.Id, player =>
             SimulacrumRules.IsArena(player.Layout.Id) && AfflictionRuleset.Row is { } rules
                 ? [($"0x001f ruleset AfflictionEndGameRules (row {rules})", InstanceProtocol.AddRuleset(rules))]
-                : mirror.EnterMessages(player));
+                : []);
         // A Simulacrum is entered through its map device and left through its own portal; the area's authored waypoint
         // would offer a way out the encounter does not have.
         InstanceEvents.AreaWaypoint.Add(module.Manifest.Id, (player, waypoint) =>
             SimulacrumRules.IsArena(player.Layout.Id) ? null : waypoint);
-        GameEvents.AreaPopulated.Add(module.Manifest.Id, mirror.OnAreaPopulated);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
             await Enter(player);

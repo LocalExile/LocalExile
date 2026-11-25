@@ -18,18 +18,52 @@ public class DeliriumHeistTests
     {
         AfflictionRuleset.LoadGameData();
         Assert.Equal((byte)102, AfflictionRuleset.EncounterRow);
+        Assert.Equal((byte)52, AfflictionRuleset.PreloadGroup);
         Assert.Equal((byte)103, AfflictionRuleset.Row);
 
-        var mirror = new DeliriumMirrorEncounter();
-        var beach = new AreaLayout(AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, "MapWorldsBeach",
-            200, 200, 50, 60, (_, _) => true, []);
-        var ordinary = new Player(beach, 1, 314159) { Instance = new() };
-        ordinary.Instance.AreaStats(() => new Dictionary<uint, int> { [Stat.MapDisableDeliriumFromChance] = 1 });
-        Assert.Empty(mirror.EnterMessages(ordinary));
-        Assert.Empty(mirror.EnterMessages(new Player(beach, 2, 314159) { Instance = ordinary.Instance }));
-        var forced = new Player(beach, 3, 314159) { Instance = new() };
-        forced.Instance.AreaStats(() => new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 });
-        Assert.Equal(InstanceProtocol.AddRuleset(102), Assert.Single(mirror.EnterMessages(forced)).Message);
+        var beach = new AreaStatsRequest("Exile", "Standard", AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, null)
+        {
+            Seed = 314159,
+            AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 },
+        };
+        var terrain = Assert.Single(DeliriumMirrorEncounter.PlanTerrain(beach)!);
+        Assert.Equal(2161, terrain.Plugin);
+        Assert.Equal(new byte[] { 0 }, terrain.State);
+        Assert.True(GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(terrain.Plugin, terrain.State, null, null));
+        Assert.False(GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(terrain.Plugin, [1], null, null));
+        Assert.Null(DeliriumMirrorEncounter.PlanTerrain(beach with
+            { AreaStats = new Dictionary<uint, int> { [Stat.MapDisableDeliriumFromChance] = 1 } }));
+        Assert.Null(DeliriumMirrorEncounter.PlanTerrain(beach with
+            { AreaStats = new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1, [Stat.MapDisableLeagues] = 1 } }));
+
+        var islands = new AreaLayout(beach.Area, "MapWorldsBeach", 138, 69, 20, 24,
+            (x, y) => x >= 0 && x < 138 && y >= 0 && y < 69 && (x < 30 || x > 75), []);
+        var regions = MirrorFogRegions.Build(islands, 20, 24);
+        Assert.Equal(2, regions.Length);
+        Assert.Equal((20, 24, 0f), (regions[0].OriginX, regions[0].OriginY, regions[0].DistanceOffset));
+        Assert.True(regions[0].MaxX < regions[1].MinX && regions[1].DistanceOffset > 0);
+
+        var encounter = new DeliriumMirrorEncounter();
+        var player = new Player(islands, 1, beach.Seed) { Instance = new() };
+        Assert.Empty(encounter.BeforeEnterMessages(player));
+        Assert.Null(encounter.EntryObject(player));
+        player.Instance.TerrainPluginStates(() => [terrain]);
+        player.Instance.AreaStats(() => beach.AreaStats!);
+        var entry = Assert.Single(encounter.BeforeEnterMessages(player));
+        var mirror = encounter.For(player);
+        Assert.NotEqual(0u, mirror.EntityId);
+        var birth = encounter.EntryObject(player)!.Value;
+        Assert.Equal((mirror.EntityId, DeliriumMirrorEncounter.MirrorPath), (birth.Id, birth.Type));
+        Assert.Equal(2, birth.Object.Blob()[0]);
+        Assert.Empty(birth.Object.StateMachine!.Overridden);
+        Assert.Equal(AfflictionRuleset.EncounterSnapshot(false, false, -1.8f, -1.8f, float.PositiveInfinity,
+            0, false, mirror.MirrorX, mirror.MirrorY, mirror.EntityId, mirror.Regions!, []), entry.Message);
+        var peer = new Player(islands, 2, beach.Seed) { Instance = player.Instance };
+        Assert.Equal(entry.Message, Assert.Single(encounter.BeforeEnterMessages(peer)).Message);
+        Assert.Equal(birth.Id, encounter.EntryObject(peer)!.Value.Id);
+        var reloaded = new DeliriumMirrorEncounter();
+        Assert.Equal(entry.Message, Assert.Single(reloaded.BeforeEnterMessages(peer)).Message);
+        Assert.Equal(birth.Id, reloaded.EntryObject(peer)!.Value.Id);
 
         var region = new AfflictionRuleset.FogRegion(0, 0, 200, 200, 50, 60, 0f);
         var tile = new AfflictionRuleset.RewardTile(Type: 0, Current: 12, Max: 18, Count: 2);

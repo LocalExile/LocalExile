@@ -18,20 +18,25 @@ public static class AfflictionRuleset
     /// <summary>C→S <c>0x0260</c> (2 bytes, senders <c>0x140deb800</c> / <c>0x142172b40</c>): player clicks the HUD button to end a map Delirium Mirror encounter.</summary>
     public const ushort EndEncounterPacketId = 0x0260;
 
-    /// <summary>The Rulesets row of <c>AfflictionEncounterRules</c> (row 102 / <c>0x66</c>), sent via S→C <c>0x1f</c> in maps with a Delirium Mirror.</summary>
+    /// <summary>The Rulesets row of <c>AfflictionEncounterRules</c> (row 102 / <c>0x66</c>) in the initial area header of a Mirror map.</summary>
     public static byte? EncounterRow { get; private set; }
+
+    public static ushort? TerrainPlugin { get; private set; }
+    public static byte? PreloadGroup { get; private set; }
 
     /// <summary>The Rulesets row of <c>AfflictionEndGameRules</c> (row 103 / <c>0x67</c>), sent via S→C <c>0x1f</c> in Simulacrum arenas.</summary>
     public static byte? Row { get; private set; }
 
     public static void LoadGameData()
     {
-        EncounterRow = FindRow("AfflictionEncounterRules");
-        Row = FindRow("AfflictionEndGameRules");
+        EncounterRow = FindRow("Rulesets", "AfflictionEncounterRules");
+        TerrainPlugin = AreaTerrainPlugins.IdOf("AfflictionPlugin");
+        PreloadGroup = FindRow("PreloadGroups", "Affliction");
+        Row = FindRow("Rulesets", "AfflictionEndGameRules");
     }
 
-    static byte? FindRow(string id) =>
-        ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
+    static byte? FindRow(string table, string id) =>
+        ClientTables.TableOrEmpty(table).FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
             ? (byte)row.Index : null;
 
     /// <summary>One reward tile entry (13 bytes LE): <c>AfflictionRewardTypes</c> id, bar progress, bar goal, completed count.</summary>

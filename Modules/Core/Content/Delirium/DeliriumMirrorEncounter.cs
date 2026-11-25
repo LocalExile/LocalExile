@@ -8,7 +8,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.Delirium;
 
 /// <summary>
-/// Map Delirium Mirror encounter (<c>Rulesets</c> row 102 <c>AfflictionEncounterRules</c> via S→C <c>0x1f</c> / <c>0x2c9</c>
+/// Map Delirium Mirror encounter (<c>Rulesets</c> row 102 <c>AfflictionEncounterRules</c> via S→C <c>0x1d</c> / <c>0x2c9</c>
 /// and skip/end button C→S <c>0x260</c>). State belongs to <see cref="InstanceState"/> (per-<see cref="GameArea"/>),
 /// safe across re-entry, party join, and module hot-reload.
 /// </summary>
@@ -17,6 +17,7 @@ public sealed class DeliriumMirrorEncounter
     public const string MirrorPath = "Metadata/MiscellaneousObjects/Affliction/AfflictionInitiator";
     const string StateKey = "Delirium.Mirror";
     const int ActivationRadius = 12;
+    const float WaveStart = -1.8f;
     const float OuterInitialRadius = 48f;
     const float OuterSpeedCellsPerSec = 14f;
     const float InnerDelaySeconds = 25f;
@@ -27,7 +28,7 @@ public sealed class DeliriumMirrorEncounter
     const double SpawnIntervalSeconds = 2.5;
     const int MaxRewardTiles = 3;
 
-    static readonly string[] FallbackMirrorComponents = ["Positioned", "Animated", "MinimapIcon", "StateMachine"];
+    static readonly string[] FallbackMirrorComponents = ["Positioned", "BaseEvents", "Functions", "Animated", "MinimapIcon", "StateMachine"];
     static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
     static readonly string[] DeliriumMonsterIds =
     [
@@ -43,7 +44,6 @@ public sealed class DeliriumMirrorEncounter
 
     public sealed class MirrorState
     {
-        public bool Placed { get; set; }
         public MirrorStage Stage { get; set; }
         public uint EntityId { get; set; }
         public int MirrorX { get; set; }
@@ -67,7 +67,6 @@ public sealed class DeliriumMirrorEncounter
         public int[] RewardCounts { get; set; } = [];
         public HashSet<uint> Monsters { get; set; } = [];
         public string Why { get; set; } = "";
-        [System.Text.Json.Serialization.JsonIgnore] public bool? Planned { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
         [System.Text.Json.Serialization.JsonIgnore] public object? ShownArea;
@@ -79,6 +78,8 @@ public sealed class DeliriumMirrorEncounter
             if (RewardPoints.Length != Rewards.Length) RewardPoints = new int[Rewards.Length];
             if (RewardCounts.Length != Rewards.Length) RewardCounts = new int[Rewards.Length];
         }
+
+        [System.Text.Json.Serialization.JsonIgnore] public AfflictionRuleset.FogRegion[]? Regions { get; set; }
 
         public float OuterRadius => OuterInitialRadius + OuterElapsed * OuterSpeedCellsPerSec;
         public float InnerRadius => InnerElapsed <= 0f ? 0f : InnerElapsed * InnerSpeedCellsPerSec;
@@ -167,13 +168,31 @@ public sealed class DeliriumMirrorEncounter
 
     public void Clear() => _states.Clear();
 
-    public static bool IsEligibleMap(Player player) =>
-        player.Layout.Walkable is not null
-        && !SimulacrumRules.IsArena(player.Layout.Id)
-        && !InTown(player)
-        && HideoutCatalog.ByArea(player.Layout.Hash) is null
-        && MapDevices.IsMapArea(player.Layout.Hash)
-        && !LabyrinthTrials.InLabyrinth(player.Layout.Id);
+    public static IReadOnlyList<(ushort Plugin, byte[] State)>? PlanTerrain(AreaStatsRequest request)
+    {
+        if (AfflictionRuleset.EncounterRow is null || AfflictionRuleset.TerrainPlugin is not { } plugin
+            || request.AreaStats is not { } stats || !MapDevices.IsMapArea(request.Area)
+            || AreaTransitionCatalog.IdOf(request.Area) is not { } id || SimulacrumRules.IsArena(id)
+            || WaypointCatalog.Areas.Find(request.Area) is { IsTown: true } || HideoutCatalog.ByArea(request.Area) is not null
+            || LabyrinthTrials.InLabyrinth(id)) return null;
+
+        int S(uint stat) => stats.GetValueOrDefault(stat);
+        if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
+            || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0) return null;
+        if (S(Stat.MapAfflictionLeague) <= 0)
+        {
+            if (S(Stat.MapDisableDeliriumFromChance) > 0) return null;
+            var rng = new Random(AreaPopulation.PopulationSeed(request.Area, request.Seed) ^ 0x44656c69);
+            if (LeagueChances.Current.Count(id, LeagueChances.Delirium, rng, alternate: request.HardMode,
+                increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
+                added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapAfflictionEncounterAdditionalChancePct),
+                encounterIncrease: S(Stat.MapAfflictionEncounterChancePlusPct)) <= 0) return null;
+        }
+        return [(plugin, [0])];
+    }
+
+    public static bool IsEligibleMap(Player player) => player.Layout.Walkable is not null
+        && AfflictionRuleset.TerrainPlugin is { } plugin && player.Instance?.HasTerrainPlugin(plugin) == true;
 
     public MirrorState For(Player player) => _states.GetValue(player.Instance, instance =>
         instance.ContentState.TryGetValue(StateKey, out var text)
@@ -203,91 +222,47 @@ public sealed class DeliriumMirrorEncounter
 
     // ---- ruleset & entry ---------------------------------------------------------------------------------------------
 
-    public IEnumerable<(string Log, byte[] Message)> EnterMessages(Player player)
+    public IEnumerable<(string Log, byte[] Message)> BeforeEnterMessages(Player player)
     {
-        if (!IsEligibleMap(player) || AfflictionRuleset.EncounterRow is not { } row || !HasMirror(player, For(player))) return [];
-        return [($"0x001f ruleset AfflictionEncounterRules (row {row})", InstanceProtocol.AddRuleset(row))];
-    }
-
-    static bool HasMirror(Player player, MirrorState state)
-    {
+        if (!IsEligibleMap(player)) return [];
+        var state = For(player);
         lock (state)
         {
-            if (state.Stage != MirrorStage.None) return true;
-            if (state.Planned is { } planned) return planned;
-            if (state.Placed) return false;
-
-            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
-            int S(uint id) => stats.GetValueOrDefault(id);
-            bool selected = false;
-            if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
-                || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0)
-                state.Why = "disabled by map stats";
-            else if (S(Stat.MapAfflictionLeague) > 0)
+            if (state.Stage == MirrorStage.None)
             {
-                selected = true;
-                state.Why = "forced by map_affliction_league";
-            }
-            else if (S(Stat.MapDisableDeliriumFromChance) > 0)
-                state.Why = "disabled by map_disable_delirium_from_chance";
-            else
-            {
-                int seed = AreaPopulation.PopulationSeed(player.Layout.Hash, player.Seed);
-                int count = LeagueChances.Current.Count(player.Layout.Id, LeagueChances.Delirium, new Random(seed ^ 0x44656c69),
-                    alternate: player.LeagueModule?.HardMode == true,
-                    increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
-                    added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapAfflictionEncounterAdditionalChancePct),
-                    encounterIncrease: S(Stat.MapAfflictionEncounterChancePlusPct));
-                selected = count > 0;
-                state.Why = $"league roll Delirium {count}";
-            }
-            state.Planned = selected;
-            return selected;
-        }
-    }
-
-    public async Task OnAreaPopulated(AreaPopulated area)
-    {
-        var player = area.Player;
-        if (!IsEligibleMap(player) || AfflictionRuleset.EncounterRow is null) return;
-        var state = For(player);
-        if (!HasMirror(player, state)) return;
-        await state.Gate.WaitAsync();
-        try
-        {
-            lock (state)
-            {
-                if (state.Placed) return;
-                state.Placed = true;
-            }
-            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
-            int S(uint id) => stats.GetValueOrDefault(id);
-
-            var placeRng = new Random(area.Seed ^ 0x4166666c);
-            var spot = PickMirrorSpot(player.Layout, placeRng);
-            int initialTypes = Math.Clamp(1 + Math.Max(0, S(Stat.MapAfflictionEncounterRewardTypesPlus)), 1, MaxRewardTiles);
-            var pickedRewards = new List<int>(initialTypes);
-            while (pickedRewards.Count < initialTypes)
-            {
-                int r = MirrorRewardPool[placeRng.Next(MirrorRewardPool.Length)];
-                if (!pickedRewards.Contains(r)) pickedRewards.Add(r);
-            }
-
-            lock (state)
-            {
+                var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
+                var rng = new Random(AreaPopulation.PopulationSeed(player.Layout.Hash, player.Seed) ^ 0x4166666c);
+                var spot = PickMirrorSpot(player.Layout, rng);
+                int count = Math.Clamp(1 + stats.GetValueOrDefault(Stat.MapAfflictionEncounterRewardTypesPlus), 1, MaxRewardTiles);
+                var rewards = new List<int>(count);
+                while (rewards.Count < count)
+                {
+                    int reward = MirrorRewardPool[rng.Next(MirrorRewardPool.Length)];
+                    if (!rewards.Contains(reward)) rewards.Add(reward);
+                }
                 state.Stage = MirrorStage.Ready;
+                state.Level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+                state.OuterElapsed = WaveStart;
                 state.MirrorX = spot.X;
                 state.MirrorY = spot.Y;
-                state.Level = area.Level;
-                state.Rewards = [.. pickedRewards];
-                state.RewardPoints = new int[pickedRewards.Count];
-                state.RewardCounts = new int[pickedRewards.Count];
+                state.Rewards = [.. rewards];
+                state.EnsureRewardArrays();
+                state.Why = stats.GetValueOrDefault(Stat.MapAfflictionLeague) > 0 ? "forced by map_affliction_league" : "league roll Delirium";
             }
-            await PresentMirror(player, state);
-            lock (state) SaveLocked(player, state);
-            _context.Log($"Delirium Mirror {player.Layout.Id}: {state.Why} at ({spot.X}, {spot.Y})");
+            if (!ReferenceEquals(state.ShownArea, player.Area))
+            {
+                var objects = player.Instance.World.SceneObjects;
+                if (!objects.TryGetValue(StateKey, out var entity))
+                    objects[StateKey] = entity = (player.TakeObjectId(), MirrorPath,
+                        new QuestObject(state.MirrorX, state.MirrorY, MirrorComponents()) { Awake = true, StateMachine = MirrorStates(false) });
+                state.EntityId = entity.Id;
+                state.Regions = null;
+                state.ShownArea = player.Area;
+            }
+            SaveLocked(player, state);
+            return BuildSnapshotLocked(player, state) is { } snapshot
+                ? [($"0x02c9 ruleset AfflictionEncounterRules mode 0 ({state.Stage} on entry)", snapshot)] : [];
         }
-        finally { state.Gate.Release(); }
     }
 
     public async Task OnPlayerEntered(Player player)
@@ -297,40 +272,12 @@ public sealed class DeliriumMirrorEncounter
         try
         {
             MirrorStage stage;
-            bool needPresent = false;
-            lock (state)
-            {
-                stage = state.Stage;
-                if (stage == MirrorStage.None) return;
-                if (!ReferenceEquals(state.ShownArea, player.Area))
-                {
-                    if (state.EntityId != 0 && player.Area.Objects.Has(state.EntityId))
-                        state.ShownArea = player.Area;
-                    else
-                    {
-                        state.EntityId = 0;
-                        needPresent = true;
-                    }
-                }
-            }
-            if (needPresent)
-            {
-                await PresentMirror(player, state);
-                lock (state) SaveLocked(player, state);
-            }
-
-            byte[]? snap = null;
             int timerSeconds;
             lock (state)
             {
                 stage = state.Stage;
                 timerSeconds = state.LastTimerSeconds;
-                if (stage is MirrorStage.Active or MirrorStage.Ended)
-                    snap = BuildSnapshotLocked(player, state);
             }
-
-            if (snap is not null)
-                await PlayerOf(player).Send(snap, $"0x02c9 ruleset AfflictionEncounterRules mode 0 ({stage})");
             if (stage == MirrorStage.Active)
             {
                 await WorldOf(player).RefreshStats();
@@ -364,32 +311,21 @@ public sealed class DeliriumMirrorEncounter
             ? info.Components
             : FallbackMirrorComponents;
 
-    static StateMachineData MirrorStates(bool interacted) =>
-        new([interacted ? 1 : 0], 0, ["interacted"]) { Overridden = new HashSet<int> { 0 } };
-
-    async Task PresentMirror(Player player, MirrorState state)
+    static StateMachineData MirrorStates(bool interacted)
     {
-        uint entityId;
-        int mirrorX, mirrorY;
-        MirrorStage stage;
+        var initial = new StateMachineData([0], 0, ["interacted"]);
+        return interacted ? initial.Set("interacted", 1) : initial;
+    }
+
+    public (uint Id, string Type, QuestObject Object)? EntryObject(Player player)
+    {
+        if (!IsEligibleMap(player) || Existing(player) is not { } state) return null;
         lock (state)
         {
-            if (state.EntityId == 0) state.EntityId = WorldOf(player).NewObjectId();
-            entityId = state.EntityId;
-            mirrorX = state.MirrorX;
-            mirrorY = state.MirrorY;
-            stage = state.Stage;
+            if (!player.Instance.World.SceneObjects.TryGetValue(StateKey, out var entity)) return null;
+            return state.Stage == MirrorStage.Ready ? entity
+                : (entity.Id, entity.Type, entity.Object with { StateMachine = MirrorStates(true) });
         }
-        var components = MirrorComponents();
-        var obj = new QuestObject(mirrorX, mirrorY, components)
-        {
-            StateMachine = MirrorStates(stage != MirrorStage.Ready),
-        };
-        await SendWorldCreate(player, entityId, () =>
-            InstanceEntities.CreateObject(entityId, InstanceEntities.ObjectTypeHash(MirrorPath), obj.Blob()),
-            $"Delirium Mirror 0x{entityId:x} at ({mirrorX}, {mirrorY}) ({stage})",
-            wake: true, awaitBirth: false);
-        lock (state) state.ShownArea = player.Area;
     }
 
     // Must be called while holding lock (state).
@@ -411,16 +347,12 @@ public sealed class DeliriumMirrorEncounter
     // Must be called while holding lock (state).
     static byte[]? BuildSnapshotLocked(Player player, MirrorState state)
     {
-        bool active = state.Stage == MirrorStage.Active;
+        bool started = state.Stage is MirrorStage.Active or MirrorStage.Ended;
         bool ended = state.Stage == MirrorStage.Ended;
-        float innerDelay = state.InnerElapsed > 0f ? 0f : float.PositiveInfinity;
+        float innerDelay = state.InnerWaveSent ? state.OuterElapsed - state.InnerElapsed : float.PositiveInfinity;
         float pauseTimer = state.OutOfFogSeconds > 0f ? MathF.Max(0f, OutOfFogGraceSeconds - state.OutOfFogSeconds) : 0f;
-        var regions = new[]
-        {
-            new AfflictionRuleset.FogRegion(0, 0, Math.Max(1, player.Layout.GridW), Math.Max(1, player.Layout.GridH),
-                state.MirrorX, state.MirrorY, 0f),
-        };
-        return AfflictionRuleset.EncounterSnapshot(active, ended, state.OuterElapsed, state.InnerElapsed,
+        var regions = state.Regions ??= MirrorFogRegions.Build(player.Layout, state.MirrorX, state.MirrorY);
+        return AfflictionRuleset.EncounterSnapshot(started, ended, state.OuterElapsed, state.OuterElapsed,
             innerDelay, pauseTimer, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
             regions, BuildTilesLocked(state));
     }
@@ -459,7 +391,7 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Ready || !Current(player)) return;
                 state.Stage = MirrorStage.Active;
-                state.OuterElapsed = 0.05f;
+                state.OuterElapsed = WaveStart;
                 state.InnerElapsed = 0f;
                 state.InnerWaveSent = false;
                 state.OutOfFogSeconds = 0f;
@@ -478,15 +410,14 @@ public sealed class DeliriumMirrorEncounter
 
         if (!activated) return;
         int smIdx = MirrorComponents().ToList().IndexOf("StateMachine");
-        if (smIdx >= 0 && entityId != 0)
-            await SendWorldRecord(player, entityId,
-                InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)),
-                $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
-        if (snap is not null)
-            foreach (var peer in Clients(player))
-                await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
+        var animation = smIdx >= 0 && entityId != 0
+            ? InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)) : null;
         foreach (var peer in Clients(player))
         {
+            if (snap is not null)
+                await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
+            if (animation is not null)
+                await PlayerOf(peer).Send(animation, $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             await WorldOf(peer).RefreshStats();
             await PlayerOf(peer).Tell("The Delirium fog rolls across the map.");
         }

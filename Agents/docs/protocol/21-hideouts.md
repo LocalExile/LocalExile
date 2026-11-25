@@ -740,6 +740,14 @@ use `AfflictionEncounterRules` (`Rulesets` row 102 / `0x66`, ctor `0x141742140`,
 - **Mode `2`** (pause update, `0x141744680`): `u8 2`, `f32 LE pauseTimer`, `u8 paused`.
 - Out-of-fog 5 s countdown uses S→C `0x0163` with `MissionTimerType.Affliction` (`7`).
 
+In a retail 3.30 Malformation map the area header listed rulesets 102, 143, 155 and 162, and the terrain header
+included the ordinary Affliction plugin (2161, state byte zero). The map also requested preload group 53 (Affliction).
+A Malformation map without a Mirror omitted 53 and row 102 while retaining rulesets 143, 155 and 162.
+The initial snapshot arrived before world entry with both flags clear, both elapsed times at −1.8 seconds, an infinite
+inner delay, the Mirror's entity ID, and one rectangle per fog region. The Mirror's awake create followed it
+before world entry. Crossing the Mirror set the first flag, followed by its interacted state update.
+The finished snapshot kept that flag set, set the second flag, and cleared the reward tiles.
+
 Each reward type tracks its own bar (`RewardGoal`: wave progress divided by `RewardPace`, explicit server policy) and
 completed cycle count (`x`); kills advance every bar and the wave pays all counted rewards at once when it ends, at
 each arena's measured `RewardSpot` (or the player's cell). The five arenas also use measured `StashSpot` and
