@@ -42,6 +42,7 @@ public class SpectrumAndTattooJewelTests
             { Character = { Name = "TattooRadius" } };
         try
         {
+            FoulbornDreamsKeepTheAllocatedResistance(player);
             var tree = Game.PassivesFor(player);
             var socket = tree.JewelNodeForSlot(1)!.Value;
             var jewel = new UniqueCatalog(Program.Items).Create("Warrior's Tale", new Random(2))!;
@@ -77,5 +78,57 @@ public class SpectrumAndTattooJewelTests
             PlayerInventories.Forget(player.Character.Name!);
             TestEnvironment.ReleaseSaves(path);
         }
+    }
+
+    static void FoulbornDreamsKeepTheAllocatedResistance(Player player)
+    {
+        const ushort socket = 31683;
+        var tree = Game.PassivesFor(player);
+        byte slot = (byte)Enumerable.Range(0, 60).Single(i => tree.JewelNodeForSlot(i) == socket);
+        var inside = tree.NodesInRadius(socket, RadiusJewelCatalogue.EffectRadius(1500));
+        var items = Game.ItemsOf(player);
+        var results = new List<int>();
+        foreach (var (name, mod, node, from, to, scale) in new[]
+        {
+            ("The Red Dream", "MutatedUniqueJewel85FireResistAlsoGrantsMaximumLifePercent", (ushort)33508,
+                Stat.BaseFireDamageResistancePct, Stat.MaximumLifePlusPct, 50),
+            ("The Green Dream", "MutatedUniqueJewel87ColdResistAlsoGrantsMaximumManaPercent", (ushort)36881,
+                Stat.BaseColdDamageResistancePct, Stat.MaximumManaPlusPct, 75),
+            ("The Blue Dream", "MutatedUniqueJewel89LightningResistAlsoGrantsMaximumESPercent", (ushort)35503,
+                Stat.BaseLightningDamageResistancePct, Stat.MaximumEnergyShieldPlusPct, 75),
+        })
+        {
+            Assert.Contains(node, inside);
+            Assert.Contains(tree.Find(node)!.Stats, stat => stat.Key == from && stat.Value == 18);
+            ushort far = tree.NodesInRadius(socket, 20000).First(n => !inside.Contains(n)
+                && tree.Find(n)!.Stats.Any(stat => stat.Key == from && stat.Value > 0));
+            var entry = RadiusJewelCatalogue.Find(name)!;
+            var jewel = Assert.IsType<Item>(RadiusJewelCatalogue.Create(Program.Items, entry with { ConversionMod = mod }));
+            uint hash = Program.Items.Mods.ById(mod)!.Hash;
+            Assert.Equal(new[] { scale, 1500 }, Assert.Single(jewel.Mods, value => value.Hash == hash).Values);
+            uint id = items.Add(PlayerInventories.PassiveJewels, slot, 0,
+                jewel with { Mods = [.. jewel.Mods.Where(value => value.Hash != hash)] })!.Id;
+            var plain = Measure(socket, node);
+            var unallocated = Measure(socket);
+            var outside = Measure(socket, far);
+            var unattached = Measure(node);
+            items.Change(PlayerInventories.PassiveJewels, id, _ => jewel);
+            var modified = Measure(socket, node);
+            Assert.Equal(plain.Resistance, modified.Resistance);
+            Assert.Equal(unallocated, Measure(socket));
+            Assert.Equal(outside, Measure(socket, far));
+            Assert.Equal(unattached, Measure(node));
+            int delta = modified.Resource - plain.Resource;
+            Console.WriteLine($"{name} node {node}: resistance {modified.Resistance}, increased pool {plain.Resource} -> {modified.Resource}");
+            results.Add(delta);
+            items.Remove(PlayerInventories.PassiveJewels, id);
+
+            (int Resistance, int Resource) Measure(params ushort[] allocated)
+            {
+                var stats = Game.EquipmentStatSources(player, [], allocated, 100).Sources;
+                return (stats.GetValueOrDefault(from), stats.GetValueOrDefault(to));
+            }
+        }
+        Assert.Equal(new[] { 9, 13, 13 }, results);
     }
 }
