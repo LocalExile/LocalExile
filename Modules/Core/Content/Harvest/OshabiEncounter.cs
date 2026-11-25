@@ -195,15 +195,21 @@ public static class OshabiEncounter
         }
         finally { e.Gate.Release(); }
         var shown = Presented.GetOrCreateValue(player);
-        foreach (var o in objects)
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
         {
-            if (shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, _)) continue;
-            byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
-            await SendWorldCreate(player, o.Id, () => blob, $"{log} {o.Type[(o.Type.LastIndexOf('/') + 1)..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
-                wake: true, awaitBirth: false);
-            SacredGrove.Block(player, o);
-            shown.Add(o.Id);
+            foreach (var o in objects)
+            {
+                if (shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, _)) continue;
+                byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
+                await SendWorldCreate(player, o.Id, () => blob, $"{log} {o.Type[(o.Type.LastIndexOf('/') + 1)..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+                    wake: true, awaitBirth: false);
+                SacredGrove.Block(player, o);
+                shown.Add(o.Id);
+            }
         }
+        finally { Program.ViewOf.Value = previousView; }
     }
 
     // Under the gate: sets states on the encounter's objects and sends each changed object's StateMachine to the members
@@ -219,13 +225,19 @@ public static class OshabiEncounter
         foreach (var member in SacredGrove.Members(player))
         {
             if (!Presented.TryGetValue(member, out var shown)) continue;
-            foreach (var o in changed)
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = member;
+            try
             {
-                if (!shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, type)) continue;
-                int index = type.Components.ToList().IndexOf("StateMachine");
-                await SendWorldRecord(member, o.Id,
-                    InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                foreach (var o in changed)
+                {
+                    if (!shown.Contains(o.Id) || SacredGrove.Describe(o) is not var (quest, type)) continue;
+                    int index = type.Components.ToList().IndexOf("StateMachine");
+                    await SendWorldRecord(member, o.Id,
+                        InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                }
             }
+            finally { Program.ViewOf.Value = previousView; }
         }
     }
 

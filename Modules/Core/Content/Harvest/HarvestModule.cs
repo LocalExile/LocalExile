@@ -45,8 +45,14 @@ public sealed class HarvestModule : IModule, IDisposable
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
-            await SacredGrove.Enter(player);
-            await OshabiEncounter.Enter(player);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SacredGrove.Enter(player);
+                await OshabiEncounter.Enter(player);
+            }
+            finally { Program.ViewOf.Value = previousView; }
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
         {

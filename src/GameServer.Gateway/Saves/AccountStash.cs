@@ -779,7 +779,7 @@ public sealed partial class AccountStash
     /// <summary>The free input cell beside the blight tab's anoint cell that Ctrl + click on <paramref name="oilId"/>
     /// fills while the anoint cell holds an item (retail, 2026-11-24): the first empty one of
     /// <see cref="StashRules.AnointInputs"/>, as (slot, 0). Null when the anoint cell is empty, the oil already sits in an
-    /// input cell or isn't an oil the inputs take; <paramref name="full"/> says the inputs it takes are all taken.</summary>
+    /// input or anoint cell, or isn't an oil the inputs take; <paramref name="full"/> says the inputs it takes are all taken.</summary>
     public (int X, int Y)? AnointInputFor(int tab, uint oilId, out bool full)
     {
         full = false;
@@ -788,7 +788,7 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) return null;
             var t = _tabs[tab];
             if (t.Saved.Type != StashRules.Blight || t.Items.Find(i => i.Id == oilId) is not { } oil) return null;
-            if (_rules.IsInputSlot(t.Saved.Type, oil.X, oil.Y)) return null;
+            if (_rules.IsInputSlot(t.Saved.Type, oil.X, oil.Y) || _rules.TakesAnything(t.Saved.Type, oil.X, oil.Y)) return null;
             if (!t.Items.Any(i => _rules.TakesAnything(t.Saved.Type, i.X, i.Y))) return null;
             var inputs = _rules.AnointInputs(t.Saved.Type, oil.Item.TypeHash);
             if (inputs.Count == 0) return null;
@@ -797,6 +797,55 @@ public sealed partial class AccountStash
             full = true;
             return null;
         }
+    }
+
+    /// <summary>Atomically moves one oil from <paramref name="oilId"/> in a blight tab into the first free input cell
+    /// beside the anoint cell (with a fresh stash id). Null when inputs do not apply; <paramref name="full"/> when
+    /// inputs apply but are all taken.</summary>
+    public (InventoryItem Placed, InventoryItem? LeftInTab)? MoveToAnointInput(int tab, uint oilId,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out bool full)
+    {
+        full = false;
+        (InventoryItem Placed, InventoryItem? LeftInTab) result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return null;
+            var t = _tabs[tab];
+            if (t.Saved.Type != StashRules.Blight) return null;
+            int at = t.Items.FindIndex(i => i.Id == oilId);
+            if (at < 0) return null;
+            var oil = t.Items[at];
+            if (_rules.IsInputSlot(t.Saved.Type, oil.X, oil.Y) || _rules.TakesAnything(t.Saved.Type, oil.X, oil.Y)) return null;
+            if (!t.Items.Any(i => _rules.TakesAnything(t.Saved.Type, i.X, i.Y))) return null;
+            var inputs = _rules.AnointInputs(t.Saved.Type, oil.Item.TypeHash);
+            if (inputs.Count == 0) return null;
+            int targetSlot = -1;
+            foreach (int slot in inputs)
+                if (!t.Items.Any(i => i.X == slot && i.Y == 0)) { targetSlot = slot; break; }
+            if (targetSlot < 0) { full = true; return null; }
+            if (shapeOf(oil.Item) is not { } shape) return null;
+            if (CellIn(t, oil.Item, targetSlot, 0, out _) is not var (cx, cy)) return null;
+            if (InTheWay(t, cx, cy, shape, shapeOf).Count > 0) { full = true; return null; }
+            var oneItem = oil.Item with { StackSize = 1 };
+            if (!t.Saved.Public && oneItem.Note is not null) oneItem = oneItem with { Note = null };
+            var placed = new InventoryItem(_nextItemId++, (byte)cx, (byte)cy, oneItem);
+            InventoryItem? left = null;
+            if (oil.Item.StackSize > 1)
+            {
+                left = oil with { Item = oil.Item with { StackSize = (ushort)(oil.Item.StackSize - 1) } };
+                t.Items[at] = left;
+            }
+            else
+            {
+                t.Items.RemoveAt(at);
+                if (oil.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+            }
+            if (placed.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+            t.Items.Add(placed);
+            result = (placed, left);
+        }
+        Persist(tab);
+        return result;
     }
 
     /// <summary>Whether a tab holds items of this type (<see cref="StashRules"/>: a special tab only its own kind).</summary>
