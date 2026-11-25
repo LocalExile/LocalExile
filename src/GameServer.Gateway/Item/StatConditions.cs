@@ -358,6 +358,7 @@ public static class StatConditions
             "damage_taken_+%" => "base_damage_taken_+%",
             "damage_taken_goes_to_mana_over_4_seconds_%" => "damage_taken_goes_to_mana_%",
             "your_ailments_deal_damage_faster_%" => "damaging_ailments_deal_damage_+%_faster",
+            "maximum_mana_%_to_add_to_energy_shield" => "mana_%_to_add_as_energy_shield",
             "deal_no_damage" => "base_deal_no_damage",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
