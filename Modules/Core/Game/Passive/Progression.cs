@@ -1127,7 +1127,9 @@ public static partial class Game
             HelmetEnergyShield = converted.EnergyShield == 0 ? 0 : helmet.EnergyShield,
             GlovesBootsArmour = glovesBoots.Armour, GlovesBootsEvasion = glovesBoots.Evasion,
             SlotArmourBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Gloves, d => d.Armour)
-                * EquipmentStat(Stat.ArmourFromHelmetAndGlovesPlusPct) / 100m,
+                * EquipmentStat(Stat.ArmourFromHelmetAndGlovesPlusPct) / 100m
+                // "Armour from Equipped Shield is doubled" (Prospero's Protection): the shield's own armour once more.
+                + (EquipmentStat(Stat.ArmourFromShieldDoubled) != 0 ? shieldDefence.Armour : 0),
             SlotEvasionBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Boots, d => d.Evasion)
                 * EquipmentStat(Stat.EvasionRatingFromHelmetAndBootsPlusPct) / 100m,
             SlotEnergyShieldBonus = converted.EnergyShield == 0 ? 0

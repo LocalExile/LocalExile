@@ -16,7 +16,9 @@ public static partial class Game
         : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(ordinary,
+        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(
+            // "Your Critical Strike Multiplier is 300%" (Maligaro's Virtuosity): the total, whatever else adds to it.
+            player.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) != 0 ? 300 : ordinary,
             CriticalHitsDealNoExtraDamage(player, own));
 
     static long ClawDaggerCriticalBonus(SkillCatalog.Unarmed weapon, IReadOnlyDictionary<uint, int> player,
