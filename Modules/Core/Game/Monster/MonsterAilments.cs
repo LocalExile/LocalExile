@@ -191,6 +191,23 @@ public static partial class Game
     /// <summary>The area of effect modifier a hit's shock spreads by (SkillArea.Modifier): the player's panel total
     /// skill_area_of_effect_+% (which holds the player's base form, so that is left out, as AreaPlayerStats does) and the
     /// skill's own stats.</summary>
+    /// <summary>A minion's hit rolls Chill, Freeze and Shock as a player's does: from the cold and lightning damage the
+    /// target takes, against its ailment threshold, on the minion's own stats ("Minions have X% chance to Freeze").
+    /// Scorch, Brittle and Sap are not rolled for minions.</summary>
+    public static void MinionElementalAilmentsOnHitLocked(Player player, SpawnedMonster m, DamagePacket mitigated, bool critical,
+        bool spell, Func<uint, int> attacker, double now, Random random)
+    {
+        double factor = MonsterDamageTaken(m, spell, now, hit: true);
+        var taken = factor == 1 ? mitigated : mitigated.Select((_, range) => range.Scale(factor));
+        double thresholdScale = MonsterAilmentThresholdScaling;
+        long threshold = thresholdScale > 0 && m.Variety is not null
+            ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
+            : m.MaxLife;
+        foreach (var effect in m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, threshold), now, attacker,
+            name => m.Effects[name], random))
+            InflictedLocked(player, m, effect);
+    }
+
     static double AilmentArea(Func<uint, int> player, Func<uint, int> skill, bool spell) =>
         SkillArea.Modifier(name => (name == SkillArea.BaseIncreased ? 0 : player(name)) + skill(name), spell);
 

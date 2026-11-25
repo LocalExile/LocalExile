@@ -168,7 +168,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Added damage "with Axe / Mace or Sceptre / Staff / Sword Attacks" counts for attacks with that weapon, Overwhelm
   takes its percent off the physical damage reduction a hit meets, and "Minions take #% increased Damage" reaches
   minions. A minion's hit is a hit event of its own actor: "Minions have #% chance to Blind on Hit with Attacks" and
-  "... to Hinder Enemies on Hit with Spells" run from it, and minions' attacks Overwhelm. Offline tests only so far.
+  "... to Hinder Enemies on Hit with Spells" run from it, and minions' attacks Overwhelm. A minion's hit rolls Chill, Freeze and Shock from its cold and lightning
+  damage on the minion's own chances, and "Minion Critical Strikes do not deal extra Damage" counts. Offline tests
+  only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

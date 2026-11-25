@@ -304,7 +304,7 @@ The reverse-engineering behind the art and buff choices is in
 ## Minion hits
 
 A minion's hit raises the hit event (`HitLanded`) with `Who` = `minion`, at the minion's own hit in `GolemCombat`
-(its projectiles and the other minion hit paths do not yet). A rule runs for it only when its trigger says
+and at a plain owned minion's attack (`MinionHitTargetLocked`); explosions and other secondary minion damage do not. A rule runs for it only when its trigger says
 `"who": "minion"`: `"any"` is the character and its totems, traps and mines, whose hits use the character's stats.
 The rule's numbers still come from the player's stats (the `minion_...` line is the player's).
 

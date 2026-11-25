@@ -875,7 +875,8 @@ public static partial class Game
         bool critical = GolemCriticalStrike(a, g.Monster.Mods, roll,
             prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeChancePlusPctVsFocusedTarget) : 0,
             target.Curses[Stat.EnemyAdditionalCriticalStrikeChanceAgainstSelf] + BrittleCriticalChance(target, now));
-        if (critical) factor *= target.Effects.NoExtraCriticalDamage ? 1 : 1.3 +
+        // "Minion Critical Strikes do not deal extra Damage" reaches the minion under its plain name.
+        if (critical) factor *= target.Effects.NoExtraCriticalDamage || effects[Stat.NoCriticalStrikeMultiplier] != 0 ? 1 : 1.3 +
             (g.Monster.Mods.Effects[Stat.BaseCriticalStrikeMultiplierPlus] + g.Monster.Mods.Effects[Stat.Of("critical_strike_multiplier_+")]
                 + target.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf]
                 + (prey ? GolemStat(g.Own, Stat.SupportMinionFocusFireCriticalStrikeMultiplierPlusVsFocusedTarget) : 0)) / 100.0;
@@ -939,6 +940,10 @@ public static partial class Game
             GrantMinionShieldLeech(g, target, profile.ShieldLeech, mitigated, damage, now);
         }
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
+        // Chill, Freeze and Shock from the hit's cold and lightning damage, on the minion's own chances.
+        if (!target.Dead && damage > 0 && (mitigated[DamageType.Cold].Max > 0 || mitigated[DamageType.Lightning].Max > 0))
+            MinionElementalAilmentsOnHitLocked(player, target, mitigated, critical, a.Attack.Spell,
+                name => effects[name] + GolemStat(a.Stats, name), now, random);
         // The hit event, with the minion as its actor: a rule that names minions runs for it, the player's own do not.
         if (damage > 0)
             HitLandedLocked(player, target, critical, a.Attack.Spell, a.Stats, CombatActors.Minion, at: now, damage: mitigated, monsterId: id);
