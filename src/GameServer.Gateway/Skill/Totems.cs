@@ -59,7 +59,8 @@ public sealed class TotemState
         public int Row => row;
         public string VarietyId => varietyId;
         public int Level => level;
-        public (int X, int Y) At => at;
+        public (int X, int Y) At { get; private set; } = at;
+        public void Relocate((int X, int Y) destination) => At = destination;
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;

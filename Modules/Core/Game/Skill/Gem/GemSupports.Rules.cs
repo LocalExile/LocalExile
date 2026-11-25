@@ -131,7 +131,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or AutomationSupport or AutoexertionSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }
@@ -312,6 +312,8 @@ public static partial class Game
                 if (stat == Stat.SkillCostPlusPctPerKeystone && Stat.BaseCostPlusPct is var costKey)
                     own[costKey] = own.GetValueOrDefault(costKey) + own[perKey];
             }
+        int warcryMana = GolemStat(own, Stat.SupportAutoexertionBaseManaCostOverride);
+        if (warcryMana > 0) own[Stat.ManaCost] = own[Stat.BaseManaCost] = warcryMana;
         double costMultiplier = supports.Aggregate(1.0, (v, s) => v * s.CostMultiplier / 100.0);
         if (GolemStat(own, Stat.SkillIsBlessingSkill) != 0 && GolemStat(own, Stat.SupportAuraDurationBaseBuffDuration) > 0)
             foreach (uint instant in new[] { Stat.BaseSkillIsInstant, Stat.SkillIsInstant })
@@ -514,6 +516,8 @@ public static partial class Game
         if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).IsMelee(gem.Effect)
             || SkillsFor(player).IsChannelled(gem.Effect)
             || Stat(global::Stat.DisableAttackRepeats) != 0 || Stat(global::Stat.DisableSkillRepeats) != 0) return 0;
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep")
+            return Math.Clamp(gem.Stats.GetValueOrDefault(global::Stat.BaseAttackRepeatCount), 0, 64);
         return Math.Clamp(global::Stat.BaseMeleeAttackRepeatCount is var key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
     }
@@ -623,6 +627,9 @@ public static partial class Game
                 ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
                 : 1;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
+            if (gem.Stats.GetValueOrDefault(Stat.AttackSpeedPlusPctIfChangedStanceRecently) is int stanceSpeed and not 0
+                && player.RecentEvents.Happened(StatConditions.ChangedStance, AreaTime(player)))
+                skillSpeed += stanceSpeed;
             if (Supports.Of(gem.Effect)?.Types.Contains(120) == true)
                 skillSpeed += Get(Stat.RetaliationSkillSpeedPlusPct);
             stats[final] = stats.GetValueOrDefault(final) + (int)Math.Round(skillSpeed * factor);
@@ -682,6 +689,15 @@ public static partial class Game
         // Supports.AttackSpeedMultiplier reads the skill's own GEPL row too: its inherent -20 on Tornado Shot is
         // already part of this factor. Do not apply the same GEPL value again.
         int additional = SkillAttackTiming.AdditionalMilliseconds(stats);
+        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep"
+            && gem.Stats.GetValueOrDefault(Stat.CastTimeOverridesAttackDuration) != 0
+            && SkillsFor(player).CastMs(gem.Effect) is > 0 and var swingMilliseconds)
+        {
+            int speed = (offHand ?? WeaponFor(player)).IncreasedAttackSpeed(stats);
+            more *= Math.Max(.01, 1 + gem.Stats.GetValueOrDefault(Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
+            return (SkillAttackTiming.Seconds(swingMilliseconds, speed, more, additional,
+                proxy ? 1 : PlayerActionFactor(player), clampToTick), speed, more);
+        }
         if (additional != 0)
         {
             var weapon = offHand ?? WeaponFor(player);
@@ -802,6 +818,9 @@ public static partial class Game
             stats[min] = ActorScale.Add(min, stats.GetValueOrDefault(min), added);
             stats[max] = ActorScale.Add(max, stats.GetValueOrDefault(max), added);
         }
+        int corpseDamage = GolemStat(gem.Stats, Stat.DamagePlusPctIfYouHaveConsumedACorpseRecently);
+        if (corpseDamage != 0 && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, AreaTime(player)))
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, stats.GetValueOrDefault(Stat.DamagePlusPct), corpseDamage);
         int globalMinionShare = PlayerMinionDamageShare(caster);
         int skillMinionShare = Math.Max(gem.Stats.GetValueOrDefault(Stat.ActiveSkillAdditiveMinionDamageModifiersApplyToAllDamageAtPctValue),
             caster.GetValueOrDefault(Stat.DominatingBlowAndAbsolutionAdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0
@@ -871,6 +890,11 @@ public static partial class Game
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
+        {
+            double fire = (long)player.PlayerMaxLife * lifePct / 100d;
+            raw = raw.Add(GameServer.Core.World.DamageType.Fire, new(fire, fire));
+        }
         if (!attack && !secondary && Get(Stat.KeystoneBattlemage) != 0
             && WeaponIn(player, ActiveMainHand(player))?.LocalDamage is { } mainHandDamage)
             raw = raw.Add(mainHandDamage.Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
@@ -979,6 +1003,7 @@ public static partial class Game
             additional: inputs.WeaponTypedIncreases, trackPhysicalOrigin: inputs.Melee && !inputs.Secondary
                 && inputs.Get(Stat.SupportBloodlustMeleePhysicalDamagePlusPctFinalVsBleedingEnemies) != 0);
         if (inputs.Attack) hit = MaximumAttackDamage.Apply(Volatility.Apply(RageStats.ApplyAttack(hit, inputs.Get), inputs.Get), inputs.Get);
+        if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
@@ -1062,7 +1087,12 @@ public static partial class Game
             var weapon = WeaponProfileFor(player, activeSet: true);
             int basis;
             if (skills.RequiresShield(gem.Effect) && skills.AttackCritChance(gem.Effect, gem.Level) is int shieldCritical)
+            {
                 basis = shieldCritical;
+                int per10 = Own(Stat.OffHandCriticalStrikeChancePlusPer10EsOnShield);
+                if (per10 != 0 && ActiveShieldDefences(player) is { EnergyShield: > 0 } shield)
+                    basis = ActorScale.Saturate((long)basis + (shield.EnergyShield / 10) * (long)per10);
+            }
             else
                 basis = weapon.Unarmed && (!skills.IsMelee(gem.Effect) || skills.IsSpell(gem.Effect)) ? 0
                     : AttackBaseCriticalStrike.OfMainHand(!weapon.Unarmed, weaponCritical ?? weapon.Critical, Player);
@@ -1151,6 +1181,14 @@ public static partial class Game
         long extra = (long)gem.Stats.GetValueOrDefault(Stat.BaseCriticalStrikeMultiplierPlus) + NightbladeCriticalMultiplier(player, gem.Stats);
         var playerStats = CharacterPlayerStats(player);
         long Sum(uint key) => (long)playerStats.GetValueOrDefault(key) + gem.Stats.GetValueOrDefault(key);
+        if (Sum(Stat.CriticalStrikeMultiplierPlusIfYouveBeenChannellingForAtLeast1Second) is long channelBonus and not 0
+            && player.PaidChannel is { } channel && ReferenceEquals(channel.Rules, CombatLifetime) && channel.Rules.IsActive
+            && double.IsFinite(channel.StartedAt) && ChannelCurrent(player, channel.Skill, channel.Action, channel.Generation))
+        {
+            double remaining = channel.StartedAt + 1 - AreaTime(player);
+            if (remaining <= 0) extra += channelBonus;
+            else StatsChangeIn(remaining);
+        }
         var skills = SkillsFor(player);
         var placed = PlacedKind(gem);
         if (placed.Trap) extra += Sum(Stat.TrapCriticalStrikeMultiplierPlus);

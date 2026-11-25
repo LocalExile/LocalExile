@@ -24,7 +24,8 @@ static partial class Game
         Stat.SupportAreaConcentrateAreaDamagePlusPctFinal, Stat.SupportControlledDestructionSpellDamagePlusPctFinal,
         Stat.SupportVoidManipulationChaosDamagePlusPctFinal, Stat.SupportRapidDecayDamageOverTimePlusPctFinal,
         Stat.SupportEfficacySpellDamagePlusPctFinal, Stat.SupportEfficacyDamageOverTimePlusPctFinal,
-        Stat.CrueltyDamageOverTimePlusPctFinal,
+        Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportTrapDamagePlusPctFinal,
+        Stat.SupportTrapAndMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
     ];
 
     /// <summary>Contagion (GrantedEffects <c>Contagion</c>) or Contagion of Subsiding (<c>ContagionAltX</c>): what one cast
@@ -36,7 +37,8 @@ static partial class Game
     {
         string? id = SkillsFor(player).EffectId(effect);
         if (id is not ("Contagion" or "ContagionAltX" or "ContagionAltY")) return null;
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
+        var own = gem.Stats;
         var playerStats = CharacterPlayerStats(player);
         var merged = MergeSkillStats(playerStats, own);
         int Get(uint k) => merged.GetValueOrDefault(k);
@@ -47,6 +49,9 @@ static partial class Game
         if (!(perSecond > 0) || DamageStats.Prohibited(DamageType.Chaos, Get)) return null;
         double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.SpellDamagePlusPct) + Get(Stat.AreaDamagePlusPct) + Get(Stat.ChaosDamagePlusPct)
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct);
+        var placed = PlacedKind(gem);
+        if (placed.Trap || placed.Mine)
+            increased += (double)Get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
         double more = ChaosAreaDotSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100.0;
         double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
@@ -72,17 +77,21 @@ static partial class Game
         await AreaDelay(player, Math.Max(0.05, delay));
         await WhilePaused(player);
         if ((!instant && player.ActionCount != action) || player.Closed || !current()) return;
-        int affected = 0;
         using (ProjectileMutation(player))
-        {
-            double now = ProjectileWorldTime(player);
-            foreach (var (_, m) in player.Area.Monsters)
-                if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && Dist(m.Walk.Position(now), centre) <= radius)
-                {
-                    m.Contagion.Apply(now, cast with { Radius = radius });
-                    affected++;
-                }
-        }
+            if (current()) ApplyContagionLocked(player, centre, cast with { Radius = radius });
+    }
+
+    static void ApplyContagionLocked(Player player, (int X, int Y) centre, MonsterContagion.Cast cast)
+    {
+        int affected = 0;
+        int radius = cast.Radius;
+        double now = ProjectileWorldTime(player);
+        foreach (var (_, m) in player.Area.Monsters)
+            if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && Dist(m.Walk.Position(now), centre) <= radius)
+            {
+                m.Contagion.Apply(now, cast);
+                affected++;
+            }
         Console.WriteLine($"[gateway] contagion: {affected} monster(s) within {radius} of ({centre.X}, {centre.Y}), " +
             $"{cast.DamagePerSecond:0.#}/s for {cast.Seconds:0.##} s");
     }

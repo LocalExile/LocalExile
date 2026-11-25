@@ -75,6 +75,10 @@ public static class CharacterStats
         public long AccuracyBase { get; init; } = Accuracy;
         public int AccuracyAreaMorePct { get; init; }
         public int AccuracyWeaponMorePct { get; init; }
+        // Deadeye's Avidity: "5% more Accuracy Rating per Frenzy Charge" (Stats row 20753, PassiveSkills
+        // AscendancyDeadeye10) -- the per-charge value times the charges held, multiplied once per pool build by
+        // PlayerAccuracyModifiers, so it reaches every attack. Kept out of AccuracyPct, which is the increased bucket.
+        public int AccuracyChargeMorePct { get; init; }
     }
 
     /// <summary>What allocated passives and equipped base items add to the pools: attributes, flat and increased life,

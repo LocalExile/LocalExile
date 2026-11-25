@@ -41,6 +41,10 @@ public sealed class BenchModule : IModule
             await BenchFeature.CraftBench(player, InstanceBench.ReadCraft(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceBench.CloseId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            return await BenchFeature.CloseBench(player, InstanceBench.ReadClose(bytes));
+        });
     }
 }
 
@@ -104,12 +108,25 @@ static class BenchFeature
             || !PlayerWalk.InWalkUpRange(stop, player.CraftingBenchAt, player.StationaryInteractionSize(player.CraftingBenchObject))) return;
         player.StashOpen = false;
         player.GuildStashOpen = false;
+        player.TradeStashOpen = false;
         player.BenchOpen = true;
         player.ModuleWindow = null;
         player.ModuleWindowAnchor = null;
         await RefreshBenchBalance(player);
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.CraftingBenchUi),
             "0x007b open the crafting bench window (type 0)", still: () => PlayerActionCurrent(player, action));
+    }
+
+    internal static async Task<bool> CloseBench(Player player, (byte Flags, byte UiKind) request)
+    {
+        if (request.UiKind != InstanceWaypoints.CraftingBenchUi) return false;
+        if (player.BenchOpen)
+        {
+            player.BenchOpen = false;
+            await RefreshBenchBalance(player, clear: true);
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x02b1 crafting bench closed (flags 0x{request.Flags:x2})");
+        }
+        return true;
     }
 
     internal static async Task MoveToBench(Player player, (uint ItemId, bool IntoBench) request)
@@ -183,10 +200,33 @@ static class BenchFeature
         // (e.g. default league recipe flags published at area entry), only persist them to AccountStash.
         bool anyUnsetInPlayer = fresh.Any(id => !player.Character.LeagueQuestFlags.Contains(id));
         if (anyUnsetInPlayer)
+        {
             await global::Game.SetLeagueQuestFlags(player, fresh);
+            await SendCraftAwards(player, fresh);
+        }
         else
             stash.ChangeLeagueQuestFlags(fresh, on: true);
         return fresh;
+    }
+
+    static async Task SendCraftAwards(Player player, IReadOnlyList<int> unlockedRecipeIds)
+    {
+        if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea
+            || !GameServer.Core.ClientTables.Has("Mods"))
+            return;
+        var freshSet = unlockedRecipeIds.ToHashSet();
+        var modsTable = GameServer.Core.ClientTables.Table("Mods");
+        var sent = new HashSet<uint>();
+        foreach (var recipe in Bench.All)
+        {
+            if (recipe.Mod is not { } mod || !recipe.Unlocks.Any(freshSet.Contains)) continue;
+            if (mod.Row < 0 || mod.Row >= modsTable.Count) continue;
+            uint hash32 = unchecked((uint)modsTable[mod.Row].Int("HASH32"));
+            if (hash32 == 0 || !sent.Add(hash32)) continue;
+            await Send(player, InstanceProtocol.CraftAward(hash32),
+                $"0x01d6 craft award: {mod.Id} (HASH32 0x{hash32:x8})");
+            if (sent.Count >= 8) break;
+        }
     }
 
 }

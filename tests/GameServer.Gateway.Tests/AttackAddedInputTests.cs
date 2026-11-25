@@ -571,4 +571,33 @@ public sealed class AttackAddedInputTests : IDisposable
         Assert.Equal(new DamageRange(0, expectedEsLightning),
             SupportedAttackDamage.Raw(Game.OffhandWeaponFor(player)!, GetId, accuracy)[DamageType.Lightning]);
     }
+
+    // Avidity's "5% more Accuracy Rating per Frenzy Charge": the per-charge value times the charges held is one
+    // more multiplier of the resolved rating, so it reaches every attack and the panel. Nothing held is the
+    // control -- the node alone must not change the rating -- and the rating is floored, not rounded.
+    [Fact]
+    public void Avidity_s_more_accuracy_per_frenzy_charge_reaches_the_pools()
+    {
+        var previousPools = player.Pools;
+        var items = Game.ItemsOf(player);
+        var weapon = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"))!;
+        Set(Stat.AccuracyRatingPlusPct, 100);
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 5);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(456, Game.PlayerAccuracy(player)); // no charge held.
+        Set(Stat.CurrentFrenzyCharges, 2);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(501, Game.PlayerAccuracy(player)); // 456 * 1.10, floored.
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 0);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(456, Game.PlayerAccuracy(player)); // the charges without the node are nothing.
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 5);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(501, Game.PlayerAccuracy(player));
+        items.Remove(PlayerInventories.Weapon1, weapon.Id);
+        overrides.Remove(Stat.AccuracyRatingPlusPct);
+        overrides.Remove(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge);
+        overrides.Remove(Stat.CurrentFrenzyCharges);
+        player.Pools = previousPools;
+    }
 }

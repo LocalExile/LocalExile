@@ -331,6 +331,8 @@ public sealed class CurrencyExchangeModule : IModule
         }
         // He is already speaking, of the placing: what completed now only has its notification.
         await SendOrder(player, placed!, "placed", placed: Options.FaustusSpeaks);
+        await player.Send(Wire.QueryOrderResult(placed!.Id, 0, placed.ClaimWant, placed.HaveCount - placed.Remaining),
+            $"0x02ef Currency Exchange query order {placed.Id}: {placed.ClaimWant} bought, {placed.HaveCount - placed.Remaining} sold");
         await SendFilled(player, filled.Where(o => o != placed), speak: false);
         if (placed!.State == Wire.OrderState.Completed) await player.Send(Wire.OrderCompleted(), "0x02f8 an order completed");
     }

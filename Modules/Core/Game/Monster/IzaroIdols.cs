@@ -60,8 +60,9 @@ static class IzaroIdols
                 action = ++idol.ActionGeneration;
                 idol.Life = life = Math.Min(idol.Life, 1u);
                 at = idol.Walk.Position(AreaTime(player));
+                ushort channelSeq = player.NextActionSequence();
                 if (!await SendMonsterAction(player, id, idol, action, () =>
-                    InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, ChannelSkillId, player.NextActionSequence(), player.MonsterOrderFlags),
+                    InstanceProtocol.ActionStarted(id, at.X, at.Y, at.X, at.Y, ChannelSkillId, channelSeq, player.MonsterOrderFlags),
                     $"0x01ab idol 0x{id:x} fills")) return;
                 // Its life fills; hits take it down meanwhile.
                 while (true)
@@ -78,7 +79,7 @@ static class IzaroIdols
                 List<(int X, int Y)> spots;
                 idol.Life = 1;
                 spots = Spots(player);
-                await Send(player, [.. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation)], $"idol 0x{id:x} casts {spots.Count} circles");
+                await Send(player, [.. InstanceProtocol.ChannelFinished(id, channelSeq), .. InstanceProtocol.ActionEnded(id), .. InstanceProtocol.ActorAnimation(id, 1, SummonAnimation)], $"idol 0x{id:x} casts {spots.Count} circles");
                 _ = Circles(player, id, idol, burst, element, spots);
                 await AreaDelay(player, IzaroChronos.SitSeconds);
             }

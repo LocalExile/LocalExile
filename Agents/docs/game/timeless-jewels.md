@@ -134,7 +134,7 @@ first generated list:
 | `karui_notable_add_faster_burn` | 10% faster Ignite damage (`faster_burn_%`) | inert (no consumer) |
 | `karui_notable_add_physical_taken_as_fire` | Gain 1 Rage on Melee Hit (`gain_x_rage_on_melee_hit`; the id is a legacy name) | works (`RageStats`) |
 | `maraketh_notable_add_ailment_avoid` | 20% chance to avoid being Stunned (`base_avoid_stun_%`; the id is a legacy name) | works |
-| `maraketh_notable_add_flask_effect` | 25% chance to gain Alchemist's Genius when you use a Flask (`gain_alchemists_genius_on_flask_use_%`) | inert (no consumer) |
+| `maraketh_notable_add_flask_effect` | 25% chance to gain Alchemist's Genius when you use a Flask (`gain_alchemists_genius_on_flask_use_%`) | grants the buff on a flask use |
 
 `karui_notable_add_fortify_effect` is **+1 to maximum Fortification** (`base_max_fortification`) in the 3.29.3b data,
 not the "5% increased Fortify Effect" in the 3.15 patch note; `FortificationState` reads the stat, so the maximum works.

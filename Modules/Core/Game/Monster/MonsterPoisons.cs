@@ -101,6 +101,19 @@ public static partial class Game
         return applied;
     }
 
+    /// <summary>The 0x1c1 for the poison on this monster now, built exactly as the tick builds it: the stacks and
+    /// the countdown to the last poison's end, so a hit that shows it and the tick that follows agree on one record.
+    /// Only call after a hit applied a poison (the stacks are what the hit added).</summary>
+    public static Buff PoisonBuffToShow(Player player, SpawnedMonster m, double now) => new(PoisonBuffRow, player.Id,
+        Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
+        U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison"));
+
+    /// <summary>Stage a hit's poison buff in the area's frame under lock, with the same record the tick shows: the
+    /// tick then finds the same buff already shown and sends nothing again. No stat is read here; the stacks and the
+    /// countdown are the monster's own counters.</summary>
+    public static void ShowPoisonBuff(Player player, uint id, SpawnedMonster m, Buff buff) =>
+        ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, buff);
+
     public static async Task TickPoisons(Player player)
     {
         var active = player.Area.ActivePoisonMonsters;
@@ -143,9 +156,7 @@ public static partial class Game
                 else
                 {
                     // The stacks and the countdown to the last poison's end; a new poison moves both.
-                    ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, new(PoisonBuffRow, player.Id,
-                        Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
-                        U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison")));
+                    ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, PoisonBuffToShow(player, m, now));
                 }
             }
             if (done is not null) foreach (uint id in done) active.Remove(id);

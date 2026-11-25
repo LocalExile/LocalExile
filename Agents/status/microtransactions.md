@@ -51,6 +51,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Offline local MTX shop & mystery/salvage boxes (`0x12c`–`0x139`, `0x204`–`0x206`, `0x26e`, `0x282`): offline ok.
 - Cosmetics skill target lifetime and request validation (issue [#306](https://github.com/Wrathen/LocalExile/issues/306)).
   Key reuse across gem replacements and acceptance of stale/incompatible picks are reproduced in Gateway tests.
   Targets now retain keys only while unchanged; replacements and reappearances get fresh connection-local keys.

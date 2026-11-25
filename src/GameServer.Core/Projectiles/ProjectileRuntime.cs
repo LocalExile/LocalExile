@@ -539,6 +539,12 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         var result = ProjectileHitResult.Blocked;
         ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
+            if (p.Profile.LifetimeDamageGainPercent != 0)
+            {
+                long life = Math.Max(1, p.ExpiresAt - p.CreatedAt);
+                multiplier *= Math.Max(0, 1 + p.Profile.LifetimeDamageGainPercent / 100d
+                    * Math.Clamp((Now - p.CreatedAt) / (double)life, 0, 1));
+            }
             result = world.Hit(new(p, target.Key, Now, stage, p.Position, multiplier * p.DamageMultiplier) { IsArea = isArea });
             return result != ProjectileHitResult.Miss;
         });
