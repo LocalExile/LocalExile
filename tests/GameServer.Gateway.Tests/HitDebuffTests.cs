@@ -1,9 +1,140 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class HitDebuffTests
 {
+    [Fact]
+    public async Task Existing_bleed_gates_blind_and_life_gain()
+    {
+        await Existing_bleed_enables_the_correct_attack_and_global_blind_sources();
+        await A_paid_hit_recovers_life_only_if_its_target_was_already_bleeding();
+    }
+
+    static async Task Existing_bleed_enables_the_correct_attack_and_global_blind_sources()
+    {
+        const string attack = "AnimalCharmBlindOnHitVsBleedingEnemies1";
+        Assert.False((await ConditionalHit(null, 0, preBled: true)).Blind);
+        Assert.True((await ConditionalHit(attack, 15, preBled: true)).Blind);
+        Assert.False((await ConditionalHit(attack, 15, skill: "Ice Nova", preBled: true)).Blind);
+        var freshBleed = await ConditionalHit(attack, 15, inflictBleed: true);
+        Assert.True(freshBleed.Bleeding);
+        Assert.False(freshBleed.Blind);
+        const string notable = "AfflictionNotableDisorientingWounds";
+        Assert.False((await ConditionalHit(notable, 1, skill: "Ice Nova", cluster: true)).Blind);
+        Assert.True((await ConditionalHit(notable, 1, skill: "Ice Nova", preBled: true, cluster: true)).Blind);
+    }
+
+    static async Task<(bool Blind, bool Bleeding, uint Life)> ConditionalHit(string? modId, int value,
+        string skill = "Heavy Strike", bool preBled = false, bool inflictBleed = false,
+        bool cluster = false, bool cannotRecover = false)
+    {
+        var clock = new ContactClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        var areaRoll = new QualifyingRoll();
+        var randomProperty = typeof(AreaFrames).GetProperty(nameof(AreaFrames.Rng))!;
+        var items = Game.ItemsOf(player);
+        uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+        items.Change(PlayerInventories.Weapon1, main, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        ushort gem = Assert.Single(fixture.Equip((skill, 18)));
+        if (modId is not null)
+        {
+            var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create(cluster ? "Megalomaniac" : "That Which Was Taken", new Random(17)));
+            var mod = Program.Items.Mods.ById(modId)!;
+            var native = new ItemMod(ModSection.Explicit, mod.Hash, [value]);
+            var equipped = jewel with { Mods = [native] };
+            byte slot = cluster ? (byte)20 : (byte)1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            player.Character.Passives.Add(31703);
+            items.Add(PlayerInventories.PassiveJewels, slot, 0, equipped);
+            if (cluster)
+            {
+                var layout = ClusterJewelLayout.For(slot, equipped);
+                Assert.NotNull(layout);
+                var chosen = layout.NotableOrders.Single(row => row.Value == 0);
+                player.Character.ClusterPassives.Add((ushort)(layout.Base + chosen.Key));
+                Assert.True(Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies) > 0);
+            }
+            else
+            {
+                uint row = Assert.Single(mod.Stats).Id;
+                Assert.Equal(value, Game.CharacterPlayerStats(player).GetValueOrDefault(row));
+            }
+        }
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (!ReferenceEquals(owner, player)) return values;
+            values[Stat.GlobalAlwaysHit] = values[Stat.GlobalCannotCrit] = 1;
+            if (inflictBleed) values[Stat.BleedOnHitWithAttacksPct] = 100;
+            if (cannotRecover) values[Stat.CannotRecoverLife] = 1;
+            return values;
+        });
+        const uint id = 900;
+        var target = new SpawnedMonster("conditional hit witness", new(104, 100, 0), 0, 0, 10000)
+            { ObjectId = id, Hostile = true };
+        player.Area.Monsters[id] = target;
+        player.Area.Grid.Set(new(id), (104, 100));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            Game.RecomputePoolsAndSpeed(player);
+            Game.ConfigureLeech(player, Game.CharacterPlayerStats(player).GetValueOrDefault, onLowLife: true);
+            randomProperty.SetValue(player.Frames, areaRoll);
+            using var rolls = GameEvents.OutgoingDamage.Add("Game", (owner, _, enemy, packet) =>
+            {
+                if (ReferenceEquals(owner, player) && ReferenceEquals(enemy, target))
+                    randomProperty.SetValue(player.Frames, areaRoll);
+                return packet;
+            });
+            if (preBled) Assert.True(target.Bleeds.Add(clock.At, 1, 10));
+            uint life = player.PlayerLife = player.PlayerMaxLife / 2;
+            uint mana = player.PlayerMana;
+            Assert.True(await Game.CastGemSkill(player, gem, (100, 100), (104, 100), targetId: id));
+            Assert.True(player.PlayerMana < mana);
+            Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+            Assert.Same(areaRoll, Game.AreaRng(player));
+            return (Game.Blinded(player, id, clock.At), target.Bleeds.Until > clock.At,
+                player.PlayerLife - life);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    sealed class QualifyingRoll : Random
+    {
+        public override int Next(int maxValue) => 0;
+        public override int Next(int minValue, int maxValue) => minValue;
+        public override double NextDouble() => 0;
+    }
+
+    sealed class ContactClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
+    static async Task A_paid_hit_recovers_life_only_if_its_target_was_already_bleeding()
+    {
+        const string life = "AnimalCharmLifeOnHitVsBleedingEnemies1";
+        Assert.Equal(0u, (await ConditionalHit(null, 0, preBled: true)).Life);
+        Assert.Equal(6u, (await ConditionalHit(life, 6, preBled: true)).Life);
+        Assert.Equal(6u, (await ConditionalHit(life, 6, skill: "Ice Nova", preBled: true)).Life);
+        var fresh = await ConditionalHit(life, 6, inflictBleed: true);
+        Assert.True(fresh.Bleeding);
+        Assert.Equal(0u, fresh.Life);
+        Assert.Equal(0u, (await ConditionalHit(life, 6, preBled: true, cannotRecover: true)).Life);
+    }
+
     static Func<uint, int> Get(params (uint Name, int Value)[] stats) =>
         name => stats.FirstOrDefault(s => s.Name == name).Value;
 

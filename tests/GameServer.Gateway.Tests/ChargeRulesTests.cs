@@ -4,6 +4,67 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class ChargeRulesTests
 {
+    static void Native_mana_spending_sources_grant_charges_at_two_hundred_and_keep_the_remainder()
+    {
+        foreach (var (powerUnique, powerMod) in new[]
+        {
+            ("Cane of Unravelling", "PowerChargeOnManaSpentUnique__1"),
+            ("Tulborn", "MutatedUniqueWand15PowerChargeOnManaSpent"),
+        })
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var items = Game.ItemsOf(player);
+            var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+            var powerItem = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create(powerUnique, new Random(2))) with
+            { Mods = [new(ModSection.Explicit, Program.Items.Mods.ById(powerMod)!.Hash, [1])] };
+            items.Change(PlayerInventories.Weapon1, weapon.Id, _ => powerItem);
+            var glove = ItemCatalog.Create(Program.Items.Find("Wool Gloves")!) with
+            {
+                Corrupted = true, Mods = [new(ModSection.Implicit,
+                    Program.Items.Mods.ById("V2GainFrenzyChargeAfterSpending200ManaCorrupted")!.Hash, [1])],
+            };
+            items.Add(PlayerInventories.Gloves, 0, 0, glove);
+            ushort skill = Assert.Single(fixture.Equip(("Ice Nova", 18)));
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerMana = 10000;
+            var charges = Game.ChargesOf(player);
+            var snapshot = Game.CharacterPlayerStats(player);
+            Assert.Equal(1, snapshot.GetValueOrDefault(Stat.GainXFrenzyChargesAfterSpending200Mana));
+            Assert.Equal(1, snapshot.GetValueOrDefault(Stat.LocalDisplayGainPowerChargeOnSpendingMana));
+            uint Paid(int percent = 100)
+            {
+                Assert.True(Game.PayMana(player, skill, out uint mana, out _, percent));
+                return mana;
+            }
+            (int Frenzy, int Power) Held()
+            {
+                charges.Step(1, Game.CharacterPlayerStats(player).GetValueOrDefault, () => default,
+                    alive: true, moving: false, inTown: false, new Random(5));
+                return (charges.Effective(ChargeType.Frenzy), charges.Effective(ChargeType.Power));
+            }
+            uint total = Paid(5);
+            for (int i = 0; i < 9; i++) total += Paid();
+            Assert.Equal(199u, total);
+            Assert.Equal((0, 0), Held());
+            Assert.Equal(1u, Paid(5));
+            Assert.Equal((1, 1), Held());
+            for (int i = 0; i < 10; i++) Paid();
+            Assert.Equal((2, 2), Held());
+            for (int i = 0; i < 8; i++) Paid();
+            Assert.Equal((2, 2), Held());
+            Assert.Equal(4u, Paid(19));
+            Assert.Equal((3, 3), Held());
+
+            uint gloves = Assert.Single(items.Items(PlayerInventories.Gloves)).Id;
+            items.Change(PlayerInventories.Gloves, gloves, item => item with { Mods = [] });
+            items.Change(PlayerInventories.Weapon1, weapon.Id, item => item with { Mods = [] });
+            charges.Die();
+            for (int i = 0; i < 10; i++) Paid();
+            Assert.Equal((0, 0), Held());
+        }
+    }
+
     [Fact]
     public void CoreChargesGainRefreshExpireAndTriggerAtTheirLimits()
     {
@@ -49,6 +110,8 @@ public sealed class ChargeRulesTests
         session.Step(20.1, Get, () => default, alive: true, moving: false, inTown: false, rng);
         Assert.Equal(0, session.Effective(ChargeType.Frenzy));
         Assert.Equal(20.1, session.LastLost(ChargeType.Frenzy), 6);
+
+        Native_mana_spending_sources_grant_charges_at_two_hundred_and_keep_the_remainder();
     }
 
     [Fact]

@@ -4,8 +4,64 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SkillAdmissionCostTests
 {
+    static async Task Voidbringer_loses_mana_after_use_and_keeps_the_cast_cost_separate()
+    {
+        var clock = new MarkClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var gloves = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Voidbringer", new Random(4)));
+        ushort hash = Program.Items.Mods.ById("IncreaseGlobalFlatManaCostUnique__2")!.Hash;
+        gloves = gloves with { Mods = [new(ModSection.Explicit, hash, [69])] };
+        ushort skill = Assert.Single(fixture.Equip(("Ice Nova", 18)));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            uint Cost() => (uint)Game.PlayerSkills(player).Single(row => row.Id == skill).Stats!
+                .Single(row => row.Key == Stat.ManaCost).Value;
+            uint ordinary = Cost();
+            Assert.True(ordinary > 0);
+            player.PlayerMana = 325;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (100, 100)));
+            Assert.Equal(325u - ordinary, player.PlayerMana);
+
+            items.Add(PlayerInventories.Gloves, 0, 0, gloves);
+            Game.RecomputePoolsAndSpeed(player);
+            Assert.Equal(69, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill));
+            Assert.Equal(ordinary, Cost());
+            await clock.Wait(1000, CancellationToken.None);
+            player.PlayerMana = 325;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (100, 100)));
+            Assert.Equal(325u - ordinary - 69, player.PlayerMana);
+
+            await clock.Wait(1000, CancellationToken.None);
+            player.PlayerMana = ordinary - 1;
+            Assert.False(await Game.CastGemSkill(player, skill, (100, 100), (100, 100)));
+            Assert.Equal(ordinary - 1, player.PlayerMana);
+            player.PlayerMana = ordinary + 1;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (100, 100)));
+            Assert.Equal(0u, player.PlayerMana);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    sealed class MarkClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
-    public void Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
+    public async Task Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
     {
         using var f = new Fixture();
         var player = f.Player;
@@ -170,6 +226,8 @@ public sealed class SkillAdmissionCostTests
         Assert.Equal((uint)heavyBase, paidMana);
         Assert.Equal(0u, paidLife);
         Assert.Equal(900u, player.PlayerLife);
+
+        await Voidbringer_loses_mana_after_use_and_keeps_the_cast_cost_separate();
     }
 
     [Fact]

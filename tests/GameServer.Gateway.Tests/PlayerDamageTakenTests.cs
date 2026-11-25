@@ -1,9 +1,80 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
 public class PlayerDamageTakenTests
 {
+    static async Task Watchers_Eye_starts_four_seconds_of_mana_recoup_from_a_hit_under_Clarity()
+    {
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
+        var mod = Program.Items.Mods.ById("ClarityDamageTakenGainedAsMana")!;
+        foreach (var (equipped, active) in new[] { (false, true), (true, false), (true, true) })
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            { Mods = equipped ? [new(ModSection.Explicit, mod.Hash, [18])] : [] });
+            ushort id = Assert.Single(fixture.Equip(("Clarity", 1)));
+            var aura = Assert.Single(Game.GemSkillEffects(player));
+            if (active)
+                Assert.True(await Game.ToggleAura(player, id, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, id)!.Value, aura.Level, aura.Quality));
+            Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == id));
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerLife = player.PlayerMaxLife;
+            player.PlayerMana = 20;
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, new RecoupClock());
+            try
+            {
+                double now = Game.AreaTime(player);
+                Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 400, block: false, spell: true,
+                    suppress: false, out var hit));
+                Assert.Equal(400, hit.Damage);
+                Assert.Equal(20u, player.PlayerMana);
+                var recoup = Game.ResourceEffectsOf(player).Mana;
+                Assert.Equal(equipped && active ? 18 : 0, recoup.Take(now + 1), 6);
+                Assert.Equal(equipped && active ? 54 : 0, recoup.Take(now + 4), 6);
+                Assert.Equal(0, recoup.Take(now + 5), 6);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    sealed class RecoupClock : IPlayerUpdateSchedule
+    {
+        public double Now(Player player) => 10;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+    }
+
+    static async Task Clarity_Watchers_Eye_adds_seven_percent_of_maximum_mana_as_energy_shield()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var items = Game.ItemsOf(player);
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(8)));
+        ushort hash = Program.Items.Mods.ById("ClarityManaAddedAsEnergyShield")!.Hash;
+        const byte slot = 1;
+        player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+        items.Add(PlayerInventories.PassiveJewels, slot, 0, jewel with { Mods = [new(ModSection.Explicit, hash, [7])] });
+        fixture.Equip(("Clarity", 1));
+        var aura = Assert.Single(Game.GemSkillEffects(player));
+        Game.RecomputePoolsAndSpeed(player);
+        uint mana = player.Pools.Mana;
+        uint baseline = player.EnergyShield.Maximum;
+        var reservation = Game.SupportedReservationCost(player, aura.Id)!.Value;
+        Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name, reservation, aura.Level, aura.Quality));
+        Assert.Equal(mana, player.Pools.Mana);
+        Assert.Equal(7, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.ManaPctToAddAsEnergyShield));
+        uint added = (uint)(mana * .07m * (100 + player.Pools.EnergyShieldPct) / 100);
+        Assert.Equal(baseline + added, player.EnergyShield.Maximum);
+        Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name, reservation, aura.Level, aura.Quality));
+        Assert.Equal(baseline, player.EnergyShield.Maximum);
+    }
+
     static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
         name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 
@@ -151,7 +222,7 @@ public class PlayerDamageTakenTests
     // With 50% of Physical Damage from Hits taken as Fire and 50% Fire Resistance, 200 physical is 100 physical +
     // 100 fire at half = 150; the hit that ignored the shift took 200.
     [Fact]
-    public void A_synthetic_spell_hit_takes_physical_damage_as_fire_and_meets_the_fire_resistance()
+    public async Task A_synthetic_spell_hit_takes_physical_damage_as_fire_and_meets_the_fire_resistance()
     {
         var plain = SyntheticPhysicalHit("plain", shifted: false, armour: 0, out var plainPlayer);
         var asFire = SyntheticPhysicalHit("asfire", shifted: true, armour: 0, out var asFirePlayer);
@@ -160,6 +231,9 @@ public class PlayerDamageTakenTests
         Assert.Equal(150, asFire.Damage);
         Assert.Equal(850u, asFirePlayer.PlayerLife);
         Assert.Equal(150, (int)asFire.Taken[DamageType.Fire].Min + (int)asFire.Taken[DamageType.Physical].Min);
+
+        await Watchers_Eye_starts_four_seconds_of_mana_recoup_from_a_hit_under_Clarity();
+        await Clarity_Watchers_Eye_adds_seven_percent_of_maximum_mana_as_energy_shield();
     }
 
     // Armour is one decision for the hit but reduces only the physical part: with half of the physical hit taken as fire,

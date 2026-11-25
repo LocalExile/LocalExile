@@ -77,6 +77,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
+- Bleeding already active on a target enables attack-only or global blind chances and life gain on hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
   Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
 - Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.
@@ -141,6 +142,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
+- Voidbringer removes extra Mana on accepted use. Mana spent toward the item thresholds grants Frenzy or Power.
 - Vile Reinvigoration grants Energy Shield regeneration during the recent-kill window (checked offline).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
@@ -215,9 +217,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Ordinary aura expansion: Determination, Grace, Anger, Hatred, Wrath, Zealotry, Malevolence and Envy.
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
-- Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
-  and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
-  owned Consecrated Ground and grant Arcane Surge when creating it.
+- Watcher's Eye reads the matching auras for Pride combat, elemental and critical penetration, and Grace blind.
+  Haste affects debuff expiry. Clarity affects Mana recovery, recoup and maximum Energy Shield.
+  Malevolence speeds damaging ailments and Vitality increases life flask recovery.
+  Zealotry modifiers apply to owned Consecrated Ground and grant Arcane Surge when creating it.
+- Sublime Vision applies Haste action speed and the alternate ailments of Anger, Hatred and Wrath.
 - Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).

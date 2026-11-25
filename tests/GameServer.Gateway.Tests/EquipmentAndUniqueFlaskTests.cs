@@ -6,6 +6,51 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class EquipmentAndUniqueFlaskTests
 {
+    static async Task Watchers_Eye_increases_the_amount_of_a_paid_life_flask_under_Vitality()
+    {
+        var baseline = await Recover(false, true);
+        var inactive = await Recover(true, false);
+        var qualified = await Recover(true, true);
+        Assert.Equal(baseline, inactive);
+        Assert.Equal(baseline.Amount * 1.6, qualified.Amount, 6);
+        Assert.Equal(baseline.Seconds, qualified.Seconds, 6);
+
+        static async Task<(double Amount, double Seconds)> Recover(bool withMod, bool active)
+        {
+            var clock = new CastClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            var items = Game.ItemsOf(player);
+            var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(8)));
+            ushort mod = Program.Items.Mods.ById("VitalityLifeRecoveryFromFlasks_")!.Hash;
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            items.Add(PlayerInventories.PassiveJewels, slot, 0,
+                jewel with { Mods = withMod ? [new(ModSection.Explicit, mod, [60])] : [] });
+            fixture.Equip(("Vitality", 1));
+            var aura = Assert.Single(Game.GemSkillEffects(player));
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                if (active)
+                    Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                        Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+                Game.RecomputePoolsAndSpeed(player);
+                player.PlayerLife = player.PlayerMaxLife / 2;
+                var flask = Assert.Single(items.Items(PlayerInventories.Flask), item => item.X == 0);
+                await Game.UseFlask(player, 0);
+                Assert.True(Assert.Single(items.Items(PlayerInventories.Flask), item => item.Id == flask.Id).Item.Charges
+                    < flask.Item.Charges);
+                var advanced = Game.AdvanceFlaskRecovery(player, clock.At, clock.At + 10);
+                Assert.True(advanced.Life > 0);
+                var effect = Assert.Single(advanced.Ended);
+                return (advanced.Life, advanced.Life / effect.LifePerSecond);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
     static Item ModItem(string baseName, ItemRarity rarity, params (string ModId, int[] Values)[] mods)
     {
         var item = ItemCatalog.Create(Program.Items.Find(baseName)!);
@@ -99,6 +144,8 @@ public sealed class EquipmentAndUniqueFlaskTests
             Assert.Equal(5, items.Items(PlayerInventories.Flask).Single().Item.Charges);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+
+        await Watchers_Eye_increases_the_amount_of_a_paid_life_flask_under_Vitality();
     }
 
     [Fact]

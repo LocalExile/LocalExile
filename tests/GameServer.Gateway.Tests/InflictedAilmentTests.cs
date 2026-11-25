@@ -6,6 +6,77 @@ namespace GameServer.Gateway.Tests;
 
 public class InflictedAilmentTests
 {
+    static async Task Malevolence_Watchers_Eye_accelerates_a_paid_ignite_without_changing_its_total_damage()
+    {
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
+        var mod = Program.Items.Mods.ById("MalevolenceYourAilmentsDealDamageFaster__")!;
+        var plain = await Hit(equipped: false, active: true);
+        var faster = await Hit(equipped: true, active: true);
+        Assert.Equal(await Hit(equipped: false, active: false), await Hit(equipped: true, active: false));
+        Assert.Equal(plain.Seconds / 1.15, faster.Seconds, 6);
+        Assert.Equal(plain.Dps * 1.15, faster.Dps, 6);
+        Assert.Equal(plain.Seconds * plain.Dps, faster.Seconds * faster.Dps, 6);
+
+        async Task<(double Seconds, double Dps)> Hit(bool equipped, bool active)
+        {
+            var clock = new ShockCastClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            { Mods = equipped ? [new(ModSection.Explicit, mod.Hash, [15])] : [] });
+            fixture.Equip(("Ice Nova", 18), ("Malevolence", 1));
+            var gems = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+            var aura = gems["Malevolence"];
+            const uint id = 900;
+            var target = new SpawnedMonster("ignite witness", new(104, 100, 0), 0, 0, 100000) { ObjectId = id, Hostile = true };
+            player.Area.Monsters[id] = target;
+            player.Area.Grid.Set(new(id), (104, 100));
+            using var source = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (!ReferenceEquals(owner, player)) return values;
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.BaseChanceToIgnitePct] = 100;
+                values[Stat.SpellMinimumAddedFireDamage] = values[Stat.SpellMaximumAddedFireDamage] = 400;
+                return values;
+            });
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                if (active)
+                    Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                        Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+                Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == aura.Id));
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, gems["Ice Nova"].Id, (100, 100), (104, 100), id));
+                Assert.True(player.PlayerMana < mana);
+                Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                double start = target.PlayerHitAt, until = target.Ignites.Until;
+                Assert.True(until > start);
+                double dps = target.Ignites.PerSecond(start);
+                Assert.True(dps > 0);
+                return (until - start, dps);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    sealed class ShockCastClock : IPlayerUpdateSchedule
+    {
+        double now;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     const MonsterElementalAilments.Kind Chill = MonsterElementalAilments.Kind.Chill,
         Freeze = MonsterElementalAilments.Kind.Freeze, Shock = MonsterElementalAilments.Kind.Shock;
 
@@ -35,7 +106,7 @@ public class InflictedAilmentTests
     // Shock", the one-type forms and the chill and freeze ones make other types count, a cannot keeps one out, "Hits
     // always Shock" needs no chance, and the caps can be raised.
     [Fact]
-    public void Minimums_caps_damage_types_and_conditional_penetration_set_what_a_hit_does()
+    public async Task Minimums_caps_damage_types_and_conditional_penetration_set_what_a_hit_does()
     {
         var shockAtLeast15 = With(("shock_minimum_damage_taken_increase_%", 15));
         Assert.Equal(7, Magnitude(Shock, Taken(lightning: 1), With()));   // floor(50 × 0.01^0.4)
@@ -144,6 +215,8 @@ public class InflictedAilmentTests
         Assert.Contains((Stat.MainHandAttackDamagePenetratesFireResistPct, 15),
             PanelStats.Selected(panel, _ => 0, mainHand: _ => 0, mainArmed: true));
         Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => Program.Stats.Name(row.Stat).Contains("penetrates"));
+
+        await Malevolence_Watchers_Eye_accelerates_a_paid_ignite_without_changing_its_total_damage();
     }
 
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all
