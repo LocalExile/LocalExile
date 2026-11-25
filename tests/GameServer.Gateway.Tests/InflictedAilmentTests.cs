@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Modding;
@@ -150,8 +151,9 @@ public class InflictedAilmentTests
     // three, the gloves' freeze one for freeze only. Each AI tick a monster within a source's radius has its copy, which
     // does not spread again.
     [Fact]
-    public void Chill_freeze_and_shock_spread_by_their_own_proliferation_radius()
+    public async Task Chill_freeze_and_shock_spread_by_their_own_proliferation_radius()
     {
+        await WeaponMaimFollowsTheAttackingHand();
         static int Radius(MonsterElementalAilments.Kind kind, Func<uint, int> playerStats) =>
             MonsterElementalAilments.ProliferationRadius(kind, playerStats);
         var spreading = With(("elemental_status_effect_aura_radius", 15), ("gloves_freeze_proliferation_radius", 20));
@@ -296,6 +298,96 @@ public class InflictedAilmentTests
             Program.SetGameLogic(previousLogic!);
         }
     }
+
+    static async Task WeaponMaimFollowsTheAttackingHand()
+    {
+        var catalog = new UniqueCatalog(Program.Items);
+        var innsbury = Assert.IsType<Item>(catalog.Create("Innsbury Edge", new Random(17)));
+        var guaranteed = Program.Items.Mods.ById("LocalMaimOnHitUnique__1")!;
+        Assert.Contains(innsbury.Mods, mod => mod.Hash == guaranteed.Hash);
+        var plain = innsbury with { Mods = [.. innsbury.Mods.Where(mod => mod.Hash != guaranteed.Hash)] };
+        var implicitSword = ItemCatalog.Create(Program.Items.Find(
+            "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSwordM1")!);
+        var nativeImplicit = Program.Items.Mods.ById("DodgeImplicitMarakethSword1")!;
+        implicitSword = implicitSword with { Mods = [new ItemMod(ModSection.Implicit, nativeImplicit.Hash, [15])] };
+
+        int plainHit = await Hits(plain, "Double Strike", 1, sequence: 2);
+        int otherHand = await Hits(innsbury, "Double Strike", 1, sequence: 3);
+        int mainHand = await Hits(innsbury, "Double Strike", 1, sequence: 2);
+        int projectile = await Hits(innsbury, "Spectral Throw", 1, sequence: 2);
+        int chanceHits = await Hits(implicitSword, "Double Strike", 24, sequence: 2);
+        int dualPlain = await Hits(plain, "Dual Strike", 1, sequence: 2);
+        int dualMain = await Hits(innsbury, "Dual Strike", 1, sequence: 2);
+        int dualOff = await Hits(plain, "Dual Strike", 1, sequence: 2, offhand: innsbury);
+        Assert.Equal((0, 0, 1, 1), (plainHit, otherHand, mainHand, projectile));
+        Assert.InRange(chanceHits, 1, 23);
+        Console.WriteLine($"Dual Strike maims: no source {dualPlain}, main only {dualMain}, offhand only {dualOff}");
+        Assert.Equal((0, 1, 1), (dualPlain, dualMain, dualOff));
+
+        async Task<int> Hits(Item weapon, string name, int attempts, ushort sequence, Item? offhand = null)
+        {
+            var clock = new MaimCastClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            var items = Game.ItemsOf(player);
+            uint host = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, host, _ => weapon);
+            items.Add(PlayerInventories.Offhand1, 0, 0, offhand ?? ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            ushort skill = Assert.Single(fixture.Equip((name, 18)));
+            var local = Game.WeaponFor(player).LocalSources!;
+            var checkHand = name == "Dual Strike" ? AttackHand.Both : sequence % 2 == 0 ? AttackHand.Main : AttackHand.Off;
+            int maimed = 0;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player))
+                {
+                    values[Stat.GlobalAlwaysHit] = 1;
+                    values[Stat.GlobalCannotCrit] = 1;
+                }
+                return values;
+            });
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                for (int i = 0; i < attempts; i++)
+                {
+                    ushort use = (ushort)(sequence + i * 2);
+                    Assert.Equal(checkHand, Game.AttackHandFor(player, skill, use));
+                    const uint id = 900;
+                    var target = new SpawnedMonster("weapon maim target", new(104, 100, 0), 0, 0, 100000)
+                        { ObjectId = id, NoRewards = true };
+                    player.Area.Monsters[id] = target;
+                    player.Area.Grid.Set(new(id), (104, 100));
+                    uint mana = player.PlayerMana;
+                    Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (104, 100), id, sequence: use));
+                    Assert.True(player.PlayerMana < mana);
+                    await clock.Wait(600, CancellationToken.None);
+                    fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.Now(player))));
+                    Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                    if (target.MaimedUntil > clock.Now(player)) maimed++;
+                }
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+            Console.WriteLine($"{name}, {checkHand}: local maim {local.GetValueOrDefault(Stat.LocalMaimOnHit)}, " +
+                $"local chance {local.GetValueOrDefault(Stat.LocalMaimOnHitPct)}, maimed {maimed}/{attempts}");
+            return maimed;
+        }
+    }
+    sealed class MaimCastClock : IPlayerUpdateSchedule
+    {
+        double now;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     sealed class AilmentRolls(int chanceRoll) : Random
     {
         public int ChanceRolls { get; private set; }

@@ -50,6 +50,21 @@ public static partial class Game
     public static double BlindSeconds(Func<uint, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
+    static IReadOnlyDictionary<uint, int>? WithWeaponMaim(IReadOnlyDictionary<uint, int>? skill,
+        IReadOnlyDictionary<uint, int>? weapon, IReadOnlyDictionary<uint, int>? otherMaimWeapon = null)
+    {
+        if (weapon is null && otherMaimWeapon is null) return skill;
+        int guaranteed = (weapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0)
+            | (otherMaimWeapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0);
+        int chance = ActorScale.Saturate((long)(weapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0)
+            + (otherMaimWeapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0));
+        if (guaranteed == 0 && chance == 0) return skill;
+        Dictionary<uint, int> hit = skill is null ? new() : new(skill);
+        hit[Stat.LocalMaimOnHit] = guaranteed;
+        hit[Stat.LocalMaimOnHitPct] = chance;
+        return hit;
+    }
+
     // A hit that landed on a living hostile monster, in the area's frame. <paramref name="random"/> belongs to the
     // hit so projectile draws stay in order; others pass AreaRng(player).
     public static void HitDebuffsOnHitLocked(SpawnedMonster m, Func<uint, int> get, bool spell, bool critical, double now,
@@ -67,7 +82,9 @@ public static partial class Game
         if (unnerve) { m.UnnervedUntil = Math.Max(m.UnnervedUntil, now + HitDebuffSeconds); m.PresentationChanged?.Invoke(); }
         if (RandomRolls.Chance(get(Stat.ChanceToCrushOnHitPct), 100, random))
             { m.CrushedUntil = Math.Max(m.CrushedUntil, now + CrushSeconds); m.PresentationChanged?.Invoke(); }
-        TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
+        int maim = !spell && get(Stat.LocalMaimOnHit) != 0 ? 100
+            : ActorScale.Saturate((long)get(Stat.MaimOnHitPct) + (spell ? 0 : get(Stat.LocalMaimOnHitPct)));
+        TryApplyMaimLocked(m, maim,
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
         if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
             ApplyHinderLocked(m, now);

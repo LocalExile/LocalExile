@@ -315,6 +315,7 @@ public static partial class Game
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             var attackSource = HandWeapon(player, hand);
             var local = attackSource.LocalSources;
+            var ailmentStats = WithWeaponMaim(skillStats, local);
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
@@ -417,7 +418,7 @@ public static partial class Game
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                 SoulEaterHit(player, m);
                 if (hit.Life == 0) DevourOnKill(player, m, skillStats);
-                AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
+                AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
                     AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(playerStats, skillStats),
                     attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
