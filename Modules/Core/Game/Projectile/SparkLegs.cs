@@ -37,7 +37,8 @@ public sealed class SparkLegs : IProjectileLegs
         float scale = length / MathF.Sqrt(dx * dx + dy * dy);
         heading = MathF.Atan2(dy, dx);
         var leg = new ProjectileLeg(new(x + (int)MathF.Round(dx * scale), y + (int)MathF.Round(dy * scale)), Speed());
-        Console.WriteLine($"[gateway] spark seq={sequence} index={index} at=({x}, {y}) aim=({x + dx}, {y + dy}) first={leg.Target}");
+        if (ServerTrace.Projectiles)
+            Console.WriteLine($"[gateway] spark seq={sequence} index={index} at=({x}, {y}) aim=({x + dx}, {y + dy}) first={leg.Target}");
         return leg;
     }
 
