@@ -471,8 +471,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Hideouts: changing a placed decoration's appearance and the Puzzle Cube map device are not implemented.
-  Personal template selection, saved home login and functional furniture placement are implemented
+- Hideouts: changing a placed decoration's appearance and the Puzzle Cube map device are not implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
   Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
