@@ -2,4 +2,8 @@
 
   <!-- Moving things in the hideout's editor. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
 
+  <ItemGroup>
+    <ProjectReference Include="../Portals/Portals.csproj" Private="false" />
+  </ItemGroup>
+
 </Project>

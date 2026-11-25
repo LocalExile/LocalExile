@@ -621,7 +621,18 @@ public static partial class Game
 
     public static HideoutScene? HideoutFurniture(Player player) => player.Furniture ??=
         HideoutCatalog.ByArea(player.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
-            ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player)) : null;
+            ? WithMapDevice(player, HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player))) : null;
+
+    // The map device variant the owner placed from the Decorations panel, at the device's saved place (one saved before
+    // the server refused its type keeps the template's device).
+    static HideoutScene WithMapDevice(Player player, HideoutScene scene)
+    {
+        if (AccountMapDevice(player) is not { } d || HideoutCatalog.DoodadByHash(d.Hash) is not ({ } type, var models)
+            || !ServableMapDevice(type)) return scene;
+        string? model = models is { Length: > 0 } ? models[Math.Clamp((int)d.Variation, 0, models.Length - 1)] : null;
+        return scene with { Device = scene.Device with { Name = "Map Device", Hash = d.Hash, Type = type, Model = model,
+            Variation = d.Variation, CollisionRadius = HideoutCatalog.CollisionRadius(model) } };
+    }
 
     public static async Task SelectHideout(Player player, (int Row, bool Guild) selected)
     {
