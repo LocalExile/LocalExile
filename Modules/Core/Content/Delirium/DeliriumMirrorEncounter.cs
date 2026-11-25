@@ -67,6 +67,7 @@ public sealed class DeliriumMirrorEncounter
         public int[] RewardCounts { get; set; } = [];
         public HashSet<uint> Monsters { get; set; } = [];
         public string Why { get; set; } = "";
+        [System.Text.Json.Serialization.JsonIgnore] public bool? Planned { get; set; }
 
         [System.Text.Json.Serialization.JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
         [System.Text.Json.Serialization.JsonIgnore] public object? ShownArea;
@@ -204,15 +205,53 @@ public sealed class DeliriumMirrorEncounter
 
     public IEnumerable<(string Log, byte[] Message)> EnterMessages(Player player)
     {
-        if (!IsEligibleMap(player) || AfflictionRuleset.EncounterRow is not { } row) return [];
+        if (!IsEligibleMap(player) || AfflictionRuleset.EncounterRow is not { } row || !HasMirror(player, For(player))) return [];
         return [($"0x001f ruleset AfflictionEncounterRules (row {row})", InstanceProtocol.AddRuleset(row))];
+    }
+
+    static bool HasMirror(Player player, MirrorState state)
+    {
+        lock (state)
+        {
+            if (state.Stage != MirrorStage.None) return true;
+            if (state.Planned is { } planned) return planned;
+            if (state.Placed) return false;
+
+            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
+            int S(uint id) => stats.GetValueOrDefault(id);
+            bool selected = false;
+            if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
+                || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0)
+                state.Why = "disabled by map stats";
+            else if (S(Stat.MapAfflictionLeague) > 0)
+            {
+                selected = true;
+                state.Why = "forced by map_affliction_league";
+            }
+            else if (S(Stat.MapDisableDeliriumFromChance) > 0)
+                state.Why = "disabled by map_disable_delirium_from_chance";
+            else
+            {
+                int seed = AreaPopulation.PopulationSeed(player.Layout.Hash, player.Seed);
+                int count = LeagueChances.Current.Count(player.Layout.Id, LeagueChances.Delirium, new Random(seed ^ 0x44656c69),
+                    alternate: player.LeagueModule?.HardMode == true,
+                    increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
+                    added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapAfflictionEncounterAdditionalChancePct),
+                    encounterIncrease: S(Stat.MapAfflictionEncounterChancePlusPct));
+                selected = count > 0;
+                state.Why = $"league roll Delirium {count}";
+            }
+            state.Planned = selected;
+            return selected;
+        }
     }
 
     public async Task OnAreaPopulated(AreaPopulated area)
     {
         var player = area.Player;
-        if (!IsEligibleMap(player)) return;
+        if (!IsEligibleMap(player) || AfflictionRuleset.EncounterRow is null) return;
         var state = For(player);
+        if (!HasMirror(player, state)) return;
         await state.Gate.WaitAsync();
         try
         {
@@ -223,37 +262,6 @@ public sealed class DeliriumMirrorEncounter
             }
             var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
             int S(uint id) => stats.GetValueOrDefault(id);
-            if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
-                || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0)
-            {
-                lock (state) state.Why = "disabled by map stats";
-                return;
-            }
-            bool forced = S(Stat.MapAfflictionLeague) > 0;
-            int count;
-            string why;
-            if (forced)
-            {
-                count = 1;
-                why = "forced by map_affliction_league";
-            }
-            else if (S(Stat.MapDisableDeliriumFromChance) > 0)
-            {
-                lock (state) state.Why = "disabled by map_disable_delirium_from_chance";
-                return;
-            }
-            else
-            {
-                var rng = new Random(area.Seed ^ 0x44656c69);
-                bool hardMode = player.LeagueModule?.HardMode == true;
-                count = LeagueChances.Current.Count(player.Layout.Id, LeagueChances.Delirium, rng, alternate: hardMode,
-                    increased: S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 ? -100 : S(Stat.MapLeagueBaseChancePlusPctFinal),
-                    added: S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapAfflictionEncounterAdditionalChancePct),
-                    encounterIncrease: S(Stat.MapAfflictionEncounterChancePlusPct));
-                why = $"league roll Delirium {count}";
-            }
-            lock (state) state.Why = why;
-            if (count <= 0) return;
 
             var placeRng = new Random(area.Seed ^ 0x4166666c);
             var spot = PickMirrorSpot(player.Layout, placeRng);
@@ -277,7 +285,7 @@ public sealed class DeliriumMirrorEncounter
             }
             await PresentMirror(player, state);
             lock (state) SaveLocked(player, state);
-            _context.Log($"Delirium Mirror {player.Layout.Id}: {why} at ({spot.X}, {spot.Y})");
+            _context.Log($"Delirium Mirror {player.Layout.Id}: {state.Why} at ({spot.X}, {spot.Y})");
         }
         finally { state.Gate.Release(); }
     }

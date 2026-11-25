@@ -20,6 +20,17 @@ public class DeliriumHeistTests
         Assert.Equal((byte)102, AfflictionRuleset.EncounterRow);
         Assert.Equal((byte)103, AfflictionRuleset.Row);
 
+        var mirror = new DeliriumMirrorEncounter();
+        var beach = new AreaLayout(AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, "MapWorldsBeach",
+            200, 200, 50, 60, (_, _) => true, []);
+        var ordinary = new Player(beach, 1, 314159) { Instance = new() };
+        ordinary.Instance.AreaStats(() => new Dictionary<uint, int> { [Stat.MapDisableDeliriumFromChance] = 1 });
+        Assert.Empty(mirror.EnterMessages(ordinary));
+        Assert.Empty(mirror.EnterMessages(new Player(beach, 2, 314159) { Instance = ordinary.Instance }));
+        var forced = new Player(beach, 3, 314159) { Instance = new() };
+        forced.Instance.AreaStats(() => new Dictionary<uint, int> { [Stat.MapAfflictionLeague] = 1 });
+        Assert.Equal(InstanceProtocol.AddRuleset(102), Assert.Single(mirror.EnterMessages(forced)).Message);
+
         var region = new AfflictionRuleset.FogRegion(0, 0, 200, 200, 50, 60, 0f);
         var tile = new AfflictionRuleset.RewardTile(Type: 0, Current: 12, Max: 18, Count: 2);
         byte[] snap = AfflictionRuleset.EncounterSnapshot(
