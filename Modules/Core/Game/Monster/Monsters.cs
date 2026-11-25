@@ -3172,6 +3172,12 @@ public static partial class Game
             stats: stats, byId: id, attack: attackHit);
         // What the player's lines return to a melee attacker, or to any attacker on block.
         ReflectToAttackerLocked(player, id, m, stats, melee: attackHit && !projectile, attack: attackHit, blocked, physicalDamage, now);
+        // "#% chance to Curse Enemies which Hit you with a random Hex, ignoring Curse Limit" (Ylfeban's Trickery). The
+        // hex is applied as an item's hex on hit is, so the curse limit still counts.
+        if (stats.GetValueOrDefault(Stat.RandomCurseWhenHitPctIgnoringCurseLimit) is int hexChance and > 0 && !blocked
+            && m is { Hostile: true, Dead: false, Life: > 0 }
+            && GameServer.Core.World.RandomRolls.Chance(hexChance, 100, player.IncomingHitRandom))
+            CurseOnHitLocked(player, m, ItemCurseOnHitStats[player.IncomingHitRandom.Next(ItemCurseOnHitStats.Length)].Effect, 1, stats, now, 0);
         // "Recover # Life when you Suppress Spell Damage" (Elevore).
         if (suppressed && stats.GetValueOrDefault(Stat.RecoverXLifeOnSuppressingSpell) is int onSuppress and > 0)
             RecoverByRuleLocked(player, "life", false, onSuppress, 0);

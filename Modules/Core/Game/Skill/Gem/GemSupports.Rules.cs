@@ -1120,12 +1120,8 @@ public static partial class Game
         // the swing, a projectile's release and the character panel all read the same number. weaponCritical is only
         // given for the off hand.
         if (SkillsFor(player).IsAttack(gem.Effect)
-            && HandLocalSources(player, weaponCritical is null ? AttackHand.Main : AttackHand.Off) is { } handLocal)
-        {
-            int fixedChance = handLocal.GetValueOrDefault(Stat.LocalWeaponCritChanceIs100) != 0 ? 100
-                : handLocal.GetValueOrDefault(Stat.LocalWeaponCritChanceIsPct);
-            if (fixedChance > 0) return fixedChance * 100;
-        }
+            && FixedWeaponCriticalChance(player, weaponCritical is null ? AttackHand.Main : AttackHand.Off) is int fixedChance and > 0)
+            return fixedChance;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (player.SupportGems.InspirationCharges > 0
             && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)

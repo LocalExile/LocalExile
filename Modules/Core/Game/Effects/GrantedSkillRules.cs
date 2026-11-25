@@ -183,7 +183,11 @@ public static partial class Game
         // loop guard applies (Chains): by default a triggered skill's own hits and kills trigger no further skill.
         EffectRules.Register(skillKind = new("skill", [], ["at"], fire =>
         {
-            if (fire.Source?.Thing is WornGrantedSkills.Grant grant) TriggeredSkillExecutorFor(fire.Conn, grant)?.Run(fire, grant);
+            if (fire.Source?.Thing is not WornGrantedSkills.Grant grant || TriggeredSkillExecutorFor(fire.Conn, grant) is not { } executor) return;
+            // "Consumes a Void Charge to Trigger ..." (Voidfletcher's Void Shot): no charge, no trigger.
+            if (GrantedSkillStatsOf(fire.Conn, grant).ContainsKey(Stat.TriggerOnSkillUsePctIfYouHaveAVoidArrow)
+                && !TakeVoidChargeLocked(fire.Conn, fire.Now)) return;
+            executor.Run(fire, grant);
         }, (_, word) => word is "monster" or "self")
         {
             Chains = true, NameDefaults = new Dictionary<string, string> { ["at"] = "monster" },

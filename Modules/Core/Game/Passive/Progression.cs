@@ -858,11 +858,12 @@ public static partial class Game
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
         // "Increases and Reductions to Cast Speed apply to Attack Speed" (Wilma's Requital): the cast speed in this
-        // source sum, at the line's share, counted as attack speed too. Cast speed added after this point (a buff's)
+        // source sum (the cast half of "attack and cast speed" too: Repeater's 8% counts twice for attacks), at the
+        // line's share, counted as attack speed too. Cast speed added after this point (a buff's)
         // is not carried over.
         if (sources.GetValueOrDefault(Stat.UniqueHelmetCastSpeedPlusPctAppliesToAttackSpeedAtPctOfOriginalValue) is int castShare and not 0
-            && sources.GetValueOrDefault(Stat.BaseCastSpeedPlusPct) is int castSpeed and not 0)
-            GolemAdd(sources, Stat.AttackSpeedPlusPct, ActorScale.Saturate((long)castSpeed * castShare / 100));
+            && (long)sources.GetValueOrDefault(Stat.BaseCastSpeedPlusPct) + sources.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) is var castSpeed and not 0)
+            GolemAdd(sources, Stat.AttackSpeedPlusPct, ActorScale.Saturate(castSpeed * castShare / 100));
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -1383,8 +1384,10 @@ public static partial class Game
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            // "This Weapon's Critical Strike Chance is 100%" (Trypanon) / "is #%" (Actum): the panel's number too.
+            AttackCriticalStrikeChance = FixedWeaponCriticalChance(player, AttackHand.Main) is int fixedCritical and > 0 ? fixedCritical
+                : DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
+                    activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
             SpellCriticalStrikeChance = DisplayedCriticalChance(player, SpellCriticalStrike.Chance(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)
