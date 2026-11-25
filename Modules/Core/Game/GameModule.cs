@@ -91,7 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPlacedSkillsData();
         Rules.LoadTotemsRulesData();
         // Flasks.
-        global::AntiquarianEffects.LoadAntiquarianEffectsData();
+        global::WardBreakEffects.LoadWardBreakEffectsData();
         Rules.LoadFlaskGroundsData();
         // Monsters.
         global::BossKits.LoadBossKitsData();
@@ -359,18 +359,14 @@ public sealed class GameModule : IModule, IDisposable
     }
 }
 
-public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands, IWorldAdmissionRules
+public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IWorldAdmissionRules
 {
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
-    public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
     public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
         HeistModifierMagnitudes.For(item, mods);
     public void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) =>
         Rules.ValidateImportedBuild(character, save);
-    public void QueueControlledIntent(Player player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
-    public void ClearControlledIntent(Player player) => Rules.ClearControlledIntent(player);
-    public object ObserveControlledPlayer(Player player, Player leader) => Rules.ObserveControlledPlayer(player, leader);
     public void ResumePlayerUpdates(Player player)
     {
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
@@ -489,8 +485,4 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(Player player) => Rules.PlayerActionFactor(player);
     public double MovementSpeedMultiplier(Player player) => Rules.MovementSpeedMultiplier(player);
-    public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
-    public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
-    public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);
-    public Task ControlledCompletion(Player player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }

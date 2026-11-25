@@ -345,7 +345,7 @@ public static partial class Game
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
-        if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
+        if (type == DamageType.Physical) value = WardBreakEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
         return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
             * WindDancerHitFactor(player, attack, now, stats));

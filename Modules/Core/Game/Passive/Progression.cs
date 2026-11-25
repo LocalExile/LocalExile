@@ -170,7 +170,7 @@ public static partial class Game
         sources = WithAlchemistsGenius(player, sources);
         AddBannerAuraStats(player, sources);
         sources = WithTimedBuffs(player, sources);
-        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithAntiquarian(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
+        sources = WithLinks(player, GameEvents.WithPlayerStatSources(player, WithQuestStats(player, WithWardBreak(player, WithFortification(player, WithCharges(player, WithSupportGemBuffs(player, sources))), equipment, inactive))));
         if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPerNearbyEnemy) is int perEnemy and not 0)
             sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)
                 + (long)Math.Min(8, sources.GetValueOrDefault(Stat.NumberOfNearbyEnemies)) * perEnemy);
@@ -1440,7 +1440,7 @@ public static partial class Game
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
         if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
             pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
-        player.AppliedAdrenaline = player.Antiquarian.Adrenaline(AreaTime(player));
+        player.AppliedAdrenaline = player.WardBreak.Adrenaline(AreaTime(player));
         ConfigureFortificationRecovery(player, pools.Life, sources);
         int lifeAsEnergyShield = ActorScale.Saturate((long)EquipmentInput(Stat.MaximumLifePctToAddAsMaximumEnergyShield)
             + (EquipmentInput(Stat.KeystoneCorruptedDefences) != 0 ? 15 : 0));

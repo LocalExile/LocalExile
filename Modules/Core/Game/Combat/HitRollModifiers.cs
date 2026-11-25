@@ -3,11 +3,11 @@ using GameServer.Core.World;
 
 /// <summary>Per-event roll policies read from actual passive stats. These do not change the character's ordinary
 /// resistance caps or turn a random chance into an average bonus. The caller rolls them once for each hit.</summary>
-public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int EnemyDamageExtraRolls = 0,
+public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int EnemyDamageExtraRolls = 0,
     int TripleDamageChance = 0, int DamageMorePct = 0, int InvertElementalResistanceChance = 0, int EnemyHitsNinetyResistanceChance = 0,
     int DoubleDamageChance = 0, int SpellDoubleDamageChance = 0)
 {
-    public static GamblerModifiers From(Func<uint, int> get) => new(
+    public static HitRollModifiers From(Func<uint, int> get) => new(
         get(Stat.BaseExtraDamageRolls), get(Stat.BaseEnemyExtraDamageRolls),
         get(Stat.BaseChanceToDealTripleDamagePct), get(Stat.MarauderHiddenAscendancyDamagePlusPctFinal),
         get(Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance),
@@ -17,7 +17,7 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
     /// <summary>One skill's hit: the skill's own chance to deal double damage (Heavy Strike's gem) adds to the player's,
     /// a spell adds spell_chance_to_deal_double_damage_%, and the final repeat of a spell adds Awakened Spell Echo's
     /// spell_echo_plus_chance_double_damage_%_final. Attribute-scaled skill stats use complete groups of ten.</summary>
-    public GamblerModifiers ForSkill(Func<uint, int> skill, bool spell, bool finalRepeat = false, int intelligence = 0) => this with
+    public HitRollModifiers ForSkill(Func<uint, int> skill, bool spell, bool finalRepeat = false, int intelligence = 0) => this with
     {
         DoubleDamageChance = ActorScale.Saturate((long)DoubleDamageChance + skill(Stat.ChanceToDealDoubleDamagePct)
             + (long)(Math.Max(0, intelligence) / 10) * skill(Stat.ChanceToDealDoubleDamagePctPer10Intelligence)
@@ -28,7 +28,7 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
     /// <summary>"Attacks with this Weapon deal Double Damage" (Paradoxica's weapon-local local_double_damage_with_attacks):
     /// every hit of an attack made with that weapon doubles. <paramref name="weaponLocal"/> holds the local stats of the
     /// hand that made the hit (null for a spell or a shield's swing), so the other hand's weapon never doubles it.</summary>
-    public GamblerModifiers ForWeapon(IReadOnlyDictionary<uint, int>? weaponLocal) =>
+    public HitRollModifiers ForWeapon(IReadOnlyDictionary<uint, int>? weaponLocal) =>
         weaponLocal?.GetValueOrDefault(Stat.LocalDoubleDamageWithAttacks) is > 0 ? this with { DoubleDamageChance = 100 } : this;
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>

@@ -531,7 +531,7 @@ public static partial class Game
             await WarpToHideout(player, why);
             return;
         }
-        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+        var target = InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
         if (target is null)
@@ -885,7 +885,7 @@ public static partial class Game
             CarryFortification(player, r.Ticket);
             CarryRampage(player, r.Ticket);
             CarryResourceEffects(player, r.Ticket);
-            CarryAntiquarian(player, r.Ticket);
+            CarryWardBreak(player, r.Ticket);
             CarryRage(player, r.Ticket);
             CarryVaalSouls(player, r.Ticket);
             player.Retire();

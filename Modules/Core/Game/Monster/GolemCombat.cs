@@ -1088,7 +1088,7 @@ public static partial class Game
     static DamagePacket GolemRollHit(DamagePacket damage, MonsterModEffects effects, bool spell, Random random,
         bool fullLife, bool tripleDamage, int extraDoubleDamage = 0)
     {
-        var modifiers = GamblerModifiers.From(name => effects[name]).ForSkill(name => name == Stat.ChanceToDealDoubleDamagePct
+        var modifiers = HitRollModifiers.From(name => effects[name]).ForSkill(name => name == Stat.ChanceToDealDoubleDamagePct
             ? extraDoubleDamage + (fullLife ? effects[Stat.ChanceToDealDoubleDamageWhileOnFullLifePct] : 0) : 0, spell);
         if (tripleDamage) modifiers = modifiers with { TripleDamageChance = 100 };
         return modifiers.RollOutgoingHit(damage, random);

@@ -47,7 +47,6 @@ public class PartyAreaTests
                 Instance = world ?? instance,
                 Connection = { PlayerSent = true },
                 PlayerLife = 100,
-                Controlled = false,
                 InstanceNumber = number ?? (ulong)players.Count + 10
             };
             var packets = new List<byte[]>();

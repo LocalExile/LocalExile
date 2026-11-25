@@ -29,7 +29,7 @@ public static partial class Game
             var shifted = PlayerDamageTaken.Shift(DamagePacket.Of(type, amount, amount), stats.GetValueOrDefault);
             var kept = PlayerDamageTaken.Avoid(shifted, stats.GetValueOrDefault, player.IncomingHitRandom, out var avoided,
                 ElusiveAvoidPct(player));
-            var mitigated = GamblerFor(stats).MitigateIncomingHit(kept, t =>
+            var mitigated = HitRollsFor(stats).MitigateIncomingHit(kept, t =>
                 new DamageModel.ResistanceValue(Resistance(player, t), MaxResistance(player, t)), player.IncomingHitRandom, out bool ninety);
             var immune = PlayerImmunities(player, stats);
             int blockChance = spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
@@ -78,7 +78,7 @@ public static partial class Game
             RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0, attack: !spell);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
-            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
             RecordHardcoreDeath(player);
             hit = new(dealt, mitigation, player.PlayerLife, player.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression, recouped);

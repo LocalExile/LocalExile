@@ -103,7 +103,7 @@ public static partial class Game
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
+                HitRollsFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
             if (crit) damage = DamageModel.CriticalDamage(damage,
                 CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, caster, skill.Stats));
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
