@@ -137,7 +137,7 @@ with `AtlasMapCompletedFrame` by `0x14079a890`) when it is in +0xd070, and that 
 instance + 8, so its +0xd068 is +0xd070:
 
 - **S→C 0x1a3** (case 0x7f `0x142157401`, read `0x1421b02e0`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
-  (unknown, 0), u8 sections, u8 n × (u16, u16) (→ +0xd0a8, unknown; 0), then by section bit: 0x1 22 bytes → +0xd030,
+  (unknown, 0), u8 sections, u8 count and pairs of big-endian WorldAreas HASH16 values (scrying connections), then by section bit: 0x1 22 bytes → +0xd030,
   0x2 22 bytes → +0xd070 (`0x14215ca00`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
   RandomContent nodes), 0x4 a WorldAreas list → +0xcff0, 0x8 and 0x10 further lists (see the schema). A section that is
   sent replaces its set.
@@ -993,4 +993,14 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   - `C→S 0x2b1` (4 bytes, writer `0x141f9a380`, sender `0x140c40b80`): `u8 flags`, `u8 uiKind` (`0x33` crafting bench);
     clears the open bench state and removes the bench balance inventory view.
   - Flipping a `RecipeUnlockDisplay.RecipeId` league quest flag bit `0 → 1` via `PlayerLeagueQuestFlagsUpdate` triggers
-    the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`).
+    the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`), paired with `S→C 0x01d6` (`Mods.HASH32`).
+- **Atlas endgame deltas, Scrying, Primordial Altar HUD, Vault Pass, and Delve live sync (3.29.3c).**
+  - `S→C 0x01a5` (4 bytes, read `0x1421b09f0`): `u8 regionIndex`, `u8 upgraded` toggles one Voidstone T16 quadrant bit incrementally.
+  - `S→C 0x7b` kind `0x13` (`0x14216a456` → `0x140dcb750`: `a = 1`, `b = sourceObjectId`) opens the Atlas in Scrying mode; `C→S 0x01a7` (10 bytes: `u16 BE fromAreaHash`, `u16 BE toAreaHash`, `u32 BE objectId`) sets the destination map to use the source map’s divination-card pool.
+  - `C→S 0x0075` (12 bytes: `u32 BE inventoryId`, `u32 BE itemId`, `u16 BE nodeHash16`) and `C→S 0x0076` (17 bytes: `u32 BE typeHash`, `u32 BE inventoryId`, `u16 BE tabIndex`, `u16 BE subIndex`, `u8 flags`, `u16 BE nodeHash16`) apply currency items to Atlas nodes.
+    The 3.29.3d client sends `0x0075` for a carried Scrying Orb and for consecutive applications from a carried Orb of Scouring stack while Shift is held. The type-based form has no individual Scrying Orb origin.
+    The ScryingOrb item component carries its source WorldAreas HASH16 as a little-endian u16 (reader `0x14250a320`). The destination comes from the Atlas click. An Orb of Scouring removes the connection from either endpoint.
+  - `Rulesets.dat` row `99` (`AtlasPrimordialBossInfluenceRules`, `0x141750170` / `0x141e4c7e0`): `S→C 0x001f` + `S→C 0x02c9` sub-id `0` carries 6 lists of `(u8 count, count × (u16 LE Mods.HASH16, compact-int stat values))` for the Primordial Altar HUD tracker.
+  - `S→C 0x012a` (read `0x1421ad220`): `u16 BE mapCompletionCount`, `WStr passId`, `u8 purchased`, `u8 active`, `u8 trackFlags`, `u64 LE unlockedMask`, `u64 LE claimedMask`, `u8 hasUnclaimedRewards` (Atlas Vault Pass).
+  - Delve live updates: `S→C 0x0227` (6 bytes: `u32 BE azurite`), `S→C 0x022c` (`u16 BE count`, `count × 4×i32 BE` chart delta), `S→C 0x0242` (`u8 count`, `count × 4×i32 BE` confirmed Crawler route echo after `C→S 0x0241`).
+  - Labyrinth Divine Font (`LabyrinthBlessingBench`): `S→C 0x0246` (read `0x1421b43b0`: `u8 count`, `count × u16 BE LabyrinthCraftOptions.HASH16`, `u8 remainingUses`), `S→C 0x02a2` (read `0x141fa8860`: `u64 LE count`, `count × item.Wire()`), `C→S 0x0247` (`u16 BE optionHash16`), `C→S 0x0245` (`u8`), `C→S 0x02a3` (`u8 index`); gem slot is `StrMasterCrafting` (inventory row 16, `0x140bcbd36`).
