@@ -540,7 +540,7 @@ static partial class SurvivorsSkills
             return cast.Interval;
         }
         var profile = cast.Profile!;
-        var shot = cast.Shot! with { Owner = ownership, Valid = () => ownership.Current };
+        var shot = cast.Shot! with { Owner = ownership, Valid = () => ownership.Current, SourceSkill = SurvivorsSkillId(skillIndex) };
         // The pick is the nearest target, or the toughest for a few named gems, up to the gem's own projectile count.
         var pick = cast.Toughest
             ? inReach.OrderByDescending(t => t.Life).ThenBy(t => t.Distance)
