@@ -2958,6 +2958,7 @@ public static partial class Game
         // (GroundSlamWave); a channel's sweep lands at once.
         bool ring = !immediate && SkillsFor(player).ActionHash(gem.Effect) == IceNovaRing.Action;
         bool travellingSweep = ring || wave || vaalWave || fissure;
+        TectonicFissureUse? tectonic = null;
         int frostboltCap = ring ? Stat(global::Stat.IceNovaNumberOfFrostBoltsToCastOn) : 0;
         double frostboltMore = 1;
         bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
@@ -3018,6 +3019,22 @@ public static partial class Game
                     var slam = CommitTectonicSlamLocked(player, skillId, gem.Effect, cataclysm, Stat, now);
                     radius = (int)Math.Floor(radius * slam.RadiusFactor);
                     damageMore *= slam.HitFactor;
+                    if (areaAction == TectonicFissures.Action)
+                    {
+                        var area = SkillAreaStats(player, areaStats, gem.Effect);
+                        int GetArea(uint key) => area.GetValueOrDefault(key);
+                        double increased = 1 + SkillArea.Increased(GetArea, spell: false) / 100d;
+                        double ordinaryArea = SkillArea.Modifier(GetArea, spell: false);
+                        double size = radiusMore * slam.RadiusFactor
+                            * Math.Max(0, 1 + GetArea(global::Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100d);
+                        float Scale(int otherIncreased) => increased <= 0 ? 0
+                            : (float)(Math.Floor(100 * Math.Sqrt(ordinaryArea / increased
+                                * Math.Max(0, increased + otherIncreased / 100d))) / 100 * size);
+                        uint repeatsLeft = (uint)Math.Max(0, MeleeAttackRepeats(player, skillId) - repeat);
+                        var paths = TectonicFissures.Plan(from, to, sequence, player.Id, repeatsLeft,
+                            slam.BranchChance, slam.ExtraBranch, Scale);
+                        tectonic = new(player, paths, AreaTime(player), epoch, excludeMonster, singleStrikeTarget, once, targetFilter);
+                    }
                 }
             }
             double reachLimit = wave ? waveLength : radius;
@@ -3079,7 +3096,8 @@ public static partial class Game
             else
             {
                 var candidates = centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt);
-                found = sunder is not null || iceCrash is not null ? [] : shieldUse is null ? candidates.ToList() : candidates.Where(target =>
+                found = sunder is not null || iceCrash is not null || tectonic is not null ? []
+                    : shieldUse is null ? candidates.ToList() : candidates.Where(target =>
                     shieldUse.Includes(target.Key, target.At, LivingCollision.Size(target.Value))).ToList();
                 if (elementalHit)
                 {
@@ -3300,6 +3318,11 @@ public static partial class Game
                         await SettleSweep();
                         if (!await iceCrash.AppendContacts(targets)) break;
                     }
+                    else if (tectonic is not null)
+                    {
+                        await SettleSweep();
+                        if (!await tectonic.AppendContacts(targets)) break;
+                    }
                     else if (!fissure || !await AddFissureContacts()) break;
                 }
                 if (hexblast && victim > 0 && !hexblastExpanded) break;
@@ -3334,8 +3357,8 @@ public static partial class Game
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
                     // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
                     if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused
-                        || (sunder is not null || iceCrash is not null) && !player.ProjectileActive(epoch)
-                        || !(travellingSweep || hammer is not null || sunder is not null || iceCrash is not null)
+                        || (sunder is not null || iceCrash is not null || tectonic is not null) && !player.ProjectileActive(epoch)
+                        || !(travellingSweep || hammer is not null || sunder is not null || iceCrash is not null || tectonic is not null)
                             && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null
                                 && triggeredCurrent is null && !PlayerActionCurrent(player, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
@@ -3873,7 +3896,9 @@ public static partial class Game
             : shieldUse is { } shieldWave
                 ? $"in shield wave {shieldWave.Phase + 1} from ({centre.X}, {centre.Y}), "
                     + $"side radius {shieldWave.Waves.SideRadius}, centre radius {shieldWave.Waves.CentreRadius}"
-                : sunder is not null ? "along the Sunder wave" : $"within {radius} cells of ({centre.X}, {centre.Y})";
+                : sunder is not null ? "along the Sunder wave"
+                : tectonic is not null ? $"along fissures starting at ({from.X}, {from.Y})"
+                : $"within {radius} cells of ({centre.X}, {centre.Y})";
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
