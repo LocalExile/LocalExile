@@ -9,16 +9,16 @@ public sealed partial class DeliriumModule
         "The Front Line", "The Interrogation", "Natural Affinity"];
 
     /// <summary>The pools a reward roll draws from, built once for a batch of payouts (the item catalog is large).</summary>
-    sealed class RewardRolls(Player player, Run run)
+    sealed class RewardRolls(Player player, byte level)
     {
         public readonly Random Random = AreaRng(player);
         public readonly ItemCatalog Catalog = ItemsFor(player);
         public readonly ItemDrops Drops = DropsFor(player);
         public readonly UniqueCatalog Uniques = UniquesFor(player);
         public readonly ItemRolls Rolls = RollsFor(player);
-        public readonly byte Level = (byte)SimulacrumRules.RewardLevel(run.Wave);
+        public readonly byte Level = level;
         public readonly ItemCatalog.BaseType[] All =
-            [.. ItemsFor(player).All.Where(t => t.Supported && t.DropLevel <= (byte)SimulacrumRules.RewardLevel(run.Wave)
+            [.. ItemsFor(player).All.Where(t => t.Supported && t.DropLevel <= level
                 && !t.Components.Contains("Quest"))];
         public readonly IReadOnlySet<int> Gems = GemSources.DropPool(ItemsFor(player));
         UniqueCatalog.Definition[]? _uniquePool;
@@ -75,7 +75,7 @@ public sealed partial class DeliriumModule
     List<Item> RollRewards(Player player, Run run)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0") return [];
-        var rolls = new RewardRolls(player, run);
+        var rolls = new RewardRolls(player, (byte)SimulacrumRules.RewardLevel(run.Wave));
         var random = rolls.Random;
         var result = new List<Item>();
         for (int i = 0; i < run.Rewards.Length; i++)
@@ -94,6 +94,30 @@ public sealed partial class DeliriumModule
         var clusters = rolls.All.Where(t => t.Cluster is not null).ToArray();
         if (clusters.Length > 0)
             result.Add(rolls.Rolls.Roll(ItemCatalog.Create(clusters[random.Next(clusters.Length)]) with { ItemLevel = rolls.Level }, ItemRarity.Rare, random) with { Identified = false });
+        return result;
+    }
+
+    internal static List<Item> RollMirrorRewards(Player player, byte level, IReadOnlyList<int> rewards, IReadOnlyList<int> counts, int splinters)
+    {
+        if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return [];
+        var rolls = new RewardRolls(player, level);
+        var result = new List<Item>();
+        for (int i = 0; i < rewards.Count; i++)
+        {
+            int count = i < counts.Count ? counts[i] : 0;
+            for (int n = 0; n < count; n++)
+                if (rolls.Kind(rewards[i]) is { } earned) result.Add(earned);
+        }
+        if (splinters > 0 && rolls.Catalog.Find("Metadata/Items/Currency/CurrencyAfflictionShard") is { Supported: true } shard)
+        {
+            int remaining = splinters;
+            while (remaining > 0)
+            {
+                ushort stack = (ushort)Math.Clamp(remaining, 1, Math.Max(1, (int)shard.MaxStack));
+                result.Add(ItemCatalog.Create(shard) with { StackSize = stack, ItemLevel = level });
+                remaining -= stack;
+            }
+        }
         return result;
     }
 

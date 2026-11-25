@@ -988,30 +988,44 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
     IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
-    IReadOnlyDictionary<uint, int>? DisplayStats = null)
+    IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
+    IReadOnlyList<byte>? PreloadGroups = null)
 {
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
         bool hasReturnArea = ReturnAreaHash is > 0;
+        bool hasRulesets = Rulesets is { Count: > 0 };
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
             .U8(B1e).U8(B20).U8(B1f).U8(B24)
             .Bytes([
                 (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
-                (byte)((TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                (byte)((hasRulesets ? 1 : 0) | (TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
                 0,
             ])
             .U8(Level).U8(B1d).U8(B28);
         if (hasReturnArea) writer.U16(ReturnAreaHash!.Value);
-        writer.U16(0)  // vec16<u32> +0x68
-              .U16(0); // vec16<u8> +0x80
+        writer.U16(0); // vec16<u32> +0x68
+        if (PreloadGroups is { Count: > ushort.MaxValue }) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+        writer.U16((ushort)(PreloadGroups?.Count ?? 0));
+        foreach (byte row in PreloadGroups ?? [])
+        {
+            if (row == byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+            writer.U8((byte)(row + 1));
+        }
         // +0x50 becomes instance +0xc418. The shared achievements/league-upgrades TabControl
         // stays hidden when this list is empty, even when the Delve child tab exists.
         if (AchievementSets is { Count: > byte.MaxValue }) throw new ArgumentOutOfRangeException(nameof(AchievementSets));
         writer.U8((byte)(AchievementSets?.Count ?? 0));
         foreach (byte set in AchievementSets ?? []) writer.U8(set);
         writer.U16(0); // vec16<u16> +0xe0
+        if (hasRulesets)
+        {
+            if (Rulesets!.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(Rulesets));
+            writer.U8((byte)Rulesets.Count);
+            foreach (byte row in Rulesets) writer.U8(row);
+        }
         if (hasStats)
         {
             var first = LeagueStats ?? new Dictionary<uint, int>();
