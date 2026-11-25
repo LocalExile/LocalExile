@@ -189,6 +189,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
   landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Perforate resolves repeated Blood spikes and single-hit Sand rays. Duality adds spikes for four seconds after a
+  stance change. Bloodshed always uses its slower, wider Blood sequence.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
