@@ -140,7 +140,7 @@ public static class InstanceMapDevice
             BinaryPrimitives.ReadUInt16BigEndian(m[10..]));
 
     /// <summary>C→S 0x0076 (17 bytes, write 0x141f9b0b0, caller 0x14079cb60): apply a currency type
-    /// (Shift-held repeat) to an Atlas node (<c>u32 BE typeHash</c>, <c>u32 BE inventoryId</c>, <c>u16 BE tabIndex</c>,
+    /// to an Atlas node when the client has no resolved item id (<c>u32 BE typeHash</c>, <c>u32 BE inventoryId</c>, <c>u16 BE tabIndex</c>,
     /// <c>u16 BE subIndex</c>, <c>u8 flags</c>, <c>u16 BE nodeHash16</c>).</summary>
     public readonly record struct UseItemTypeOnAtlasNode(uint TypeHash, uint InventoryId, ushort TabIndex, ushort SubIndex,
         byte Flags, ushort NodeHash16);
