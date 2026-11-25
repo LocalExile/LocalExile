@@ -1,5 +1,11 @@
+using System.Net;
+using System.Net.Sockets;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
+using GameServer.Modding;
 using GameServer.Modules.Atlas;
+using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
@@ -87,5 +93,109 @@ public sealed class AtlasProgressTests
         Assert.Equal(split.Length, empty.Length);
         Assert.Equal(split[..7], empty[..7]);
         Assert.All(empty[7..], b => Assert.Equal(0, b));
+    }
+
+    [Fact]
+    public async Task Minion_kill_of_map_boss_awards_atlas_completion_and_respects_phased_boss_order()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        using var moduleContext = new AtlasTestContext();
+        var atlas = new AtlasModule();
+        try
+        {
+            atlas.Load(moduleContext);
+            var league = new LeagueRuntime(new League("atlas-minion", "Standard", false, false), new HashSet<string>(["Game", "Atlas"]));
+            var data = Program.WorldOf(fixture.Player).CharacterData;
+
+            async Task<(AtlasProgress.Node Node, byte[] Wire)> KillBossWithMinion(string areaId, string nodeName, string varietyId)
+            {
+                var node = AtlasProgress.Find(nodeName)!;
+                var layout = new AreaLayout(node.AreaHashes.First(), areaId, 300, 300, 50, 50, (_, _) => true, []);
+                using var listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                using var writer = new TcpClient();
+                var accept = listener.AcceptTcpClientAsync();
+                await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+                using var reader = await accept;
+                using var capture = new MemoryStream();
+                var drain = reader.GetStream().CopyToAsync(capture);
+                var player = new Player(layout, 1, 1)
+                {
+                    Instance = new(),
+                    PlayerLife = 1000,
+                    LeagueModule = league,
+                    Character = { Name = fixture.Player.Character.Name, Experience = CharacterStats.ExperienceFor(90) },
+                    Pools = new(90, 1000, 1000, 2, 0),
+                    Connection =
+                    {
+                        PlayerSent = true,
+                        Session = new("test", writer.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                    },
+                };
+                try
+                {
+                    player.Clock.Start();
+                    var mapArea = new MapDevice.MapArea(layout.Hash, areaId, node.Name, 16) { Level = 83 };
+                    var mods = new MapMods(new Dictionary<uint, int>()) { MapRarity = ItemRarity.Rare, Corrupted = true };
+                    player.Instance.OpenedWith(new MapDevice.Run(player.Character.Name!, mapArea, mods));
+
+                    var variety = Game.Monsters.Find(varietyId)!;
+                    var boss = new SpawnedMonster(variety.Name, new(layout.SpawnX, layout.SpawnY, 1), 1000, 5, 100)
+                    {
+                        Hostile = true,
+                        Variety = variety,
+                        Level = 83,
+                        Rarity = MonsterRarity.Unique,
+                        ObjectId = 0x8000001,
+                    };
+                    player.Area.Monsters[boss.ObjectId] = boss;
+                    Game.CommitAcceptedKillLocked(player, boss.ObjectId, boss, 1.0, playerKill: false);
+                    await Game.PublishMinionOutcomes(player);
+                }
+                finally
+                {
+                    player.Closed = true;
+                    writer.Dispose();
+                    await drain;
+                }
+                byte[] wire = capture.ToArray();
+                new ConnectionCiphers(new byte[64], true).Receive.Process(wire);
+                return (node, wire);
+            }
+
+            var (tomb, tombWire) = await KillBossWithMinion(
+                "MapWorldsArachnidTomb", "Arachnid Tomb", "Metadata/Monsters/Spiders/MapSpiderBossSinsSimplified");
+            Assert.Contains(tomb.Id, AtlasProgress.Completed(data));
+            Assert.Contains(tomb.Id, AtlasProgress.BonusCompleted(data));
+            Assert.True(tombWire.AsSpan().IndexOf(AtlasProgress.NodeMessage(tomb, bonus: true)) >= 0);
+
+            var (desertPhase1, desertPhase1Wire) = await KillBossWithMinion(
+                "MapWorldsDesertSpring", "Desert Spring", "Metadata/Monsters/Shakari/ShakariMap");
+            Assert.DoesNotContain(desertPhase1.Id, AtlasProgress.Completed(data));
+            Assert.True(desertPhase1Wire.AsSpan().IndexOf(AtlasProgress.NodeMessage(desertPhase1, bonus: true)) < 0);
+
+            var (desertPhase2, desertPhase2Wire) = await KillBossWithMinion(
+                "MapWorldsDesertSpring", "Desert Spring", "Metadata/Monsters/Shakari/Shakari2Map");
+            Assert.Contains(desertPhase2.Id, AtlasProgress.Completed(data));
+            Assert.Contains(desertPhase2.Id, AtlasProgress.BonusCompleted(data));
+            Assert.True(desertPhase2Wire.AsSpan().IndexOf(AtlasProgress.NodeMessage(desertPhase2, bonus: true)) >= 0);
+        }
+        finally
+        {
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Atlas", rank);
+        }
+    }
+
+    sealed class AtlasTestContext : IModuleContext, IDisposable
+    {
+        readonly ModuleLifetime lifetime = new("Atlas");
+        public ModManifest Manifest => new("Atlas", "1.0.0", ModKind.Feature, ["Game"], "atlas.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public void Log(string message) { }
+        public T Settings<T>() => throw new NotSupportedException();
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Dispose() => lifetime.Stop(e => throw e);
     }
 }
