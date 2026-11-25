@@ -500,6 +500,7 @@ public static partial class Game
                 m.Mods = mods;
                 player.Golems.All.Add(id, probe);
                 player.Minions.Add(new(id, m, definition.Id, definition.Kind) { Until = double.PositiveInfinity });
+                MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
                 if (claimActivation && replacement is null && gemSource?.Parent is { } marker)
                     PlayerInventories.Current(CharacterName(player))?.ClaimGemActivation(
                         GolemSaveKey, source, marker, player.VitalsSessionId);
