@@ -3002,7 +3002,8 @@ public static partial class Game
         // with this hit's one armour decision.
         var gambler = GamblerFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
-        var hitDamage = MonsterTemporaryHit(m, a.Damage, player.IncomingHitRandom);
+        var baseDamage = MonsterTemporaryHit(m, a.Damage, player.IncomingHitRandom);
+        var hitDamage = baseDamage;
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
         var map = MapModsOf(player);
@@ -3027,7 +3028,7 @@ public static partial class Game
             baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
         // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
-        var baseHit = hitDamage.Scale(SpiderOutgoingFactor(m, now));
+        var baseHit = baseDamage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.

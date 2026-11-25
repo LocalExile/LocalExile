@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using static Game;
@@ -188,9 +189,18 @@ public sealed class ApparitionEffect : IShrineEffect
             await PublishMinionOutcomes(ctx.Player);
         }
         else
-            foreach (var peer in ShrineManager.NearbyPlayers(ctx.Player, contact.Centre, contact.Radius + 20))
+        {
+            var peers = ShrineManager.NearbyPlayers(ctx.Player, contact.Centre, contact.Radius + 20);
+            foreach (var peer in peers)
+            {
+                uint before = peer.PlayerLife;
                 await ScriptedEnemyContact(peer, actor, body, attack,
                     at => Dist(at, contact.Centre) <= contact.Radius, () => actor != 0 && body is { Dead: false });
+                if (ServerTrace.Combat) Console.WriteLine($"[gateway] shrine apparition contact {p.Kind} effect {contact.Effect} at {contact.Centre}, radius {contact.Radius}, player {peer.Walk.Position(ctx.Now)}, life {before}->{peer.PlayerLife}, damage {attack.Damage}");
+            }
+            if (peers.Length == 0 && ServerTrace.Combat)
+                Console.WriteLine($"[gateway] shrine apparition contact {p.Kind} effect {contact.Effect}: no nearby recipients at {contact.Centre}");
+        }
     }
 
     void Tornadoes(ShrineContext ctx, Profile p, Contact contact)
@@ -271,11 +281,24 @@ public sealed class ApparitionEffect : IShrineEffect
         generation++;
         contacts.Clear();
         foreach (var (session, marker) in flights)
-            session.Runtime.Discard(use => ReferenceEquals(use.Payload, marker));
+            if (session.Active) session.Runtime.Discard(use => ReferenceEquals(use.Payload, marker));
         flights.Clear();
         if (body is not null) { body.Dead = true; body.Life = 0; body.ActionGeneration++; }
         if (actor != 0) producer?.MinionOrigins.TryRemove(actor, out _);
-        if (actor != 0 && player.Area.Monsters.Remove(actor)) await SendWorldRemoval(player, actor, "shrine apparition ends");
+        if (actor != 0 && player.Area.Monsters.Remove(actor))
+        {
+            if (!player.Closed && !player.LeavingArea && player.Connection.Connected)
+                await SendWorldRemoval(player, actor, "shrine apparition ends");
+            else
+            {
+                var area = player.Area;
+                uint removed = actor;
+                var bytes = InstanceProtocol.RemoveObject(removed);
+                area.Objects.RecordDirect(removed, bytes, AreaDelta.Kind.Remove, player);
+                if (area.Owned) area.Delta.RemoveSharedObject(removed, bytes);
+                else if (area.Driven) area.Defer(a => a.Delta.RemoveSharedObject(removed, bytes));
+            }
+        }
         actor = 0; body = null; actionOpen = false;
     }
 }

@@ -268,7 +268,7 @@ public sealed partial class ShrineTests
         using var sources = GameEvents.PlayerStatSources.Add("shrine-regression", (p, stats) =>
         {
             ShrineManager.AddStats(p, stats);
-            stats[Stat.ChanceToUpgradeMonstersOnKillPermyriad] = 10000;
+            stats[Stat.ChanceToUpgradeMonstersOnKillPermyriad] = int.MaxValue; // Saturates the roll to certainty after decline too.
             return stats;
         });
         var position = player.Walk.Position(0);
@@ -284,6 +284,13 @@ public sealed partial class ShrineTests
         Assert.Single(kill.Afterwards); // Owned kills are eligible too.
         foreach (var send in kill.Afterwards) await send();
         Assert.Contains(player.Area.Monsters.Values, m => ReferenceEquals(m.Variety, variety) && m.Rarity == MonsterRarity.Magic);
+        var magic = player.Area.Monsters.Values.Single(m => ReferenceEquals(m.Variety, variety) && m.Rarity == MonsterRarity.Magic);
+        magic.Dead = true; magic.Life = 0;
+        var second = new KillContext(player, magic, variety.Id, (100, 100));
+        EvolutionShrine.OnKill(second);
+        Assert.Single(second.Afterwards);
+        foreach (var send in second.Afterwards) await send();
+        Assert.Contains(player.Area.Monsters.Values, m => ReferenceEquals(m.Variety, variety) && m.Rarity == MonsterRarity.Rare);
         var duplicate = new KillContext(player, dead, variety.Id, (100, 100));
         EvolutionShrine.OnKill(duplicate);
         Assert.Empty(duplicate.Afterwards);
