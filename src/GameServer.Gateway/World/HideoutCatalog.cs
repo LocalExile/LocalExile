@@ -17,7 +17,7 @@ public static class HideoutCatalog
         Devices = LoadDevices();
         Spawns = LoadPortalSpawns();
         CollisionRadii = LoadCollisionRadii();
-        HideoutMusicRows = LoadHideoutMusicRows();
+        (HideoutMusicRows, HideoutMusicHashByRow, HideoutMusicRowByHash) = LoadHideoutMusicData();
         All = LoadAll();
         ObjectTypes = LoadObjectTypes();
     }
@@ -201,9 +201,20 @@ public static class HideoutCatalog
             ? HideoutMusicRows.GetValueOrDefault((ushort)0) ?? "Default Hideout Music"
             : HideoutMusicRows.TryGetValue(row, out var name) ? name : null;
 
+    /// <summary>Returns the Music.dat HASH16 for a hideout music row (or 0 for default/unknown).</summary>
+    public static ushort HideoutMusicHash(ushort row) =>
+        row != InstanceHideoutEditing.DefaultMusicRow && HideoutMusicHashByRow.TryGetValue(row, out ushort hash) ? hash : (ushort)0;
+
+    /// <summary>Resolves a Music.dat HASH16 to its hideout music row (0 → 0xffff default), or null when unavailable.</summary>
+    public static ushort? HideoutMusicRowByHash16(ushort hash16) =>
+        hash16 == 0 ? InstanceHideoutEditing.DefaultMusicRow
+            : HideoutMusicRowByHash.TryGetValue(hash16, out ushort row) ? row : null;
+
     static Dictionary<uint, (string? Type, string[]? Models)> DoodadTypeIndex = default!;
     static Dictionary<string, double> CollisionRadii = default!;
     static Dictionary<ushort, string> HideoutMusicRows = default!;
+    static Dictionary<ushort, ushort> HideoutMusicHashByRow = default!;
+    static Dictionary<ushort, ushort> HideoutMusicRowByHash = default!;
 
     static Dictionary<string, double> LoadCollisionRadii()
     {
@@ -212,14 +223,28 @@ public static class HideoutCatalog
         return radii;
     }
 
-    static Dictionary<ushort, string> LoadHideoutMusicRows()
+    static (Dictionary<ushort, string> Names, Dictionary<ushort, ushort> HashByRow, Dictionary<ushort, ushort> RowByHash) LoadHideoutMusicData()
     {
         var rows = new Dictionary<ushort, string>();
-        if (!ClientTables.Has("Music")) return rows;
+        var hashByRow = new Dictionary<ushort, ushort>();
+        var rowByHash = new Dictionary<ushort, ushort>();
+        if (!ClientTables.Has("Music")) return (rows, hashByRow, rowByHash);
         foreach (var r in ClientTables.Table("Music"))
+        {
             if (r.Index is >= 0 and <= ushort.MaxValue && r.Bool("IsAvailableInHideout"))
-                rows[(ushort)r.Index] = r.Text("Name") is { Length: > 0 } name ? name : (r.Text("Id") ?? $"Track {r.Index}");
-        return rows;
+            {
+                ushort row = (ushort)r.Index;
+                rows[row] = r.Text("Name") is { Length: > 0 } name ? name : (r.Text("Id") ?? $"Track {r.Index}");
+                int h = r.Int("HASH16");
+                if (h is > 0 and <= ushort.MaxValue)
+                {
+                    ushort hash = (ushort)h;
+                    hashByRow[row] = hash;
+                    rowByHash.TryAdd(hash, row);
+                }
+            }
+        }
+        return (rows, hashByRow, rowByHash);
     }
 
     /// <summary>An object type's deserialized components and shared-state count (the object_types table), or null.</summary>

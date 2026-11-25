@@ -12,6 +12,12 @@ public static class InstanceMicrotransactions
 {
     public const ushort PurchasedId = 0x1f3;
     public const ushort AddedId = 0x1f4;
+    /// <summary>S→C 0x0204 (reader <c>0x1421b1f10</c>, dispatcher case <c>0x9b</c> at <c>0x1421587be</c>):
+    /// incremental MTX record upsert (<c>u8 isStore</c>, <c>u8 isGuild</c>, record, <c>u8 justReceived</c>).</summary>
+    public const ushort RecordUpsertId = 0x0204;
+    /// <summary>S→C 0x0205 (reader <c>0x1421b2130</c>, dispatcher case <c>0x9c</c> at <c>0x14215889c</c>):
+    /// incremental MTX record remove (<c>u8 isStore</c>, <c>u8 isGuild</c>, <c>u32 BE recordId</c>).</summary>
+    public const ushort RecordRemoveId = 0x0205;
 
     /// <summary>
     /// One owned microtransaction, in wire order. <paramref name="MtxTypeHash"/> lands at +0x04 and is the key the
@@ -179,6 +185,18 @@ public static class InstanceMicrotransactions
         foreach (var r in records) WriteRecord(w, r);
         return w.U8(flags).ToArray();
     }
+
+    /// <summary>Encodes S→C 0x0204: incremental MTX record upsert (used by local shop purchases and mystery/salvage box opens).</summary>
+    public static byte[] RecordUpsert(Record record, bool isStore = false, bool isGuild = false, bool justReceived = true)
+    {
+        var w = new LoginWriter().U16(RecordUpsertId).U8((byte)(isStore ? 1 : 0)).U8((byte)(isGuild ? 1 : 0));
+        WriteRecord(w, record);
+        return w.U8((byte)(justReceived ? 1 : 0)).ToArray();
+    }
+
+    /// <summary>Encodes S→C 0x0205: incremental MTX record remove (consumed mystery/salvage box or salvaged records).</summary>
+    public static byte[] RecordRemove(uint recordId, bool isStore = false, bool isGuild = false) =>
+        new LoginWriter().U16(RecordRemoveId).U8((byte)(isStore ? 1 : 0)).U8((byte)(isGuild ? 1 : 0)).U32(recordId).ToArray();
 
     /// <summary>
     /// C→S 0x1f9 (class vtable 0x1435cb0c8, write 0x141fa28c0), the Cosmetics tab's pick: the slot flyout sends it when

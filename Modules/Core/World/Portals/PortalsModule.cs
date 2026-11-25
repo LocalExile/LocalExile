@@ -67,6 +67,14 @@ public sealed class PortalsModule : IModule
                 await UseMapReturnPortal(player, use, (back.X, back.Y), requestedAt);
                 return true;
             }
+            (string Owner, int X, int Y, ushort ReturnToTown)? peerPortal = null;
+            lock (player.PeerPortals)
+                if (player.PeerPortals.TryGetValue(use.TargetId, out var pp)) peerPortal = pp;
+            if (peerPortal is { } clickedPeer)
+            {
+                await UseMapReturnPortal(player, use, (clickedPeer.X, clickedPeer.Y), requestedAt, clickedPeer.ReturnToTown);
+                return true;
+            }
             (int X, int Y, int Index)? portal;
             lock (player.MapPortals) portal = player.MapPortals.TryGetValue(use.TargetId, out var at) ? at : null;
             if (portal is { } p)

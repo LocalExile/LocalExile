@@ -23,7 +23,7 @@ public static partial class Game
     /// <summary>Fast check for whether any NPC, stash, crafting bench, or module window interaction is open.</summary>
     public static bool HasOpenInteraction(Player player) =>
         player.TalkingTo != 0 || player.Sale is not null || player.Shop is not null
-        || player.StashOpen || player.GuildStashOpen || player.BenchOpen
+        || player.StashOpen || player.GuildStashOpen || player.TradeStashOpen || player.BenchOpen
         || player.ModuleWindow is not null;
 
     /// <summary>Closes any open NPC dialogue/shop/sale, stash, crafting bench, or module window state once the player
@@ -47,7 +47,7 @@ public static partial class Game
                 {
                     var npc = player.Sale?.Npc ?? player.Shop?.Npc
                         ?? (player.TalkingTo != 0 ? player.Npcs.GetValueOrDefault(player.TalkingTo) : null);
-                    int size = npc is null ? 0 : Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size);
+                    int size = npc is null ? 0 : NpcInteractionSize(npc);
                     if (npc is null || BeyondCloseRange(here, movingTo, (npc.X, npc.Y), size))
                     {
                         closeNpc = true;
@@ -78,6 +78,11 @@ public static partial class Game
             {
                 player.GuildStashOpen = false;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} guild stash closed (moved out of range)");
+            }
+            if (player.TradeStashOpen && BeyondCloseRange(here, movingTo, player.TradeStashAt, Player.StashBlockerSize))
+            {
+                player.TradeStashOpen = false;
+                Console.WriteLine($"[gateway] {player.Connection.Remote} async-trade stash closed (moved out of range)");
             }
             if (player.BenchOpen
                 && BeyondCloseRange(here, movingTo, player.CraftingBenchAt, player.StationaryInteractionSize(player.CraftingBenchObject)))

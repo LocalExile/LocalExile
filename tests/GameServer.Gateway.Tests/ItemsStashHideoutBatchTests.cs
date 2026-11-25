@@ -98,6 +98,12 @@ public class ItemsStashHideoutBatchTests : IDisposable
         var noted = stash.SetItemNote(premiumTab, placed.Value.Placed.Id, "~b/o 1 divine");
         Assert.NotNull(noted);
         Assert.Equal("~b/o 1 divine", noted!.Item.Note);
+        // A move inside the public tab keeps a note; landing in a tab that isn't public clears it (retail).
+        var second = stash.Place(premiumTab, 2, 0, new InventoryItem(stash.NewItemId(), 0, 0, ItemCatalog.Create(fossils[0])), ShapeOf, out _)!.Value.Placed;
+        stash.SetItemNote(premiumTab, second.Id, "~price 2 chaos");
+        var kept = stash.Place(premiumTab, 4, 0, stash.Take(premiumTab, second.Id)!, ShapeOf, out _)!.Value.Placed;
+        Assert.Equal("~price 2 chaos", kept.Item.Note);
+        Assert.Null(stash.Place(normalTab, 2, 0, stash.Take(premiumTab, second.Id)!, ShapeOf, out _)!.Value.Placed.Item.Note);
 
         // Removing a tab hides it and clears its Public flag; SetPublic & SetItemNote reject deleted tabs.
         int removablePremium = records.Last(t => t.Type == 1 && !t.Hidden && t.HiddenKey == 0 && t.Index != premiumTab).Index;

@@ -14,7 +14,7 @@ public static class GatewayProjectileSkillProfiles
     public static IReadOnlyList<string> Effects { get; } = Array.AsReadOnly(new[]
         { "Fireball", "KineticBlast", "KineticBlastAltX", "KineticBlastAltY",
             "KineticBolt", "KineticBoltAltX", "KineticBoltAltY",
-            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem", "SpiritBurst" });
+            "MoltenStrike", "MoltenStrikeAltX", "MoltenStrikeAltY", "VaalMoltenStrike", "HolyFlameTotem", "HolyFlameTotemAltX", "SpiritBurst" });
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
@@ -30,6 +30,7 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
     public static bool IsCausticArrow(string? effect) =>
@@ -65,6 +66,19 @@ public static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        else if (Game.IsCreepingFrost(effect))
+            p = p with { EndArea = new("creeping-frost-burst", 0), EndAreaReasons = TerminalStops };
+        else if (effect == "BlazingSalvo")
+            p = p with
+            {
+                Lobbed = true,
+                LobbedEnemyContacts = true,
+                // An angular fan grows in world size with distance instead of rescaling to a fixed target width.
+                AimSpreadDistance = 0,
+                EndArea = new("blazing-salvo", 16),
+                EndAreaReasons = new HashSet<ProjectileEndReason>
+                    { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Landing },
+            };
         // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
         // The transfigured and Vaal versions share the rule.
         // Their wander is the client's own legs (SparkLegs, set at release from the use's sequence).
@@ -80,7 +94,7 @@ public static class GatewayProjectileSkillProfiles
         // The client's bounces go straight on without seeking an enemy (Frida 2026-11-01, trace-chain-decisions.js).
         // shortcut: 16 cells between impacts and the 14-cell base radius (SkillArea.BaseRadius) are not read from the
         // client; it takes 375 ms per bounce, slower than this flight at the orb's speed, so a bounce's hits land ~0.1 s early.
-        else if (effect == "RollingMagma")
+        else if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale")
             p = p with
             {
                 Lobbed = true, DirectDamage = false, GroundBounceDistance = RollingMagmaBounceCells,
@@ -104,6 +118,14 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (Game.IsPyroclastMine(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("pyroclast-mine", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing },
+            };
         else if (effect == "VolcanicFissure")
             p = p with
             {
@@ -113,7 +135,7 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("volcanic-fissure", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
-        else if (effect == "HolyFlameTotem")
+        else if (IsHolyFlameTotem(effect))
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
         else if (IsCausticArrow(effect))
             p = p with
@@ -133,6 +155,7 @@ public static class GatewayProjectileSkillProfiles
                 => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
+            "BlazingSalvo" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
@@ -162,10 +185,31 @@ public static class GatewayProjectileSkillProfiles
             if (countFinal != 0)
                 p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
         }
+        if (Game.IsCreepingFrost(effect) && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
+        if (effect == "HolyFlameTotemAltX")
+        {
+            if (get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+                p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
+            if (get(Stat.ActiveSkillProjectileSpeedPlusPctFinal) is int speedFinal and not 0)
+                p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
+        }
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect == "SpectralThrowAltX")
+        {
+            int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
+            p = p with
+            {
+                Returns = true,
+                PierceAllOnReturn = true,
+                OutboundHitLimit = 0,
+                ReturnHitRule = repeatMs > 0
+                    ? new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(repeatMs / 1000d)) : null
+            };
+        }
         if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
@@ -206,7 +250,7 @@ public static class GatewayProjectileSkillProfiles
         HidePredictedVisual = true
     };
 
-    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltY";
 
     // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
@@ -338,6 +382,8 @@ public static class GatewayProjectileSkillProfiles
             var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
             return p with { ContactArea = scaled, EndArea = scaled };
         }
+        if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
+            return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };

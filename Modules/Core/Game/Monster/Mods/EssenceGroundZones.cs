@@ -101,14 +101,14 @@ public static partial class MapEssences
         if (evicted != 0) RemoveEffect(conn, evicted);
     }
 
-    static DamagePacket GroundZonesDotAt(GroundZone[] zones, (int X, int Y) pos)
+    static DamagePacket GroundZonesDotAt(GroundZone[] zones, (int X, int Y) pos, bool burning = true)
     {
         double phys = 0, fire = 0, cold = 0, light = 0, chaos = 0;
         foreach (var z in zones)
         {
             if (z.Dot.IsZero || Dist(pos, z.At) > z.Radius) continue;
             phys = Math.Max(phys, z.Dot[DamageType.Physical].Min);
-            fire = Math.Max(fire, z.Dot[DamageType.Fire].Min);
+            if (burning) fire = Math.Max(fire, z.Dot[DamageType.Fire].Min);
             cold = Math.Max(cold, z.Dot[DamageType.Cold].Min);
             light = Math.Max(light, z.Dot[DamageType.Lightning].Min);
             chaos = Math.Max(chaos, z.Dot[DamageType.Chaos].Min);
@@ -145,10 +145,12 @@ public static partial class MapEssences
         if (zones.Length == 0) return;
         double at = AreaTime(conn);
         var instance = conn.Instance;
+        var unaffected = UnaffectedByGround(conn);
         if (zones.Any(z => !z.Dot.IsZero))
         {
             var exposure = GroundExposures.GetOrCreateValue(conn);
-            await ArenaHazards.Ground(conn, exposure, at, (pos, _) => GroundZonesDotAt(zones, pos),
+            await ArenaHazards.Ground(conn, exposure, at,
+                (pos, minion) => GroundZonesDotAt(zones, pos, burning: minion || !unaffected.Burning),
                 () => CurrentGameWork && ReferenceEquals(conn.Instance, instance));
         }
         if (conn.Closed || conn.LeavingArea || conn.PlayerLife == 0 || conn.Paused || conn.Immune || InGracePeriod(conn)) return;
@@ -157,8 +159,8 @@ public static partial class MapEssences
         foreach (var z in zones)
         {
             if (z.Ailment is null || z.AilmentMagnitude <= 0 || Dist(here, z.At) > z.Radius) continue;
-            if (z.Ailment == PlayerElementalAilments.Kind.Chill) chill = Math.Max(chill, z.AilmentMagnitude);
-            else if (z.Ailment == PlayerElementalAilments.Kind.Shock) shock = Math.Max(shock, z.AilmentMagnitude);
+            if (z.Ailment == PlayerElementalAilments.Kind.Chill && !unaffected.Chilled) chill = Math.Max(chill, z.AilmentMagnitude);
+            else if (z.Ailment == PlayerElementalAilments.Kind.Shock && !unaffected.Shocked) shock = Math.Max(shock, z.AilmentMagnitude);
         }
         if (chill == 0 && shock == 0) return;
         bool needChill = chill > 0 && conn.ElementalAilments.Magnitude(PlayerElementalAilments.Kind.Chill, at) < chill;

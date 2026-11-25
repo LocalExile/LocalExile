@@ -33,6 +33,7 @@ public static partial class Game
         state.ArcaneSurgeCastSpeedPct = running ? Math.Max(state.ArcaneSurgeCastSpeedPct, castSpeedPct) : castSpeedPct;
         state.ArcaneSurgeManaRegenPct = running ? Math.Max(state.ArcaneSurgeManaRegenPct, manaRegenPct) : manaRegenPct;
         state.ArcaneSurgeUntil = running ? Math.Max(state.ArcaneSurgeUntil, until) : until;
+        GrantSpectreArcaneSurgeLocked(player, now);
         PresentStats(player);
         if (stronger || state.ArcaneSurgeUntil - state.ArcaneSurgeShownUntil >= ArcaneSurgeRepresentSeconds)
         {
@@ -142,9 +143,13 @@ public static partial class Game
     public static Dictionary<uint, int> WithSupportGemBuffs(Player player, Dictionary<uint, int> stats)
     {
         stats = WithSelfBuffs(player, WithTriggeredGuard(player, stats));
+        stats = WithVaalArcticArmour(player, stats);
         AddMomentumStats(player, stats);
-        if (!player.SupportGems.ArcaneSurgeActiveAt(AreaTime(player))) return stats;
-        StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - AreaTime(player));
+        double now = AreaTime(player);
+        bool timed = player.SupportGems.ArcaneSurgeActiveAt(now);
+        bool fromFlask = stats.GetValueOrDefault(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0 && player.FlaskEffects.AnyMana;
+        if (!timed && !fromFlask) return stats;
+        if (timed) StatsChangeIn(player.SupportGems.ArcaneSurgeUntil - now);
         int Get(uint k) => stats.GetValueOrDefault(k);
         void Add(uint name, long value)
         {
@@ -154,8 +159,10 @@ public static partial class Game
         long effect = Math.Max(0, 100L + Get(Stat.ArcaneSurgeEffectPlusPct));
         long Buff(int value) => value * effect / 100;
         Add(Stat.HasArcaneSurge, 1);
-        Add(Stat.ArcaneSurgeCastSpeedPlusPct, Buff(player.SupportGems.ArcaneSurgeCastSpeedPct));
-        Add(Stat.ManaRegenerationRatePlusPct, Buff(player.SupportGems.ArcaneSurgeManaRegenPct));
+        int castSpeed = Math.Max(timed ? player.SupportGems.ArcaneSurgeCastSpeedPct : 0, fromFlask ? ArcaneSurgeCastSpeed : 0);
+        int manaRegen = Math.Max(timed ? player.SupportGems.ArcaneSurgeManaRegenPct : 0, fromFlask ? ArcaneSurgeManaRegen : 0);
+        Add(Stat.ArcaneSurgeCastSpeedPlusPct, Buff(castSpeed));
+        Add(Stat.ManaRegenerationRatePlusPct, Buff(manaRegen));
         Add(ArcaneSurgeSpellMore, Buff(Get(Stat.ArcaneSurgeOnYouSpellDamagePlusPctFinalFromHierophant)));
         Add(SkillArea.BaseIncreased, Get(Stat.AreaOfEffectPlusPctWhileYouHaveArcaneSurge));
         Add(Stat.BaseLifeLeechFromSpellDamagePermyriad, Get(Stat.LifeLeechFromSpellDamagePermyriadWhileYouHaveArcaneSurge));
@@ -166,7 +173,11 @@ public static partial class Game
     /// <summary>The Arcane Surge buff's more Spell Damage on the player (PlayerHitDamage's spell more).</summary>
     public const uint ArcaneSurgeSpellMore = Stat.SpellDamagePlusPctFinalFromArcaneSurge;
 
-    public static bool ArcaneSurgeActive(Player player, double now) => player.SupportGems.ArcaneSurgeActiveAt(now);
+    static bool ManaFlaskArcaneSurge(Player player) => player.FlaskEffects.AnyMana
+        && StatSourceValues(player).GetValueOrDefault(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0;
+
+    public static bool ArcaneSurgeActive(Player player, double now) =>
+        player.SupportGems.ArcaneSurgeActiveAt(now) || ManaFlaskArcaneSurge(player);
 
     // A generic Arcane Surge source (equipment, passives, tattoos; not the support gem's per-spell threshold): the buff
     // is the same one Arcane Surge Support grants - 20% increased Cast Speed, 30% increased Mana Regeneration Rate for
@@ -191,6 +202,15 @@ public static partial class Game
         if (RandomRolls.Chance(playerStats.GetValueOrDefault(key), 100, random)) GainArcaneSurgeLocked(player, now);
     }
 
+    /// <summary>"#% chance to gain Arcane Surge when you deal a Critical Strike": one roll per critical player hit, attack
+    /// or spell. In the area's frame, with the other on-hit gains.</summary>
+    public static void ArcaneSurgeOnCritLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, double now,
+        Random random)
+    {
+        if (RandomRolls.Chance(playerStats.GetValueOrDefault(Stat.GainArcaneSurgeOnCritPctChance), 100, random))
+            GainArcaneSurgeLocked(player, now);
+    }
+
     static void ExpireInspirationLocked(SupportGemState state, double now)
     {
         if (state.InspirationCharges > 0 && now >= state.InspirationUntil)
@@ -208,8 +228,11 @@ public static partial class Game
         foreach (double ends in state.CrueltyInstances.Values.Append(state.ArcaneSurgeUntil)
             .Append(state.InspirationCharges > 0 ? state.InspirationUntil : 0))
             if (ends > now) PresentIn(player, ends - now);
-        bool arcane = state.ArcaneSurgeActiveAt(now);
-        if (state.PresentedArcaneSurge != 0 && (!arcane || state.ArcaneSurgeRefresh))
+        bool fromFlask = ManaFlaskArcaneSurge(player);
+        bool arcane = state.ArcaneSurgeActiveAt(now) || fromFlask;
+        bool flaskChanged = state.PresentedArcaneSurgeFromFlask != fromFlask;
+        state.PresentedArcaneSurgeFromFlask = fromFlask;
+        if (state.PresentedArcaneSurge != 0 && (!arcane || state.ArcaneSurgeRefresh || flaskChanged))
         {
             player.Area.Buffs.Clear(player.Id, ArcaneSurgeBuffRow, player.Id);
             state.PresentedArcaneSurge = 0;
@@ -220,7 +243,8 @@ public static partial class Game
         {
             state.ArcaneSurgeBuff = player.NextBuff++;
             state.PresentedArcaneSurge = state.ArcaneSurgeBuff;
-            player.Area.Buffs.Set(player.Id, new(ArcaneSurgeBuffRow, player.Id, U68: Buff.Seconds(state.ArcaneSurgeUntil - now)));
+            player.Area.Buffs.Set(player.Id, new(ArcaneSurgeBuffRow, player.Id,
+                U68: fromFlask ? null : Buff.Seconds(state.ArcaneSurgeUntil - now)));
             state.PendingStats = true;
         }
 

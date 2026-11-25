@@ -26,11 +26,11 @@ Dispatcher case 6. Class `0x1435e4c20` (0x168 bytes, ctor `0x1421a42b0`), write 
 | 12 | u8 | +0x28 | default 0x3c → `0x142149550` |
 | 13 | u16 | +0x16 | **only if** flag 0x21 bit 3: second area hash |
 | 14 | vec16⟨u32⟩ | +0x68 | `0x141faa4a0` |
-| 15 | vec16⟨u8⟩ | +0x80 | stored as 4-byte elements, sent as 1 byte each |
+| 15 | vec16⟨u8⟩ | +0x80 | `PreloadGroups` row + 1 on the wire (Town 25, Hideout 21, Affliction 53); stored as 4-byte elements |
 | 16 | vec8⟨u8⟩ | +0x50 | visible AchievementSetsDisplay ids → instance +0xc418 (dispatcher r13 +0xc410); Delve sends permanent set 2 to enable the shared upgrade window |
 | 17 | vec16⟨u16⟩ | +0xe0 | |
 | 18 | vec8⟨u8⟩ | +0x98 | only if flag 0x21 bit 7 |
-| 19 | vec8⟨u8⟩ | +0xb0 | only if flag 0x22 bit 0 |
+| 19 | vec8⟨u8⟩ | +0xb0 | initial ruleset rows, only if flag 0x22 bit 0 |
 | 20 | `0x142179c50` | +0xc8 | only if flag 0x22 bit 1 |
 | 21 | varint pair lists | +0x100/+0x120/+0x138 | only if flag 0x21 bit 6 |
 | 22 | vec16⟨u8⟩ | +0x150 | only if flag 0x22 bit 2 |
@@ -171,7 +171,7 @@ minimap marker inside the town outline). The character model is not visible yet.
 `u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
 the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
 instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
-ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+ruleset". The optional initial ruleset list in 0x1d precedes the world's creation. The WorldAreas `Ruleset` column is not read. Client code finds
 a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
 when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
 HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.

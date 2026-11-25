@@ -47,6 +47,7 @@ static class Act7Objects
     /// <summary>FireflyChest1 … FireflyChest7 (Chests 212–218): no room or tile has them, the engine scatters them.</summary>
     public static readonly string[] FireflyChests = [.. Enumerable.Range(1, 7).Select(n => $"Metadata/Chests/QuestChests/Fireflies/FireflyChest{n}")];
     public const string SilkSins = "Metadata/NPC/Act7/SilkSins", YeenaVaalCity = "Metadata/NPC/Act7/YeenaVaalCity",
+        YeenaArakaali = "Metadata/NPC/Act7/YeenaArakaali",
         SinRalakesh = "Metadata/NPC/Act7/SinRalakesh", SinMaligaro = "Metadata/NPC/Act7/SinMaligaro",
         SinArakaali = "Metadata/NPC/Act7/SinArakaali", SinGruthkul = "Metadata/NPC/Act7/SinGruthkul";
 }
@@ -76,11 +77,17 @@ sealed class Act7 : Act
             {
                 On.Near(Crossroads, Act7Objects.BanditBlock, "a7q1-SeenBlockage"),
                 On.Seen(AshenFields, Act7Monsters.Greust, "a7q1-SeenBoss"),
+                On.Seen(AshenFields, Act7Monsters.RalakeshOak, "a7q1-SeenBoss"),
+                On.Seen(AshenFields, Act7Monsters.RalakeshAlira, "a7q1-SeenBoss"),
+                On.Seen(AshenFields, Act7Monsters.RalakeshKraityn, "a7q1-SeenBoss"),
                 On.Killed(AshenFields, Act7Monsters.Greust, "a7q1-KilledBoss"),
                 On.Killed(AshenFields, Act7Monsters.RalakeshOak, "a7q1-KilledBoss"),
                 On.Killed(AshenFields, Act7Monsters.RalakeshAlira, "a7q1-KilledBoss"),
                 On.Killed(AshenFields, Act7Monsters.RalakeshKraityn, "a7q1-KilledBoss"),
                 On.Appears(AshenFields, Act7Monsters.Greust, Act7Objects.SinRalakesh, "a7q1-Congratulated"),
+                On.Appears(AshenFields, Act7Monsters.RalakeshOak, Act7Objects.SinRalakesh, "a7q1-Congratulated"),
+                On.Appears(AshenFields, Act7Monsters.RalakeshAlira, Act7Objects.SinRalakesh, "a7q1-Congratulated"),
+                On.Appears(AshenFields, Act7Monsters.RalakeshKraityn, Act7Objects.SinRalakesh, "a7q1-Congratulated"),
                 On.Exit(AshenFields, NorthernForest, "a7q1-KilledBoss"),
             },
             // a7q2 "Essence of the Artist" (act7.md a7q2): Sin's "Inquisitor Maligaro", Helena's clue; the map lies in The
@@ -111,6 +118,7 @@ sealed class Act7 : Act
             {
                 On.Npc(SinsLevel1, Act7Objects.SilkSins, "a7q1-UsedKey", shownBy: "a7q3-SpawnSilk"),
                 On.Drops(MaligarosSanctum, Act7Monsters.BlackDeath, Act7Items.BlackVenom),
+                On.Near(SinsLevel1, Act7Objects.SinsBarrier, "a7q2-SeenSinsBlock"),
                 On.Object(SinsLevel1, Act7Objects.SinsBarrier, "a7q2-ClearedSinBlock"),
                 On.NearWith(SinsLevel1, Act7Objects.SinsBarrier, ["a7q1-HaveKey"], "a7q2-ClearedSinBlock"),
                 On.Blocker(SinsLevel1, Act7Objects.SinsBarrierBlocker, 4, "a7q2-ClearedSinBlock"),
@@ -129,6 +137,7 @@ sealed class Act7 : Act
                 On.Seen(TempleOfDecay2, Act7Monsters.Arakaali, "a7q4-SeenBoss"),
                 On.Killed(TempleOfDecay2, Act7Monsters.Arakaali, "a7q4-KilledBoss"),
                 On.Appears(TempleOfDecay2, Act7Monsters.Arakaali, Act7Objects.SinArakaali, "Visited-8_1"),
+                On.Appears(TempleOfDecay2, Act7Monsters.Arakaali, Act7Objects.YeenaArakaali, "Visited-8_1"),
                 On.Object(TempleOfDecay2, Act7Objects.ArakaaliBridge, "a7q4-KilledBoss"),
                 On.Object(TempleOfDecay2, Act7Objects.ArakaaliBridgeTransition, "a7q4-KilledBoss"),
                 On.Exit(TempleOfDecay2, SarnRamparts, "a7q4-KilledBoss"),

@@ -156,7 +156,7 @@ internal static class DeepwaterLanterns
             $"0x02bb Allflame lantern {lantern.Order} 0x{lantern.Id:x} at ({lantern.X}, {lantern.Y}), task (a {lantern.A}, {lantern.RateA}/s, b {lantern.B}, {lantern.RateB}/s)"))
             return false;
         await global::Game.SendWorldRecord(modPlayer, lantern.Id, InstanceProtocol.EnterWakeZone(lantern.Id));
-        WorldOf(modPlayer).SetBlocker(lantern.Id, lantern.X, lantern.Y, Math.Max(1, info.Size));
+        player.SetObjectBlocker(lantern.Id, lantern.X, lantern.Y, Math.Max(1, info.Size), info.ActorOrChest);
         if (DeepwaterRuleset.Anchor(lantern.X, lantern.Y, lantern.Id) is { } anchor)
             await modPlayer.Send(anchor, $"0x02c9 ruleset DeepwaterRules mode 0: lantern anchor ({lantern.X}, {lantern.Y}) 0x{lantern.Id:x}");
         return true;

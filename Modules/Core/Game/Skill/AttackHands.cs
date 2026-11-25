@@ -268,12 +268,15 @@ public static partial class Game
     /// <summary><see cref="SupportedCriticalChance(Player, ushort, AttackHand)"/> with the off-hand weapon's base
     /// critical chance read once by the caller (null: no off-hand weapon), for a sweep that asks per victim.</summary>
     public static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical) =>
-        (hand, offCritical) switch
+        SupportedCriticalChance(player, skillId, hand, offCritical, 0);
+
+    static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
+        long extraIncrease) => (hand, offCritical) switch
         {
-            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, weaponCritical: off),
-            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChance(player, skillId)
-                + SupportedCriticalChanceFor(player, skillId, false, weaponCritical: off)) / 2.0, MidpointRounding.AwayFromZero),
-            _ => SupportedCriticalChance(player, skillId),
+            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off),
+            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease)
+                + SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off)) / 2.0, MidpointRounding.AwayFromZero),
+            _ => SupportedCriticalChanceFor(player, skillId, false, extraIncrease),
         };
 
     /// <summary>A supported attack's accuracy with a hand: the off hand's local accuracy in the main hand's place.
@@ -282,10 +285,10 @@ public static partial class Game
     {
         var accuracy = SupportedAccuracy(player, skillId);
         if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off) return accuracy;
-        var own = SupportedSkill(player, skillId).Stats;
+        var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, own, off.LocalSources)
-            with { Rating = WeaponAccuracyFor(player, off, playerStats, own) };
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, off.LocalSources)
+            with { Rating = WeaponAccuracyFor(player, off, playerStats, gem.Stats, gem.Effect) };
     }
 
     /// <summary>The swinging hand's local modifiers (on-hit chances, leech, penetration): the main hand's for both

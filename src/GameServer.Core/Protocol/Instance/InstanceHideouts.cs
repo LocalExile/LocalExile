@@ -53,9 +53,12 @@ public sealed record HideoutObject(int GridX, int GridY, float Rotation, IReadOn
 public static class InstanceMapDevice
 {
     public const ushort ActivateId = 0x00d8, SelectMapId = 0x00e7, MoveId = 0x00e8, SocketId = 0x00f6,
-        ActivateMemoryLineId = 0x0297, ActivateMavenInvitationId = 0x0298;
+        ActivateMemoryLineId = 0x0297, ActivateMavenInvitationId = 0x0298,
+        UseItemOnAtlasNodeId = 0x0075, UseItemTypeOnAtlasNodeId = 0x0076, AtlasScryId = 0x01a7,
+        AtlasVoidstoneDeltaId = 0x01a5, AtlasVaultPassId = 0x012a;
     public const int ActivateLength = 5, SelectMapLength = 5, MoveLength = 11, SocketLength = 8,
-        ActivateMemoryLineLength = 3, ActivateMavenInvitationLength = 3;
+        ActivateMemoryLineLength = 3, ActivateMavenInvitationLength = 3,
+        UseItemOnAtlasNodeLength = 12, UseItemTypeOnAtlasNodeLength = 17, AtlasScryLength = 10;
 
     public static (ushort Target, byte Index) ReadActivate(ReadOnlySpan<byte> m) => ((ushort)(m[2] << 8 | m[3]), m[4]);
 
@@ -114,6 +117,59 @@ public static class InstanceMapDevice
 
     public static Socket ReadSocket(ReadOnlySpan<byte> m) =>
         new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6], m[7]);
+
+    /// <summary>S→C 0x01a5 (4 bytes, read 0x1421b09f0 / write 0x1421b0970, dispatcher case 0x81
+    /// at 0x142157801): incremental Voidstone T16 region-mask delta (<c>u8 regionBit</c> 0..3, <c>u8 on</c>). Toggles
+    /// bit <paramref name="regionBit"/> of <c>instance+0xd0f8</c> via <c>0x1407d08a0</c> and notifies <c>+0xb178</c>.</summary>
+    public static byte[] AtlasVoidstoneDelta(byte regionBit, bool socketed) =>
+        [0x01, 0xa5, regionBit, socketed ? (byte)1 : (byte)0];
+
+    /// <summary>C→S 0x01a7 (10 bytes, write 0x141fa6080, sender 0x140788370): Atlas Scrying swap
+    /// between two Atlas maps (<c>WorldAreas.HASH16</c> from, to) triggered from <paramref name="ObjectId"/>.</summary>
+    public readonly record struct AtlasScryRequest(ushort FromAreaHash, ushort ToAreaHash, uint ObjectId);
+
+    public static AtlasScryRequest ReadAtlasScry(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt16BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[4..]),
+            BinaryPrimitives.ReadUInt32BigEndian(m[6..]));
+
+    /// <summary>C→S 0x0075 (12 bytes, write 0x141f9af00, caller 0x14079cb30): apply a currency item
+    /// directly to an Atlas node (<c>u32 BE inventoryId</c> from <c>msg+0x14</c>, <c>u32 BE itemId</c> from
+    /// <c>msg+0x10</c>, <c>u16 BE nodeHash16</c>).</summary>
+    public readonly record struct UseItemOnAtlasNode(uint InventoryId, uint ItemId, ushort NodeHash16);
+
+    public static UseItemOnAtlasNode ReadUseItemOnAtlasNode(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]),
+            BinaryPrimitives.ReadUInt16BigEndian(m[10..]));
+
+    /// <summary>C→S 0x0076 (17 bytes, write 0x141f9b0b0, caller 0x14079cb60): apply a currency type
+    /// to an Atlas node when the client has no resolved item id (<c>u32 BE typeHash</c>, <c>u32 BE inventoryId</c>, <c>u16 BE tabIndex</c>,
+    /// <c>u16 BE subIndex</c>, <c>u8 flags</c>, <c>u16 BE nodeHash16</c>).</summary>
+    public readonly record struct UseItemTypeOnAtlasNode(uint TypeHash, uint InventoryId, ushort TabIndex, ushort SubIndex,
+        byte Flags, ushort NodeHash16);
+
+    public static UseItemTypeOnAtlasNode ReadUseItemTypeOnAtlasNode(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt32BigEndian(m[6..]),
+            BinaryPrimitives.ReadUInt16BigEndian(m[10..]), BinaryPrimitives.ReadUInt16BigEndian(m[12..]),
+            m[14], BinaryPrimitives.ReadUInt16BigEndian(m[15..]));
+
+    /// <summary>S→C 0x012a (read 0x1421ad220 / write 0x1421ad110, dispatcher case 0x51): Atlas
+    /// Vault Pass state. Enables <c>OpenAtlasPassButton</c> (<c>0x1406baef0</c>) and <c>AtlasPassRewardButton</c>
+    /// (<c>HUD+0x530</c>). Wire: <c>u16 BE mapCompletions</c>, <c>WStr passId</c> (<c>BattlePasses.dat</c>),
+    /// <c>u8 purchased</c>, <c>u8 active</c>, <c>u8 trackFlags</c>, <c>u64 LE unlockedMask</c>, <c>u64 LE claimedMask</c>,
+    /// <c>u8 hasUnclaimedRewards</c>.</summary>
+    public static byte[] AtlasVaultPass(ushort mapCompletionCount, string passId, bool purchased = false, bool active = true,
+        byte trackFlags = 0, ulong unlockedMask = 0, ulong claimedMask = 0, bool hasUnclaimedRewards = false) =>
+        new GameServer.Core.Protocol.Login.LoginWriter()
+            .U16(AtlasVaultPassId)
+            .U16(mapCompletionCount)
+            .WStr(passId)
+            .Bool(purchased)
+            .Bool(active)
+            .U8(trackFlags)
+            .RawU64(unlockedMask)
+            .RawU64(claimedMask)
+            .Bool(hasUnclaimedRewards)
+            .ToArray();
 
     public const ushort PortalsId = 0x008f;
 

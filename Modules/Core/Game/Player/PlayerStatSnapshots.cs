@@ -50,6 +50,7 @@ public static partial class Game
             StepWalkers(player, frame.Start);
             if (ChargeSessions.TryGetValue(player, out var charges)) charges.SettleDegeneration(frame.Start);
             player.ApplyMovementSpeedAt(frame.Start, forceRelay: true);
+            RefreshShieldChargeArrival(player);
         }
     }
 
@@ -73,14 +74,17 @@ public static partial class Game
     // Every full player stat/Actor refresh shares this gate, including refreshes caused by other mechanics.
     // Otherwise a packet prepared before expiry could overwrite a newer Fortification expiry update.
     public static Task SendPlayerStatSnapshot(Player player,
-        Func<byte[]> packet, string? label) => SendWorldRecords(player, player.Id, () =>
+        Func<byte[]> packet, string? label) => SendPlayerStatSnapshot(player, () =>
+        {
+            byte[] bytes = packet();
+            return bytes.Length == 0 ? [] : [bytes];
+        }, label);
+
+    public static Task SendPlayerStatSnapshot(Player player,
+        Func<byte[][]> packets, string? label) => SendWorldRecords(player, player.Id, () =>
         {
             if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired) return null;
-            return WithOwnAuraRecords(player, () =>
-            {
-                byte[] bytes = packet();
-                return bytes.Length == 0 ? [] : [bytes];
-            });
+            return WithOwnAuraRecords(player, packets);
         }, label);
 
     // InstanceProtocol.CompactInt, read back: 7, 14, 21 or 28 bits with their sign, or 0xf0 and a u32.

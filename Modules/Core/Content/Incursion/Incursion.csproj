@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Incursion (Alva's incursions and the Temple of Atzoatl's plan) as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+</Project>

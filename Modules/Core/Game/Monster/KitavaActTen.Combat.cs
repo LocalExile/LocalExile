@@ -261,7 +261,7 @@ static partial class KitavaActTen
         }
         async Task Fx(Player c, (int X, int Y) at, string model, double until, uint? clip = 0, float rotation = 0)
         {
-            var fx = new Visual(c.Instance.World.NewMonsterId(), at, model, clip ?? uint.MaxValue, until, rotation); visuals.Add(fx);
+            var fx = new Visual(c.TakeObjectId(), at, model, clip ?? uint.MaxValue, until, rotation); visuals.Add(fx);
             if (Present.FirstOrDefault() is { } p) await CreateFx(p, fx);
         }
         static async Task CreateFx(Player p, Visual fx)

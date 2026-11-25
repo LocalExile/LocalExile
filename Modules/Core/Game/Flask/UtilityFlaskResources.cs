@@ -74,8 +74,7 @@ public static partial class Game
         int damage = IncomingResourceDefences.TakenOverTime(resisted, Get, ref progress.TakenCarry,
             IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.ChaosDamageTakenPlusPct),
             finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
-        int life = IncomingResourceDefences.DamageOverTime(player.EnergyShield, damage,
-            Get(Stat.ChaosDamageDoesNotBypassEnergyShield) != 0 ? 0 : 100, now, ref progress.BypassCarry);
+        int life = DamagePlayerChaosOverTime(player, damage, now, stats);
         player.PlayerLife = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)player.PlayerLife - life), now);
         if (player.PlayerLife > 0) return;
         ClearUtilityFlaskDamage(player, now);
