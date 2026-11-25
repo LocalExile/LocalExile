@@ -2443,6 +2443,7 @@ public static partial class Game
                 RecomputePoolsAndSpeed(player);
                 ReconcileBeastCompanionsLocked(player);
                 ReconcileEquipmentSourceLifetimesLocked(player, sourcesBefore);
+                RefreshVaalSouls(player);
             }
         }
         var packets = new List<byte[]>();
