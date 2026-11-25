@@ -2830,6 +2830,11 @@ public static partial class Game
         ruthlessMore ??= spell || hammer is not null ? 1 : RuthlessBlowMore(player, skillId, Stat);
         double ruthless = ruthlessMore.Value;
         ushort? areaAction = SkillsFor(player).ActionHash(gem.Effect);
+        bool ownSlam = !spell && (triggeredCurrent is null || IsLeapSlam(player, gem.Effect)
+            || retainedAttack is not null)
+            && (Stat(global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct) != 0
+                || Stat(global::Stat.SupportCrystalfallChanceToTriggerCrystalfallOnHitPct) != 0)
+            && SkillsFor(player).HasType(gem.Effect, "Slam");
         double delay;
         // A spell lands at its area cast clip's contact keyframe (a repeat a whole cast later each), an attack at its
         // swing's own clip (GemAttackContactDelay; the player swings where it stands, so without the walk-in offset).
@@ -2994,6 +2999,9 @@ public static partial class Game
                     shatteringCritical = alwaysCrit;
                 }
             }
+            if (ownSlam && retainedAttack is null && strikeIndex == 0)
+                TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, centre, now,
+                    global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct, "TriggeredSupportFissure");
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
@@ -3654,6 +3662,9 @@ public static partial class Game
                                 itemCriticalTrigger, critical, m.Hostile, m.Walk.Position(at), at);
                         }
                         else ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
+                        if (ownSlam)
+                            TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, m.Walk.Position(at), at,
+                                global::Stat.SupportCrystalfallChanceToTriggerCrystalfallOnHitPct, "TriggeredSupportCrystalfall");
                         if (!spell && applied.Value.Life == 0) ReleaseMeleeKillTrigger(player,
                             ProjectilesFor(player), meleeKillTrigger, true, m.Hostile, m.Walk.Position(at), at);
                         player.RecentEvents.RecordCriticalOutcome(at, critical, attack: hitPlan.Kind == SkillHitKind.Attack);

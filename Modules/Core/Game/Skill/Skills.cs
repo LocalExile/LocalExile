@@ -526,6 +526,9 @@ public static partial class Game
             if (Stat.SkillArtVariation is var artKey
                 && SkillArtBase.Variation(SkillsFor(player).EffectId(effect), stats.GetValueOrDefault(artKey)) is int art and not 0)
                 stats[artKey] = art;
+            // The Fissure support's companion uses the radial VolcanicSlam behaviour.
+            if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) != 0)
+                stats[Stat.SkillBehaviourVariation] = 2;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = own.GetValueOrDefault(Stat.BaseCastSpeedPlusPct)
@@ -770,7 +773,9 @@ public static partial class Game
                 stats[Stat.SpellUncastableIfTriggerable] = 1;
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             }
-            else if (TriggerOnlyReason(supported) is not null)
+            // These companion attacks have a native instant action, which checks the disabled flag too.
+            else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
