@@ -1,8 +1,9 @@
-# Legion: the Timeless Monolith encounter
+# Legion: Timeless Monoliths, Scarabs, Atlas and the Domain
 
-Phases 1-2 of the Legion league mechanic: the monolith, the timer, two armies in stasis, break-out, release, war chests and rewards.
-Module `Modules/Core/Content/Legion` (`LegionMonolith`, `LegionArmy`, `LegionStasis`, `LegionRewards`, `LegionData`); the area roll that
-puts the monolith room in an area is in [league-encounters](league-encounters.md).
+Phases 1-4 of the Legion league mechanic: Timeless Monoliths, timer/alert stasis armies, break-out, release, war chests,
+rewards, Legion Scarabs, Atlas passives (including `Timeless Conflict`), and the Domain of Timeless Conflict.
+Module `Modules/Core/Content/Legion` (`LegionMonolith`, `LegionDomain`, `LegionArmy`, `LegionStasis`, `LegionRewards`,
+`LegionRules`, `LegionData`); the area roll that puts the monolith room in a map is in [league-encounters](league-encounters.md).
 The rules the code follows are the wiki's for 3.29; what the client data and code say is below, marked as a guess where it is one.
 
 ## Client objects and states
@@ -11,9 +12,9 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   room `legion_monolith.arm`. The server creates a clickable `LegionInitiator` at every matching locator in the area (supporting
   multiple monoliths when scarabs or mods add extra rooms); no formation file exists in the client, so where each monster stands is the server's.
 - The campaign's monoliths are not the league-chance roll (`WorldAreaLeagueChances` gives Legion 0 there): fixed locators sit
-  in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`) and
-  `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`). The module places monoliths at these and at
-  `Legion_EncounterLocator`; `LegionEndgame_EncounterLocator` is the endgame's and is not used.
+  in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`, sets `ClimbLegionActivated`)
+  and `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`, sets `DriedLakeLegionActivated`).
+  `LegionEndgame_EncounterLocator` belongs to the Domain of Timeless Conflict (`LegionDomain.cs`).
 - `LegionInitiator` StateMachine drives all 7 shared states (`obelisk_state`, `charging`, `shattered`, `crystal`, `spawn_lightning`, `locked`, `active`) across `Idle -> Charging (0,1,0,0,*,1,1) -> Running (2,1,1,1..3,*,1,1) -> Frozen (3,1,2,0,0,1,1) -> Battle (4,1,2,0,0,1,0) -> Ending/Finished (5,1,2,0,0,1,0)` (official 3.29 captures). Clicking also sends `0x2bc` `InteractionAction` `[0]`. When a General spawns, base-data property `0xec72e38c` links its entity id onto the monolith (`0x2c1` live update + `0x2bb` for late joiners) so `spawn_lightning=1` aims bolts towards the General while frozen, and the formation axis aligns the General's army with the monolith's forward rotation.
 - `LegionFlashLight` (`Metadata/Terrain/Leagues/Legion/Objects/LegionFlashLight`) is created alongside each monolith with base-data properties `0x40f0fc9c` and `0x7700c879` = monolith id, `Positioned` `flags0 = 0x02` (parent lookup), and `StateMachine` (`foggy`); at the shatter, `0x2bc` `Animated` `[0]` triggers the flash.
 - Every Legion monster and war chest has the states `present`, `breakout`, `activated`, `owning_initiator` (generals also `general`, `fleeing`, `disappear`).
@@ -43,10 +44,10 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 | Table, column | Meaning | Source |
 |---|---|---|
 | `LegionBalancePerLevel` col3 | the timer, in ms; the row is the one with the highest `MinLevel` <= area level | client code |
-| `LegionBalancePerLevel` col2, col4, col15 | pre-timer ms (0), fall-off ms (500), alert gauge maximum | client code, not used here |
+| `LegionBalancePerLevel` col2, col4, col15 | pre-timer ms (0), fall-off ms (500), `Timeless Conflict` alert gauge cap (1000) | client code |
 | `LegionBalancePerLevel` col1, col5 to col14 | unknown (col5 and col6 are copied by the client and never read) | not read |
 | `LegionFactions.SpawnWeight`, `LegionBalancePerLevelKey`, `StatsKey`, col3 | faction draw weight, minimum area level, `map_legion_monoliths_chance_for_*` stat, formation orderliness (`0.95` grid vs `0.65`/`0.50` loose) | table data, fits wiki |
-| `LegionRanks` col0, col1..col4, col7, col8 | tier (0..3), rarity weights, general/hoard chance, alert value (phase 4) | guess |
+| `LegionRanks` col0, col1..col4, col6, col7, col8 | tier (0..3), rarity weights, endless revival cooldown ms (`6000/6000/16000/24000`), general/hoard chance, alert value (`5/18/40/350`) | table data + guess |
 | `LegionMonsterCounts` col2 to col6 | min and max count, the depth band in percent, the number of varieties | guess, server-only table |
 | `LegionChestCounts` col2 to col5, col7 | min and max chests, the depth band (tier 0 `20..70%`, tier 1 War Hoard `35..100%`), War Hoard percent (tier 1 row) | guess, server-only table |
 | `LegionChestTypes` col0, `Chest`, `HardmodeChest` | frozen chest monster variety, release `Chests` row (standard and Ruthless) | table data |
@@ -111,3 +112,47 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal, the pool weights) is a
   guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers. A map general drops no Timeless Jewel (`GeneralJewelPermille` is 0): they come from the Domain of Timeless Conflict.
 - 100 splinters become an emblem through the generic `FullStack` row of the item, with no Legion code.
+
+## Phase 4: Scarabs, Atlas passives and Timeless Conflict
+
+- `LegionMonolith.AreaStats` reads `Instance.KeptAreaStats` (falling back to `AreaLeagueStats`), so map-owner Atlas
+  passives, Legion Scarabs, and legacy Idols apply consistently to monolith planning, stasis combat, and drops.
+- `LegionDomain.ResolveOpening` claims `"Legion"` in `MapOpening.HandledContent` on normal maps, and `MapRunCatalog`
+  strips the `New` suffix from `Scarab*New*` BaseItemTypes so `ScarabLegionNew1..5` increment `map_legion_scarab_count`.
+- Implemented Scarab / Atlas / Idol stats: `map_legion_additional_number_of_sergeants` (Officers +5, Chain of Command +2),
+  `map_legion_contains_maraketh_faction` & `map_legion_faridun_replace_maraketh_faction` (Sekhema),
+  `map_legion_%_chance_chests_break_out_spread_rewards` (Treasures: copies chest rewards onto freed tier 0-1 monsters
+  with immediate `1328` icons and +25% life/damage), `map_legion_multiple_breakout` (Eternal Conflict: non-chest monsters
+  gain buff `2459 legion_breakout_monster_enhanced`, +50% MaxLife per re-breakout, +35% damage and +30% reward count per
+  extra stack, and re-arm after 0.5 s), `map_legion_generals_spawn_both_generals` (Face Off: both armies spawn a General
+  and `0xec72e38c` retargets when the first breaks out), `map_legion_army_additional_war_chest` (War Supplies),
+  `map_legion_chests_contains_an_additional_reward` (Pillaged Treasures), `map_legion_monsters_with_rewards_*` and
+  `map_legion_monsters_+%_life_per_reward_final` (Logistical Support), `map_replace_legion_splinter_with_legion_fragment_chance_permyriad`
+  (Emblematic), splinter scaling/duplication stats, pack size, sergeant rarity, and legacy `force_general`/`force_war_chest`.
+- `Timeless Conflict` (`atlas_keystone_timeless_conflict` / `map_legion_uses_alert_instead_of_timer`): disables the
+  countdown timer (`0x163` hidden), sends `LegionRules` mode 0 with `alertMode = 1`, adds `LegionRanks.__col8` per
+  breakout (`5/18/40/350`, chests `40/80`) toward `LegionBalancePerLevel.__col15` (`1000`), and triggers Schism release
+  at the cap. Live-check needed for alert gauge HUD updates (`0x2c9` alert-specific opcodes are not disassembled yet).
+
+## Phase 3: Domain of Timeless Conflict
+
+- `MapDeviceRecipes` 30-33 (`AtlasNode` 143 `LegionDomain`, `HASH16 = 50774`) map 2-5 distinct Timeless or Unrelenting
+  Emblems (`BaseItemTypes` 3055-3064, `MapFragmentFamilies` 15-19) to `WorldAreas` 1328-1331 (`LegionLeague`..`LegionLeague4`,
+  `UsesAtlas = false`, level `80 + min(4, uberCount)`, timer `15 + 60 * emblemCount` s = `135..315` s, `Environments` 1177
+  `LegionLeague`). `LegionDomain.ResolveOpening` validates distinct factions, composes all emblem `MapFragmentMods` and
+  area `ModsKeys`, and returns players to the opening device.
+- `LegionLeague`..`LegionLeague4` have zero `MonsterPacks`, so `LegionDomain` initializes in `GameEvents.PlayerEntered`,
+  sets `EnteredDomainOfTimelessConflict` (`QuestFlags` 2770), and places `LegionEndlessInitiator` (5 components including
+  `ControlZone`; shared states `obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal` (`active`) at
+  `LegionEndgame_EncounterLocator` (fallback `(333, 333)`).
+- Stepping into the central `ControlZone` (`<= 28` cells) starts the timer, plays `LegionMonolithPulse`, and spawns all
+  slotted factions in radial sectors using `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival
+  cooldowns `6 s / 6 s / 16 s / 24 s`). Manual ControlZone entry (4 s cooldown) and the 20 s auto-pulse
+  (`map_legion_endless_monolith_pulse_time_ms`) revive half of ready dead soldiers/elites plus ready Sergeants/Generals
+  (`MiscAnimated` 3377 `beam_down.ao`), applying Unrelenting per-revival `EncounterStats` when `uberCount > 0`.
+- Kills bank Sergeant/General rewards and cancel mid-timer item drops (keeping `+500%` General gold from
+  `LegionEndlessGeneralGold`). At `00:00`, surviving monsters are removed, `LegionDomainRewardCrystal` activates (`active=1`),
+  `LegionSoulercoaster1` (`MiscAnimated` 3357) plays, and accumulated loot — including faction-matched Timeless Jewels via
+  `TimelessJewelCatalog.Create`, rare Unrelenting `Stasis Prison`, Enshrouding Crystals, and banked reward rolls — drops
+  in golden-angle rings around the crystal.
+- Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

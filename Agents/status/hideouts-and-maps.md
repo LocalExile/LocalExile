@@ -211,12 +211,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   travelling and repeat_fight states).
 
 - Legion (partial): one or more Timeless Monoliths per area (`LegionInitiator` 7-state progression, General link
-  `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` world/battle/post-battle environments),
-  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`, not yet live-checked), full
-  combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
-  culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
-  release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
-  client yet. The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
+  `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` environments), timer, stasis armies
+  (`LegionBreakout` action), full combat damage break-out via non-lethal life floor, release wave, seamless wake, war
+  chests with floating 3D reward symbols, and rolled rewards/splinters. All 3.29/legacy Legion Scarabs, Atlas passives
+  (Officers, Sekhema, Treasures, Eternal Conflict, Face Off, War Supplies, Pillaged Treasures, Logistical Support,
+  Emblematic, Timeless Conflict alert/Schism) and the Domain of Timeless Conflict (2-5 normal/Unrelenting emblems,
+  `LegionEndlessInitiator` ControlZone start/reset loop, endless armies with revival cooldowns, Timeless Jewels and
+  `Stasis Prison` end burst) are implemented, pending live client check. Enshrouding Crystal UI is not built. Docs:
+  [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
