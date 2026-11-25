@@ -25,7 +25,8 @@ public sealed class BatchEndgameAtlasDelveHudTests
         var compass = bag.Add(mainBag, 1, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyItemiseSextantModifier")!));
         var scour = bag.Add(mainBag, 2, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyConvertToNormal")!) with { StackSize = 2 });
         Assert.Equal(orb.Item.ScryingAreaHash, BinaryPrimitives.ReadUInt16LittleEndian(orb.Item.Payload().AsSpan()[^2..]));
-        Assert.Equal(orb.Item.ScryingAreaHash, CharacterSaves.FromSaved(CharacterSaves.ToSaved(orb.Item), Program.Items).ScryingAreaHash);
+        var savedOrb = CharacterSaves.Load(fixture.Player.Character.Name!)!.Inventories[mainBag].Single(i => i.Id == orb.Id);
+        Assert.Equal(orb.Item.ScryingAreaHash, CharacterSaves.FromSaved(savedOrb.Item, Program.Items).ScryingAreaHash);
         const uint npc = 123;
         var confirm = new InstanceMapDevice.AtlasScryRequest(chateau.AreaHashes.First(), alleyways.AreaHashes.First(), npc);
         fixture.Player.Use(fixture.Player.Layout with { Id = chateau.Areas.First(), Hash = chateau.AreaHashes.First() });
@@ -50,6 +51,11 @@ public sealed class BatchEndgameAtlasDelveHudTests
             Assert.Null(AtlasProgress.ScryTarget(data, chateau));
             Assert.Contains(bag.Items(mainBag), item => item == orb);
             Assert.True(AtlasProgress.Complete(data, [chateau, alleyways]));
+            // A stale request naming a different inventory must leave the actual orb alone.
+            Assert.True(await GameEvents.AnyPacket(fixture.Player, InstanceMapDevice.UseItemOnAtlasNodeId,
+                new LoginWriter().U16(InstanceMapDevice.UseItemOnAtlasNodeId).U32(PlayerInventories.InventoryId(PlayerInventories.Cursor))
+                    .U32(orb.Id).U16(alleyways.Hash16).ToArray()));
+            Assert.Contains(bag.Items(mainBag), item => item == orb);
             Assert.True(await Use(orb.Id, alleyways.Hash16));
             Assert.DoesNotContain(bag.Items(mainBag), item => item.Id == orb.Id);
             Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
@@ -62,6 +68,28 @@ public sealed class BatchEndgameAtlasDelveHudTests
             Assert.Equal(1, bag.Items(mainBag).Single(i => i.Id == scour.Id).Item.StackSize);
             Assert.True(await Confirm());
             Assert.True(await Confirm());
+
+            // An eligible map rolls once on boss completion, including when it was already completed on the Atlas.
+            var layout = fixture.Player.Layout;
+            foreach (int tier in new[] { 13, 14 })
+            {
+                var player = new Player(layout, 1, 1)
+                {
+                    Instance = new(), PlayerLife = 1000, LeagueModule = fixture.Player.LeagueModule,
+                    Character = { Name = fixture.Player.Character.Name },
+                    Connection = { PlayerSent = true, Outbox = (_, _) => Task.CompletedTask },
+                };
+                var area = new MapDevice.MapArea(layout.Hash, layout.Id, chateau.Name, tier) { Level = 81 };
+                player.Instance.OpenedWith(new MapDevice.Run(player.Character.Name!, area, MapMods.None));
+                player.Instance.AreaStats(() => new Dictionary<uint, int> { [Stat.MapDropScryingOrbOnCompletionChancePct] = 100 });
+                var kill = new MonsterKill(player, new MonsterInfo(chateau.FinalBosses.First(), "Chateau Boss", 81,
+                    MonsterRarity.Unique, layout.SpawnX, layout.SpawnY));
+                await GameEvents.RunMonsterKilled(kill);
+                await GameEvents.RunMonsterKilled(kill);
+                var drops = player.Instance.Ground.All().Where(g => g.Item.Item.TypeHash == orb.Item.TypeHash).ToList();
+                if (tier == 13) Assert.Empty(drops);
+                else Assert.Equal(layout.Hash, Assert.Single(drops).Item.Item.ScryingAreaHash);
+            }
         }
         Assert.DoesNotContain(bag.Items(mainBag), item => item.Id == orb.Id);
         Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
@@ -80,6 +108,8 @@ public sealed class BatchEndgameAtlasDelveHudTests
         Assert.DoesNotContain(chateau.Id, AtlasProgress.Completed(data));
         Assert.DoesNotContain(chateau.Id, AtlasProgress.BonusCompleted(data));
         Assert.False(AtlasProgress.Uncomplete(data, chateau));
+        Assert.True(AtlasProgress.Reset(data));
+        Assert.Empty(AtlasProgress.ScryPairs(data));
 
         Assert.Equal([0x01, 0xa5, 0x02, 0x01], AtlasProgress.VoidstoneDeltaMessage(0, true));
         Assert.Equal([0x01, 0xa5, 0x01, 0x00], AtlasProgress.VoidstoneDeltaMessage(1, false));

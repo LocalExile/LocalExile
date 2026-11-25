@@ -105,13 +105,14 @@ public static class AtlasProgress
         return ids.Count == before ? null : string.Join(',', ids.Order(StringComparer.Ordinal));
     });
 
-    public static bool Reset(ISavedData data)
+    public static bool Reset(ISavedData data) => Saves.Atomically(() =>
     {
         PreserveExistingCredit(data);
         bool clearedMaps = data.Change(CompletedKey, old => string.IsNullOrEmpty(old) ? null : "");
         bool clearedBonuses = data.Change(BonusKey, old => string.IsNullOrEmpty(old) ? null : "");
-        return clearedMaps || clearedBonuses;
-    }
+        bool clearedLinks = ScryLinks(data).Count > 0 && data.Change("atlas.scryLinks", _ => "{}");
+        return clearedMaps || clearedBonuses || clearedLinks;
+    });
 
     public static bool Uncomplete(ISavedData data, Node node)
     {
