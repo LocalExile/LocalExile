@@ -3213,6 +3213,8 @@ public static partial class Game
                 if (victim == targets.Count)
                 {
                     if (tectonic is null) break;
+                    sweepStats?.Dispose();
+                    sweepStats = null;
                     await SettleSweep();
                     if (!await tectonic.AppendContacts(targets)) break;
                 }

@@ -5,10 +5,24 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class TectonicSlamMechanicsTests
 {
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Regular_slam_consumes_on_the_third_contact_including_repeats(bool multistrike)
+    [Fact]
+    public async Task Slam_charge_rules_apply_to_committed_contacts()
+    {
+        await Regular_slam_consumes_on_the_third_contact_including_repeats(false);
+        await Regular_slam_consumes_on_the_third_contact_including_repeats(true);
+        await Cataclysm_scales_with_the_charges_removed_and_preserves_the_minimum();
+    }
+
+    [Fact]
+    public async Task Branches_follow_the_native_seed_and_contact_each_enemy_once()
+    {
+        await Regular_fissure_hits_downrange_and_misses_the_enemies_behind_the_cast();
+        Branch_plan_matches_the_native_action_seed();
+        await Branches_hit_outside_the_main_fissure_without_double_hitting("Tectonic Slam", 30);
+        await Branches_hit_outside_the_main_fissure_without_double_hitting("Tectonic Slam of Cataclysm", 0);
+    }
+
+    static async Task Regular_slam_consumes_on_the_third_contact_including_repeats(bool multistrike)
     {
         using var trial = new Trial("Tectonic Slam", multistrike);
         trial.SetCharges(3);
@@ -34,8 +48,7 @@ public sealed class TectonicSlamMechanicsTests
         Assert.True(target.Life < target.MaxLife);
     }
 
-    [Fact]
-    public async Task Cataclysm_scales_with_the_charges_removed_and_preserves_the_minimum()
+    static async Task Cataclysm_scales_with_the_charges_removed_and_preserves_the_minimum()
     {
         using var trial = new Trial("Tectonic Slam of Cataclysm", minimum: 1);
         trial.SetCharges(3);
@@ -50,27 +63,22 @@ public sealed class TectonicSlamMechanicsTests
         Assert.InRange(first / (double)second, 1.28, 1.32);
     }
 
-    [Fact]
-    public async Task Regular_fissure_hits_downrange_and_misses_the_enemies_behind_the_cast()
+    static async Task Regular_fissure_hits_downrange_and_misses_the_enemies_behind_the_cast()
     {
         using var trial = new Trial("Tectonic Slam");
         var near = trial.Target(901, (108, 100));
         var downrange = trial.Target(902, (125, 100));
         var behind = trial.Target(903, (91, 100));
         Assert.True(await trial.Attack());
-        Console.WriteLine($"[Tectonic geometry] near={near.MaxLife - near.Life}, forward={downrange.MaxLife - downrange.Life}, behind={behind.MaxLife - behind.Life}");
         Assert.True(near.Life < near.MaxLife);
         Assert.True(downrange.Life < downrange.MaxLife);
         Assert.Equal(behind.MaxLife, behind.Life);
     }
 
-    [Fact]
-    public void Branch_plan_matches_the_native_action_seed()
+    static void Branch_plan_matches_the_native_action_seed()
     {
         var paths = Game.TectonicFissures.Plan((336, 1325), (320, 1325), 32770, 536870916, 0, 30, false,
             area => MathF.Floor(100 * MathF.Sqrt(1 + area / 100f)) / 100);
-        foreach (var path in paths)
-            Console.WriteLine($"[Tectonic native seed] {path.Level}/{path.Detail} at {path.Starts:0.000}: {path.Origin} {path.End} {path.Length} {path.ScanWidth}");
         Assert.Equal(28, paths[0].Length);
         var first = paths[1];
         Assert.InRange(first.Origin.X, 334.30f - .03f, 334.30f + .03f);
@@ -80,10 +88,7 @@ public sealed class TectonicSlamMechanicsTests
         Assert.InRange(first.Length, 17.43f, 17.45f);
     }
 
-    [Theory]
-    [InlineData("Tectonic Slam", 30)]
-    [InlineData("Tectonic Slam of Cataclysm", 0)]
-    public async Task Branches_hit_outside_the_main_fissure_without_double_hitting(string name, int chance)
+    static async Task Branches_hit_outside_the_main_fissure_without_double_hitting(string name, int chance)
     {
         using var trial = new Trial(name);
         const ushort sequence = 0x8002;
