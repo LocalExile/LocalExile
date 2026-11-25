@@ -29,16 +29,26 @@ essence upgrading remain separate features.
   (#60's follow-ups), and area and monster mods (#61).
   The Mud Flats glyphs are quest items (`Metadata/Items/QuestItems/Glyphs/Glyph1..3`,
   [12](../docs/protocol/12-quests.md)).
-- **Effect rules, next** ([guide](../docs/dev/effect-rules.md); what works is in Status): in order, (1) the rest of the
-  item-granted skills: real projectiles for the volleys (Bone Nova, Icicle Burst, Molten Burst, Starfall, Unseen Strike,
-  Ghostly Artillery, Void Shot, Twister, Spirit Burst), ground and lasting effects (Consecrate, Shocked Ground, Contaminate,
-  Volatile Anomaly, Arcane Wake, Fog of War), the four elemental aegises, Death Walk, Tears of Rot and Cinders, the
-  "with this weapon", "socketed in this item" and "cursed" facts, item-stat triggers (Atziri's Rule, the offerings,
-  Intimidating Cry), Animate Weapon and the Ancestor spirits; (2) minions and monsters as actors (their hits as events,
-  monster modifiers as rows: only `MonsterModCatalog.Modelled` stats act today and 74 modifiers do not roll); (3) areas as
-  carriers (map mods, fragments, atlas passives, a worn item's map modifier); (4) ground patches as carriers; (5) every
-  item mod one for one, the charge rules moving over then; and checking each `effect_skills` row's art and radius against
-  the real game (`checked = 0`).
+- **Effect rules, next** ([guide](../docs/dev/effect-rules-guide.md), [reference](../docs/dev/effect-rules.md); what
+  works is in Status; the uniques with open lines, line by line, are in [unique lines open](unique-lines-open.md)): 863
+  of 1,364 uniques have every item effect handled (2026-11-25). In order:
+  (1) move the effects still in code onto rule parts: Void Charges as a charge type, a knockback trigger (Hegemony's
+  Era), ignite and suppress triggers for their recovery lines;
+  (2) go through every row for granularity: a number or name that could be an argument (a limit, a duration, a radius,
+  a chance, a target) becomes one;
+  (3) the 42 uniques whose hardest open line is easy;
+  (4) medium lines, the largest reason first (a number nothing reads yet; a property of the item itself; an effect on
+  an event; a condition on a number), since one part usually finishes many uniques;
+  (5) the parts that are named but not built (`built = 0`): triggers `critical`, `death`, `area_enter`; actions
+  `ground`, `projectile`, `summon`, `area`; limits `maximum_charges`, `buff_stacks`, `cooldown`, `maximum_resistance`;
+  real projectiles for the item-triggered volleys (Bone Nova, Icicle Burst, Molten Burst, Starfall, Unseen Strike,
+  Ghostly Artillery, Void Shot, Twister, Spirit Burst) and the remaining ground and lasting effects (Contaminate,
+  Volatile Anomaly, Arcane Wake, Fog of War, fungal ground);
+  (6) hard lines, then the 15 uniques that need a mechanic of their own;
+  (7) beyond items: minions and monsters as actors (monster modifiers as rows: only `MonsterModCatalog.Modelled` stats
+  act today and 74 modifiers do not roll), areas as carriers (map mods, fragments, atlas passives), ground patches as
+  carriers. Throughout: try each batch in the real client and set `checked = 1`; most rows are offline-checked only,
+  and each `effect_skills` row's art and radius is still a guess against the real game.
   Divine Vessels capture Pantheon souls from matching Atlas map bosses into the Map Device for Sin's upgrades
   ([pantheon](../docs/game/campaign/pantheon.md)).
 - **Start:** special mods and the uniques' own mechanics (#60, 13 §2e: `UniqueCatalog`
