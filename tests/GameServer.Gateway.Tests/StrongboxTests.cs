@@ -42,6 +42,13 @@ public sealed class StrongboxTests
         var corrupted = Use(rare, CurrencyEffects.VaalOrb).Box!;
         Assert.True(corrupted.Corrupted);
         Assert.Equal(rare.Mods, corrupted.Mods);
+        // ObjectMagicProperties trailing flags bit 0 marks the strongbox as corrupted on the client (0x141e7e080 → +0x360).
+        var plainBlob = StrongboxCatalog.Blob(type, 100, 100, false, false, rare.Rarity, [.. type.Mods, .. rare.Explicits], null, null, 0, corrupted: false);
+        var corruptedBlob = StrongboxCatalog.Blob(type, 100, 100, false, false, corrupted.Rarity, [.. type.Mods, .. corrupted.Explicits], null, null, 0, corrupted: true);
+        Assert.Equal(plainBlob.Length, corruptedBlob.Length);
+        int flagIndex = Enumerable.Range(0, plainBlob.Length).Single(i => plainBlob[i] != corruptedBlob[i]);
+        Assert.Equal(0, plainBlob[flagIndex]);
+        Assert.Equal(1, corruptedBlob[flagIndex]);
         var chanced = Use(normal, CurrencyEffects.OrbOfChance).Box!;
         Assert.InRange(chanced.Rarity, 1, 3);
         Assert.NotEmpty(chanced.Mods);
@@ -126,6 +133,9 @@ public sealed class StrongboxTests
             Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
             Assert.Equal(0, stash.CountOf(crafting.Hash));
 
+            Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
+            Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
+            Assert.Equal(4, stash.CountOf(vaal.Hash));
             Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
             Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
             Assert.Equal(4, stash.CountOf(vaal.Hash));

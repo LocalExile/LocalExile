@@ -119,7 +119,7 @@ public static partial class Game
                 || NativeProjectileTotem(player, effect) && ResolveProjectileDefinition(effect) is not null
                 // A dedicated totem skill the local path runs (TotemUseLocked): its own hit, the corpse meal or the taunt.
                 // A ranged attack totem is a ballista and Holy Flame Totem flies its own projectile: both place only
-                // through their own clause, so what that clause refuses (Focused Ballista off a bow) stays refused, and
+                // through their own clause, so what that clause refuses (a ballista off a bow) stays refused, and
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(player).HasType(effect, TotemSkillType) && !NativeProjectileTotem(player, effect)
                     && GolemStat(SupportedSkill(player, skill).Stats, Stat.IsRangedAttackTotem) == 0
@@ -377,6 +377,7 @@ public static partial class Game
             placed.Ballista = ballista;
             placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
+            BindFocusedBallista(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
@@ -437,7 +438,7 @@ public static partial class Game
                 place = ClearPosition(objectId);
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
-                    Stats: objectStats) { LifeData = variety.LifeData };
+                    Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
