@@ -29,8 +29,9 @@ public static partial class Game
     {
         if (baseFire <= 0 || MonsterElementalAilments.CannotInflict("ignite", attacker)
             || attacker(Stat.NeverDamagingAilments) != 0) return null;
-        int chance = attacker(Stat.BaseChanceToIgnitePct) + attacker(Stat.ChanceToIgnitePct) + attacker(Stat.ChanceToFreezeShockIgnitePct)
-            + (attacker(Stat.AlwaysIgnite) != 0 ? 100 : 0);
+        int chance = ActorScale.Saturate((long)attacker(Stat.BaseChanceToIgnitePct) + attacker(Stat.ChanceToIgnitePct)
+            + attacker(Stat.ChanceToFreezeShockIgnitePct) + m.Effects[Stat.ChanceToBeIgnitedPct]
+            + (attacker(Stat.AlwaysIgnite) != 0 ? 100 : 0));
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
         double multiplier = 1 + (attacker(Stat.DotMultiplierPlus) + attacker(Stat.FireDotMultiplierPlus) + attacker(Stat.IgniteDotMultiplierPlus)
             + (critical ? attacker(Stat.CriticalAilmentDotMultiplierPlus) : 0)) / 100.0;
@@ -251,7 +252,11 @@ public static partial class Game
         igniteDps = 0;
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
-        settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
+        settings = settings with
+        {
+            Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]),
+            Chance = ActorScale.Saturate((long)settings.Chance + target.Effects[Stat.ChanceToBeIgnitedPct]),
+        };
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
                 e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
                 UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat), out igniteDps)) return null;
