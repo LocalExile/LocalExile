@@ -1679,7 +1679,7 @@ public static partial class Game
 
     internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
     {
-        RecordUsedSkillLocked(player, acceptedAt);
+        RecordUsedSkillLocked(player, acceptedAt, effect);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
