@@ -96,6 +96,7 @@ public sealed class GlacialHammerTests
             Player.Walk.Teleport(100, 100, Clock.At);
             Player.Connection.LockstepClient = false;
             Player.Connection.PlayerObjectCreated = true;
+            Player.Pools = Player.Pools with { CriticalStrikeChancePct = -100 };
             Player.ProjectileRuntimeState = fixture.Session;
             fixture.Session.AdvanceTo(ProjectileRuntime.Time(Clock.At));
             stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
@@ -105,7 +106,6 @@ public sealed class GlacialHammerTests
                 values[Stat.AttackMinimumAddedPhysicalDamage] = 50;
                 values[Stat.AttackMaximumAddedPhysicalDamage] = 50;
                 values[Stat.ChanceToFreezePct] = 100;
-                values[Stat.CriticalStrikeChancePlusPct] = -100;
                 if (neverCrit || PreventCriticals) values[Stat.GlobalCannotCrit] = 1;
                 return values;
             });
