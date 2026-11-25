@@ -2903,8 +2903,11 @@ public static partial class Game
         if (holyPath)
         {
             using (ProjectileMutation(player, advance: scheduledSession is null))
-                holyPathUse = PlanConsecratedPath(player, from, to, targetId, radius,
-                    Stat(global::Stat.HolyPathTeleportRangePlusPct), ProjectileWorldTime(player));
+            {
+                const uint range = global::Stat.HolyPathTeleportRangePlusPct;
+                int increased = ActorScale.Saturate((long)Stat(range) + CharacterPlayerStats(player).GetValueOrDefault(range));
+                holyPathUse = PlanConsecratedPath(player, from, to, targetId, radius, increased, ProjectileWorldTime(player));
+            }
             centre = holyPathUse.Impact;
         }
         if (divineBlast) centre = to;
