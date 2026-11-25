@@ -89,6 +89,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
+- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
+  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.

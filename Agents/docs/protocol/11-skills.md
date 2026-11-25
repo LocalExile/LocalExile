@@ -3100,6 +3100,13 @@ failed I/O, allocation limits, actual official values and every skill's successf
   player set stay as they are, and a cleared left button stays cleared. Live 2026-10-20: a new Templar got the sword on
   the left button and Holy Strike on the right.
 
+### Boneshatter
+
+ActionTypes `TraumaStrike` (0x0b52, action constructor `0x141278480`) reads
+`current_trauma` (0x38a8) in `0x141301df0` to choose impact particles at the 5- and 10-stack thresholds.
+BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The native pulse asset is
+`Metadata/Effects/Spells/trauma_strike/shockwave.ao`.
+
 ## 12. Buffs and Righteous Fire
 
 - **S→C 0x1c1** (world group, class `0x1435e84f8`, read `0x141fe6090`, world handler case 0x1c1 → Buffs component

@@ -2108,6 +2108,9 @@ public static partial class Game
         if (IsStaticStrike(gem.Effect))
             return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+        if (IsBoneshatter(gem.Effect))
+            return ScheduleBoneshatter(player, skillId, gem, from, to, targetId,
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
         var supported = SupportedSkill(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
@@ -2602,12 +2605,14 @@ public static partial class Game
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false) =>
+        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
+        BoneshatterContact? boneshatter = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget,
-            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback, offHandWeapon);
+            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback,
+            offHandWeapon, boneshatter);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2618,7 +2623,8 @@ public static partial class Game
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false)
+        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
+        BoneshatterContact? boneshatter = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -2752,12 +2758,17 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
+        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null
+            && boneshatter?.Pulse != true && !IsSmite(gem.Effect))
             using (ProjectileMutation(player, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(player));
         if (memoryBuff is not null)
-            await SendWorldRecord(player, player.Id, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
+        {
+            string description = $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}";
+            if (scheduledSession is not null) scheduledSession.World(player.Id, memoryBuff, description);
+            else await SendWorldRecord(player, player.Id, memoryBuff, description);
+        }
         // A channel's hits (Cyclone, C→S 0x197) land at once, where the player is. A swing that began before now
         // (swingAt) lands its contact after its start.
         if (swingAt is { } swung) delay -= AreaTime(player) - swung;
@@ -2823,7 +2834,8 @@ public static partial class Game
                 }
             }
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
-                player.Area.Monsters.Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
+                (boneshatter is null ? player.Area.Monsters : player.Area.MonstersNear(c, radius))
+                .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: fissure
                     ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
@@ -2870,7 +2882,7 @@ public static partial class Game
                 targets.AddRange(player.Area.MonstersNear(at, radius).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
-            if (!spell && hammer is null)
+            if (!spell && hammer is null && boneshatter?.Pulse != true)
             {
                 var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
                 int SplashStat(uint key) => merged.GetValueOrDefault(key);
@@ -2978,7 +2990,8 @@ public static partial class Game
                             tinctureKill = TinctureKillBonusFor(player, playerStats, hand);
                             weaponContactSource = SkeletonWeaponContactSource(player, hand, local);
                         }
-                        if (SupportedHitInputsFor(player, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: IsSmite(gem.Effect) ? singleStrikeTarget is null : null)
+                        bool? hitArea = boneshatter?.Pulse ?? (IsSmite(gem.Effect) ? singleStrikeTarget is null : (bool?)null);
+                        if (SupportedHitInputsFor(player, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: hitArea)
                             is not { } capturedInputs) break;
                         var bothOff = shield is null && hand == AttackHand.Both ? OffhandWeaponFor(player) : null;
                         var offInputs = bothOff is not null
@@ -3096,9 +3109,16 @@ public static partial class Game
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
                         profile = new(conditionalHit, woven.Ignite, woven.Bleed, woven.Poison);
                     }
-                    if (phaseDamageMore != 1)
-                        profile = new(profile.Hit.Scale(phaseDamageMore), RepeatAilment(profile.Ignite, phaseDamageMore),
-                            RepeatAilment(profile.Bleed, phaseDamageMore), RepeatAilment(profile.Poison, phaseDamageMore));
+                    double profileMore = phaseDamageMore;
+                    if (boneshatter is not null)
+                    {
+                        profileMore *= boneshatter.More;
+                        if (m.FlinchUntil > ProjectileWorldTime(player))
+                            profileMore *= Math.Max(0, 1 + Stat(global::Stat.ActiveSkillDamagePlusPctFinalVsStunnedEnemies) / 100d);
+                    }
+                    if (profileMore != 1)
+                        profile = new(profile.Hit.Scale(profileMore), RepeatAilment(profile.Ignite, profileMore),
+                            RepeatAilment(profile.Bleed, profileMore), RepeatAilment(profile.Poison, profileMore));
                     if (!spell && repeat > 0)
                     {
                         double repeatMore = MeleeRepeatDamageMore(player, skillId, repeat);
@@ -3340,6 +3360,12 @@ public static partial class Game
                 }
                 if (applied is not { } hit) continue;
                 onHit?.Invoke(id);
+                if (boneshatter is { Pulse: false } traumaStrike && !splashMore.ContainsKey(id))
+                {
+                    traumaStrike.DirectHits.Add(id);
+                    var source = m.Walk.Position(ProjectileWorldTime(player));
+                    stun = stun with { OnStunDuration = seconds => traumaStrike.Stuns.Add((source, seconds)) };
+                }
                 if (scheduledSession is { } scheduled)
                 {
                     using (ProjectileMutation(player, advance: false))
