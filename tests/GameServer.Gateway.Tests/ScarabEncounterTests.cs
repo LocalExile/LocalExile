@@ -98,7 +98,7 @@ public sealed class ScarabEncounterTests
         Assert.Equal(requested, plan.Count);
         var packNotes = new List<string>();
         var cloisterRequest = Assert.Single(MapScarabPacks.Requests(Open(5, cloister).Opening!.Mods));
-        var ordinary = Game.Packs.For(area.Id)!;
+        var ordinary = AreaPopulation.ForInstance(Game.Packs.For(area.Id)!, 0x505, _ => true);
         var extra = AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
             (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, packNotes, additionalPacks: [cloisterRequest]);
         var packIds = MapScarabPacks.Packs.Select(p => p.Id).ToHashSet();
