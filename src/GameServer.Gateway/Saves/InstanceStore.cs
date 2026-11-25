@@ -132,12 +132,20 @@ public sealed partial class InstanceState
 
     readonly Lock _areaStatsGate = new();
     IReadOnlyDictionary<uint, int>? _areaStats;
+    IReadOnlyDictionary<uint, int>? _areaDisplayStats;
 
     /// <summary>The area stats the instance is played with (InstanceEvents.AreaStats), composed by its first connection and
     /// kept for its life: a later atlas change or another map does not change a level already generated.</summary>
     public IReadOnlyDictionary<uint, int> AreaStats(Func<IReadOnlyDictionary<uint, int>> compose)
     {
         lock (_areaStatsGate) return _areaStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
+    }
+
+    /// <summary>The area stats shown in the right-hand map modifier list (S→C 0x1d's second stat list, world +0x140),
+    /// composed by its first connection and kept for the instance's life.</summary>
+    public IReadOnlyDictionary<uint, int> AreaDisplayStats(Func<IReadOnlyDictionary<uint, int>> compose)
+    {
+        lock (_areaStatsGate) return _areaDisplayStats ??= System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(compose());
     }
 
     int? _leagueCategory;
@@ -156,6 +164,15 @@ public sealed partial class InstanceState
     public IReadOnlyList<(ushort Plugin, byte[] State)> TerrainPluginStates(Func<IReadOnlyList<(ushort Plugin, byte[] State)>> compose)
     {
         lock (_areaStatsGate) return _terrainPluginStates ??= compose();
+    }
+
+    public bool HasTerrainPlugin(ushort id)
+    {
+        var plugins = Volatile.Read(ref _terrainPluginStates);
+        if (plugins is null) return false;
+        for (int i = 0; i < plugins.Count; i++)
+            if (plugins[i].Plugin == id) return true;
+        return false;
     }
 
     /// <summary>The instance is played without terrain plugin states from now on (0x1d carries other extra data).</summary>
@@ -512,6 +529,9 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
     /// planned one, its mods are not rolled and its life is full.</summary>
     public bool Planned { get; init; }
 
+    /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when standalone).</summary>
+    public int PackId { get; init; }
+
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>
     public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null)
@@ -522,7 +542,7 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
         return [.. all.Concat(waiting.Where(m => !all.Contains(m))).Where(m => !m.Dead && m.OwnerId is null && m.SummonerId is null && m.Variety is not null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
-            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods };
+            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods, PackId = m.PackId };
         })];
     }
 }

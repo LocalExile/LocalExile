@@ -11,7 +11,7 @@ public static partial class Game
         if (!MinionDamageScalings.TryGetValue(accepted, out var scaling)) return current;
         var stats = new Dictionary<uint, int>(current.Stats);
         foreach (var pair in scaling.Overrides) stats[pair.Key] = pair.Value;
-        return MinionDamageScale(current, scaling.HitMore, scaling.AilmentMore, stats);
+        return MinionDamageScale(current, scaling.HitMore, scaling.AilmentMore, stats, accepted.RepeatCriticalRoll);
     }
 
     static readonly RuleTable<GolemState.Golem, Dictionary<ushort, int>> MinionRuthlessCounts = new();
@@ -20,7 +20,7 @@ public static partial class Game
 
     static IReadOnlyDictionary<string, GemSupports.Effect> MinionSupportRules = default!;
     static IReadOnlyDictionary<string, GemSupports.Effect> LoadMinionSupportRules() =>
-        Supports.Effects.Where(e => e.Id is "SupportMultistrike" or "SupportMeleeSplash" or "SupportRuthless")
+        Supports.Effects.Where(e => e.Id is "SupportMultistrike" or "SupportMeleeSplash" or "SupportRuthless" or "SupportSpellEcho")
             .ToDictionary(e => e.Id);
 
     static bool MinionSupportMatches(int effectRow, string id)
@@ -33,18 +33,27 @@ public static partial class Game
     static bool MinionMelee(Player player, GolemState.Ability a) =>
         !a.Attack.Spell && a.Projectile is null && SkillsFor(player).IsMelee(a.Effect);
 
+    static int MinionSpellEchoRepeats(Player player, int effect, Func<uint, int> own)
+    {
+        // Monster GrantedEffects (e.g. monster_projectile_spell) omit player-gem ActiveSkillType.Multicastable (21),
+        // while Raise Spectre already passes SupportSpellEcho stats when linked; still honour Excluded skill types.
+        if (!MinionSupportRules.TryGetValue("SupportSpellEcho", out var rule) || Supports.Of(effect) is not { } info) return 0;
+        if (GemSupports.Matches(rule.Excluded, info.Types.ToHashSet(), false)) return 0;
+        return SpellRepeats(player, effect, own);
+    }
+
     static GolemState.Ability MinionDamageScale(GolemState.Ability original, double hitMore, double ailmentMore,
-        IReadOnlyDictionary<uint, int>? stats = null)
+        IReadOnlyDictionary<uint, int>? stats = null, int? criticalRoll = null)
     {
         var scaled = original with { Attack = original.Attack with { Damage = original.Attack.Damage.Scale(hitMore) },
-            Stats = stats ?? original.Stats };
-        if (MinionAilmentProfiles.TryGetValue(original, out var profile))
+            Stats = stats ?? original.Stats, RepeatCriticalRoll = criticalRoll ?? original.RepeatCriticalRoll };
+        if (MinionHitProfiles.TryGetValue(original, out var profile))
         {
             MonsterIgnites.Settings Scale(MonsterIgnites.Settings s) => s with
             { Min = s.Min * ailmentMore, Max = s.Max * ailmentMore,
                 CriticalMin = s.CriticalMin * ailmentMore, CriticalMax = s.CriticalMax * ailmentMore };
             var p = profile.Poison;
-            MinionAilmentProfiles.Add(scaled, profile with { Ignite = Scale(profile.Ignite), Bleed = Scale(profile.Bleed),
+            MinionHitProfiles.Add(scaled, profile with { Ignite = Scale(profile.Ignite), Bleed = Scale(profile.Bleed),
                 Poison = p with { Min = p.Min * ailmentMore, Max = p.Max * ailmentMore,
                     CriticalMin = p.CriticalMin * ailmentMore, CriticalMax = p.CriticalMax * ailmentMore } });
         }
@@ -62,8 +71,18 @@ public static partial class Game
     static GolemState.Ability MinionSupportAction(Player player, GolemState.Golem fighter, GolemState.Action action)
     {
         var original = action.Original ?? action.Ability;
-        if (!MinionMelee(player, original)) return original;
         int Own(uint n) => GolemStat(fighter.Own, n);
+        if (original.Attack.Spell)
+        {
+            if (action.RepeatIndex == 0 && MinionSpellEchoRepeats(player, original.Effect, Own) is > 0 and int repeats)
+            {
+                action.Original = original;
+                action.RepeatsRemaining = repeats;
+                action.RepeatCriticalRoll = AreaRng(player).Next(10_000);
+            }
+            return action.RepeatCriticalRoll is int roll ? MinionDamageScale(original, 1, 1, criticalRoll: roll) : original;
+        }
+        if (!MinionMelee(player, original)) return original;
         if (action.RepeatIndex == 0)
         {
             action.Original = original;
@@ -86,24 +105,27 @@ public static partial class Game
         return MinionDamageScale(original, action.UseDamageMore * more, action.UseAilmentMore * more, stats);
     }
 
-    static bool RepeatMinionAttackLocked(Player player, GolemState.Golem fighter, double now)
+    static bool RepeatMinionActionLocked(Player player, GolemState.Golem fighter, double now)
     {
         if (fighter.Repeat is not { } repeat) return false;
         fighter.Repeat = null;
         int Own(uint n) => GolemStat(fighter.Own, n);
-        if (repeat.Generation != fighter.Monster.ActionGeneration || repeat.RepeatsRemaining <= 0
-            || Own(Stat.BaseMeleeAttackRepeatCount) <= 0 || Own(Stat.DisableAttackRepeats) != 0 || Own(Stat.DisableSkillRepeats) != 0) return false;
-        var a = repeat.Original!;
+        if (repeat.Generation != fighter.Monster.ActionGeneration || repeat.RepeatsRemaining <= 0 || repeat.Original is not { } a
+            || Own(Stat.DisableSkillRepeats) != 0) return false;
+        if (a.Attack.Spell ? MinionSpellEchoRepeats(player, a.Effect, Own) <= 0
+            : Own(Stat.BaseMeleeAttackRepeatCount) <= 0 || Own(Stat.DisableAttackRepeats) != 0) return false;
         var at = fighter.Monster.Walk.Position(now);
         var target = player.Area.MonstersNear(at, a.Attack.Range).Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0
                 && !p.Value.Invulnerable && !p.Value.Asleep && !MonsterAsleep(player, p.Key)
                 && Dist(at, p.Value.Walk.Position(now)) <= a.Attack.Range + LivingCollision.Size(p.Value))
             .OrderBy(p => p.Key == repeat.Target ? 0 : 1).ThenBy(p => Dist(at, p.Value.Walk.Position(now))).FirstOrDefault();
-        if (target.Value is null) return false;
-        GolemReserveLocked(player, fighter, a, target.Key, target.Value, target.Value.Walk.Position(now), now);
+        if (target.Value is null && !a.Attack.Spell) return false;
+        GolemReserveLocked(player, fighter, a, target.Value is null ? repeat.Target : target.Key,
+            target.Value ?? repeat.Victim, target.Value?.Walk.Position(now) ?? repeat.Aim, now);
         fighter.Pending!.Original = a;
         fighter.Pending.RepeatIndex = repeat.RepeatIndex + 1;
         fighter.Pending.RepeatsRemaining = repeat.RepeatsRemaining - 1;
+        fighter.Pending.RepeatCriticalRoll = repeat.RepeatCriticalRoll;
         fighter.Pending.UseDamageMore = repeat.UseDamageMore;
         fighter.Pending.UseAilmentMore = repeat.UseAilmentMore;
         return true;

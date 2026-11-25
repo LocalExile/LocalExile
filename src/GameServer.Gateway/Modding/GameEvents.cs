@@ -11,8 +11,15 @@ using GameServer.Core.World;
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
-    ImmutableArray<(string Owner, int Rank, T Run)> _subscribers = [];
-    long _revision;
+    internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
+    {
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner)
+            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+    }
+
+    ImmutableArray<Subscriber> _subscribers = [];
+    internal ImmutableArray<Subscriber> Snapshot => _subscribers;
+    long _nextSubscriberId, _revision;
     /// <summary>Changes when a provider is added or removed, for consumers that retain derived state.</summary>
     public long Revision => Volatile.Read(ref _revision);
 
@@ -21,17 +28,18 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     public IDisposable Add(string owner, T run)
     {
         int rank = GameEventOwners.RankOf(owner);
+        var subscriber = new Subscriber(owner, rank, run, Interlocked.Increment(ref _nextSubscriberId));
         ImmutableInterlocked.Update(ref _subscribers, s =>
         {
             int at = s.Length;
             while (at > 0 && s[at - 1].Rank > rank) at--;
-            return s.Insert(at, (owner, rank, run));
+            return s.Insert(at, subscriber);
         });
         Interlocked.Increment(ref _revision);
         return new Subscription(() =>
         {
-            ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => ReferenceEquals(e.Run, run)));
-            Interlocked.Increment(ref _revision);
+            if (ImmutableInterlocked.Update(ref _subscribers, s => s.RemoveAll(e => e.Id == subscriber.Id)))
+                Interlocked.Increment(ref _revision);
         });
     }
 
@@ -59,10 +67,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
-        foreach (var (owner, rank, run) in subscribers)
-            if (rank == GameEventOwners.ModRank || league.Modules.Contains(owner)
-                || (rank == GameEventOwners.LeagueRank && league.Id.Equals(owner, StringComparison.OrdinalIgnoreCase)))
-                yield return (owner, run);
+        foreach (var subscriber in subscribers)
+            if (subscriber.AppliesTo(league)) yield return (subscriber.Owner, subscriber.Run);
     }
 
     void GameEventOwners.IOwned.Release(string owner, int rank)
@@ -236,8 +242,28 @@ public static class GameEvents
     /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
     public static readonly GameEvent<Func<Player, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
 
+    /// <summary>Static objects created for each joining player before the world activates, alongside area transitions.</summary>
+    public static readonly GameEvent<Func<Player, (uint Id, string Type, QuestObject Object)?>> BeforeEnterObject = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<Player, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>Rulesets needed when this map's terrain and world are created. Evaluated after terrain overrides.</summary>
+    public static readonly GameEvent<Func<Player, (byte Row, byte? PreloadGroup)?>> AreaRuleset = new();
+
+    public static (List<byte> Rows, List<byte> PreloadGroups) AreaRulesets(Player player)
+    {
+        var rows = new List<byte>();
+        var groups = new List<byte>();
+        foreach (var (owner, run) in AreaRuleset.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaRuleset), () =>
+            {
+                if (run(player) is not { } entry) return;
+                if (!rows.Contains(entry.Row)) rows.Add(entry.Row);
+                if (entry.PreloadGroup is { } group && !groups.Contains(group)) groups.Add(group);
+            });
+        return (rows, groups);
+    }
 
     /// <summary>A map device's checked input before any item is consumed.</summary>
     public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
@@ -319,6 +345,44 @@ public static class GameEvents
     public static async Task RunAreaTick(List<(string Owner, Func<Player, double, Task> Run)> work, Player player, double seconds)
     {
         foreach (var (owner, run) in work) await GameEventOwners.Guard(owner, nameof(AreaTick), () => run(player, seconds));
+    }
+
+    /// <summary>One player's area work, refreshed only when its subscriptions change.</summary>
+    public sealed class AreaTickRunner(Player player)
+    {
+        long _revision = -1;
+        Dictionary<long, Func<Player, double, Task>?> _bindings = [];
+        List<(string Owner, Func<Player, double, Task> Run)> _work = [];
+
+        /// <summary>Whether an area frame has callbacks to run or changed subscriptions to bind.</summary>
+        public bool NeedsTick => _work.Count != 0 || AreaTick.Revision != _revision;
+
+        public Task Run(double seconds)
+        {
+            long revision = AreaTick.Revision;
+            if (revision != _revision) Refresh(revision);
+            return _work.Count == 0 ? Task.CompletedTask : RunAreaTick(_work, player, seconds);
+        }
+
+        void Refresh(long revision)
+        {
+            var league = Program.LeagueFor(player);
+            Dictionary<long, Func<Player, double, Task>?> bindings = [];
+            List<(string Owner, Func<Player, double, Task> Run)> work = [];
+            foreach (var subscriber in AreaTick.Snapshot)
+            {
+                if (!subscriber.AppliesTo(league)) continue;
+                // Other subscribers keep the state they already bound, including ones that opted out of the area.
+                if (!_bindings.TryGetValue(subscriber.Id, out var run))
+                    GameEventOwners.Guard(subscriber.Owner, nameof(AreaTick), () => { run = subscriber.Run(player); });
+                bindings.Add(subscriber.Id, run);
+                if (run is not null) work.Add((subscriber.Owner, run));
+            }
+            _bindings = bindings;
+            _work = work;
+            // Record the revision read before enumeration, so a concurrent change is seen on the next frame.
+            _revision = revision;
+        }
     }
 
     public static async Task RunAreaGenerated(Player player)
@@ -566,6 +630,20 @@ public static class GameEvents
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
     /// the module delivered it to the party.</summary>
     public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
+    /// <summary>A guild line ("&amp;…"), cleaned: true when a subscriber delivered it to the sender's guild.</summary>
+    public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> GuildChat = new();
+    /// <summary>Shared guild storage key for the player's guild, or null when the player is not in a guild.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildStorageKey = new();
+    /// <summary>Online peers in the player's guild (excluding the player or including them as decided by the provider).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<Player>>> GuildPeers = new();
+    /// <summary>The player selected a guild hideout template row via C→S 0x254 (bit 15 set); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, Task<bool>>> GuildHideoutSelected = new();
+    /// <summary>The Hideouts.dat HASH16 of the player's guild hideout, or null when none is selected.</summary>
+    public static readonly GameEvent<Func<Player, ushort?>> GuildHideoutHash = new();
+    /// <summary>The player's guild tag (for chat display), or null when none.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildTagQuery = new();
+    /// <summary>Whether the player is permitted to manage shared guild stash tabs (Officer/Leader, or solo fallback).</summary>
+    public static readonly GameEvent<Func<Player, bool>> GuildCanManageStash = new();
     /// <summary>A party invitation requested by target character or account name (such as <c>/invite</c>); true when a
     /// subscriber handled the request.</summary>
     public static readonly GameEvent<Func<Player, string, Task<bool>>> PartyInvite = new();
@@ -720,6 +798,84 @@ public static class GameEvents
     {
         foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
         return false;
+    }
+
+    public static async Task<bool> RunGuildChat(Player player, string text, IReadOnlyList<ChatLineItem>? items)
+    {
+        foreach (var (owner, run) in GuildChat.Subscribers(player))
+        {
+            bool delivered = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildChat), async () => delivered = await run(player, text, items)) && delivered)
+                return true;
+        }
+        return false;
+    }
+
+    public static string? ResolveGuildStorageKey(Player player)
+    {
+        foreach (var (owner, run) in GuildStorageKey.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildStorageKey), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return null;
+    }
+
+    public static IReadOnlyList<Player> ResolveGuildPeers(Player player)
+    {
+        foreach (var (owner, run) in GuildPeers.Subscribers(player))
+        {
+            IReadOnlyList<Player>? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildPeers), () => answer = run(player)) && answer is { Count: > 0 })
+                return answer;
+        }
+        return [];
+    }
+
+    public static async Task<bool> RunGuildHideoutSelected(Player player, int row)
+    {
+        foreach (var (owner, run) in GuildHideoutSelected.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildHideoutSelected), async () => handled = await run(player, row)) && handled)
+                return true;
+        }
+        return false;
+    }
+
+    public static ushort? ResolveGuildHideoutHash(Player player)
+    {
+        foreach (var (owner, run) in GuildHideoutHash.Subscribers(player))
+        {
+            ushort? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildHideoutHash), () => answer = run(player)) && answer is { } value)
+                return value;
+        }
+        return null;
+    }
+
+    public static string ResolveGuildTag(Player player)
+    {
+        foreach (var (owner, run) in GuildTagQuery.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildTagQuery), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return "";
+    }
+
+    public static bool CanManageGuildStash(Player player)
+    {
+        foreach (var (owner, run) in GuildCanManageStash.Subscribers(player))
+        {
+            bool allowed = false;
+            if (GameEventOwners.Guard(owner, nameof(GuildCanManageStash), () => allowed = run(player)))
+                return allowed;
+            return false;
+        }
+        return true;
     }
 
     public static async Task<bool> RunPartyInvite(Player player, string target)

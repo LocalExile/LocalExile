@@ -7,8 +7,8 @@
 /// its walk-map capture of every town has every plain doodad of the room at exactly <see cref="Room.Cell"/> and
 /// <see cref="Room.Angle"/> of its line. The server objects of those lines (the NPCs) are the server's to create, so they
 /// go through the same placement. The rows below copy the .arm lines; nothing is measured by eye.
-/// <para>Which NPCs: the campaign NPCs of the room (Metadata/NPC/Act*, Epilogue). Not placed: league NPCs (Einhar, Niko,
-/// Jun, Alva, the Expedition four, Divinia, Faustus, Kurai, Cassia, Tane, Johan), the Tutorial NPC and Letters of
+/// <para>Which NPCs: the campaign NPCs of the room (Metadata/NPC/Act*, Epilogue) and the Rogue Harbour's. Not placed: other
+/// league NPCs (Einhar, Niko, Jun, Alva, the Expedition four, Divinia, Cassia, Tane, Johan), the Tutorial NPC and Letters of
 /// Exile, quest-stage variants (only the first one is placed: Lady Dialla before she withers, Lilly by her ship in act 6;
 /// a stage a quest's rules pick stands in the list with the others: Oriath Docks' BannonTown and InnocenceTown) and
 /// Kirac and the Karui Shores' HelenaIntro (ControlZone types, which NpcObject writes now; not placed yet).</para>
@@ -52,8 +52,9 @@ public static class TownNpcs
 
     /// <summary>An NPC line of the room: NPCs.dat Id, room cell, angle; the line's model when it is not the type's own
     /// (types without a model, e.g. Irasha's <c>Metadata/NPC/NPC</c>, or another pose); its z when the line has one;
-    /// a Transitionable state other than the type's.</summary>
-    public sealed record Line(string Id, int X, int Y, float Angle, string? Model = null, float? Z = null, byte? State = null);
+    /// a Transitionable state other than the type's; optional quest flags that gate a town stage/pose.</summary>
+    public sealed record Line(string Id, int X, int Y, float Angle, string? Model = null, float? Z = null, byte? State = null,
+        string? ShownBy = null, string? GoneWith = null);
 
     /// <summary>A room of a town and its NPC lines.</summary>
     public sealed record Part(Room Room, Line[] Npcs)
@@ -61,7 +62,7 @@ public static class TownNpcs
         public IEnumerable<NpcCatalog.Placement> Placements() => Npcs.Select(n =>
         {
             var (x, y) = Room.Cell(n.X, n.Y);
-            return new NpcCatalog.Placement(n.Id, x, y, Room.Angle(n.Angle), n.Model, n.Z, n.State) { FromRoom = true };
+            return new NpcCatalog.Placement(n.Id, x, y, Room.Angle(n.Angle), n.Model, n.Z, n.State, n.ShownBy, n.GoneWith) { FromRoom = true };
         });
     }
 
@@ -138,14 +139,15 @@ public static class TownNpcs
             new(Npc + "Act5/Vilenta", 275, 178, -1.5708f),
         ]),
         // p2_beachtown.dgr: R270. Act 6's NPCs.dat Ids have no .ot of their own: the client files them on their Metadata
-        // (Act 1's Tarkleigh, Bestel). Lilly (type without a model) also sits at (148, 343) with LillySitting.ao; placed
-        // here by her ship (Metadata/QuestObjects/Act6/LillyShip at (404, 228)).
+        // (Act 1's Tarkleigh, Bestel). Lilly stands by her ship (Metadata/QuestObjects/Act6/LillyShip at (404, 228))
+        // until Tukohama falls (a6q3-KilledBoss), then sits on the dock at (148, 343) with LillySitting.ao.
         new(0xb0fb, "2_6_town", new("Metadata/Terrain/Act6/BeachTown/Rooms/part2_beach_town.arm", 552, 690, 3),
         [
             new(Npc + "Act6/Tarkleigh", 230, 390, 0f),
             new(Npc + "Act6/Bestel", 166, 360, 0.0872663f),
             new(Npc + "Act6/SinTown", 301, 263, -0.0170866f, Z: -332.881f),
-            new(Npc + "Act6/Lilly", 408, 229, -1.57466f, Model: "Metadata/NPC/Act6/Lilly.ao", Z: -83.5598f),
+            new(Npc + "Act6/Lilly", 408, 229, -1.57466f, Model: "Metadata/NPC/Act6/Lilly.ao", Z: -83.5598f, GoneWith: "a6q3-KilledBoss"),
+            new(Npc + "Act6/Lilly", 148, 343, 1.05179f, Model: "Metadata/NPC/Act6/LillySitting.ao", Z: -237.432f, ShownBy: "a6q3-KilledBoss"),
         ]),
         // bridge_town.tgr: node "town" I (its other nodes are flow sources and sinks without rooms).
         new(0x2a6d, "2_7_town", new("Metadata/Terrain/Act7/Town/Rooms/broken_bridge_town.arm", 230, 759, 0, 437, 207, Seed: 1),
@@ -156,12 +158,13 @@ public static class TownNpcs
             new(Npc + "Act7/SinTown", 143, 202, -2.18261f, Z: -433.084f),
             new(Npc + "Act7/Weylam", 95, 203, 1.00597f, Model: "Metadata/NPC/Act6/RotTooth.ao"),
         ]),
-        // city_town.dgr (Act8): I. Tolman at (179, 373) has no NPCTalk rows; not placed.
+        // city_town.dgr (Act8): I. Cosmetic Tolman stands beside Clarissa before a8q6-KilledBoss.
         new(0x0334, "2_8_town", new("Metadata/Terrain/Act8/Town/Rooms/city_town.arm", 759, 667, 0, 69, 69, Seed: 1),
         [
             new(Npc + "Act8/Hargan", 304, 402, -0.492313f),
             new(Npc + "Act8/Maramoa", 304, 349, -1.36175f),
             new(Npc + "Act8/ClarissaTown", 170, 382, -0.488777f),
+            new(Npc + "Act8/Tolman", 179, 373, -1.17812f, Model: "Metadata/NPC/Act8/Tolman.ao", GoneWith: "a8q6-KilledBoss"),
             new(Npc + "Act8/SinTown", 205, 306, 1.64849f),
         ]),
         // town.dgr (Act9): R270.
@@ -203,8 +206,7 @@ public static class TownNpcs
                 new(Npc + "Epilogue/Helena", 389, 175, 0.742503f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
             ]),
         ]),
-        // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: the trigger by the tunnel that plays
-        // "HelenaThroughTheTunnel", then hides) are not placed yet.
+        // island_camp.dgr: I. Commander Kirac (786, 675) and HelenaIntro (510, 173: tunnel intro trigger for a11q1).
         new(0xb4e7, "2_11_endgame_town", new("Metadata/Terrain/Act11/Camp/Rooms/camp.arm", 1679, 1058, 0, 92, 92, Seed: 1),
         [
             new(Npc + "Epilogue/Lilly", 186, 366, 0.499106f, Model: "Metadata/NPC/Act5/Lilly.ao", Z: -202.5f),
@@ -212,6 +214,73 @@ public static class TownNpcs
             new(Npc + "Epilogue/Lani", 712, 778, -0.355253f),
             // Her .ot's create_untransitioned is DisableRendering(): Transitionable state 1 left her invisible live, 2 shows her.
             new(Npc + "Epilogue/Helena", 771, 696, 0.564095f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+            new(Npc + "Epilogue/HelenaIntro", 510, 173, 0.903148f, Model: "Metadata/NPC/Missions/Helena.ao", State: 2),
+            new(Npc + "Epilogue/Kirac", 786, 675, -2.32129f, Model: "Metadata/Monsters/Masters/Kirac.ao"),
+        ]),
+        // The Rogue Harbour (HeistHub). Not a campaign town, but its hub room names its NPCs the same way. hub.dgr places
+        // the single node "hub" with rotation I, at (92, 92) on every seed; a version 31 room (no 0 before the angle),
+        // 19 x 19 tiles = 437 x 437 cells. The nine rogues around the planning table in ops_1.arm are
+        // Metadata/NPC/League/Heist/PlanningNPC, which NPCs.dat has no row for, so they are not placed.
+        // The official server's creates in the Rogue Harbour stand at exactly these cells and angles (8 of the 13 NPCs
+        // are in the creates it sends; the rest were out of range).
+        new(StashCatalog.HeistHub, "HeistHub", new("Metadata/Terrain/Leagues/Heist/Hub/Rooms/hub_1.arm", 437, 437, 0, 92, 92),
+        [
+            new(Npc + "League/Heist/TheBoss", 228, 264, -0.694438f),         // Kurai, the Administrator
+            new(Npc + "League/Heist/Fence", 89, 290, 0.26262f),              // Faustus, the Fence
+            new(Npc + "League/Heist/Driver", 126, 292, 1.49717f),            // Adiyah, the Wayfinder
+            new(Npc + "League/Heist/Barber", 90, 302, 0.234507f),            // Whakano, the Barber
+            new(Npc + "League/Heist/Lockpick1", 130, 405, -0.835378f),       // Karst, the Lockpick
+            new(Npc + "League/Heist/Interrogator1", 389, 323, -0.79303f),    // Niles, the Interrogator
+            new(Npc + "League/Heist/Soldier1", 292, 313, -0.296804f),        // Huck, the Soldier
+            new(Npc + "League/Heist/HeavyLifter1", 294, 298, -1.42205f),     // Tibbs, the Giant
+            new(Npc + "League/Heist/Detector1", 165, 350, -0.636915f),       // Nenet, the Scout
+            new(Npc + "League/Heist/Demolitionist1", 326, 395, -0.700871f),  // Vinderi, the Dismantler
+            new(Npc + "League/Heist/CatBurglar1", 315, 257, -0.26125f),      // Tullina, the Catburglar
+            new(Npc + "League/Heist/Illusionist1", 231, 370, -0.25517f),     // Gianna, the Master of Disguise
+            new(Npc + "League/Heist/Engineer1", 145, 359, -0.0840756f),      // Isla, the Engineer
+        ]),
+        // Kingsmarch (KalguuranSettlersLeague). Its hub room names its NPCs and both its stashes the same way the Rogue
+        // Harbour's does, so they are placed from its lines instead of the ring of guesses NpcCatalog.Towns held.
+        // settlers_hub.dgr places the single node "kingsmarch" with rotation I; the Gateway's own generation puts the room
+        // at (138, 138) with code 0 at every seed tried (1, 7, 39403887), so no Seed is pinned. 27 x 45 tiles = 621 x 1035
+        // cells. No capture of ours enters Kingsmarch, so the room file is the only source here; the cells are not checked
+        // against the wire.
+        // Not placed: Gwennen, the Gambler (VillageGwennen) -- the room has no line for her, so there is no official cell
+        // for her at all; the Kalguuran workers, thugs and tavern guests of the same lines are
+        // HubTown/Objects/TemporaryNPCWorker and DecoUpgradeNPC*, which NPCs.dat has no row for.
+        new(StashCatalog.Kingsmarch, "KalguuranSettlersLeague",
+            new("Metadata/Terrain/Leagues/Settlers/HubTown/Rooms/kingsmarch.arm", 621, 1035, 0, 138, 138),
+        [
+            new(Npc + "League/Kalguur/VillageMayor", 429, 624, -1.5708f),        // Johan, the King's Hand -> (567, 762)
+            new(Npc + "League/Kalguur/VillageFaustus", 389, 625, 1.17173f),      // Faustus, the Financier -> (527, 763)
+            new(Npc + "League/Kalguur/VillageRecruiter", 422, 664, -0.687523f),  // Raulf, the Recruiter -> (560, 802)
+            new(Npc + "League/Kalguur/VillageTujen", 283, 429, -0.7837f),        // Tujen, the Harbourmaster -> (421, 567)
+            new(Npc + "League/Kalguur/VillageRog", 316, 523, -1.34867f),         // Rog, the Disenchanter -> (454, 661)
+            new(Npc + "League/Kalguur/VillageDannig", 493, 478, -0.415451f),     // Dannig, the Blacksmith -> (631, 616)
+            new(Npc + "League/Kalguur/VillageIsla", 213, 547, -2.46387f),        // Isla, the Engineer -> (351, 685)
+            // The room gives Sonja the Kalguuran farmer's model; her type's own animated_object is Isla's.
+            new(Npc + "League/Kalguur/VillageFarmer", 367, 794, -1.6406f,
+                Model: Npc + "League/Kalguur/KalguuranFarmer/KalguuranFarmer.ao"), // Sonja, the Farmer -> (505, 932)
+        ]),
+        // The Monastery of the Keepers (ChayulaLeague). breach_hub.dgr places the single node "hub" with rotation I; the
+        // Gateway's own generation puts hub.arm at (0, 0) with code 0 at every seed tried (1, 7 and the official capture's
+        // own 1159934363), so a room cell is an area cell and no Seed is pinned. 30 x 36 tiles = 690 x 828 cells.
+        // Measured against an official capture of the Monastery: the three NPC creates there stand at exactly the cell
+        // and the angle these lines give, with the angle normalised into [0, 2pi) as Room.Angle does --
+        // Ailith (370, 249) 0, The Dreamer (506, 652) 5.497788, The
+        // Word of the Dreamer (150, 325) 4.590886 -- and so do both stashes (StashCatalog).
+        // Not placed: the acolytes, the child monk and the farmer clone of the same lines are
+        // MiscellaneousObjects/Brequel/* and Doodad, which NPCs.dat has no row for.
+        new(StashCatalog.ChayulaHub, "ChayulaLeague",
+            new("Metadata/Terrain/Leagues/Breach/Hub/Rooms/hub.arm", 690, 828, 0),
+        [
+            new(Npc + "League/Chayula/ChayulaFarmerHub", 370, 249, -0f),         // Ailith, First of the Keepers
+            // Neither of these two has an .ot of its own (client.db object_types has no row), so the room's own model
+            // rides the create, as the capture's creates carry it.
+            new(Npc + "League/Breach/Chayula", 506, 652, -0.785397f,             // The Dreamer
+                Model: "Metadata/Terrain/Leagues/Breach/Doodads/ChayulaHealingTree01.ao"),
+            new(Npc + "Info/ChayulaBook", 150, 325, -1.6923f,                    // The Word of the Dreamer
+                Model: "Metadata/Terrain/Leagues/Breach/Doodads/BreachBook01.ao", Z: -322f),
         ]),
     ];
 

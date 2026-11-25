@@ -582,11 +582,13 @@ public static partial class MapHarbinger
                 double now = AreaTime(p);
                 // Ground damages the time since its last call: a player who was last burnt long ago starts anew.
                 if (now - exposure.Last > 1) exposure.Last = double.NaN;
-                await ArenaHazards.Ground(p, exposure, now, (at, _) =>
+                bool unaffected = UnaffectedByGround(p).Burning;
+                await ArenaHazards.Ground(p, exposure, now, (at, minion) =>
                 {
                     var raw = DamagePacket.Empty;
                     foreach (var h in burning)
-                        if (Distance(at, h.At) <= h.Radius) raw = raw.Add(h.Type, new(h.Dps, h.Dps));
+                        if (Distance(at, h.At) <= h.Radius && !(unaffected && !minion && h.Type == DamageType.Fire))
+                            raw = raw.Add(h.Type, new(h.Dps, h.Dps));
                     return raw;
                 }, () => !player.Closed && !player.LeavingArea);
             }

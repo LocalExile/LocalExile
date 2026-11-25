@@ -365,7 +365,7 @@ not the inventory manager that UI uses; that one needs 0xc0 ([05](05-inventories
 | u32 n + n × UTF-16 | | a metadata path, looked up with `0x141728230`. Empty for us |
 | u16 | +0x21c | |
 | u8 | → `0x141e9d3f0` | initial stance: 0 base, 68 WashedUp |
-| u8, u8 | +0x230, +0x234 | **only if** a runtime value (`… +0x1a8 < 1`) holds. It does **not** for our player (traced: 15 bytes in the main body) |
+| u8, u8 | +0x230, +0x234 | **only if** Life `+0x1a8 <= 0` (`0x1421995dc`): death `Animation.dat` row (`6` = Death) and clip index (`0`) |
 | u32 | +0x26c | |
 | u32 | +0x274 | |
 | then own vtable slot 20 `0x142199c20` | | 2 flag bytes (f0, f1). f0 0x40 → `0x14219e480`, else f0 0x20 → `0x14219f170`; f0 0x01 → u16 + `0x14193e340` record; f0 0x04 → u16 + record + u8; f0 0x08, f0 0x10 and f1 0x01 → further sections; f1 0x02 → a flag. All 0 for us |
@@ -407,8 +407,15 @@ drops. Found with a hardware watchpoint on the field and the dispatcher's disass
 Gateway keeps gold per account, as in the real game where every character of an account (and league) shares it:
 `AccountStash.Gold`, saved in the account's stash row of `data/characters.db` ([18](18-stash.md) §6). It sends that amount on every area
 entry, on `/gold` and after a gold respec. A character save from before this still holding `Gold` gives it to the
-account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item
-`Metadata/Items/Currency/GoldCoin` (type hash 0xDDA0D6FB, `0x14031eda0` plays their pickup sound).
+account at the character's next login (`CharacterSaves.TakeGold`). Gold coins on the ground are the item `Metadata/Items/Currency/GoldCoin` (type hash `0xDDA0D6FB`).
+Attaching `GameObjectTasks` row 42 (`AutoPickupWorldItem`, HASH16 `0x9c67`, 0 payload bytes in the inline task list
+`0x141ee6950`) to gold `WorldItem` blobs lets S→C **0x2c3** (`UpdateTask`, before `0x2bd` removal) run
+`AutoPickupWorldItem` (`0x14176f320`), spawning `Metadata/Effects/misc/CurrencyGoldCoin/epk/coin_pickup.epk` and playing
+`SettlersLeague_GoldSpend` (`SoundEffects` row 641).
+S→C **0x278** (19 bytes, class `0x1435e6f80`, read `0x1421b5640`, dispatcher case `0xd0` at `0x14215a675` →
+`InGameUI::vtable[+0xb00]` `0x140d7a560`) shows the floating `+X Gold` popup: `u16 BE 0x0278`, `i32 BE gridX`,
+`i32 BE gridY`, `u32 BE entityId` (passing the player id anchors to the player and merges rapid pickups via `0x140cb2660`),
+`u8` 1-based `WorldPopupIconTypes` row (`0x140cb1478` decrements by 1; `4` = row 3 `GoldCoin`), `i32 BE amount`.
 Monsters drop gold piles (`ItemDrops.Gold`, our own numbers): normal 40%, magic 75%, rare and unique always, each
 (3 + 1.2 × level) × 1/2/5/15 by rarity. Gold within the `gold_auto_loot_radius` setting (default 20 cells) is
 picked up

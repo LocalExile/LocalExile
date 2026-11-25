@@ -52,12 +52,15 @@ public static class WeaponTypeDamage
     /// "increased Hit and Ailment Damage with Axes or Swords", and the tree's "with Two Handed / One Handed Weapons"
     /// rows, which are the Two Hand Mastery's 60% and its attack speed cost).</summary>
     public static int Any(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        ActorScale.Saturate((long)Any(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false)
+            + (!weapon.OffHand && weapon.ItemClass is not null && get(Stat.IsDualWielding) != 0
+                ? get(Stat.MainHandDamagePlusPctWhileDualWielding) : 0));
 
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
     public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false) with
+        { MeleePhysicalMorePct = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) };
 
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>

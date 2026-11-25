@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using GameServer.Core;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
@@ -30,15 +29,6 @@ public sealed record GroundArt(string[] Pieces, int PieceRadius)
 
 public static partial class Game
 {
-    // The stretch of time a monster has already taken caustic ground damage for, and the fraction carried to its next tick.
-    // shortcut: the ground that ticks first charges the stretch, not the strongest one (a mirage's or a totem's ground
-    // under the player's); keep the highest rate per stretch if such overlaps matter.
-    sealed class CausticCover
-    {
-        public long Until;
-        public double Fraction;
-    }
-
     public sealed partial class ProjectileSession
     {
         // Caustic Arrow's own caustic ground: GroundEffects' CausticCloud variation 2 (five pieces of 120 world units).
@@ -56,8 +46,6 @@ public static partial class Game
             : ao.EndsWith("/Microtransactions/Spells/poison_arrow/rig.ao", StringComparison.OrdinalIgnoreCase)
                 ? (1u, .833, 2u, 0u, 2.083)
             : null;
-
-        readonly ConditionalWeakTable<SpawnedMonster, CausticCover> causticCover = new();
 
         /// <summary>Caustic Arrow leaves caustic ground where its arrow stops: on an enemy, on terrain or at the end of its
         /// flight (base_skill_effect_duration, 2 s; base_chaos_damage_to_deal_per_minute). The radius is 20 cells (PoE
@@ -116,7 +104,7 @@ public static partial class Game
         }
 
         /// <summary>A caustic ground: chaos damage over time to the hostile monsters standing on it. Caustic grounds do
-        /// not stack, so a monster on several takes each stretch of time once (<see cref="CausticCover"/>).</summary>
+        /// not stack, so a monster standing in several takes the strongest damage rate.</summary>
         internal void PlaceCausticGround(ProjectileVector centre, double radius, double duration, double dps, GroundArt? art)
         {
             if (art is { Pieces.Length: > 0 })
@@ -135,46 +123,7 @@ public static partial class Game
                         endClip: clips is { } e ? (e.End, ProjectileRuntime.Time(e.EndSeconds)) : null);
                 }
             }
-            long previous = Runtime.Now, end = previous + Math.Max(1, ProjectileRuntime.Time(duration));
-            void Tick()
-            {
-                long now = Runtime.Now;
-                double at = now / (double)ProjectileRuntime.QuantaPerSecond;
-                foreach (var (id, monster) in Player.Area.Monsters.ToArray())
-                {
-                    if (!monster.Hostile || monster.Dead || monster.Life == 0
-                        || (Vector(monster.Walk.Position(at)) - centre).Length > radius) continue;
-                    var cover = causticCover.GetValue(monster, _ => new CausticCover());
-                    long from = Math.Max(previous, cover.Until);
-                    if (now <= from) continue;
-                    cover.Until = now;
-                    double total = cover.Fraction + (now - from) / (double)ProjectileRuntime.QuantaPerSecond * dps
-                        * MonsterDotTaken(monster, DamageType.Chaos, at);
-                    int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
-                    cover.Fraction = total - Math.Floor(total);
-                    if (damage == 0) continue;
-                    var (life, stage) = TakeOwnerDamageLocked(Player, monster, damage);
-                    monster.Life = life;
-                    monster.Aggro = life > 0;
-                    if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    if (life == 0)
-                    {
-                        SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
-                        if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
-                            World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
-                                orderKey: Player.Connection.LockstepClient ? uint.MaxValue : 0u));
-                        monster.Dead = true;
-                        monster.LastHitBy = Player;
-                        CollectVaalSoulAtDeathLocked(Player, monster);
-                        Enqueue(() => DotKilled(Player, id, monster));
-                    }
-                    else if (!Player.Connection.LockstepClient)
-                        World(id, InstanceProtocol.LifeUpdate(id, life));
-                }
-                previous = now;
-                if (now < end) Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), Tick);
-            }
-            Tick();
+            AddDamageGround(centre, radius, duration, DamageType.Chaos, dps, Runtime.Now);
         }
     }
 }

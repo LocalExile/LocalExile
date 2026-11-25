@@ -37,6 +37,8 @@ public static class ThresholdJewels
         ["molten_strike_projectiles_chain_count_+"] = new(Stat.MoltenStrikeChainCountPlus),
         ["molten_strike_projectiles_count_+%_final"] =
             new(Stat.ThresholdJewelMoltenStrikeDamageProjectileCountPlusPctFinal),
+        ["magma_orb_damage_+%_final"] = new(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinal),
+        ["magma_orb_damage_+%_final_per_chain"] = new(Stat.ThresholdJewelMagmaOrbDamagePlusPctFinalPerChain),
         ["cold_snap_uses_gains_power_charges_instead_of_frenzy"] =
             new(Stat.ColdSnapUsesAndGainsPowerChargesInsteadOfFrenzy, 1),
         ["vigilant_strike_fortifies_nearby_allies_for_x_seconds"] =
@@ -59,15 +61,25 @@ public static class ThresholdJewels
                     radius = mod.Values[i];
                     continue;
                 }
-                if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
                 int value = mod.Values[i];
+                if (value == 0) continue;
+                // Rolling Flames' Intelligence requirement is in its descriptions rather than its IDs.
+                if (id is Stat.LocalJewelFireballCannotIgnite or Stat.LocalJewelFireballChanceToScorchPct)
+                {
+                    effects.Add(new(Attributes.Intelligence, 40, id == Stat.LocalJewelFireballCannotIgnite
+                        ? Stat.FireballCannotIgnite : Stat.FireballChanceToScorchPct, value));
+                    continue;
+                }
+                if (!TryParse(Program.Stats.Name(id), out string target, out Attributes attributes, out int required)) continue;
+                // Legacy *_with_50_*_in_radius threshold jewel keys all require 40 in current client stat descriptions.
+                if (required == 50) required = 40;
                 uint? key = Program.Stats.Key(target);
                 if (Aliases.TryGetValue(target, out var alias))
                 {
                     key = alias.Target;
                     value = alias.FixedValue ?? value;
                 }
-                if (value == 0 || key is null) continue;
+                if (key is null) continue;
                 effects.Add(new(attributes, required, key.Value, value));
             }
         }

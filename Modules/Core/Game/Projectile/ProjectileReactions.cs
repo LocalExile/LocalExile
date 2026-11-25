@@ -20,7 +20,8 @@ public static partial class Game
         {
             player.LastEnemyHitAt = now;
             // The "recently" stats (issue #504): a projectile hit is an enemy hit, and a critical one is a crit.
-            player.RecentEvents.RecordHit(now, critical);
+            player.RecentEvents.RecordHit(now, critical, attack: !shot.Spell && !shot.FromTrapOrMine && !shot.Mirage
+                && (shot.Effect < 0 || SkillsFor(player).IsAttack(shot.Effect)));
         }
         uint id = contact.Target.Id;
         var random = contact.Projectile.ReactionRandomSource;
@@ -144,6 +145,7 @@ public static partial class Game
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        TransferMarksOnDeathLocked(player, monster, now);
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
         if (HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
@@ -175,16 +177,17 @@ public static partial class Game
                 session.EnqueueLater(async () => await ExplodeOnKill(player, id, monster, position, explosionEquipment));
         }
         SoulEaterSoul(player, id, position);
+        MonsterKits.GrantKinDeathChargesLocked(player.Area, id, monster, now);
+        session.EnqueueLater(() => MonsterKits.ExecuteDeathSkills(player, id, monster, position));
+        bool firstBossKill = HasUnsetKillQuestFlag(player, variety.Id);
         if (CommitQuestFlags(player, QuestFlagsOnKill(player, variety.Id)) is { } quest)
             session.EnqueueLater(() => PublishQuestFlags(player, quest));
         var kill = new KillContext(player, monster, variety.Id, position) { PlayerKill = playerKill };
         foreach (var run in GameEvents.Kill.For(player)) run(kill);
         foreach (var send in kill.Afterwards) session.EnqueueLater(send);
         uint xp = 0, gemXp = 0;
-        if (!monster.NoRewards && player.PlayerLife > 0 && Dist(position, player.Walk.Position(at / (double)ProjectileRuntime.QuantaPerSecond)) <= ExperienceRange
-            && Monsters.BaseExperience(variety, monster.Level) is int baseXp)
-            (xp, gemXp) = KillExperience(killer, modMonster, baseXp, variety.ExperienceMultiplier, monster.Rarity,
-                player.Pools.Level, monster.Level, PartyExperienceShareOf(partyShares, player));
+        if (!MonsterGivesNoRewards(monster) && player.PlayerLife > 0 && Dist(position, player.Walk.Position(now)) <= ExperienceRange)
+            (xp, gemXp) = ComputeKillExperience(player, monster, variety, modMonster, PartyExperienceShareOf(partyShares, player));
         session.AddGemExperience(gemXp);
         if (QuestsOf(player).LevelAfterKill(player.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - player.Character.Experience));
@@ -201,12 +204,14 @@ public static partial class Game
                 session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Build));
                 session.Enqueue(() => SendPlayerMana(player, "projectile kill level"));
                 session.Packet(PassivesMessage(player).Bytes);
+                session.Enqueue(() => BroadcastLevelChange(player, level));
                 // Account-level persistence is a projection of the committed XP ledger.
                 session.Enqueue(async () => { await SynchronizeAccountLevel(player); });
             }
         }
-        CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
-            : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, tinctureKill?.FlaskChargesPct ?? 0));
+        if (!MonsterGivesNoRewards(monster))
+            CommitProjectileFlaskGain(session, (_, _) => FlaskCharges.FullShortcut ? int.MaxValue
+                : FlaskCharges.KillCharges(monster.Rarity, ItemsFor(player).Mods, tinctureKill?.FlaskChargesPct ?? 0));
         // The map overlay's "X monsters remain" (S→C 0x1a0): coalesced once per batch instead of once per kill.
         session.QueueRemainingMonsters();
         // Loot rolling is catalogue work (ItemDrops.Roll); doing it under the projectile runtime's Monsters lock held
@@ -214,45 +219,23 @@ public static partial class Game
         // output task runs after it, behind the hits queued with it (EnqueueLater).
         session.EnqueueLater(() =>
         {
-            CommitProjectileLoot(session, monster, position);
+            CommitProjectileLoot(session, monster, position, firstBossKill);
             return Task.CompletedTask;
         });
         if (destroyCorpse)
             session.Enqueue(() => PublishUnhingedCorpseDestruction(player, id, monster, destroyCorpse));
     }
 
-    static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position)
+    static void CommitProjectileLoot(ProjectileSession session, SpawnedMonster monster, (int X, int Y) position, bool firstBossKill = false)
     {
         var player = session.Player;
-        if (!session.Active || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || monster.NoRewards
-            || BossMods.GivesNoItems(monster.Variety) || monster.Variety?.Id == TutorialObjects.Zombie
-            || !GameEvents.AllowsLoot(player)) return;
+        if (!session.Active) return;
         var random = AreaRng(player);
-        var balance = LeagueFor(player).Rules;
-        var modded = GameEvents.RunDrops(player, ModMonster(monster, position));
-        List<ItemDrops.Drop> drops = [];
-        if (modded is not { Cancel: true })
+        var stacked = RollKillLoot(player, monster, position, random, firstBossKill);
+        if (stacked.Count == 0) return;
+        foreach (var drop in stacked)
         {
-            int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
-            var mapMods = MapModsOf(player);
-            drops.AddRange(DropsFor(player).Roll(monster.Level, monster.Rarity, random, IncreasedItemRarity(player, monster),
-                balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * ItemQuantityFactor(player, monster), balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1), mapTier, mapMods, MapScarabQuantity(mapMods)));
-            if (RollMapDropForKill(player, monster.Level, monster.Rarity, mapTier, random, modded?.MapRelated ?? 1) is { } mapDrop)
-                drops.Add(mapDrop);
-            if (DropsFor(player).Gold(monster.Level, monster.Rarity, random, balance.GoldMultiplier * (modded?.Gold ?? 1)) is { } gold) drops.Add(gold);
-            drops.AddRange(ExtraDropsFromMap(player, monster.Level, monster.Rarity, random));
-        }
-        if (modded is { Stacks.Count: > 0 }) drops.AddRange(ModStacks(player, modded));
-        drops = ModdedDrops(player, modded, drops, monster.Level, monster.Rarity, IncreasedItemRarity(player, monster),
-            balance.EquipmentRarityMultiplier, random);
-        drops.AddRange(MadeDrops(player, modded));
-        modded?.ApplyTransforms(drops);
-        if (MapBeyond.CorruptsDrops(player, monster.Variety?.Id)) CorruptDrops(drops);
-        foreach (var drop in ItemDrops.Stacked(drops))
-        {
-            double angle = random.NextDouble() * Math.Tau, radius = 3 + random.NextDouble() * 3;
-            int x = position.X + (int)Math.Round(Math.Cos(angle) * radius), y = position.Y + (int)Math.Round(Math.Sin(angle) * radius);
-            if (player.Layout.Walkable is { } walks && !walks(x, y)) (x, y) = position;
+            var (x, y) = ScatterDropPosition(player, position, random);
             AddProjectileGroundItem(session, new(x, y, drop.Item));
         }
     }

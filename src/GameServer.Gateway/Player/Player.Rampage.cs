@@ -2,6 +2,8 @@ public sealed partial class Player
 {
     public RampageSession Rampage { get; } = new();
     public SoulEaterState SoulEater { get; } = new();
+    /// <summary>Alchemist's Genius on this player: the buff a flask use grants, while it runs.</summary>
+    public AlchemistsGeniusState AlchemistsGenius { get; } = new();
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
@@ -88,13 +90,53 @@ public sealed partial class Player
         SoulEater.SentStacks = 0;
         SoulEater.Souls.Clear();
         SoulEater.Clear();
+        if (AlchemistsGenius.Active)
+        {
+            AlchemistsGenius.Clear();
+            MarkStatsDirty(StatInput.FlaskEffects);
+        }
     }
 
-    public void ApplyMovementSpeedAt(double at)
+    public void ApplyMovementSpeedAt(double at) => ApplyMovementSpeedAt(at, forceRelay: false, movementPctOverride: null);
+
+    public void ApplyMovementSpeedAt(double at, bool forceRelay) => ApplyMovementSpeedAt(at, forceRelay, movementPctOverride: null);
+
+    public void ApplyMovementSpeedAt(double at, bool forceRelay, int? movementPctOverride)
     {
-        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct
-            + Rampage.Current.MovementPercent) / 100.0 * (Program.GameLogicOrNull?.PlayerActionFactor(this)
-                ?? ElementalAilments.ActionFactor(at))
-            * (ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill ? (100.0 + ChannelMovement.Percent) / 100 : 1)), at);
+        double extra = Program.GameLogicOrNull?.MovementSpeedMultiplier(this) ?? 1;
+        double channel = ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill
+            ? (100.0 + ChannelMovement.Percent) / 100 : 1;
+        // On a lockstep client with live area frames, the client's Pathfinding::GetSpeed (0x141e827a0) reads the stats
+        // already published in 0x1b3 (movement_velocity_+%, virtual_action_speed_+%, movement_velocity_cap). Keeping the
+        // server's walker on those exact published stats prevents a 1-frame speed lead when flasks, buffs or ailments
+        // change; AreaStats.Written relays and updates the speed on the exact frame the 0x1b3 reaches the client.
+        if (Connection.LockstepClient && Connection.LockstepFrame is not null && Frames.Running && Area.Stats.HasWritten(Id))
+        {
+            int movementPct = movementPctOverride ?? Area.Stats.WrittenValue(Id, Stat.MovementVelocityPlusPct);
+            int actionPct = Area.Stats.WrittenValue(Id, Stat.VirtualActionSpeedPlusPct);
+            int cap = Area.Stats.WrittenValue(Id, Stat.MovementVelocityCap);
+            float moveFactor = 1f + Math.Max(-100, movementPct) / 100f;
+            float actionFactor = actionPct != 0 ? 1f + Math.Max(-100, actionPct) / 100f : 1f;
+            float speed = (float)Program.WalkSpeed * moveFactor * actionFactor;
+            if (cap > 0) speed = MathF.Min(speed, cap);
+            if (extra != 1)
+            {
+                speed *= (float)extra;
+                if (cap > 0) speed = MathF.Min(speed, cap);
+            }
+            if (channel != 1) speed *= (float)channel;
+            double resolved = Math.Max(1, speed);
+            // Only re-lay the active Bresenham segment when speed actually changed or a 0x1b3 movement stat arrived
+            // (0x141ea3840); spurious re-lays from unrelated pool rebuilds can shift diagonal walks 1 cell sideways.
+            if (!forceRelay && Math.Abs(resolved - Walk.Speed) < 1e-9) return;
+            Walk.SetSpeed(resolved, at);
+            return;
+        }
+        long fallbackMovementPct = movementPctOverride is int overridePct
+            ? overridePct
+            : (long)Pools.MovementVelocityPct + Rampage.Current.MovementPercent;
+        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + fallbackMovementPct) / 100.0
+            * (Program.GameLogicOrNull?.PlayerActionFactor(this)
+                ?? ElementalAilments.ActionFactor(at)) * extra * channel), at);
     }
 }

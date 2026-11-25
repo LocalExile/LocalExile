@@ -74,6 +74,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     [System.Text.Json.Serialization.JsonIgnore]
     public bool TinctureActive { get; init; }
     public ushort StackSize { get; init; } = 1;
+    public ushort? ScryingAreaHash { get; init; }
     public IReadOnlyList<ItemSocket> Sockets { get; init => field = Owned.List(value); } = [];
 
     /// <summary>Complete native skin-transfer donor, retained independently of the target mods and sockets.</summary>
@@ -169,7 +170,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -256,6 +257,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                 case "Charges": w.CompactI(Charges); break;           // 0x1424a3f80: signed compact (0x141e4c7e0)
                 // Tincture slot 5 (0x1424a38f0) consumes one boolean at +0x20 (1 active in belt, 0 inactive/stored).
                 case "Tincture": w.U8((byte)(TinctureActive ? 1 : 0)); break;
+                case "ScryingOrb": w.U16(ScryingAreaHash ?? 0); break; // WorldAreas HASH16, 0x14250a320
                 case "Stack": w.U16(StackSize); break;                // 0x1423fb5f0
                 // 0x1423fa9d0 (write 0x1423fa920): u8 +0x19, u8 +0x18, u8 flag (1: a u32 HASH32 follows, looked up in a
                 // table; stored at +0x20). Zeros: the map's tier and area come from Maps.dat by its type.
@@ -368,7 +370,13 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 
     public byte[] Blob() => Blob(justDropped: false);
 
-    public byte[] Blob(bool justDropped)
+    /// <summary>
+    /// Serializes the WorldItem creation blob. Optional zero-payload <paramref name="tasks"/> (each a
+    /// <c>GameObjectTasks</c> HASH16, little-endian; inline reader <c>0x141ee6950</c>) are attached to the object so a
+    /// later S→C <c>0x2c3</c> <see cref="InstanceEntities.UpdateTask"/> can trigger them (e.g.
+    /// <c>AutoPickupWorldItem</c>, <c>0x9c67</c>).
+    /// </summary>
+    public byte[] Blob(bool justDropped, IReadOnlyList<ushort>? tasks = null)
     {
         var w = new BlobWriter();
         w.U8(0).U8(0);                                   // object flags, base data entry count
@@ -376,7 +384,9 @@ public sealed record WorldItemObject(int GridX, int GridY, Item Item)
         w.U8(0);                                         // Animated: none
         w.U32(0).U8(justDropped ? (byte)1 : (byte)0).U32(0).Bytes(Item.Payload()); // WorldItem
         w.U8(0);                                         // InteractionAction
-        w.U8(0);                                         // tasks
+        w.U8(checked((byte)(tasks?.Count ?? 0)));        // tasks (0x141ee6950): u8 count, then u16 LE hash16 per task
+        if (tasks is not null)
+            foreach (ushort task in tasks) w.U16(task);
         return w.ToArray();
     }
 }
@@ -387,9 +397,19 @@ public sealed record InventoryItem(uint Id, byte X, byte Y, Item Item);
 
 public static class InstanceItems
 {
-    public const ushort InventoryChangeId = 0xbf, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
+    public const ushort InventoryChangeId = 0xbf, GemExperienceId = 0xc3, PickUpItemId = 0x28, DropItemId = 0x29, PlaceItemId = 0x2a, InventoryRequestId = 0x2d,
         ItemActionId = 0x4a, SplitStackId = 0x7c, CommandId = 0x16, SocketGemId = 0x30, UnsocketGemId = 0x2f,
-        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7;
+        LevelUpGemId = 0x31, LevelUpAllGemsId = 0x32, LockGemId = 0xd7, InventoryFullId = 0x117;
+
+    /// <summary>S→C 0x00c3 (class 0x1431767e8, read 0x140911270; dispatcher 0x142154507 → 0x14217a930):
+    /// grants every eligible gem socketed in equipped items (both weapon sets) its incremental XP share without
+    /// resending full item blobs. u16 BE 0x00c3, u32 BE experience (6 bytes total).</summary>
+    public static byte[] GemExperience(uint experience) =>
+        new LoginWriter().U16(GemExperienceId).U32(experience).ToArray();
+
+    /// <summary>S→C 0x0117 (2 bytes, id only; dispatcher case 0x44 at 0x142155509 → subscriber 0x140d60680):
+    /// plays the local character's <c>InvFull</c> audio event (<c>CharacterAudioEvents</c> row 247).</summary>
+    public static byte[] InventoryFull() => new LoginWriter().U16(InventoryFullId).ToArray();
 
     /// <summary>C→S 0x010e, 0x010f, 0x0111, 0x0112, 0x0115: Ctrl + click on an item with a league window open (one class, writer
     /// 0x141f993f0; 0x0112 sender 0x14216f0d0 from 0x14030e970, sent only while UI slot +0x8a0 is true). 0x010e is
@@ -466,11 +486,17 @@ public static class InstanceItems
     /// <summary>Commands.dat row 4 (<c>ShowDeaths</c>, "/deaths") + 1.</summary>
     public const byte DeathsCommand = 5;
 
+    /// <summary>Commands.dat row 6 (<c>ShowLadder</c>, "/ladder") + 1.</summary>
+    public const byte LadderCommand = 7;
+
     /// <summary>Commands.dat row 8 (DestroyCursorItem, "/destroy") + 1: what the Keep / Destroy popup's Destroy sends.</summary>
     public const byte DestroyCursorItemCommand = 9;
 
     /// <summary>Commands.dat row 9 (<c>Whois</c>, "/whois") + 1.</summary>
     public const byte WhoisCommand = 10;
+
+    /// <summary>Commands.dat row 11 (<c>ShowCursorItemLevel</c>, "/itemlevel") + 1.</summary>
+    public const byte ItemLevelCommand = 12;
 
     /// <summary>Commands.dat row 34 (<c>AutoReply</c>, "/autoreply") + 1.</summary>
     public const byte AutoReplyCommand = 35;
@@ -480,6 +506,12 @@ public static class InstanceItems
 
     /// <summary>Commands.dat row 49 (SaveHideout, "/save_hideout") + 1: exports/saves the current hideout layout.</summary>
     public const byte SaveHideoutCommand = 50;
+
+    /// <summary>Commands.dat row 52 (<c>ForceResyncPlayer</c>, "/oosme") + 1.</summary>
+    public const byte ForceResyncPlayerCommand = 53;
+
+    /// <summary>Commands.dat row 55 (<c>ShowKills</c>, "/kills") + 1.</summary>
+    public const byte KillsCommand = 56;
 
     /// <summary>Commands.dat row 70 (WarpToDeepwaterHub, "/boat") + 1: the chat command that goes to The Sovereign.</summary>
     public const byte WarpToDeepwaterHubCommand = 71;
@@ -549,10 +581,55 @@ public static class InstanceItems
         return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32());
     }
 
+    /// <summary>
+    /// C→S 0x29e DualCurrencyApplicationForesightRequest (writer 0x141fa5510, caller 0x1402d0514;
+    /// 28 bytes): u16 id, u16 BE key, u32 BE currency inventory, u32 BE currency item id, u32 BE first target inventory,
+    /// u32 BE first target item id, u32 BE second target inventory, u32 BE second target item id. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort DualCurrencyApplicationForesightRequestId = 0x29e;
+    public const int DualCurrencyApplicationForesightRequestLength = 28;
+
+    public sealed record DualCurrencyApplicationForesightRequest(ushort Key, uint CurrencyInventory, uint CurrencyId,
+        uint FirstTargetInventory, uint FirstTargetId, uint SecondTargetInventory, uint SecondTargetId);
+
+    public static DualCurrencyApplicationForesightRequest ReadDualCurrencyApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32(), r.U32());
+    }
+
+    /// <summary>
+    /// C→S 0x29f CurrencyTypeApplicationForesightRequest (writer 0x141fa57e0, caller 0x1402d0599;
+    /// 25 bytes): Shift-repeat Hinekora's Lock preview naming the currency by <c>BaseItemTypes.HASH32</c>: u16 id,
+    /// u16 BE key, u32 BE currency type hash, u32 BE currency inventory, u16 BE tab index, u16 BE sub index,
+    /// u32 BE target inventory, u32 BE target item id, u8 flags. Answered with S→C 0x2a0.
+    /// </summary>
+    public const ushort CurrencyTypeApplicationForesightRequestId = 0x29f;
+    public const int CurrencyTypeApplicationForesightRequestLength = 25;
+
+    public sealed record CurrencyTypeApplicationForesightRequest(ushort Key, uint CurrencyTypeHash, uint CurrencyInventory,
+        ushort TabIndex, ushort SubIndex, uint TargetInventory, uint TargetId, byte Flags);
+
+    public static CurrencyTypeApplicationForesightRequest ReadCurrencyTypeApplicationForesightRequest(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U16(), r.U32(), r.U32(), r.U16(), r.U16(), r.U32(), r.U32(), r.U8());
+    }
+
     public const ushort CurrencyApplicationForesightResultId = 0x2a0;
 
     /// <summary>The 0x2a0 result code that plays the client's Hinekora fail animation (0 shows the preview).</summary>
     public const ushort CurrencyApplicationForesightFailure = 0x04FA;
+
+    /// <summary>The client's item error for a currency used on a worn item: ClientStrings row 1207
+    /// <c>ItemErrorItemEquipped</c> + 1 ("Item is currently equipped."), returned by the validators 0x141f86f70 and
+    /// 0x141f89920 (mov eax,0x4b8 at 0x141f89a29).</summary>
+    public const ushort ItemErrorItemEquipped = 0x04B8;
+
+    /// <summary>The client's item errors for a currency used on a corrupted or a mirrored target, by the same rule
+    /// (ClientStrings row + 1): row 1203 <c>ItemErrorTargetCorrupted</c> ("Target is corrupted.") and row 1223
+    /// <c>ItemErrorItemMirrored</c> ("Item is mirrored.").</summary>
+    public const ushort ItemErrorTargetCorrupted = 0x04B4, ItemErrorItemMirrored = 0x04C8;
 
     /// <summary>
     /// S→C 0x2a0 CurrencyApplicationForesightResult (dispatcher case 223, handler 0x14215ae11, reader 0x141fa8680):
@@ -614,8 +691,57 @@ public static class InstanceItems
 
     public const int InventoryRequestLength = 8;
 
-    // C→S 0x2d (class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0; 8 bytes): an inventory request,
-    // not mapped yet. The right-click item use is 0x58 below.
+    /// <summary>C→S 0x2d (8 bytes, class 0x1435cacf0, write 0x141f96c30, senders 0x142165e90 / 0x142165ee0):
+    /// controller quick-move between player inventory and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u8 slot (0..8), u32 BE item id, u8 outOfTarget (0 = into target, 1 = out of target; opposite polarity to 0x00fd).</summary>
+    public readonly record struct InventoryRequest(byte Slot, uint ItemId, bool OutOfTarget)
+    {
+        public bool IntoTarget => !OutOfTarget;
+    }
+
+    public static InventoryRequest ReadInventoryRequest(ReadOnlySpan<byte> m) =>
+        new(m[2], System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[3..]), m[7] != 0);
+
+    /// <summary>C→S 0xfd (9 bytes, writer 0x141fa0230, sender 0x14216ecb0): keyboard/mouse Ctrl + click quick-move
+    /// between player inventory (main or expanded) and Heist NPC equipment (kind 0x22, rows 45..53).
+    /// u32 BE item id (+2), u8 fromExpanded (+6), u8 slot (0..8, +7), u8 intoTarget (+8: 1 = into target, 0 = out).</summary>
+    public const ushort InventoryQuickMoveId = 0xfd;
+    public const int InventoryQuickMoveLength = 9;
+
+    public readonly record struct InventoryQuickMove(uint ItemId, bool FromExpanded, byte Slot, bool IntoTarget);
+
+    public static InventoryQuickMove ReadInventoryQuickMove(ReadOnlySpan<byte> m) =>
+        new(System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7], m[8] != 0);
+
+    public const ushort UseItemClickId = 0x57, FlaskChargesId = 0x00c6, ItemUseResultId = 0x0174;
+    public const int UseItemClickLength = 11;
+
+    /// <summary>
+    /// S→C 0x00c6 <c>FlaskCharges</c> (class <c>0x1435ca2c0</c>, reader <c>0x141f99010</c>, dispatcher case 0x3a
+    /// <c>0x142154656..0x1421546e1</c>): incremental flask charge update on the flask bar (row 0x0b) without resending
+    /// the full item blob via 0x00bf. Layout: u16 BE id, u32 BE itemId, u32 BE charges (10 bytes total).
+    /// </summary>
+    public static byte[] FlaskCharges(uint itemId, uint charges) =>
+        new LoginWriter().U16(FlaskChargesId).U32(itemId).U32(charges).ToArray();
+
+    /// <summary>
+    /// S→C 0x0174 <c>ItemUseResult</c> (class <c>0x1435cae90</c>, reader <c>0x141f99e10</c>, dispatcher case 0x71
+    /// <c>0x1421550c5..0x1421550e5</c>): companion reply to C→S 0x0057 (<see cref="UseItemClickId"/>).
+    /// Layout: u16 BE id, u32 BE inventoryId, u32 BE itemId, u8 result (11 bytes total).
+    /// </summary>
+    public static byte[] ItemUseResult(uint inventoryId, uint itemId, byte result = 1) =>
+        new LoginWriter().U16(ItemUseResultId).U32(inventoryId).U32(itemId).U8(result).ToArray();
+
+    /// <summary>
+    /// C→S 0x57 (11 bytes, live 2026-11-22): right-clicking a self-usable stacked item such as Stacked Deck
+    /// (<c>0057 00000807 40000061 00</c> from stash, <c>0057 00000001 40000061 00</c> from inventory):
+    /// u32 inventory id, u32 item id, u8 flag.
+    /// </summary>
+    public static UseItemRequest ReadUseItemClick(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32());
+    }
 
     public const ushort UseItemId = 0x58;
     public const int UseItemLength = 10;

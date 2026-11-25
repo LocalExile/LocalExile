@@ -59,7 +59,7 @@ public class ArrowRainAndMirageTests
                     Assert.All(attack.Attack.Damage.Components, p => Assert.Equal(element, p.Type));
                     var ailmentTarget = new SpawnedMonster("ailment target", new(120, 100, 0), 100, 3, 100000) { Hostile = true };
                     typeof(Game).GetMethod("MinionAilmentsLocked", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!
-                        .Invoke(null, [c, clone, attack, 999u, ailmentTarget, true, 1d]);
+                        .Invoke(null, [c, clone, attack, clone.Own, 999u, ailmentTarget, true, 1d, 1d, false, 0]);
                     Assert.False(ailmentTarget.Poisons.Poisoned);
                     Assert.Equal(element == DamageType.Fire, ailmentTarget.Ignites.Burning);
                 }
@@ -495,6 +495,41 @@ public class ArrowRainAndMirageTests
         Assert.True(b.Enemy.Life < ticking);
         Assert.Equal(1, Game.ToxicWalkFactor(b.Enemy));
         Assert.Equal(100000u, b.Ally.Life);
+    }
+
+    [Fact]
+    public void Trap_rain_scales_toxic_pods_ignores_ancestral_bond_and_clips_preserve_presentation()
+    {
+        // WithProjectileClips attaches flight/impact clips to LaunchHeight-only attack presentations without clobbering EventEffect.
+        var clips = new SkillCatalog.ProjectileClips(null, new("fly", 1, 500, false), new("hit", 2, 300, true));
+        var merged = Game.WithProjectileClips(new Game.ProjectilePresentation { LaunchHeight = 42 }, clips, 1.0);
+        Assert.NotNull(merged);
+        Assert.Equal(42, merged!.LaunchHeight);
+        Assert.Equal(1u, merged.FlightClip);
+        Assert.Equal(2u, merged.ImpactClip);
+        var arrowNova = new Game.ProjectilePresentation { EventEffect = _ => "rain_rig.ao" };
+        Assert.Same(arrowNova, Game.WithProjectileClips(arrowNova, clips, 1.0));
+
+        // Trap Toxic Rain deals pod DoT even under Ancestral Bond and scales with TrapDamagePlusPct.
+        static long RunTrapToxicPodDamage(int trapDamagePct)
+        {
+            using var b = new Battle("Toxic Rain", "Trap Support", "Mirage Archer Support");
+            b.StatOverrides[Stat.KeystoneAncestralBond] = 1;
+            b.StatOverrides[Stat.ActiveSkillBaseRadiusPlus] = -24;
+            b.StatOverrides[Stat.DamageOverTimePlusPct] = 9900;
+            b.StatOverrides[Stat.TrapDamagePlusPct] = trapDamagePct;
+            var gem = Game.GemSkillEffects(b.Player).Single();
+            Game.ReleaseArrowRain(b.Session, gem.Id, gem, (120, 100), new(0), 0, from: (100, 100));
+            b.Session.AdvanceTo(ProjectileRuntime.Time(.4));
+            uint afterImpact = b.Enemy.Life;
+            b.Session.AdvanceTo(ProjectileRuntime.Time(.95));
+            return (long)afterImpact - b.Enemy.Life;
+        }
+
+        long baseDamage = RunTrapToxicPodDamage(0);
+        long boostedDamage = RunTrapToxicPodDamage(10000);
+        Assert.True(baseDamage > 0, $"Expected Trap Toxic Rain pods to deal damage under Ancestral Bond, got {baseDamage}.");
+        Assert.True(boostedDamage > baseDamage * 1.5, $"Expected TrapDamagePlusPct to scale pod DoT ({boostedDamage} vs {baseDamage}).");
     }
 
     [Fact]

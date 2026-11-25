@@ -12,6 +12,9 @@ public static partial class Game
         double.TryParse(Environment.GetEnvironmentVariable("Game_MONSTER_MORTAR_RADIUS"), out double radius) && radius > 0
             ? radius : MonsterMortarRadiusCells;
 
+    /// <summary>The switch for a monster turning to a shot it aims afresh (MonsterProjectileUse).</summary>
+    public static bool TurnToShot = true;
+
     /// <summary>The use for a monster's ranged attack released now: native straight mortars retain their ordered aim;
     /// other shots target the player's current cell. A
     /// mortar lands there and damages the area; a straight shot flies on past it. Team 2, so only the player (and friendly
@@ -21,7 +24,8 @@ public static partial class Game
     /// carries none, and the server's object is the projectile the player sees.</summary>
     public static ProjectileUse MonsterProjectileUse(ProjectileSession session, uint id, SpawnedMonster m, MonsterAttack a,
         SkillCatalog.MonsterProjectileInfo projectile, int action, uint? aimedActor = null,
-        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null)
+        (int X, int Y)? orderedAim = null, ushort sequence = MonsterActionSequence, (int X, int Y)? releasedFrom = null,
+        bool turn = false)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -29,8 +33,14 @@ public static partial class Game
         var from = ProjectileSession.Vector(releasedFrom ?? m.Walk.Position(now));
         var aim = ProjectileSession.Vector(orderedAim ?? (aimedActor is uint targetId && OwnedFighter(player, targetId) is { } golem
             ? golem.Monster.Walk.Position(now) : player.Walk.Position(now)));
-        double speed = ProjectileSpeed.CellsPerSecond(projectile.Speed, _ => 0, _ => 0,
-            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        // A barrage follow-up aimed at where its target stands now turns the monster to it through the session outbox.
+        if (TurnToShot && turn && orderedAim is null && releasedFrom is null && (aim - from).Length >= 1)
+            session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
+                MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
+        var effects = m.Effects;
+        int EffectStat(uint id) => effects[id];
+        double speed = Math.Max(0.1, ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
+            Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED")));
         double distance = Math.Max(1, (aim - from).Length);
         var toward = (aim - from).Unit;
         // The release point: the clip's contact keyframe along the line to the aim (the Spitter's lies 4.2 cells behind a
@@ -60,6 +70,13 @@ public static partial class Game
         double landing = Math.Max(0.5, Math.Max((aim - origin).Length, projectile.MinimumRange / WorldUnits.PerCell - ahead));
         var target = projectile.Lobbed ? origin + toward * landing : aim;
         var profile = MonsterProjectileProfile(projectile, speed, landing, Math.Max(distance, a.Range) * 1.5 + 5);
+        if (!profile.Lobbed)
+            profile = profile with
+            {
+                Chain = Math.Clamp(EffectStat(Stat.NumberOfChains), 0, 256),
+                TerrainChainChance = Math.Clamp(EffectStat(Stat.ProjectileChainFromTerrainChancePct), 0, 100),
+                Pierce = EffectStat(Stat.AlwaysPierce) != 0 ? -1 : profile.Pierce,
+            };
         if (a.Effect is int effect && SkillsFor(player).EffectId(effect) is { } effectId && effectId.Contains("TornadoShot", StringComparison.Ordinal))
             profile = MonsterTornadoShot(profile, (aim - origin).Length, SkillsFor(player).EffectStats(effect, m.Level));
         if (nativeTargets is not null)
@@ -74,6 +91,7 @@ public static partial class Game
             + $" aim={aim}{(projectile.Lobbed ? $" lands at {target} ({landing:0.0} cells)" : "")}");
         return new ProjectileUse(profile, owner, owner, 2, origin, target)
             { ProjectileTargets = nativeTargets,
+                TargetPierce = target => target.Id == player.Id && PlayerStat(player, Stat.ProjectilesAlwaysPierceYou) != 0,
                 Payload = new HostileProjectileOffense(id, m, a, action, $"{m.Label} {projectile.Metadata}")
                     { Presentation = presentation, Sequence = sequence,
                         OnEnd = a.Ground is null ? null : at => LeaveSkillGround(player, id, a, at) } };
@@ -112,7 +130,6 @@ public static partial class Game
             // The client's secondary action ends its flight after 300 ms (GatewayProjectileSkillProfiles).
             Range = arrow.Speed * .3,
             Lifetime = ProjectileRuntime.Time(.3),
-            Pierce = 0,
             EndEmission = null,
         };
         return arrow with
@@ -149,6 +166,24 @@ public static partial class Game
         return presentation;
     }
 
+    /// <summary>Attaches flight and impact clips to a server-drawn projectile without clobbering existing clips,
+    /// custom event effects (e.g. Arrow Nova's rain rig), or launch-height settings.</summary>
+    public static ProjectilePresentation? WithProjectileClips(ProjectilePresentation? existing,
+        SkillCatalog.ProjectileClips? clips, double flightSeconds)
+    {
+        if (existing is { EventEffect: not null } || existing is { FlightClip: not null } or { ImpactClip: not null })
+            return existing;
+        if (MonsterProjectilePresentation(clips, flightSeconds) is not { } clipPresentation)
+            return existing;
+        return existing is null ? clipPresentation : existing with
+        {
+            FlightClip = clipPresentation.FlightClip,
+            FlightClipSpeed = clipPresentation.FlightClipSpeed,
+            ImpactClip = clipPresentation.ImpactClip,
+            ImpactLifetime = clipPresentation.ImpactLifetime,
+        };
+    }
+
     // The release at the attack's contact: the flight owns contact and damage (HostileHit).
     // The AI action must still be current when the runtime releases it.
     /// <summary>A monster skill's shot that no longer belongs to the monster's own action (a trap's, set off): released now
@@ -167,13 +202,14 @@ public static partial class Game
 
     public static void LaunchMonsterProjectile(Player player,
         uint id, SpawnedMonster m, MonsterAttack a, SkillCatalog.MonsterProjectileInfo projectile, int action,
-        (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence)
+        (int X, int Y)? orderedAim = null, double? releaseAt = null, ushort sequence = MonsterActionSequence,
+        bool turn = false)
     {
         var session = ProjectilesFor(player);
         session.Advance();
         session.Schedule(releaseAt is { } at ? ProjectileRuntime.Time(at) : session.Runtime.Now,
             () => MonsterActionCurrent(player, id, m, action) && !InGracePeriod(player),
-            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence));
+            () => MonsterProjectileUse(session, id, m, a, projectile, action, orderedAim: orderedAim, sequence: sequence, turn: turn));
     }
 
     // Called under the XP -> Monsters lock by the runtime. Only the player takes a monster's projectile; a friendly monster in
@@ -212,6 +248,11 @@ public static partial class Game
     public static MonsterHitOutcome? CommitHostilePlayerHitLocked(ProjectileSession session, ProjectileDamage contact, HostileProjectileOffense shot)
     {
         var player = session.Player;
+        // Soul of Lunaris: avoid projectiles that have chained.
+        if (contact.Projectile.ChainsRemaining < contact.Projectile.Profile.Chain
+            && PlayerStat(player, Stat.AvoidChainedProjectilePctChance) is int avoidChained and > 0
+            && GameServer.Core.World.RandomRolls.Chance(avoidChained, 100, player.IncomingHitRandom))
+            return null;
         // The hit pipeline's timers (fortification, recent hits, ailments, evasion entropy) run on the connection clock and
         // refuse to go backwards. The contact's simulated instant lies a few milliseconds behind that clock, which other
         // reads (a stats refresh, a melee swing) may already have advanced, so the hit lands at whichever is later. The

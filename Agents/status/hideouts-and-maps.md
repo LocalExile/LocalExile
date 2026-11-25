@@ -67,7 +67,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
   corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
-  renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91 replies are wired.
+  renaming (C→S 0x2a7 / S→C 0x3c), free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
+  Scrying Orbs carry their source map into the Atlas. Applying one changes the destination map’s divination-card pool. An Orb of Scouring clears the link.
+  Incremental Voidstone deltas (0x1a5),
+  Primordial Altar HUD ruleset 99 (0x1f/0x2c9), and 0x18/0x1d5 Atlas notifications are wired (live check pending).
   Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
   and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
@@ -125,14 +128,39 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
+- Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
+- Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
+- Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
+- Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+- Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
+- Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
+  `Maps` tier that names it, on the tier-1 key or a MapWorlds base (#1092); checked offline.
+  The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
+  ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
+  Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
-  Essence: corruption/transfers, Toughness, enrage, Decay, Envy, Karui and death insects; other skills/scaling partial (#505).
-- Tormented Spirits in maps and the campaign: touch, possession, right-click Possession cancellation (`C→S 0x004b`),
-  rewards, the Torment scarabs, the Atlas tree's stats and the Idols' once they reach maps (#1091) (name plate update:
-  [14](../docs/protocol/14-monster-packs.md) §5).
+  Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
+  the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
+  the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
+  Resonance boss inheritance) and all released rare/daemon behaviours in `Monster/Mods/`: Hatred/Anger/Wrath novas with
+  −10% res debuffs and Hatred's chilling trail, Misery's chaos aura (extra stacks on hit) and triggered proximity shield,
+  Envy's degen aura and grab, Rage's TrapFireRune mines, Suffering's Frost Bomb (−30% exposure) and on-death Arctic Golem,
+  Anguish's Meteor Firestorm and fracturing Fiery Rubble, Dread's chaos Firestorm and Guardian Golem, Greed's blood-orb
+  Corrupted Blood bombs, Torment's Ball Lightning, Sorrow's Vortex totems, Spite's Arc and shocked-ground totem, Doubt's
+  Flicker/Viper Strike spiders, Woe's Energy Locus, Fear's Charging Corsairs, Contempt's invulnerable chasing Karui
+  spirits, Zeal/Loathing/Scorn alternating buffs, Insanity's Storm Call beacons and invulnerable Spectral Spirits,
+  Hysteria's Flameblast, 8-Fireball burst, Meteor Golem and burning ground, Horror's 9-circle ice-explosion cascade,
+  chilled-ground Maelströms and periodic Endurance/Frenzy/Power charges, Delirium's piercing caustic chaos projectile,
+  Explosive Crawlers and on-death insect, Desolation's poison flesh boulder and Remnant of Corruption's slow/physical
+  aura and on-death Fleshmonsters.
+  Not right yet: crystal/statue visuals (`rig.ao` state-1 shards) and Adaptation's per-essence scaling (#505, #1206).
+- Tormented Spirits in maps and the campaign: touch, possession, rewards, the Torment scarabs, the Atlas tree's stats
+  and the Idols' once they reach maps (#1091) (name plate update: [14](../docs/protocol/14-monster-packs.md) §5).
   Not yet: the spirits' and Grips' own skills, possessed Rogue Exiles, scarab weights, Refiner's Bargain (#1129).
 - Beyond in maps (3.29 Scourge rework, #1156): kill-triggered blood orbs (`BeyondPortal1`) merge into pack
   (`BeyondPortal2`) and boss (`BeyondPortal3`) portals for the rolled `BeyondFactions` faction (Demon, Flesh, Pale),
@@ -173,8 +201,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
-  combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
+- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
+  Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
+  HUD check pending), and waves pay all counted rewards at wave end
+  ([protocol](../docs/protocol/21-hideouts.md#selected-encounter-inputs-simulacrum)).
+  Arenas hide their waypoint, use measured spots, clear hostile leftovers and keep Lunacy's Watch off its ship.
+  Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
 
@@ -271,7 +303,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   combat affixes, Soul Eater, free lanterns, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure
   Anchors, minibosses, rare-monster drops and post-roll drop conversions.
   Not applied: Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy barrel
-  clusters, highly fishy, and the Active Voyage window (0x72).
+  clusters, and highly fishy.
+  The Active Voyage window (0x7b kind 0x72) and Bathysphere descent countdown (0x162) are wired (live check pending).
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
@@ -389,6 +422,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
     DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
     Mine windows follow chart-cell origins so the underground position arrow follows the occupied checkpoint.
+    Live Azurite (0x227), chart delta (0x22c), and confirmed route echo (0x242) updates are wired (live check pending).
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
@@ -414,8 +448,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
-- Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
-  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+- Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
+  Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
   the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart

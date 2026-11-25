@@ -159,6 +159,26 @@ sealed partial class VendorRecipes
         while (Has("Orb of Fusing") && Has("Chromatic Orb"))
         { Spend("Orb of Fusing", 1); Spend("Chromatic Orb", 1); Money("Jeweller's Orb"); recipes.Add("socket currency downgrade"); }
 
+        // Act 2 Bandit Respec: 20 Orbs of Regret + Amber/Jade/Lapis/Onyx Amulet -> Book of Reform (Oak/Kraityn/Alira/Eramir).
+        // Runs before CraftEquipment so Onyx/hybrid amulet recipes do not consume the amulet first.
+        (string AmuletId, string BookId)[] banditBooks =
+        [
+            ("Metadata/Items/Amulets/Amulet3", "Metadata/Items/QuestItems/SkillBooks/BanditRespecOak"),
+            ("Metadata/Items/Amulets/Amulet4", "Metadata/Items/QuestItems/SkillBooks/BanditRespecKraityn"),
+            ("Metadata/Items/Amulets/Amulet5", "Metadata/Items/QuestItems/SkillBooks/BanditRespecAlira"),
+            ("Metadata/Items/Amulets/Amulet7", "Metadata/Items/QuestItems/SkillBooks/BanditRespecEramir"),
+        ];
+        foreach (var (amuletId, bookId) in banditBooks)
+        {
+            if (Exact(bookId) is not { Supported: true } bookType) continue;
+            while (Has("Orb of Regret", 20) && Find(i => i.Type.Id == amuletId) is { } amulet)
+            {
+                Spend("Orb of Regret", 20);
+                Use("book of reform", amulet);
+                rewards.Add(ItemCatalog.Create(bookType));
+            }
+        }
+
         CraftEquipment(pool, rewards, recipes, rng, Has, Spend);
 
         // Seven Vaal gems and one Sacrifice fragment (never Mortal fragments).

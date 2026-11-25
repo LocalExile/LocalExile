@@ -214,7 +214,8 @@ public static class AilmentPanelStats
             // Elemental Overload's window reaches an elemental ailment (ignite) as it reaches the hit; bleed and poison
             // deal physical and chaos damage, whatever their portion converted from.
             if ((DamageTypes.HistoryOf(ailmentType) & DamageTypeHistory.Elemental) != 0)
-                factor *= Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0);
+                factor *= DamageStats.ElementalMore(get(Stat.CombinedElementalDamagePlusPctFinal))
+                    * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0);
             min += path.Range.Min * factor;
             max += path.Range.Max * factor;
         }

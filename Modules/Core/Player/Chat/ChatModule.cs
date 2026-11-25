@@ -197,6 +197,11 @@ sealed class ChatService : IDisposable
         _namedLinks.TryRemove(player, out var namedLinks);
         if (chat.IsCommand) return false;
         string name = CharacterName(player);
+        if (GameEvents.GetChatAvailability(player).Dnd)
+        {
+            await Send(player, InstanceChat.ChatLine("You cannot chat while DND mode is active."), "0x0017 DND chat blocked");
+            return true;
+        }
         await GameEvents.RunChatActivity(player);
         Log($"{player.Connection.Remote} <= 0x0015 chat \"{chat.Text}\"");
         var (channel, typed) = InstanceChat.SplitChannel(chat.Text);
@@ -217,6 +222,13 @@ sealed class ChatService : IDisposable
                 // The party is a module's to know, so the framework hands the line over; nothing else keeps it.
                 if (!await GameEvents.RunPartyChat(player, finalText, OwnLine(finalLinks, linked, finalText, prefix)))
                     Log($"{player.Connection.Remote} <= 0x0015 party line \"{finalText}\" from {name} with no party to take it");
+                break;
+            }
+            case TypedChannel.Guild:
+            {
+                var (finalText, finalLinks) = ChatWire.ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
+                if (!await GameEvents.RunGuildChat(player, finalText, OwnLine(finalLinks, linked, finalText, prefix)))
+                    Log($"{player.Connection.Remote} <= 0x0015 guild line \"{finalText}\" from {name} with no guild to take it");
                 break;
             }
             case TypedChannel.Global or TypedChannel.Trade:
@@ -271,6 +283,7 @@ sealed class ChatService : IDisposable
     {
         foreach (var other in InGame.Keys)
             if (other is { Controlled: false, Closed: false, Connection.Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, player.Instance.Presence)
+                && !GameEvents.GetChatAvailability(other).Dnd
                 && (ReferenceEquals(other, player) || !IsIgnored(other, player.Character.Account ?? name)))
             {
                 try { await outbox(InstanceChat.ChatLine(text, name, items: items), $"0x0017 chat line from {name}"); }

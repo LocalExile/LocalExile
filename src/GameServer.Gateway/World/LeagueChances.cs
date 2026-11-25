@@ -56,13 +56,17 @@ public sealed class LeagueChances
     /// the client mixes in (<c>0x3fd5</c>, <c>0x3fe5</c>: chance × (100 + increased) / 100 + added); both are 0 without
     /// map mods.</summary>
     public int Count(string areaId, int league, Random rng, bool alternate = false, int increased = 0, int added = 0)
+        => Count(areaId, league, rng, alternate, increased, added, encounterIncrease: 0);
+
+    public int Count(string areaId, int league, Random rng, bool alternate, int increased, int added, int encounterIncrease)
     {
         if (LeagueOf(league) is not { } row || row.NotRolled || row.MostPerArea <= 0) return 0;
         var (chance, repeat) = ChanceOf(areaId, league, alternate);
         // Game_LEAGUE_CHANCES=Anarchy=100,Essence=50: a test's chance for every area that is not a town or hideout.
         if (Forced(row.Id) is int forced) chance = forced;
         if (row.NeedsChance && chance <= 0) return 0;
-        chance = Math.Clamp(chance * (100 + increased) / 100 + added, 0, 100);
+        long baseAndAdded = chance * (100L + increased) / 100 + added;
+        chance = (int)Math.Clamp(Math.Max(0, baseAndAdded) * Math.Max(0, 100L + encounterIncrease) / 100, 0, 100);
         repeat = Math.Clamp(repeat, 0, 100);
         // 0x14205b2a0: at least 1, and 100 or a draw below it.
         bool Roll(int c) => c >= 1 && (c >= 100 || rng.Next(100) < c);
