@@ -36,6 +36,11 @@ public class SkillBarOptionTests
         string character = player.Character.Name!;
         var items = Game.ItemsOf(player);
         var host = items.Items(PlayerInventories.Weapon1).Single();
+        var boundGem = Assert.IsType<Item>(host.Item.Sockets[1].Gem);
+        Assert.NotNull(boundGem.SkillBarGemId);
+        var mirror = Assert.IsType<Item>(Program.Rolls.Mirror(host.Item));
+        Assert.Null(mirror.Sockets[1].Gem?.SkillBarGemId);
+        Assert.NotNull(host.Item.Sockets[1].Gem?.SkillBarGemId);
         Assert.NotNull(items.Unsocket(PlayerInventories.Weapon1, host.Id, 1, items.NewItemId, out _));
         Game.FillSkillBar(player);
         Assert.Equal((ushort)0, BoundSkill(player));
@@ -48,6 +53,13 @@ public class SkillBarOptionTests
         var reentered = SpellTotemExecutionTests.PlayerOf(character);
         Assert.NotSame(items, Game.ItemsOf(reentered));
         AssertSelectedLevel(reentered);
+        var reenteredItems = Game.ItemsOf(reentered);
+        Assert.NotNull(reenteredItems.Unsocket(PlayerInventories.Weapon1, host.Id, 1, reenteredItems.NewItemId, out _));
+        Assert.NotNull(reenteredItems.Remove(PlayerInventories.Cursor, Assert.Single(reenteredItems.Items(PlayerInventories.Cursor)).Id));
+        Assert.True(Game.FillSkillBar(reentered));
+        var filled = CharacterSaves.Load(character)!.SkillBar!;
+        Assert.DoesNotContain(filled.Values, value => value.StartsWith("Gem/", StringComparison.Ordinal));
+        Assert.Contains("Fireball", filled.Values);
 
         ushort BoundSkill(Player on) => Game.SkillBarIds(on, CharacterSaves.Load(character)!.SkillBar)[slot];
 

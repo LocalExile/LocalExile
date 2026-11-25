@@ -429,7 +429,13 @@ public sealed class ItemRolls
     /// gems, name). The original stays as it was; the caller puts the copy on the cursor.</summary>
     public Item? Mirror(Item item) =>
         item.SkinTransferSource is null && item.Rarity != ItemRarity.Unique && TryModifiable(item, out var type) && MirrorTarget(type)
-            ? item with { Mirrored = true } : null;
+            ? item with { Mirrored = true, Sockets = ClearMirroredGemBindings(item.Sockets) } : null;
+
+    static IReadOnlyList<ItemSocket> ClearMirroredGemBindings(IReadOnlyList<ItemSocket> sockets) =>
+        sockets.Any(socket => socket.Gem?.SkillBarGemId is not null)
+            ? sockets.Select(socket => socket.Gem is { SkillBarGemId: not null } gem
+                ? socket with { Gem = gem with { SkillBarGemId = null } } : socket).ToArray()
+            : sockets;
 
     /// <summary>Vaal Orb, the documented LocalExile rule: a weapon, armour piece or jewellery (ring, amulet, belt)
     /// that is modifiable, not unique and not corrupted/mirrored is always corrupted. A normal or magic item becomes
