@@ -99,7 +99,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             void Emit()
             {
                 if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
-                if (use.CanEmit?.Invoke() != false && (point == 0 || world.TraceTerrain(use.Origin, origin) is null))
+                if (use.CanEmit?.Invoke() == false || point != 0 && world.TraceTerrain(use.Origin, origin) is not null) return;
+                if (use.InitialAim?.Invoke(origin) is { } aim && double.IsFinite(aim.X) && double.IsFinite(aim.Y) && aim != origin)
+                    Spawn(projectileUse with { Aim = aim, InitialAim = null }, useId, group, 0, origin, (aim - origin).Unit, index: index);
+                else
                     Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
             }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);
@@ -699,6 +702,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void Publish(ProjectileEventKind kind, ProjectileEntity p, ProjectileEndReason? reason = null) =>
         world.Publish(new(kind, p, Now, p.Position, reason));
+
+    /// <summary>Consumes one still-active flight without triggering its ordinary landing, fork, or return.</summary>
+    public bool Consume(long id)
+    {
+        if (!projectiles.TryGetValue(id, out var projectile)) return false;
+        End(projectile, ProjectileEndReason.Consumed, allowReturn: false);
+        return true;
+    }
 
     /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
     public void Discard(Func<ProjectileUse, bool> matches)

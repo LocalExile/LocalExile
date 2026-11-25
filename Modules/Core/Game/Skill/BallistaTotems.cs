@@ -10,8 +10,7 @@ public static partial class Game
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);
-        if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) == 0 || !BallistaEffect(player, gem.Effect)
-            || GolemStat(gem.Stats, Stat.RangedAttackTotemOnlyAttacksWhenOwnerAttacks) != 0) return false;
+        if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) == 0 || !BallistaEffect(player, gem.Effect)) return false;
         var hand = WeaponProfileFor(player, activeSet: true);
         return (hand.Bow || WeaponFor(player).WieldingWand) && WeaponRestricted(player, gem.Effect) is null;
     }
