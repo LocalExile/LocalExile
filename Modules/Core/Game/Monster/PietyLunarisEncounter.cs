@@ -125,17 +125,29 @@ public static class PietyLunarisEncounter
             if (stopped || !CurrentGameWork || runner.Paused) return;
             await ExpireEffects(runner, effects, now);
 
-            var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
-            if (entry.Value is not { } boss)
+            // Read the boss by its remembered id first; scan the area only when that lookup is gone.
+            uint prevBossId = bossId;
+            SpawnedMonster? boss = null;
+            if (bossId != 0 && runner.Area.Monsters.TryGetValue(bossId, out var cached) && cached.Hostile && cached.Variety?.Id == Boss)
+                boss = cached;
+            else
+            {
+                var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
+                if (entry.Value is { } found)
+                {
+                    bossId = entry.Key;
+                    boss = found;
+                }
+            }
+            if (boss is null)
             {
                 if (!runner.MonstersPlaced) return;
                 if (initialized && !cleaned) await Cleanup(runner, 0, null);
                 return;
             }
-            if (bossId != entry.Key)
+            if (bossId != prevBossId)
             {
                 // Re-bound after portal re-entry / SavedMonster restore: reset transient form state cleanly.
-                bossId = entry.Key;
                 form = Form.Normal;
                 if (Alive(boss)) cleaned = false;
             }

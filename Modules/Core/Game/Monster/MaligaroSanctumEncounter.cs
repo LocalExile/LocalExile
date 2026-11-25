@@ -139,10 +139,21 @@ public static class MaligaroSanctumEncounter
             await ResolveHits(runner, hits, effects, now, () => !stopped);
             pools.RemoveAll(p => now >= p.Ends);
 
-            var mEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Maligaro);
-            if (mEntry.Value is not { } maligaro)
+            // Read the boss by its remembered id first; scan the area only when that lookup is gone.
+            SpawnedMonster? maligaro = null;
+            if (maligaroId != 0 && runner.Area.Monsters.TryGetValue(maligaroId, out var cached) && cached.Hostile && cached.Variety?.Id == Maligaro)
+                maligaro = cached;
+            else
+            {
+                var mEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Maligaro);
+                if (mEntry.Value is { } found)
+                {
+                    maligaroId = mEntry.Key;
+                    maligaro = found;
+                }
+            }
+            if (maligaro is null)
                 return;
-            maligaroId = mEntry.Key;
 
             if (!Alive(maligaro))
             {
@@ -151,16 +162,35 @@ public static class MaligaroSanctumEncounter
             }
 
             SyncSavedPhases(runner.Instance, maligaro, PhaseKey, PhaseThresholds);
-            var bdEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == BlackDeath);
-            var fidEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Fidelitas);
-            if (bdEntry.Key != 0) blackDeathId = bdEntry.Key;
-            if (fidEntry.Key != 0) fidelitasId = fidEntry.Key;
-
-            // Keep unactivated pre-placed sub-bosses hidden and invulnerable until their intermission
-            if (activeSubBoss != 1 && bdEntry.Value is { } bdHold && Alive(bdHold))
-                await HoldSubBoss(runner, bdEntry.Key, bdHold, hold: true);
-            if (activeSubBoss != 2 && fidEntry.Value is { } fidHold && Alive(fidHold))
-                await HoldSubBoss(runner, fidEntry.Key, fidHold, hold: true);
+            // Read each sub-boss by its remembered id first; scan the area only when that lookup is gone.
+            SpawnedMonster? bdHold = null;
+            if (blackDeathId != 0 && runner.Area.Monsters.TryGetValue(blackDeathId, out var cachedBd) && cachedBd.Hostile && cachedBd.Variety?.Id == BlackDeath)
+                bdHold = cachedBd;
+            else
+            {
+                var bdEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == BlackDeath);
+                if (bdEntry.Value is { } foundBd)
+                {
+                    blackDeathId = bdEntry.Key;
+                    bdHold = foundBd;
+                }
+            }
+            SpawnedMonster? fidHold = null;
+            if (fidelitasId != 0 && runner.Area.Monsters.TryGetValue(fidelitasId, out var cachedFid) && cachedFid.Hostile && cachedFid.Variety?.Id == Fidelitas)
+                fidHold = cachedFid;
+            else
+            {
+                var fidEntry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Fidelitas);
+                if (fidEntry.Value is { } foundFid)
+                {
+                    fidelitasId = fidEntry.Key;
+                    fidHold = foundFid;
+                }
+            }
+            if (activeSubBoss != 1 && bdHold is { } holdBd && Alive(holdBd))
+                await HoldSubBoss(runner, blackDeathId, holdBd, hold: true);
+            if (activeSubBoss != 2 && fidHold is { } holdFid && Alive(holdFid))
+                await HoldSubBoss(runner, fidelitasId, holdFid, hold: true);
 
             var pos = maligaro.Walk.Position(now);
             var target = NearestLivingTarget(runner, pos, now, maxRange: 135, awakeId: vanished ? null : maligaroId);
