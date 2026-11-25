@@ -1039,6 +1039,8 @@ public sealed class SkillCatalog
         ["SplitArrowAltX"] = "Metadata/Projectiles/SplitArrowDefault",
         ["SplitArrowAltY"] = "Metadata/Projectiles/SplitArrowDefault",
         ["VaalSplitArrow"] = "Metadata/Projectiles/VaalSplitArrowDefault",
+        ["LancingSteel"] = "Metadata/Projectiles/LancingSteelNewProjectile",
+        ["ShatteringSteel"] = "Metadata/Projectiles/ShatteringSteelProjectile",
         ["SplittingSteel"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltX"] = "Metadata/Projectiles/ImpactingSteelProjectile",
         ["SplittingSteelAltY"] = "Metadata/Projectiles/ImpactingSteelProjectile",
