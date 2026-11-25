@@ -266,6 +266,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
 
 public sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
 {
+    /// <summary>Interaction footprint when this NPC is registered on an existing monster body.</summary>
+    public int? MonsterBodySize { get; init; }
     /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
     public byte State { get; set; } = Npc.TransitionState;
 }

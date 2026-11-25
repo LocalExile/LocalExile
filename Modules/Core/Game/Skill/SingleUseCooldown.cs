@@ -16,6 +16,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     public (uint Mana, uint Life)? Paid { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
+    internal int? EnduranceChargesAfterCost { get; set; }
     /// <param name="ignoreAction">A totem placement outlives the player's next action (the client's own Move taken
     /// inside its hold): the use stays current without the action token, every other check still applies.</param>
     public bool Current(Player player, bool ignoreAction = false)
