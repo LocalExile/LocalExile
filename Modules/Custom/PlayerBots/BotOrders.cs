@@ -2,14 +2,19 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
-using ControlledIntent = ControlledPlayerIntent;
 
-public static partial class Game
+using static Game;
+using static Program;
+
+namespace GameServer.Modules.PlayerBots;
+
+// How a bot plays: the game's own rules, run for a player the server drives.
+public static partial class BotPlay
 {
     public sealed record ControlledReceipt(string Id, string State, string Detail, double At);
     sealed class ControlledBrain
     {
-        public ControlledIntent? Intent;
+        public ControlledPlayerIntent? Intent;
         public ControlledReceipt? Receipt;
     }
     static readonly Store<Player, ControlledBrain> ControlledBrains = new();
@@ -24,9 +29,9 @@ public static partial class Game
         return ControlledBrains.TryGetValue(player, out var brain) ? brain.Receipt : null;
     }
 
-    public static void QueueControlledIntent(Player player, ControlledIntent intent)
+    public static void QueueControlledIntent(Player player, ControlledPlayerIntent intent)
     {
-        if (!player.Controlled || player.Closed || player.LeavingArea || player.PlayerLife == 0)
+        if (player.HasClient || player.Closed || player.LeavingArea || player.PlayerLife == 0)
             throw new InvalidOperationException("The party bot is not ready for an order.");
         if (intent.Action is not ("auto" or "hold" or "move" or "attack" or "cast" or "flask" or "focus" or "pickup"))
             throw new ArgumentException("Unknown bot action.");
@@ -38,7 +43,7 @@ public static partial class Game
         brain.Receipt = new(intent.Id, intent.Action == "auto" ? "applied" : "queued", intent.Action, now);
     }
 
-    public static ControlledIntent? CurrentControlledIntent(Player player, double now)
+    public static ControlledPlayerIntent? CurrentControlledIntent(Player player, double now)
     {
         if (!ControlledBrains.TryGetValue(player, out var brain) || brain.Intent is not { } intent) return null;
         if (now < intent.Until && (intent.WallDeadline == 0 || System.Diagnostics.Stopwatch.GetTimestamp() < intent.WallDeadline)) return intent;
@@ -47,7 +52,7 @@ public static partial class Game
         return null;
     }
 
-    static void FinishControlledIntent(Player player, ControlledIntent intent, string state, string detail, double now)
+    static void FinishControlledIntent(Player player, ControlledPlayerIntent intent, string state, string detail, double now)
     {
         var brain = ControlledBrains.GetOrCreateValue(player);
         // A newer external decision may have arrived while the previous action was being dispatched.

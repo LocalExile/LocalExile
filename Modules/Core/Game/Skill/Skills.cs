@@ -1451,7 +1451,7 @@ public static partial class Game
         foreach (var recipient in InGame.Keys.Append(player))
         {
             if (!seen.Add(recipient)
-                || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
+                || recipient is not { HasClient: true, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
                 || !ReferenceEquals(recipient.Instance?.Presence, presence)) continue;
             try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

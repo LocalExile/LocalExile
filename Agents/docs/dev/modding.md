@@ -249,6 +249,13 @@ LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` 
 reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
 own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads.
 
+A player with no client: `Program.DriveByServer(player, name, takesPartIn)` makes a `Player` one the server drives. The
+rules run for it and the others' clients see it; what is sent to it is dropped. The mod builds the `Player`, gives it its
+inputs (`Game.OnClientMessages`), sets its network mode, and ends it as a connection ends: the framework has no rules for
+one. `Player.HasClient` is false for it; `takesPartIn` says whether its account earns progress (`EarnsProgress`:
+achievements, play time, kill and death counts) and whether it is found by name (`Listed`), both off by default. The
+PlayerBots module is the example.
+
 The PR tests check compiled official mods against the proposed server. From the repository root, run
 `dotnet build GameServer.slnx -c Release`, then `dotnet run --project scripts/dev/mod-compat -c Release`.
 The check verifies each release ZIP's SHA-256 and reports the mod and signature for each missing server reference.

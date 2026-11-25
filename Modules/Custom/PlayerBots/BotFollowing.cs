@@ -1,6 +1,12 @@
 using GameServer.Core.World;
 
-public static partial class Game
+using static Game;
+using static Program;
+
+namespace GameServer.Modules.PlayerBots;
+
+// How a bot plays: the game's own rules, run for a player the server drives.
+public static partial class BotPlay
 {
     public const double ControlledFollowerLeash = 60;
     static readonly Store<Player, ControlledFollowing> FollowerPlans = new();
@@ -63,7 +69,7 @@ public static partial class Game
             Interlocked.Increment(ref player.ChannelGeneration);
             player.ChannelSkill = 0;
             player.Walk.Teleport(at.X, at.Y, now);
-            player.ControlledNextAction = now + .35;
+            BodyOf(player).NextAction = now + .35;
             plan.Following = false;
             plan.AttackUntil = 0;
             plan.Target = 0;
@@ -163,7 +169,7 @@ public static partial class Game
         var plan = FollowerPlans.GetOrCreateValue(player);
         plan.Target = target;
         plan.AttackUntil = now + Math.Max(.35, seconds) + .1;
-        player.ControlledNextAction = plan.AttackUntil;
+        BodyOf(player).NextAction = plan.AttackUntil;
         plan.RepathAt = plan.AttackUntil;
         ScheduleControlledIdle(player, plan, plan.AttackUntil);
     }

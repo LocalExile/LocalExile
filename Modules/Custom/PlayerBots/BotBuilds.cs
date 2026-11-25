@@ -1,7 +1,13 @@
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 
-public static partial class Game
+using static Game;
+using static Program;
+
+namespace GameServer.Modules.PlayerBots;
+
+// How a bot plays: the game's own rules, run for a player the server drives.
+public static partial class BotPlay
 {
     // Conservative starting archetypes: ordinary connected allocations, wearable bases and compatible links.
     // No requirement exemptions or hidden attribute bonuses are used for a controlled character.
