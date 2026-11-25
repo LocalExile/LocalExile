@@ -78,3 +78,19 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
+
+## Mercenaries (CoreLeagues row 28)
+
+A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in
+a map area, 0 in towns and the campaign's other areas). `LeagueChances.Count` returns 0 for the row (it is "not rolled"), so
+`Mercenary` reads `ChanceOf` as the Delve sulphite does and adds the map's stats: `map_mercenary_league` forces it,
+`map_disable_mercenary` and `map_disable_mercenary_from_chance` remove it, `map_mercenary_additional_chance_%` and
+`map_mercenary_chance_+%` add to and scale the chance. The stat ids are the CoreLeagues columns' stored values plus one.
+Of 221 official areas, 23 carry the Mercenaries rulesets; four of the five map ones hold exactly one mercenary, a unique
+at the area's monster level.
+
+The mercenary is the instance's. It waits friendly and scripted (team 70, `encounter_state` 1), a click opens the panel,
+the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54 frames, the friendly one is replaced by a
+hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
+mercenary is placed or a player enters. Not built: the build's own skills, the hire following and fighting for the player,
+the duel opponent's drops, and the header listing of the two rulesets.
