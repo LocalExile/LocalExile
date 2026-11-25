@@ -1,9 +1,27 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX" or "LightningConduitAltX";
+        effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+            or "LightningConduitAltX" or "Manabond";
+
+    static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
+    {
+        static DamagePacket? DaggerDamage(SkillCatalog.Unarmed? weapon) =>
+            weapon is not null && (weapon.ItemClass == "Rune Dagger"
+                || WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger")) ? weapon.LocalDamage : null;
+        var main = DaggerDamage(WeaponIn(player, ActiveMainHand(player)));
+        var off = DaggerDamage(WeaponIn(player, ActiveOffHand(player)));
+        if (main is null && off is null) return DamagePacket.Empty;
+        long multiplier = (long)gain * (main is not null && off is not null ? 60 : 100);
+        var sum = (main ?? DamagePacket.Empty).Add(off ?? DamagePacket.Empty);
+        var result = DamagePacket.Empty;
+        foreach (var (type, range) in sum.Components)
+            result = result.Add(type, new(Math.Floor(range.Min * multiplier / 10_000d), Math.Floor(range.Max * multiplier / 10_000d)));
+        return result;
+    }
 
     public sealed partial class ProjectileSession
     {
@@ -48,6 +66,21 @@ public static partial class Game
                         .Where(p => p.Distance <= radius).OrderBy(p => p.Distance).ThenBy(p => p.Id)
                         .Take(Math.Max(0, Own(Stat.LightningConduitMaxNumTargets))).Select(p => p.Id).ToHashSet();
                     if (selected.Count > 0) Hit(aim, radius, targetFilter: (id, _) => selected.Contains(id));
+                }
+                else if (effect == "Manabond")
+                {
+                    int maximum = UnreservedMana(Player);
+                    int quarters = maximum > 0 ? (int)Math.Clamp((long)Player.PlayerMana * 4 / maximum, 0, 4) : 0;
+                    int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
+                    int reach = radius + 6 * quarters;
+                    int halfWidth = Radius(6);
+                    Hit(aim, (int)Math.Ceiling(Math.Sqrt((double)reach * reach + (double)halfWidth * halfWidth)),
+                        targetFilter: (_, at) =>
+                        {
+                            int x = Math.Abs(at.X - aim.X), y = Math.Abs(at.Y - aim.Y);
+                            return ((double)x * x + (double)y * y) <= (double)radius * radius
+                                || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
+                        });
                 }
                 else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
                 {

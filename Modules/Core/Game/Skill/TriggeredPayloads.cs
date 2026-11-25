@@ -6,7 +6,8 @@ public static partial class Game
     static bool TriggerAreaSpell(Player player, SupportedGem gem)
     {
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        return effect is "IceNova" or "IceNovaAltY" || IsHexblastEffect(effect) || IsAbsolutionHitSpell(player, gem.Effect);
+        return effect is "IceNova" or "IceNovaAltY" or "BladeBlastAltY"
+            || IsHexblastEffect(effect) || IsAbsolutionHitSpell(player, gem.Effect);
     }
 
     static bool TriggerChaosDebuff(string? effect) => IsBaneEffect(effect) || IsContagionEffect(effect);

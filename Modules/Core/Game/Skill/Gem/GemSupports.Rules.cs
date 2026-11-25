@@ -891,6 +891,13 @@ public static partial class Game
             else { types.Remove(2); types.Remove(7); }
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
+        if (plan.Kind == SkillHitKind.Spell
+            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage)
+        {
+            long missing = Math.Max(0, (long)UnreservedMana(player) - player.PlayerMana);
+            double lightning = Math.Floor(missing * (double)manaDamage / 100);
+            plan = plan with { SpellBase = plan.SpellBase.Add(GameServer.Core.World.DamageType.Lightning, new(lightning, lightning)) };
+        }
         if (!plan.CanHit) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
@@ -938,6 +945,8 @@ public static partial class Game
                     AddWeapon(offWeapon!);
             }
         }
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.GainPctOfBaseDaggerDamageAsAddedSpellDamage) is > 0 and var daggerGain)
+            raw = raw.Add(BladeBlastDaggerDamage(player, daggerGain).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
         if (molten && projectile && Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
         if (totem && Get(Stat.StygianSpireTotemDamagePlusPctFinalPerMaximumTotem) is int totemMore and not 0)
