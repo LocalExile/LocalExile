@@ -225,8 +225,15 @@ warning).
 A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
 LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
 reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
-own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads. A mod
-breaks when what it uses in the server changes, as a module would, and is fixed in its own repository.
+own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads.
+
+The PR tests check compiled official mods against the proposed server. From the repository root, run
+`dotnet build GameServer.slnx -c Release`, then `dotnet run --project scripts/dev/mod-compat -c Release`.
+The check verifies each release ZIP's SHA-256 and reports the mod and signature for each missing server reference.
+For an offline run, append `-- . <zip-directory>` to the second command. The ZIPs keep their release filenames.
+When adding support for another published DLL, add its mod id, version and ZIP SHA-256 to
+`scripts/dev/mod-compat/releases.json`. Keep older entries for as long as their binaries are supported.
+Script mods compile from source when loaded. Command behavior needs a separate runtime test.
 
 When a mod needs the framework to hand it something it does not, its LocalExile pull request adds a **general hook or
 event**, one any mod could use ("before an item is rolled", "when currency lands"), and nothing else. The feature's

@@ -77,9 +77,10 @@ public static partial class Game
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = SupportedAttackDamage.WithWeaponGains(
             DamageStats.Conversion(character, Stats, attack: true), sourceWeapon, Get);
-        var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
+        var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false) { WeaponStats = sourceWeapon.LocalSources };
+        var ailmentRows = AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
-            : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);
+            : AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get, additionalBlindedIncreased);
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
@@ -88,7 +89,8 @@ public static partial class Game
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
             Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
-                && !HasContactDamage(Get) && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+                && !HasContactDamage(Get) && !HasLocalTargetDamage(sourceWeapon.LocalSources)
+                && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 WieldingWand: sourceWeapon.WieldingWand, Volatile: false,

@@ -17,6 +17,59 @@ public sealed class WarcryBuffTests
     }
 
     [Fact]
+    public void Echoes_of_Creation_adds_a_stored_use_only_to_its_socketed_warcry()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        ushort unlinked = Assert.Single(fixture.Equip(("Enduring Cry", 1)));
+        var helmet = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Echoes of Creation", new Random(1)));
+        var seismic = Program.Items.FindGem("Seismic Cry")!.Value;
+        Game.ItemsOf(player).Add(PlayerInventories.Helmet, 0, 0, helmet with
+        {
+            Sockets = [new(SocketColour.Red, ItemCatalog.Create(seismic.Type))],
+            Links = [1]
+        });
+        ushort skill = Game.GemSkillEffects(player).Single(g => g.Id != unlinked).Id;
+        var supported = Game.SupportedSkill(player, skill);
+        Assert.Contains(supported.Supports, support => support.Effect.Id == "SupportWarcryCooldownCount");
+        Assert.Equal(1, supported.Stats[Stat.BaseAddedCooldownCount]);
+        Assert.Equal(0, Game.SupportedSkill(player, unlinked).Stats.GetValueOrDefault(Stat.BaseAddedCooldownCount));
+        Assert.Equal(1, Game.CooldownForSkill(player, unlinked)!.Value.Uses);
+        int nativeUses = Game.SkillsFor(player).CooldownUses(supported.Effect, supported.Level);
+        var cooldown = Game.CooldownForSkill(player, skill);
+        Assert.Equal(2, cooldown?.Uses ?? nativeUses);
+        var displayed = Game.PlayerSkills(player).Single(g => g.Id == skill);
+        Assert.Contains((Stat.VirtualTotalCooldownCount, 2), displayed.Stats!);
+
+        var clock = new Clock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            bool Admit() => Game.TryBeginSkillCooldownUse(player, skill, supported.Effect, cooldown,
+                false, () => { }, out _);
+
+            Assert.True(Admit());
+            Assert.True(Admit());
+            uint mana = player.PlayerMana;
+            Assert.False(Admit());
+            Assert.Equal(mana, player.PlayerMana);
+            var state = Game.SingleUseState(player, supported.Effect, skill)!;
+            Assert.Equal(2, state.SpentUses);
+
+            double recharge = cooldown!.Value.BaseMilliseconds / (1000 * cooldown.Value.RecoveryRate);
+            clock.Time += recharge - 0.01;
+            Assert.False(Admit());
+            clock.Time += 0.01;
+            Game.RefreshSingleUseCooldowns(player);
+            Assert.Equal(1, state.SpentUses);
+            Assert.True(Admit());
+            Assert.False(Admit());
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public void Seismic_Cry_grants_its_row_stats_with_the_rows_own_value_count()
     {
         using var f = new TriggeredSummonTests.Fixture();

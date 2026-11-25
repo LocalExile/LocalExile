@@ -118,6 +118,7 @@ public sealed partial class DeliriumModule
             [Stat.MapMonstersAdditionalLightningResistance] = Stat.BaseLightningDamageResistancePct,
             [Stat.MapMonstersAdditionalChaosResistance] = Stat.BaseChaosDamageResistancePct,
             [Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase] = Stat.MovementSpeedCannotBeReducedBelowBase,
+            [Stat.MapMonstersRemoveEnemyFlaskChargeOnHitPctChance] = Stat.MapMonstersRemoveEnemyFlaskChargeOnHitPctChance,
             // Read by AlternateAilmentsOnPlayerLocked. Sapped stays out: Sap on the player's damage is not modelled.
             [Stat.MapMonstersChanceToScorchPct] = Stat.ChanceToScorchPct,
             [Stat.MapMonstersChanceToInflictBrittlePct] = Stat.ChanceToInflictFrostburnPct,

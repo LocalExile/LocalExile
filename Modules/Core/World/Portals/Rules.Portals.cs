@@ -29,6 +29,26 @@ static partial class PortalsRules
             }
             catch (Exception e) when (e is IOException or ObjectDisposedException) { } // A departing observer cannot stop entry.
         }
+        // A device that opens one portal at a time stands the next one, at the same place, once the last is taken.
+        if (MapDevice.OpenOf(run.Owner) is not { PortalsLeft: > 0 } next || next.Run != run.Run) return;
+        foreach (var visitor in Program.InGame.Keys.Where(c => !c.Closed && !c.LeavingArea && c.MapPortalRun?.Run == run.Run
+            && MapDevice.AtEntrance(c.Layout.Hash, c.InstanceNumber)?.Run == run.Run))
+            if (OneAtATime(visitor) is int delay)
+            {
+                // Each visitor's portals are their own view, as on entry: without it the creates go to the whole area.
+                var previousView = Program.ViewOf.Value;
+                Program.ViewOf.Value = visitor;
+                try { await SpawnMapPortals(visitor, next, firstAfterMs: Math.Max(delay, MapPortalGapMs)); }
+                finally { Program.ViewOf.Value = previousView; }
+            }
+    }
+
+    // The hideout device here opens one portal at a time: the delay before the next one, else null.
+    static int? OneAtATime(Player player)
+    {
+        if (MapDeviceHere(player) is not { Campaign: false } device) return null;
+        lock (player.HideoutDoodads)
+            return player.HideoutDoodads.GetValueOrDefault(device.Id) is { } d ? global::Game.HideoutNextPortalMs(d) : null;
     }
 
     // The open map's portals that are left, at their places on a ring around the hideout's map device, one after another
@@ -54,13 +74,28 @@ static partial class PortalsRules
             && MapDevice.OpenOf(open.Owner)?.Run == open.Run;
         bool Available(int index) => Current() && MapDevice.OpenOf(open.Owner)?.Left.Contains(index) == true;
         uint type = InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath);
+        HideoutCatalog.Doodad? hideoutDevice = null;
+        if (!device.Campaign) lock (player.HideoutDoodads) hideoutDevice = player.HideoutDoodads.GetValueOrDefault(deviceId);
+        int most = hideoutDevice is not null && global::Game.HideoutNextPortalMs(hideoutDevice) is not null ? 1 : int.MaxValue;
+        var facing = new Dictionary<int, float>();
         (int X, int Y) Place(int index)
         {
-            var ring = MapDevice.PortalCell(centre.X, centre.Y, index);
-            return device.Campaign && player.Layout.Walkable is { } walk && !walk(ring.X, ring.Y) ? player.Layout.Near(ring) : ring;
+            (int X, int Y) cell;
+            if (hideoutDevice is not null)
+            {
+                var (x, y, rotation) = global::Game.HideoutPortalPlace(hideoutDevice, index);
+                if (rotation is float r) lock (facing) facing[index] = r;
+                cell = (x, y);
+            }
+            else cell = MapDevice.PortalCell(centre.X, centre.Y, index);
+            return player.Layout.Walkable is { } walk && !walk(cell.X, cell.Y) ? player.Layout.Near(cell) : cell;
         }
-        float PortalAngle(int x, int y, int index) =>
-            MapDevice.PortalRotation(centre.X, centre.Y, x, y, index) + player.PortalRotationRadians;
+        float PortalAngle(int x, int y, int index)
+        {
+            lock (facing)
+                return (facing.TryGetValue(index, out float scripted) ? scripted : MapDevice.PortalRotation(centre.X, centre.Y, x, y, index))
+                    + player.PortalRotationRadians;
+        }
         Task Create(uint id, int x, int y, int index, string log) =>
             global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, type,
                 new MapPortalObject(x, y, index, MapPortalType, Open: 1,
@@ -75,14 +110,13 @@ static partial class PortalsRules
                     if (!Current()) return;
                     var placed = new List<(uint Id, int X, int Y, int Index)>();
                     lock (player.MapPortals)
-                        foreach (int index in open.Left)
-                            if (Available(index))
-                            {
-                                var (px, py) = Place(index);
-                                uint pid = player.TakeObjectId();
-                                player.MapPortals[pid] = (px, py, index);
-                                placed.Add((pid, px, py, index));
-                            }
+                        foreach (int index in open.Left.Where(Available).Take(most))
+                        {
+                            var (px, py) = Place(index);
+                            uint pid = player.TakeObjectId();
+                            player.MapPortals[pid] = (px, py, index);
+                            placed.Add((pid, px, py, index));
+                        }
                     if (placed.Count == 0) return;
                     await SendMapPortals(player, deviceId, open.Area.Hash16);
                     foreach (var (pid, px, py, index) in placed)
@@ -107,10 +141,11 @@ static partial class PortalsRules
                     if (Current()) await SendMapPortals(player, deviceId, open.Area.Hash16);
                     return;
                 }
-                int n = 0;
+                int n = 0, made = 0;
                 foreach (int index in open.Left)
                 {
                     if (!Current()) return;
+                    if (made >= most) break;
                     if (n++ > 0) await AreaDelay(player, MapPortalGapMs / 1000.0);
                     if (!Current()) return;
                     if (!Available(index)) continue;
@@ -122,7 +157,7 @@ static partial class PortalsRules
                     lock (player.MapPortals)
                     {
                         keep = Available(index);
-                        if (keep) player.MapPortals[id] = (x, y, index);
+                        if (keep) { player.MapPortals[id] = (x, y, index); made++; }
                     }
                     if (!keep)
                     {

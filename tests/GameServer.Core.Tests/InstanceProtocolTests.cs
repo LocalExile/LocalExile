@@ -49,6 +49,9 @@ public class InstanceProtocolTests
         // +0x7e carries the world frame length in ms (dispatcher case 10 -> 0x141648b50 -> world +0x11c).
         Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "000000" + "21" + "00",
             Convert.ToHexString(InstanceProtocol.EnterArea(frameMs: 33)));
+        // Flag bit 2: the player's own hideout (session +0xcd36), which the Decorations panel needs.
+        Assert.Equal("0021" + "0000" + "0000" + "0000" + "0000" + "050000" + "00" + "00",
+            Convert.ToHexString(InstanceProtocol.EnterArea(secondWeaponSet: true, ownHideout: true)));
     }
 
     [Fact]
@@ -100,7 +103,8 @@ public class InstanceProtocolTests
     public void Death_screen_0x55_and_resurrect_0x54()
     {
         // Live 2026-10-17: 0x0c showed "Resurrect in Town" and "Resurrect at Checkpoint"; 0x02 hides the screen.
-        Assert.Equal("00550C000000000000", Convert.ToHexString(InstanceProtocol.DeathScreen(0x0c)));
+        Func<byte, byte[]> legacyDeathScreen = InstanceProtocol.DeathScreen;
+        Assert.Equal("00550C000000000000", Convert.ToHexString(legacyDeathScreen(0x0c)));
         Assert.Equal("005502", Convert.ToHexString(InstanceProtocol.DeathScreen(0x02)));
         Assert.True(InstanceProtocol.ReadResurrectInTown([0x00, 0x54, 0x01]));
         Assert.False(InstanceProtocol.ReadResurrectInTown([0x00, 0x54, 0x00]));
