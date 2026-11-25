@@ -2,7 +2,6 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 using static Game;
-using static Program;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -52,10 +51,10 @@ public static partial class BotPlay
         {
             var cls = (GameServer.Core.Accounts.CharacterClass)SkillsFor(player).ClassFor(player.Character.ClassRow).IntegerId;
             var nodes = BuildControlledPlayer(cls, player.Pools.Level).Passives!;
-            CharacterSaves.SetMainAscendancy(CharacterName(player), player.Character.MainAscendancy, nodes, player.Character.MasteryEffects,
+            CharacterSaves.SetMainAscendancy(Program.CharacterName(player), player.Character.MainAscendancy, nodes, player.Character.MasteryEffects,
                 expected: player.Character.SavedPassiveProgress);
             player.Character.Passives = [.. nodes];
-            player.Character.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(CharacterSaves.Load(CharacterName(player))!);
+            player.Character.SavedPassiveProgress = CharacterSaves.PassiveProgressSnapshot.From(CharacterSaves.Load(Program.CharacterName(player))!);
             player.Pools = PoolsFor(player, player.Pools.Level);
             player.ApplyMovementSpeed();
             await SendCharacterStats(player, PlayerStatChange.Build);

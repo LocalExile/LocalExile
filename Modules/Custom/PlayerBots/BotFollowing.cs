@@ -1,7 +1,6 @@
 using GameServer.Core.World;
 
 using static Game;
-using static Program;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -76,7 +75,7 @@ public static partial class BotPlay
             plan.FarSince = double.NaN;
             ScheduleControlledIdle(player, plan, now);
             PublishPlayerPose(player);
-            Console.WriteLine($"[bots] {CharacterName(player)} returns to leader: {distance:0.0} cells -> ({at.X}, {at.Y})");
+            Console.WriteLine($"[bots] {Program.CharacterName(player)} returns to leader: {distance:0.0} cells -> ({at.X}, {at.Y})");
             return true;
         }
         // Hysteresis: a moving leader is followed in legs, not by constantly finding a new formation cell.

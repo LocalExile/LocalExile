@@ -4,7 +4,6 @@ using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 
 using static Game;
-using static Program;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -218,12 +217,12 @@ public static partial class BotPlay
         return new
         {
             gameTime = now, paused = player.Paused, area = player.Layout.Id,
-            self = new { id = player.Id, name = CharacterName(player), level = player.Pools.Level,
+            self = new { id = player.Id, name = Program.CharacterName(player), level = player.Pools.Level,
                 position = Cell(here), destination = Cell(player.Walk.Destination), moving = player.Walk.Moving(now),
                 life = player.PlayerLife, maxLife = player.Pools.Life, mana = player.PlayerMana, maxMana = player.Pools.Mana,
                 energyShield = player.EnergyShield.Current, maxEnergyShield = player.EnergyShield.Maximum, alive = player.PlayerLife > 0,
                 strength = player.Pools.Strength, dexterity = player.Pools.Dexterity, intelligence = player.Pools.Intelligence },
-            leader = new { id = leader.Id, name = CharacterName(leader), position = Cell(origin), destination = Cell(leader.Walk.Destination),
+            leader = new { id = leader.Id, name = Program.CharacterName(leader), position = Cell(origin), destination = Cell(leader.Walk.Destination),
                 moving = leader.Walk.Moving(now), life = leader.PlayerLife, maxLife = leader.Pools.Life,
                 energyShield = leader.EnergyShield.Current, distance = Dist(here, origin) },
             skills = GemSkillEffects(player).Select(g => new { id = g.Id, name = g.Name, level = g.Level, quality = g.Quality,

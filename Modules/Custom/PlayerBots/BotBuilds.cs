@@ -2,7 +2,6 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 
 using static Game;
-using static Program;
 
 namespace GameServer.Modules.PlayerBots;
 
@@ -14,7 +13,7 @@ public static partial class BotPlay
     public static CharacterSaves.Save BuildControlledPlayer(CharacterClass characterClass, int level)
     {
         level = Math.Clamp(level, 1, 100);
-        var cls = Skills.ClassFor(Skills.RowOfClass((int)characterClass));
+        var cls = Program.Skills.ClassFor(Program.Skills.RowOfClass((int)characterClass));
         bool spell = characterClass is CharacterClass.Witch or CharacterClass.Templar;
         bool bow = characterClass == CharacterClass.Ranger;
         string skill = characterClass switch
@@ -28,7 +27,7 @@ public static partial class BotPlay
         var nodes = new List<ushort>();
         double Score(ushort id)
         {
-            var n = Passives.Find(id);
+            var n = Program.Passives.Find(id);
             if (n is null || n.IsKeystone || n.IsJewelSocket) return -1000;
             double score = .1;
             foreach (var (key, value) in n.Stats)
@@ -54,43 +53,43 @@ public static partial class BotPlay
             nodes.Add(pick);
         }
         OrdinaryPassives.Validate((byte)cls.IntegerId, AscendancyFamily.Normal, nodes);
-        var passiveStats = Passives.Stats(nodes);
+        var passiveStats = Program.Passives.Stats(nodes);
         int Attr(uint key, int basis) => basis + passiveStats.GetValueOrDefault(key)
             + passiveStats.GetValueOrDefault(AttributeModifiers.BaseAllAttributes);
         int str = Attr(Stat.BaseStrength, cls.Strength), dex = Attr(Stat.BaseDexterity, cls.Dexterity), intel = Attr(Stat.BaseIntelligence, cls.Intelligence);
         bool Fits(ItemCatalog.BaseType t)
         {
-            var req = Items.Requirements(t);
+            var req = Program.Items.Requirements(t);
             return t.DropLevel <= level && req.Str <= str && req.Dex <= dex && req.Int <= intel
-                && ItemModStats.LevelRequirement(ItemCatalog.Create(t), t.DropLevel, Items.Mods) <= level;
+                && ItemModStats.LevelRequirement(ItemCatalog.Create(t), t.DropLevel, Program.Items.Mods) <= level;
         }
         var inventory = new Dictionary<byte, List<CharacterSaves.SavedPlacement>>();
         uint itemId = 0;
         Item? Wear(string itemClass, byte row)
         {
-            var type = Items.All.Where(t => t.Class == itemClass && t.Supported && Fits(t)
+            var type = Program.Items.All.Where(t => t.Class == itemClass && t.Supported && Fits(t)
                 && !t.Id.Contains("Royale", StringComparison.Ordinal) && !t.Id.Contains("Demigod", StringComparison.Ordinal)
                 && !t.Components.Contains("Transformed"))
                 .OrderByDescending(t => t.DropLevel).ThenBy(t => t.Id, StringComparer.Ordinal).FirstOrDefault();
             if (type is null) return null;
             var item = ItemCatalog.Create(type) with { ItemLevel = (byte)level, Quality = (byte)(level >= 20 ? 20 : 0), Sockets = [], Links = [] };
-            inventory[row] = [new(++itemId, 0, 0, CharacterSaves.ToSaved(item, Items.Mods))];
+            inventory[row] = [new(++itemId, 0, 0, CharacterSaves.ToSaved(item, Program.Items.Mods))];
             return item;
         }
         var main = Wear(weapon, 2) ?? (weapon == "Two Hand Mace" ? Wear("One Hand Mace", 2)
             : weapon == "Claw" ? Wear("Dagger", 2) : null)
             ?? throw new InvalidDataException($"No wearable {weapon} for controlled {characterClass}");
-        if (Items.ByHash(main.TypeHash)?.Class is "Wand" or "One Hand Sword" or "Claw" or "Dagger" or "One Hand Mace") Wear("Shield", 3);
+        if (Program.Items.ByHash(main.TypeHash)?.Class is "Wand" or "One Hand Sword" or "Claw" or "Dagger" or "One Hand Mace") Wear("Shield", 3);
         Wear("Body Armour", 1); Wear("Helmet", 4); Wear("Gloves", 8); Wear("Boots", 9); Wear("Belt", 10);
         Item? Gem(string name)
         {
-            var type = Items.All.FirstOrDefault(t => t.Name == name && Items.Gem(t) is { IsVaalOrAwakened: false });
-            if (type is null || Items.Gem(type) is not { } data) return null;
+            var type = Program.Items.All.FirstOrDefault(t => t.Name == name && Program.Items.Gem(t) is { IsVaalOrAwakened: false });
+            if (type is null || Program.Items.Gem(type) is not { } data) return null;
             int effect = data.Variant(0).Effect;
-            int gemLevel = Math.Min(data.MaxLevel, Skills.MaxLevelAt(effect, level));
+            int gemLevel = Math.Min(data.MaxLevel, Program.Skills.MaxLevelAt(effect, level));
             while (gemLevel > 0)
             {
-                int required = Skills.PlayerLevelReq(effect, gemLevel);
+                int required = Program.Skills.PlayerLevelReq(effect, gemLevel);
                 if (required <= level && SkillCatalog.GemAttributeRequirement(data.StrengthPercent, required, data.IsSupport) <= str
                     && SkillCatalog.GemAttributeRequirement(data.DexterityPercent, required, data.IsSupport) <= dex
                     && SkillCatalog.GemAttributeRequirement(data.IntelligencePercent, required, data.IsSupport) <= intel)
@@ -109,15 +108,15 @@ public static partial class BotPlay
             if (gems.Count >= 3) break;
             if (Gem(supportName) is { } support)
             {
-                int effect = Items.Gem(Items.ByHash(support.TypeHash)!)!.Variant(support.GemVariant).Effect;
-                if (Supports.Resolve(Items.GemEffects(active).First(), [new(effect, Items.GemLevel(support), 0, gems.Count)], Skills,
-                    Items.ByHash(main.TypeHash)?.ClassRow).Count > 0) gems.Add(support);
+                int effect = Program.Items.Gem(Program.Items.ByHash(support.TypeHash)!)!.Variant(support.GemVariant).Effect;
+                if (Supports.Resolve(Program.Items.GemEffects(active).First(), [new(effect, Program.Items.GemLevel(support), 0, gems.Count)], Program.Skills,
+                    Program.Items.ByHash(main.TypeHash)?.ClassRow).Count > 0) gems.Add(support);
             }
         }
-        main = main with { Sockets = gems.Select(g => new ItemSocket((SocketColour)(Items.Gem(Items.ByHash(g.TypeHash)!)!.Colour), g)).ToArray(), Links = [(byte)gems.Count] };
-        inventory[2] = [inventory[2][0] with { Item = CharacterSaves.ToSaved(main, Items.Mods) }];
+        main = main with { Sockets = gems.Select(g => new ItemSocket((SocketColour)(Program.Items.Gem(Program.Items.ByHash(g.TypeHash)!)!.Colour), g)).ToArray(), Links = [(byte)gems.Count] };
+        inventory[2] = [inventory[2][0] with { Item = CharacterSaves.ToSaved(main, Program.Items.Mods) }];
         return new(inventory, Experience: CharacterStats.ExperienceFor(level), Passives: nodes,
-            SkillBar: new() { [0] = "Action/Move", [1] = Skills.EffectId(Items.GemEffects(active).First())! },
+            SkillBar: new() { [0] = "Action/Move", [1] = Program.Skills.EffectId(Program.Items.GemEffects(active).First())! },
             ModuleData: new() { ["PlayerBots.BuildVersion"] = "1" });
     }
 }
