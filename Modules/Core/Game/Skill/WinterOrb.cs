@@ -415,24 +415,43 @@ static partial class Game
         if (targets.Count == 0) return;
         if (runtime.Stages <= 0) return;
         var anchor = targets[0].At;
-        int count = Math.Clamp(Stat(global::Stat.BaseNumberOfProjectiles) is > 0 and var baseCount ? baseCount : 1, 1, 16);
+        // Counted once per volley through the general projectile path, on the player's sheet laid over the skill's own,
+        // so additional projectiles, the count gate and the single-projectile cap apply as they do for other skills.
+        var playerStats = CharacterPlayerStats(player);
+        int count = WinterOrbVolleyCount(key => playerStats.GetValueOrDefault(key) + Stat(key));
         // The offset stat is in 1/100 m; cells are 1/10 m (GroundSlamWave.CellsPerSecond).
         int spacing = Math.Max(0, Stat(global::Stat.AdditionalProjectilesFiredWithDistanceOffset) / 10);
-        double dx = anchor.X - from.X, dy = anchor.Y - from.Y;
-        double length = Math.Sqrt(dx * dx + dy * dy);
-        // A line across the aim; a target on the caster's own cell has no direction, so the line runs east-west.
-        double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
+        var landings = WinterOrbLandings(from, anchor, count, spacing);
         // One stat sheet for the whole volley: its shots leave together, so its speed cannot change between them.
         float cellsPerSecond = WinterOrbProjectileSpeed(player, runtime);
-        for (int i = 0; i < count; i++)
+        foreach (var landing in landings)
         {
-            double offset = spacing * (i - (count - 1) / 2.0);
-            var landing = ((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset));
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
             uint projectile = await WinterOrbProjectile(player, from, landing, seconds);
             if (projectile == 0) continue;
             _ = LandWinterOrbProjectile(player, runtime, projectile, from, landing, seconds);
         }
+    }
+
+    /// <summary>How many mortars one volley fires: the row's base count plus the additional projectiles, resolved through
+    /// <see cref="GatewayProjectileModifiers.Resolve"/> as a spell so its gates and caps apply.</summary>
+    internal static int WinterOrbVolleyCount(Func<uint, int> get) =>
+        Math.Clamp(GatewayProjectileDefaults.Resolve(WinterOrbProjectileArt, get, 1000, attack: false).Count, 1, 16);
+
+    /// <summary>The landing cells of one volley: a line across the aim through the anchor, <paramref name="spacing"/>
+    /// cells apart and centred on it. A target on the caster's own cell has no direction, so the line runs east-west.</summary>
+    internal static List<(int X, int Y)> WinterOrbLandings((int X, int Y) from, (int X, int Y) anchor, int count, int spacing)
+    {
+        double dx = anchor.X - from.X, dy = anchor.Y - from.Y;
+        double length = Math.Sqrt(dx * dx + dy * dy);
+        double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
+        var landings = new List<(int X, int Y)>(count);
+        for (int i = 0; i < count; i++)
+        {
+            double offset = spacing * (i - (count - 1) / 2.0);
+            landings.Add(((int)Math.Round(anchor.X + acrossX * offset), (int)Math.Round(anchor.Y + acrossY * offset)));
+        }
+        return landings;
     }
 
     /// <summary>The row's own mortar: its Projectiles.dat AOFiles are <c>FrostFury/projectile.ao</c>, so the client
