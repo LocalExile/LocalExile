@@ -228,6 +228,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
+  Docs: [11](../docs/protocol/11-skills.md).
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Wild Strike and Extremes resolve contact and follow-ups. See [projectile skills](../docs/game/projectile-skills.md).

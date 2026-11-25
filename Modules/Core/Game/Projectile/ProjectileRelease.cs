@@ -467,6 +467,7 @@ public static partial class Game
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
             RemainingChainDamagePercent = Own(Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain),
+            CompletedChainDamagePercent = Own(Stat.SkillDamagePlusPctFinalPerChainFromSkillSpecificStat),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
