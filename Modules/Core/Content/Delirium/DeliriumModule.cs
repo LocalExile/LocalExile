@@ -249,7 +249,7 @@ public sealed partial class DeliriumModule : IModule
         instance.ContentState.TryGetValue(StateKey, out var text) ? JsonSerializer.Deserialize<Run>(text, serialization) ?? new() : new());
     void Save(Player player, Run run) => player.Instance.ContentState[StateKey] = JsonSerializer.Serialize(run, serialization);
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
-    static IEnumerable<Player> Clients(Player player) => InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+    static IEnumerable<Player> Clients(Player player) => InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c));
     View? ViewOf(Player player)
     {
         if (views.TryGetValue(player, out var view)) return view;

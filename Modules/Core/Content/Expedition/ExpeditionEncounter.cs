@@ -232,7 +232,7 @@ public sealed class ExpeditionEncounter : IDisposable
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+        InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c));
 
     /// <summary>One message of the ruleset to every client of the instance.</summary>
     static async Task Broadcast(Player player, byte[] payload, string log)

@@ -292,12 +292,12 @@ public static partial class Game
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
             double now = AreaTime(player);
-            if (player.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
+            if (player.WardBreak.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
             if (player.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(player.EnduringCryRecovery.Until - now);
             // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
             if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
-                    + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
+                    + (player.WardBreak.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
             var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);

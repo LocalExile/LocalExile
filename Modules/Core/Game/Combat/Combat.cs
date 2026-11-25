@@ -612,9 +612,9 @@ public static partial class Game
                 var hit = prehit.Hit;
                 if (weapon.Melee)
                     hit = WithMeleeProximityLocked(player, playerStats, ownPenetration, m, hit, contactAt);
-                var gambler = GamblerFor(playerStats);
+                var hitRolls = HitRollsFor(playerStats);
                 var ownRolled = GameEvents.WithOutgoingDamage(player, playerStats, m,
-                    WithIntimidatingCryExert(gambler with { DamageMorePct = 0 }, cryExerted)
+                    WithIntimidatingCryExert(hitRolls with { DamageMorePct = 0 }, cryExerted)
                         .ForWeapon(weapon.LocalSources).RollOutgoingHit(hit, AreaRng(player)));
                 critical = RollCriticalStrike(player, CriticalChanceOn(player, targetId, HandAttackCriticalChance(player, hand, playerStats),
                         AttackCriticalChanceVsBlinded(player, playerStats, hand: hand), AttackCriticalChanceVsGround(player, playerStats, hand: hand)),
@@ -627,7 +627,7 @@ public static partial class Game
                 double at = ProjectileWorldTime(player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, at, playerStats, ownPenetration);
                 (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
-                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage);
@@ -3447,9 +3447,9 @@ public static partial class Game
                         Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name} on 0x{id:x} ({m.Label}) blocked");
                         continue;
                     }
-                    var gambler = GamblerFor(playerStats);
+                    var hitRolls = HitRollsFor(playerStats);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
-                        GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
+                        GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
                             .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
                                 intelligence: player.Pools.Intelligence), cryExerted == true)
                             .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
@@ -3505,7 +3505,7 @@ public static partial class Game
                     rolled = resonance.Packet;
                     (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
                         resonance.Mods, resonance.Penetration,
-                        gambler.InvertsResistance(AreaRng(player), inversionChance), AreaRng(player));
+                        hitRolls.InvertsResistance(AreaRng(player), inversionChance), AreaRng(player));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -4197,7 +4197,7 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         void Trace(string reason)
         {
-            if (Get(AntiquarianEffects.StunRecoverySource) > 0)
+            if (Get(WardBreakEffects.StunRecoverySource) > 0)
                 Console.WriteLine($"[gateway] Turtle Shell stun: {reason}");
         }
         // The panel publishes the per-Brutal-Charge threshold coefficient on every character; the charges held (converted
@@ -4224,10 +4224,10 @@ public static partial class Game
         if (seconds <= 0 || AreaRng(player).NextDouble() * 100 >= chance
             || player.Closed || player.PlayerLife == 0 || !player.HitRecovery.Begin(now, seconds))
         { Trace($"not accepted (chance {chance:0.###}%, duration {seconds:0.###} s)"); return null; }
-        Trace($"accepted ({seconds:0.###} s, {Get(AntiquarianEffects.StunRecoverySource)}% Life over one second)");
+        Trace($"accepted ({seconds:0.###} s, {Get(WardBreakEffects.StunRecoverySource)}% Life over one second)");
         player.LastStunnedOrBlockedStunAt = now;
         player.RecentEvents.Record(StatConditions.BeenStunned, now);
-        player.Antiquarian.Stunned(now, player.PlayerMaxLife, Get(AntiquarianEffects.StunRecoverySource));
+        player.WardBreak.Stunned(now, player.PlayerMaxLife, Get(WardBreakEffects.StunRecoverySource));
         CancelMeleeRepeats(player, now);
         int action = Interlocked.Increment(ref player.ActionCount);
         bool wasCharging = IsShieldChargeActive(player);

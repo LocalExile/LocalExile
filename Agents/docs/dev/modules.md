@@ -39,6 +39,7 @@ removed while it runs. A connection is in one league, and only that league's mod
 | `ended` | no new characters, and the migration list offers it |
 | `creatable: false` | not on the create screen (Void) |
 | `dataSet` | `HardMode`: the game files' HardMode tables |
+| `mods` | the [mods](modding.md) whose hooks run for its players: `"all"` (default), `"none"`, or a list of mod ids. For a league that changes the whole game |
 
 Beside `league.json`, `modules.json` lists the modules the league loads, Core ones too, as paths under `Modules/`. Nothing is implied: what is not listed does not run for its players.
 
@@ -99,6 +100,9 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 - **Hot reload:** a new build in `bin/`, an edited `module.json` or `settings.json`, a change to its user's settings, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
 - **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
+- **Limits:** `module.json` may say which modules it cannot share a league with (`"conflicts": ["<id>"]`), and a mode,
+  which changes the whole game, which ones may join it (`"only": ["<id>"]`; the game itself always may). A league whose
+  list breaks one does not load, and a user's change that would is an error line. Everything else may be combined.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
 - **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 

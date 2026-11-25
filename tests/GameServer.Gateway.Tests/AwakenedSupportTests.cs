@@ -37,9 +37,9 @@ public sealed class AwakenedSupportTests
     public void Final_repeat_double_damage_and_aura_support_effect_apply()
     {
         var echo = Stats(("spell_echo_plus_chance_double_damage_%_final", 100));
-        Assert.Equal(100, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: true, finalRepeat: true).DoubleDamageChance);
-        Assert.Equal(0, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: true).DoubleDamageChance);
-        Assert.Equal(0, GamblerModifiers.From(_ => 0).ForSkill(echo, spell: false, finalRepeat: true).DoubleDamageChance);
+        Assert.Equal(100, HitRollModifiers.From(_ => 0).ForSkill(echo, spell: true, finalRepeat: true).DoubleDamageChance);
+        Assert.Equal(0, HitRollModifiers.From(_ => 0).ForSkill(echo, spell: true).DoubleDamageChance);
+        Assert.Equal(0, HitRollModifiers.From(_ => 0).ForSkill(echo, spell: false, finalRepeat: true).DoubleDamageChance);
 
         var aura = new AuraCatalog.Aura(1, Program.Skills.EffectRow("Haste"), "Haste", "Haste", 1, 1, 0, 0,
             Level: 20, Quality: 0);
