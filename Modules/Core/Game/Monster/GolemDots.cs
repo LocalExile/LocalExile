@@ -89,6 +89,7 @@ public static partial class Game
             return;
         }
         if (MinionInstabilityLocked(player, golem, to)) return;
+        if (lifeDamage > 0) ShatteringIceGolemBurstLocked(player, golem, to);
         UpdateGolemDotBuffsLocked(player, golem, to);
     }
 
