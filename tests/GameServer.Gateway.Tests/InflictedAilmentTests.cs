@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Modding;
@@ -144,6 +145,77 @@ public class InflictedAilmentTests
         Assert.Contains((Stat.MainHandAttackDamagePenetratesFireResistPct, 15),
             PanelStats.Selected(panel, _ => 0, mainHand: _ => 0, mainArmed: true));
         Assert.DoesNotContain(PanelStats.Compute(panel, _ => 0, _ => 0), row => Program.Stats.Name(row.Stat).Contains("penetrates"));
+    }
+
+    [Fact]
+    public async Task RashkaldorsPatienceShortensIgnite()
+    {
+        var results = new List<(bool Equipped, double Ignite, double Chill)>();
+        foreach (string name in new[] { "Ice Nova", "Fireball" })
+        foreach (bool equipped in new[] { false, true })
+        {
+            var clock = new IgniteCastClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            player.ProjectileRuntimeState = fixture.Session;
+            ushort skill = Assert.Single(fixture.Equip((name, 18)));
+            var amulet = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Rashkaldor's Patience", new Random(71)));
+            var duration = Program.Items.Mods.ById("ElementalStatusAilmentDurationUniqueAmulet19")!;
+            Assert.Contains(amulet.Mods, mod => mod.Hash == duration.Hash);
+            if (!equipped) amulet = amulet with { Mods = [.. amulet.Mods.Where(mod => mod.Hash != duration.Hash)] };
+            Game.ItemsOf(player).Add(PlayerInventories.Amulet, 0, 0, amulet);
+            Assert.Equal(equipped ? -20 : 0, Game.CharacterPlayerStats(player)
+                .GetValueOrDefault(Stat.BaseElementalStatusAilmentDurationPlusPct));
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, current) =>
+            {
+                if (!ReferenceEquals(owner, player)) return current;
+                current[Stat.GlobalCannotCrit] = 1;
+                current[Stat.BaseChanceToIgnitePct] = 100;
+                current[Stat.SpellMinimumAddedFireDamage] = current[Stat.SpellMaximumAddedFireDamage] = 4000;
+                current[Stat.SpellMinimumAddedColdDamage] = current[Stat.SpellMaximumAddedColdDamage] = 4000;
+                return current;
+            });
+            const uint targetId = 200;
+            var target = new SpawnedMonster("ailment duration target", new(111, 100, 0), 0, 0, 100000)
+                { ObjectId = targetId, NoRewards = true };
+            player.Area.Monsters[targetId] = target;
+            player.Area.Grid.Set(new(targetId), (111, 100));
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (111, 100), targetId));
+                Assert.True(player.PlayerMana < mana);
+                await clock.Wait(600, CancellationToken.None);
+                fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.Now(player))));
+                Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                Assert.True(target.Ignites.Burning);
+                double hit = target.Ignites.LastApplied;
+                var result = (equipped, target.Ignites.Until - hit, target.Ailments.Remaining(Chill, hit));
+                Console.WriteLine($"Rashkaldor's Patience, {name}: mod {equipped}, ignite {result.Item2:F3}s, chill {result.Item3:F3}s");
+                results.Add(result);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+        Assert.All(results, result =>
+        {
+            Assert.Equal(result.Equipped ? 1.6 : 2, result.Chill, 6);
+            Assert.Equal(result.Equipped ? 3.2 : 4, result.Ignite, 6);
+        });
+    }
+
+    sealed class IgniteCastClock : IPlayerUpdateSchedule
+    {
+        double now;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 
     // The client builds each kind's proliferation radius from its own sources: Elemental Proliferation's counts for all

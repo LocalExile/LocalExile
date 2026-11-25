@@ -18,6 +18,8 @@ public interface IGameLogic
     void WritingWorldDelta(Player player, IReadOnlyList<AreaDelta.Record> delta) { }
     /// <summary>Prepare immutable item-value rules for this game generation, or null for the existing calculation.</summary>
     ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) => null;
+    /// <summary>An additive percentage to ignite duration resolved by the active game rules.</summary>
+    int IgniteDurationIncrease(Func<uint, int> caster) => 0;
     /// <summary>One read's client messages, in order, on the connection's handler task.</summary>
     Task OnClientMessages(IReadOnlyList<(ushort Id, byte[] Bytes)> messages, byte[] unknown, Player player, long readAt);
     /// <summary>A connection is about to be prepared; it may fail after this, and <see cref="Left"/> still runs.</summary>
