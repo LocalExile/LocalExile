@@ -1655,8 +1655,7 @@ public static partial class Game
             if (ignite.Max > 0)
             {
                 if (ailmentMore != 1.0)
-                    ignite = ignite with { Min = ignite.Min * ailmentMore, Max = ignite.Max * ailmentMore,
-                        CriticalMin = ignite.CriticalMin * ailmentMore, CriticalMax = ignite.CriticalMax * ailmentMore };
+                    ignite = ignite.ScaleDamage(ailmentMore);
                 foreach (var packet in IgniteOnHitLocked(player, monsterId, m, ignite, critical, now, playerIgnite: placement is null) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, $"{label} ignite", monsterId, m));
             }

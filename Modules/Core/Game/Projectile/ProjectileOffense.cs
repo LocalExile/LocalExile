@@ -169,11 +169,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
     };
 
-    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
-    {
-        Min = value.Min * more, Max = value.Max * more,
-        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
-    };
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value.ScaleDamage(more);
 
     static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
     {

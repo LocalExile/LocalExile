@@ -1089,10 +1089,13 @@ public static partial class Game
     public static List<(uint Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
         long additionalIncreased = 0)
     {
-        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
-        { WeaponStats = inputs.WeaponStats };
-        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
+        return AilmentPanelStats.Compute(AilmentContext(inputs, hand), inputs.Raw, inputs.Conversion, inputs.Get,
+            additionalIncreased);
     }
+
+    static AilmentPanelStats.Context AilmentContext(SupportedHitInputs inputs, string hand) =>
+        new(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        { WeaponStats = inputs.WeaponStats };
 
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
     {

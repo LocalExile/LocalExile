@@ -9,6 +9,11 @@ using GameServer.Core.World;
 /// </summary>
 public sealed class MonsterIgnites
 {
+    public readonly record struct DamageRanges(double Min, double Max, double CriticalMin, double CriticalMax)
+    {
+        public DamageRanges Scale(double factor) => new(Min * factor, Max * factor, CriticalMin * factor, CriticalMax * factor);
+    }
+
     /// <summary>What a hit can ignite with, captured at release: the chance, the ignite's fire damage per second for a
     /// non-critical and a critical hit (the panel's ignite rows, <see cref="AilmentPanelStats"/>, already scaled by the
     /// damage-over-time buckets), and the duration in seconds.</summary>
@@ -42,6 +47,16 @@ public sealed class MonsterIgnites
 
         public bool FireCannotIgnite { get; init; }
         public bool ColdCanIgnite { get; init; }
+        public DamageRanges? ChilledTarget { get; init; }
+        public DamageRanges Ranges => new(Min, Max, CriticalMin, CriticalMax);
+
+        public Settings WithRanges(DamageRanges range) => this with
+        {
+            Min = range.Min, Max = range.Max, CriticalMin = range.CriticalMin, CriticalMax = range.CriticalMax,
+        };
+
+        public Settings ScaleDamage(double factor) =>
+            WithRanges(Ranges.Scale(factor)) with { ChilledTarget = ChilledTarget?.Scale(factor) };
 
         /// <summary><paramref name="rows"/>: a context's ailment rows (per minute); <paramref name="get"/>: the merged
         /// caster and skill stats. Base duration 4 s (<see cref="Ailments.IgniteDurationSeconds"/>); the ignite
