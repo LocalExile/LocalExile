@@ -63,7 +63,9 @@ public static partial class Game
                 // Nor is a trigger on damage taken (the damage sets it off: BossKits.IsDamageTakenTrigger) or an aura (it stands on
                 // the monster: MonsterSkills.Auras).
                 if (skills.IsMovement(effect) || skills.CastsOnDeath(effect) || MonsterSkills.IsCorpseSkill(effect)
-                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)) continue;
+                    || BossKits.IsDamageTakenTrigger(skills, effect) || skills.IsAura(effect)
+                    // A mercenary's way out is no attack: a variety with nothing else swings the plain hit of a monster with no effect.
+                    || BossKits.IsLeavePortal(skills, effect)) continue;
                 string? id = skills.EffectId(effect);
                 if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
                     || id.Contains("Daemon", StringComparison.Ordinal)
@@ -91,7 +93,7 @@ public static partial class Game
                 foreach (int effect in effects)
                     if (skills.EffectId(effect)?.StartsWith("MeleeAtAnimationSpeed", StringComparison.Ordinal) == true)
                         return effect;
-            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e), -1);
+            return fallback ?? effects.FirstOrDefault(e => !skills.CastsOnDeath(e) && !BossKits.IsLeavePortal(skills, e), -1);
         }
 
         public static bool AttackIsRanged(SkillCatalog skills, int effect) =>

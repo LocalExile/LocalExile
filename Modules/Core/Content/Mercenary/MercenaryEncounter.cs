@@ -295,13 +295,13 @@ public sealed partial class MercenaryModule
     }
 
     /// <summary>The kit of a mercenary: the skills its build lists (<see cref="MercenaryTables.SkillsOf"/>) that the ordinary AI
-    /// can play, made once when it is created. Null when none is left, so its variety's own kit stays: its default attack is
-    /// the effect a mercenary leaves by, which is why the build's skills are all of its kit. The same seed and build give the
-    /// same draw of Skills2 and Skills3 at the duel and at the hire.</summary>
+    /// can play, made once when the duel opponent is created. Null when none is left, so it has its variety's own kit, which
+    /// never holds the effect a mercenary leaves by (BossKits.IsLeavePortal). Only the duel opponent has it: the hire is
+    /// scripted and keeps no kit.</summary>
     static IReadOnlyList<MonsterKitSkill>? KitOf(Player player, MonsterCatalog.Variety variety, MercenaryTables.Build build,
-        byte level, int seed, bool encounter)
+        byte level, int seed)
     {
-        var effects = MercenaryTables.SkillsOf(build, level, new Random(unchecked(seed * 397 ^ build.Row)), encounter);
+        var effects = MercenaryTables.SkillsOf(build, level, new Random(unchecked(seed * 397 ^ build.Row)));
         var kit = BossKits.KitFromEffects(player, variety, level, effects);
         return kit.Count > 0 ? kit : null;
     }
@@ -319,7 +319,7 @@ public sealed partial class MercenaryModule
             ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
             {
                 StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
-            }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed, encounter: true));
+            }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed));
         if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
         await Remove(player, old);
@@ -364,7 +364,7 @@ public sealed partial class MercenaryModule
             scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
             {
                 Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16, NpcFlags = 0, InteractionFlags = 1,
-            }, ownedKit: KitOf(player, allied, build, run.Level, run.Seed, encounter: false));
+            });
         if (id == 0) return;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;
         lock (run) run.Hired = id;

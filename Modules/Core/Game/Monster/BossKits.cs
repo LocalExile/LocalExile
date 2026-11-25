@@ -65,6 +65,13 @@ public static class BossKits
         return usable;
     }
 
+    /// <summary>The effect a mercenary leaves by (the first granted effect of most mercenary varieties): it is no attack and no
+    /// kit entry, whatever its type says.</summary>
+    public const string MercenaryPortalOut = "EASMercenaryPortalOut";
+
+    /// <summary>Whether the effect is <see cref="MercenaryPortalOut"/>.</summary>
+    public static bool IsLeavePortal(SkillCatalog catalog, int effect) => effect >= 0 && catalog.EffectId(effect) == MercenaryPortalOut;
+
     /// <summary>Whether one granted effect is something the ordinary AI can play as an action (the test <see cref="Effects"/>
     /// applies to each of a variety's effects), for a caller whose effects do not come from the variety's own list: a
     /// mercenary's build skills.</summary>
@@ -78,6 +85,7 @@ public static class BossKits
             // An aura is no move: it stands on the monster from its spawn (MonsterSkills.Auras).
             || catalog.IsAura(effect)) return false;
         string? id = catalog.EffectId(effect);
+        if (id == MercenaryPortalOut) return false;
         if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
             || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
             || id.Contains("MemoryGame", StringComparison.Ordinal)
@@ -124,23 +132,13 @@ public static class BossKits
         return kit;
     }
 
-    /// <summary>A kit made only of the given effects (a mercenary's build skills), each one <see cref="IsUsable"/> and doing
-    /// something (<see cref="Acts"/>), with the cooldown the tables give it. The variety's own default attack is not put in
-    /// front: for a mercenary variety that attack is the effect it leaves by.</summary>
+    /// <summary>A kit made only of the given effects (a mercenary's build skills), shaped as a unique's kit is (<see cref="Kit"/>):
+    /// the effects <see cref="UniqueOrder"/> keeps, each with the cooldown the tables give it, its travel, buff or curse form,
+    /// its barrage, teleport and damage-taken trigger marks, and only the ones that do something. The variety's own default
+    /// attack is not put in front: for a mercenary variety that attack is the effect it leaves by.</summary>
     public static IReadOnlyList<MonsterKitSkill> KitFromEffects(Player conn, MonsterCatalog.Variety variety, byte level,
-        IReadOnlyList<int> effects)
-    {
-        var catalog = SkillsFor(conn);
-        List<MonsterKitSkill> kit = [];
-        foreach (int effect in effects)
-        {
-            if (!IsUsable(catalog, variety, effect) || kit.Any(e => e.Effect == effect)) continue;
-            var attack = AttackFor(conn, variety, level, effect, (ushort)(0x4000 + kit.Count));
-            if (!Acts(attack)) continue;
-            kit.Add(new(effect, attack, catalog.CooldownMs(effect, catalog.MaxLevelAt(effect, level)) / 1000d));
-        }
-        return kit;
-    }
+        IReadOnlyList<int> effects) =>
+        BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects), null, unique: true, keepFirst: false);
 
     /// <summary>A monster's own kit with a caller's extra specials appended (SpawnMonster's <c>extraKit</c>). An effect the
     /// kit already plays is not a second copy; every appended entry takes the next free kit id (0x4000 + its index), the id
@@ -160,12 +158,20 @@ public static class BossKits
     /// <summary>A unique's effects: those <see cref="Effects"/> plays as hits, then those it plays as a travel, a buff on
     /// itself or a curse (MonsterSkills.ShapeOf; a Rogue Exile's Leap Slam, Enduring Cry, Temporal Chains), then its
     /// triggers on damage taken, which only the damage it takes plays (<see cref="DamageTakenThreshold"/>).</summary>
-    public static IReadOnlyList<int> UniqueEffects(SkillCatalog catalog, MonsterCatalog.Variety variety)
+    public static IReadOnlyList<int> UniqueEffects(SkillCatalog catalog, MonsterCatalog.Variety variety) =>
+        UniqueOrder(catalog, variety, variety.GrantedEffects ?? []);
+
+    /// <summary>The candidates a unique plays, in the order of <see cref="UniqueEffects"/>: the usable ones, then the shaped ones,
+    /// then the triggers on damage taken. Never the effect a mercenary leaves by.</summary>
+    public static IReadOnlyList<int> UniqueOrder(SkillCatalog catalog, MonsterCatalog.Variety variety, IReadOnlyList<int> candidates)
     {
-        List<int> effects = [.. Effects(catalog, variety)];
+        List<int> effects = [];
+        foreach (int effect in candidates)
+            if (IsUsable(catalog, variety, effect) && !effects.Contains(effect)) effects.Add(effect);
         foreach (bool trigger in new[] { false, true })
-            foreach (int effect in variety.GrantedEffects ?? [])
-                if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && IsDamageTakenTrigger(catalog, effect) == trigger
+            foreach (int effect in candidates)
+                if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
                     effects.Add(effect);
         return effects;
@@ -207,11 +213,22 @@ public static class BossKits
     {
         var catalog = SkillsFor(player);
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
-        List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect) && !IsDamageTakenTrigger(catalog, defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
+        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true);
+    }
+
+    /// <summary>The entries of a kit for these effects, in order. <paramref name="keepFirst"/>: the first entry is kept whatever
+    /// it does (it is the monster's own default attack); without it every entry must do something.</summary>
+    static IReadOnlyList<MonsterKitSkill> BuildKit(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst)
+    {
+        var catalog = SkillsFor(player);
+        List<MonsterKitSkill> kit = [];
         foreach (int effect in effects)
         {
+            // The first entry stays a monster's own attack whatever it is; the other entries must be something.
+            bool kept = kit.Count == 0 && keepFirst;
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             bool isBarrage = BossMoves.BarrageOf(catalog, effect) is not null;
@@ -255,7 +272,7 @@ public static class BossKits
                 // A totem's skill is its body's to use: the summon is kept only when that body has something to do.
                 if (attack.Summon is { Effect: >= 0 } totem)
                 {
-                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && kit.Count > 0) continue;
+                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && !kept) continue;
                 }
                 else if (attack.Summon is null)
                 {
@@ -269,10 +286,10 @@ public static class BossKits
                     // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
                     // plain hit.
-                    else if (kit.Count > 0 && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
+                    else if (!kept && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
                 }
             }
-            if (!Acts(attack) && kit.Count > 0) continue;
+            if (!Acts(attack) && !kept) continue;
             kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
         }
         return kit;

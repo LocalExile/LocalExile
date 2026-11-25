@@ -78,8 +78,9 @@ public static class MercenaryTables
     }
 
     /// <summary>The GrantedEffects rows a mercenary of this build fights with: its whole Skills1, Skills2Count rows drawn from
-    /// Skills2 and Skills3Count from Skills3 (uniformly: the table has no weights), each only when the mercenary's level
-    /// reaches the skill's RequiredLevel. A row that names an EncounterGrantedEffect gives that one while
+    /// Skills2 and Skills3Count from Skills3 (uniformly: the table has no weights), among the rows the mercenary's level
+    /// reaches (RequiredLevel), so a low-level mercenary still gets as many as the rows it can use allow; the client tables
+    /// say nothing about whether the official server draws first and filters after. A row that names an EncounterGrantedEffect gives that one while
     /// <paramref name="encounter"/> (the duel) and its GrantedEffect otherwise. The draw comes from
     /// <paramref name="rng"/>, so the same seed gives the same mercenary the same skills.</summary>
     public static IReadOnlyList<int> SkillsOf(Build build, int level, Random rng, bool encounter = true)
@@ -97,10 +98,13 @@ public static class MercenaryTables
         foreach (int row in Draw(listed.Skills3, listed.Skills3Count, rng)) Add(row);
         return effects;
 
-        static IEnumerable<int> Draw(int[] rows, int count, Random rng)
+        bool Reaches(int row) => SkillRowsData.TryGetValue(row, out var skill) && skill.RequiredLevel <= level;
+
+        IEnumerable<int> Draw(int[] rows, int count, Random rng)
         {
             if (count <= 0 || rows.Length == 0) return [];
-            var pool = (int[])rows.Clone();
+            var pool = rows.Where(Reaches).ToArray();
+            if (pool.Length == 0) return [];
             for (int i = pool.Length - 1; i > 0; i--)
             {
                 int j = rng.Next(i + 1);
