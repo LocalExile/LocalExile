@@ -109,8 +109,10 @@ public static partial class Game
         RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
-        bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
-        int bypass = Get(IncomingResourceDefences.BypassStat);
+        bool divineFlesh = Get(Stat.KeystoneDivineFlesh) != 0;
+        bool protectsMana = !divineFlesh
+            && (Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0);
+        int bypass = divineFlesh ? 100 : Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
@@ -118,7 +120,8 @@ public static partial class Game
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
         // Chaos bypasses Energy Shield by default; "Chaos Damage taken does not bypass Energy Shield" and its conditional
         // forms opt out of that, which only Energy Shield that still protects Life can honour.
-        int chaosLife = player.EnergyShield.Damage(chaos, protectsMana || ChaosDamageBypassesEnergyShield(player, playerStats), at);
+        int chaosLife = divineFlesh ? chaos
+            : player.EnergyShield.Damage(chaos, protectsMana || ChaosDamageBypassesEnergyShield(player, playerStats), at);
         var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
         int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current) : (int)player.PlayerMana;
         int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
@@ -142,7 +145,7 @@ public static partial class Game
         if (chaosDamage <= 0) return 0;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
-        bool bypass = ChaosDamageBypassesEnergyShield(player, playerStats);
+        bool bypass = Get(Stat.KeystoneDivineFlesh) != 0 || ChaosDamageBypassesEnergyShield(player, playerStats);
         int remaining = IncomingResourceDefences.DamageOverTime(player.EnergyShield, chaosDamage,
             (protectsMana || bypass) ? 100 : 0, at, ref player.ChaosDotBypassCarry);
         if (remaining <= 0) return 0;
@@ -206,7 +209,14 @@ public static partial class Game
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
         player.Ward.Advance(now);
         bool wasBroken = player.Ward.Broken;
-        int remaining = player.Ward.Damage(total, now, Get);
+        int WardStat(uint key)
+        {
+            int value = Get(key);
+            if (key != Stat.WardDoesNotBreak || value != 0) return value;
+            long chance = Get(Stat.WardPctChanceToNotBreak) + (Get(Stat.KeystoneMedvedsExchange) != 0 ? 60L : 0);
+            return chance > 0 && RandomRolls.Chance((int)Math.Min(100, chance), 100, player.IncomingHitRandom) ? 1 : 0;
+        }
+        int remaining = player.Ward.Damage(total, now, WardStat);
         int absorbed = total - remaining;
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
         int bypass = Math.Clamp(Get(Stat.BaseDamageBypassWardPct), 0, 100);
