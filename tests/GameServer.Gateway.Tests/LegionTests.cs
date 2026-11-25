@@ -57,6 +57,17 @@ public sealed class LegionTests
         // S→C 0x2c8: big-endian object header, action type, skill id, sequence, u8 sub-id, u16 length, the payload as is.
         Assert.Equal((byte[])[0x02, 0xc8, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0xd8, 0xfe, 0x18, 0xfe, 0x00, 0x07, 0x00, 0x00, 0x05, 2, 100, 0, 0, 0],
             InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
+        // LegionRevive (skill 0x159a): created ready (i32 state 4, u8 falling, f32 pose, f32 speed, f32 fall time, f32 timer, u8 revive 1, u8 leave)
+        // after an empty animation block; 0x2c8 payloads for states 5 (vanish 0.8 s, revive), 1 (revived) and 3 (fall, cooldown timer).
+        var revive = LegionRevive.Action(9, LegionRevive.Ready, 0, revive: true);
+        Assert.Equal((ushort)0x159a, revive.SkillId);
+        Assert.Equal(-1, revive.Animation!.Value.Clip);
+        Assert.Equal((byte[])[4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0], revive.Payload);
+        Assert.Equal((byte[])[5, 0, 0, 0, 0xcd, 0xcc, 0x4c, 0x3f, 1, 0], LegionRevive.RevivingPayload());
+        Assert.Equal((byte[])[1, 0, 0, 0, 0, 0, 0x80, 0x3f, 0], LegionRevive.RevivedPayload(1f));
+        byte[] fall = LegionRevive.FallenPayload(16f);
+        Assert.Equal((21, 3, 1), (fall.Length, fall[0], fall[4]));
+        Assert.Equal((3f, 16f), (BinaryPrimitives.ReadSingleLittleEndian(fall.AsSpan(13)), BinaryPrimitives.ReadSingleLittleEndian(fall.AsSpan(17))));
         // Non-lethal life floor in TakeDamageLocked: lowers life normally, stops at 1 and invokes callback once without killing.
         var frozen = new SpawnedMonster("frozen", new(100, 100, 0), 40, 4, 100);
         int floorHits = 0;
