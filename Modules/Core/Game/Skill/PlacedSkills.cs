@@ -174,9 +174,12 @@ public static partial class Game
     public static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges = 0)
     {
         // Charged Traps and Charged Mines: increased throwing speed per Frenzy Charge.
-        double speed = Math.Max(0, 1 + (get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
-            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + frenzyCharges
-                * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge)) / 100d);
+        long increased = (long)get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
+            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + (long)frenzyCharges
+                * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge);
+        if (!mine && get(Stat.AdditiveCastSpeedModifiersApplyToTrapThrowingSpeed) != 0)
+            increased += get(Stat.CastSpeedPlusPct);
+        double speed = Math.Max(0, 1 + increased / 100d);
         foreach (uint stat in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(stat) / 100d);
         return (mine ? .3 : .5) / Math.Max(.01, speed);
     }
