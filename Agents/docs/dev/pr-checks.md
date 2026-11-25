@@ -82,8 +82,11 @@ and failing checks, without changing anything:
 
 `.github/workflows/stale.yml` marks inactive threads with `stale` and closes them if there is no follow-up:
 
-- Pull requests: marked `stale` after 14 days without activity, closed after 7 more days.
-- Issues: marked `stale` after 45 days without activity, closed after 14 more days.
+- Draft pull requests: marked `stale` after 2 days without activity, closed at day 7 if still a draft
+  (`.github/scripts/stale-drafts.py`; exempt if `BLOCKED`).
+- Ready pull requests: marked `stale` after 14 days without activity, closed after 7 more days (exempt if `BLOCKED`).
+- Issues: marked `stale` after 5 days without activity, closed at day 14 (9 days after `stale`; exempt if `Planned`,
+  `In progress`, or `BLOCKED`).
 
 ## Fast-close policy
 

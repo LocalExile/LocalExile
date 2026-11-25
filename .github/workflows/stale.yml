@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   issues: write
   pull-requests: write
 
@@ -14,6 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - uses: actions/stale@v9
         with:
           repo-token: ${{ github.token }}
@@ -21,16 +26,23 @@ jobs:
           days-before-pr-close: 7
           stale-pr-label: "stale"
           exempt-pr-labels: "BLOCKED"
+          exempt-draft-pr: true
           stale-pr-message: >-
             This pull request has had no activity for 14 days and has been marked stale.
             Pushing a commit or leaving a comment resets the timer; otherwise it will close
             in 7 days (it can be reopened anytime).
-          days-before-issue-stale: 45
-          days-before-issue-close: 14
+          days-before-issue-stale: 5
+          days-before-issue-close: 9
           stale-issue-label: "stale"
           exempt-issue-labels: "Planned,In progress,BLOCKED"
           stale-issue-message: >-
-            This issue has had no activity for 45 days and has been marked stale.
+            This issue has had no activity for 5 days and has been marked stale.
             Does it still reproduce on current main? Leaving a comment removes the stale
-            label; otherwise it will close in 14 days.
+            label; otherwise it will close in 9 days (14 days total).
           operations-per-run: 60
+
+      - name: Stale draft pull requests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: python3 -I .github/scripts/stale-drafts.py --repo "$REPO"
