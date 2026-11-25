@@ -35,9 +35,9 @@ public static partial class Game
         playerStats ??= CharacterPlayerStats(player);
         int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
-        var inputs = RageStats.Inputs(player, Get);
-        return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
-            soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
+        var inputs = RageStats.Inputs(Get);
+        return player.Rage.Hit(ProjectileWorldTime(player), RageStats.WithManaRegeneration(inputs, player, Get), attack, melee,
+            critical, (random ?? AreaRng(player)).Next(100), soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
     }
 
     public static void RageWhenHitLocked(Player player)

@@ -26,9 +26,9 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
             damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);
+        hit = Game.ApplyRoilingTempest(hit, Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);
-        return new(Game.ApplyRoilingTempest(hit, Get), accuracy, criticalChance,
-            Game.CriticalHitMultiplier(criticalMultiplier, character, own), impale.Chance)
+        return new(hit, accuracy, criticalChance, Game.CriticalHitMultiplier(criticalMultiplier, character, own), impale.Chance)
         { ImpaleSettings = impale,
             Leech = LeechSources.From(name => (int)Math.Clamp((long)Get(name) + Own(name), int.MinValue, int.MaxValue),
                 attack: true, name => weapon.LocalSources?.GetValueOrDefault(name) ?? 0),
