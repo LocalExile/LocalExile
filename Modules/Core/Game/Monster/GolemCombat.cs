@@ -308,9 +308,13 @@ public static partial class Game
         var m = g.Monster;
         if (ability.Effect == 306)
         {
-            var elements = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning };
-            ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: elements[AreaRng(player).Next(elements.Length)])
+            var last = g.LastPrismaticElement;
+            int roll = AreaRng(player).Next(last is null ? 3 : 2) + (int)DamageType.Lightning;
+            if (last is { } previous && roll >= (int)previous) roll++;
+            var element = (DamageType)roll;
+            ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: element)
                 .Single(a => a.Effect == 306);
+            g.LastPrismaticElement = element;
         }
         int generation = ++m.ActionGeneration;
         g.Pending = new(ability, target, victim, aim, now + ability.Attack.Seconds * ability.Contact, generation);
