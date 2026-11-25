@@ -6,6 +6,9 @@ it, and an effect runs on a target. The rules are rows in world.db, so adding or
 and not code. Code: `Modules/Core/Game/Effects/` (`EffectRules.cs` the engine, `EffectKinds.cs` the effect kinds,
 `GrantedSkillRules.cs` item-granted skills, `TimedBuffs.cs`, `HitEvents.cs`).
 
+New here? Start with the [guide](effect-rules-guide.md): what the system is, how to add an effect, and the rules for
+keeping it.
+
 ## Scope
 
 The aim is every effect the game has that fits this shape, from any source: item mods (each recreated one for one),

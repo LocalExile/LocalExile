@@ -77,6 +77,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [dev/drop-data-schema.md](dev/drop-data-schema.md) | the drop tables in SQLite: what seeds them (client tables, `sql/updates/world/`), load and edit rules |
 | [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
+| [dev/effect-rules-guide.md](dev/effect-rules-guide.md) | the way into the effect rules for players, modders and agents: what it does, how to add an effect, the rules for maintaining it |
 | [dev/effect-rules.md](dev/effect-rules.md) | the effect rules: one data-driven system for what things do (item mods, skills, buffs, later monster and map modifiers and atlas passives), as rows in world.db (`effect_rules`, `effect_skills`, `effect_buffs`), the rule format, kinds and executors, adding one, the client findings behind them |
 | [re/item-triggered-skills.md](re/item-triggered-skills.md) | what the client does with a triggered action (0x1ce) for item skills, why it draws nothing, where their art is, a buff row's two effect lists |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
