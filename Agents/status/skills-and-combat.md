@@ -183,7 +183,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
 - Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
-- Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
+- Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
+  melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) Â§10f, [20](../docs/protocol/20-damage.md) Â§2e.
@@ -273,6 +274,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   skill-list refresh during the buff (movement, conditional item stats) re-publishes the held entry, since the client's
   skill replacement would otherwise refresh its zero-rate entry: the ring does not sweep or replay on the first press or
   while moving (#1127).
+  A stat-value-only skill refresh (flask, charge, aura, Rage) sends one `0x01b4` per changed stat set, not the whole
+  `0x02bc`; every other case sends the whole list.
   Blink cooldown refreshes use the same gem copy as the shared debit.
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it

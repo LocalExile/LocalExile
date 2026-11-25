@@ -69,9 +69,12 @@ public static class DepravedTrinity
                     Replace(id, gate, pads[0], Label(names[n] + "ArenaName"), false);
             }
         }
-        foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
-            if (AreaTransitionCatalog.HashOf("2_9_10_1") is { } destination)
-                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = destination, TeleportTo = null, Label = null, Kind = 0 });
+        // The hub's teleport2-%areaname% returns to telepad2 at the Black Core entrance. Its room
+        // shares the organ portal slots, so use the graph destination with the authored return object.
+        if (level.Exits.FirstOrDefault(e => e is
+                { Room: "boss_2.arm", Kind: ExitKind.Teleport, Number: 2, Label: "%areaname%" })?.Target is { } backToCore)
+            foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
+                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = c.Layout.Hash, TeleportTo = backToCore, Label = null, Kind = 1 });
     }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly Store<InstanceState, Fight> Fights = new();
