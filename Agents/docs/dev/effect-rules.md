@@ -329,6 +329,13 @@ character: while the item is worn and active in `slot` (`any`, `left_ring`, `rig
 poison, chill freeze, ignite, shock, corrupted blood, elemental, ailments; the value is seconds of protection after
 it) with the removal a flask's own suffix uses. Curses and other debuffs are not removed by it.
 
+## Damage back to an attacker
+
+The `damage` action deals damage to the monster whose hit reached the actor (`when_hit`, `block`): `type`, the value as
+the amount (up to `maximum`), or with `"of":"physical_taken"` a percent of the physical damage that hit dealt. Those two
+events carry `MeleeAttacker` (the fact `melee`) and `PhysicalTaken`. The monster mitigates the damage; it is not a hit
+of the actor's. All "Reflects # Damage to ..." lines are rules of it.
+
 ## Ignoring a limit
 
 An action can be told which limits not to count against in its `ignore` argument (names from `fx_limits`, several

@@ -3169,9 +3169,7 @@ public static partial class Game
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile, by: m,
-            stats: stats, byId: id, attack: attackHit);
-        // What the player's lines return to a melee attacker, or to any attacker on block.
-        ReflectToAttackerLocked(player, id, m, stats, melee: attackHit && !projectile, attack: attackHit, blocked, physicalDamage, now);
+            stats: stats, byId: id, attack: attackHit, physicalTaken: physicalDamage);
         // "Recover # Life when you Suppress Spell Damage" (Elevore).
         if (suppressed && stats.GetValueOrDefault(Stat.RecoverXLifeOnSuppressingSpell) is int onSuppress and > 0)
             RecoverByRuleLocked(player, "life", false, onSuppress, 0);

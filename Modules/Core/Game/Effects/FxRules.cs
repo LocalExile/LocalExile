@@ -306,6 +306,16 @@ public static class FxRules
                     // The value is flat, or a percent of the pool's maximum with "of": "maximum".
                     if (Value(JsonNode.Parse(value)) is { } recovered) effect[with["of"]?.GetValue<string>() == "maximum" ? "percent" : "amount"] = recovered;
                     break;
+                case "damage":
+                    // Damage to the monster whose hit reached the actor. The value is the amount (the least of a range
+                    // with "maximum"), or with "of": "physical_taken" a percent of the physical damage the hit dealt.
+                    if (target != "enemy") throw new FormatException("damage is dealt to the trigger's enemy so far");
+                    effect["kind"] = "damage";
+                    effect["type"] = with["type"]?.DeepClone() ?? throw new FormatException("the action \"damage\" needs \"type\"");
+                    if (Value(JsonNode.Parse(value)) is { } dealt)
+                        effect[with["of"]?.GetValue<string>() == "physical_taken" ? "percent_of_physical_taken" : "minimum"] = dealt;
+                    if (with.ContainsKey("maximum") && Value(with["maximum"]) is { } most) effect["maximum"] = most;
+                    break;
                 case "remove":
                     if (target != "self") throw new FormatException("an ailment is taken off the actor itself so far");
                     effect["kind"] = "remove";

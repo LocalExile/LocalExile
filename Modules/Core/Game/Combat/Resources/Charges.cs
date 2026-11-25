@@ -141,7 +141,7 @@ public static partial class Game
     // strike. Daresso's Defiance's "You gain Onslaught for X seconds per Endurance Charge when Hit" counts the charges
     // held before its own "You lose all Endurance Charges when Hit" (a ChargeGains rule) takes them.
     public static void ChargesWhenHit(Player player, bool blocked, bool spell = false, bool critical = false, SpawnedMonster? by = null,
-        IReadOnlyDictionary<uint, int>? stats = null, double? at = null, uint byId = 0)
+        IReadOnlyDictionary<uint, int>? stats = null, double? at = null, uint byId = 0, bool melee = false, int physicalTaken = 0)
     {
         bool onslaught = false;
         var session = ChargesOf(player);
@@ -153,8 +153,8 @@ public static partial class Game
             KillOnslaughtOf(player).Until = until;
             onslaught = true;
         }
-        RaiseCombatEvent(player, new ChargeEvent.WhenHit(critical) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId });
-        if (blocked) RaiseCombatEvent(player, new ChargeEvent.Block(spell) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId });
+        RaiseCombatEvent(player, new ChargeEvent.WhenHit(critical) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId, MeleeAttacker = melee, PhysicalTaken = physicalTaken });
+        if (blocked) RaiseCombatEvent(player, new ChargeEvent.Block(spell) { Monster = by, PlayerStats = stats, HitAt = at, MonsterId = byId, MeleeAttacker = melee, PhysicalTaken = physicalTaken });
         if (onslaught) _ = AreaFrames.Start(() => SendKillOnslaught(player));
     }
 

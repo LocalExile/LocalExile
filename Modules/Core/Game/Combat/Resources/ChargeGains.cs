@@ -12,6 +12,12 @@ public abstract record ChargeEvent : CombatEvent
     public double? HitAt { get; init; }
     public uint MonsterId { get; init; }
 
+    /// <summary>For a monster's hit on the player (WhenHit, Block): it was a melee attack (an attack that is not a
+    /// projectile), and the physical damage it dealt after the player's mitigation. What a "damage" action that
+    /// returns damage to the attacker reads.</summary>
+    public bool MeleeAttacker { get; init; }
+    public int PhysicalTaken { get; init; }
+
     /// <summary>The player hit a monster (one per monster hit). <paramref name="Skill"/>: the stats of the skill used
     /// (its "on hit" chances, e.g. Flicker Strike's 15%); <paramref name="SkillEffect"/>: its GrantedEffects Id;
     /// <paramref name="Killed"/>: the hit killed it; <paramref name="Primary"/>: the use's first target (a skill's

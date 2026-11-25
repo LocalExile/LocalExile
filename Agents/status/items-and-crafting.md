@@ -206,8 +206,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   hex beyond the curse limit (a rule with `ignore`: `curse_limit`). Offline tests only.
 - Damage returned to attackers: "Reflects # Damage to Melee Attackers", "Reflects # Damage to Attackers on Block" and
   "#% of Melee Physical Damage taken reflected to Attacker" (Bramblejack, Wall of Brambles, The Anvil, The Blood
-  Thorn, Veil of the Night; the map modifier for players too). The monster mitigates it; it is not a hit of the
-  character's. Queen of the Forest's movement speed per evasion and Razor of the Seventh Sun's melee physical damage
+  Thorn, Veil of the Night). Rules of the `damage` action on when_hit and block; the monster
+  mitigates it and it is not a hit of the character's. Queen of the Forest's movement speed per evasion and Razor of the Seventh Sun's melee physical damage
   against ignited enemies. Offline tests only.
 - Keystones from items and cluster jewels: Inner Conviction (3% more Spell Damage per Power Charge, Power Charges
   instead of Frenzy Charges) and Kineticism (attack projectiles always bleed, maim and knock back; projectiles cannot

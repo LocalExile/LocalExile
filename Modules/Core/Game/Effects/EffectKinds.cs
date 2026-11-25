@@ -144,6 +144,22 @@ public static partial class Game
         });
         // Life, mana or energy shield at once: "pool" life, mana or energy_shield; "does" gain (the default) or lose;
         // "amount" flat and "percent" of the pool's maximum.
+        // Damage returned to the monster whose hit reached the actor (when hit, on block): "type" physical, fire,
+        // cold, lightning or chaos; "minimum" (to "maximum" when that is higher) and "percent_of_physical_taken" of
+        // the physical damage that hit dealt. The monster mitigates it; it is not a hit of the actor's.
+        EffectRules.Register(new("damage", ["minimum", "maximum", "percent_of_physical_taken"], ["type"], fire =>
+        {
+            if (fire.Event is not ChargeEvent { Monster: { } attacker } taken || taken is not (ChargeEvent.WhenHit or ChargeEvent.Block)
+                || !Enum.TryParse<GameServer.Core.World.DamageType>(fire.Word("type"), true, out var type)) return;
+            double low = fire.Number("minimum"), high = fire.Number("maximum");
+            double amount = (high > low ? low + AreaRng(fire.Conn).NextDouble() * (high - low) : low)
+                + taken.PhysicalTaken * fire.Number("percent_of_physical_taken") / 100;
+            if (amount > 0) DamageAttackerLocked(fire.Conn, taken.MonsterId, attacker, GameServer.Core.World.DamagePacket.Of(type, amount, amount), taken.HitAt ?? fire.Now);
+        }, (_, word) => word is "physical" or "fire" or "cold" or "lightning" or "chaos")
+        {
+            Defaults = new Dictionary<string, double> { ["minimum"] = 0, ["maximum"] = 0, ["percent_of_physical_taken"] = 0 },
+        });
+
         EffectRules.Register(new("recover", ["amount", "percent"], ["pool", "does"],
             fire => RecoverByRuleLocked(fire.Conn, fire.Word("pool") ?? "", fire.Word("does") == "lose", fire.Number("amount"), fire.Number("percent")),
             (parameter, word) => parameter == "does" ? word is "gain" or "lose" : word is "life" or "mana" or "energy_shield")

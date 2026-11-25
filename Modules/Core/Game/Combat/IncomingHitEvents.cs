@@ -11,7 +11,7 @@ public static partial class Game
     // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
     static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
         long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, SpawnedMonster? by = null,
-        IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0, bool attack = false)
+        IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0, bool attack = false, int physicalTaken = 0)
     {
         if (enemy)
         {
@@ -38,6 +38,6 @@ public static partial class Game
             player.RecentEvents.Record(VengefulCryOpportunity, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
-        ChargesWhenHit(player, blocked, spell, critical, by, stats, now, byId);
+        ChargesWhenHit(player, blocked, spell, critical, by, stats, now, byId, melee: attack && !projectile, physicalTaken: physicalTaken);
     }
 }

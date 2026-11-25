@@ -229,8 +229,8 @@ public static class EffectRules
         [What.Kill] = ["frozen", "ignited", "bleeding", "poisoned", "five_poisons", "shield", "dual_wield", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.SkillHit] = ["critical", "spell", "attack", "melee", "killed", "primary", "frozen", "bleeding", "marked", "self_bleeding", "self_poisoned",
             "shield", "dual_wield", "wand", "claw_or_dagger", "normal", "magic", "rare", "unique", "rare_or_unique"],
-        [What.WhenHit] = ["critical", "normal", "magic", "rare", "unique", "rare_or_unique"],
-        [What.Block] = ["spell", "attack", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.WhenHit] = ["critical", "melee", "normal", "magic", "rare", "unique", "rare_or_unique"],
+        [What.Block] = ["spell", "attack", "melee", "normal", "magic", "rare", "unique", "rare_or_unique"],
         [What.Stun] = ["melee"],
         [What.Worn] = [],
         [What.FlaskUse] = ["utility", "life", "mana", "hybrid"],
@@ -689,6 +689,7 @@ public static class EffectRules
         ("has_mark", HitLanded) => Game.HasMarkedEnemy(player),
         ("poisoned", ChargeEvent.Kill k) => k.Poisons > 0,
         ("melee", ChargeEvent.Stun s) => s.Melee,
+        ("melee", ChargeEvent { MeleeAttacker: var meleeAttacker } and (ChargeEvent.WhenHit or ChargeEvent.Block)) => meleeAttacker,
         ("melee", HitLanded h) => Game.MeleeHit(player, h),
         ("bow", HitLanded h) => !h.Spell && Game.BowWorn(player),
         // The hit's own damage by type, after the monster's mitigation ("on Hit with Fire Damage").
