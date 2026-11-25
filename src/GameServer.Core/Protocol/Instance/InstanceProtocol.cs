@@ -54,14 +54,17 @@ public static class InstanceProtocol
     /// (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
-    /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
+    /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.
+    /// Flag bit 2 is "this is my own hideout" (→ session +0xcd36); without it the Decorations panel never leaves
+    /// "Loading…" (03-area-and-world.md §5).</remarks>
     public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false,
-        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null)
+        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null, bool ownHideout = false)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
         InstanceStash.WriteTabs(w, tradeStash ?? []);
-        return w.U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
+        byte flags = (byte)((secondWeaponSet ? 0x01 : 0) | (ownHideout ? 0x04 : 0));
+        return w.U16(0).WStr("").Bytes([flags, 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
@@ -459,6 +462,19 @@ public static class InstanceProtocol
         else w.U32(BitConverter.SingleToUInt32Bits(speed));
         return w.ToArray();
     }
+
+    public const ushort ActionDataId = 0x2c8;
+
+    /// <summary>
+    /// S→C 0x2c8 (world group, read <c>0x141fe54d0</c>; the Actor handler <c>0x14219aa10</c>): data for an action an object
+    /// runs, handed to the action class's vtable slot 96 (+0x300). Object header (12 B), then big-endian u16 action type
+    /// (ActionTypes HASH16, action +0x118), u16 skill id (the skill's +0x40), u16 sequence (+0x11a), u8 sub-id (+0x11c),
+    /// u16 length and the payload as is (its meaning is the class's). The client looks for the action among the actor's
+    /// current one, then its detached ones; all four keys must match.
+    /// </summary>
+    public static byte[] ActionData(uint objectId, ushort actionType, ushort skillId, ushort sequence, byte subId, ReadOnlySpan<byte> payload) =>
+        new LoginWriter().U16(ActionDataId).U32(objectId).U32(0).U16(0)
+            .U16(actionType).U16(skillId).U16(sequence).U8(subId).U16(checked((ushort)payload.Length)).Bytes(payload).ToArray();
 
     /// <summary>The fixed-height marker of 0x1b7 and 0x1ba that means none: the object follows the terrain.</summary>
     public const uint FollowTerrain = 0x7fffffff;
@@ -1073,14 +1089,17 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. ReturnAreaHash enables flag 0x21.3 (+0x08) and writes u16 BE WorldAreas.HASH16
-/// immediately after B28 (AreaState +0xc0 via 0x142149620). HideoutPermissions sets flag 0x22.7 (bit 15, 0x80; no extra
-/// wire bytes, AreaState +0xda via 0x142149670 in hideouts). Defaults follow the constructor (0x1421a42b0).
+/// immediately after B28 (AreaState +0xc0 via 0x142149620). GuildHideout sets flag 0x22.7 (bit 15, 0x80; no extra wire
+/// bytes, AreaState +0xda via 0x142149670): the hideout is the guild's (0x1421719c0). There the Decorations panel and the
+/// editor read the guild's owned list (0x1f4 flags 3, session +0xd630; 0x1408dc0c0, 0x140204fc6) instead of the
+/// account's (flags 1, +0xd618), so a personal hideout leaves it clear; 0x21's own-hideout bit marks that one.
+/// Defaults follow the constructor (0x1421a42b0).
 /// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
+    IReadOnlyList<byte>? AchievementSets = null, bool GuildHideout = false, ushort? ReturnAreaHash = null,
     IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
     IReadOnlyList<byte>? PreloadGroups = null)
 {
@@ -1094,7 +1113,7 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
             .U8(B1e).U8(B20).U8(B1f).U8(B24)
             .Bytes([
                 (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
-                (byte)((hasRulesets ? 1 : 0) | (TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                (byte)((hasRulesets ? 1 : 0) | (TerrainData is null ? 0 : 4) | (GuildHideout ? 0x80 : 0)),
                 0,
             ])
             .U8(Level).U8(B1d).U8(B28);

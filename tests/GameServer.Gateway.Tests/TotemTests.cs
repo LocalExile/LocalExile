@@ -220,6 +220,43 @@ public sealed class TotemTests
         Assert.Null(Game.DecoyTarget(near, now));
     }
 
+    [Fact]
+    public async Task A_placed_totem_is_listed_in_the_owners_minion_roster_until_it_dies()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        using var wire = new CaptureWire();
+        var conn = f.Player;
+        conn.Connection.Session = new("totem-roster", wire.Stream, wire.ServerCiphers);
+        var gem = ItemCatalog.Create(Program.Items.Find("Decoy Totem")!);
+        var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+        var items = Game.ItemsOf(conn);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        items.Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+        var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Decoy Totem");
+        var variety = Game.TotemVariety(conn, source.Effect);
+        Assert.NotNull(variety);
+        uint id = Assert.IsType<uint>(await Game.CreateTotem(conn, source.Id, source.Effect, source.Level, variety, (110, 100)));
+        // A second one past the limit replaces the first: its removal rides in the batch that lists the successor.
+        uint next = Assert.IsType<uint>(await Game.CreateTotem(conn, source.Id, source.Effect, source.Level, variety, (130, 100)));
+        Assert.NotNull(conn.Totems.All.Single(t => t.Id == id).DiedAt);
+        byte[] Roster(uint who, ushort skill) =>
+            InstanceEntities.PlayerMinionsChange(conn.Id, [new(who, skill, 5)], Game.CanDetonateMines(conn));
+        bool Has(byte[] haystack, byte[] needle) => haystack.AsSpan().IndexOf(needle) >= 0;
+
+        // Source 0 is the same entry taking it off the roster; it is written once, with the death.
+        conn.Totems.KillAll(Game.AreaTime(conn));
+        byte[]? death = Game.TotemPresentation(conn);
+        Assert.NotNull(death);
+        Assert.True(Has(death, Roster(next, 0)), "the death carries no roster removal");
+        Assert.False(Has(death, Roster(id, 0)), "the replaced totem's removal was sent again");
+        byte[]? again = Game.TotemPresentation(conn);
+        Assert.False(again is not null && Has(again, Roster(next, 0)), "the removal was sent every frame");
+
+        byte[] sent = wire.FinishAndDecrypt();
+        Assert.True(Has(sent, Roster(id, source.Id)) && Has(sent, Roster(next, source.Id)), "a placement never listed its totem");
+        Assert.True(Has(sent, Roster(id, 0)), "the replaced totem stayed listed");
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

@@ -901,4 +901,74 @@ public class LockstepTests : IDisposable
         Assert.Equal(2.0 + throwHold, player.LockstepBusyUntil, 6);
         player.LockstepSkill.Clear();
     }
+
+    [Fact]
+    public async Task A_totem_placements_hold_takes_the_clients_own_move_and_a_spells_hold_still_refuses_it()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.LockstepClient = true;
+        player.Walk.Teleport(100, 100, 1.0);
+        var skills = fixture.Equip(("Artillery Ballista", 1), ("Fireball", 1));
+        ushort ballista = skills[0], fireball = skills[1];
+        Assert.True(Game.IsTotemSkill(player, ballista));
+
+        // A spell's hold refuses the Move in the middle of its cast, with or without the Move's own readiness.
+        player.Connection.LockstepFrame = (1.0, 1.033);
+        player.LockstepSkill.Press((120, 100), null, fireball, 0x0409, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8001, 1.0, 1.0);
+        player.LockstepSkill.Clear();
+        double middle = (1.0 + player.LockstepBusyUntil) / 2;
+        Assert.False(Game.LockstepPlayerFree(player, middle));
+        Assert.False(Game.LockstepPlayerFree(player, middle, forMove: true));
+
+        // A totem placement's hold: the skill's own readiness stays strict, only a Move is let through.
+        player.LockstepBusyUntil = 0;
+        player.NextAttackAt = 0;
+        player.Connection.LockstepFrame = (2.0, 2.033);
+        player.LockstepSkill.Press((120, 100), null, ballista, 0x0409, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8002, 2.0, 2.0);
+        player.LockstepSkill.Clear();
+        double hold = player.LockstepBusyUntil;
+        Assert.True(hold > 2.0 + 6 * 0.033, "the hold is shorter than the frames this test steps");
+        double press = 2.0 + 5 * 0.033;
+        Assert.False(Game.LockstepPlayerFree(player, press));
+        Assert.True(Game.LockstepPlayerFree(player, press, forMove: true));
+
+        // The client's own Move press, five frames in, starts the walk in that frame and leaves the hold as it was.
+        player.Connection.LockstepFrame = (press, press + 0.033);
+        player.LockstepHold.Press((160, 100), 0x2909, 0x0408, (60, 0));
+        await Game.StartLockstepActions(player, press);
+        Assert.Equal((160, 100), player.Walk.Destination);
+        Assert.Equal(hold, player.LockstepBusyUntil, 6);
+
+        // A held cast key does not repeat early: the next frame leaves the walk and the hold alone.
+        player.Connection.LockstepFrame = (press + 0.033, press + 0.066);
+        player.LockstepSkill.Press((120, 100), null, ballista, 0x0409, repeats: true);
+        await Game.StartLockstepActions(player, press + 0.033);
+        Assert.Equal((160, 100), player.Walk.Destination);
+        Assert.Equal(hold, player.LockstepBusyUntil, 6);
+
+        // Another busy extension (a pickup's) ends the exemption.
+        player.LockstepBusyUntil = hold + 0.5;
+        Assert.False(Game.LockstepPlayerFree(player, press + 0.066, forMove: true));
+
+        // The Move's action count does not cancel the placement: a stored-use ticket that is not instant stays current
+        // for the totem's own gate (ignoreAction) though it is no longer the player's current action.
+        var ticket = new CooldownUseTicket(0, player.ActionCount - 1, player.ProjectileEpoch, Instant: false);
+        Assert.False(ticket.Current(player));
+        Assert.True(ticket.Current(player, ignoreAction: true));
+
+        // A rejected totem cast gives its hold back: the field is restored with the busy time (here, by hand).
+        player.LockstepBusyUntil = 0;
+        player.LockstepTotemHoldUntil = 0;
+        player.Connection.LockstepFrame = (3.0, 3.033);
+        player.LockstepSkill.Press((120, 100), null, ballista, 0x0409, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8003, 3.0, 3.0);
+        player.LockstepSkill.Clear();
+        Assert.True(player.LockstepTotemHoldUntil > 3.0);
+        player.LockstepTotemHoldUntil = 0;
+        player.LockstepBusyUntil = 3.0 + 0.2;
+        Assert.False(Game.LockstepPlayerFree(player, 3.1, forMove: true));
+    }
 }

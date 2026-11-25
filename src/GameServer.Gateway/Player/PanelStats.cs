@@ -578,7 +578,9 @@ public static class PanelStats
     /// </summary>
     public static double ManaPerMinute(Func<uint, int> get, uint maxMana) =>
         get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.NoManaRegeneration) != 0
-            || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 :
+            || get(Stat.CannotLeechOrRegenerateMana) != 0 ? 0 : GrossManaRegenerationPerMinute(get, maxMana);
+
+    public static double GrossManaRegenerationPerMinute(Func<uint, int> get, uint maxMana) =>
         (maxMana * (BaseManaRegenPctPerMinute + (double)get(Stat.ManaRegenerationRatePerMinutePct)) / 100.0
             + get(Stat.BaseManaRegenerationRatePerMinute))
         * Math.Max(0, 1 + get(Stat.ManaRegenerationRatePlusPct) / 100.0)

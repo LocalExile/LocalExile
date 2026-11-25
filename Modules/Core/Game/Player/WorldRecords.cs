@@ -62,6 +62,17 @@ public static partial class Game
         return SendWorldRecord(player, id, bytes, log);
     }
 
+    /// <summary>S→C 0x2c8 to the player's client (InstanceProtocol.ActionData) as a world record of the object: data for the
+    /// action the object runs, matched by its action type, skill id, sequence and sub-id.</summary>
+    public static Task SendActionData(Player player, uint id, ushort actionType, ushort skillId, ushort sequence, byte subId,
+        ReadOnlySpan<byte> payload, string? log = null) =>
+        SendWorldRecord(player, id, InstanceProtocol.ActionData(id, actionType, skillId, sequence, subId, payload), log);
+
+    /// <summary>S→C 0x2bc to the object's Actor (InstanceEntities.ActorCurrentAction) as a world record: the action it runs
+    /// now, replacing the client's current one. <paramref name="actorIndex"/> is the Actor's index in the object's components.</summary>
+    public static Task SendCurrentAction(Player player, uint id, byte actorIndex, ActorAction action, string? log = null) =>
+        SendWorldRecord(player, id, InstanceEntities.ActorCurrentAction(id, actorIndex, action), log);
+
     public static Task SendWorldRemoval(IPlayer modPlayer, uint id, string? log = null)
     {
         var player = PlayerOf(modPlayer);

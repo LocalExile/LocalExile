@@ -397,7 +397,7 @@ public static class BossKits
                 Range = selfArea && !setOff ? reach : attack.Range,
                 Ground = ground,
             };
-            if (catalog.SameActionEffects(effect).Any(e => Game.IsStormCall(catalog.EffectId(e))))
+            if (catalog.SameActionEffects(effect).Any(e => catalog.EffectId(e) == "StormCall"))
                 return Game.StormCallStrikeOf(catalog, effect, level) is { } strike ? attack with { Strike = strike } : null;
             return attack;
         }

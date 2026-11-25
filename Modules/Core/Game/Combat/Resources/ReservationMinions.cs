@@ -109,6 +109,7 @@ public static partial class Game
                 player.Reservations.Until[id] = double.IsFinite(summonDuration) ? committed + summonDuration : double.PositiveInfinity;
                 player.Minions.Add(new(id, monster, aura.EffectId, kind)
                 { Until = player.Reservations.Until[id], OwnerAura = RollDivineSentinelAura(player, fighter) });
+                MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
                 monster.NoRewards = true; monster.Aggro = true;
                 if (pools.Fatal) GolemDieLocked(player, fighter, committed, emitLife: false);
             });

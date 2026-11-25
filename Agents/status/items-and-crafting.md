@@ -109,10 +109,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
-  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
-  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
-  [admission](../docs/re/vaal-coe.md).
+- **Vaal Orb and corruption** (fresh client check pending): full 3.29 retail outcomes across gems, equipment (normal
+  through unique, 3.29 white-to-coloured socket corruption, `GenerationType = 5` implicits, Eldritch single-implicit
+  replacement, 6-affix rare bricks with 1/36 max-link), maps/MapKeys (unidentified, 8-mod, +1 tier / T16 to Vaal
+  Temple, unique maps), jewels (standard, Abyss, Cluster, corrupted-only uniques) and flasks (-10% to +10% quality);
+  unidentified items and tinctures are refused, and Hinekora's Lock previews match commits.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption", [notes](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).
 - **Eldritch Embers.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
@@ -125,8 +127,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/enkindling-coe.md).
 - **Instilling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/instilling-coe.md).
-- **Currency results look right in the client** for every implemented currency's main use; Vaal on jewels is outside
-  the local rule. Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
+- **Currency results look right in the client** for every implemented currency's main use (fresh client check pending
+  for the expanded 3.29 Vaal Orb targets). Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
   refused on a worn item ("Item is currently equipped."), and on mirrored or corrupted targets with the client's
   reason ("Item is mirrored.", "Target is corrupted.").
 - **Glassblower's Bauble** (level-scaled quality not checked live).
@@ -147,8 +149,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
 - Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
   Strongbox and Essence handlers (offline verified; live client check pending).
-- Divine Vessels capture Pantheon souls in matching Atlas maps into the Map Device and unlock upgrades at Sin
-  (not checked live).
+- Divine Vessels drop as the one-cell base used by the fragment stash. Both empty base types can capture
+  Pantheon souls in matching Atlas maps and unlock upgrades at Sin (soul capture not checked live).
   Docs: [pantheon](../docs/game/campaign/pantheon.md).
 
 ## Not working yet

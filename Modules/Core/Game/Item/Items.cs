@@ -189,7 +189,8 @@ public static partial class Game
         // The character's level can fall below the next level's requirement after the experience was gained (/set_level, or a
         // save from before the stall): the "+" is still there, so say what is missing rather than that the gem is at its last
         // level. The next level is only computed while the gem is under its type's cap (ExperienceFor clamps).
-        if (level < type.MaxLevel && GemRequirementsUnmet(player, gem with { GemExperience = type.ExperienceFor(level + 1) }) is { } missing)
+        if (level < type.MaxLevel && GemRequirementsUnmetAt(player, gem with { GemExperience = type.ExperienceFor(level + 1) },
+            null, GemRequirementHost(player, gem, null, null)?.Id) is { } missing)
         {
             why = missing;
             return null;
@@ -1188,6 +1189,8 @@ public static partial class Game
         int reqStr = ScaledRequirement(rawStr, reqPct);
         int reqDex = ScaledRequirement(rawDex, reqPct);
         int reqInt = ScaledRequirement(rawInt, reqPct);
+        bool ignoreAttributes = player.Pools.IgnoreAttributeRequirements;
+        bool ignoreGemAttributes = ignoreAttributes || SocketedGemAttributeRequirementsIgnored(catalog, item);
         foreach (var socket in item.Sockets)
         {
             if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
@@ -1196,7 +1199,7 @@ public static partial class Game
             {
                 if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(player).Rules.AllowsGemBase(gemBase.Id))
                     return false;
-                var g = SocketedGemRequirements(player, gem, reqPct);
+                var g = SocketedGemRequirements(player, gem, reqPct, ignoreGemAttributes);
                 reqLevel = Math.Max(reqLevel, g.Level);
                 reqStr = Math.Max(reqStr, g.Str);
                 reqDex = Math.Max(reqDex, g.Dex);
@@ -1204,6 +1207,7 @@ public static partial class Game
             }
         }
         if (player.Pools.Level < reqLevel) return false;
+        if (ignoreAttributes) return true;
         if (reqStr > 0 && RequirementAttribute(player, Stat.Strength, player.Pools.Strength) < reqStr) return false;
         if (reqDex > 0 && RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity) < reqDex) return false;
         if (reqInt > 0 && RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence) < reqInt) return false;
@@ -1834,9 +1838,8 @@ public static partial class Game
             CurrencyEffects.GlassblowersBauble => CurrencyEffects.Glassblower(target, random),
             CurrencyEffects.GemcuttersPrism => CurrencyEffects.Gemcutter(target),
             CurrencyEffects.FracturingOrb => CurrencyEffects.Fracture(target, RollsFor(player), random),
-            CurrencyEffects.VaalOrb when target.Components.Contains("SkillGem") => CorruptGem(ItemsFor(player), target, random),
-            CurrencyEffects.VaalOrb => ItemsFor(player).ByHash(target.TypeHash) is { } vaalType
-                ? CurrencyEffects.Vaal(target, vaalType, ItemsFor(player).Requirements(vaalType), RollsFor(player), random) : null,
+            CurrencyEffects.VaalOrb => VaalCorruption.Apply(ItemsFor(player), RollsFor(player), UniquesFor(player),
+                MapDevices, DropsFor(player).UniqueWeight, target, random),
             CurrencyEffects.EldritchChaosOrb => CurrencyEffects.EldritchChaos(target, RollsFor(player), random),
             CurrencyEffects.EldritchExaltedOrb => CurrencyEffects.EldritchExalted(target, RollsFor(player), random),
             CurrencyEffects.EldritchAnnulmentOrb => CurrencyEffects.EldritchAnnulment(target, RollsFor(player), random),
@@ -1853,42 +1856,6 @@ public static partial class Game
             _ => type is not null && CurrencyEffects.TryAction(ItemsFor(player), RollsFor(player), target, type, random,
                     out var byAction, UniquesFor(player).RollsOf(target)) ? byAction : null,
         };
-    }
-
-    // Vaal Orb on a gem: four equal outcomes, no change, one level up or down (over the cap is experience -1), 1-10
-    // quality up or down (0-23), or its Vaal gem keeping a transfigured skill (wiki Vaal Orb "Gems").
-    static Item? CorruptGem(ItemCatalog catalog, Item item, Random random)
-    {
-        if (item.Corrupted || item.Mirrored || catalog.ByHash(item.TypeHash) is not { Supported: true } type
-            || catalog.Gem(type) is not { MaxLevel: > 0, Variants.Count: > 0 } gem) return null;
-
-        var corrupted = item with { Corrupted = true };
-        int level = gem.Level(item.GemExperience);
-        switch (random.Next(4))
-        {
-            case 1:
-                int next = Math.Max(1, level + (random.Next(2) == 0 ? -1 : 1));
-                return next == level ? corrupted
-                    : corrupted with { GemExperience = next > gem.MaxLevel ? -1 : gem.ExperienceFor(next) };
-            case 2:
-                int quality = random.Next(1, 11) * (random.Next(2) == 0 ? -1 : 1);
-                return corrupted with { Quality = (byte)Math.Clamp(item.Quality + quality, 0, 23) };
-            case 3:
-                if (gem.VaalBaseRow is int row && catalog.Row(row) is { Supported: true } vaalType
-                    && catalog.Gem(vaalType) is { MaxLevel: > 0 } vaalGem
-                    && vaalGem.Variants.FirstOrDefault(v => v.Creatable && v.Effect2 == gem.Variant(item.GemVariant).Effect) is { } variant)
-                {
-                    return corrupted with
-                    {
-                        TypeHash = vaalType.Hash, Components = vaalType.Components, VisualIdentity = vaalType.VisualIdentity,
-                        GemVariant = variant.Index,
-                        GemExperience = vaalGem.Level(item.GemExperience) == level ? item.GemExperience
-                            : vaalGem.ExperienceFor(level),
-                    };
-                }
-                break;
-        }
-        return corrupted;
     }
 
     // C→S 0x71: an item used on another one. A Scroll of Wisdom identifies an unidentified item (its explicit mods and rare

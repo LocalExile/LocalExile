@@ -122,10 +122,34 @@ The world handler `0x14218ddf0` looks up `u32 object id` (message `+0x10`) and r
 | 0x51, 0x1ab–0x1b0, 0x1b4–0x1b6, 0x1ce–0x1d2, 0x1f0/0x1f1, 0x261, 0x2c8 | Actor `0x14219aa10` | actions |
 | 0x1b7–0x1c0, 0x2b2 | Positioned `0x141e33fd0` | position / movement |
 | 0x1a9 / 0x1aa | wake zone in / out | |
-| 0x2bc | component update by component index | |
+| 0x2bc | component update by component index (also an Actor's current action, §4.1) | |
 | 0x2bd | remove object | |
 
 Object header (all these messages): `u16 id, u32 object id (+0x10), u32 (+0x14), u16 (+0x18)`, written by `0x141f98850`.
+
+### 4.1 An actor's current action, and S→C 0x2c8
+
+The **current action** is the Actor component's flag f0 `0x04` of its slot-20 part (reader `0x142199c20`). It rides in the monster's
+create (0x2bb) and in a **0x2bc** to the Actor (index 9 for monsters). Little-endian, after the flags `u8 f0, u8 f1` (and the f0 0x40 skill list when present, which comes first):
+
+| Field | Meaning |
+|---|---|
+| u16 skill id | the actor's skill the action is built from (`0x141ef0050`); it must exist on the client's actor (a basic action of a type is `ActionTypes.HASH16 & 0x3fff`) |
+| u16 sequence, u32 target id (0 none), i32 target x, i32 target y, u16 flags | the 16-byte action record (`0x14193e340`) |
+| u8 | action `+0x120` (send 0) |
+| the class's own data | action vtable slot 87 reader, slot 86 writer: for most classes an animation-controller block (u32 n + n UTF-16 units of path, i32 clip, f32 time, f32 speed, f32, i32 queued; `0x141dc0bc0`) and then class data |
+
+**S→C 0x2c8** updates a running action's own data (class slot 96): the **whole message is big-endian**, header included: `u16 0x2c8, u32 object id, u32 0, u16 0`, then
+`u16 action type (HASH16), u16 skill id, u16 sequence, u8 sub-id, u16 n` and `n` raw bytes (the payload: the action class's own bytes, **little-endian**). Reader `0x141fe54d0`,
+handled by the Actor dispatcher `0x14219aa10`: the action type, skill id, sequence and sub-id must equal the current action's (`+0x118`, the skill,
+`+0x11a`, `+0x11c`; a detached action is tried next), else the client logs an error. Server writers: `ActorAction`, `InstanceEntities.ActorCurrentAction`,
+`InstanceProtocol.ActionData`.
+
+Example, `LegionBreakout` (type `0xd8fe`, skill `0x18fe`; Legion monsters): class data after the animation block is `i32 prop count, i8 state, u32 last
+threshold %, f32, f32` and per prop a MiscAnimated row and an animation block. The 0x2c8 payload is `i8 state, u32 life %`. State 0 hides the monster and
+removes its collision; **0 → 2** shows it posed at a random 30-50% of the clip the animation block names (a general also gets its shell); 3 breaks out
+(shards, `breaking_free`, a 3 s speed ramp); 5 ends it. The pose is made only on the change from 0: a monster created in state 2 stands unposed.
+See [Legion](../game/legion.md).
 
 ## 5. Movement
 

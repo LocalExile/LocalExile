@@ -40,4 +40,72 @@ public sealed class MinionStatFamilyTests
         Assert.Equal(42, Delta(Stat.CastSpeedPlusPct));
         Assert.Equal(80, Delta(Stat.CriticalStrikeChancePlusPct));
     }
+
+    sealed class Clock : IPlayerUpdateSchedule
+    {
+        public double Time = 1;
+        public double Now(Player player) => Time;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            Time += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
+    // The active-minion counts come out of the frame's stat graph: a minion that appears or dies marks the golem step
+    // (nothing else changes a golem buff total for a timed summon), and only a minion without a duration is permanent.
+    [Fact]
+    public async Task The_active_minion_counts_follow_the_frame_stat_graph_and_only_a_golem_is_permanent()
+    {
+        var clock = new Clock();
+        using var f = new TriggeredSummonTests.Fixture(clock);
+        var updates = new PlayerUpdatesState(f.Lifetime, clock);
+        var outer = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        long frame = 0;
+        void Step() { f.Player.Area.Step(++frame, clock.Time); Game.StepPlayerStats(f.Player); }
+        int Count(uint stat) => Game.PlayerStatValues(f.Player).GetValueOrDefault(stat);
+        try
+        {
+            f.Player.Connection.PlayerSent = true;
+            f.Player.PlayerUpdatesState = updates;
+            Assert.True(f.Player.PlayerUpdatesWorker.TryStart(f.Player, updates.Rules, null, updates, out updates.Generation));
+            Step();
+            Assert.True(Game.StatsPublishedByFrame(f.Player));
+            Assert.Equal(0, Count(Stat.NumberOfActiveMinions));
+
+            f.Equip(("Summon Skeletons", 1), ("Summon Flame Golem", 1));
+            uint skeleton = await f.Summon("SummonSkeletons", 0);
+            Assert.NotEqual(0u, skeleton);
+            Assert.False(double.IsPositiveInfinity(f.Player.Summons.Until[skeleton]));
+            Step();
+            Assert.Equal(1, Count(Stat.NumberOfActiveMinions));
+            Assert.Equal(0, Count(Stat.NumberOfActivePermanentMinions));
+
+            ushort source = Game.GemSkillEffects(f.Player).Single(g => Program.Skills.EffectId(g.Effect) == "SummonFlameGolem").Id;
+            Assert.NotEqual(0u, await Game.SummonGolem(f.Player, source, Game.GolemData.Find("SummonFlameGolem")!, (100, 100)));
+            Step();
+            Assert.Equal(2, Count(Stat.NumberOfActiveMinions));
+            Assert.Equal(1, Count(Stat.NumberOfActivePermanentMinions));
+
+            // A timed summon dying changes no golem buff total: only its own mark runs the step again.
+            int runs = Game.PlayerStatStepRuns(f.Player, PlayerStatStep.Golems);
+            using (Game.ProjectileMutation(f.Player))
+                Game.GolemDieLocked(f.Player, f.Player.Summons.Fighters[skeleton], clock.Time);
+            Step();
+            Assert.True(Game.PlayerStatStepRuns(f.Player, PlayerStatStep.Golems) > runs);
+            Assert.Equal(1, Count(Stat.NumberOfActiveMinions));
+            Assert.Equal(1, Count(Stat.NumberOfActivePermanentMinions));
+        }
+        finally
+        {
+            if (ReferenceEquals(f.Player.PlayerUpdatesState, updates))
+            {
+                f.Player.PlayerUpdatesWorker.Complete(updates.Rules, null, updates, updates.Generation);
+                f.Player.RetirePlayerUpdates();
+            }
+            Game.AreaUpdateContext.Value = outer;
+        }
+    }
 }

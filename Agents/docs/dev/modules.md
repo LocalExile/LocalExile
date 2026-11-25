@@ -118,6 +118,9 @@ The player and its world are the Gateway's: `PlayerOf(conn)` (an `IPlayer`) and 
 (`IItemCrafting`), and saved text per account and league or per character (`ISavedData`).
 A module can alter the game fully: it compiles against the Gateway and the Game module, both public, with `using static Program`, `using static Game` (both global in a module) and `ConnOf(player)`. A mod reaches the same ([modding](modding.md)). Per-player state in a module's own
 `ConditionalWeakTable<IPlayer, …>` starts over with a hot reload, and objects it placed stop answering until the player's next area; state in `Player` survives.
+In the area's frame, where messages, ticks and timers run, a world record sent through one player goes to every client in the area (`Program.SendRecords`, `AreaDelta`); outside the frame it reaches that player alone.
+So a loop over the area's players sends each client one copy per player there: send an area object's record once (Legion's `LegionOutput.ToArea`), and a record for one player alone under `Program.ViewOf`.
+A client that joins later is given each object's create and latest world records (`AreaObjectRecords.Join`), but not its AddBuff, RemoveBuff, Stats or Life records, and for a monster only the create from `MonsterOrigins`: a monster's raw buff and 0x1b2 records are not given again. Buffs set with `Area.Buffs.Set` are (`AreaBuffs.Join`).
 Another module's internal extension members (an `extension(...)` block, such as `ClientStateRules` in Game) are out of reach:
 the 10.0.1xx SDKs, the ones Linux distributions ship, reject them with CS0570, though newer SDKs build them. Read what
 they wrap instead, or call a static method.

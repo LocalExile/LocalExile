@@ -14,12 +14,22 @@ static partial class Game
             sources.GetValueOrDefault(Stat.DamagePlusPctForYouAndAlliesAffectedByYourAuras));
     }
 
-    internal static AuraCatalog.Aura WithCasterAuraStamps(AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources)
+    internal static AuraCatalog.Aura WithCasterAuraStamps(Player player, AuraCatalog.Aura aura, IReadOnlyDictionary<uint, int> sources)
     {
         var commander = CommanderOfDarkness(sources);
+        bool supreme = sources.GetValueOrDefault(Stat.KeystoneSupremeEgo) != 0 && SkillsFor(player).IsAura(aura.Effect);
+        int more = supreme && player.Pools.Mana > 0
+            ? (int)Math.Min(50, (long)AuraCatalog.RequiredMana(player.Pools, [aura]) * 50 / player.Pools.Mana) : 0;
+        int perAura = AuraCatalog.PerAuraEffectPctFor(aura, sources);
+        if (aura.SelfOnly == supreme && aura.MoreEffectPct == more && aura.PerAuraEffectPct == perAura
+            && aura.CommanderAttackCastSpeedPct == commander.Speed
+            && aura.CommanderElementalResistancePct == commander.Resistance && aura.CommanderDamagePct == commander.Damage)
+            return aura;
         return aura with
         {
-            PerAuraEffectPct = AuraCatalog.PerAuraEffectPctFor(aura, sources),
+            SelfOnly = supreme,
+            MoreEffectPct = more,
+            PerAuraEffectPct = perAura,
             CommanderAttackCastSpeedPct = commander.Speed,
             CommanderElementalResistancePct = commander.Resistance,
             CommanderDamagePct = commander.Damage,

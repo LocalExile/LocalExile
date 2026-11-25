@@ -841,6 +841,10 @@ public static partial class Game
                 && CurrencyEffects.IsMap(after, targetType)
                 && after.Mods.Count(m => m.Section == ModSection.Explicit) >= 8)
                 await AwardAchievementItem(player, "CorruptMap8Mods");
+            if (ItemsFor(player).ByHash(after.TypeHash)?.Class == "Jewel"
+                && after.Rarity == ItemRarity.Unique
+                && (before.Rarity != ItemRarity.Unique || !before.NameWords.SequenceEqual(after.NameWords)))
+                await AwardAchievementItem(player, "CorruptToCorruptUniqueJewel");
         }
     }
 
