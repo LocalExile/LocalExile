@@ -2848,6 +2848,7 @@ public static partial class Game
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
         bool pestilentStrike = IsPestilentStrike(effectId);
+        bool katabasisStrike = effectId == "FrostBladesAltX";
         double phaseDamageMore = divineBlast && immediate && scheduledSession is not null
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d)
             : infernalBlast is not null ? damageMore : 1;
@@ -2887,7 +2888,7 @@ public static partial class Game
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
-            : infernalBlast is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+            : katabasisStrike || infernalBlast is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || vaalSlam || SkillsFor(player).EffectId(gem.Effect) == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -3043,6 +3044,18 @@ public static partial class Game
                 uint primary = LightningStrikeTarget(player, player.Walk.Position(now), to, targetId, now, extraReach);
                 found = primary != 0 && player.Area.Monsters.TryGetValue(primary, out var struckTarget)
                     ? TargetsAt(struckTarget.Walk.Position(now)).Where(e => e.Key == primary).ToList() : [];
+            }
+            else if (katabasisStrike)
+            {
+                // The chilling area's radius does not increase the reach or target count of the strike.
+                uint requested = singleStrikeTarget ?? targetId;
+                if (requested != 0 && player.Area.Monsters.TryGetValue(requested, out var selected))
+                    centre = selected.Walk.Position(now);
+                int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
+                found = TargetsAt(centre)
+                    .Where(entry => (requested == 0 || entry.Key == requested) && !entry.Value.WorldHidden
+                        && SwingInReach(player, entry.Value, from, entry.At, strikeReach))
+                    .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).Take(1).ToList();
             }
             else
             {

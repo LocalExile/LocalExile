@@ -248,6 +248,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Charge gains on stun, skill use and target state, supports' own chances, "lose all" and "on reaching maximum"
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
+- Frost Blades of Katabasis checks its primary strike reach and selects one enemy before supported extra strikes.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Infernal Blow charges detonate on expiry or the sixth charge, and marked corpses explode in a separate radius;
   Immolation charges the attacker.
