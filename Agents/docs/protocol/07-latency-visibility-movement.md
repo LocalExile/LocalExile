@@ -151,6 +151,11 @@ removes its collision; **0 → 2** shows it posed at a random 30-50% of the clip
 (shards, `breaking_free`, a 3 s speed ramp); 5 ends it. The pose is made only on the change from 0: a monster created in state 2 stands unposed.
 See [Legion](../game/legion.md).
 
+`LegionRevive` (type `0xd59a`, skill `0x159a`; reader `0x1413b0920`, 0x2c8 `0x1413b0fa0`): after the animation block, `i32 state,
+u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer, u8 revive, u8 leave` (23 bytes). The 0x2c8 payload is `i32 state` and
+then: 1 `f32 timer, u8 revive`; 3 `u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer`; 4 `u8 revive`; 5 `f32 timer,
+u8 revive, u8 leave`. The client's StartReviveTimer sets pose = 0.6..0.8 of the clip, speed = pose / 3, fall time 3.0.
+
 ## 5. Movement
 
 **C→S 0x25** "use skill at location" (sender `0x14216ccb0`, class `0x1435ca5f0`, 16 bytes): `u32 x, u32 y` (target grid

@@ -22,8 +22,8 @@ static class LegionDomain
     public const string RewardCrystalType = "Metadata/Terrain/Leagues/Legion/Objects/LegionDomainRewardCrystal";
     public const string EnteredQuestFlag = "EnteredDomainOfTimelessConflict";
     const string PulseModel = "Metadata/Effects/Spells/monsters_effects/essence/monolith_pulse/monolith_pulse.ao";
-    /// <summary>MiscAnimated 3377 LegionMonsterRevived (beam_down.ao) and 3357 LegionSoulercoaster1.</summary>
-    const int RevivedBeamKey = 3377, SoulercoasterKey = 3357;
+    /// <summary>MiscAnimated 3357 LegionSoulercoaster1.</summary>
+    const int SoulercoasterKey = 3357;
     const string SaveKey = "LegionDomain";
     /// <summary>Radius around LegionEndlessInitiator that starts or resets the Domain encounter.</summary>
     const double ControlZoneRadius = 28.0;
@@ -55,7 +55,7 @@ static class LegionDomain
         string[] Factions, int UberCount, double TimerSeconds, double AutoPulseSeconds,
         double StartedAt, double EndsAt, double LastResetAt, double LastAutoPulseAt,
         int Resets, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
-        FighterSlot[] Slots, bool ControlZoneReady = true, int ProbeSlot = -1);
+        FighterSlot[] Slots, bool ControlZoneReady = true);
 
     sealed class DomainState(SavedDomain s)
     {
@@ -73,8 +73,6 @@ static class LegionDomain
         public List<int> BankedRewards = [.. s.BankedRewards];
         public FighterSlot[] Slots = s.Slots;
         public bool ControlZoneReady = s.ControlZoneReady;
-        /// <summary>E20a probe: the one slot that goes through the LegionRevive ghost (-1: none).</summary>
-        public int ProbeSlot = s.ProbeSlot;
         /// <summary>True when individual kill updates have not yet been flushed to ContentState JSON.</summary>
         public bool Dirty;
         public double LastFlushAt;
@@ -121,7 +119,7 @@ static class LegionDomain
 
         public SavedDomain Snapshot() => new(InitiatorId, CrystalId, X, Y, Z, Level, (int)Phase,
             Factions, UberCount, TimerSeconds, AutoPulseSeconds, StartedAt, EndsAt, LastResetAt, LastAutoPulseAt,
-            Resets, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ControlZoneReady, ProbeSlot);
+            Resets, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ControlZoneReady);
     }
 
     static readonly ConditionalWeakTable<object, DomainState> Domains = new();
@@ -418,28 +416,34 @@ static class LegionDomain
                 + stats.GetValueOrDefault(Stat.DisplayLegionUberFragmentImprovedRewardsPlusPct);
             var plan = LegionArmy.PlanEndless(LegionData.Current, factions, level, packSizePct, uberRewardPct, rng);
             var slots = BuildRadialSlots(player, near.X, near.Y, plan, rng);
-            // E20a probe: the normal soldier nearest the centre goes through the LegionRevive ghost.
-            int probe = -1;
-            for (int i = 0; i < slots.Length; i++)
-                if (slots[i].Tier <= 1 && (probe < 0 || Dist2(slots[i], near) < Dist2(slots[probe], near))) probe = i;
             var saved = new SavedDomain(player.TakeObjectId(), CrystalSupported ? player.TakeObjectId() : 0,
                 near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions, uberCount,
                 timerSec, autoPulseSec, 0, 0, double.NegativeInfinity, double.NegativeInfinity,
-                0, 0, [], [], slots, ProbeSlot: probe);
+                0, 0, [], [], slots);
             state = Domains.GetValue(instance, _ => new DomainState(saved));
             lock (state) Keep(player, state);
             module.Log($"{PlayerOf(player).Character}: Domain of Timeless Conflict ({player.Layout.Id}, L{level}) ready at ({state.X}, {state.Y}) — {string.Join("+", factions)} ({uberCount} Unrelenting), timer {timerSec:0}s, {slots.Length} soldiers planned");
+        }
+
+        else
+        {
+            // A Domain saved before its army was planned on entry: plan it now.
+            var stats = LegionMonolith.AreaStats(player);
+            var rng = global::Game.AreaRng(player);
+            lock (state)
+                if (state.Phase == DomainPhase.Waiting && state.Slots.Length == 0)
+                {
+                    var plan = LegionArmy.PlanEndless(LegionData.Current, state.Factions, state.Level,
+                        stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct), stats.GetValueOrDefault(Stat.UberDomainMonsterRewardChancePlusPct), rng);
+                    state.Slots = BuildRadialSlots(player, state.X, state.Y, plan, rng);
+                    Keep(player, state);
+                }
         }
 
         await ShowObjects(player, state);
         await SyncRulesToPlayer(player, state);
         await SpawnWaitingGhosts(module, player, state);
     }
-
-    static long Dist2(FighterSlot s, (int X, int Y) c) => (long)(s.X - c.X) * (s.X - c.X) + (long)(s.Y - c.Y) * (s.Y - c.Y);
-
-    /// <summary>Whether the slot lies as a LegionRevive ghost when it does not fight (E20a: the probe slot only).</summary>
-    static bool Revives(DomainState state, int i) => i == state.ProbeSlot;
 
     /// <summary>Before the start: every reviving slot without a ghost gets one, lying ready (state 4).</summary>
     static async Task SpawnWaitingGhosts(IModuleContext module, Player player, DomainState state)
@@ -449,13 +453,13 @@ static class LegionDomain
         {
             if (state.Phase != DomainPhase.Waiting) return;
             for (int i = 0; i < state.Slots.Length; i++)
-                if (Revives(state, i) && state.Slots[i] is { GhostId: 0, Alive: false } && !state.NoSpawn.Contains(i) && state.Spawning.Add(i))
+                if (state.Slots[i] is { GhostId: 0, Alive: false } && !state.NoSpawn.Contains(i) && state.Spawning.Add(i))
                     missing.Add(i);
         }
         int made = 0;
         foreach (int i in missing)
-            if (await SpawnGhost(module, player, state, i, fall: false) != 0) made++;
-        if (missing.Count > 0) module.Log($"Domain ghosts lying before the start: {made}/{missing.Count}");
+            if (await SpawnGhost(player, state, i, fall: false) != 0) made++;
+        if (missing.Count > 0) module.Log($"Domain revive: {made}/{missing.Count} ghosts created lying before the start (state 4, the client poses them)");
     }
 
     static MonsterCatalog.Variety? VarietyOf(DomainState state, int monsterRow)
@@ -474,7 +478,7 @@ static class LegionDomain
 
     /// <summary>Spawns the slot's ghost where the slot stands (the caller put the slot in Spawning), lying ready; with <paramref name="fall"/>
     /// (a fighter that fell) its 0x2c8 state 3 follows (<see cref="FallDelaySeconds"/>) with the rank's cooldown as its timer.</summary>
-    static async Task<uint> SpawnGhost(IModuleContext module, Player player, DomainState state, int i, bool fall)
+    static async Task<uint> SpawnGhost(Player player, DomainState state, int i, bool fall)
     {
         uint id = 0;
         try
@@ -488,7 +492,7 @@ static class LegionDomain
             }
             ushort sequence = LegionRevive.NextSequence();
             id = await LegionRevive.SpawnGhost(player, variety, level, (MonsterRarity)slot.Rarity, slot.X, slot.Y, slot.Facing, sequence);
-            if (id == 0) { module.Log($"Domain ghost of slot {i} ({variety.Id}) could not be spawned at ({slot.X}, {slot.Y})"); return 0; }
+            if (id == 0) return 0;
             double now = global::Game.AreaTime(player);
             lock (state)
             {
@@ -496,8 +500,6 @@ static class LegionDomain
                 if (fall) state.Falls.Add((i, now + FallDelaySeconds));
                 Keep(player, state, flush: false);
             }
-            module.Log($"Domain revive 0x{id:x} slot {i} {variety.Id} at ({slot.X}, {slot.Y}): created lying, state 4 (ready, client pose)"
-                + (fall ? $", fall (state 3) in {FallDelaySeconds:0.##} s" : ""));
             return id;
         }
         finally { lock (state) state.Spawning.Remove(i); }
@@ -505,7 +507,7 @@ static class LegionDomain
 
     /// <summary>Starts the revival of ghosts: 0x2c8 state 5 (vanish 0.8 s, then the client stands it up as its state 1). The tick sends
     /// state 1 and swaps the ghost for its fighter (<see cref="StepRising"/>).</summary>
-    static async Task StartRising(IModuleContext module, Player player, DomainState state, IReadOnlyList<int> slots)
+    static async Task<int> StartRising(IModuleContext module, Player player, DomainState state, IReadOnlyList<int> slots, bool revival)
     {
         var send = new List<(int Slot, uint Ghost, ushort Sequence)>(slots.Count);
         double now = global::Game.AreaTime(player);
@@ -515,7 +517,7 @@ static class LegionDomain
             {
                 var s = state.Slots[i];
                 if (s.GhostId == 0 || s.RiseStep != 0) continue;
-                state.Slots[i] = s with { RiseAt = now, RiseStep = 1 };
+                state.Slots[i] = s with { RiseAt = now, RiseStep = 1, RevivalCount = s.RevivalCount + (revival ? 1 : 0) };
                 state.Rising.Add(i);
                 send.Add((i, s.GhostId, s.Sequence));
             }
@@ -526,6 +528,7 @@ static class LegionDomain
             await LegionRevive.Send(player, ghost, sequence, payload, null);
         if (send.Count > 0)
             module.Log($"Domain revive: {send.Count} ghosts -> state 5 (vanish {LegionRevive.VanishSeconds} s){(send.Count == 1 ? $", 0x{send[0].Ghost:x} slot {send[0].Slot}" : "")}");
+        return send.Count;
     }
 
     /// <summary>When state 1 follows state 5 (the client's own stand-up begins at 0.8 s; state 1 must not reach it earlier, or the
@@ -618,9 +621,10 @@ static class LegionDomain
                 }
             }
             await LegionRevive.Remove(player, corpses);
-            foreach (var (i, corpse) in fallen)
-                if (await SpawnGhost(module, player, state, i, fall: true) == 0 && corpse != 0)
-                    module.Log($"Domain revive: fallen slot {i} (0x{corpse:x}) has no ghost");
+            var made = new List<uint>(fallen.Count);
+            foreach (var (i, _) in fallen)
+                if (await SpawnGhost(player, state, i, fall: true) is uint ghost and not 0) made.Add(ghost);
+            module.Log($"Domain revive: {fallen.Count} fallen -> {made.Count} ghosts lying (state 4{(made.Count == 1 ? $", 0x{made[0]:x}" : "")}), state 3 in {FallDelaySeconds:0.##} s");
         }
         if (falls.Count > 0)
         {
@@ -781,8 +785,8 @@ static class LegionDomain
     static bool IsReady(DomainState state, int i, double now)
     {
         var s = state.Slots[i];
-        return !s.Alive && now - s.DeadAt >= s.RevivalMs / 1000.0 && !state.Spawning.Contains(i) && !state.NoSpawn.Contains(i)
-            && (!Revives(state, i) || s is { GhostId: not 0, RiseStep: 0 });
+        return s is { Alive: false, GhostId: not 0, RiseStep: 0 } && now - s.DeadAt >= s.RevivalMs / 1000.0
+            && !state.Spawning.Contains(i) && !state.NoSpawn.Contains(i);
     }
 
     static bool AnyReadyToRevive(DomainState state, double now)
@@ -838,7 +842,6 @@ static class LegionDomain
 
     static async Task StartDomain(IModuleContext module, Player player, DomainState state)
     {
-        var stats = LegionMonolith.AreaStats(player);
         FighterSlot[] plannedSlots;
         var rising = new List<int>();
         double now = global::Game.AreaTime(player);
@@ -855,7 +858,7 @@ static class LegionDomain
             for (int i = 0; i < plannedSlots.Length; i++)
             {
                 plannedSlots[i] = plannedSlots[i] with { DeadAt = now };
-                if (Revives(state, i)) rising.Add(i);
+                rising.Add(i);
             }
             state.LiveByMonster.Clear();
             Keep(player, state);
@@ -874,12 +877,10 @@ static class LegionDomain
         await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: false);
         await PlayEffect(player, PulseModel, state.X, state.Y, scale: 6f);
 
-        await StartRising(module, player, state, rising);
-        int spawned = 0;
-        for (int i = 0; i < plannedSlots.Length; i++)
-            if (!Revives(state, i) && await SpawnSlot(player, state, i, stats) != 0) spawned++;
+        // Every soldier wakes at once: its ghost stands up and becomes its fighter (StepRising).
+        int woken = await StartRising(module, player, state, rising, revival: false);
         lock (state) Keep(player, state);
-        module.Log($"Domain started: {string.Join("+", state.Factions)} ({spawned}/{plannedSlots.Length} fighters, {rising.Count} ghosts rising, timer {state.TimerSeconds:0}s)");
+        module.Log($"Domain started: {string.Join("+", state.Factions)} ({woken}/{plannedSlots.Length} soldiers waking, timer {state.TimerSeconds:0}s)");
     }
 
     static FighterSlot[] BuildRadialSlots(Player player, int cx, int cy, LegionArmy.ArmyPlan plan, Random rng)
@@ -944,21 +945,14 @@ static class LegionDomain
     {
         FighterSlot slot;
         byte areaLevel;
-        uint initiatorId;
         lock (state)
         {
             if (state.Phase != DomainPhase.Active || slotIndex < 0 || slotIndex >= state.Slots.Length) return 0;
             slot = state.Slots[slotIndex];
             if (slot.Alive) return slot.CurrentId;
             areaLevel = (byte)Math.Clamp(state.Level, 1, 100);
-            initiatorId = state.InitiatorId;
         }
-        MonsterCatalog.Variety? variety;
-        lock (state)
-        {
-            if (!state.VarietyCache.TryGetValue(slot.MonsterRow, out variety))
-                state.VarietyCache[slot.MonsterRow] = variety = Monsters.Find(slot.MonsterRow.ToString());
-        }
+        var variety = VarietyOf(state, slot.MonsterRow);
         if (variety is not { Supported: true })
         {
             lock (state) state.NoSpawn.Add(slotIndex);   // never ready: no pulse, no revival count, no save for it
@@ -977,15 +971,11 @@ static class LegionDomain
                 [global::Game.MonsterToughness] = revivalToughness,
             }))
             : null;
+        // Its variety's own states: no stasis shape (the breakout / activated outlines are the map monolith's); in the Domain the
+        // client hides the crystal shell itself (LegionMonsterBase.ot: IfMapStat map_is_legion_endgame_map, hide_segments).
         uint id = await SpawnMonster(player, variety, areaLevel, (MonsterRarity)slot.Rarity, slot.X, slot.Y,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false,
-            placement: MonsterPlacement.Established, rotation: slot.Facing, extraStats: extraStats, extraMods: revivalMods,
-            shape: o =>
-            {
-                var sm = (o.StateMachine ?? variety.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1);
-                if (initiatorId != 0) sm = sm?.Set("owning_initiator", (int)initiatorId);
-                return o with { StateMachine = sm };
-            });
+            placement: MonsterPlacement.Established, rotation: slot.Facing, extraStats: extraStats, extraMods: revivalMods);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var monster)) return 0;
 
         if (slot.RevivalCount > 0)
@@ -993,7 +983,7 @@ static class LegionDomain
             if (UberRevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
                 monster.EncounterStats = revivalStats;
         }
-        if (slot.Rewards is { Length: > 0 }) LegionStasis.ShowRewards(player, id, slot.Rewards, false);
+        // No reward symbols (buff 1328) over the Domain's monsters (3.29.0); their rewards still bank (RecordKill).
 
         lock (state)
         {
@@ -1014,7 +1004,6 @@ static class LegionDomain
     static async Task PulseReset(IModuleContext module, Player player, DomainState state, bool manual)
     {
         double now = global::Game.AreaTime(player);
-        var stats = LegionMonolith.AreaStats(player);
         var rng = global::Game.AreaRng(player);
         var toRevive = new List<int>();
         var deadCommon = new List<int>();
@@ -1039,37 +1028,14 @@ static class LegionDomain
                     deadCommon.RemoveAt(pick);
                 }
             }
-            foreach (int idx in toRevive)
-                state.Slots[idx] = state.Slots[idx] with { RevivalCount = state.Slots[idx].RevivalCount + 1 };
             Keep(player, state);
         }
         if (toRevive.Count == 0) return;
 
         await UpdateInitiatorState(player, state, obeliskState: 2, checkingControlZone: false);
         await PlayEffect(player, PulseModel, state.X, state.Y, scale: 5f);
-        string? beamModel = LegionData.Current.MiscAnimatedModels.GetValueOrDefault(RevivedBeamKey);
-        int revived = 0, beams = 0;
-        var rising = toRevive.Where(i => Revives(state, i)).ToList();
-        await StartRising(module, player, state, rising);
-        revived += rising.Count;
-        foreach (int idx in toRevive)
-        {
-            if (Revives(state, idx)) continue;
-            if (await SpawnSlot(player, state, idx, stats) == 0)
-            {
-                // A failed spawn is not a revival: take back the count taken for it.
-                lock (state) state.Slots[idx] = state.Slots[idx] with { RevivalCount = Math.Max(0, state.Slots[idx].RevivalCount - 1) };
-            }
-            else
-            {
-                revived++;
-                if (beams < 6 && beamModel is not null && state.Slots[idx].Tier >= 2)
-                {
-                    await PlayEffect(player, beamModel, state.Slots[idx].X, state.Slots[idx].Y);
-                    beams++;
-                }
-            }
-        }
+        // The ghosts stand up where they lie; the client plays the beam (3377) itself at their state 1.
+        int revived = await StartRising(module, player, state, toRevive, revival: true);
         lock (state) Keep(player, state);
         await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: false);
         module.Log($"Domain {(manual ? "manual reset" : "auto-pulse")} #{state.Resets}: revived {revived} fighters");
@@ -1088,7 +1054,7 @@ static class LegionDomain
             state.RecentKills[monsterId] = slot;
             state.Slots[idx] = slot with { CurrentId = 0, Alive = false, DeadAt = global::Game.AreaTime(player) };
             // Its corpse becomes its ghost on the next tick (not here: the kill is still being committed).
-            if (Revives(state, idx) && state.Phase == DomainPhase.Active) state.Fallen.Enqueue((idx, monsterId));
+            if (state.Phase == DomainPhase.Active) state.Fallen.Enqueue((idx, monsterId));
             state.TotalKills++;
             if (slot.Tier == 3) state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
             if (slot.Rewards is { Length: > 0 }) state.BankedRewards.AddRange(slot.Rewards);
@@ -1111,7 +1077,6 @@ static class LegionDomain
             }
             else slot = seen;
         }
-        if (slot.Rewards is { Length: > 0 }) drop.Player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
         // Domain of Timeless Conflict holds all item rewards until 00:00; only Generals drop boosted gold during combat.
         drop.Cancel = true;
         if (slot.Tier == 3 && GameEvents.AllowsLoot(drop.Player) && Environment.GetEnvironmentVariable("Game_DROPS") != "0")
@@ -1129,8 +1094,7 @@ static class LegionDomain
     static Task Killed(MonsterKill kill)
     {
         if (!IsDomainArea(kill.Player.Layout.Id) || StateOf(kill.Player) is not { } state) return Task.CompletedTask;
-        if (RecordKill(kill.Player, state, kill.Monster.ObjectId, out var slot) && slot is { Rewards.Length: > 0 })
-            kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
+        RecordKill(kill.Player, state, kill.Monster.ObjectId, out _);
         return Task.CompletedTask;
     }
 
