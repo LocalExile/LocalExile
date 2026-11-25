@@ -518,7 +518,7 @@ public static partial class Game
         var ownPenetration = attackEffect >= 0
             ? SkillsFor(player).EffectStats(attackEffect, 1).ToDictionary(kv => kv.Item1, kv => kv.Item2) : null;
         List<uint> spirit;
-        (int X, int Y)? echo;
+        ((int X, int Y) Player, (int X, int Y) Centre)? echo;
         byte[]? memoryBuff;
         using (ProjectileMutation(player))
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, use.SkillId, attackEffect, ownPenetration ?? new Dictionary<uint, int>(), stop, target,
@@ -539,7 +539,7 @@ public static partial class Game
             .Select(id => (id, player.Area.Monsters[id], player.Area.Monsters[id].Walk.Position(now2)))];
         // The previous location's strike: the monster nearest it within the weapon's reach (a single-target hit, as the
         // default attack's own).
-        if (echo is { } echoAt && player.Area.MonstersNear(echoAt, weapon.Range).Where(e => e.Key != use.TargetId && !spirit.Contains(e.Key) && e.Value.Hostile
+        if (echo?.Centre is { } echoAt && player.Area.MonstersNear(echoAt, weapon.Range).Where(e => e.Key != use.TargetId && !spirit.Contains(e.Key) && e.Value.Hostile
                 && !e.Value.Dead && e.Value.Life > 0 && Dist(e.Value.Walk.Position(now2), echoAt) <= weapon.Range + LivingCollision.Size(e.Value))
             .OrderBy(e => Dist(e.Value.Walk.Position(now2), echoAt)).Select(e => (e.Key, e.Value)).FirstOrDefault() is (var echoId, { } echoed))
             extras.Add((echoId, echoed, echoed.Walk.Position(now2)));
@@ -1940,7 +1940,7 @@ public static partial class Game
                 SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                 ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
                 ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
-            aura = WithCasterAuraStamps(aura, CharacterStatSources(player).Stats);
+            aura = WithCasterAuraStamps(player, aura, CharacterStatSources(player).Stats);
             bool blessing = IsBlessingAura(aura);
             bool eternal = EternalBlessingAura(aura);
             var proposedAuras = player.Auras.Values.Where(a => (!blessing || !IsBlessingAura(a))
@@ -2641,12 +2641,14 @@ public static partial class Game
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false) =>
+        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
+        IReadOnlyList<uint>? additionalStrikeTargets = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget,
-            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback, offHandWeapon);
+            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback,
+            offHandWeapon, additionalStrikeTargets: additionalStrikeTargets);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2658,7 +2660,8 @@ public static partial class Game
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
         int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
-        EarthquakeAftershock? aftershock = null, ShieldCrushUse? shieldUse = null)
+        EarthquakeAftershock? aftershock = null, ShieldCrushUse? shieldUse = null,
+        IReadOnlyList<uint>? additionalStrikeTargets = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -2835,8 +2838,8 @@ public static partial class Game
         if (Replaced()) return;
         // A Strike's spirit strikes and previous-location strike, chosen as it starts, as the client chooses them
         // (StrikeTargets). Each monster takes one hit of the use, whichever of them reaches it.
-        List<uint> spirit = [];
-        (int X, int Y)? echo = null;
+        IReadOnlyList<uint> spirit = additionalStrikeTargets ?? [];
+        ((int X, int Y) Player, (int X, int Y) Centre)? echo = null;
         byte[]? memoryBuff = null;
         if (aftershock is null && !spell && channelGeneration is null && singleStrikeTarget is null
             && strikeIndex == 0 && shieldUse is null && hammer is null && !IsSmite(gem.Effect))
@@ -2980,8 +2983,10 @@ public static partial class Game
             // distance too once the client's rule for them is read.
             var struck = targets.Select(t => t.Id).ToHashSet();
             foreach (uint id in spirit)
-                if (struck.Add(id) && player.Area.Monsters.TryGetValue(id, out var s) && !s.Dead && s.Life > 0) targets.Add((id, s));
-            if (echo is { } at)
+                if (struck.Add(id) && player.Area.Monsters.TryGetValue(id, out var s) && !s.Dead && s.Life > 0
+                    && (additionalStrikeTargets is null || s is { Hostile: true, OwnerId: null, WorldHidden: false }))
+                    targets.Add((id, s));
+            if (echo?.Centre is { } at)
                 targets.AddRange(player.Area.MonstersNear(at, radius).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
@@ -3603,7 +3608,7 @@ public static partial class Game
                 singleStrikeTarget: singleStrikeTarget, onHit: onHit, scheduledSession: scheduledSession, cryExerted: cryExerted, prepaidRawExtra: prepaidRawExtra, baseChaos: baseChaos, hammer: hammer, brandedTarget: brandedTarget,
                 targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction, extraStunDurationPct: extraStunDurationPct,
                 extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback,
-                offHandWeapon: offHandWeapon, shieldUse: shieldUse);
+                offHandWeapon: offHandWeapon, shieldUse: shieldUse, additionalStrikeTargets: additionalStrikeTargets);
         }
     }
 

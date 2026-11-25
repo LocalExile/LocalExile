@@ -338,7 +338,8 @@ public static partial class Game
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
+        hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
+        return ApplyRoilingTempest(hit, Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
     public static double AddedEffectiveness(Player player, int effect, int level) => SkillsFor(player).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
@@ -784,6 +785,8 @@ public static partial class Game
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
+            else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)
+                stats[Stat.RageCost] = ActorScale.Saturate((long)stats.GetValueOrDefault(Stat.RageCost) + rageCost);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }
@@ -1089,6 +1092,7 @@ public static partial class Game
         int characterLevel = snapshot?.Level ?? player.Pools.Level;
         if (SkillsFor(player).PlayerLevelReq(effect, level) is int needs and > 0 && characterLevel < needs)
             return $"{name} at level {level} requires level {needs} (character is {characterLevel})";
+        if (snapshot?.IgnoreAttributeRequirements ?? player.Pools.IgnoreAttributeRequirements) return null;
         // A gem's attributes come from its percentage shares and the level requirement, at the gem's level clamped to its cap
         // (a corrupted level 21 gem keeps level 20's requirement; 0x142476710). The client checks them against
         // virtual_*_for_requirements, which are the attributes unless something overrides them (/set_stat).
@@ -1097,7 +1101,9 @@ public static partial class Game
             (dex, Stat.Dexterity, snapshot?.Dexterity ?? RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity)),
             (intel, Stat.Intelligence, snapshot?.Intelligence ?? RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence)) })
             if (need > 0 && has < need)
-                return $"{name} at level {level} requires {need} {attr} (character has {has})";
+                return GemRequirementHost(player, gem, snapshot, targetItemId) is { Item: { } host }
+                    && SocketedGemAttributeRequirementsIgnored(ItemsFor(player), host)
+                    ? null : $"{name} at level {level} requires {need} {attr} (character has {has})";
         return null;
     }
 
@@ -1117,12 +1123,17 @@ public static partial class Game
     // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
     // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
     // equipment resolver can read it before the pools exist.
-    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct)
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct) =>
+        SocketedGemRequirements(player, gem, attributePct, ignoreAttributes: false);
+
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem,
+        int attributePct, bool ignoreAttributes)
     {
         if (ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return default;
         int effect = type.Variant(gem.GemVariant).Effect;
         if (effect < 0) return default;
         int level = SkillsFor(player).PlayerLevelReq(effect, ItemsFor(player).GemLevel(gem));
+        if (ignoreAttributes) return (level, 0, 0, 0);
         var (str, dex, intel) = GemAttributeRequirements(player, gem, type, effect, attributePct);
         return (level, str, dex, intel);
     }
@@ -1559,6 +1570,15 @@ public static partial class Game
             gone = player.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !player.ClientSkillIds.Contains(id)).ToList();
             player.ClientSkillIds = [.. skills.Select(s => s.Id)];
+            // Only stat values changed and nothing else needs the list: the changed skills as 0x1b4 (SkillStatDeltas), the
+            // Vaal soul budgets (not stats) behind them as one small 0x2bc record. Anything else, an unchanged list
+            // included (SendSkills is also how callers resync the client), is the whole list below.
+            if (gone.Count == 0 && SkillStatDeltasAtGate(player, skills, out bool detonate) is { Length: > 0 } deltas)
+            {
+                var souls = VaalSoulRecordAtGate(player);
+                RecordSkillDeltas(player, skills, detonate);
+                return souls is null ? deltas : [.. deltas, souls];
+            }
             RecordPlayerSkills(player, skills);
             return PlayerSkillsBatchesWithVaalSouls(player, skills, gone);
         }, "0x02bc player Actor: current skill stats");
