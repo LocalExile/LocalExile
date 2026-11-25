@@ -867,6 +867,9 @@ public static partial class Game
         var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
+        var hitRolls = HitRollsFor(caster).ForSkill(skill.Stats.GetValueOrDefault, spell: !attack)
+            .ForWeapon(attack && !SkillsFor(player).RequiresShield(skill.Effect)
+                ? HandWeapon(player, AttackHand.Main).LocalSources : null);
         void Contact(uint id, SpawnedMonster m)
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -882,8 +885,9 @@ public static partial class Game
                 SupportedCriticalChanceFor(player, totem.SkillId, release: false, extraIncrease: extraCriticalIncrease),
                 SupportedCriticalChanceVsBlinded(player, totem.SkillId, false), SupportedCriticalChanceVsGround(player, totem.SkillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack, skillRoll: criticalRoll, playerStats: caster);
+            rolled = hitRolls.ForCriticalStrike(crit, caster, skill.Stats).ApplyDamageMultiplier(rolled, AreaRng(player));
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, attack, now, resistance, penetration,
-                HitRollsFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
+                hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
             int sourceMultiplier = crit ? SupportedCriticalMultiplier(player, totem.SkillId) : 100;
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, sourceMultiplier, now, caster, skill.Stats));
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: !attack, now, damage);

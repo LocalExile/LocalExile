@@ -91,6 +91,7 @@ public static partial class Game
         var criticalRoll = CaptureSkillCriticalRoll(player, skillId);
         var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
+        var hitRolls = HitRollsFor(caster).ForSkill(skill.Stats.GetValueOrDefault, spell: true);
         int range = Get(Stat.ArcChainDistance);
         int chains = Math.Max(0, Get(Stat.NumberOfChains));
         void Land(uint id, int remaining, (int X, int Y) from)
@@ -103,8 +104,9 @@ public static partial class Game
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
+            rolled = hitRolls.ForCriticalStrike(crit, caster, skill.Stats).ApplyDamageMultiplier(rolled, AreaRng(player));
             var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                HitRollsFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
+                hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
             if (crit) damage = DamageModel.CriticalDamage(damage,
                 CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, caster, skill.Stats));
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,

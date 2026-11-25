@@ -97,7 +97,7 @@ public static partial class Game
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);
                     bool critical = RandomRolls.Chance(critChance, 10000, player.Madness.Random);
                     var rolled = GameEvents.WithOutgoingDamage(player, playerStats, target,
-                        hitRolls.RollOutgoingHit(profile.Hit, player.Madness.Random));
+                        hitRolls.ForCriticalStrike(critical, playerStats, null).RollOutgoingHit(profile.Hit, player.Madness.Random));
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
                     bool invert = hitRolls.InvertsResistance(player.Madness.Random);
                     var defenses = ImpurityHitMods(target, now, resistanceMods);

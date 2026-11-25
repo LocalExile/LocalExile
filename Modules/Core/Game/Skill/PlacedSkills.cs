@@ -861,6 +861,7 @@ public static partial class Game
         double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
         double ailmentMore = skitterMore * damageMore;
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
+        var hitRolls = HitRollsFor(owner).ForSkill(placed.Own.GetValueOrDefault, spell);
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int burningMorePct = GolemStat(placed.Own, Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int killingBlowImpale = placed.Own.GetValueOrDefault(Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance);
@@ -903,10 +904,10 @@ public static partial class Game
                 rolled = rolled.Scale(Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d));
             DamagePacket mitigated;
             int damage;
-            bool critical;
+            bool critical = Critical(id);
+            rolled = hitRolls.ForCriticalStrike(critical, owner, placed.Own).ApplyDamageMultiplier(rolled, AreaRng(player));
             if (hexblast)
             {
-                critical = Critical(id);
                 (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, mods, penetration,
                     HitRollsFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
             }
@@ -917,7 +918,6 @@ public static partial class Game
                         GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)),
                     elementalUsesLowestResistance: playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
-                critical = Critical(id);
             }
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);

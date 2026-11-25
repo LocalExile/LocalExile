@@ -39,16 +39,28 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
 
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);
 
+    internal HitRollModifiers ForCriticalStrike(bool critical, IReadOnlyDictionary<uint, int> caster,
+        IReadOnlyDictionary<uint, int>? skill) => !critical ? this : this with
+    {
+        DoubleDamageChance = ActorScale.Saturate((long)DoubleDamageChance
+            + caster.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage)
+            + (skill?.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage) ?? 0)),
+    };
+
+    internal DamagePacket ApplyDamageMultiplier(DamagePacket rolled, Random random)
+    {
+        int multiplier = RollDamageMultiplier(random);
+        return multiplier == 1 ? rolled : rolled.Scale(multiplier);
+    }
+
     /// <summary>Apply the less damage and roll the triple-damage chance, then the double-damage one, then roll each damage
     /// type independently. Critical strike multiplication and target mitigation still belong to the caller.</summary>
-    public DamagePacket RollOutgoingHit(DamagePacket hit, Random random)
-    {
-        // Triple damage overrides double (PoB CalcOffence: having both is the same as triple), so double only rolls when
-        // triple misses.
-        int multiplier = RandomRolls.Chance(TripleDamageChance, 100, random) ? 3
+    public DamagePacket RollOutgoingHit(DamagePacket hit, Random random) =>
+        hit.Scale(DamageFactor * RollDamageMultiplier(random)).Roll(random, DamageExtraRolls);
+
+    // Triple damage overrides double, so double only rolls when triple misses.
+    int RollDamageMultiplier(Random random) => RandomRolls.Chance(TripleDamageChance, 100, random) ? 3
             : RandomRolls.Chance(DoubleDamageChance, 100, random) ? 2 : 1;
-        return hit.Scale(DamageFactor * multiplier).Roll(random, DamageExtraRolls);
-    }
 
     /// <summary>Overly Confident changes enemy HIT damage rolls, never damage-over-time ticks.</summary>
     public DamagePacket RollIncomingHit(DamagePacket hit, Random random) => hit.Roll(random, EnemyDamageExtraRolls);
