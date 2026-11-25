@@ -189,7 +189,8 @@ public static partial class Game
         // The character's level can fall below the next level's requirement after the experience was gained (/set_level, or a
         // save from before the stall): the "+" is still there, so say what is missing rather than that the gem is at its last
         // level. The next level is only computed while the gem is under its type's cap (ExperienceFor clamps).
-        if (level < type.MaxLevel && GemRequirementsUnmet(player, gem with { GemExperience = type.ExperienceFor(level + 1) }) is { } missing)
+        if (level < type.MaxLevel && GemRequirementsUnmetAt(player, gem with { GemExperience = type.ExperienceFor(level + 1) },
+            null, GemRequirementHost(player, gem, null, null)?.Id) is { } missing)
         {
             why = missing;
             return null;
@@ -1188,6 +1189,8 @@ public static partial class Game
         int reqStr = ScaledRequirement(rawStr, reqPct);
         int reqDex = ScaledRequirement(rawDex, reqPct);
         int reqInt = ScaledRequirement(rawInt, reqPct);
+        bool ignoreAttributes = player.Pools.IgnoreAttributeRequirements;
+        bool ignoreGemAttributes = ignoreAttributes || SocketedGemAttributeRequirementsIgnored(catalog, item);
         foreach (var socket in item.Sockets)
         {
             if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
@@ -1196,7 +1199,7 @@ public static partial class Game
             {
                 if (catalog.ByHash(gem.TypeHash) is { } gemBase && !LeagueFor(player).Rules.AllowsGemBase(gemBase.Id))
                     return false;
-                var g = SocketedGemRequirements(player, gem, reqPct);
+                var g = SocketedGemRequirements(player, gem, reqPct, ignoreGemAttributes);
                 reqLevel = Math.Max(reqLevel, g.Level);
                 reqStr = Math.Max(reqStr, g.Str);
                 reqDex = Math.Max(reqDex, g.Dex);
@@ -1204,6 +1207,7 @@ public static partial class Game
             }
         }
         if (player.Pools.Level < reqLevel) return false;
+        if (ignoreAttributes) return true;
         if (reqStr > 0 && RequirementAttribute(player, Stat.Strength, player.Pools.Strength) < reqStr) return false;
         if (reqDex > 0 && RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity) < reqDex) return false;
         if (reqInt > 0 && RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence) < reqInt) return false;

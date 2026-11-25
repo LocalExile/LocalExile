@@ -729,12 +729,15 @@ public static partial class Game
         // list and the skill bar (GemSkillEffectsAt). The gems' requirements are catalog data compared with the totals this
         // resolver counts itself, never the pools, which may not exist yet (the old check read them and switched items off
         // at login; PR #175 then dropped the rule entirely).
+        bool ignoreAttributes = passives.GetValueOrDefault(Stat.KeystoneSupremeProdigy) != 0;
         ItemModStats.Worn WithGems(ItemModStats.Worn item)
         {
+            if (ignoreAttributes) item = item with { Strength = 0, Dexterity = 0, Intelligence = 0 };
+            bool ignoreGemAttributes = ignoreAttributes || SocketedGemAttributeRequirementsIgnored(catalog, item.Item);
             foreach (var socket in item.Item.Sockets)
                 if (socket is { Colour: SocketColour.Abyss, Gem: { } jewel } && catalog.ByHash(jewel.TypeHash) is { Class: "AbyssJewel" } eye)
                     item = item with { Level = Math.Max(item.Level, ItemModStats.LevelRequirement(jewel, eye.DropLevel, catalog.Mods)) };
-                else if (socket.Gem is { } gem && SocketedGemRequirements(player, gem, requirementsPct) is var g)
+                else if (socket.Gem is { } gem && SocketedGemRequirements(player, gem, requirementsPct, ignoreGemAttributes) is var g)
                     item = item with { Level = Math.Max(item.Level, g.Level), Strength = Math.Max(item.Strength, g.Str),
                         Dexterity = Math.Max(item.Dexterity, g.Dex), Intelligence = Math.Max(item.Intelligence, g.Int) };
             return item;
@@ -1120,7 +1123,18 @@ public static partial class Game
             HelmetEnergyShield = converted.EnergyShield == 0 ? 0 : helmet.EnergyShield,
             GlovesBootsArmour = glovesBoots.Armour, GlovesBootsEvasion = glovesBoots.Evasion,
         };
-        bonus = WithSlotMasteries(player, bonus, shieldDefence.EnergyShield, EquipmentStat);
+        int HandDivisor(uint stat, Func<Player, (Item Item, ItemCatalog.BaseType? Type)?> hand)
+        {
+            if (EquipmentStat(stat) == 0 || hand(player) is not { } active) return 0;
+            return PlainItemSum(active.Item, ItemsFor(player).Mods).GetValueOrDefault(stat);
+        }
+        bonus = WithSlotMasteries(player, bonus, shieldDefence.EnergyShield, EquipmentStat) with
+        {
+            LifeToEnergyShieldPct = EquipmentStat(Stat.MaximumLifePctToConvertToMaximumEnergyShield),
+            EvasionPerTenMaximumLife = EquipmentStat(Stat.EvasionRatingPlusPer10PlayerLife),
+            ManaStrengthDivisor = HandDivisor(Stat.MaximumManaPlus1PctPerXStrengthWhenInMainHandFromFoulbornDoonCuebiyari, ActiveMainHand),
+            EnergyShieldStrengthDivisor = HandDivisor(Stat.EnergyShieldPlus1PctPerXStrengthWhenInOffHandFromFoulbornDoonCuebiyari, ActiveOffHand),
+        };
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
         var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
@@ -1141,6 +1155,7 @@ public static partial class Game
                 if (key == Stat.BaseChaosDamageResistancePct) sentinelChaos += value;
         int CatInput(uint key) => sources.GetValueOrDefault(key);
         var cat = CatAspectPhaseStatsLocked(player, bonus.AuraEffectPct, CatInput);
+        bool ignoreAttributeRequirements = EquipmentStat(Stat.KeystoneSupremeProdigy) != 0;
         bonus = bonus with
         {
             LifePerLevel = bonus.LifePerLevel,
@@ -1153,9 +1168,9 @@ public static partial class Game
             EvasionPctPerTenIntelligence = bonus.EvasionPctPerTenIntelligence,
             NoLifeFromStrength = EquipmentStat(InherentAttributeBonuses.NoLifeFromStrength) != 0,
             NoManaFromIntelligence = EquipmentStat(InherentAttributeBonuses.NoManaFromIntelligence) != 0,
-            NoStrengthBonuses = EquipmentStat(InherentAttributeBonuses.NoStrengthBonuses) != 0,
-            NoDexterityBonuses = EquipmentStat(InherentAttributeBonuses.NoDexterityBonuses) != 0,
-            NoIntelligenceBonuses = EquipmentStat(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
+            NoStrengthBonuses = ignoreAttributeRequirements || EquipmentStat(InherentAttributeBonuses.NoStrengthBonuses) != 0,
+            NoDexterityBonuses = ignoreAttributeRequirements || EquipmentStat(InherentAttributeBonuses.NoDexterityBonuses) != 0,
+            NoIntelligenceBonuses = ignoreAttributeRequirements || EquipmentStat(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
         };
         long RawCriticalSum(uint name)
         {
@@ -1396,6 +1411,9 @@ public static partial class Game
                 Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
             };
         }
+        int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
+        if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
+            pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };
         if (EquipmentInput(Stat.KeystoneTemperedByWar) != 0)
             pools = pools with { ColdResistance = pools.ColdResistance / 2, LightningResistance = pools.LightningResistance / 2 };
         if (EquipmentInput(Stat.KeystoneMedvedsExchange) != 0)
@@ -1403,6 +1421,7 @@ public static partial class Game
         player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
         return pools with
         {
+            IgnoreAttributeRequirements = ignoreAttributeRequirements,
             AccuracyAreaMorePct = areaAccuracy,
             AccuracyWeaponMorePct = weaponAccuracy,
             AccuracyChargeMorePct = chargeAccuracyMore,
@@ -1573,9 +1592,9 @@ public static partial class Game
             LifePerTwoIntelligence: Get(LifeManaPoolSources.LifePerTwoIntelligence),
             NoLifeFromStrength: Get(InherentAttributeBonuses.NoLifeFromStrength) != 0,
             NoManaFromIntelligence: Get(InherentAttributeBonuses.NoManaFromIntelligence) != 0,
-            NoStrengthBonuses: Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
-            NoDexterityBonuses: Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
-            NoIntelligenceBonuses: Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
+            NoStrengthBonuses: Get(Stat.KeystoneSupremeProdigy) != 0 || Get(InherentAttributeBonuses.NoStrengthBonuses) != 0,
+            NoDexterityBonuses: Get(Stat.KeystoneSupremeProdigy) != 0 || Get(InherentAttributeBonuses.NoDexterityBonuses) != 0,
+            NoIntelligenceBonuses: Get(Stat.KeystoneSupremeProdigy) != 0 || Get(InherentAttributeBonuses.NoIntelligenceBonuses) != 0,
             // Magebane: "Dexterity provides no inherent bonus to Evasion Rating; +1% Chance to Suppress Spell Damage
             // per 15 Dexterity" (poewiki /wiki/Magebane).
             NoDexterityEvasion: Get(Stat.KeystoneMagebane) != 0

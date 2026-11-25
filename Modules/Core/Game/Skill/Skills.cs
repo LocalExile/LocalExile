@@ -1082,6 +1082,7 @@ public static partial class Game
         int characterLevel = snapshot?.Level ?? player.Pools.Level;
         if (SkillsFor(player).PlayerLevelReq(effect, level) is int needs and > 0 && characterLevel < needs)
             return $"{name} at level {level} requires level {needs} (character is {characterLevel})";
+        if (snapshot?.IgnoreAttributeRequirements ?? player.Pools.IgnoreAttributeRequirements) return null;
         // A gem's attributes come from its percentage shares and the level requirement, at the gem's level clamped to its cap
         // (a corrupted level 21 gem keeps level 20's requirement; 0x142476710). The client checks them against
         // virtual_*_for_requirements, which are the attributes unless something overrides them (/set_stat).
@@ -1090,7 +1091,9 @@ public static partial class Game
             (dex, Stat.Dexterity, snapshot?.Dexterity ?? RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity)),
             (intel, Stat.Intelligence, snapshot?.Intelligence ?? RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence)) })
             if (need > 0 && has < need)
-                return $"{name} at level {level} requires {need} {attr} (character has {has})";
+                return GemRequirementHost(player, gem, snapshot, targetItemId) is { Item: { } host }
+                    && SocketedGemAttributeRequirementsIgnored(ItemsFor(player), host)
+                    ? null : $"{name} at level {level} requires {need} {attr} (character has {has})";
         return null;
     }
 
@@ -1110,12 +1113,14 @@ public static partial class Game
     // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
     // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
     // equipment resolver can read it before the pools exist.
-    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct)
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem,
+        int attributePct, bool ignoreAttributes = false)
     {
         if (ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return default;
         int effect = type.Variant(gem.GemVariant).Effect;
         if (effect < 0) return default;
         int level = SkillsFor(player).PlayerLevelReq(effect, ItemsFor(player).GemLevel(gem));
+        if (ignoreAttributes) return (level, 0, 0, 0);
         var (str, dex, intel) = GemAttributeRequirements(player, gem, type, effect, attributePct);
         return (level, str, dex, intel);
     }
