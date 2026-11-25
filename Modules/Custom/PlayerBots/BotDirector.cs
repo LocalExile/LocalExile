@@ -154,7 +154,7 @@ sealed partial class BotDirector
             // their last town's ambient range, which must not reset their build or experience.
             if (bot.Phase is BotPhase.Following or BotPhase.Departing)
             {
-                var leader = bot.Phase == BotPhase.Following ? Program.InGame.Keys.FirstOrDefault(c => !c.Controlled
+                var leader = bot.Phase == BotPhase.Following ? Program.InGame.Keys.FirstOrDefault(c => c.HasClient
                     && !c.Closed && !c.LeavingArea && Program.CharacterName(c) == s.LeaderName) : null;
                 if (leader is not null && s.Party != 0)
                     (bot.Leader, bot.LeaderName, bot.Party) = (leader, s.LeaderName, s.Party);
@@ -406,9 +406,9 @@ sealed partial class BotDirector
     {
         bot.Gear = BotGear.Pick(bot.Class, bot.Level, _random);
         bot.GearLevel = bot.Level;
-        if (Program.GameLogicOrNull is IControlledPlayerRules rules)
+        if (Program.GameLogicOrNull is not null)
         {
-            var build = rules.BuildControlled(bot.Class, bot.Level);
+            var build = BotPlay.BuildControlledPlayer(bot.Class, bot.Level);
             Saves.Atomically(() =>
             {
                 CharacterSaves.Write(bot.Name, build);
@@ -647,7 +647,7 @@ sealed partial class BotDirector
 
     static void StopCombat(Bot bot)
     {
-        if (bot.Combat is { } old) { (Program.GameLogicOrNull as IControlledPlayerCommands)?.ClearControlledIntent(old); ControlledPlayers.Close(old); }
+        if (bot.Combat is { } old) { BotPlay.ClearControlledIntent(old); BotPlay.Close(old); }
         bot.Combat = null;
     }
 
@@ -656,7 +656,7 @@ sealed partial class BotDirector
         lock (_bots) ExpireControl(bot);
         var leader = bot.Leader;
         if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || leader is not { Closed: false, Connection.PlayerSent: true }
-            || leader.LeavingArea || Program.GameLogicOrNull is not IControlledPlayerRules rules)
+            || leader.LeavingArea || Program.GameLogicOrNull is null)
         { StopCombat(bot); return; }
         if (bot.Combat is null || bot.Combat.Closed || !ReferenceEquals(bot.Combat.Instance, leader.Instance))
         {
@@ -664,11 +664,11 @@ sealed partial class BotDirector
             Hide(bot);
             var record = _accounts.GetCharacter(bot.CharacterId);
             if (record is null) return;
-            var player = ControlledPlayers.Open(record, bot.Account, leader);
+            var player = BotPlay.Open(record, bot.Account, leader);
             player.PartySize = PartyRoster.Size(bot.Party);
             bot.Combat = player;
             bot.ControlEpoch = Guid.NewGuid();
-            await rules.InitializeControlled(player, leader);
+            await BotPlay.InitializeControlledPlayer(player, leader);
             if (_stop.IsCancellationRequested || bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Leader, leader))
             { StopCombat(bot); return; }
             bot.PeerId = player.Id;
@@ -676,7 +676,7 @@ sealed partial class BotDirector
         var current = bot.Combat;
         if (current is null) return;
         await Program.SetPartySize(current, PartyRoster.Size(bot.Party));
-        await rules.StepControlled(current, leader);
+        await BotPlay.StepControlledPlayer(current, leader);
         if (bot.Phase != BotPhase.Following || !ReferenceEquals(bot.Combat, current)) return;
         var position = current.Walk.Position(current.Frames.Now(current));
         bool levelChanged = bot.Level != current.Pools.Level;

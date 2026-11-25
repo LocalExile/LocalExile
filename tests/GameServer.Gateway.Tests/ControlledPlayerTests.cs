@@ -1,3 +1,4 @@
+using GameServer.Modules.PlayerBots;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Storage;
@@ -12,7 +13,7 @@ internal static class ControlledPlayerBuildChecks
         var leader = runtime.PlayerOf(instance, wire);
         var bot = runtime.PlayerOf(instance, wire, "HeraldFollower" + Guid.NewGuid().ToString("N"));
         bot.Pools = new(25, 1000, 1000, 0, 0, Strength: 1000, Dexterity: 1000, Intelligence: 1000);
-        bot.Character.Passives = [.. Game.BuildControlledPlayer(CharacterClass.Witch, 25).Passives!];
+        bot.Character.Passives = [.. BotPlay.BuildControlledPlayer(CharacterClass.Witch, 25).Passives!];
         bot.LeagueModule = new(new League("test", "Standard", false, false), new HashSet<string>(["Game"]));
         // Inspect the AI's submitted request without starting background player updates or a cast timer.
         bot.Connection.PlayerSent = false;
@@ -34,15 +35,15 @@ internal static class ControlledPlayerBuildChecks
             Assert.Equal(new[] { "Herald of Ice", "Herald of Thunder", "Fireball" }, gems.Select(g => g.Name));
             Assert.All(gems, g => Assert.True(SkillHitPlan.ForSkill(Program.Skills, g.Effect, g.Level, g.Quality).CanHit));
             instance.World.Area.Monsters[0x08000000] = new("follower target", new(110, 100, 0), 0, 0, 1000) { Hostile = true };
-            await Game.StepControlledPlayer(bot, leader);
+            await BotPlay.StepControlledPlayer(bot, leader);
             Assert.Equal(gems[2].Id, Assert.Single(selected));
 
             // With only reactive reservation hits equipped, automatic combat leaves their toggles alone.
             selected.Clear();
-            bot.ControlledNextAction = 0;
+            BotPlay.BodyOf(bot).NextAction = 0;
             var equipped = items.Items(PlayerInventories.Weapon1).Single();
             items.Change(PlayerInventories.Weapon1, equipped.Id, item => item with { Sockets = [.. item.Sockets.Take(2)] });
-            await Game.StepControlledPlayer(bot, leader);
+            await BotPlay.StepControlledPlayer(bot, leader);
             Assert.Empty(selected);
         }
         finally
@@ -68,7 +69,7 @@ internal static class ControlledPlayerBuildChecks
                     var record = new GameServer.Core.Accounts.Character(Guid.NewGuid(), Guid.NewGuid(), name, characterClass, level,
                         "Standard", "1_1_town", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
                     accounts.AddCharacter(record);
-                    var build = Game.BuildControlledPlayer(characterClass, level);
+                    var build = BotPlay.BuildControlledPlayer(characterClass, level);
                     Assert.Equal(level - 1, build.Passives!.Count);
                     CharacterSaves.Write(name, build);
                     int row = Program.Skills.RowOfClass((int)characterClass);

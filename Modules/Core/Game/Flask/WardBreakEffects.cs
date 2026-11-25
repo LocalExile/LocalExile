@@ -2,10 +2,10 @@ using System.Text.Json;
 using GameServer.Core;
 
 
-public static class AntiquarianEffects
+public static class WardBreakEffects
 {
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
-    public static void LoadAntiquarianEffectsData()
+    public static void LoadWardBreakEffectsData()
     {
         adrenaline = LoadAdrenaline();
     }

@@ -19,14 +19,14 @@ public static partial class Game
         // What the pools are built of (Adrenaline, Fortification, the aspects and aura reservations, conditional items):
         // a change rebuilds them, and the steps that read the pools run in the next phase.
         EnsureConditionalItemPools(player);
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
         EnsureFortificationPools(player);
         ConfigureFortificationRecovery(player, player.Pools.Life, Get);
         ConfigureLeech(player, Get, CriticalOnLowLife(player, stats));
         ConfigureKillOnslaught(player, Get);
         ConfigureSoulEater(player, stats);
-        ObserveAntiquarian(player, stats);
+        ObserveWardBreak(player, stats);
         ReconcileRampageSource(player, stats);
         if (player.RageRetired || player.PlayerLife == 0) player.Rage.Clear();
         if (player.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(player, state))

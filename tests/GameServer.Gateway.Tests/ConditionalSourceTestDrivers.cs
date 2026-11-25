@@ -103,7 +103,7 @@ static class ConditionalSourceTestDrivers
             bool luckyBlock = spell ? player.Pools.SpellBlockLucky : player.Pools.AttackBlockLucky;
             bool unluckyBlock = spell ? player.Pools.SpellBlockUnlucky : player.Pools.AttackBlockUnlucky;
             bool blocked = block && DamageModel.Blocks(blockChance, player.IncomingHitRandom.NextDouble() * 100, luckyBlock, unluckyBlock);
-            if (!blocked && DamageTypes.IsElemental(type) && GamblerFor(stats).UsesNinetyResistance(player.IncomingHitRandom))
+            if (!blocked && DamageTypes.IsElemental(type) && HitRollsFor(stats).UsesNinetyResistance(player.IncomingHitRandom))
                 resistance = maximum = 90;
             bool immune = PlayerImmunities(player).Contains(type);
             bool armourRelevant = type == DamageType.Physical ? amount > 0
@@ -147,7 +147,7 @@ static class ConditionalSourceTestDrivers
             if (lifeBefore > player.PlayerLife && (long)(lifeBefore - player.PlayerLife) * 100 >= (long)player.PlayerMaxLife * 15)
                 player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
             if (block) ChargesWhenHit(player, blocked, spell);
-            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+            if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
             RecordHardcoreDeath(player);
             hit = new(dealt, mitigation, player.PlayerLife, player.PlayerMana, manaBefore,
                 blocked, blockChance, suppressed, suppression);

@@ -116,7 +116,7 @@ public static class CommandsFeature
     {
         string targetName = rawTarget.Trim();
         if (targetName.Length == 0) return "Usage: /whois <character name>";
-        var online = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed
+        var online = InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed
             && string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase));
         if (online is not null)
         {
@@ -140,7 +140,7 @@ public static class CommandsFeature
         const int limit = 10;
         string league = string.IsNullOrWhiteSpace(player.Character.League) ? "Standard" : player.Character.League;
         var onlineByName = InGame.Keys
-            .Where(c => !c.Controlled && !c.Closed && !c.LeavingArea
+            .Where(c => c.Listed && !c.Closed && !c.LeavingArea
                 && string.Equals(string.IsNullOrWhiteSpace(c.Character.League) ? "Standard" : c.Character.League, league, StringComparison.OrdinalIgnoreCase))
             .GroupBy(CharacterName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
