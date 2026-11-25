@@ -96,6 +96,7 @@ Nothing yet.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
+  Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
