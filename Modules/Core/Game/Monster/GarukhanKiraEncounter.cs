@@ -474,15 +474,16 @@ public static class GarukhanKiraEncounter
                 var s = sweeps[i];
                 if (now < s.At) continue;
                 sweeps.RemoveAt(i);
-                if (!Alive(s.Source)) continue;
+                bool Current() => !stopped && Alive(s.Source) && s.Source.ActionGeneration == s.Gen;
+                if (!Current()) continue;
                 if (s.IsLine)
                 {
                     await TeleportBoss(runner, s.SourceId, s.Source, s.To, now);
-                    await HitSegment(runner, s.SourceId, s.Source, s.Attack, s.From, s.To, s.HalfWidth, () => !stopped && Alive(s.Source));
+                    await HitSegment(runner, s.SourceId, s.Source, s.Attack, s.From, s.To, s.HalfWidth, Current);
                 }
                 else
                 {
-                    await HitCircle(runner, s.SourceId, s.Source, s.Attack, s.To, s.HalfWidth, () => !stopped && Alive(s.Source));
+                    await HitCircle(runner, s.SourceId, s.Source, s.Attack, s.To, s.HalfWidth, Current);
                 }
                 if (s.BurstAo is { } ao)
                     await SpawnTimedEffect(runner, effects, s.To, ao, now + 1.2, scale: 1.2f);
