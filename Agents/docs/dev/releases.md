@@ -6,6 +6,13 @@ Contributors keep working from a checkout with `live.ps1` ([GettingStarted](../.
 
 ## Making one
 
+Before starting the Release workflow, open PowerShell in the checkout of the exact commit to release and run
+`pwsh -File scripts/release/check-gm-commands.ps1`. The check builds the Release Gateway tests, downloads each pinned
+GM Commands ZIP, verifies its hash, and loads it with the Game module. A disposable player sends `/pos` and
+`/death_screen 02`. The test reads both replies from a loopback connection and builds its temporary databases from
+the checkout's SQL. It can run on a machine without a game client or extracted game data. Continue when each version prints
+`PASS GM Commands` and the command exits successfully. To use downloaded ZIPs, append `-ZipDirectory <folder>`.
+
 1. Actions > **Release** > Run workflow, on `main`, with the version (`0.2.0`, or `0.2.0-beta.1` for a pre-release).
 2. The workflow (`.github/workflows/release.yml`) builds each package on a hosted runner of its own system, Windows and
    Ubuntu, runs no tests, attests each zip and creates one **draft** release with the notes, both zips and their

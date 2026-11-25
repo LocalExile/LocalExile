@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
+    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) is "LightningStrike" or "LightningStrikeAltX";
 
     readonly record struct ExtraProjectileStrike(uint? Target, (int X, int Y) From, (int X, int Y) Aim);
     readonly record struct ProjectileStrikeContact(uint Target, (int X, int Y) At, ProjectileActorKey? Excluded, int StopRange);
@@ -26,37 +26,48 @@ static partial class Game
         int action = player.ActionCount;
         var skill = SupportedSkill(player, skillId);
         bool frostBlades = IsFrostBlades(gem.Effect);
+        bool wildStrike = IsWildStrike(gem.Effect);
         double ruthless = RuthlessBlowMore(player, skillId, skill.Stats.GetValueOrDefault);
         List<ExtraProjectileStrike>? extras = null;
-        using (ProjectileMutation(player, advance: false))
-        {
-            var (spirits, echo, _) = StrikeExtrasLocked(player, skillId, gem.Effect, skill.Stats, from, aim, sequence, targetId, now,
-                groundTarget: () => LightningStrikeTarget(player, from, aim, 0, now,
-                    frostBlades ? FrostBladesReach(player, skill.Stats) : 0));
-            if (spirits.Count > 0 || echo is not null)
+        byte[]? memoryBuff = null;
+        if (!wildStrike)
+            using (ProjectileMutation(player, advance: false))
             {
-                extras = new(spirits.Count + 1);
-                foreach (uint id in spirits)
-                    if (player.Area.Monsters.TryGetValue(id, out var monster))
-                    {
-                        var at = monster.Walk.Position(now);
-                        var towards = (ProjectileSession.Vector(at) - ProjectileSession.Vector(from)).Unit;
-                        // 0x141c9d7c0 places the copy eight cells behind its target, with per-axis rounding.
-                        var origin = (at.X - (int)Math.Floor(towards.X * 8 + .5), at.Y - (int)Math.Floor(towards.Y * 8 + .5));
-                        extras.Add(new(id, origin, at));
-                    }
-                if (echo is { } previous) extras.Add(new(null, previous.Player, previous.Centre));
+                (var spirits, var echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skill.Stats, from, aim, sequence, targetId, now,
+                    groundTarget: () => LightningStrikeTarget(player, from, aim, 0, now,
+                        frostBlades ? FrostBladesReach(player, skill.Stats) : 0));
+                if (spirits.Count > 0 || echo is not null)
+                {
+                    extras = new(spirits.Count + 1);
+                    foreach (uint id in spirits)
+                        if (player.Area.Monsters.TryGetValue(id, out var monster))
+                        {
+                            var at = monster.Walk.Position(now);
+                            var towards = (ProjectileSession.Vector(at) - ProjectileSession.Vector(from)).Unit;
+                            // 0x141c9d7c0 places the copy eight cells behind its target, with per-axis rounding.
+                            var origin = (at.X - (int)Math.Floor(towards.X * 8 + .5), at.Y - (int)Math.Floor(towards.Y * 8 + .5));
+                            extras.Add(new(id, origin, at));
+                        }
+                    if (echo is { } previous) extras.Add(new(null, previous.Player, previous.Centre));
+                }
             }
-        }
+        if (memoryBuff is not null)
+            session.World(player.Id, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}");
 
-        bool Valid() => player.ActionInterruptionGeneration == recoveryGeneration
+        bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
             && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int index = repeat;
-            session.ScheduleContact(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
-                () => Valid() && (index == 0 || player.ActionCount == action), () =>
+            long contactAt = ProjectileRuntime.Time(acceptedAt + contact + repeat * duration);
+            bool RepeatValid() => Valid() && (index == 0 || player.ActionCount == action);
+            if (wildStrike)
+                session.Schedule(contactAt, RepeatValid, () =>
+                    ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless));
+            else
+                session.ScheduleContact(contactAt, RepeatValid, () =>
                     ReleaseProjectileStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
                         index, cryExerted, ruthless, frostBlades, extras));
         }

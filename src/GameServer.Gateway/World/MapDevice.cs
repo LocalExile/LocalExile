@@ -93,6 +93,7 @@ public sealed class MapDevice
 
         /// <summary>Whether a map device run for this area uses the owner's Atlas stats.</summary>
         public bool UsesAtlas { get; init; } = true;
+        public string? DivinationCardArea { get; init; }
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;

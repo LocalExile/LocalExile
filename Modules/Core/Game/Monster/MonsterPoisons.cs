@@ -29,7 +29,7 @@ public static partial class Game
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
-        return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+        return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true) { WeaponStats = sourceWeapon.LocalSources },
             SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
             conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),
@@ -59,7 +59,8 @@ public static partial class Game
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
         int Get(uint name) => Player(name) + Skill(name);
-        if ((Get(Stat.AllDamageCanPoison) != 0 ? mitigated.MinTotal : phys + chaos) <= 0) return false;
+        bool allDamage = Get(Stat.AllDamageCanPoison) != 0 || !spell && !settings.Secondary && settings.AllDamageWithWeapon;
+        if ((allDamage ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
 
@@ -83,17 +84,19 @@ public static partial class Game
         int doubleChance = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
             ? Math.Min(finalChance, 100) : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
-            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random)) return false;
+            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random,
+            !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
     }
 
     static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
-        int doubleChance = 0, Random? random = null)
+        int doubleChance = 0, Random? random = null, int additionalAlways = 0)
     {
         // Decide whether Lethal Dose applies before inserting any poisons from this hit.
         int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
+        extra = ActorScale.Saturate((long)extra + Math.Max(0, additionalAlways));
         bool AddPoison() => target.Add(now,
             doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
         bool applied = AddPoison();

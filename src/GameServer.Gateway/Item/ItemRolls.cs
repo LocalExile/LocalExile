@@ -29,11 +29,18 @@ public sealed class ItemRolls
             .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
             .GroupBy(m => m.Domain)
             .ToDictionary(g => g.Key, g => g.ToArray());
+        _corruptedImplicitsByDomain = catalog.Mods.All
+            .Where(m => m.GenerationType == CorruptedImplicit)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
     }
 
     readonly SystemSettings _settings;
 
     public const int Prefix = 1, Suffix = 2;
+
+    /// <summary>Mods.dat GenerationType for corrupted implicit modifiers.</summary>
+    public const int CorruptedImplicit = 5;
 
     /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
     public const int ExarchImplicit = 28, EaterImplicit = 29;
@@ -48,6 +55,26 @@ public sealed class ItemRolls
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
     private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
+    private readonly Dictionary<int, ModCatalog.Mod[]> _corruptedImplicitsByDomain;
+
+    /// <summary>The GenerationType 5 (corrupted implicit) mods that can roll on <paramref name="type"/> at
+    /// <paramref name="itemLevel"/>, filtered by domain, level bounds (<c>Level &lt;= itemLevel &lt;= MaxLevel</c>)
+    /// and positive spawn weight for the base's tags.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> CorruptedImplicitPool(
+        ItemCatalog.BaseType type, int itemLevel, int? domainOverride = null)
+    {
+        int domain = domainOverride ?? type.ModDomain;
+        if (!_corruptedImplicitsByDomain.TryGetValue(domain, out var domainMods)) return [];
+        var result = new List<(ModCatalog.Mod, int)>();
+        for (int i = 0; i < domainMods.Length; i++)
+        {
+            var m = domainMods[i];
+            if (m.Level > itemLevel || itemLevel > m.MaxLevel) continue;
+            int weight = m.WeightFor(type.Tags);
+            if (weight > 0) result.Add((m, weight));
+        }
+        return result;
+    }
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
