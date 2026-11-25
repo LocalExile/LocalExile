@@ -55,6 +55,16 @@ static class LegionRevive
     /// <summary>State 5: <c>f32 timer, u8 revive, u8 leave</c>. With revive 1 the client stands it up at the timer's end (its state 1).</summary>
     public static byte[] RevivingPayload() => new BlobWriter().I32(Reviving).F32(VanishSeconds).U8(1).U8(0).ToArray();
 
+    /// <summary>Writes the ghost's state into its origin, so a client that joins later is created in it (its create carries the action),
+    /// as LegionStasis.SetOriginState does. A fallen ghost's origin stays ready (state 4): created in state 3 the ghost would stand
+    /// unposed until its cooldown ends, since only state 4 poses it (no death clip is named in the create).</summary>
+    public static void SetOrigin(Player player, uint id, ushort sequence, int state, float timer, bool revive)
+    {
+        var origins = player.Instance.World.MonsterOrigins;
+        if (origins.TryGetValue(id, out var origin))
+            origins[id] = origin with { Object = origin.Object with { CurrentAction = Action(sequence, state, timer, revive) } };
+    }
+
     /// <summary>Sends a 0x2c8 for the ghost's action to every client in the area.</summary>
     public static Task Send(Player player, uint id, ushort sequence, byte[] payload, string? log = null) =>
         LegionOutput.ToArea(player, p => global::Game.SendActionData(p, id, ActionType, ActionSkill, sequence, 0, payload, log));

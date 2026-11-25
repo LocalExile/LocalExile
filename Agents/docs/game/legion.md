@@ -145,11 +145,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   [protocol 07 section 4.1](../protocol/07-latency-visibility-movement.md)); the client runs its timers and looks (`MiscEffectPacks` id = row + 1):
   state 4 ready (pack 0x1a `LegionEndlessActive`), 3 fallen (0x19 `LegionEndlessInactive`; plays the current clip from 0 slowing to a
   stop over 3 s, and at its timer turns to 4 by itself), 5 vanish (0x1b, 0.8 s; with revive 1 the client then stands it up: its own
-  state 1, the death clip backwards for 1 s), 1 revived (0x2c8 only: 0x1c `LegionEndlessRevived` and `MiscAnimated` 3377
+  state 1, the death clip backwards for 1 s), 1 revived (by 0x2c8 or in a create; not by the client's own state 1: 0x1c `LegionEndlessRevived` and `MiscAnimated` 3377
   `beam_down.ao` at the monster), then 2. In state 4 with revive 1 and its timer out, the client poses it with `Animation` 6 (Death)
   at 0.95..1.0 of the clip (`0x141c4a8f0`): that is how a ghost created ready lies, since the server has no death clip index.
-  The 0x1b pack is removed only by 0x2c8 state 1. A scripted ghost cannot fight, so it is swapped for its fighter once it stands (2 s);
-  a killed fighter's corpse is swapped for a ghost (ready, then 0x2c8 state 3 0.15 s later with the cooldown as its timer).
+  The 0x1b pack is removed only by 0x2c8 state 1.
   GUESS: the fall's pose (0.7 of a 1.4 s death clip) and `virtual_is_hidden_monster` taking the hover off a hostile ghost.
 - Per-revival stats of the emblems (suffix `_per_revival`), summed over the emblems used and times the revival count. Timeless
   (`Mods` 21228-21232), all with `uber_domain_monster_tankiness_+%` 10: Karui crit chance 50 and crit multiplier 5, Maraketh attack

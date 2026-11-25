@@ -154,7 +154,9 @@ See [Legion](../game/legion.md).
 `LegionRevive` (type `0xd59a`, skill `0x159a`; reader `0x1413b0920`, 0x2c8 `0x1413b0fa0`): after the animation block, `i32 state,
 u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer, u8 revive, u8 leave` (23 bytes). The 0x2c8 payload is `i32 state` and
 then: 1 `f32 timer, u8 revive`; 3 `u8 falling, f32 pose, f32 fall speed, f32 fall time, f32 timer`; 4 `u8 revive`; 5 `f32 timer,
-u8 revive, u8 leave`. The client's StartReviveTimer sets pose = 0.6..0.8 of the clip, speed = pose / 3, fall time 3.0.
+u8 revive, u8 leave`. The client's StartReviveTimer (`0x141c4a600`) sets pose = 0.6..0.8 of the clip (`DAT_1436add20`, `DAT_1436ade1c`), speed =
+1.0 / (3.0 / pose) (`DAT_1436adeec`, `DAT_1436ae27c`), fall time 3.0; its FrameMove eases the speed by the remaining fall time squared
+(`DAT_1436ae17c` = 2.0). These are 3.29.3c data addresses.
 
 ## 5. Movement
 
