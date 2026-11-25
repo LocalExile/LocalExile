@@ -1049,7 +1049,8 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea, sourceEffect: shot.Effect);
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect,
+                    ownHit: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);

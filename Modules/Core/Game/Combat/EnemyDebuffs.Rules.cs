@@ -23,23 +23,65 @@ public static partial class Game
         int taunted = 0;
         foreach (var m in player.Area.Monsters.Values)
         {
-            if (m.Dead || m.Life == 0 || !m.Hostile || Dist(m.Walk.Position(now), at) > radius) continue;
-            m.TauntedUntil = now + seconds / m.RecipientDebuffRate;
-            m.TauntingPlayerId = player.Id;
-            m.TakenFromPlayer = m.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
-            m.PresentationChanged?.Invoke();
-            taunted++;
+            if (Dist(m.Walk.Position(now), at) <= radius && ApplyPlayerTauntLocked(player, m, now, seconds)) taunted++;
         }
         return taunted;
     }
 
+    static bool ApplyPlayerTauntLocked(Player player, SpawnedMonster target, double now, double seconds)
+    {
+        if (player.PlayerLife == 0 || seconds <= 0 || target.Dead || target.Life == 0 || !target.Hostile
+            || target.Effects[Stat.CannotBeTaunted] != 0) return false;
+        if (target.TauntingPlayerId is uint previous && previous != player.Id)
+            ClearPlayerTauntLocked(player.Area, target.ObjectId, target, previous);
+        target.TauntedUntil = now + seconds / target.RecipientDebuffRate;
+        target.TauntingPlayerId = player.Id;
+        target.TakenFromPlayer = target.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
+        target.PresentationChanged?.Invoke();
+        return true;
+    }
+
     static bool TauntPreventsAttackEvasion(Player attacker, SpawnedMonster target, double now)
     {
-        if (target.TauntedUntil <= now || target.TauntingPlayerId is not uint source) return false;
-        var taunter = source == attacker.Id ? attacker : attacker.Instance.Player(source);
-        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
-            && ReferenceEquals(taunter.Area, attacker.Area)
+        return target.TauntedUntil > now && target.TauntingPlayerId is uint source
+            && TauntingPlayer(attacker, source) is { } taunter
             && PlayerStat(taunter, Stat.EnemiesTauntedByYouCannotEvadeAttacks) != 0;
+    }
+
+    static Player? TauntingPlayer(Player viewer, uint source)
+    {
+        var taunter = source == viewer.Id ? viewer : viewer.Instance.Player(source);
+        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
+            && ReferenceEquals(taunter.Area, viewer.Area) ? taunter : null;
+    }
+
+    static void ClearPlayerTauntLocked(GameArea area, uint id, SpawnedMonster target, uint source)
+    {
+        if (target.TauntBuff != 0) area.Buffs.Clear(id, FlaskGrounds.TauntedBuffRow, source);
+        target.TauntBuff = 0;
+        target.TauntingPlayerId = null;
+        target.TauntedUntil = double.NegativeInfinity;
+    }
+
+    static int StepPlayerTauntLocked(Player viewer, uint id, SpawnedMonster target, double now, int[] counts)
+    {
+        if (target.TauntingPlayerId is not uint source) return 0;
+        if (target.TauntedUntil <= now || target.Dead || target.Life == 0 || !target.Hostile
+            || TauntingPlayer(viewer, source) is not { } taunter)
+        {
+            if (target.TauntBuff != 0) counts[1]++;
+            ClearPlayerTauntLocked(viewer.Area, id, target, source);
+            return 0;
+        }
+        if (target.TauntBuff == 0 || target.TauntShownUntil != target.TauntedUntil)
+        {
+            target.TauntShownUntil = target.TauntedUntil;
+            target.TauntBuff = 1;
+            viewer.Area.Buffs.Set(id, new(FlaskGrounds.TauntedBuffRow, source, Values: TauntedBuffValues(source),
+                U68: Buff.Seconds((target.TauntedUntil - now) * target.RecipientDebuffRate)));
+            counts[0]++;
+        }
+        return taunter.EnemyDebuffs.TauntedDamageTakenPct;
     }
 
     /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do
@@ -56,8 +98,18 @@ public static partial class Game
             foreach (var target in steps.NearbyChills.Values) RemoveNearbyChill(player, target);
             steps.NearbyChills.Clear();
         }
-        foreach (var m in player.Area.Monsters.Values) m.ForgetSource(player.Id);
-        foreach (var m in player.Area.DormantMonsters.Values) m.ForgetSource(player.Id);
+        foreach (var m in player.Area.Monsters.Values) Forget(m);
+        foreach (var m in player.Area.DormantMonsters.Values) Forget(m);
+
+        void Forget(SpawnedMonster m)
+        {
+            m.ForgetSource(player.Id);
+            if (m.TauntingPlayerId == player.Id)
+            {
+                ClearPlayerTauntLocked(player.Area, m.ObjectId, m, player.Id);
+                m.PresentationChanged?.Invoke();
+            }
+        }
     }
 
     // A nearby presentation (StatPresentations) steps the player's debuffs on the monsters that changed.
@@ -139,7 +191,7 @@ public static partial class Game
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
-        int FleshRadius, int FleshPhysical, int? LightningEquals, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
+        int FleshRadius, int FleshPhysical, int? LightningEquals, int PerAilmentType, CurseAura[] Curses,
         IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
         IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int Hash);
 
@@ -229,7 +281,7 @@ public static partial class Game
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
-            player.EnemyDebuffs.TauntedDamageTakenPct, perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
+            perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
             alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, nearbyChill ? playerStats : null, hash.ToHashCode());
     }
 
@@ -319,8 +371,7 @@ public static partial class Game
             }
             return on;
         }
-        bool taunted = Timed(ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
-            FlaskGrounds.TauntedBuffRow, TauntedBuffValues(player.Id), m.RecipientDebuffRate);
+        int tauntedTaken = StepPlayerTauntLocked(player, id, m, now, counts);
         Timed(ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
@@ -403,7 +454,7 @@ public static partial class Game
             living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist + DoryaniResistOffset : 0);
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
-        m.TakenFromPlayer = ((taunted ? scope.TauntedTakenPct : 0) + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
+        m.TakenFromPlayer = (tauntedTaken + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
         KeepPerAilmentTypeTakenLocked(player, m, living ? scope.PerAilmentType : 0);
         // Its next timed change: a debuff or curse ending.
         void Next(double until) { if (until > now && until < wake) wake = until; }

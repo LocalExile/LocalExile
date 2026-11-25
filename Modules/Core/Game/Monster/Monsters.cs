@@ -1253,7 +1253,8 @@ public static partial class Game
                 if (m.Hostile && !MonsterTargetsLocked(player, id, m, (mx, my), d, now)) continue;
                 if (m.TemporarilyAllied && !TemporaryAllyDriverLocked(player, id, m, (mx, my), now)) continue;
                 var decoy = DecoyTarget(m, now);
-                if (m.Hostile && decoy is null && GolemEnemyOrderLocked(player, id, m, now, d)) continue;
+                if (m.Hostile && decoy is null && !(m.TauntedUntil > now && m.TauntingPlayerId == player.Id)
+                    && GolemEnemyOrderLocked(player, id, m, now, d)) continue;
                 // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
                 // while a swing or arrived lockstep walk-up swing still runs: the attack an order names must stay the one
                 // its hit is applied with, and switching skills must close any open melee walk-up so StepWalkUp never

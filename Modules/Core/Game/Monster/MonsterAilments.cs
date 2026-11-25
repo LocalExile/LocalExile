@@ -312,10 +312,11 @@ public static partial class Game
         double now, Random random, int sourceEffect, AttackAilmentGains attackGains = default,
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
+        bool? ownHit = null) =>
         AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
             now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
-            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect);
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect, ownHit: ownHit);
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
@@ -323,7 +324,7 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1)
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -441,6 +442,10 @@ public static partial class Game
             else ShockOnKillLocked(player, m, playerStats, now);
             return;
         }
+        if ((ownHit ?? playerHit) && m.Hostile && !m.Invulnerable
+            && RandomRolls.Chance(ActorScale.Saturate((long)Player(Stat.ChanceToTauntOnHitPct)
+                + Skill(Stat.ChanceToTauntOnHitPct)), 100, random))
+            ApplyPlayerTauntLocked(player, m, now, TauntSeconds(Attacker));
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         int ExposureChance(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name));
