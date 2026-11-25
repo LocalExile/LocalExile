@@ -579,8 +579,8 @@ public static partial class Game
         await SendPlayerStatSnapshot(player,
             () =>
             {
-                var batches = PlayerSkillsBatchesIfChanged(player, skills);
-                skillsSent = batches.Length > 0;
+                var batches = PlayerSkillsBatchesIfChanged(player, skills, out bool wholeList);
+                skillsSent = wholeList;   // 0x1b4 records replace no skill record, so no skill-bar restore is due
                 return batches;
             },
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");
