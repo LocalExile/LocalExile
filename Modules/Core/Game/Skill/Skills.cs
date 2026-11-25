@@ -1473,6 +1473,7 @@ public static partial class Game
         await SendPassives(player);
         await CheckLevelAchievements(player, level);
         await BroadcastLevelChange(player, level);
+        await GameEvents.RunPlayerLevelUp(player, level);
     }
 
     // The player's stats (0x1b3) and the skills computed with them (0x2bc Actor), after the level or the passives changed.

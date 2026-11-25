@@ -15,6 +15,9 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     const int GridDim = 256;
     const int GridShift = 8;
     readonly List<ClientPathfinder.Blocker> all = [];
+    // Hollow arena-ring blockers (e.g., radius ~87 cells): kept outside the 2D bucket grid so a large ring does not
+    // widen bucket-scan reach for every other query. Checked only when non-empty and !footprintOnly.
+    readonly List<int> rings = [];
     // Flat 2D bucket grid covering [0..2047] x [0..2047] world cells (all standard PoE areas) for O(1) array-load
     // queries without Dictionary hashing, allocated on first in-range blocker so empty sets use no LOH buffer.
     // Out-of-range coordinates (e.g., negative test coords) fall back to overflow.
@@ -36,6 +39,7 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     public void Reset(IReadOnlyList<ClientPathfinder.Blocker> blockers)
     {
         all.Clear();
+        rings.Clear();
         if (grid is not null)
         {
             var slots = CollectionsMarshal.AsSpan(occupiedSlots);
@@ -88,6 +92,11 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
 
     void Index(int index, ClientPathfinder.Blocker blocker)
     {
+        if (blocker.RingRadius is not null)
+        {
+            rings.Add(index);
+            return;
+        }
         TrackBounds(blocker);
         int bx = Floor(blocker.X), by = Floor(blocker.Y);
         if ((uint)bx < GridDim && (uint)by < GridDim)
@@ -116,6 +125,14 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
         {
             all[index] = blocker;
             activeCount++;
+            Index(index, blocker);
+            return;
+        }
+        if (previous.RingRadius is not null || blocker.RingRadius is not null)
+        {
+            if (previous.RingRadius is not null) rings.Remove(index);
+            else RemoveFromBucket(index, Floor(previous.X), Floor(previous.Y));
+            all[index] = blocker;
             Index(index, blocker);
             return;
         }
@@ -159,7 +176,8 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     {
         var previous = all[index];
         if (previous == Gone) return;
-        RemoveFromBucket(index, Floor(previous.X), Floor(previous.Y));
+        if (previous.RingRadius is not null) rings.Remove(index);
+        else RemoveFromBucket(index, Floor(previous.X), Floor(previous.Y));
         all[index] = Gone;
         activeCount--;
     }
@@ -209,13 +227,23 @@ public sealed class BlockerSet : IReadOnlyList<ClientPathfinder.Blocker>, IBlock
     bool Query(int x, int y, int threshold, int radius, int first, int second, bool footprintOnly)
     {
         if (activeCount == 0) return false;
+        var allSpan = CollectionsMarshal.AsSpan(all);
+        if (!footprintOnly && rings.Count > 0)
+        {
+            var ringSpan = CollectionsMarshal.AsSpan(rings);
+            for (int i = 0; i < ringSpan.Length; i++)
+            {
+                int index = ringSpan[i];
+                if (index == first || index == second) continue;
+                if (ClientPathfinder.BlockerBlocks(allSpan[index], x, y, threshold, radius, 0, 0, 0, 0)) return true;
+            }
+        }
         int range = reach + threshold;
         if (x + range < minX || x - range > maxX || y + range < minY || y - range > maxY) return false;
         int tx0 = Math.Max(0, (x - radius) / 23), tx1 = (x + radius) / 23 + 1;
         int ty0 = Math.Max(0, (y - radius) / 23), ty1 = (y + radius) / 23 + 1;
         int bx0 = Floor(x - range), bx1 = Floor(x + range);
         int by0 = Floor(y - range), by1 = Floor(y + range);
-        var allSpan = CollectionsMarshal.AsSpan(all);
         var g = grid;
         if (g is not null && (uint)bx0 < GridDim && (uint)bx1 < GridDim && (uint)by0 < GridDim && (uint)by1 < GridDim)
         {
