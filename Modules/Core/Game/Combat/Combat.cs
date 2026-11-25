@@ -1480,8 +1480,10 @@ public static partial class Game
                     if (placedAdmission is null && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
                         && !SkillsFor(player).IsChannelled(gem.Effect) && !shieldCharge)
                     {
-                        if (reservedNextAttackAt is double previous && SkillsFor(player).EffectId(gem.Effect) == "DoubleStrikeAltY")
-                            doubleStrikePairs = BeginDoubleStrikeUse(player, skillId, paymentGem, swingAt ?? AreaTime(player), previous);
+                        double? pairBase = reservedNextAttackAt ?? cooldownUse?.Attack?.At;
+                        if (pairBase is double previous && SkillsFor(player).EffectId(gem.Effect) == "DoubleStrikeAltY")
+                            doubleStrikePairs = BeginDoubleStrikeUse(player, skillId, paymentGem, sequence,
+                                cooldownUse?.Attack?.At ?? swingAt ?? AreaTime(player), previous);
                         if (doubleStrikePairs is null)
                             ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
                     }

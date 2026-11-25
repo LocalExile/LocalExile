@@ -203,10 +203,12 @@ public static partial class Game
     static double StartingAttackSeconds(Player player, ushort skillId, ushort sequence) =>
         AttackSecondsForHand(player, skillId, AttackHandFor(player, skillId, sequence), startingPair: true);
 
-    static double AttackSecondsForHand(Player player, ushort skillId, AttackHand hand, bool startingPair)
+    static double AttackSecondsForHand(Player player, ushort skillId, AttackHand hand, bool startingPair,
+        int? doubleStrikeStages = null)
     {
         double Seconds(SkillCatalog.Unarmed? weapon) =>
-            SupportedAttackTiming(player, skillId, weapon, clampToTick: true, proxy: false, startingPair: startingPair).Seconds;
+            SupportedAttackTiming(player, skillId, weapon, clampToTick: true, proxy: false,
+                doubleStrikeStages: doubleStrikeStages, startingPair: startingPair).Seconds;
         if (hand == AttackHand.Main || OffhandWeaponFor(player) is not { } off) return Seconds(null);
         double offSeconds = Seconds(off);
         if (hand == AttackHand.Off) return offSeconds;

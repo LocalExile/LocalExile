@@ -63,7 +63,7 @@ public static partial class Game
     }
 
     static DoubleStrikePairs? BeginDoubleStrikeUse(Player player, ushort skillId, SupportedGem gem,
-        double swingAt, double previousDeadline)
+        ushort sequence, double swingAt, double previousDeadline)
     {
         int maximum = gem.Stats.GetValueOrDefault(Stat.DoubleStrikeMaxStages);
         if (maximum <= 0 || gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) == 0)
@@ -71,12 +71,13 @@ public static partial class Game
         maximum = Math.Min(ushort.MaxValue, maximum);
         double now = AreaTime(player);
         int stages = DoubleStrikeStageCount(player, now);
+        var hand = AttackHandFor(player, skillId, sequence);
         var durations = new double[1 + MeleeAttackRepeats(player, skillId)];
         for (int pair = 0; pair < durations.Length; pair++)
         {
             int paidStages = Math.Min(maximum, stages + pair + 1);
             durations[pair] = pair > 0 && paidStages == Math.Min(maximum, stages + pair) ? durations[pair - 1]
-                : SupportedAttackTiming(player, skillId, null, clampToTick: true, proxy: false, doubleStrikeStages: paidStages).Seconds;
+                : AttackSecondsForHand(player, skillId, hand, startingPair: false, doubleStrikeStages: paidStages);
         }
         BeginDoubleStrikePair(player, maximum, now);
         ReserveVariableMeleeRepeats(player, Math.Max(swingAt, previousDeadline), durations);
