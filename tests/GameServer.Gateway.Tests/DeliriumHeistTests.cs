@@ -67,6 +67,16 @@ public class DeliriumHeistTests
         Assert.Equal(entry.Message, Assert.Single(reloaded.BeforeEnterMessages(peer)).Message);
         Assert.Equal(birth.Id, reloaded.EntryObject(peer)!.Value.Id);
 
+        var saved = System.Text.Json.Nodes.JsonNode.Parse(player.Instance.ContentState["Delirium.Mirror"])!;
+        saved["Stage"] = (int)DeliriumMirrorEncounter.MirrorStage.Active;
+        saved["OuterElapsed"] = 27f;
+        saved["InnerElapsed"] = 2f;
+        saved["InnerWaveSent"] = true; // Maps saved by the previous implementation.
+        player.Instance.ContentState["Delirium.Mirror"] = saved.ToJsonString();
+        var resumed = Assert.Single(new DeliriumMirrorEncounter().BeforeEnterMessages(peer)).Message;
+        Assert.Equal(27f, BinaryPrimitives.ReadSingleLittleEndian(resumed.AsSpan(7)));
+        Assert.Equal(float.PositiveInfinity, BinaryPrimitives.ReadSingleLittleEndian(resumed.AsSpan(15)));
+
         var region = new AfflictionRuleset.FogRegion(0, 0, 200, 200, 50, 60, 0f);
         var tile = new AfflictionRuleset.RewardTile(Type: 0, Current: 12, Max: 18, Count: 2);
         byte[] snap = AfflictionRuleset.EncounterSnapshot(
@@ -104,12 +114,22 @@ public class DeliriumHeistTests
             MirrorX = 50,
             MirrorY = 60,
             OuterElapsed = 5f,
-            InnerElapsed = 0f,
+            Wave = MirrorFogWave.For(68, new Dictionary<uint, int>()),
             DepthPercent = 40,
             Rewards = [0],
         };
         Assert.True(state.IsCellInFog(70, 60));
-        Assert.False(state.IsCellInFog(400, 400));
+        Assert.False(state.IsCellInFog(800, 800));
+        Assert.Equal(679f, state.Wave.OuterRadius(7), 3);
+        Assert.Equal(1559f, state.Wave.OuterRadius(27), 3);
+        Assert.Equal(16.31f, state.Wave.InnerRadius(27), 3);
+        state.OuterElapsed = 27;
+        Assert.True(state.IsCellInFog(400, 400));
+        Assert.False(state.IsCellInFog(55, 60));
+        var delayed = MirrorFogWave.For(68, new Dictionary<uint, int>
+            { [Stat.MapAfflictionSecondaryWaveDelayMsPlus] = 2000, [Stat.MapAfflictionSecondaryWaveAccelerationPlusPct] = 100 });
+        Assert.Equal(14.5f, delayed.InnerRadius(27), 3);
+        Assert.Equal(0f, MirrorFogWave.For(68, new Dictionary<uint, int> { [Stat.MapDeliriumFogNeverDissipates] = 1 }).InnerRadius(120));
         for (int i = 0; i < 20; i++) state.RecordKill(MonsterRarity.Rare, progressBonusPct: 0);
         Assert.True(state.RewardCounts[0] >= 3);
         Assert.True(state.Rewards.Length >= 2);

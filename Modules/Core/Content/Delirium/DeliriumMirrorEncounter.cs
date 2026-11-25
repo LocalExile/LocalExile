@@ -18,10 +18,6 @@ public sealed class DeliriumMirrorEncounter
     const string StateKey = "Delirium.Mirror";
     const int ActivationRadius = 12;
     const float WaveStart = -1.8f;
-    const float OuterInitialRadius = 48f;
-    const float OuterSpeedCellsPerSec = 14f;
-    const float InnerDelaySeconds = 25f;
-    const float InnerSpeedCellsPerSec = 10f;
     const float OutOfFogGraceSeconds = 5f;
     const int MaxActiveMonsters = 28;
     const int MaxSpawnTotal = 160;
@@ -50,8 +46,6 @@ public sealed class DeliriumMirrorEncounter
         public int MirrorY { get; set; }
         public byte Level { get; set; }
         public float OuterElapsed { get; set; }
-        public float InnerElapsed { get; set; }
-        public bool InnerWaveSent { get; set; }
         public float OutOfFogSeconds { get; set; }
         public int LastTimerSeconds { get; set; }
         public bool FogPaused { get; set; }
@@ -81,15 +75,15 @@ public sealed class DeliriumMirrorEncounter
 
         [System.Text.Json.Serialization.JsonIgnore] public AfflictionRuleset.FogRegion[]? Regions { get; set; }
 
-        public float OuterRadius => OuterInitialRadius + OuterElapsed * OuterSpeedCellsPerSec;
-        public float InnerRadius => InnerElapsed <= 0f ? 0f : InnerElapsed * InnerSpeedCellsPerSec;
+        [System.Text.Json.Serialization.JsonIgnore] public MirrorFogWave Wave { get; set; }
 
         public bool IsCellInFog(int x, int y)
         {
             if (Stage != MirrorStage.Active) return false;
             float dx = x - MirrorX, dy = y - MirrorY;
             float dist = MathF.Sqrt(dx * dx + dy * dy);
-            return dist <= OuterRadius && dist >= InnerRadius;
+            float outer = Wave.OuterRadius(OuterElapsed), inner = Wave.InnerRadius(OuterElapsed);
+            return outer > inner && dist <= outer && dist >= inner;
         }
 
         public int DepthAt(int x, int y)
@@ -195,9 +189,14 @@ public sealed class DeliriumMirrorEncounter
         && AfflictionRuleset.TerrainPlugin is { } plugin && player.Instance?.HasTerrainPlugin(plugin) == true;
 
     public MirrorState For(Player player) => _states.GetValue(player.Instance, instance =>
-        instance.ContentState.TryGetValue(StateKey, out var text)
-            ? JsonSerializer.Deserialize<MirrorState>(text, _json) ?? new()
-            : new());
+    {
+        var state = instance.ContentState.TryGetValue(StateKey, out var text)
+            ? JsonSerializer.Deserialize<MirrorState>(text, _json) ?? new() : new MirrorState();
+        if (state.Level == 0)
+            state.Level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+        state.Wave = MirrorFogWave.For(state.Level, instance.AreaStats(() => AreaLeagueStats(player)));
+        return state;
+    });
 
     public MirrorState? Existing(Player player)
     {
@@ -241,7 +240,6 @@ public sealed class DeliriumMirrorEncounter
                     if (!rewards.Contains(reward)) rewards.Add(reward);
                 }
                 state.Stage = MirrorStage.Ready;
-                state.Level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
                 state.OuterElapsed = WaveStart;
                 state.MirrorX = spot.X;
                 state.MirrorY = spot.Y;
@@ -351,11 +349,11 @@ public sealed class DeliriumMirrorEncounter
     {
         bool started = state.Stage is MirrorStage.Active or MirrorStage.Ended;
         bool ended = state.Stage == MirrorStage.Ended;
-        float innerDelay = state.InnerWaveSent ? state.OuterElapsed - state.InnerElapsed : float.PositiveInfinity;
-        float pauseTimer = state.OutOfFogSeconds > 0f ? MathF.Max(0f, OutOfFogGraceSeconds - state.OutOfFogSeconds) : 0f;
+        // A finite time accelerates the trailing edge to close the encounter. The client draws both normal edges on its own.
+        float dissipationTime = ended ? state.OuterElapsed : float.PositiveInfinity;
         var regions = state.Regions ??= MirrorFogRegions.Build(player.Layout, state.MirrorX, state.MirrorY);
         return AfflictionRuleset.EncounterSnapshot(started, ended, state.OuterElapsed, state.OuterElapsed,
-            innerDelay, pauseTimer, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
+            dissipationTime, 0f, state.FogPaused, state.MirrorX, state.MirrorY, state.EntityId,
             regions, BuildTilesLocked(state));
     }
 
@@ -393,8 +391,6 @@ public sealed class DeliriumMirrorEncounter
                 if (state.Stage != MirrorStage.Ready || !Current(player)) return;
                 state.Stage = MirrorStage.Active;
                 state.OuterElapsed = WaveStart;
-                state.InnerElapsed = 0f;
-                state.InnerWaveSent = false;
                 state.OutOfFogSeconds = 0f;
                 state.LastTimerSeconds = 0;
                 state.DepthPercent = 10;
@@ -465,7 +461,6 @@ public sealed class DeliriumMirrorEncounter
 
         bool shouldEnd = false;
         bool shouldSpawn = false;
-        byte[]? innerWaveSnapshot = null;
         byte[]? tilesPacket = null;
         int? timerChange = null;
         double nowTime = AreaTime(player);
@@ -479,20 +474,8 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Active) return;
                 state.LastTickAt = nowTime;
-                bool innerStarted = false;
                 if (!state.FogPaused)
-                {
                     state.OuterElapsed += step;
-                    if (state.OuterElapsed >= InnerDelaySeconds)
-                    {
-                        state.InnerElapsed += step;
-                        if (!state.InnerWaveSent)
-                        {
-                            state.InnerWaveSent = true;
-                            innerStarted = true;
-                        }
-                    }
-                }
 
                 // Reap dead Delirium monsters from our active tracking set.
                 foreach (uint id in state.Monsters.ToArray())
@@ -524,7 +507,7 @@ public sealed class DeliriumMirrorEncounter
                         shouldSpawn = true;
                     }
                 }
-                else
+                else if (state.OuterElapsed > 0)
                 {
                     state.OutOfFogSeconds += step;
                     int remaining = Math.Max(0, (int)Math.Ceiling(OutOfFogGraceSeconds - state.OutOfFogSeconds));
@@ -537,12 +520,7 @@ public sealed class DeliriumMirrorEncounter
                         shouldEnd = true;
                 }
 
-                bool needSave = false;
-                if (innerStarted && !shouldEnd)
-                {
-                    innerWaveSnapshot = BuildSnapshotLocked(player, state);
-                    needSave = true;
-                }
+                bool needSave = timerChange.HasValue;
                 if (state.TilesDirty)
                 {
                     state.TilesDirty = false;
@@ -564,9 +542,6 @@ public sealed class DeliriumMirrorEncounter
             await EndEncounter(player, state, byPlayer: false);
             return;
         }
-        if (innerWaveSnapshot is not null)
-            foreach (var peer in Clients(player))
-                await PlayerOf(peer).Send(innerWaveSnapshot, "0x02c9 ruleset AfflictionEncounterRules mode 0 (inner fog wave started)");
         if (timerChange is int sec)
         {
             var pkt = sec > 0

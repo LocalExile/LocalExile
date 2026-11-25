@@ -748,6 +748,13 @@ inner delay, the Mirror's entity ID, and one rectangle per fog region. The Mirro
 before world entry. Crossing the Mirror set the first flag, followed by its interacted state update.
 The finished snapshot kept that flag set, set the second flag, and cleared the reward tiles.
 
+The client animates both normal fog edges from `AfflictionBalancePerLevel`. On a level-68 map the leading
+edge slows from 150 to 44 cells per second during its first seven seconds. The trailing edge starts after
+20 seconds at one cell per second and accelerates at 0.38 cells per second squared before area modifiers.
+The third float remains positive infinity while both edges travel. A finite value tells the renderer to
+accelerate dissipation by a factor of 2,000 after that time (`0x141fbab50`). Sending 25 at 25 seconds
+made both rendered radii coincide two seconds later on Beach, while the server still considered the encounter active.
+
 Immediately before the activation and completion snapshots, retail sent the environment update for
 `LeagueAfflictionEncounter` (`Metadata/EnvironmentSettings/LeagueAfflictionEncounter.env`). Retail 3.30 uses
 S→C `0xe5` and environment row 1198. In 3.29.3c/d the same environment is row 1193 and the update is
