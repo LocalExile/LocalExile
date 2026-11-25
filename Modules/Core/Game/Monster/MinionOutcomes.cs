@@ -356,7 +356,7 @@ public static partial class Game
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);
-            }, _ => "0x00bf flask charges (accepted minion kill)", retainOutput: true);
+            }, _ => "0x00c6 flask charges (accepted minion kill)", retainOutput: true);
             if (!Current() || state.FlaskRewards.Count > 0 && ReferenceEquals(state.FlaskRewards[0], reward)) return;
         }
         long revision, account;

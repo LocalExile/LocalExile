@@ -369,11 +369,12 @@ public sealed partial class DelveModule : IModule
         await player.Send(DelveData(world), "Delve equipment state");
         if (changed)
         {
+            var equipment = Equipment(world.AccountData);
+            await player.Send(InstanceDelve.AzuriteChanged(equipment.Azurite), $"0x0227 Delve azurite: {equipment.Azurite}");
             await world.RefreshStats();
             if (id == InstanceDelve.PurchaseId)
             {
                 var p = PlayerOf(player);
-                var equipment = Equipment(world.AccountData);
                 List<int> crafted = [];
                 if (equipment.Dynamite >= 1 && !p.Character.LeagueQuestFlags.Contains(Quests.League.DelveCraftedDynamite))
                     crafted.Add(Quests.League.DelveCraftedDynamite);

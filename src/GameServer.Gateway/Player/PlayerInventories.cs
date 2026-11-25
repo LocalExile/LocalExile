@@ -13,7 +13,9 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        HeistNpcEquipmentFirst = 45, HeistNpcEquipmentCount = 9,
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, DeepwaterCollection = 114,
+        Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -146,6 +148,24 @@ public sealed partial class PlayerInventories
         }
         Persist();
         return item;
+    }
+
+    /// <summary>Sets or clears an item's price note (e.g. C→S 0x1a1 with Flag=1 pricing a held cursor item before
+    /// placement into an async-trade tab). Returns the updated item or null if not found.</summary>
+    public InventoryItem? SetItemNote(byte row, uint itemId, string? note)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        InventoryItem updated;
+        lock (_lock)
+        {
+            if (!_items.TryGetValue(row, out var list)) return null;
+            int at = list.FindIndex(i => i.Id == itemId);
+            if (at < 0) return null;
+            updated = list[at] = list[at] with { Item = list[at].Item with { Note = normalized } };
+        }
+        Persist();
+        return updated;
     }
 
     /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),

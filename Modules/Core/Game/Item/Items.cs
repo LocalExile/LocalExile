@@ -932,7 +932,7 @@ public static partial class Game
             : ChangeFlaskBar(player, items => Flasks.Fill(items, ItemsFor(player), charges, saveNow: false,
                     canGain: flask => CanGainFlaskCharges(player, flask)) is { Count: > 0 } changed
                     ? ([.. changed.Select(c => c.Id)], changed) : null,
-                changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+                changed => $"0x00c6 flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
 
     // A new character's class weapon lies on the ground a few cells from where it appears, as on the real game's Twilight
     // Strand, until it is picked up (PlayerInventories.StartWeapon): put once into each instance it enters outside towns.
@@ -1526,7 +1526,17 @@ public static partial class Game
     }
 
     // C→S 0x57 / 0x58: use an item that needs no target (a right-click), such as Stacked Deck or an Orb of Regret.
+    // C→S 0x57 (sendResult: true) receives a companion S→C 0x0174 ItemUseResult reply.
     public static async Task UseItem(Player player,
+        InstanceItems.UseItemRequest use, string hex, bool sendResult = false)
+    {
+        bool ok = await UseItemCore(player, use, hex);
+        if (sendResult && !player.Closed && !player.LeavingArea)
+            await Send(player, InstanceItems.ItemUseResult(use.InventoryId, use.ItemId, ok ? (byte)1 : (byte)0),
+                $"0x0174 item use result inv=0x{use.InventoryId:x} item=0x{use.ItemId:x} ok={(ok ? 1 : 0)}");
+    }
+
+    static async Task<bool> UseItemCore(Player player,
         InstanceItems.UseItemRequest use, string hex)
     {
         const string Regret = "Metadata/Items/Currency/CurrencyPassiveRefund";
@@ -1537,20 +1547,17 @@ public static partial class Game
                 || ItemsFor(player).ByHash(stashItem.Item.TypeHash) is not { } stashType)
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: no such item in stash tab {stashTab}: {hex}");
-                return;
+                return false;
             }
             if (stash.IsPublic(stashTab))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: refused, item is in public stash tab {stashTab}");
-                return;
+                return false;
             }
             if (stashType.Id == StackedDeck)
-            {
-                await UseStackedDeckFromStash(player, items, stash, stashTab, stashItem, stashType);
-                return;
-            }
+                return await UseStackedDeckFromStash(player, items, stash, stashTab, stashItem, stashType);
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= use item {use}: {stashType.Name} from stash tab {stashTab} is not handled: {hex}");
-            return;
+            return false;
         }
         byte? row = null;
         foreach (uint inventory in new[] { use.InventoryId, use.InventoryId + 1 })
@@ -1562,45 +1569,30 @@ public static partial class Game
         if (row is not byte r || items.Items(r).FirstOrDefault(i => i.Id == use.ItemId) is not { } item)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: no such item: {hex}");
-            return;
+            return false;
         }
         if (ItemsFor(player).ByHash(item.Item.TypeHash) is not { } type)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: unknown type 0x{item.Item.TypeHash:x8}: {hex}");
-            return;
+            return false;
         }
-        if (await GameEvents.AnyItemUse(player, r, item, type)) return;
-        if (await TryUseItemisedCorpse(player, items, r, item, type)) return;
+        if (await GameEvents.AnyItemUse(player, r, item, type)) return true;
+        if (await TryUseItemisedCorpse(player, items, r, item, type)) return true;
         if (BanditChoices.IsBookOfReform(type.Id))
-        {
-            await BanditChoices.UseBookOfReform(player, items, r, item, type);
-            return;
-        }
+            return await BanditChoices.UseBookOfReform(player, items, r, item, type);
         // A quest item with a use_flag (the quest books, Book of Regrets included): its flag, and QuestStaticRewards' points.
         if (type.Quest?.Use is not null)
-        {
-            await UseQuestItem(player, items, r, item, type);
-            return;
-        }
+            return await UseQuestItem(player, items, r, item, type);
         if (type.Name == SkillBook)
-        {
-            await UseSkillBook(player, items, r, item, type);
-            return;
-        }
+            return await UseSkillBook(player, items, r, item, type);
         if (type.Id == CurrencyEffects.OrbOfUnmaking)
-        {
-            await UseOrbOfUnmaking(player, items, r, item, type);
-            return;
-        }
+            return await UseOrbOfUnmaking(player, items, r, item, type);
         if (type.Id == StackedDeck)
-        {
-            await UseStackedDeck(player, items, r, item, type);
-            return;
-        }
+            return await UseStackedDeck(player, items, r, item, type);
         if (type.Id != Regret && type.Name != RegretBook)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use item {use}: {type.Name} is not handled: {hex}");
-            return;
+            return false;
         }
         // Read the current balance inside the same transaction as consumption. An older area must not restore
         // refund points another connection has already spent.
@@ -1615,7 +1607,7 @@ public static partial class Game
         if (result.Taken is not { } taken)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: refund cap reached or item {use.ItemId} disappeared: {hex}");
-            return;
+            return false;
         }
         ushort refunds = result.Points;
         player.Character.RefundPoints = refunds;
@@ -1629,11 +1621,12 @@ public static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used" + (taken.Left is { } now ? $", {now.Item.StackSize} left" : ", stack empty"));
         await SendPassives(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({use.ItemId}): {refunds} refund point(s)");
+        return true;
     }
 
     // Orb of Unmaking (C→S 0x58, right-click; CurrencyItems Action atlas_skill_point_respec, "Grants an atlas passive
     // skill refund point"): one Atlas passive respec point, which a refund (C→S 0x3f) spends; the orb is consumed.
-    public static async Task UseOrbOfUnmaking(Player player,
+    public static async Task<bool> UseOrbOfUnmaking(Player player,
         PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         PlayerInventories.Consumption? taken;
@@ -1642,9 +1635,9 @@ public static partial class Game
         if (respec == ushort.MaxValue)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: Atlas respec points are already at the maximum");
-            return;
+            return false;
         }
-        if (items.ConsumeOne(row, item.Id) is not { } consumed) return;
+        if (items.ConsumeOne(row, item.Id) is not { } consumed) return false;
         taken = consumed;
         SetAtlasRespecPoints(player, ++respec);
         uint inventoryId = PlayerInventories.InventoryId(row);
@@ -1654,6 +1647,7 @@ public static partial class Game
             $"0x00bf inventory {inventoryId}: {type.Name} used");
         await SendAtlasSlots(player, "Orb of Unmaking");
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): {respec} Atlas respec point(s)");
+        return true;
     }
 
     public const string StackedDeck = "Metadata/Items/DivinationCards/DivinationCardDeck";
@@ -1666,10 +1660,10 @@ public static partial class Game
         return fallback is null ? null : ItemCatalog.Create(fallback) with { StackSize = 1 };
     }
 
-    static async Task UseStackedDeckFromStash(Player player,
+    static async Task<bool> UseStackedDeckFromStash(Player player,
         PlayerInventories items, AccountStash stash, int tab, InventoryItem item, ItemCatalog.BaseType type)
     {
-        if (DrawStackedCard(player) is not { } card) return;
+        if (DrawStackedCard(player) is not { } card) return false;
         var drawn = Saves.Atomically<
             (InventoryItem? Left, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
             (() =>
@@ -1699,7 +1693,7 @@ public static partial class Game
         if (drawn is not { } result)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} from stash tab {tab}: no room for drawn card or item {item.Id} disappeared");
-            return;
+            return false;
         }
         await SendTabChange(player, stash, tab, [result.Left?.Id ?? item.Id],
             result.Left is { } remaining ? [remaining] : [],
@@ -1710,14 +1704,15 @@ public static partial class Game
             $"0x00bf inventory {destInvId}: {type.Name} drew divination card");
         string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= use {type.Name} ({item.Id}) from stash tab {tab}: drew {cardName} -> row {result.DestRow}");
+        return true;
     }
 
     // Stacked Deck (C->S 0x57 / 0x58, right-click; Metadata/Items/DivinationCards/DivinationCardDeck): consumes one Stacked Deck
     // and draws a random weighted Divination Card onto the cursor (if empty) or into the main inventory.
-    public static async Task UseStackedDeck(Player player,
+    public static async Task<bool> UseStackedDeck(Player player,
         PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
-        if (DrawStackedCard(player) is not { } card) return;
+        if (DrawStackedCard(player) is not { } card) return false;
         var drawn = Saves.Atomically<
             (PlayerInventories.Consumption Taken, byte DestRow, IReadOnlyList<uint> Removed, IReadOnlyList<InventoryItem> Added)?>
             (() =>
@@ -1736,7 +1731,7 @@ public static partial class Game
         if (drawn is not { } result)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: no room for drawn card or item {item.Id} disappeared");
-            return;
+            return false;
         }
         uint sourceInvId = PlayerInventories.InventoryId(row);
         if (result.DestRow == row)
@@ -1763,28 +1758,30 @@ public static partial class Game
         }
         string cardName = ItemsFor(player).ByHash(card.TypeHash)?.Name ?? $"0x{card.TypeHash:x8}";
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}): drew {cardName} -> row {result.DestRow}");
+        return true;
     }
 
     // A Book of Skill used (C→S 0x58, right-click; any of the quest books named so, Metadata/Items/QuestItems/SkillBooks/…):
     // the book is used up and the character gets one more passive skill point, as /add_passive_points 1 (S→C 0x33).
-    public static async Task UseSkillBook(Player player, PlayerInventories items,
+    public static async Task<bool> UseSkillBook(Player player, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         ushort extra;
         if (player.Character.ExtraPassivePoints == ushort.MaxValue)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name}: extra passive points are already at the maximum");
-            return;
+            return false;
         }
         extra = (ushort)(player.Character.ExtraPassivePoints + 1);
         // The book and the point are saved together.
-        if (ItemMoves.UseForPassivePoint(items, CharacterName(player), row, item.Id, extra) is not { } taken) return;
+        if (ItemMoves.UseForPassivePoint(items, CharacterName(player), row, item.Id, extra) is not { } taken) return false;
         player.Character.ExtraPassivePoints = extra;
         uint inventoryId = PlayerInventories.InventoryId(row);
         await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
             $"0x00bf inventory {inventoryId}: {type.Name} used");
         await SendPassives(player);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0058 use {type.Name} ({item.Id}, {type.Id}): +1 passive point, {extra} extra in all");
+        return true;
     }
 
     /// <summary>The result of applying a currency to an item, or null when the currency refuses the target. The random is

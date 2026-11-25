@@ -44,17 +44,34 @@ public static partial class Game
             string message;
             if (!CurrentGameWork || HardcoreProgressBlocked(player)) return;
             var items = ItemsOf(player);
-            var before = items.Items(PlayerInventories.Flask).ToDictionary(i => i.Id, i => i.Item.Charges);
+            var before = items.Items(PlayerInventories.Flask).ToDictionary(i => i.Id);
             int outputAt = Automation(player).Packets.Count;
             if (change(items) is not { } done || done.Changed.Count == 0) return;
             foreach (var changed in done.Changed)
-                if (before.TryGetValue(changed.Id, out int held) && changed.Item.Charges > held
+                if (before.TryGetValue(changed.Id, out var prevItem) && changed.Item.Charges > prevItem.Item.Charges
                     && ItemsFor(player).ByHash(changed.Item.TypeHash) is { } flaskType
                     && ItemsFor(player).FlaskChargesOf(flaskType) is { } baseCharges
                     && changed.Item.Charges >= FlaskCharges.Of(baseCharges, ItemModStats.Local(changed.Item, ItemsFor(player).Mods)).MaxCharges)
                     QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Full, changed.Id, changed.X);
-            packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-                items.NextRevision(PlayerInventories.Flask), done.Removed, done.Changed);
+            bool chargesOnly = done.Removed.Length == done.Changed.Count
+                && done.Changed.All(c => Array.IndexOf(done.Removed, c.Id) >= 0
+                    && before.TryGetValue(c.Id, out var prev)
+                    && c.X == prev.X && c.Y == prev.Y
+                    && c.Item.Components.Contains("Charges")
+                    && c.Item.Charges != prev.Item.Charges
+                    && (c.Item with { Charges = prev.Item.Charges }) == prev.Item);
+            if (chargesOnly)
+            {
+                var chargeBytes = new List<byte>(done.Changed.Count * 10);
+                foreach (var changed in done.Changed)
+                    chargeBytes.AddRange(InstanceItems.FlaskCharges(changed.Id, (uint)Math.Max(0, changed.Item.Charges)));
+                packet = [.. chargeBytes];
+            }
+            else
+            {
+                packet = InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
+                    items.NextRevision(PlayerInventories.Flask), done.Removed, done.Changed);
+            }
             message = log(done.Changed);
             if (retainOutput) Automation(player).Packets.Insert(outputAt, new(packet, message));
             else if (player.ProjectileRuntime is { Active: true } session)
@@ -97,7 +114,7 @@ public static partial class Game
                 accepted(done);
             }
             return ([done.Id], [done]);
-        }, changed => $"0x00bf flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
+        }, changed => $"0x00c6 flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
         if (spent is not null && accepted is null) await EndGracePeriod(player, action: true);
         return spent;
     }
@@ -137,7 +154,7 @@ public static partial class Game
                 }
             }
             return ([.. changed.Select(c => c.Id)], changed);
-        }, changed => $"0x00bf flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
+        }, changed => $"0x00c6 flasks: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))} charges ({why})");
     }
 
     public static bool CanGainFlaskCharges(Player player, InventoryItem flask) =>

@@ -377,7 +377,7 @@ public class InstanceEntitiesTests
         Assert.False(MonsterObject.CanSerialize([.. MonsterObject.BaseComponents, "StateMachine"]));
         Assert.False(MonsterObject.CanSerialize(["Positioned", "Animated"]));
         Assert.False(MonsterObject.CanSerialize([]));
-        Assert.Throws<ArgumentException>(() => new MonsterObject(0, 0, 1, [.. MonsterObject.BaseComponents, "BlightTower"]).Blob());
+        Assert.Throws<ArgumentException>(() => new MonsterObject(0, 0, 1, [.. MonsterObject.BaseComponents, "UnknownComponent"]).Blob());
     }
 
     [Fact]
@@ -780,6 +780,88 @@ public class InstanceEntitiesTests
         Assert.Contains("0000" + "01" + "8142" + "8960" + "00000000" + "00000000" + "00", hex);   // Stats after Positioned
         Assert.EndsWith("4000" + "01" + "0201" + "00" + "2A110000" + "00" + "E0100000" + "00" + "00" +
             "00000000" + "00000000" + "00000000" + "00" + "02" + "8142" + "8960" + "C04F32" + "01" + "00" + "00000000" + "00", hex);
+    }
+
+    [Fact]
+    public void Dead_player_and_monster_blobs_emit_two_dead_pose_bytes_after_stance()
+    {
+        byte[] alivePlayer = new PlayerObject("Exile", 3, 10, 20, Life: 50, Mana: 40).Blob();
+        byte[] deadPlayer = new PlayerObject("Exile", 3, 10, 20, Life: 0, Mana: 40).Blob();
+        Assert.Equal(alivePlayer.Length + 2, deadPlayer.Length);
+        // Trailing bytes of Actor (no skills) + tasks: u32 + u32 + u8 + u8 + u8 = 11 bytes after dead pose.
+        Assert.Equal(PlayerObject.DeadPoseAnimation, deadPlayer[^13]);
+        Assert.Equal(0, deadPlayer[^12]);
+        Assert.Equal(alivePlayer[^11..], deadPlayer[^11..]);
+
+        byte[] aliveMonster = new MonsterObject(10, 20, Life: 15, MonsterObject.BaseComponents) { ActorStance = 2 }.Blob();
+        byte[] deadMonster = new MonsterObject(10, 20, Life: 0, MonsterObject.BaseComponents) { ActorStance = 2, DeadPoseClip = 1 }.Blob();
+        Assert.Equal(aliveMonster.Length + 2, deadMonster.Length);
+        Assert.Equal(2, deadMonster[^14]);
+        Assert.Equal(PlayerObject.DeadPoseAnimation, deadMonster[^13]);
+        Assert.Equal(1, deadMonster[^12]);
+        Assert.Equal(aliveMonster[^11..], deadMonster[^11..]);
+    }
+
+    [Fact]
+    public void Component_updates_encode_shrine_ground_effect_and_beam_layouts()
+    {
+        // Shrine 0x2bc (component 7): key (row | 0x80), state 0, extra 0, u32 LE taker id.
+        byte[] shrine = InstanceEntities.ShrineUpdate(0x2000, 11, 0x1000, claimed: true);
+        Assert.Equal("02BC" + "00002000" + "00000000" + "0000" + "0008" + "07" + "8B" + "00" + "00" + "00100000",
+            Convert.ToHexString(shrine));
+
+        // GroundEffect 0x2bc (component 2): u8 state, f32 LE remaining seconds.
+        byte[] ground = InstanceEntities.GroundEffectUpdate(0x3000, 1, 2.5f);
+        Assert.Equal("02BC" + "00003000" + "00000000" + "0000" + "0006" + "02" + "01" + "00002040",
+            Convert.ToHexString(ground));
+
+        // Beam 0x2bc (component 4): matches the Beam section of BeamEffectObject.Blob().
+        var beamObj = new BeamEffectObject(1421, 612, 0x452, 14099.1f, 5936.7f, 0x4B9);
+        byte[] beam = InstanceEntities.BeamUpdate(0x4000, beamObj);
+        byte[] beamBody = beamObj.Blob()[19..^1];
+        Assert.Equal("02BC" + "00004000" + "00000000" + "0000" + (1 + beamBody.Length).ToString("X4") + "04" + Convert.ToHexString(beamBody),
+            Convert.ToHexString(beam));
+    }
+
+    [Fact]
+    public void Action_update_0x2c8_encodes_action_header_and_flame_dash_tail()
+    {
+        byte[] tail = new BlobWriter().I32(10).I32(20).I32(30).I32(40).F32(4.0f).ToArray();
+        byte[] packet = InstanceProtocol.ActionUpdate(0x1000, 0x5CCD, 0x0104, 0x0007, tail);
+        Assert.Equal(
+            "02C8" + "00001000" + "00000000" + "0000" + "5CCD" + "0104" + "0007" + "00" + "0014"
+            + "0A000000" + "14000000" + "1E000000" + "28000000" + "00008040",
+            Convert.ToHexString(packet));
+    }
+
+    [Fact]
+    public void Combat_and_action_delta_encoders_match_3293c_wire_layouts()
+    {
+        Assert.Equal("00C6010203040000002D", Convert.ToHexString(InstanceItems.FlaskCharges(0x01020304, 45)));
+        Assert.Equal("0174000000010000004201", Convert.ToHexString(InstanceItems.ItemUseResult(1, 0x42, 1)));
+        Assert.Equal("00BB03", Convert.ToHexString(InstanceProtocol.FreezeActions(frozen: true, notify: true)));
+        Assert.Equal("00BC00", Convert.ToHexString(InstanceProtocol.ActionLockout(active: false)));
+        Assert.Equal("00BC0105", Convert.ToHexString(InstanceProtocol.ActionLockout(active: true, durationSeconds: 5)));
+        Assert.Equal("01C91122334401230007", Convert.ToHexString(InstanceProtocol.PlaySoundEffect(0x11223344, 0x0123, 7)));
+
+        // 0x01ca MiscObjectSpawn: entity-attached + offset vs world coords + delay + rotation.
+        Assert.Equal("01CA0455AA0000004D000AFFFB",
+            Convert.ToHexString(InstanceEntities.MiscObjectSpawn(0x55AA, entityId: 77, offset: (10, -5))));
+        Assert.Equal("01CA63123400000064000000C8000001F43FC00000",
+            Convert.ToHexString(InstanceEntities.MiscObjectSpawn(0x1234, miscAnimated: true, coords: (100, 200), delayMs: 500, rotation: 1.5f)));
+
+        // 0x02d9 EntityVariantDelta: all 3 tagged LE variant arms plus position-only and bare entries.
+        byte[] delta = InstanceEntities.EntityVariantDelta(1, [
+            new(0x1000, 2, (10, 20), EntityVariantValue.Tag0(0x1234)),
+            new(0x2000, 0, Variant: EntityVariantValue.Tag1(0x11223344)),
+            new(0x3000, 0, Variant: EntityVariantValue.Tag2(0x5678)),
+        ]);
+        Assert.Equal(
+            "02D9" + "01" + "03"
+            + "00001000" + "8002" + "0000000A" + "00000014" + "00" + "3412"
+            + "00002000" + "8000" + "01" + "44332211"
+            + "00003000" + "8000" + "02" + "7856",
+            Convert.ToHexString(delta));
     }
 
     [Fact]
