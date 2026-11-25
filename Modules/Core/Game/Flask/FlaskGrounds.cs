@@ -100,6 +100,22 @@ public static partial class Game
     static bool InFlaskGround(Player player, FlaskGrounds.Kind kind, uint id) =>
         player.FlaskGrounds.Grounds.Any(g => g.Kind == kind && InZone(player, player.Id, FlaskGroundZones, g.Id, id));
 
+    // Bottled Faith checks the target's ground independently of who created it.
+    static bool EnemyOnConsecratedGround(Player player, uint id)
+    {
+        if (!player.Area.Monsters.ContainsKey(id)) return false;
+        foreach (var owner in AreaPlayers(player))
+        {
+            if (owner.Closed || owner.LeavingArea || !owner.FlaskGrounds.Any) continue;
+            double now = AreaTime(owner);
+            foreach (var ground in owner.FlaskGrounds.Grounds)
+                if (ground.Kind == FlaskGrounds.Kind.ConsecratedGround && now < ground.Ends
+                    && (ground.SourceAlive?.Invoke(now) ?? true) && InZone(owner, owner.Id, FlaskGroundZones, ground.Id, id))
+                    return true;
+        }
+        return false;
+    }
+
     // The increased damage taken a monster gets from the consecrated grounds covering it: the strongest one.
     static int ConsecratedEnemyDamageTaken(Player player, uint id) => player.FlaskGrounds.Grounds
         .Where(g => g is { Kind: FlaskGrounds.Kind.ConsecratedGround, EnemyDamageTakenPct: > 0 } && InZone(player, player.Id, FlaskGroundZones, g.Id, id))

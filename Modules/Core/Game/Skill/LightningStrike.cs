@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
+    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) is "LightningStrike" or "LightningStrikeAltX";
 
     // Strike projectiles release at the contact keyframe of each swing in the same paid use.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
@@ -21,6 +21,7 @@ static partial class Game
         int action = player.ActionCount;
         var stats = SupportedSkill(player, skillId).Stats;
         bool frostBlades = IsFrostBlades(gem.Effect);
+        bool wildStrike = IsWildStrike(gem.Effect);
         double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
@@ -30,7 +31,10 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || player.ActionCount == action), () =>
-                frostBlades
+                wildStrike
+                    ? ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless)
+                    : frostBlades
                     ? ReleaseFrostBlades(player, session, skillId, gem, from, aim, targetId,
                         criticalRoll, sequence, index, cryExerted, ruthless)
                     : ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,

@@ -188,5 +188,6 @@ public static partial class Game
         ClearMonsterEnergyShieldLocked(area, m);
         ClearMonsterAuraCarrier(area, m);
         ClearMonsterChargesLocked(area, id, m);
+        ClearSomaticShellLocked(m);
     }
 }

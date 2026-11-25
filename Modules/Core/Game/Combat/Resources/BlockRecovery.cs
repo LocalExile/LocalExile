@@ -7,7 +7,8 @@ public static partial class Game
     {
         long Pct(uint key, long maximum) => maximum * Math.Max(0, stats.GetValueOrDefault(key)) / 100;
         return ((int)Pct(Stat.RecoverPctOfMaximumLifeOnBlock, player.PlayerMaxLife), (int)Pct(Stat.ManaPctGainedOnBlock, player.Pools.Mana),
-            (uint)Pct(Stat.EnergyShieldPctGainedOnBlock, player.EnergyShield.Maximum));
+            (uint)(Pct(Stat.EnergyShieldPctGainedOnBlock, player.EnergyShield.Maximum)
+                + Pct(Stat.EnergyShieldPctOfArmourRatingGainedOnBlock, player.Pools.Armour)));
     }
 
     // "When you Block" effects occur before the blocked hit's damage, including the damage retained by Glancing Blows:

@@ -47,7 +47,7 @@ public static partial class Game
                 {
                     var npc = player.Sale?.Npc ?? player.Shop?.Npc
                         ?? (player.TalkingTo != 0 ? player.Npcs.GetValueOrDefault(player.TalkingTo) : null);
-                    int size = npc is null ? 0 : Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size);
+                    int size = npc is null ? 0 : NpcInteractionSize(npc);
                     if (npc is null || BeyondCloseRange(here, movingTo, (npc.X, npc.Y), size))
                     {
                         closeNpc = true;

@@ -208,6 +208,109 @@ public sealed class SpellTotemExecutionTests
             finally { session.Invalidate(); player.Closed = true; PlayerInventories.Forget(player.Character.Name!); }
         }
     }
+    // Artillery Ballista in a robe with a bow, with or without Focused Ballista (the only difference).
+    static Player BallistaPlayer(string name, bool focused)
+    {
+        var player = PlayerOf(name);
+        var sockets = new List<ItemSocket> { new(SocketColour.White, Gem("SkillGemArtilleryBallista")) };
+        if (focused) sockets.Add(new(SocketColour.White, Gem("SupportGemFocusedBallista")));
+        var items = Game.ItemsOf(player);
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!)
+            with { Sockets = [.. sockets], Links = [(byte)sockets.Count] });
+        items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+        return player;
+    }
+
+    // 901 when the tick wrote an 0x01ab from the totem at (100, 20) aimed at the near monster at (110, 20), 902 for any
+    // other volley, 0 when it wrote none. The aim is the four compact cells after the 14-byte head of ActionStarted.
+    static uint VolleyTarget(List<byte> written)
+    {
+        if (written.Count == 0) return 0;
+        var sample = InstanceProtocol.ActionStarted(0, 100, 20, 110, 20, 0, 0, 0);
+        var aim = sample.AsSpan(14, sample.Length - 18);
+        return written.ToArray().AsSpan().IndexOf(aim) >= 0 ? 901u : 902u;
+    }
+
+    // Places the ballista through CreateTotem (so its source is bound), two monsters in range, and runs the cases.
+    static async Task BallistaVolleys(bool focused, Action<Player, TotemState.Totem, uint, List<byte>> cases)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"ballista-focused-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var previousSettings = SystemSettings.Default.Values;
+        var lifetime = new ModuleLifetime("Game"); Game.CombatLifetime = lifetime;
+        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        SystemSettings.Default.Replace(new Dictionary<string, double>(previousSettings, StringComparer.OrdinalIgnoreCase)
+            { ["artillery_ballista"] = 1 });
+        var player = BallistaPlayer("Ballista" + Guid.NewGuid().ToString("N"), focused);
+        player.Clock.Start();
+        using var wire = new Wire();
+        player.Connection.Session = new("test", wire.Stream, wire.Ciphers);
+        var session = new Game.ProjectileSession(player);
+        player.ProjectileRuntimeState = session;
+        try
+        {
+            var skill = Game.GemSkillEffects(player).Single(s => s.Name == "Artillery Ballista");
+            Assert.Equal(focused, Game.FocusedBallista(player, skill.Id));
+            Assert.True(Game.BallistaPathAvailable(player, skill.Id));
+            Assert.NotNull(await Game.CreateTotem(player, skill.Id, skill.Effect, skill.Level,
+                Game.TotemVariety(player, skill.Effect)!, (100, 20)));
+            var totem = Assert.Single(player.Totems.Living(player.Clock.Elapsed.TotalSeconds));
+            double range = Game.TotemTargetRange(player, skill.Id);
+            player.Area.Monsters[901] = new("near", new(110, 20, 0), 0, 0, 1_000_000) { Hostile = true };
+            player.Area.Monsters[902] = new("far", new(100 + (int)(range - 5), 20, 0), 0, 0, 1_000_000) { Hostile = true };
+            cases(player, totem, 901, new List<byte>());
+        }
+        finally
+        {
+            session.Invalidate(); player.Closed = true; lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
+            SystemSettings.Default.Replace(previousSettings);
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
+    [Fact]
+    public async Task Focused_ballista_fires_one_volley_per_owner_attack_at_its_own_nearest_target() =>
+        await BallistaVolleys(focused: true, (player, totem, near, written) =>
+        {
+            void Tick() { written.Clear(); totem.NextCast = player.Clock.Elapsed.TotalSeconds; Game.TickSpellTotemsLocked(player, written); }
+            Tick();
+            Assert.Equal(0u, VolleyTarget(written));          // the owner has not attacked: no volley
+            Game.NotePlayerAttack(player);
+            Tick();
+            Assert.Equal(near, VolleyTarget(written));        // one attack: one volley, at the nearest, not the far one
+            Tick();
+            Assert.Equal(0u, VolleyTarget(written));          // spent
+            Game.NotePlayerAttack(player); Game.NotePlayerAttack(player);
+            Tick();
+            Assert.Equal(near, VolleyTarget(written));        // two presses in one cooldown buy one volley
+            Tick();
+            Assert.Equal(0u, VolleyTarget(written));
+            var monsters = player.Area.Monsters.ToArray();    // an attack with no target in range is spent, not banked
+            player.Area.Monsters.Clear();
+            Game.NotePlayerAttack(player);
+            Tick();
+            foreach (var (id, monster) in monsters) player.Area.Monsters[id] = monster;
+            Tick();
+            Assert.Equal(0u, VolleyTarget(written));
+            Game.NotePlayerAttack(player);
+            Game.ClearOwnerAttacks(player);                   // death, revival or leaving the area
+            Tick();
+            Assert.Equal(0u, VolleyTarget(written));
+            Game.NotePlayerAttack(player);                    // an attack after the clear fires
+            Tick();
+            Assert.Equal(near, VolleyTarget(written));
+        });
+
+    [Fact]
+    public async Task Ballista_without_focused_ballista_fires_at_the_nearest_without_an_owner_attack() =>
+        await BallistaVolleys(focused: false, (player, totem, near, written) =>
+        {
+            totem.NextCast = player.Clock.Elapsed.TotalSeconds;
+            Game.TickSpellTotemsLocked(player, written);
+            Assert.Equal(near, VolleyTarget(written));
+        });
+
     internal sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);

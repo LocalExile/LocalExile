@@ -1,0 +1,47 @@
+[
+  {
+    "id": "fastcampaign",
+    "version": "1.1.5",
+    "sha256": "9FF430A647FEB1F1E8CD95100EE7EADBFAC1ED1FB6D85E79278FED9EDF19A61E"
+  },
+  {
+    "id": "globalchat",
+    "version": "1.1.5",
+    "sha256": "B1178CA28F7C3EC764DCA3DEF0A805167D79E85BD068A98160D57000C153F609"
+  },
+  {
+    "id": "gm-commands",
+    "version": "1.6.0",
+    "sha256": "B4FC8C5918925E20A8BCA82A8A375234864862BA22AAFE33C7F011AEB1550E80"
+  },
+  {
+    "id": "itemquantity",
+    "version": "1.1.5",
+    "sha256": "726D83317295D868638657FC73F3972DBD7C56402E859D522DC37064D98C37B4"
+  },
+  {
+    "id": "itemrarity",
+    "version": "1.1.5",
+    "sha256": "A130A2F960305D371EBDAC6AE7553078954A8C2DA017B0313758806EE85B7276"
+  },
+  {
+    "id": "liveeconomy",
+    "version": "1.1.5",
+    "sha256": "DC77769FBF3FFEC1103A362226A41E9F86A3F264766257C2833F7A319F18DFD6"
+  },
+  {
+    "id": "pob",
+    "version": "1.0.5",
+    "sha256": "4E8D5FD767061B227B02110FC38937D166973EF7BCB220569B1ACA7F22F9C301"
+  },
+  {
+    "id": "waypoint-tools",
+    "version": "1.0.4",
+    "sha256": "C01E9F356AC40BC47208AB9484864F0EB846E805F4124C3F0611576E599F7A76"
+  },
+  {
+    "id": "zoom",
+    "version": "1.0.2",
+    "sha256": "5A9A948C5B738F914EF0A1EC7CBC13512C426DBD2F692DB12D8816A02D9B0833"
+  }
+]
