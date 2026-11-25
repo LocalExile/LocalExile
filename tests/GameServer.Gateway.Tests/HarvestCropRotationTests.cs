@@ -290,8 +290,14 @@ public sealed class HarvestCropRotationTests
         var player2 = NewConn(layout, instance, seed: 11, wire2);
         player1.Character.Name = "GrovePeer1";
         player2.Character.Name = "GrovePeer2";
+        player1.Connection.PlayerSent = player2.Connection.PlayerSent = true;
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var gameLifetime = new ModuleLifetime("Game");
         try
         {
+            Game.CombatLifetime = gameLifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(gameLifetime));
             module.Load(context);
             instance.AddPlayer(player1);
             Program.InGame[player1] = 0;
@@ -299,34 +305,45 @@ public sealed class HarvestCropRotationTests
 
             var grove = ReadGrove(instance);
             Assert.NotEmpty(grove.Objects);
-            // Grove objects must be scoped to Program.ViewOf so shared Area.Objects never replays them ahead of 0x001f.
-            Assert.All(grove.Objects.Keys, id => Assert.False(player1.Area.Objects.Has(id)));
-
-            // Drain player1's enter packets, then attach a fresh wire to confirm player2's entry does not duplicate creates to player1.
             wire1.CloseWriter();
-            await wire1.ReadAllAsync();
-            await using var peer1After = new CaptureWire();
-            player1.Connection.Session = new("harvest-peer1-after", peer1After.Stream, peer1After.Ciphers);
+            var firstEntry = ParsePackets(await wire1.ReadAllAsync());
+            int rules = firstEntry.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
+            Assert.True(rules >= 0 && firstEntry.FindIndex(p => p.Id == InstanceEntities.CreateObjectId) > rules);
 
             instance.AddPlayer(player2);
             Program.InGame[player2] = 0;
-            await GameEvents.RunPlayerEntered(player2);
+            player2.Connection.WorldOutput.Begin(1);
+            var area = player2.Area;
+            var previous = GameArea.Own(area);
+            Task entered;
+            try
+            {
+                // Buffer the ruleset write so a socket continuation cannot leave the area frame.
+                entered = Program.SendBatched(player2, async () =>
+                {
+                    await GameEvents.RunPlayerEntered(player2);
+                    return true;
+                });
+            }
+            finally { GameArea.Own(previous); }
+            await entered;
 
-            peer1After.CloseWriter();
             wire2.CloseWriter();
-            var p1Extra = ParsePackets(await peer1After.ReadAllAsync());
-            var p2Enter = ParsePackets(await wire2.ReadAllAsync());
-
-            Assert.DoesNotContain(p1Extra, p => p.Id == InstanceEntities.CreateObjectId);
-            int rulesetAt = p2Enter.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
-            int firstCreateAt = p2Enter.FindIndex(p => p.Id == InstanceEntities.CreateObjectId);
-            Assert.True(rulesetAt >= 0 && firstCreateAt > rulesetAt, "0x001f AddRuleset must precede any grove 0x02bb CreateObject");
-            var createdIds = p2Enter.Where(p => p.Id == InstanceEntities.CreateObjectId).Select(p => p.EntityId).ToList();
-            Assert.Equal(grove.Objects.Count, createdIds.Count);
-            Assert.Equal(grove.Objects.Keys.ToHashSet(), createdIds.ToHashSet());
+            Assert.Contains(ParsePackets(await wire2.ReadAllAsync()), p => p.Id == InstanceProtocol.AddRulesetId);
+            var creates = area.Delta.Take().Where(r => r.Kind == AreaDelta.Kind.Create).ToList();
+            Assert.Equal(grove.Objects.Count, creates.Count);
+            Assert.Equal(grove.Objects.Keys.ToHashSet(), creates.Select(r => r.Entity).ToHashSet());
+            Assert.All(creates, r =>
+            {
+                Assert.True(r.For(player2));
+                Assert.False(r.For(player1));
+            });
         }
         finally
         {
+            Program.SetGameLogic(previousLogic!);
+            Game.CombatLifetime = previousLifetime;
+            gameLifetime.Stop(e => throw e);
             Program.InGame.TryRemove(player1, out _);
             Program.InGame.TryRemove(player2, out _);
             for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
