@@ -11,6 +11,7 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     public bool WeaponLifeLeechInstant { get; init; }
     public int InstantLeechPerEnemyPower { get; init; }
     public int LifeOnBlindedHit { get; init; }
+    public int LifeOnBleedingHit { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
     // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
@@ -66,6 +67,7 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
             WeaponLifeLeechInstant = attack && Local(Stat.LocalLifeLeechIsInstant) != 0,
             InstantLeechPerEnemyPower = attack ? Local(Stat.HitsHaveLeechPctIsInstantPerMonsterPower) : 0,
             LifeOnBlindedHit = attack ? Math.Max(0, Local(Stat.LocalLifeGainPerTargetVsBlindedEnemies)) : 0,
+            LifeOnBleedingHit = Math.Max(0, get(Stat.LifeGainedOnBleedingEnemyHit)),
         };
     }
 
