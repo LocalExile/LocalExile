@@ -224,10 +224,11 @@ public sealed class MonsterElementalAilments
     /// </summary>
     public List<Effect> Inflict(DamagePacket damage, bool critical, double threshold, double now,
         Func<uint, int> attacker, Func<uint, int> target, Random random, double area = 1) =>
-        Inflict(damage, critical, threshold, now, attacker, target, random, area, coldTakenFromChill: false);
+        Inflict(damage, critical, threshold, now, attacker, target, random, area, coldTakenFromChill: false, freezeDamageMultiplier: 1);
 
     public List<Effect> Inflict(DamagePacket damage, bool critical, double threshold, double now,
-        Func<uint, int> attacker, Func<uint, int> target, Random random, double area, bool coldTakenFromChill)
+        Func<uint, int> attacker, Func<uint, int> target, Random random, double area,
+        bool coldTakenFromChill = false, double freezeDamageMultiplier = 1)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
@@ -257,7 +258,7 @@ public sealed class MonsterElementalAilments
             + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0);
         if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
-            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) / threshold), 100)
+            Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
         if (shocking > 0 && (critical || attacker(Stat.AlwaysShock) != 0
                 || RandomRolls.Chance(attacker(Stat.ChanceToShockPct), 100, random))

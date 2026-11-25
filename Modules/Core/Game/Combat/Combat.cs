@@ -2858,6 +2858,9 @@ public static partial class Game
             if (Replaced() || player.Closed || !Current()) return;
         }
         int addedChaos;
+        int glacialFreezeMore = 0;
+        bool shatteringCritical = false;
+        bool shatterFrozen = !spell && Stat(global::Stat.GlacialHammerShatterFrozenEnemiesAt33PctLife) != 0;
         double contactAt = firstContactAt ?? AreaTime(player);
         int strikes = SkillMultiStrike.StrikeCount(SkillsFor(player).EffectId(gem.Effect), Stat(global::Stat.BaseSkillNumberOfAdditionalHits),
             immediate, channelGeneration is not null, spell, wave);
@@ -2874,6 +2877,11 @@ public static partial class Game
         double frostboltMore = 1;
         bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
         bool hexblastExpanded = false;
+        bool elementalHit = !spell && Stat(global::Stat.ElementalHitNoDamageOfUnchosenElementalType) != 0;
+        int element = 3, elementalHitContacts = 0;
+        int elementalHitPerAilment = elementalHit ? Stat(global::Stat.ElementalHitDamagePlusPctFinalPerEnemyElementalAilment) : 0;
+        HashSet<uint>? elementalHitStruck = null;
+        (int Radius, double More)? elementalHitSplash = null;
         int artVariation = ring ? SkillArtVariation(player, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
@@ -2887,6 +2895,17 @@ public static partial class Game
             if (channelGeneration is not null
                 && PlayerActionBlocked(player, AreaTime(player), AreaTime(player))) return;
             CastingIntensity(player, skillId)?.Complete();
+            if (!spell && !immediate && triggeredCurrent is null && strikeIndex == 0)
+            {
+                int freezeMore = Stat(global::Stat.GlacialHammerThirdHitFreezeAsThoughDealtDamagePlusPct);
+                bool alwaysCrit = Stat(global::Stat.GlacialHammerThirdHitAlwaysCrits) != 0;
+                if ((freezeMore != 0 || alwaysCrit)
+                    && ThirdGlacialHammerStrikeLocked(player, skillId, gem.Effect, action, now))
+                {
+                    glacialFreezeMore = freezeMore;
+                    shatteringCritical = alwaysCrit;
+                }
+            }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
             // Queued mana output may outlast movement: resolve a channel at its current position.
@@ -2939,6 +2958,19 @@ public static partial class Game
             var candidates = centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt);
             var found = shieldUse is null ? candidates.ToList() : candidates.Where(target =>
                 shieldUse.Includes(target.Key, target.At, LivingCollision.Size(target.Value))).ToList();
+            if (elementalHit)
+            {
+                element = SelectElementalHitElement(player, skillId, admittedGem, sequence, repeat);
+                if (element >= ElementalHitOnly.Length) return;
+                skillStats = new Dictionary<uint, int>(skillStats) { [ElementalHitOnly[element]] = 1 };
+                admittedGem = admittedGem with { Stats = skillStats };
+                int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
+                var primary = found.Where(entry => (targetId == 0 || entry.Key == targetId)
+                        && !entry.Value.WorldHidden && SwingInReach(player, entry.Value, from, entry.At, strikeReach))
+                    .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).FirstOrDefault();
+                found.Clear();
+                if (primary.Value is not null) found.Add(primary);
+            }
             if (pestilentStrike && singleStrikeTarget is null)
             {
                 int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
@@ -2989,12 +3021,18 @@ public static partial class Game
             if (echo?.Centre is { } at)
                 targets.AddRange(player.Area.MonstersNear(at, radius).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
+            if (elementalHit)
+            {
+                elementalHitStruck = struck;
+                elementalHitContacts = targets.Count;
+            }
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
             if (!spell && hammer is null)
             {
                 var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
                 int SplashStat(uint key) => merged.GetValueOrDefault(key);
-                if (MeleeSplash.Settings(SplashStat) is { } splash)
+                if (elementalHit) elementalHitSplash = MeleeSplash.Settings(SplashStat);
+                else if (MeleeSplash.Settings(SplashStat) is { } splash)
                     foreach (var (_, m) in targets.ToArray())
                     {
                         var splashAt = m.Walk.Position(now);
@@ -3243,8 +3281,11 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, overexertionMore),
                             Poison = RepeatAilment(profile.Poison, overexertionMore),
                         };
-                    var hex = hexblast ? HexblastHex(m, ProjectileWorldTime(player)) : null;
-                    double targetAilmentMore = hex is null ? 1
+                    double elementalAt = elementalHit || hexblast ? ProjectileWorldTime(player) : 0;
+                    var elementalAilments = elementalHit ? ElementalHitAilmentsOn(m, elementalAt) : ElementalHitAilments.None;
+                    double elementalMore = elementalHit ? ElementalHitDamageMore(elementalHitPerAilment, elementalAilments) : 1;
+                    var hex = hexblast ? HexblastHex(m, elementalAt) : null;
+                    double targetAilmentMore = hex is null ? elementalMore
                         : Math.Max(0, 1 + Stat(global::Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
                     if (targetAilmentMore != 1)
                         profile = profile with
@@ -3253,7 +3294,7 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, targetAilmentMore),
                             Poison = RepeatAilment(profile.Poison, targetAilmentMore),
                         };
-                    var contactHit = profile.Hit;
+                    var contactHit = elementalMore == 1 ? profile.Hit : profile.Hit.Scale(elementalMore);
                     if (aftershock is { } quake)
                     {
                         contactHit = contactHit.Scale(quake.HitMore);
@@ -3329,7 +3370,7 @@ public static partial class Game
                                     SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
                                     SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
                         }
-                        critical = RollCriticalStrike(player, criticalChance, skillStats,
+                        critical = RollCriticalStrike(player, shatteringCritical ? 10_000 : criticalChance, skillStats,
                                 attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }
@@ -3389,11 +3430,19 @@ public static partial class Game
                     var rampagePlayer = freshPlayer ? playerStats : null;
                     var rampageSource = RampageOnMeleeHitLocked(player, m, !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
                     uint lifeBefore = m.Life;
+                    var cull = Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal);
+                    if (shatterFrozen && !splashMore.ContainsKey(id)) cull = cull with { ShatterFrozen = true };
                     applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
-                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats,
-                        chaosDamage: chaosDamage);
+                        cull: cull, cullPlayer: playerStats, chaosDamage: chaosDamage);
                     if (applied is not null)
                     {
+                        if (elementalHitStruck is not null && victim < elementalHitContacts)
+                        {
+                            int splashRadius = Stat(global::Stat.ElementalHitAreaOfEffectPlus100PctFinalVsEnemyWithAssociatedAilment) != 0
+                                ? ElementalHitRadius(radius, element, elementalAilments) : radius;
+                            AddElementalHitNearby(player, m.Walk.Position(at), at, splashRadius, elementalHitSplash,
+                                targets, elementalHitStruck, splashMore, once);
+                        }
                         if (applied.Value.Life < lifeBefore)
                             RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
@@ -3440,7 +3489,8 @@ public static partial class Game
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: cascadePush == default ? (IsLeapSlam(player, gem.Effect) ? centre : null)
                                 : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),
-                            attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)));
+                            attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)),
+                            projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
                             m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)

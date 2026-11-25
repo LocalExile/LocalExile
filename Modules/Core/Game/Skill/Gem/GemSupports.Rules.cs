@@ -848,6 +848,8 @@ public static partial class Game
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
+        if (stats.GetValueOrDefault(Stat.ElementalHitNoPhysicalChaosDamage) != 0)
+            ApplyElementalHitDamageStats(stats);
         if (totem && Stat.DamagePlusPct is var damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, Stat.TotemDamagePlusPct);
         var placed = PlacedKind(gem);

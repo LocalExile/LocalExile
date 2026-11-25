@@ -94,6 +94,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Elemental Hit (melee): chooses one element per swing and filters damage after conversion, then hits the area around
+  a successful strike. A pre-existing ailment of the chosen element increases the radius. The selected element agrees
+  with the supported client's predicted action.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
@@ -154,6 +157,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
   more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Glacial Hammer's third strike amplifies Freeze duration from hit damage, and strikes shatter frozen non-unique
+  enemies already below one third life. Shattering guarantees the critical roll of every third consecutive strike.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) Â§2i.
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) Â§9.
