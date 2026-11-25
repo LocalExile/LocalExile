@@ -1895,8 +1895,10 @@ no source shows whether the two add.
 **Ground Slam's wave** (`SkillArea.GroundSlamWave`): the skills whose ActionTypes action is `DistanceScaledGroundSlam`
 (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale, PlaytestSlam) hit a sector from the
 player whose front advances to the skill's reach; each monster is hit as the front reaches it, and the rest of the
-sweep is dropped on death, area change or a closed connection. Vaal Ground Slam is a different action (a 40-cell radial
-blast). The gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
+sweep is dropped on death, area change or a closed connection.
+Vaal Ground Slam's `VaalDistanceScaledGroundSlam` has a 39-cell base radius and a 0.375-second radial wave.
+The 3.29.3c action begins at contact (0x141be7740) and advances its front by elapsed time over that duration (0x141be7b30).
+The regular gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
 `ExileGroundSlam` row, which no GemEffects row grants. No player stat set or 3.29 Mod holds the four `ground_slam_*`
 shape stats, so the wave uses estimates to calibrate live: 60 cells long at the generic 12-cell radius, shifted by the
 skill's own radius; half angle 30 deg (half `ground_slam_cone_angle_override`'s cone), grown by `ground_slam_angle_+%`;
