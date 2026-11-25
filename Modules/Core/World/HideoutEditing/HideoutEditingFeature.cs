@@ -18,9 +18,9 @@ static class HideoutEditingFeature
 
     static async Task BroadcastRebuildCollision(Player player, string reason)
     {
-        byte[] packet = InstanceHideoutEditing.RebuildCollision();
+        // Sending encrypts the buffer in place with the recipient's session key.
         foreach (var member in AreaPlayers(player))
-            await Send(member, packet, reason);
+            await Send(member, InstanceHideoutEditing.RebuildCollision(), reason);
     }
 
     static bool PlacementInBounds(AreaLayout layout, int x, int y)
