@@ -60,5 +60,21 @@ data. Cremation's geyser (CorpseErruption, 3.29.3c 0x141adbae0) drops each proje
 of 10 to twice the skill's radius from the geyser; it does not aim at anyone. Its projectile is a child action's
 (vtable +0x540, 0x141310400), the `...Gore` row when `monster_projectile_variation` is set; the base row is unresolved.
 
+## Abyss
+
+From two official captures (a level 61 and a level 45 area, 72 crack creates). The pieces stand on a lattice of 125 world
+units (11.5 cells; a cell is 250/23 units): the pit (`AbyssFinalNodeBase`) and each crack (`AbyssCrack`) carry the lattice
+point in world units in Positioned (flag 0x40) and their MiscAnimated shape row in Animated (0x03 + u32). The client's
+pieces were created one by one as the player walked up, at about 250 cells. An arm's first piece is two steps from the pit;
+the pit's shape (`AbyssPitOne/Two/Three...`) names the directions its arms leave in. A crack is created open (Transitionable
+8 with the 0x80 first-sight bit) and closes 9, 10, 11 one step every 16 frames from its far end; the pit is created closed
+(1), opens (2) once the arms are closed and their 25 monsters dead, and is done (4) after the wave of 10-12. The plinth's two
+properties (`0x40f0fc9c`, `0x7700c879`) carry the pit's id; the reward chest (`LeagueAbyss/FinalChestRareJewellery`, the
+pit's cell) carries the area level in its Chest component and is ready 91 frames on (component 6 = 1, Transitionable 2).
+Its open starts with S->C 0x1bd: chest, player, `9002`, `01 00 00`, player, then component 5 = `08 00 00 00` and
+Transitionable 3, and drops 4 items (its row's `chest_item_quantity_+%` is 300). The captures never send `0x1f` AbyssRules.
+The encounter belongs to the instance; the area's object records give a late joiner the pieces. Walking on a crack did not
+start an arm; kills of monsters created 62 to 85 cells from a piece did, one created 91 away did not.
+
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
