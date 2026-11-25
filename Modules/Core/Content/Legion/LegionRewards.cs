@@ -10,6 +10,17 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 static class LegionRewards
 {
+    /// <summary>GUESS: the Domain's end rewards. Timeless Jewel rolls per slain General (one per DomainKillsPerJewelRoll kills, at most DomainJewelMaxRolls)
+    /// and their percent chance; the Enshrouding Crystal and the Unrelenting Emblem (4/5-way) chances; the Stasis Prison permille; the reward rows
+    /// and items per row; the generic loot from the kills; the cap on the drops.</summary>
+    const int DomainJewelMaxRolls = 4, DomainKillsPerJewelRoll = 2, DomainJewelBasePct = 25, DomainJewelPerUberPct = 10,
+        DomainJewelPerKillPct = 5, DomainJewelKillCapPct = 25, DomainJewelMaxPct = 85;
+    const int DomainCrystalBasePct = 20, DomainCrystalPerUberPct = 10, DomainCrystalMaxPct = 75;
+    const int DomainUberEmblemBasePct = 12, DomainUberEmblemPerKillPct = 4, DomainUberEmblemPerUberPct = 4, DomainUberEmblemMaxPct = 50;
+    const int DomainStasisPerUberPermille = 15, DomainStasisPerKillPermille = 5, DomainStasisMinPermille = 10, DomainStasisMaxPermille = 150;
+    const int DomainRewardRowsBase = 36, DomainRewardRowsPerUber = 6, DomainDoubleRowUber = 3;
+    const double DomainGenericBase = 1.2, DomainGenericPerUber = 0.25;
+    const int DomainGenericMax = 40, DomainRarityBase = 150, DomainRarityPerUber = 50, DomainMaxDrops = 140;
     /// <summary>GUESS: the items each reward type gives on a sergeant.</summary>
     const int ItemsPerReward = 2;
     /// <summary>GUESS: a sergeant drops splinters of its faction with this percent chance, a stack of this range; normal soldiers (tiers 0, 1) drop none (3.29).</summary>
@@ -405,8 +416,8 @@ static class LegionRewards
         var killedFactions = generalKills.Where(kv => kv.Value > 0).ToList();
         foreach (var (factionId, kills) in killedFactions)
         {
-            int rolls = Math.Min(4, Math.Max(1, (kills + 1) / 2));
-            int jewelPct = Math.Clamp(25 + uberCount * 10 + Math.Min(25, kills * 5), 0, 85);
+            int rolls = Math.Min(DomainJewelMaxRolls, Math.Max(1, (kills + 1) / DomainKillsPerJewelRoll));
+            int jewelPct = Math.Clamp(DomainJewelBasePct + uberCount * DomainJewelPerUberPct + Math.Min(DomainJewelKillCapPct, kills * DomainJewelPerKillPct), 0, DomainJewelMaxPct);
             for (int r = 0; r < rolls; r++)
             {
                 if (rng.Next(100) < jewelPct && CreateTimelessJewel(catalog, factionId, clampedLevel, rng) is { } jewel)
@@ -417,12 +428,12 @@ static class LegionRewards
             }
             if (Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f))
             {
-                int crystalPct = Math.Clamp(20 + uberCount * 10, 0, 75);
+                int crystalPct = Math.Clamp(DomainCrystalBasePct + uberCount * DomainCrystalPerUberPct, 0, DomainCrystalMaxPct);
                 if (rng.Next(100) < crystalPct) stacks.Add((f.Crystal, 1));
                 // 4-way / 5-way Domain Generals can drop their faction's Unrelenting Timeless Emblem (progression into Unrelenting Domain).
                 if (factionCount >= 4)
                 {
-                    int uberEmblemPct = Math.Clamp(12 + Math.Min(5, kills) * 4 + uberCount * 4, 0, 50);
+                    int uberEmblemPct = Math.Clamp(DomainUberEmblemBasePct + Math.Min(5, kills) * DomainUberEmblemPerKillPct + uberCount * DomainUberEmblemPerUberPct, 0, DomainUberEmblemMaxPct);
                     if (rng.Next(100) < uberEmblemPct) stacks.Add((f.UberEmblem, 1));
                 }
             }
@@ -437,14 +448,14 @@ static class LegionRewards
         // 2. Stasis Prison: rare Unrelenting Domain exclusive unique.
         if (uberCount > 0)
         {
-            int stasisPermille = Math.Clamp(uberCount * 15 + Math.Min(10, generalKills.Values.Sum()) * 5, 10, 150);
+            int stasisPermille = Math.Clamp(uberCount * DomainStasisPerUberPermille + Math.Min(10, generalKills.Values.Sum()) * DomainStasisPerKillPermille, DomainStasisMinPermille, DomainStasisMaxPermille);
             if (rng.Next(1000) < stasisPermille && CreateStasisPrison(player, clampedLevel, rng) is { } stasis)
                 made.Add(stasis);
         }
 
         // 3. Accumulated Sergeant & General reward rows (capped to keep final burst crisp and responsive).
-        int maxRewardRows = Math.Min(rewardRows.Count, 36 + uberCount * 6);
-        int perRow = uberCount >= 3 ? 2 : 1;
+        int maxRewardRows = Math.Min(rewardRows.Count, DomainRewardRowsBase + uberCount * DomainRewardRowsPerUber);
+        int perRow = uberCount >= DomainDoubleRowUber ? 2 : 1;
         for (int i = 0; i < maxRewardRows; i++)
         {
             int count = ScaleCount(perRow, rules.ItemDropMultiplier, rng, minimum: rules.ItemDropMultiplier >= 1.0 ? 1 : 0);
@@ -452,13 +463,13 @@ static class LegionRewards
         }
 
         // 4. Diminishing-returns generic loot from total army kills.
-        int genericCount = ScaleCount((int)Math.Clamp(Math.Round(Math.Sqrt(Math.Max(0, totalKills)) * (1.2 + 0.25 * uberCount)), 0, 40),
+        int genericCount = ScaleCount((int)Math.Clamp(Math.Round(Math.Sqrt(Math.Max(0, totalKills)) * (DomainGenericBase + DomainGenericPerUber * uberCount)), 0, DomainGenericMax),
             rules.ItemDropMultiplier, rng);
         if (genericCount > 0)
-            made.AddRange(drops.Container(clampedLevel, genericCount, 150 + uberCount * 50, rng).Select(d => d.Item));
+            made.AddRange(drops.Container(clampedLevel, genericCount, DomainRarityBase + uberCount * DomainRarityPerUber, rng).Select(d => d.Item));
 
         ExpandStacks(catalog, stacks, clampedLevel, made);
-        if (made.Count > 140) made.RemoveRange(140, made.Count - 140);
+        if (made.Count > DomainMaxDrops) made.RemoveRange(DomainMaxDrops, made.Count - DomainMaxDrops);
         return made;
     }
 

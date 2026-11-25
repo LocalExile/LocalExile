@@ -115,44 +115,28 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 
 ## Phase 4: Scarabs, Atlas passives and Timeless Conflict
 
-- `LegionMonolith.AreaStats` reads `Instance.KeptAreaStats` (falling back to `AreaLeagueStats`), so map-owner Atlas
-  passives, Legion Scarabs, and legacy Idols apply consistently to monolith planning, stasis combat, and drops.
-- `LegionDomain.ResolveOpening` claims `"Legion"` in `MapOpening.HandledContent` on normal maps, and `MapRunCatalog`
-  strips the `New` suffix from `Scarab*New*` BaseItemTypes so `ScarabLegionNew1..5` increment `map_legion_scarab_count`.
-- Implemented Scarab / Atlas / Idol stats: `map_legion_additional_number_of_sergeants` (Officers +5, Chain of Command +2),
-  `map_legion_contains_maraketh_faction` & `map_legion_faridun_replace_maraketh_faction` (Sekhema),
-  `map_legion_%_chance_chests_break_out_spread_rewards` (Treasures: copies chest rewards onto freed tier 0-1 monsters
-  with immediate `1328` icons and +25% life/damage), `map_legion_multiple_breakout` (Eternal Conflict: non-chest monsters
-  gain buff `2459 legion_breakout_monster_enhanced`, +50% MaxLife per re-breakout, +35% damage and +30% reward count per
-  extra stack, and re-arm after 0.5 s), `map_legion_generals_spawn_both_generals` (Face Off: both armies spawn a General
-  and `0xec72e38c` retargets when the first breaks out), `map_legion_army_additional_war_chest` (War Supplies),
-  `map_legion_chests_contains_an_additional_reward` (Pillaged Treasures), `map_legion_monsters_with_rewards_*` and
-  `map_legion_monsters_+%_life_per_reward_final` (Logistical Support), `map_replace_legion_splinter_with_legion_fragment_chance_permyriad`
-  (Emblematic), splinter scaling/duplication stats, pack size, sergeant rarity, and legacy `force_general`/`force_war_chest`.
-- `Timeless Conflict` (`atlas_keystone_timeless_conflict` / `map_legion_uses_alert_instead_of_timer`): disables the
-  countdown timer (`0x163` hidden), sends `LegionRules` mode 0 with `alertMode = 1`, adds `LegionRanks.__col8` per
-  breakout (`5/18/40/350`, chests `40/80`) toward `LegionBalancePerLevel.__col15` (`1000`), and triggers Schism release
-  at the cap. Live-check needed for alert gauge HUD updates (`0x2c9` alert-specific opcodes are not disassembled yet).
+- The scarab's extra monolith comes from the level generator: `CoreLeagues` 15 `ForcedSpawnStat` is
+  `map_legion_league_extra_spawns`, which `ExtraTerrainFeatures.LeagueCount` adds to the base count, so no module code
+  places it.
+- Scarab, Atlas passive and Idol stats reach the encounter through `Instance.KeptAreaStats` (`LegionMonolith.AreaStats`).
+- `atlas_keystone_timeless_conflict` / `map_legion_uses_alert_instead_of_timer`: no countdown timer, `LegionRules` mode 0
+  with `alertMode = 1`, `LegionRanks.__col8` per breakout (5/18/40/350) toward `LegionBalancePerLevel.__col15` (1000).
+  GUESS: the chest alert values 40/80. Live check: the alert gauge (`0x2c9` alert opcodes are not disassembled).
 
 ## Phase 3: Domain of Timeless Conflict
 
 - `MapDeviceRecipes` 30-33 (`AtlasNode` 143 `LegionDomain`, `HASH16 = 50774`) map 2-5 distinct Timeless or Unrelenting
   Emblems (`BaseItemTypes` 3055-3064, `MapFragmentFamilies` 15-19) to `WorldAreas` 1328-1331 (`LegionLeague`..`LegionLeague4`,
-  `UsesAtlas = false`, level `80 + min(4, uberCount)`, timer `15 + 60 * emblemCount` s = `135..315` s, `Environments` 1177
-  `LegionLeague`). `LegionDomain.ResolveOpening` validates distinct factions, composes all emblem `MapFragmentMods` and
-  area `ModsKeys`, and returns players to the opening device.
-- `LegionLeague`..`LegionLeague4` have zero `MonsterPacks`, so `LegionDomain` initializes in `GameEvents.PlayerEntered`,
-  sets `EnteredDomainOfTimelessConflict` (`QuestFlags` 2770), and places `LegionEndlessInitiator` (5 components including
-  `ControlZone`; shared states `obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal` (`active`) at
-  `LegionEndgame_EncounterLocator` (fallback `(333, 333)`).
-- Stepping into the central `ControlZone` (`<= 28` cells) starts the timer, plays `LegionMonolithPulse`, and spawns all
-  slotted factions in radial sectors using `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival
-  cooldowns `6 s / 6 s / 16 s / 24 s`). Manual ControlZone entry (4 s cooldown) and the 20 s auto-pulse
-  (`map_legion_endless_monolith_pulse_time_ms`) revive half of ready dead soldiers/elites plus ready Sergeants/Generals
-  (`MiscAnimated` 3377 `beam_down.ao`), applying Unrelenting per-revival `EncounterStats` when `uberCount > 0`.
-- Kills bank Sergeant/General rewards and cancel mid-timer item drops (keeping `+500%` General gold from
-  `LegionEndlessGeneralGold`). At `00:00`, surviving monsters are removed, `LegionDomainRewardCrystal` activates (`active=1`),
-  `LegionSoulercoaster1` (`MiscAnimated` 3357) plays, and accumulated loot — including faction-matched Timeless Jewels via
-  `TimelessJewelCatalog.Create`, Unrelenting Timeless Emblems (4/5-way Generals), rare Unrelenting `Stasis Prison`,
-  Enshrouding Crystals, and banked reward rolls — drops in golden-angle rings around the crystal.
+  no `MonsterPacks`, `Environments` 1177). Timer `15 + 60 * emblemCount` s, from `map_legion_endless_mode_+_s`.
+  GUESS: area level `80 + min(4, uberCount)` (`WorldAreas` say 80; no level stat is in the emblem mods).
+- The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal`
+  (`active`) at `LegionEndgame_EncounterLocator`; quest flag `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`.
+  GUESS: the `ControlZone` radius of 28 cells and the (333, 333) fallback.
+- Monsters come from `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival cooldowns
+  `6 s / 6 s / 16 s / 24 s`); revival beam is `MiscAnimated` 3377 `beam_down.ao`, the end `MiscAnimated` 3357.
+- Every Timeless Emblem's second mod (`Mods` 21228-21232) carries `uber_domain_monster_tankiness_+%_per_revival` (10) plus
+  one faction stat (Karui crit chance 50, Maraketh attack and cast speed 5, Eternal accuracy 10, Templar penetration 3,
+  Vaal phys-as-chaos 5), so revival scaling is not Unrelenting-only. The values are summed over the emblems used and multiplied
+  by the revival count. Surprise: `Mods.StatsKey` is the 0-based `Stats` row, the
+  generated `Stat` constants are row + 1.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).
