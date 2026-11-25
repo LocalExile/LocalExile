@@ -14,6 +14,69 @@ namespace GameServer.Gateway.Tests;
 /// </summary>
 public sealed class TotemTests
 {
+    static async Task ShockwaveTotemSpellHitGrantsArcaneSurge()
+    {
+        var mod = Program.Items.Mods.ById("AnimalCharmArcaneSurgeOnHit")!;
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(17)));
+        var plain = await Hit(jewel with { Mods = [] });
+        var active = await Hit(jewel with { Mods = [new(ModSection.Explicit, mod.Hash, [1])] });
+        Console.WriteLine($"Shockwave Totem spell hit: damage {plain.Damage} / {active.Damage}, Arcane Surge {plain.Surge} -> {active.Surge}");
+        Assert.False(plain.Surge);
+        Assert.True(active.Surge);
+
+        async Task<(uint Damage, bool Surge)> Hit(Item equipped)
+        {
+            var clock = new TotemHitClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            player.Character.Passives.Add(31703);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, equipped);
+            fixture.Equip(("Shockwave Totem", 18), ("Ice Nova", 18));
+            ushort skill = Game.GemSkillEffects(player).Single(g => g.Name == "Shockwave Totem").Id;
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (108, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var totem = Assert.Single(player.Totems.All);
+                Game.TickTotemUses(player);
+                Assert.False(player.SupportGems.ArcaneSurgeActiveAt(clock.Now(player)));
+                const uint id = 901;
+                var target = new SpawnedMonster("Shockwave Totem target", new(112, 100, 0), 0, 0, 100000) { ObjectId = id };
+                player.Area.Monsters[id] = target;
+                player.Area.Grid.Set(new(id), (112, 100));
+                Game.TickTotemUses(player);
+                var strike = Assert.IsType<TotemState.Strike>(totem.Strike);
+                Assert.True(strike.NextCast > clock.Now(player));
+                clock.At = strike.NextCast;
+                var session = Game.ProjectilesFor(player);
+                using (Game.ProjectileMutation(player, advance: false))
+                    session.AdvanceTo(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(clock.At)));
+                Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                return (target.MaxLife - target.Life, player.SupportGems.ArcaneSurgeActiveAt(clock.At));
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    sealed class TotemHitClock : IPlayerUpdateSchedule
+    {
+        public double At = 2;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     // The GrantedEffects rows the data has behind the totem skills that were broken (their ActiveSkills ids:
     // shockwave_totem, holy_flame_totem, ancestor_totem_slash, totem_fire_spray, searing_bond). SkillTotemId cannot
     // name them: every ActiveSkills row carries one.
@@ -166,6 +229,8 @@ public sealed class TotemTests
             lifetime.Stop(ex => throw ex); Game.CombatLifetime = previousLifetime;
             Program.SetGameLogic(previousLogic!); TestEnvironment.ReleaseSaves(path);
         }
+
+        await ShockwaveTotemSpellHitGrantsArcaneSurge();
     }
 
     [Fact]

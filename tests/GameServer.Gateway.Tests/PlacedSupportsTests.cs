@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using Xunit.Abstractions;
@@ -6,6 +7,126 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class PlacedSupportsTests(ITestOutputHelper output)
 {
+    static async Task Architects_Hand_applies_cast_speed_to_the_paid_trap_throw_clock()
+    {
+        var ordinary = await Timing(equipped: false, castSpeed: 100);
+        var speed = await Timing(equipped: true, castSpeed: 100);
+        var bare = await Timing(equipped: true, castSpeed: 0);
+        Assert.Equal(ordinary.Trap, bare.Trap, 3);
+        Assert.InRange(speed.Trap, ordinary.Trap / 2 - .035, ordinary.Trap / 2 + .035);
+        Assert.True(speed.Trap < ordinary.Trap);
+        Assert.Equal(ordinary.Spell, speed.Spell, 3);
+
+        static async Task<(double Trap, double Spell)> Timing(bool equipped, int castSpeed)
+        {
+            var clock = new PlacedClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            fixture.Equip(("Fire Trap", 1), ("Ice Nova", 1));
+            if (equipped)
+            {
+                var gloves = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Architect's Hand", new Random(8)));
+                var mod = Program.Items.Mods.ById("CastSpeedAppliesToTrapSpeedUnique__1")!;
+                Game.ItemsOf(player).Add(PlayerInventories.Gloves, 0, 0,
+                    gloves with { Mods = [new(ModSection.Explicit, mod.Hash, [1])] });
+            }
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(player, owner)) values[Stat.BaseCastSpeedPlusPct] = castSpeed;
+                return values;
+            });
+            var gems = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                player.Walk.Teleport(100, 100, clock.At);
+                double start = clock.At;
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, gems["Fire Trap"].Id, (100, 100), (112, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var trap = Assert.Single(player.Placed.All.Values);
+                double flight = Game.PlacedFlightSeconds(false, Game.CharacterPlayerStats(player).GetValueOrDefault);
+                double release = trap.LandAt - flight - start;
+                clock.At += 1;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                start = clock.At;
+                Assert.True(await Game.CastGemSkill(player, gems["Ice Nova"].Id, (100, 100), (100, 100)));
+                return (release, clock.At - start);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    static async Task Totem_spell_hit_sources_do_not_grant_surge_for_trap_or_mine_projectiles()
+    {
+        foreach (string support in new[] { "Trap Support", "Blastchain Mine Support" })
+        {
+            void Equip(Player player)
+            {
+                var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(6)));
+                var mod = Program.Items.Mods.ById("AnimalCharmArcaneSurgeOnHit")!;
+                const byte slot = 1;
+                player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+                player.Character.Passives.Add(31703);
+                Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0,
+                    jewel with { Mods = [new(ModSection.Explicit, mod.Hash, [1])] });
+                Assert.Equal(1, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.GainArcaneSurgeOnSpellHitByYouOrYourTotems));
+            }
+            var hit = await PlacedContact("Fireball", support, true, Equip);
+            Assert.True(hit.Damage > 0);
+            Assert.False(hit.Surge);
+        }
+    }
+
+    static async Task<(uint Damage, bool Surge)> PlacedContact(string name, string? support, bool enemy,
+        Action<Player>? setup)
+    {
+        var clock = new PlacedClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        var items = Game.ItemsOf(player);
+        uint weapon = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+        items.Change(PlayerInventories.Weapon1, weapon, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        ushort skill = Assert.Single(support is null ? fixture.Equip((name, 18)) : fixture.Equip((name, 18), (support, 18)));
+        setup?.Invoke(player);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            Game.RecomputePoolsAndSpeed(player);
+            int unreservedBefore = Game.UnreservedMana(player);
+            if (support is not null) player.PlayerMana = (uint)unreservedBefore;
+            uint mana = player.PlayerMana;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            var placed = Assert.Single(player.Placed.All.Values);
+            Assert.True(player.PlayerMana < mana || placed.Mine && Game.UnreservedMana(player) < unreservedBefore,
+                $"{name} with {support}: mana {mana}→{player.PlayerMana}, unreserved {unreservedBefore}→{Game.UnreservedMana(player)}");
+            Assert.False(player.SupportGems.ArcaneSurgeActiveAt(clock.At));
+            Assert.Empty(player.FlaskGrounds.Grounds);
+            const uint id = 915;
+            var at = (X: placed.At.X + 5, Y: placed.At.Y);
+            var target = new SpawnedMonster("placed skill witness", new(at.X, at.Y, 0), 0, 0, 100000)
+                { ObjectId = id, Hostile = true };
+            if (enemy)
+            {
+                player.Area.Monsters.Add(id, target);
+                player.Area.Grid.Set(new(id), at);
+            }
+            clock.At = enemy || placed.Mine ? placed.Armed + .01 : placed.Until + .01;
+            if (placed.Mine) Game.DetonateMinesLocked(player, clock.At);
+            await Game.PlayerMinionsTick(player, clock.At);
+            clock.At += .50;
+            fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.At)));
+            Assert.Empty(player.Placed.All);
+            return (target.MaxLife - target.Life, player.SupportGems.ArcaneSurgeActiveAt(clock.At));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public async Task Locus_keeps_close_mines_armed_while_the_rest_of_the_sequence_fires()
     {
@@ -129,6 +250,9 @@ public sealed class PlacedSupportsTests(ITestOutputHelper output)
             }
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+
+        await Architects_Hand_applies_cast_speed_to_the_paid_trap_throw_clock();
+        await Totem_spell_hit_sources_do_not_grant_surge_for_trap_or_mine_projectiles();
     }
 
     sealed class PlacedClock : IPlayerUpdateSchedule

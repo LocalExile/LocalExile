@@ -1,3 +1,5 @@
+using GameServer.Core.Protocol.Instance;
+
 namespace GameServer.Gateway.Tests;
 
 public sealed class VaalImmortalCallTests
@@ -9,14 +11,23 @@ public sealed class VaalImmortalCallTests
         using var clock = new CastClock(f);
         // 1000 more of each attribute so CurrentGemRequirements meets Vaal Immortal Call's Strength requirement.
         f.Player.God = true;
-        f.Equip(("Vaal Immortal Call", 1));
+        var vaalCaress = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Vaal Caress", new Random(19)));
+        var adrenaline = Program.Items.Mods.ById("MutatedUniqueGlovesStrDex4AdrenalineOnVaalSkillUse")!;
+        Game.ItemsOf(f.Player).Add(PlayerInventories.Gloves, 0, 0, vaalCaress with
+        { Mods = [new(ModSection.Explicit, adrenaline.Hash, [3000])] });
+        f.Equip(("Vaal Immortal Call", 1), ("Ice Nova", 1));
         var gem = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "VaalImmortalCall");
+        Assert.Equal(3000, Game.CharacterPlayerStats(f.Player).GetValueOrDefault(Stat.AdrenalineOnVaalSkillUseDurationMs));
         Game.RefreshVaalSouls(f.Player);
         var plan = Game.CooldownFor(f.Player, gem.Effect, gem.Level, gem.Quality);
         bool Admit(out CooldownUseTicket? ticket) => Game.TryBeginSkillCooldownUse(f.Player, gem.Id, gem.Effect, plan, false,
             () => f.Player.ActionCount++, out ticket);
         // No souls: the use is refused before an action, a cost or a reservation.
         Assert.False(Admit(out _));
+        Assert.False(f.Player.Antiquarian.Adrenaline(Game.AreaTime(f.Player)));
+        ushort ordinary = Game.GemSkillEffects(f.Player).Single(g => g.Name == "Ice Nova").Id;
+        Assert.True(await Game.CastGemSkill(f.Player, ordinary, (100, 100), (100, 100)));
+        Assert.False(f.Player.Antiquarian.Adrenaline(Game.AreaTime(f.Player)));
         for (int i = 0; i < 100; i++) Assert.True(f.Player.VaalSouls.Gain());
         var charges = Game.ChargesOf(f.Player);
         var limits = charges.Limits(ChargeType.Endurance);
@@ -26,6 +37,9 @@ public sealed class VaalImmortalCallTests
             cooldownUse: ticket));
         double castAt = Game.AreaTime(f.Player);
         Assert.Equal(0u, Assert.Single(f.Player.VaalSouls.Read()).Current);
+        Assert.True(f.Player.Antiquarian.Adrenaline(castAt + 2.99));
+        Assert.False(f.Player.Antiquarian.Adrenaline(castAt + 3.01));
+        Assert.Equal(Stat.AdrenalineOnVaalSkillUseDurationMs, f.Player.Antiquarian.TimedAdrenalineSource);
         Assert.InRange(f.Player.VaalPreventionUntil - castAt, 7.4, 8.1);
         Assert.Equal(limits.Minimum, charges.Effective(ChargeType.Endurance));
         Assert.NotEmpty(Game.VaalImmortalCallPresentation(f.Player, castAt));

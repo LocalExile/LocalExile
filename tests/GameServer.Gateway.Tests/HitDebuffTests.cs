@@ -1,9 +1,171 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class HitDebuffTests
 {
+    [Fact]
+    public async Task Existing_curses_and_bleeding_gate_the_qualified_hit_effects()
+    {
+        await Foulborn_Cospris_Will_withers_a_previously_cursed_enemy();
+        await Vivid_Hues_leeches_life_only_from_attack_damage_to_already_bleeding_enemies();
+    }
+
+    static async Task Foulborn_Cospris_Will_withers_a_previously_cursed_enemy()
+    {
+        foreach (string preparation in new[] { "none", "same hit", "prior" })
+            await WithContactWitness(async (fixture, clock, target) =>
+            {
+                var player = fixture.Player;
+                var items = Game.ItemsOf(player);
+                items.Add(PlayerInventories.BodyArmour, 0, 0, NativeUnique("Cospri's Will",
+                    "MutatedUniqueBodyDex9WitherOnHitChanceVsCursedEnemies", 20));
+                fixture.Equip(("Heavy Strike", 18), ("Flammability", 18));
+                var skills = Game.GemSkillEffects(player);
+                ushort hit = skills.Single(gem => gem.Name == "Heavy Strike").Id;
+                ushort curse = skills.Single(gem => gem.Name == "Flammability").Id;
+                Assert.Equal(20, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.WitheredOnHitChancePctVsCursedEnemies));
+                if (preparation == "prior") Assert.True(Game.ApplyCurseLocked(player, target, curse, clock.At, aura: false));
+                if (preparation == "same hit")
+                    items.Add(PlayerInventories.Ring1, 0, 0, ItemCatalog.Create(Program.Items.Find("Iron Ring")!) with
+                    { Mods = [NativeMod("FlammabilityOnHitUnique__1", 10)] });
+                await LandWitness(fixture, clock, target, hit);
+                Assert.Equal(preparation != "none", target.Curses.All.Values.Any(c => c.Until > clock.At));
+                Assert.Equal(preparation == "prior", target.Withered.Any(w => w.Until > clock.At));
+            });
+    }
+
+    static async Task Vivid_Hues_leeches_life_only_from_attack_damage_to_already_bleeding_enemies()
+    {
+        foreach (var (attack, priorBleed, freshBleed) in new[]
+        { (true, true, false), (true, false, false), (true, false, true), (false, true, false) })
+            await WithContactWitness(async (fixture, clock, target) =>
+            {
+                var player = fixture.Player;
+                AllocateWitnessNotable(player, "AfflictionNotableVividHues");
+                Assert.Equal(200, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.LifeLeechFromAttackDamagePermyriadVsBleedingEnemies));
+                ushort skill = Assert.Single(fixture.Equip((attack ? "Heavy Strike" : "Ice Nova", 18)));
+                if (priorBleed) Assert.True(target.Bleeds.Add(clock.At, 1, 10));
+                using var bleed = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+                {
+                    if (freshBleed && ReferenceEquals(owner, player)) values[Stat.BleedOnHitWithAttacksPct] = 100;
+                    return values;
+                });
+                await LandWitness(fixture, clock, target, skill);
+                if (freshBleed) Assert.True(target.Bleeds.Until > clock.At);
+                double recovered = Game.TakeLeechRecovery(player, clock.At + 3, false, true, true).Life;
+                if (attack && priorBleed) Assert.True(recovered > 0);
+                else Assert.Equal(0, recovered);
+            });
+    }
+
+    static ItemMod NativeMod(string id, int value) =>
+        new(ModSection.Explicit, Program.Items.Mods.ById(id)!.Hash, [value]);
+
+    static Item NativeUnique(string unique, string mod, int value) =>
+        Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create(unique, new Random(17))) with
+        { Mods = [NativeMod(mod, value)] };
+
+    static uint AddWitnessJewel(Player player, string type, string mod, int value, byte slot)
+    {
+        var jewel = NativeUnique(type, mod, value);
+        player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+        player.Character.Passives.Add(31703);
+        uint id = Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel).Id;
+        if (type == "Megalomaniac")
+        {
+            var layout = Assert.IsType<ClusterJewelLayout.Layout>(ClusterJewelLayout.For(slot, jewel));
+            player.Character.ClusterPassives.Add((ushort)(layout.Base + layout.NotableOrders.Single(row => row.Value == 0).Key));
+        }
+        return id;
+    }
+
+    static uint AllocateWitnessNotable(Player player, string mod) => AddWitnessJewel(player, "Megalomaniac", mod, 1, 20);
+
+    static SpawnedMonster AddWitness(Player player, uint id, (int X, int Y) at)
+    {
+        var target = new SpawnedMonster("conditional hit witness", new(at.X, at.Y, 0), 0, 0, 100000)
+            { ObjectId = id, Hostile = true, NoRewards = true };
+        player.Area.Monsters[id] = target;
+        player.Area.Grid.Set(new(id), at);
+        return target;
+    }
+
+    static async Task WithContactWitness(Func<TriggeredSummonTests.Fixture, ContactClock, SpawnedMonster, Task> exercise)
+    {
+        var clock = new ContactClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.IgniteRandom = new QualifyingRoll();
+        player.Walk.Teleport(100, 100, clock.At);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player)) values[Stat.GlobalAlwaysHit] = values[Stat.GlobalCannotCrit] = 1;
+            return values;
+        });
+        var target = AddWitness(player, 900, (104, 100));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            SetWitnessRoll(player);
+            using var rolls = GameEvents.OutgoingDamage.Add("Game", (owner, _, _, packet) =>
+            {
+                if (ReferenceEquals(owner, player)) SetWitnessRoll(player);
+                return packet;
+            });
+            await exercise(fixture, clock, target);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    static void SetWitnessRoll(Player player) =>
+        typeof(AreaFrames).GetProperty(nameof(AreaFrames.Rng))!.SetValue(player.Frames, new QualifyingRoll());
+
+    static async Task LandWitness(TriggeredSummonTests.Fixture fixture, ContactClock clock, SpawnedMonster target,
+        ushort skill, ushort sequence = 2)
+    {
+        var player = fixture.Player;
+        Game.RecomputePoolsAndSpeed(player);
+        Game.ConfigureLeech(player, Game.CharacterPlayerStats(player).GetValueOrDefault, onLowLife: true);
+        player.PlayerLife = player.PlayerMaxLife / 2;
+        SetWitnessRoll(player);
+        uint mana = player.PlayerMana;
+        Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (104, 100), target.ObjectId, sequence: sequence));
+        Assert.True(player.PlayerMana < mana);
+        if (target.Life == target.MaxLife)
+        {
+            await clock.Wait(600, CancellationToken.None);
+            fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.At)));
+        }
+        Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+    }
+
+    sealed class QualifyingRoll : Random
+    {
+        public override int Next(int maxValue) => 0;
+        public override int Next(int minValue, int maxValue) => minValue;
+        public override double NextDouble() => 0;
+    }
+
+    sealed class ContactClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     static Func<uint, int> Get(params (uint Name, int Value)[] stats) =>
         name => stats.FirstOrDefault(s => s.Name == name).Value;
 

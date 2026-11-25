@@ -4,6 +4,37 @@ namespace GameServer.Gateway.Tests;
 
 public class UniqueSocketTests
 {
+    static void Corrupted_shield_raises_its_socketed_traps_and_mines_without_raising_the_body_trap()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var items = Game.ItemsOf(player);
+        uint weapon = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+        items.Change(PlayerInventories.Weapon1, weapon, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        Item Gem(string name)
+        {
+            var gem = Program.Items.FindGem(name)!.Value;
+            return ItemCatalog.Create(gem.Type) with { GemVariant = gem.Variant.Index };
+        }
+        var shield = ItemCatalog.Create(Program.Items.Find("Splintered Tower Shield")!) with
+        {
+            Corrupted = true,
+            Mods = [new(ModSection.Implicit, Program.Items.Mods.ById("V2SocketedTrapOrMineGemCorrupted")!.Hash, [2])],
+            Sockets = [new(SocketColour.White, Gem("Explosive Trap")), new(SocketColour.White, Gem("Stormblast Mine"))],
+            Links = [1, 1],
+        };
+        items.Add(PlayerInventories.Offhand1, 0, 0, shield);
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        {
+            Sockets = [new(SocketColour.White, Gem("Fire Trap"))], Links = [1],
+        });
+        var skills = Game.GemSkillEffects(player).ToDictionary(skill => skill.Name,
+            skill => Game.SupportedSkill(player, skill.Id).Level);
+        Assert.Equal(3, skills["Explosive Trap"]);
+        Assert.Equal(3, skills["Stormblast Mine"]);
+        Assert.Equal(1, skills["Fire Trap"]);
+    }
+
     [Fact]
     public void Ordinary_uniques_get_initial_sockets_without_overwriting_special_layouts()
     {
@@ -58,6 +89,8 @@ public class UniqueSocketTests
         // Malachai's Artifice's Unset Ring implicit gives its socket and the unique makes it white.
         var artifice = Assert.IsType<Item>(uniques.Create("Malachai's Artifice", new Random(17)));
         Assert.Equal([SocketColour.White], artifice.Sockets.Select(socket => socket.Colour));
+
+        Corrupted_shield_raises_its_socketed_traps_and_mines_without_raising_the_body_trap();
     }
 
     [Fact]

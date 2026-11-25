@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using System.Reflection;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -6,6 +7,182 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SecondarySkillExecutionTests
 {
+    [Fact]
+    public async Task Paid_totem_uses_taunt_and_accepted_contacts_grant_owner_leech_and_surge()
+    {
+        await A_paid_Arc_totem_grants_its_owner_Arcane_Surge_only_after_contact();
+        await Trolltimber_Spire_leeches_life_for_the_owner_from_paid_Arc_totem_hits();
+        await Native_totem_summon_taunt_selects_the_placed_totem_for_nearby_enemies();
+    }
+
+    static async Task A_paid_Arc_totem_grants_its_owner_Arcane_Surge_only_after_contact()
+    {
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(17)));
+        var mod = Program.Items.Mods.ById("AnimalCharmArcaneSurgeOnHit")!;
+        foreach (bool equipped in new[] { false, true })
+        {
+            var clock = new TotemClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.Connection.LockstepClient = false;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.At);
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            player.Character.Passives.Add(31703);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            { Mods = equipped ? [new(ModSection.Explicit, mod.Hash, [1])] : [] });
+            ushort arc = Assert.Single(fixture.Equip(("Arc", 18), ("Spell Totem Support", 18)));
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, arc, (100, 100), (106, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var totem = Assert.Single(player.Totems.Living(clock.At));
+                Game.TickSpellTotemsLocked(player, []);
+                Assert.False(player.SupportGems.ArcaneSurgeActiveAt(clock.At));
+                const uint id = 910;
+                var target = new SpawnedMonster("Arc totem witness", new(116, 100, 0), 0, 0, 10000)
+                    { ObjectId = id, Hostile = true };
+                player.Area.Monsters.Add(id, target);
+                player.Area.Grid.Set(new(id), (116, 100));
+                Game.TickSpellTotemsLocked(player, []);
+                Assert.True(totem.NextCast > clock.At);
+                clock.At = totem.NextCast;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                Assert.Equal(equipped, player.SupportGems.ArcaneSurgeActiveAt(clock.At));
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    static async Task Trolltimber_Spire_leeches_life_for_the_owner_from_paid_Arc_totem_hits()
+    {
+        var ordinary = await ArcTotemContact(null, enemy: true);
+        Assert.True(ordinary.Damage > 0);
+        Assert.Equal(0, ordinary.Recovered);
+        void Equip(Player player)
+        {
+            var shield = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Trolltimber Spire", new Random(4)));
+            var mod = Program.Items.Mods.ById("TotemLeechLifeToYouUnique__1")!;
+            Game.ItemsOf(player).Add(PlayerInventories.Offhand1, 0, 0,
+                shield with { Mods = [new(ModSection.Explicit, mod.Hash, [50])] });
+        }
+        Assert.Equal(0, (await ArcTotemContact(Equip, enemy: false)).Recovered);
+        var live = await ArcTotemContact(Equip, enemy: true);
+        Assert.True(live.Damage > 0);
+        Assert.InRange(live.Recovered, live.Damage * .005 - .1, live.Damage * .005 + .1);
+    }
+
+    static async Task Native_totem_summon_taunt_selects_the_placed_totem_for_nearby_enemies()
+    {
+        foreach (bool equipped in new[] { false, true })
+        {
+            var clock = new TotemClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Connection.LockstepClient = false;
+            player.Walk.Teleport(100, 100, clock.At);
+            ushort arc = Assert.Single(fixture.Equip(("Arc", 18), ("Spell Totem Support", 18)));
+            var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(17)));
+            var mod = Program.Items.Mods.ById("AnimalCharmTotemTauntEnemiesWhenSummoned")!;
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            player.Character.Passives.Add(31703);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            { Mods = equipped ? [new(ModSection.Explicit, mod.Hash, [2])] : [] });
+            SpawnedMonster Add(uint id, (int X, int Y) at)
+            {
+                var monster = new SpawnedMonster("taunt witness", new(at.X, at.Y, 0), 0, 0, 10000)
+                    { ObjectId = id, Hostile = true };
+                player.Area.Monsters[id] = monster;
+                player.Area.Grid.Set(new(id), at);
+                return monster;
+            }
+            var near = Add(919, (115, 100));
+            var distant = Add(920, (160, 100));
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, arc, (100, 100), (106, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var totem = Assert.Single(player.Totems.Living(clock.At));
+                var taunt = Game.DecoyTarget(near, clock.At);
+                Assert.Equal(equipped, taunt.HasValue);
+                if (taunt is { } active) Assert.Same(totem, active.Source);
+                Assert.Null(Game.DecoyTarget(distant, clock.At));
+                Assert.Null(Game.DecoyTarget(near, clock.At + 2.01));
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    static async Task<(uint Damage, double Recovered)> ArcTotemContact(Action<Player>? setup, bool enemy)
+    {
+        var clock = new TotemClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.Connection.LockstepClient = false;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        var items = Game.ItemsOf(player);
+        uint weapon = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+        items.Change(PlayerInventories.Weapon1, weapon, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!));
+        ushort arc = Assert.Single(fixture.Equip(("Arc", 18), ("Spell Totem Support", 18)));
+        setup?.Invoke(player);
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.SpellMinimumAddedLightningDamage] = values[Stat.SpellMaximumAddedLightningDamage] = 2500;
+            }
+            return values;
+        });
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerLife = player.PlayerMaxLife / 2;
+            Game.ConfigureLeech(player, Game.CharacterPlayerStats(player).GetValueOrDefault, onLowLife: true);
+            uint mana = player.PlayerMana;
+            Assert.True(await Game.CastGemSkill(player, arc, (100, 100), (106, 100)));
+            Assert.True(player.PlayerMana < mana);
+            var totem = Assert.Single(player.Totems.Living(clock.At));
+            if (!enemy) return (0, Game.TakeLeechRecovery(player, clock.At + 1, false, true, true).Life);
+            const uint id = 918;
+            var target = new SpawnedMonster("Arc totem contact", new(116, 100, 0), 0, 0, 100000)
+                { ObjectId = id, Hostile = true };
+            player.Area.Monsters.Add(id, target);
+            player.Area.Grid.Set(new(id), (116, 100));
+            Game.TickSpellTotemsLocked(player, []);
+            Assert.True(totem.NextCast > clock.At);
+            clock.At = totem.NextCast;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            return (target.MaxLife - target.Life, Game.TakeLeechRecovery(player, clock.At + 3, false, true, true).Life);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    sealed class TotemClock : IPlayerUpdateSchedule
+    {
+        public double At = 1;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     static ushort Equip(MinionUtilityTests.Fixture f, params string[] names)
     {
         f.Equip(names.Select(n => (n,4)).ToArray());

@@ -75,6 +75,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
+- Cospri's Will can Wither an already cursed target. Vivid Hues leeches from attacks against bleeding enemies.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
@@ -297,6 +298,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
+- Vaal Caress grants timed Adrenaline after an accepted Vaal skill use.
 - Vaal Molten Shell: soul-paid armour and hit absorption, fire reflection each second and on removal, and a single
   active guard buff with separate Vaal and regular cooldowns.
 - Vaal Sweep repeats its attack and knocks back eligible enemies. Vaal Lightning Warp damages and moves nearby
@@ -310,6 +312,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
+- The Coming Calamity fixes Herald reservation at 45% Mana. Waxen Soul converts accepted curse costs to Life.
 - Animated equipment, including Self Reflection. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Animated Guardian keeps its equipment on death and is unavailable in that non-hideout instance.
 - Summons: quality, source recovery, spell repeats, and enemy-seeking undamageable Skitterbots; mines and traps
@@ -318,6 +321,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Locus Mine keeps close mines armed and aims detonated volleys at the player.
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Socketed trap and mine gems read slot bonuses, and Architect's Hand adds cast speed to trap throws.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
 - Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
 - Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
@@ -358,6 +362,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
   two totems.
   A Focused Ballista totem fires only when due with an owner attack it has not spent.
+- Totems can taunt on summon and feed Life leech or Arcane Surge to their owner on qualified hits.
   Skill bars without a saved attack-in-place mask use each bound skill's default.
 - Searing Bond totems burn enemies along their links, and Searing Bond of Detonation leaves a timed area burn at cap.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).

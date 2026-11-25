@@ -4,8 +4,115 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SkillAdmissionCostTests
 {
+    static async Task Waxen_Soul_pays_life_for_a_direct_curse_and_reserves_life_for_a_curse_aura()
+    {
+        var armour = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Waxen Soul", new Random(17)));
+        var mod = Program.Items.Mods.ById("CurseSkillsCostAndReserveLifeUnique__1")!;
+        var control = armour with { Mods = [.. armour.Mods.Where(value => value.Hash != mod.Hash)] };
+        var plain = await Pay(control, equipped: false);
+        Assert.Equal(plain, await Pay(armour, equipped: true));
+
+        async Task<(uint Direct, uint Ordinary)> Pay(Item equippedItem, bool equipped)
+        {
+            var clock = new MarkClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            var items = Game.ItemsOf(player);
+            items.Add(PlayerInventories.BodyArmour, 0, 0, equippedItem);
+            fixture.Equip(("Flammability", 18), ("Frostbite", 18), ("Blasphemy Support", 18), ("Ice Nova", 18));
+            uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, main, item => item with { Links = [1, 2, 1] });
+            var gems = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+            const uint id = 903;
+            var target = new SpawnedMonster("curse witness", new(104, 100, 0), 0, 0, 10000) { ObjectId = id, Hostile = true };
+            player.Area.Monsters[id] = target;
+            player.Area.Grid.Set(new(id), (104, 100));
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                Game.RecomputePoolsAndSpeed(player);
+                uint mana = player.PlayerMana = (uint)Game.UnreservedMana(player);
+                uint life = player.PlayerLife = player.PlayerMaxLife;
+                var direct = gems["Flammability"];
+                var rows = Game.PlayerSkills(player).Single(skill => skill.Id == direct.Id).Stats!;
+                int wireMana = rows.SingleOrDefault(row => row.Key == Stat.ManaCost).Value;
+                int wireLife = rows.SingleOrDefault(row => row.Key == Stat.LifeCost).Value;
+                Assert.True(await Game.CastGemSkill(player, direct.Id, (100, 100), (104, 100), id));
+                Assert.Contains(target.Curses.All.Values, curse => curse.Effect == "Flammability");
+                uint paidDirect = equipped ? life - player.PlayerLife : mana - player.PlayerMana;
+                Assert.True(paidDirect > 0);
+                Assert.Equal(equipped ? (0, (int)paidDirect) : ((int)paidDirect, 0), (wireMana, wireLife));
+                Assert.Equal(equipped ? mana : mana - paidDirect, player.PlayerMana);
+                Assert.Equal(equipped ? life - paidDirect : life, player.PlayerLife);
+                await clock.Wait(1000, CancellationToken.None);
+                uint ordinaryMana = player.PlayerMana, ordinaryLife = player.PlayerLife;
+                Assert.True(await Game.CastGemSkill(player, gems["Ice Nova"].Id, (100, 100), (104, 100), id));
+                Assert.Equal(ordinaryLife, player.PlayerLife);
+                Assert.True(player.PlayerMana < ordinaryMana);
+                uint paidOrdinary = ordinaryMana - player.PlayerMana;
+                var aura = gems["Frostbite"];
+                Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+                var reservation = player.Auras[aura.Id];
+                Assert.Equal(equipped, reservation.ReservesLife);
+                return (paidDirect, paidOrdinary);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    static async Task Coming_Calamity_fixes_both_heralds_at_forty_five_percent_mana()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var items = Game.ItemsOf(player);
+        fixture.Equip(("Herald of Ice", 1), ("Herald of Thunder", 1), ("Increased Area of Effect Support", 1), ("Grace", 1));
+        uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+        items.Change(PlayerInventories.Weapon1, main, item => item with { Links = [3, 1] });
+        var gems = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+        var armour = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("The Coming Calamity", new Random(4)));
+        ushort modifier = Program.Items.Mods.ById("HeraldsAlwaysCost45Unique__1")!.Hash;
+        var ice = gems["Herald of Ice"];
+        var thunder = gems["Herald of Thunder"];
+        var grace = gems["Grace"];
+        Assert.NotEmpty(Game.SupportedSkill(player, ice.Id).Supports);
+        int Original(ushort skill) => Game.SupportedReservationCost(player, skill)!.Value.ManaPercent;
+        Assert.NotEqual(4500, Original(ice.Id));
+        int gracePercent = Original(grace.Id);
+        items.Add(PlayerInventories.BodyArmour, 0, 0, armour with { Mods = [new(ModSection.Explicit, modifier, [1])] });
+        Game.RecomputePoolsAndSpeed(player);
+        player.Pools = player.Pools with { ManaReservationEfficiencyPct = 50 };
+        Assert.Equal(gracePercent, Original(grace.Id));
+        foreach (var herald in new[] { ice, thunder })
+        {
+            var reservation = Game.SupportedReservationCost(player, herald.Id)!.Value;
+            Assert.Equal(4500, reservation.ManaPercent);
+            Assert.True(await Game.ToggleAura(player, herald.Id, herald.Effect, herald.Name,
+                reservation, herald.Level, herald.Quality));
+            var aura = player.Auras[herald.Id];
+            Assert.Equal((int)Math.Ceiling(player.Pools.Mana * .45),
+                AuraCatalog.RequiredMana(player.Pools with { ManaReservationEfficiencyPct = 50 }, [aura]));
+        }
+        Assert.Equal((int)Math.Ceiling(player.Pools.Mana * .90), AuraCatalog.RequiredMana(player.Pools, player.Auras.Values));
+    }
+
+    sealed class MarkClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     [Fact]
-    public void Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
+    public async Task Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
     {
         using var f = new Fixture();
         var player = f.Player;
@@ -170,6 +277,9 @@ public sealed class SkillAdmissionCostTests
         Assert.Equal((uint)heavyBase, paidMana);
         Assert.Equal(0u, paidLife);
         Assert.Equal(900u, player.PlayerLife);
+
+        await Waxen_Soul_pays_life_for_a_direct_curse_and_reserves_life_for_a_curse_aura();
+        await Coming_Calamity_fixes_both_heralds_at_forty_five_percent_mana();
     }
 
     [Fact]
