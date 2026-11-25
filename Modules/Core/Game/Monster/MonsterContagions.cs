@@ -89,7 +89,7 @@ static partial class Game
         int radius = cast.Radius;
         double now = ProjectileWorldTime(player);
         foreach (var (_, m) in player.Area.Monsters)
-            if (m.Hostile && !m.Dead && m.Life > 0 && m.OwnerId is null && Dist(m.Walk.Position(now), centre) <= radius)
+            if (m.Hostile && !m.Dead && !m.Invulnerable && m.Life > 0 && m.OwnerId is null && Dist(m.Walk.Position(now), centre) <= radius)
             {
                 m.Contagion.Apply(now, cast);
                 affected++;
@@ -186,13 +186,29 @@ static partial class Game
             player.KillShares.Enqueue(_ => ShowContagionSpread(player, at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo));
     }
 
+    /// <summary>Spreads an active Contagion (and any attached Essence Drain) when a monster hits a non-lethal life floor,
+    /// without killing it. Call inside the area's frame lock.</summary>
+    public static void SpreadContagionAtFloorLocked(Player player, SpawnedMonster m)
+    {
+        if (m.Contagion.Idle) return;
+        double now = ProjectileWorldTime(player);
+        var drain = m.EssenceDrain.TakeSpread(now);
+        var cast = m.Contagion.TakeSpread(now);
+        if (cast is null) return;
+        var at = m.Walk.Position(now);
+        ApplyContagionSpreadLocked(player, m, at, cast, drain, now);
+        var viewer = DotOwner(player, cast.Caster) ?? player;
+        if (viewer.Connection.PlayerSent)
+            viewer.KillShares.Enqueue(_ => ShowContagionSpread(viewer, at, cast.Radius, cast.SpreadAo ?? ContagionSpreadAo));
+    }
+
     static int ApplyContagionSpreadLocked(Player player, SpawnedMonster source, (int X, int Y) at,
         MonsterContagion.Cast cast, MonsterEssenceDrain.Cast? drain, double now)
     {
         int spread = 0;
         var next = cast with { DamagePerSecond = cast.DamagePerSecond * cast.SpreadMore };
         foreach (var (_, other) in player.Area.MonstersNear(at, cast.Radius))
-            if (!ReferenceEquals(other, source) && other is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
+            if (!ReferenceEquals(other, source) && other is { Hostile: true, Dead: false, Invulnerable: false, Life: > 0, OwnerId: null }
                 && Dist(other.Walk.Position(now), at) <= cast.Radius)
             {
                 other.Contagion.Apply(now, next);

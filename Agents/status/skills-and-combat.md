@@ -332,7 +332,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types, and a placed totem
-  is listed under `TotemMinion` until it dies (not checked live).
+  is listed under `TotemMinion` until it dies (not checked live). The active and permanent minion counts
+  (`number_of_active_minions`, `number_of_active_permanent_minions`) count the same minion roster, with a permanent
+  minion being one without a duration.
   Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
   in reach is refused before its cost is paid (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.

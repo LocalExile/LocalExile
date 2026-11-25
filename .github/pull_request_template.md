@@ -16,9 +16,10 @@ Closes #
 - Head commit:
 - [ ] `dotnet build GameServer.slnx`
 - [ ] Core, Data and Gateway test suites, with their counts:
-- [ ] Seen in the client (optional):
+- [ ] Verification evidence (required for gameplay, world, and protocol changes — live client via `live.ps1`, logs, `campaign.ps1`, or protocol/RE reference; state N/A with reason for tooling/docs-only changes):
 - [ ] Only for a change to player stat building or the item-stat lookup: `stat-builds` %cpu in a fight, before and after
   ([hot paths](https://github.com/LocalExile/LocalExile/blob/main/Agents/docs/dev/performance.md#hot-paths)):
+- Agent / model used (optional):
 
 ## For the reviewer
 

@@ -18,7 +18,7 @@ public sealed class CharacterPlaytime(Func<double>? time = null) : IDisposable
     public void Begin(Player player)
     {
         lock (sessions)
-            if (!retired && !player.Controlled && player.Character.Name is { Length: > 0 } name && !player.Closed && !player.LeavingArea)
+            if (!retired && player.EarnsProgress && player.Character.Name is { Length: > 0 } name && !player.Closed && !player.LeavingArea)
                 sessions.TryAdd(player, new(name, now()));
     }
 

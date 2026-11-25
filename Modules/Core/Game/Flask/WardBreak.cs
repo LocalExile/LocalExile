@@ -9,34 +9,34 @@ public static partial class Game
     public static bool PlayerAlwaysHits(Player player) => Stat.GlobalAlwaysHit is var key
         && CharacterPlayerStats(player).GetValueOrDefault(key) != 0;
 
-    public static Dictionary<uint, int> WithAntiquarian(Player player, Dictionary<uint, int> sources,
+    public static Dictionary<uint, int> WithWardBreak(Player player, Dictionary<uint, int> sources,
         IReadOnlyList<(byte Row, InventoryItem Item)>? equipment = null, IReadOnlySet<uint>? inactive = null)
     {
         bool flameTouched = FlameTouchedActive(player, equipment, inactive);
         if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
-        var state = player.Antiquarian;
+        var state = player.WardBreak;
         double now = AreaTime(player);
-        bool timedAdrenaline = sources.GetValueOrDefault(AntiquarianEffects.AdrenalineSource) > 0
+        bool timedAdrenaline = sources.GetValueOrDefault(WardBreakEffects.AdrenalineSource) > 0
             && now < state.TimedAdrenalineUntil && StatsChangeInAnd(state.TimedAdrenalineUntil - now);
         if (player.PlayerLife > 0 && (timedAdrenaline || flameTouched && state.SustainedAdrenaline))
-            foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
+            foreach (var (key, value) in WardBreakEffects.AdrenalineStats)
                 sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return sources;
     }
 
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
-    static void ObserveAntiquarian(Player player, IReadOnlyDictionary<uint, int> stats)
+    static void ObserveWardBreak(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        player.Antiquarian.Observe(AreaTime(player), Get(AntiquarianEffects.AdrenalineSource) > 0,
-            Get(AntiquarianEffects.StunRecoverySource) > 0, player.PlayerLife > 0 && !player.RageRetired);
+        player.WardBreak.Observe(AreaTime(player), Get(WardBreakEffects.AdrenalineSource) > 0,
+            Get(WardBreakEffects.StunRecoverySource) > 0, player.PlayerLife > 0 && !player.RageRetired);
     }
 
-    public static void EnsureAntiquarianPools(Player player)
+    public static void EnsureWardBreakPools(Player player)
     {
         ReconcileFlameTouched(player, AreaTime(player));
         bool active = player.PlayerLife > 0 && !player.RageRetired
-            && player.Antiquarian.Adrenaline(AreaTime(player));
+            && player.WardBreak.Adrenaline(AreaTime(player));
         if (player.AppliedAdrenaline != active)
         {
             player.Pools = PoolsFor(player, player.Pools.Level);
@@ -49,22 +49,22 @@ public static partial class Game
     public static int DamagePlayerHit(Player player, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats, DamagePacket types) => DamagePlayerHitTyped(player, 0, nonChaos, chaos, now, stats, types);
 
-    public static void ClearAntiquarianOnDeath(Player player)
+    public static void ClearWardBreakOnDeath(Player player)
     {
         if (player.PlayerLife != 0) return;
         if (player.ResourceEffectsState is ResourceEffectsState resources) RetireFlameTouched(player, resources);
-        player.Antiquarian.Clear(); player.EnduringCryRecovery.Clear(); player.Ward.SetMaximum(0);
+        player.WardBreak.Clear(); player.EnduringCryRecovery.Clear(); player.Ward.SetMaximum(0);
     }
 
-    public static byte[]? AntiquarianPresentation(Player player)
+    public static byte[]? WardBreakPresentation(Player player)
     {
         if (player.Closed || player.LeavingArea || player.RageRetired) return null;
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         player.Ward.Advance(AreaTime(player));
         var ward = (player.Ward.Maximum, player.Ward.Broken);
-        double adrenaline = player.PlayerLife > 0 && player.Antiquarian.Adrenaline(AreaTime(player))
-            ? player.Antiquarian.AdrenalineUntil : double.NegativeInfinity;
-        double recovery = player.Antiquarian.RecoveryUntil(AreaTime(player));
+        double adrenaline = player.PlayerLife > 0 && player.WardBreak.Adrenaline(AreaTime(player))
+            ? player.WardBreak.AdrenalineUntil : double.NegativeInfinity;
+        double recovery = player.WardBreak.RecoveryUntil(AreaTime(player));
         double cry = player.EnduringCryRecovery.Rate(AreaTime(player)) > 0
             ? player.EnduringCryRecovery.Until : double.NegativeInfinity;
         if (player.SentWard == ward && player.SentAdrenalineUntil == adrenaline
@@ -80,12 +80,12 @@ public static partial class Game
         }
         var bytes = new List<byte>();
         var buffs = player.Area.Buffs;
-        if (ward.Maximum > 0 && ward.Broken) buffs.Set(player.Id, new(AntiquarianEffects.WardBrokenDefinition, player.Id));
-        else buffs.Clear(player.Id, AntiquarianEffects.WardBrokenDefinition, player.Id);
+        if (ward.Maximum > 0 && ward.Broken) buffs.Set(player.Id, new(WardBreakEffects.WardBrokenDefinition, player.Id));
+        else buffs.Clear(player.Id, WardBreakEffects.WardBrokenDefinition, player.Id);
         if (adrenaline > double.NegativeInfinity)
-            buffs.Set(player.Id, new(AntiquarianEffects.AdrenalineDefinition, player.Id,
+            buffs.Set(player.Id, new(WardBreakEffects.AdrenalineDefinition, player.Id,
                 U68: double.IsFinite(adrenaline) ? Buff.Seconds(adrenaline - AreaTime(player)) : null));
-        else buffs.Clear(player.Id, AntiquarianEffects.AdrenalineDefinition, player.Id);
+        else buffs.Clear(player.Id, WardBreakEffects.AdrenalineDefinition, player.Id);
         if (double.IsFinite(cry)) buffs.Set(player.Id, new(1541, player.Id, U68: Buff.Seconds(cry - AreaTime(player))));
         else buffs.Clear(player.Id, 1541, player.Id);
         bytes.AddRange(PlayerStatsOffFrames(player));
@@ -96,39 +96,39 @@ public static partial class Game
         player.SentWard = ward; player.SentAdrenalineUntil = adrenaline;
         player.SentStunRecoveryUntil = recovery;
         player.SentEnduringCryUntil = cry;
-        Console.WriteLine($"[gateway] Antiquarian Ward {player.Ward.Current}/{player.Ward.Maximum}, "
+        Console.WriteLine($"[gateway] Ward {player.Ward.Current}/{player.Ward.Maximum}, "
             + $"broken={player.Ward.Broken}, Adrenaline={adrenaline > double.NegativeInfinity}");
         return [.. bytes];
     }
 
-    public static Task SendAntiquarian(Player player) =>
-        Send(player, [], null, atGate: () => AntiquarianPresentation(player));
+    public static Task SendWardBreak(Player player) =>
+        Send(player, [], null, atGate: () => WardBreakPresentation(player));
 
-    public sealed record AntiquarianTransfer(string Character, DateTime At, AntiquarianCombatState.Carried Buffs,
+    public sealed record WardBreakTransfer(string Character, DateTime At, WardBreakState.Carried Buffs,
         bool Broken, double WardSeconds, TimedLifeRecovery.Carried Cry);
-    public static readonly ConcurrentDictionary<uint, AntiquarianTransfer> CarriedAntiquarian = new();
+    public static readonly ConcurrentDictionary<uint, WardBreakTransfer> CarriedWardBreak = new();
 
-    public static void CarryAntiquarian(Player player, uint ticket)
+    public static void CarryWardBreak(Player player, uint ticket)
     {
         if (player.Closed || player.RageRetired) return;
-        if (player.PlayerLife == 0) ClearAntiquarianOnDeath(player);
+        if (player.PlayerLife == 0) ClearWardBreakOnDeath(player);
         double now = AreaTime(player);
         player.Ward.Advance(now);
-        foreach (var (old, entry) in CarriedAntiquarian)
-            if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedAntiquarian.TryRemove(old, out _);
-        CarriedAntiquarian.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow,
-            player.Antiquarian.Carry(now), player.Ward.Broken, Math.Max(0, player.Ward.RestoresAt - now),
+        foreach (var (old, entry) in CarriedWardBreak)
+            if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedWardBreak.TryRemove(old, out _);
+        CarriedWardBreak.TryAdd(ticket, new(CharacterName(player), DateTime.UtcNow,
+            player.WardBreak.Carry(now), player.Ward.Broken, Math.Max(0, player.Ward.RestoresAt - now),
             player.EnduringCryRecovery.Carry(now)));
     }
 
-    public static void RestoreAntiquarian(Player player)
+    public static void RestoreWardBreak(Player player)
     {
-        if (!CarriedAntiquarian.TryGetValue(player.Ticket, out var carry)
+        if (!CarriedWardBreak.TryGetValue(player.Ticket, out var carry)
             || carry.Character != CharacterName(player)
-            || !CarriedAntiquarian.TryRemove(new KeyValuePair<uint, AntiquarianTransfer>(player.Ticket, carry))) return;
+            || !CarriedWardBreak.TryRemove(new KeyValuePair<uint, WardBreakTransfer>(player.Ticket, carry))) return;
         if (player.PlayerLife == 0 || DateTime.UtcNow - carry.At > TimeSpan.FromMinutes(5)) return;
         double now = AreaTime(player);
-        player.Antiquarian.Restore(carry.Buffs, now);
+        player.WardBreak.Restore(carry.Buffs, now);
         player.EnduringCryRecovery.Restore(carry.Cry, now);
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.Ward.RestoreCarried(carry.Broken, carry.WardSeconds, now);

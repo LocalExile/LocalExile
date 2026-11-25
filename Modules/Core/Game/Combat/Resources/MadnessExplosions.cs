@@ -75,7 +75,7 @@ public static partial class Game
                 ? Profile(increased) : normal;
             var penetration = Penetration.Of(playerStats, Stats, attack: false);
             var resistanceMods = HitResistMods(playerStats);
-            var gambler = GamblerFor(playerStats);
+            var hitRolls = HitRollsFor(playerStats);
             bool previousSecondary = player.Reservations.Secondary;
             player.Reservations.Secondary = true;
             try
@@ -97,9 +97,9 @@ public static partial class Game
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);
                     bool critical = RandomRolls.Chance(critChance, 10000, player.Madness.Random);
                     var rolled = GameEvents.WithOutgoingDamage(player, playerStats, target,
-                        gambler.RollOutgoingHit(profile.Hit, player.Madness.Random));
+                        hitRolls.RollOutgoingHit(profile.Hit, player.Madness.Random));
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
-                    bool invert = gambler.InvertsResistance(player.Madness.Random);
+                    bool invert = hitRolls.InvertsResistance(player.Madness.Random);
                     var defenses = ImpurityHitMods(target, now, resistanceMods);
                     var mitigated = rolled.Select((type, range) => range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(
                         type, MonsterHitResistance(target, type, penetration, now), strike, defenses, invert) / 100)));
