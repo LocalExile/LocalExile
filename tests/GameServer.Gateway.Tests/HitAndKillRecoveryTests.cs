@@ -4,6 +4,104 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class HitAndKillRecoveryTests
 {
+    [Fact]
+    public async Task Watchers_Eye_recovers_life_and_shield_on_paid_spell_and_attack_hits()
+    {
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
+        var lifeMod = Program.Items.Mods.ById("VitalityLifeGainPerHit")!;
+        var shieldMod = Program.Items.Mods.ById("DisciplineEnergyShieldPerHit")!;
+        var cases = new (bool Equipped, bool Vitality, bool Discipline)[]
+        {
+            (false, true, true), (true, false, false), (true, true, true),
+            (true, true, false), (true, false, true),
+        };
+        foreach (var (equipped, vitality, discipline) in cases)
+        {
+            var clock = new KillClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            var items = Game.ItemsOf(player);
+            uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            fixture.Equip(("Ice Nova", 1), ("Faster Casting Support", 1), ("Arc", 1),
+                ("Heavy Strike", 1), ("Vitality", 1), ("Discipline", 1));
+            var sockets = Assert.Single(items.Items(PlayerInventories.Weapon1)).Item.Sockets.Take(6).ToArray();
+            items.Change(PlayerInventories.Weapon1, main, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!) with
+                { Sockets = [sockets[3]], Links = [1] });
+            items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+                { Sockets = [sockets[0], sockets[1], sockets[2], sockets[4], sockets[5]], Links = [2, 1, 1, 1] });
+            var gems = Game.GemSkillEffects(player).ToDictionary(skill => skill.Name);
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            {
+                Mods = equipped ? [new(ModSection.Explicit, lifeMod.Hash, [26]), new(ModSection.Explicit, shieldMod.Hash, [21])] : [],
+            });
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player)) values[Stat.GlobalAlwaysHit] = values[Stat.GlobalCannotCrit] = 1;
+                return values;
+            });
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                foreach (var (name, active) in new[] { ("Vitality", vitality), ("Discipline", discipline) })
+                {
+                    var aura = gems[name];
+                    if (active)
+                        Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                            Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+                    Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == aura.Id));
+                }
+                Game.RecomputePoolsAndSpeed(player);
+                var expected = (equipped && vitality ? 26u : 0u, equipped && discipline ? 21u : 0u);
+                foreach (string name in vitality == discipline ? new[] { "Ice Nova", "Arc", "Heavy Strike" } : new[] { "Arc" })
+                    Assert.Equal(expected, await Hit(name));
+                if (equipped && (vitality || discipline))
+                    Assert.Equal((vitality ? 5u : 0u, discipline ? 7u : 0u), await Hit("Arc", nearCap: true));
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+
+            async Task<(uint Life, uint EnergyShield)> Hit(string name, bool nearCap = false)
+            {
+                await clock.Wait(1000, CancellationToken.None);
+                const uint id = 900;
+                var target = new SpawnedMonster("recovery witness", new(104, 100, 0), 0, 0, 10000)
+                    { ObjectId = id, Hostile = true };
+                player.Area.Monsters[id] = target;
+                player.Area.Grid.Set(new(id), (104, 100));
+                player.EnergyShield.SetMaximum(82);
+                player.EnergyShield.Empty();
+                if (nearCap) player.EnergyShield.Recover(75);
+                uint shield = player.EnergyShield.Current;
+                uint life = player.PlayerLife = nearCap ? player.PlayerMaxLife - 5 : player.PlayerMaxLife / 2;
+                uint mana = player.PlayerMana;
+                try
+                {
+                    Assert.True(await Game.CastGemSkill(player, gems[name].Id, (100, 100), (104, 100), targetId: id));
+                    Assert.True(player.PlayerMana < mana);
+                    Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                    return (player.PlayerLife - life, player.EnergyShield.Current - shield);
+                }
+                finally { player.Area.Monsters.Remove(id); }
+            }
+        }
+    }
+
+    sealed class KillClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
     static Dictionary<uint, int> With(params (string Name, int Value)[] stats) =>
         stats.ToDictionary(s => Stat.Of(s.Name), s => s.Value);
 

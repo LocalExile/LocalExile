@@ -68,6 +68,116 @@ public class ArrowRainAndMirageTests
     }
 
     [Fact]
+    public async Task Pierce_retains_the_equipped_projectile_attack_bonus_after_first_contact()
+    {
+        const int increase = 10;
+        var plain = await Fire(false, 100);
+        var modified = await Fire(true, 100);
+        var referenceOne = await Fire(false, 100 + increase);
+        var referenceTwo = await Fire(false, 100 + 2 * increase);
+        Console.WriteLine($"Pierce (hit, one-second ignite): {string.Join(", ", plain)} -> {string.Join(", ", modified)}");
+        Assert.All(plain[..3], damage => { Assert.True(damage.Hit > 0); Assert.True(damage.Ignite > 0); });
+        Assert.Equal((0u, 0), plain[3]);
+        Assert.Equal((0u, 0), modified[3]);
+        Assert.Equal(plain[0], modified[0]);
+        Assert.True(referenceOne[1].Hit > plain[1].Hit && referenceOne[1].Ignite > plain[1].Ignite);
+        Assert.True(referenceTwo[2].Hit > referenceOne[2].Hit && referenceTwo[2].Ignite > referenceOne[2].Ignite);
+        Assert.Equal(referenceOne[1], modified[1]);
+        Assert.Equal(referenceTwo[2], modified[2]);
+        var ordinary = await Fire(true, 100, ordinaryAttack: true);
+        var ordinaryReference = await Fire(false, 100 + increase, ordinaryAttack: true);
+        Assert.True(ordinary[0].Hit > 0);
+        Assert.True(ordinary[2].Hit > ordinary[1].Hit);
+        Assert.Equal((0u, 0), ordinary[3]);
+        Assert.Equal(ordinaryReference[1], ordinary[1]);
+
+        async Task<(uint Hit, int Ignite)[]> Fire(bool equipped, int damageIncrease, bool ordinaryAttack = false)
+        {
+            var clock = new ReaveClock { At = 0 };
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.At);
+            var items = Game.ItemsOf(player);
+            var gloveType = Assert.Single(Program.Items.All, item => item.Id == "Metadata/Items/Armours/Gloves/GlovesAtlasDex");
+            var implicitMod = Program.Items.Mods.ById("ProjectileAttackDamageImplicitGloves1")!;
+            items.Add(PlayerInventories.Gloves, 0, 0, ItemCatalog.Create(gloveType) with
+            { Mods = [new(ModSection.Implicit, implicitMod.Hash, [18])] });
+            Assert.Equal(18, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.ProjectileAttackDamagePlusPct));
+            uint host = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, host, _ => ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
+            var bow = Game.WeaponFor(player);
+            var fixedDamage = Program.Items.Mods.ById("LocalAddedPhysicalDamage1")!;
+            items.Change(PlayerInventories.Weapon1, host, item => item with
+            {
+                Mods = [new ItemMod(ModSection.Explicit, fixedDamage.Hash, [1000 - bow.MinDamage, 1000 - bow.MaxDamage])],
+            });
+            var quiver = ItemCatalog.Create(Assert.Single(Program.Items.All, item => item.Id == "Metadata/Items/Quivers/Quiver1"))
+                with { Mods = [] };
+            var native = Program.Items.Mods.ById("V2IncreasedProjectileDamageForEachPierceCorrupted")!;
+            items.Add(PlayerInventories.Offhand1, 0, 0, equipped
+                ? quiver with { Mods = [new ItemMod(ModSection.Implicit, native.Hash, [increase])] }
+                : quiver);
+            ushort skill = Assert.Single(fixture.Equip(("Burning Arrow", 18), ("Faster Attacks Support", 18), ("Pierce Support", 1)));
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (!ReferenceEquals(owner, player)) return values;
+                values[Stat.GlobalAlwaysHit] = values[Stat.GlobalCannotCrit] = 1;
+                values[Stat.BaseChanceToIgnitePct] = 100;
+                values[Stat.DamagePlusPct] = damageIncrease;
+                if (ordinaryAttack) values[Stat.ProjectileNumberOfTargetsToPierce] = 2;
+                return values;
+            });
+            Assert.Equal(equipped ? increase : 0, Game.FinalPlayerStats(player).Where(row => row.Item1 == Stat.ProjectileDamagePlusPctPerPiercedEnemy).Sum(row => row.Item2));
+            var gem = Assert.Single(Game.GemSkillEffects(player));
+            var shot = ordinaryAttack
+                ? Game.CaptureOrdinaryRangedProjectile(player, fixture.Session, (160, 100), OrdinaryRangedAttack.Arrow, 2, new(0), null)
+                : Game.CaptureGemProjectile(player, fixture.Session, skill, gem, (160, 100), new(0));
+            var profile = shot.Profile;
+            Assert.Equal((0, 2), (profile.Chain, profile.Pierce));
+
+            (int X, int Y)[] points = [(110, 100), (123, 100), (137, 100), (152, 100)];
+            var targets = new List<SpawnedMonster>();
+            foreach (var point in points)
+            {
+                uint id = (uint)(900 + targets.Count);
+                var target = new SpawnedMonster("trajectory target", new(point.X, point.Y, 0), 0, 0, 100000) { ObjectId = id };
+                targets.Add(target);
+                player.Area.Monsters[id] = target;
+                player.Area.Grid.Set(new(id), point);
+            }
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                if (ordinaryAttack) fixture.Session.Runtime.Release(shot);
+                else
+                {
+                    uint mana = player.PlayerMana;
+                    Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (160, 100), sequence: 2));
+                    Assert.True(player.PlayerMana < mana);
+                }
+                fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.At + 1)));
+                return [.. targets.Select(target => (target.MaxLife - target.Life,
+                    double.IsFinite(target.PlayerHitAt) ? target.Ignites.Advance(target.PlayerHitAt + 1, 1) : 0))];
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    sealed class ReaveClock : IPlayerUpdateSchedule
+    {
+        public double At = 10;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
     public void Explosive_arrow_detonates_at_the_fuse_cap_or_first_fuse_deadline_and_only_final_ensnaring_hits_tether()
     {
         static ProjectileUse Capture(Battle battle)

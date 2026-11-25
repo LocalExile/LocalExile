@@ -1,3 +1,4 @@
+using System.Reflection;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
@@ -9,6 +10,139 @@ public sealed class IncomingHitEventsTests
     {
         public override int Next(int maxValue) => 0;
         public override double NextDouble() => 0;
+    }
+
+    static void Incoming_hits_apply_equipped_recoup_and_missing_mana_sources()
+    {
+        RecoupPaysThePoolSelectedWhenTheHitLanded();
+        MissingManaReturnsBeforeAcceptedEnemyHits();
+        var native = Program.Items.Mods.ById("MutatedUniqueRing18RecoupWhileFrozen")!;
+        var ring = ItemCatalog.Create(Program.Items.Find("Iron Ring")!) with
+        { Mods = [new(ModSection.Explicit, native.Hash, [25])] };
+        foreach (var (frozen, blockedRecovery) in new[] { (false, false), (true, false), (true, true) })
+        {
+            var clock = new RecoveryClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            Game.ItemsOf(player).Add(PlayerInventories.Ring1, 0, 0, ring);
+            using var recovery = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+            {
+                if (ReferenceEquals(owner, player) && blockedRecovery) stats[Stat.CannotRecoverLife] = 1;
+                return stats;
+            });
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerLife = player.PlayerMaxLife;
+            if (frozen)
+                player.ElementalAilments.Inflict(PlayerElementalAilments.Kind.Freeze, 100, 2, clock.At, _ => 0, new LowRolls());
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 100, false, false, false, out var hit));
+                Assert.True(hit.Damage > 0);
+                Assert.Equal(frozen && !blockedRecovery ? hit.Damage * .25 : 0, player.LifeRecoup.Take(clock.At + 4), 8);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    static void RecoupPaysThePoolSelectedWhenTheHitLanded()
+    {
+        var native = Program.Items.Mods.ById("MutatedUniqueAmulet43RecoupEnergyShieldInsteadOfLife")!;
+        var amulet = ItemCatalog.Create(Program.Items.Find("Amber Amulet")!) with
+        { Mods = [new(ModSection.Explicit, native.Hash, [1])] };
+        foreach (bool convert in new[] { false, true })
+        {
+            var clock = new RecoveryClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            var state = new PlayerUpdatesState(fixture.Lifetime, clock);
+            player.PlayerUpdatesState = state;
+            Assert.True(player.PlayerUpdatesWorker.TryStart(player, state.Rules, null, state, out state.Generation));
+            if (convert) Game.ItemsOf(player).Add(PlayerInventories.Amulet, 0, 0, amulet);
+            using var recovery = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+            {
+                if (!ReferenceEquals(owner, player)) return stats;
+                stats[Stat.DamageTakenGoesToLifeOver4SecondsPct] = 40;
+                stats[Stat.NoLifeRegeneration] = 1;
+                stats[Stat.CannotRechargeEnergyShield] = 1;
+                stats[Stat.EnergyShieldRecoveryRatePlusPct] = 100;
+                return stats;
+            });
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = state;
+            try
+            {
+                Game.RecomputePoolsAndSpeed(player);
+                player.PlayerLife = player.PlayerMaxLife;
+                player.Walk.Teleport(100, 100, clock.At);
+                player.EnergyShield.SetMaximum(150, refill: true);
+                player.EnergyShield.Spend(150);
+                Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 100, false, false, false, out var hit));
+                Assert.True(hit.Damage > 0);
+                uint life = player.PlayerLife;
+                player.Connection.PlayerSent = false;
+                var start = typeof(Game).GetMethod("StartResourceRecovery", BindingFlags.Static | BindingFlags.NonPublic)!;
+                player.Area.Defer(_ => start.Invoke(null, [player, state]));
+                player.Area.Step(1, clock.At);
+                player.Area.Step(2, ++clock.At);
+                Assert.Equal(convert ? 0u : (uint)(hit.Damage / 10), player.PlayerLife - life);
+                Assert.Equal(convert ? (uint)(hit.Damage / 5) : 0u, player.EnergyShield.Current);
+            }
+            finally
+            {
+                Game.AreaUpdateContext.Value = previous;
+                player.RetirePlayerUpdates();
+            }
+        }
+    }
+
+    static void MissingManaReturnsBeforeAcceptedEnemyHits()
+    {
+        var native = Program.Items.Mods.ById("MutatedUniqueAmulet76GainMissingManaPercentWhenHit")!;
+        var amulet = ItemCatalog.Create(Program.Items.Find("Amber Amulet")!) with
+        { Mods = [new(ModSection.Explicit, native.Hash, [native.RangeAt(0).Max])] };
+        foreach (bool equipped in new[] { false, true })
+        {
+            var clock = new RecoveryClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            if (equipped) Game.ItemsOf(player).Add(PlayerInventories.Amulet, 0, 0, amulet);
+            Game.RecomputePoolsAndSpeed(player);
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                player.Walk.Teleport(100, 100, clock.At);
+                player.PlayerLife = player.PlayerMaxLife;
+                uint cap = (uint)Game.UnreservedMana(player);
+                uint mana = player.PlayerMana = cap / 2;
+                var monster = new SpawnedMonster("mana witness", new(100, 100, 0), 0, 1, 1000);
+                var attack = new MonsterAttack(0, 1, 10, DamagePacket.Of(DamageType.Physical, 15, 15)) { Spell = true };
+                Assert.Null(Game.CommitMonsterHitLocked(player, 1, monster, attack, clock.At,
+                    (1000, 1000), (100, 100), checkRange: true));
+                Assert.Equal(mana, player.PlayerMana);
+                var hit = Assert.IsType<Game.MonsterHitOutcome>(Game.CommitMonsterHitLocked(player, 1, monster, attack,
+                    clock.At, (100, 100), (100, 100), checkRange: false));
+                Assert.Equal(mana, hit.ManaBefore);
+                Assert.Equal(mana + (equipped ? (cap - mana) * (uint)native.RangeAt(0).Max / 100 : 0), hit.Mana);
+                player.PlayerMana = cap;
+                Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 15, false, false, false, out var full));
+                Assert.Equal(cap, full.Mana);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    sealed class RecoveryClock : IPlayerUpdateSchedule
+    {
+        public double At = 10;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
@@ -126,5 +260,6 @@ public sealed class IncomingHitEventsTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseSaves(path);
         }
+        Incoming_hits_apply_equipped_recoup_and_missing_mana_sources();
     }
 }

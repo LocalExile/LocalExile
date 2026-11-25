@@ -75,6 +75,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
 - Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
+- Dyadus chills on qualifying offhand hits, and Disorienting Display blinds nearby enemies on accepted elemental skill uses.
+- Gripped Gloves retain their projectile attack damage on contact, and Obscurantis scales projectile attack damage by complete 200-accuracy groups.
+- Incoming enemy hits can recoup damage taken while frozen, convert Life recoup to Energy Shield, or restore missing unreserved Mana before damage.
+- Watcher's Eye applies its Determination damage reduction and separate Vitality or Discipline hit recovery. Sublime Vision applies its Precision critical multiplier.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.

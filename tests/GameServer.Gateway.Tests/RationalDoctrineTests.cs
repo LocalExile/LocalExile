@@ -4,6 +4,48 @@ namespace GameServer.Gateway.Tests;
 
 public class RationalDoctrineTests
 {
+    [Fact]
+    public async Task Sublime_Vision_applies_the_Precision_final_multiplier_to_attack_and_spell_chances()
+    {
+        var uniques = new UniqueCatalog(Program.Items);
+        var definition = Assert.IsType<UniqueCatalog.Definition>(uniques.Find("Sublime Vision"));
+        var mod = Program.Items.Mods.ById("SublimeVisionPrecision")!;
+        var jewel = Assert.IsType<Item>(Enumerable.Range(1, 512).Select(seed => uniques.Create(definition, new Random(seed)))
+            .FirstOrDefault(candidate => candidate?.Mods.Any(roll => roll.Hash == mod.Hash) == true));
+        var modifier = Assert.Single(jewel.Mods, roll => roll.Hash == mod.Hash);
+        Assert.Equal(25, modifier.Values[0]);
+        var control = jewel with { Mods = [.. jewel.Mods.Select(roll => roll.Hash != mod.Hash ? roll
+            : roll with { Values = [0, .. roll.Values.Skip(1)] })] };
+        var baseline = await Chances(control, active: true);
+        var active = await Chances(jewel, active: true);
+        Assert.Equal(await Chances(control, active: false), await Chances(jewel, active: false));
+        Assert.InRange(active.Spell, (int)Math.Round(baseline.Spell * 1.25) - 1, (int)Math.Round(baseline.Spell * 1.25) + 1);
+        Assert.InRange(active.Attack, (int)Math.Round(baseline.Attack * 1.25) - 1, (int)Math.Round(baseline.Attack * 1.25) + 1);
+        Assert.True(active.Spell > baseline.Spell && active.Attack > baseline.Attack);
+        Console.WriteLine($"Precision crit chances (spell, attack): {baseline} -> {active}");
+
+        async Task<(int Spell, int Attack)> Chances(Item equipped, bool active)
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var items = Game.ItemsOf(player);
+            uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, main, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            fixture.Equip(("Ice Nova", 1), ("Double Strike", 1), ("Precision", 1));
+            var gems = Game.GemSkillEffects(player).ToDictionary(skill => skill.Name);
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            items.Add(PlayerInventories.PassiveJewels, slot, 0, equipped);
+            var aura = gems["Precision"];
+            if (active)
+                Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+            Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == aura.Id));
+            return (Game.SupportedCriticalChance(player, gems["Ice Nova"].Id),
+                Game.SupportedCriticalChance(player, gems["Double Strike"].Id));
+        }
+    }
+
     static int Stat(Item item, string id) =>
         item.Mods.Single(m => Program.Items.Mods.ByHash(m.Hash)!.Id == id).Values[0];
 
