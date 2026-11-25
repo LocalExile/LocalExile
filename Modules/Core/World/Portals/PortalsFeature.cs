@@ -239,10 +239,11 @@ static class PortalsFeature
             $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
             + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
+        int portalLimit = opening.Mods.Get(Stat.MapPortalLimit);
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
             campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
-            pantheonSoul: opening.PantheonSoul);
+            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount);
         if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         else if (!ClientHasQuestFlag(player, "MapDeviceActive"))

@@ -13,6 +13,7 @@ public sealed class MonsterElementalAilments
         // Glacial Wave: a chill from a hit of a player with enemies_chilled_by_hits_take_damage_increased_by_chill_effect
         // / ..._deal_damage_lessened_by_chill_effect, as the player had them when it landed.
         public bool MoreTaken { get; init; }
+        public bool ColdTaken { get; init; }
         public bool LessDealt { get; init; }
         // Its proliferation radius in cells when it landed; 0 for one that does not spread, as a spread copy.
         public int Spread { get; init; }
@@ -123,6 +124,17 @@ public sealed class MonsterElementalAilments
     /// chill's effect (from any source, wiki Glacial Wave; PoB CalcPerform DamageTaken INC).</summary>
     public double ChillDamageTakenPct(double now) => Active(Kind.Chill, now).Any(e => e.MoreTaken) ? Magnitude(Kind.Chill, now) : 0;
 
+    public double ColdDamageTakenFromChillPct(double now)
+    {
+        double strongest = 0;
+        foreach (var effect in effects)
+            if (effect.Kind == Kind.Chill && effect.ColdTaken && effect.From <= now && now < effect.Until)
+                strongest = Math.Max(strongest, effect.Magnitude);
+        if (spread.TryGetValue(Kind.Chill, out var copy) && copy.ColdTaken && copy.From <= now && now < copy.Until)
+            strongest = Math.Max(strongest, copy.Magnitude);
+        return strongest;
+    }
+
     /// <summary>Glacial Wave: and deals less damage by half that effect (PoB CalcPerform Damage MORE −effect / 2).</summary>
     public double ChillDamageDealtFactor(double now) =>
         Active(Kind.Chill, now).Any(e => e.LessDealt) ? 1 - Magnitude(Kind.Chill, now) / 200 : 1;
@@ -212,10 +224,11 @@ public sealed class MonsterElementalAilments
     /// </summary>
     public List<Effect> Inflict(DamagePacket damage, bool critical, double threshold, double now,
         Func<uint, int> attacker, Func<uint, int> target, Random random, double area = 1) =>
-        Inflict(damage, critical, threshold, now, attacker, target, random, area, freezeDamageMultiplier: 1);
+        Inflict(damage, critical, threshold, now, attacker, target, random, area, coldTakenFromChill: false, freezeDamageMultiplier: 1);
 
     public List<Effect> Inflict(DamagePacket damage, bool critical, double threshold, double now,
-        Func<uint, int> attacker, Func<uint, int> target, Random random, double area, double freezeDamageMultiplier)
+        Func<uint, int> attacker, Func<uint, int> target, Random random, double area,
+        bool coldTakenFromChill = false, double freezeDamageMultiplier = 1)
     {
         var added = new List<Effect>();
         if (threshold <= 0) return added;
@@ -236,6 +249,7 @@ public sealed class MonsterElementalAilments
                 EffectModifier(Kind.Chill, attacker, target), ChillCap(attacker), attacker(Stat.ChillMinimumSlowPct)))
             {
                 MoreTaken = attacker(Stat.EnemiesChilledByHitsTakeDamageIncreasedByChillEffect) != 0,
+                ColdTaken = coldTakenFromChill,
                 LessDealt = attacker(Stat.EnemiesChilledByHitsDealDamageLessenedByChillEffect) != 0,
                 Spread = SpreadRadius(Kind.Chill, attacker, area),
             });
@@ -365,10 +379,14 @@ public sealed class MonsterElementalAilments
             { Spread = SpreadRadius(kind, attacker, area) }, attacker, target);
 
     public void ApplyAura(Kind kind, ulong source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target,
-        int? stated = null)
+        int? stated = null) => ApplyAura(kind, source, seconds, now, attacker, target, stated, coldTakenFromChill: false);
+
+    public void ApplyAura(Kind kind, ulong source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target,
+        int? stated, bool coldTakenFromChill)
     {
         if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
-            { AuraSource = source }, attacker, target) is null) RemoveAura(kind, source);
+            { AuraSource = source, ColdTaken = kind == Kind.Chill && coldTakenFromChill }, attacker, target) is null)
+            RemoveAura(kind, source);
     }
 
     public void RemoveAura(Kind kind, ulong source) => effects.RemoveAll(e => e.Kind == kind && e.AuraSource == source);
@@ -446,6 +464,7 @@ public sealed class MonsterElementalAilments
             Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
+            && e.ColdTaken == effect.ColdTaken
             && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread)
             && e.AuraSource == effect.AuraSource);
         effects.Add(effect);

@@ -1,3 +1,4 @@
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
@@ -1030,8 +1031,13 @@ public static partial class Game
         if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
+        hit = ApplyRoilingTempest(hit, inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
+
+    static DamagePacket ApplyRoilingTempest(DamagePacket hit, Func<uint, int> get)
+        => get(Stat.KeystoneLightningPurist) == 0 ? hit : hit.Select((type, range) =>
+            type == DamageType.Lightning ? new DamageRange(range.Min * .5, range.Max * 1.25) : range);
 
     static double SupportedHitIntensityMore(SupportedHitInputs inputs)
     {
@@ -1063,7 +1069,8 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+        var local = UsesShieldAccuracy(SkillsFor(player), gem.Effect) ? null : MainHandLocalSources(player);
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, local)
             with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 
@@ -1181,7 +1188,9 @@ public static partial class Game
         if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
-        return new((int)Math.Floor(manaFlat * factor), (int)Math.Floor(manaPercent * factor),
+        decimal manaFactor = Get(Stat.KeystoneSupremeEgo) != 0
+            && SkillsFor(player).IsAura(gem.Effect, gem.Supports.Select(s => s.Effect.Row)) ? factor * 1.4m : factor;
+        return new((int)Math.Floor(manaFlat * manaFactor), (int)Math.Floor(manaPercent * manaFactor),
             (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor));
     }
 

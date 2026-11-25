@@ -141,6 +141,9 @@ uses skill `+0x138` for its primary fallback, initially aliased to the updated `
 Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
 Later slot replacement and complete invalidation remain unresolved.
 
+The server sends this record for a skill refresh in which only stat values changed; the conditions that decide it are in
+`SkillStatDeltasAtGate` (`Modules/Core/Game/Skill/SkillStatDeltas.cs`). Any other refresh sends the whole `0x2bc` list.
+
 [PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
 skill IDs and integer pairs and tentatively called it a possible path.
 The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
@@ -922,6 +925,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   names. Dominus' first effect, `DominusChillingBond`, used as his swing crashed the client at `0x1401297ca` a frame
   after his first action: `0x141a2bbb0` looked up entity 0 and `0x141a2c120` linked the effect to the null result
   (live 2026-11-05). `MavenNucleus.CombatEffect` skips them; Dominus swings `DominusLightningSlam`.
+  FireShield reads the action's target Life component at contact (`0x141d33500`); its monster self-cast points to
+  the caster. Doedre's Screech likewise reads the target's height (`0x1414469a0`), using the caster as the target
+  for the campaign's caster-centred version.
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
   reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
   type) at the level × `DamageMultiplier` / 100
@@ -1895,8 +1901,10 @@ no source shows whether the two add.
 **Ground Slam's wave** (`SkillArea.GroundSlamWave`): the skills whose ActionTypes action is `DistanceScaledGroundSlam`
 (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale, PlaytestSlam) hit a sector from the
 player whose front advances to the skill's reach; each monster is hit as the front reaches it, and the rest of the
-sweep is dropped on death, area change or a closed connection. Vaal Ground Slam is a different action (a 40-cell radial
-blast). The gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
+sweep is dropped on death, area change or a closed connection.
+Vaal Ground Slam's `VaalDistanceScaledGroundSlam` has a 39-cell base radius and a 0.375-second radial wave.
+The 3.29.3c action begins at contact (0x141be7740) and advances its front by elapsed time over that duration (0x141be7b30).
+The regular gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
 `ExileGroundSlam` row, which no GemEffects row grants. No player stat set or 3.29 Mod holds the four `ground_slam_*`
 shape stats, so the wave uses estimates to calibrate live: 60 cells long at the generic 12-cell radius, shifted by the
 skill's own radius; half angle 30 deg (half `ground_slam_cone_angle_override`'s cone), grown by `ground_slam_angle_+%`;
@@ -2803,6 +2811,15 @@ A zero source removes the id; other entries append, so a changed entry needs rem
 The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
 `MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
 `MinionType` row 78 is the Holy Armament. Its body's native `HolyStrikeMinionAttack` reads the main-hand weapon copy.
+An official owned minion's create (`0x2bb`) has object flag `0x02` (it wakes itself, no `0x1a9` follows) and base data
+entries owner `0x9cfcf040`, [corpse's object id `0x79c80077` when raised from one], self `0x3aac50b3`, each
+`key, kind, 1, 1, u32` (kinds 0, 0, 1). Compared against the official creates, byte for byte, this layout is exact for
+MinionType 7 (zombie, 18 of 18), 39 (Herald of Agony spiders, 44 of 44), 20, 34, 18 and 4; the server writes it for the
+zombie, Herald of Agony, raging spirit, animated guardian and Vaal Domination families. It is not what the official
+servers send for corpse-raised spectres (MinionType 0: owner, corpse, then key `0x6c5687de` kind 0 with a type 10 value,
+and no self entry; not yet written), MinionType 19, owner-only objects (mines, traps, pets, MinionType 1) or mercenaries,
+so those keep the plain create and the separate wake. Any raised corpse is removed (`0x2bd`) once, in the same frame,
+unless it was created as a corpse.
 
 `ItemisedCorpse` maps the inventory base to its body. The placed corpse carries `is_spectre_corpse`, which the
 client's Life predicate checks alongside the consuming skill context. `SpectreOverrides` maps ordinary corpse
@@ -3020,6 +3037,11 @@ at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%
 is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
 the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
 base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Accuracy.** Shield Waves and Shield Charge carry the selected-hand byte at `+0x311`. Spectral Shield Throw
+sets `+0x518` in `0x141b720e0` and reads it at contact in `0x141b723e0`. Its selector in `0x141b725a0`
+returns 0 when `0x1419e7570` finds only the off hand eligible. The hit roll reads off-hand accuracy and
+cannot-evade fields `0x125` and `0x2b1` for this selector.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
@@ -4256,8 +4278,8 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
 - **Hit timing.** The hit arrives 258 ms + 3.25 ms per cell of shooter-to-target distance after the echo, so the arrow
   flies about 308 cells/s (30 hits, 8–72 cells); delays fall on about 33 ms steps. The gem's hits fit 267 ms + 3.90 ms
   per cell.
-- **Undecoded:** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
-  and a list of compact-int points, and may be the shot's path.
+- **Decoded since (§3.1):** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
+  and a list of compact (stat key, value) pairs: it is a skill's stat update, not the shot's path.
 - **Sand Spitters.** 0x20 registered `Metadata/Monsters/SandSpitters/SandSpitter12@1` (row 490); all 11 hits came from
   three of them (type `0xe63d7611`). No `0x2bb` was created around the spits, so the client draws the mortar too.
   Each spit is `0x1ab` flags `0x80` with the player as the target object and a real action sequence (`0x80bc`,
