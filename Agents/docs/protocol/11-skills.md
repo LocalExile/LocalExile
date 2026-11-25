@@ -2999,6 +2999,9 @@ that cancels the end animation preserves the arrival hit. A queued follow-up pre
 (integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
 `shield_charge_extra_distance` past the aim, and uses 14 cells instead while its +0x2d0 is below +0x2d4 (not read).
 
+`ShieldCrushAltX` uses a separate fire range. Its level 20 stat set gives 389-583 base off-hand fire damage
+and 16-24 added fire damage per 15 armour on the equipped shield.
+
 **Damage.** A shield skill (Shield Charge, Shield Crush) swings the shield, which has no weapon damage: its base is the
 gem's `off_hand_local_minimum/maximum_added_physical_damage` plus its added damage per 15 of the shield's own
 (local) armour and evasion rating, at the gem's `AttackTime` (`ShieldWeapon`); hits and the Offence tab use it, the tab
