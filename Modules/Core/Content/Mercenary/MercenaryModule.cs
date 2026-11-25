@@ -31,6 +31,7 @@ public sealed partial class MercenaryModule : IModule
     {
         public bool Rolled { get; set; }
         public Stage Stage { get; set; }
+        public string Owner { get; set; } = "";
         public int Class { get; set; } = -1;
         public int Build { get; set; } = -1;
         public int X { get; set; }
@@ -42,6 +43,7 @@ public sealed partial class MercenaryModule : IModule
         public uint Hired { get; set; }
         public double Clock { get; set; }
         public int Steps { get; set; }
+        public HashSet<string> OptedIn { get; set; } = new(StringComparer.OrdinalIgnoreCase);
         [System.Text.Json.Serialization.JsonIgnore] public bool Busy;
     }
 
@@ -61,6 +63,7 @@ public sealed partial class MercenaryModule : IModule
         context = module;
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(() => { runs.Clear(); told.Clear(); }));
+        GameEvents.AreaQuestFlags.Add(id, QuestFlags);
         GameEvents.AreaPopulated.Add(id, Place);
         GameEvents.PlayerEntered.Add(id, Enter);
         // Only a map area can hold a mercenary, and only the connection stepping the instance's monsters advances the countdown.

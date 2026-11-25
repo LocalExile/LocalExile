@@ -47,6 +47,28 @@ public static class MercenaryWire
         return body;
     }
 
+    /// <summary>MercenaryEncounterRules' wager body (opcode 3, 0x1417331b0..0x14173330d): initializes the encounter panel
+    /// state (<c>+0x1c8 = 1</c>) and sets the u32 LE gold wager (<c>+0x1b8</c>), replacing the client's 1,337 fallback and
+    /// enabling the panel's action buttons when the player has enough gold.</summary>
+    public static byte[] EncounterRulesWager(uint gold)
+    {
+        byte[] body = new byte[5];
+        body[0] = 0x03;
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(1), gold);
+        return body;
+    }
+
+    /// <summary>MercenaryEncounterRules' party opt-in body (opcode 2, 0x14173330f..0x141733344): updates the client's
+    /// opted-in state (<c>+0x1d0</c>).</summary>
+    public static byte[] EncounterRulesOptIn(bool optedIn) => [0x02, (byte)(optedIn ? 1 : 0)];
+
+    /// <summary>Parses a party guest's C→S 0x02ca opt-in toggle (<c>[0x02, u8 optedIn]</c>, sent by 0x14173fee0).</summary>
+    public static bool? ReadOptIn(ReadOnlySpan<byte> payload) =>
+        payload.Length == 2 && payload[0] == 0x02 ? payload[1] != 0 : null;
+
+    /// <summary>Gold wager for a mercenary at <paramref name="level"/>.</summary>
+    public static uint WagerFor(byte level) => (uint)Math.Max(100, level * 15);
+
     /// <summary>The teams of a map mercenary's create (70, as in all 22 official ones) and of a hired one (0x8001).</summary>
     public const ushort MercenaryTeam = 70, AlliedTeam = 0x8001;
 

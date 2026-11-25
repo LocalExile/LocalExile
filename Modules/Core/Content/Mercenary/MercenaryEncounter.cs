@@ -25,6 +25,31 @@ public sealed partial class MercenaryModule
         return Math.Max(0L, chance) * Math.Max(0L, 100L + S(Stat.MapMercenaryChancePlusPct)) / 100;
     }
 
+    static readonly string[] OwnerFlags = ["IsMapOwner"], NoFlags = [];
+
+    static string ResolveOwner(Player player) =>
+        MapRunOf(player)?.Owner is { Length: > 0 } owner ? owner : CharacterName(player);
+
+    static bool IsOwner(Player player, string owner) =>
+        owner.Length > 0 && string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase);
+
+    static bool WillRoll(Player player)
+    {
+        if (!MapDevices.IsMapArea(player.Layout.Hash)) return false;
+        long chance = ChanceOf(player.Layout.Id, LeagueFor(player).HardMode, AreaLeagueStats(player));
+        return chance >= 100 || chance > 0 && new Random((int)player.Seed ^ RollTag).Next(100) < chance;
+    }
+
+    /// <summary>Grants <c>IsMapOwner</c> to the map instance owner while a mercenary encounter is present (or rolled for the
+    /// area before <see cref="Place"/> runs), so the owner sees Hire/Take Item/Exile/Rematch instead of the party Opt-In UI.</summary>
+    public IReadOnlyList<string> QuestFlags(Player player)
+    {
+        if (!MapDevices.IsMapArea(player.Layout.Hash)) return NoFlags;
+        if (Peek(player) is { Rolled: true } run)
+            return run.Stage != Stage.None && IsOwner(player, run.Owner) ? OwnerFlags : NoFlags;
+        return WillRoll(player) && IsOwner(player, ResolveOwner(player)) ? OwnerFlags : NoFlags;
+    }
+
     /// <summary>A new instance of a map area: roll once, and place the mercenary where the packs leave room. Towns, hideouts and
     /// the campaign's areas are not map areas and roll nothing.</summary>
     async Task Place(AreaPopulated area)
@@ -37,6 +62,7 @@ public sealed partial class MercenaryModule
         {
             if (run.Rolled) return;
             run.Rolled = true;
+            if (run.Owner.Length == 0) run.Owner = ResolveOwner(player);
         }
         long chance = ChanceOf(layout.Id, LeagueFor(player).HardMode, AreaLeagueStats(player));
         bool placed = chance >= 100 || chance > 0 && new Random(area.Seed ^ RollTag).Next(100) < chance;
@@ -79,6 +105,9 @@ public sealed partial class MercenaryModule
 
     static bool Alive(Player player) => !player.Closed && !player.LeavingArea && player.PlayerLife > 0;
 
+    static string DisplayName(MercenaryTables.Class kind, MercenaryTables.Build build) =>
+        $"{build.Name}, {kind.House}";
+
     /// <summary>Places the friendly, scripted mercenary: unique, of its class and build, wearing its own gear, with the Mercenary
     /// component's build and the create's team, states and clickable flags the official map create carries. It is the instance's
     /// (<c>instanceOwned</c>), so a player who enters later is given it, with the states it has by then.</summary>
@@ -90,9 +119,9 @@ public sealed partial class MercenaryModule
             return false;
         }
         var gear = GearOf(kind, build, level, seed);
-        await SendRulesets(player, kind, gear);
-        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
-            scripted: true, ownedLooks: gear, shape: m => m with
+        await SendRulesets(player, run, kind, gear, level);
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, name: DisplayName(kind, build),
+            friendly: true, instanceOwned: true, scripted: true, ownedLooks: gear, shape: m => m with
             {
                 Team = MercenaryWire.MercenaryTeam, StateMachine = met, MercenaryBuild = build.Hash16,
                 HasDialogue = true, NpcFlags = 1, InteractionFlags = 1,
@@ -108,6 +137,7 @@ public sealed partial class MercenaryModule
         }
         lock (run)
         {
+            if (run.Owner.Length == 0) run.Owner = ResolveOwner(player);
             run.Stage = Stage.Met; run.Class = kind.Row; run.Build = build.Row; run.X = at.X; run.Y = at.Y;
             run.Level = level; run.Seed = seed; run.Body = id; run.Hired = 0; run.Clock = 0; run.Steps = 0;
         }
@@ -117,9 +147,10 @@ public sealed partial class MercenaryModule
         return true;
     }
 
-    /// <summary>The ruleset rows of the encounter (0x1f), then their bodies: what the mercenary wears and the area rules' two. Once
-    /// per player: the first player gets them as the mercenary is placed, a later one as they enter.</summary>
-    async Task SendRulesets(Player player, MercenaryTables.Class kind, IReadOnlyList<VisibleItem> gear)
+    /// <summary>The ruleset rows of the encounter (0x1f), then their bodies: what the mercenary wears, the gold wager
+    /// (opcode 3 so the client replaces the 1,337 placeholder and enables actions), any party opt-in state, and the area
+    /// rules' two bodies. Once per player: the first player gets them as the mercenary is placed, a later one as they enter.</summary>
+    async Task SendRulesets(Player player, Run run, MercenaryTables.Class kind, IReadOnlyList<VisibleItem> gear, byte level)
     {
         if (MercenaryTables.EncounterRulesRow is not { } encounter || MercenaryTables.AreaRulesRow is not { } area) return;
         lock (told)
@@ -128,11 +159,19 @@ public sealed partial class MercenaryModule
             told.Add(player, new object());
         }
         var items = MercenaryGear.Visuals(gear);
+        uint wager = MercenaryWire.WagerFor(level);
+        bool optedIn;
+        lock (run) optedIn = run.OptedIn.Contains(CharacterName(player));
         await Send(player, InstanceProtocol.AddRuleset(encounter), $"0x001f ruleset MercenaryEncounterRules (row {encounter})");
         await Send(player, InstanceProtocol.AddRuleset(area), $"0x001f ruleset MercenaryAreaRules (row {area})");
-        // The official order: the mercenary's own items first, then the area rules' two bodies.
+        // The official order: the mercenary's own items first, wager/opt-in state, then the area rules' two bodies.
         await Send(player, InstanceRulesets.Data(encounter, MercenaryWire.EncounterRulesBody(MercenaryGear.Attributes(kind), items)),
             $"0x02c9 ruleset {encounter} ({items.Count} items the mercenary wears)");
+        await Send(player, InstanceRulesets.Data(encounter, MercenaryWire.EncounterRulesWager(wager)),
+            $"0x02c9 ruleset {encounter} (wager {wager} gold)");
+        if (optedIn)
+            await Send(player, InstanceRulesets.Data(encounter, MercenaryWire.EncounterRulesOptIn(true)),
+                $"0x02c9 ruleset {encounter} (opted in)");
         await Send(player, InstanceRulesets.Data(area, MercenaryWire.AreaRulesBody1), $"0x02c9 ruleset {area} (1/2)");
         await Send(player, InstanceRulesets.Data(area, MercenaryWire.AreaRulesBody2), $"0x02c9 ruleset {area} (2/2)");
     }
@@ -174,7 +213,7 @@ public sealed partial class MercenaryModule
             }
             Register(player, run);
         }
-        await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed));
+        await SendRulesets(player, run, kind, GearOf(kind, build, run.Level, run.Seed), run.Level);
     }
 
     async Task Remove(Player player, uint id)
@@ -238,16 +277,31 @@ public sealed partial class MercenaryModule
         return true;
     }
 
-    /// <summary>C→S 0x2ca: the panel's duel choice starts the countdown. An action of another ruleset, another choice, or one with no
-    /// open panel is not this module's.</summary>
+    /// <summary>C→S 0x2ca: the panel's duel choice starts the countdown, or a party member's opt-in toggle updates their
+    /// opt-in state. An action of another ruleset, another choice, or one with no active panel is not this module's.</summary>
     async Task<bool> Choose(Player player, byte[] message)
     {
         byte row;
         byte[] payload;
         try { (row, payload) = InstanceRulesets.ReadAction(message); }
         catch (InvalidDataException) { return false; }
-        if (row != MercenaryTables.EncounterRulesRow || !payload.AsSpan().SequenceEqual(MercenaryWire.DuelChoice)
-            || Peek(player) is not { Stage: Stage.Talk } run) return false;
+        if (row != MercenaryTables.EncounterRulesRow || Peek(player) is not { } run) return false;
+        if (MercenaryWire.ReadOptIn(payload) is bool optedIn && run.Stage is Stage.Met or Stage.Talk)
+        {
+            if (!Alive(player)) return true;
+            string who = CharacterName(player);
+            lock (run)
+            {
+                if (run.Stage is not (Stage.Met or Stage.Talk)) return true;
+                if (optedIn) run.OptedIn.Add(who);
+                else run.OptedIn.Remove(who);
+            }
+            Save(player, run);
+            await Send(player, InstanceRulesets.Data(row, MercenaryWire.EncounterRulesOptIn(optedIn)),
+                $"0x02c9 ruleset {row} opt-in {(optedIn ? 1 : 0)}");
+            return true;
+        }
+        if (!payload.AsSpan().SequenceEqual(MercenaryWire.DuelChoice) || run.Stage != Stage.Talk) return false;
         if (!Alive(player)) return true;
         lock (run)
         {
@@ -303,7 +357,7 @@ public sealed partial class MercenaryModule
             || Monsters.Find(kind.Path) is not { Supported: true } variety || States(variety, MercenaryWire.DuelStates) is not { } duel
             || !Alive(player)) return false;
         uint old = run.Body;
-        uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, run.X, run.Y,
+        uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, run.X, run.Y, name: DisplayName(kind, build),
             ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
             {
                 StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
@@ -348,8 +402,8 @@ public sealed partial class MercenaryModule
         if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
             || Monsters.Find(kind.AlliedPath) is not { Supported: true } allied
             || States(allied, MercenaryWire.HiredStates) is not { } hired) return;
-        uint id = await SpawnMonster(player, allied, run.Level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
-            scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
+        uint id = await SpawnMonster(player, allied, run.Level, MonsterRarity.Unique, at.X, at.Y, name: DisplayName(kind, build),
+            friendly: true, instanceOwned: true, scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
             {
                 Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16, NpcFlags = 0, InteractionFlags = 1,
             });

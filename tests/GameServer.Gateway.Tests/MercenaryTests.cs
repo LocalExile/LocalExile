@@ -34,6 +34,19 @@ public sealed class MercenaryTests
         Assert.Equal(MercenaryWire.DuelChoice, payload);
     }
 
+    [Fact]
+    public void Mercenary_wire_encodes_wager_and_opt_in_messages()
+    {
+        Assert.Equal(100u, MercenaryWire.WagerFor(1));
+        Assert.Equal(1050u, MercenaryWire.WagerFor(70));
+        Assert.Equal("031A040000", Convert.ToHexString(MercenaryWire.EncounterRulesWager(1050)));
+        Assert.Equal("0201", Convert.ToHexString(MercenaryWire.EncounterRulesOptIn(true)));
+        Assert.Equal("0200", Convert.ToHexString(MercenaryWire.EncounterRulesOptIn(false)));
+        Assert.True(MercenaryWire.ReadOptIn([0x02, 0x01]));
+        Assert.False(MercenaryWire.ReadOptIn([0x02, 0x00]));
+        Assert.Null(MercenaryWire.ReadOptIn(MercenaryWire.DuelChoice));
+    }
+
     // One mercenary of a new map instance, from the roll to the hire: placed once for the instance, given to a player who enters
     // later, pressed, chosen, replaced by its hostile duel opponent after the countdown, and left as the hired one when that dies.
     [GameFilesFact]
@@ -55,31 +68,41 @@ public sealed class MercenaryTests
         Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
         var module = new ModuleLifetime("Mercenary");
         new MercenaryModule().Load(Context(module));
-        await using var owner = await Open(instance, layout, seed);
-        await using var peer = await Open(instance, layout, seed);
+        await using var owner = await Open(instance, layout, seed, "MercenaryOwner");
+        await using var peer = await Open(instance, layout, seed, "MercenaryGuest");
         instance.World.Runner = owner.Player;
         try
         {
             MercenaryModule.Run Read() => JsonSerializer.Deserialize<MercenaryModule.Run>(instance.ContentState["Mercenary.Encounter"])!;
+            Assert.True(GameEvents.HasAreaQuestFlag(owner.Player, "IsMapOwner"));
+            Assert.False(GameEvents.HasAreaQuestFlag(peer.Player, "IsMapOwner"));
             await GameEvents.RunAreaPopulated(new AreaPopulated(owner.Player, 70, (int)seed, []));
             var placed = Read();
             Assert.Equal(MercenaryModule.Stage.Met, placed.Stage);
+            Assert.True(GameEvents.HasAreaQuestFlag(owner.Player, "IsMapOwner"));
+            Assert.False(GameEvents.HasAreaQuestFlag(peer.Player, "IsMapOwner"));
             var met = owner.Player.Area.Monsters[placed.Body];
             Assert.False(met.Hostile);
             Assert.True(met.Scripted);
             Assert.Equal(MercenaryWire.MetStates, met.States!.SharedStates);
-            // What a player who comes later is given is the instance's record of it, with the build and the team.
+            // What a player who comes later is given is the instance's record of it, with the build, name, and team.
             var created = instance.World.MonsterOrigins[placed.Body].Object;
+            Assert.False(string.IsNullOrWhiteSpace(created.Name));
+            Assert.DoesNotContain("[DNT]", created.Name);
             Assert.Equal(MercenaryWire.MercenaryTeam, created.Team);
             Assert.NotEqual(0, created.MercenaryBuild);
             await GameEvents.RunPlayerEntered(peer.Player);
             Assert.True(peer.Player.Npcs.ContainsKey(placed.Body));
             Assert.Equal(Math.Clamp(met.Variety!.ObjectSize - 1, 0, 127), Game.NpcInteractionSize(peer.Player.Npcs[placed.Body]));
 
-            // The press, then the panel's duel choice; the countdown runs on the area's frames.
+            // The press, party opt-in toggle, then the panel's duel choice; the countdown runs on the area's frames.
             Assert.True(await GameEvents.AnyNpcTalk(peer.Player, placed.Body, peer.Player.Npcs[placed.Body]));
             Assert.Equal(MercenaryModule.Stage.Talk, Read().Stage);
             byte row = MercenaryTables.EncounterRulesRow!.Value;
+            Assert.True(await GameEvents.AnyPacket(peer.Player, InstanceRulesets.ActionId, [0x02, 0xca, row, 0x02, 0x02, 0x01]));
+            Assert.Contains("MercenaryGuest", Read().OptedIn, StringComparer.OrdinalIgnoreCase);
+            Assert.True(await GameEvents.AnyPacket(peer.Player, InstanceRulesets.ActionId, [0x02, 0xca, row, 0x02, 0x02, 0x00]));
+            Assert.DoesNotContain("MercenaryGuest", Read().OptedIn, StringComparer.OrdinalIgnoreCase);
             Assert.True(await GameEvents.AnyPacket(peer.Player, InstanceRulesets.ActionId,
                 [0x02, 0xca, row, 0x08, .. MercenaryWire.DuelChoice]));
             Assert.Equal(MercenaryModule.Stage.Countdown, Read().Stage);
@@ -88,7 +111,7 @@ public sealed class MercenaryTests
             var work = GameEvents.AreaTickWork(owner.Player);
             await GameEvents.RunAreaTick(work, owner.Player, 3.0);
 
-            // The friendly one is gone and its hostile twin fights.
+            // The friendly one is gone and its hostile twin fights with the same mercenary name.
             var duel = Read();
             Assert.Equal(MercenaryModule.Stage.Duel, duel.Stage);
             Assert.NotEqual(placed.Body, duel.Body);
@@ -97,8 +120,9 @@ public sealed class MercenaryTests
             Assert.True(opponent.Hostile);
             Assert.False(opponent.Scripted);
             Assert.Equal(MercenaryWire.DuelStates, opponent.States!.SharedStates);
+            Assert.Equal(created.Name, instance.World.MonsterOrigins[duel.Body].Object.Name);
 
-            // Its death leaves the hired mercenary, in the hired states and its own team.
+            // Its death leaves the hired mercenary, in the hired states, allied team, and the same mercenary name.
             opponent.Dead = true;
             await GameEvents.RunKill(new KillContext(owner.Player, opponent, opponent.Variety!.Id, (duel.X, duel.Y)));
             var hired = Read();
@@ -106,6 +130,7 @@ public sealed class MercenaryTests
             Assert.NotEqual(0u, hired.Hired);
             Assert.Equal(MercenaryWire.HiredStates, owner.Player.Area.Monsters[hired.Hired].States!.SharedStates);
             Assert.Equal(MercenaryWire.AlliedTeam, instance.World.MonsterOrigins[hired.Hired].Object.Team);
+            Assert.Equal(created.Name, instance.World.MonsterOrigins[hired.Hired].Object.Name);
         }
         finally
         {
@@ -139,9 +164,9 @@ public sealed class MercenaryTests
     }
 
     // A connected player of a league that lists the Mercenary module; what is sent to it is read by nobody.
-    static async Task<ScarabEncounterTests.Wire> Open(InstanceState instance, AreaLayout layout, uint seed)
+    static async Task<ScarabEncounterTests.Wire> Open(InstanceState instance, AreaLayout layout, uint seed, string? character = null)
     {
-        var wire = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        var wire = await ScarabEncounterTests.Wire.Open(instance, layout, seed, character);
         wire.Player.LeagueModule = new(new GameServer.Core.Accounts.League("mercenary-test", "Standard", false, false),
             new HashSet<string>(["Game", "Mercenary"]));
         return wire;
