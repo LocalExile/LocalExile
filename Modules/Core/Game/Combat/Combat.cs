@@ -3272,8 +3272,14 @@ public static partial class Game
                 {
                     if (sunder is not null)
                     {
-                        await SettleSweep();
-                        if (!await sunder.AppendContacts(targets)) break;
+                        var savedScope = StatsScope.Value;
+                        try
+                        {
+                            StatsScope.Value = null;
+                            await SettleSweep();
+                            if (!await sunder.AppendContacts(targets)) break;
+                        }
+                        finally { StatsScope.Value = savedScope; }
                     }
                     else if (!fissure || !await AddFissureContacts()) break;
                 }
