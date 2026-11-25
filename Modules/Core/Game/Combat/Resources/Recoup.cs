@@ -77,8 +77,6 @@ public static partial class Game
         stats ??= PlayerStatValues(owner);
         int Get(uint key) => stats.GetValueOrDefault(key);
         int percent = Get(Stat.RecoupPctOfDamageTakenByYourTotemsAsLife);
-        if (percent <= 0 || LifeRecovery.NonLeechBlocked(Get)) return;
-        double amount = taken * (double)percent / 100 * Math.Max(0, 1 + Get(Stat.LifeRecoveryRatePlusPct) / 100d);
-        owner.LifeRecoup.Add(now, amount, LifeRecoupSeconds(Get));
+        AddLifeRecoupLocked(owner, Get, now, taken * (double)percent / 100);
     }
 }
