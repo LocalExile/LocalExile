@@ -183,11 +183,22 @@ public static partial class Game
         long expires = session.Runtime.Now + ProjectileRuntime.Time(duration);
         state.Wards.Add((expires, block));
         PresentSteelWard(player, state);
-        session.Runtime.Schedule(expires, () =>
+        void Expire()
         {
-            if (session.Active && state.Wards.RemoveAll(ward => ward.Expires <= session.Runtime.Now) > 0)
-                PresentSteelWard(player, state);
-        });
+            if (state.Wards.RemoveAll(ward => ward.Expires <= expires) > 0) PresentSteelWard(player, state);
+        }
+        if (player.Frames.Running)
+        {
+            // A failed area transfer retires projectiles but keeps the connection and its area buffs.
+            // The area's timer still clears this ward when its duration ends.
+            var area = player.Area;
+            long frames = Math.Max(1, (long)Math.Ceiling(duration * 1000 / Program.FrameMs));
+            InArea(player, owner => owner.Timers.After(owner.Frame, frames, _ =>
+            {
+                if (CurrentGameWork && !player.Closed && ReferenceEquals(player.Area, area)) Expire();
+            }, owner: new EntityId(player.Id), source: CombatLifetime));
+        }
+        else session.Runtime.Schedule(expires, () => { if (session.Active) Expire(); });
     }
 
     static void PresentSteelWard(Player player, SteelState state)

@@ -263,10 +263,17 @@ public static partial class Game
 
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
-        if (!reflectedPhysical) StealMapChargesLocked(player, attacker, source, g, now, random);
-        if (!reflectedPhysical && !elementalImmune)
+        if (reflectedPhysical)
+        {
+            player.Minions.OutputQueue.Add(new([], "minion takes reflected physical damage", g.Id, m, PlayerMinions.OutputKind.Life));
+            if (m.Life == 0) GolemDieLocked(player, g, now);
+            else MinionInstabilityLocked(player, g, now);
+            return true;
+        }
+        StealMapChargesLocked(player, attacker, source, g, now, random);
+        if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
-        if (!reflectedPhysical && m.Life > 0)
+        if (m.Life > 0)
         {
             if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
             GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
@@ -281,7 +288,7 @@ public static partial class Game
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
-        if (!reflectedPhysical) player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
             flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
             angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
         player.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
