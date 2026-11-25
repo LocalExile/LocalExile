@@ -735,7 +735,7 @@ public static partial class Game
                     monster.DamageImmune = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
-                player.Minions.StatRevision++;
+                player.Minions.StatRevision++; MarkPlayerStats(player, PlayerStatStep.Golems);
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, fighter, committed);
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false, canReform: false);
                 else
@@ -1081,6 +1081,25 @@ public static partial class Game
             stats[dominated] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
         foreach (var (kind, key) in SummonCountNames)
             stats[key] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
+        // The living minions the client's minion roster draws from (SentinelOwnershipPresentation), each source once: a
+        // summon, a golem, a reservation minion, an elemental relic. A permanent one has no duration.
+        double now = AreaTime(player);
+        int minions = 0, permanent = 0;
+        foreach (var (id, fighter) in player.Summons.Fighters)
+            if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && player.Summons.Until.TryGetValue(id, out double until) && now < until)
+            { minions++; if (double.IsPositiveInfinity(until)) permanent++; }
+        foreach (var (id, fighter) in player.Reservations.Fighters)
+            if (!fighter.Monster.Dead && fighter.Monster.Life > 0 && player.Reservations.Until.TryGetValue(id, out double until) && now < until)
+            { minions++; if (double.IsPositiveInfinity(until)) permanent++; }
+        foreach (var golem in player.Golems.All.Values)
+            if (!golem.Monster.Dead && golem.Monster.Life > 0) { minions++; permanent++; }
+        foreach (var relic in player.Minions.All)
+            if (ElementalRelicNativeType(relic.Kind) is not null && !relic.Monster.Dead && relic.Monster.Life > 0 && now < relic.Until
+                && !player.Summons.Fighters.ContainsKey(relic.Id) && !player.Golems.All.ContainsKey(relic.Id)
+                && !player.Reservations.Fighters.ContainsKey(relic.Id))
+            { minions++; if (double.IsPositiveInfinity(relic.Until)) permanent++; }
+        stats[Stat.NumberOfActiveMinions] = minions;
+        stats[Stat.NumberOfActivePermanentMinions] = permanent;
     }
     static readonly IReadOnlyDictionary<string, uint> SummonCountNames = new Dictionary<string, uint>
     {
