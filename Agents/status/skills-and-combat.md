@@ -199,6 +199,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ice Crash lands in three timed circles with one contact per enemy. Cadence uses the swinging hand's radius and
   requires two compatible weapons.
 - Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create their timed ground.
+- Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
