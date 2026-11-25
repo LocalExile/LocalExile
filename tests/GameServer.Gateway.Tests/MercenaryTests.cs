@@ -125,12 +125,24 @@ public sealed class MercenaryTests
             Assert.Equal(nobleBlood, hired.Permanent);
             if (nobleBlood)
             {
+                var allied = owner.Player.Area.Monsters[hired.Hired];
+                int AlliedCount() => owner.Player.Area.Monsters.Values.Count(m => m.Variety?.Id == allied.Variety!.Id && !m.Hostile);
+                // A live instance whose hire is gone does not bring it back.
                 owner.Player.Area.Monsters.Remove(hired.Hired);
+                await GameEvents.RunPlayerEntered(peer.Player);
+                Assert.Equal(0, AlliedCount());
+                Assert.Equal(hired.Hired, Read().Hired);
+                // A restored instance holds the living hire as an ordinary monster under another id: it is replaced, once.
+                const uint copy = 0x7ffffff0;
+                owner.Player.Area.Monsters[copy] = allied;
                 await GameEvents.RunPlayerEntered(peer.Player);
                 var again = Read();
                 Assert.NotEqual(hired.Hired, again.Hired);
                 Assert.True(again.Permanent);
+                Assert.Equal(1, AlliedCount());
+                Assert.False(owner.Player.Area.Monsters.ContainsKey(copy));
                 Assert.True(owner.Player.Area.Monsters.ContainsKey(again.Hired));
+                Assert.Equal((hired.HiredX, hired.HiredY), (again.HiredX, again.HiredY));
             }
         }
         finally

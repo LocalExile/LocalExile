@@ -159,10 +159,16 @@ public sealed partial class MercenaryModule
             var host = player.Instance.World.Runner ?? player;
             if (!host.Area.Monsters.ContainsKey(run.Body) && !host.Area.DormantMonsters.ContainsKey(run.Body))
             {
+                bool busy;
                 lock (run)
                 {
-                    if (run.Busy) return;
+                    busy = run.Busy;
                     run.Busy = true;
+                }
+                if (busy)
+                {
+                    await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed));
+                    return;
                 }
                 try
                 {
@@ -176,16 +182,21 @@ public sealed partial class MercenaryModule
         }
         else if (run is { Stage: Stage.Hired, Permanent: true })
         {
-            // A Noble Blood hire is kept: an instance that was kept and restored has lost its monsters, so it stands again.
-            var host = player.Instance.World.Runner ?? player;
-            if (!host.Area.Monsters.ContainsKey(run.Hired) && !host.Area.DormantMonsters.ContainsKey(run.Hired))
+            // A Noble Blood hire is kept across an instance restore: the saved instance brings the living hire back as an ordinary
+            // monster under another id. That copy is replaced by the hire, at its own spot. A hire that is not there (killed or
+            // removed in a live instance) is not brought back.
+            var copies = player.Area.Monsters.Where(m => m.Key != run.Hired && m.Value.Variety?.Id == kind.AlliedPath && !m.Value.Hostile)
+                .Select(m => m.Key).ToArray();
+            bool claimed;
+            lock (run) claimed = copies.Length > 0 && !run.Busy && (run.Busy = true);
+            if (claimed)
             {
-                lock (run)
+                try
                 {
-                    if (run.Busy) return;
-                    run.Busy = true;
+                    foreach (uint id in copies) await Remove(player, id);
+                    player.Instance.World.MonsterOrigins.TryRemove(run.Hired, out _);
+                    await Hire(player, run, (run.HiredX, run.HiredY), keep: true);
                 }
-                try { await Hire(player, run, (run.X, run.Y), keep: true); }
                 finally { lock (run) run.Busy = false; }
             }
         }
@@ -372,7 +383,7 @@ public sealed partial class MercenaryModule
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = hired;
         // Noble Blood (can_have_active_mercenary_follower): read once, as the hire is made, from the player's stat sources.
         bool permanent = keep || player.StatSourcesCache is { } cached && cached.Sources.GetValueOrDefault(Stat.CanHaveActiveMercenaryFollower) > 0;
-        lock (run) { run.Hired = id; run.Permanent = permanent; }
+        lock (run) { run.Hired = id; run.Permanent = permanent; run.HiredX = at.X; run.HiredY = at.Y; }
         Save(player, run);
         context.Log($"{player.Layout.Id}: mercenary hired as 0x{id:x} ({allied.Id})");
     }

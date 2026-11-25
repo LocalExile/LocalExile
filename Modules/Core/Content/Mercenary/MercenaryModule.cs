@@ -40,8 +40,11 @@ public sealed partial class MercenaryModule : IModule
         /// <summary>The mercenary's body now (the met one, then the duel opponent) and, at the end, the hired one.</summary>
         public uint Body { get; set; }
         public uint Hired { get; set; }
-        /// <summary>The hire was made with Noble Blood: it stays with the instance, and is brought back with it.</summary>
+        /// <summary>The hire was made by a player with Noble Blood (read once, at the hire): it is kept across an instance restore.</summary>
         public bool Permanent { get; set; }
+        /// <summary>Where the hire stands, to put it back there.</summary>
+        public int HiredX { get; set; }
+        public int HiredY { get; set; }
         public double Clock { get; set; }
         public int Steps { get; set; }
         [System.Text.Json.Serialization.JsonIgnore] public bool Busy;
