@@ -14,11 +14,11 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
   in the areas' own rooms, `FirstTimeLegion_EncounterLocator` in The Climb (1_1_6, `flag_hill_1.arm`) and
   `DriedLake_EncounterLocator` in The Dried Lake (1_4_2, `nightwane_boss.arm`). The module places monoliths at these and at
   `Legion_EncounterLocator`; `LegionEndgame_EncounterLocator` is the endgame's and is not used.
-- `LegionInitiator` StateMachine states: `charging=1` (build-up, untargetable, no collision), `shattered=1` (shatter, then idle),
-  `shattered=2` (at the end: the crystal leaves, minimap icon hidden) with `locked=1` (untargetable, at the end), `spawn_lightning=1` (bolts from the monolith towards the general while it stands frozen; when a general is planned, the formation axis aligns the general's army with the monolith's forward rotation).
-- Every Legion monster and war chest has the states `breakout`, `activated` (generals also `general`, `fleeing`, `disappear`).
+- `LegionInitiator` StateMachine drives all 7 shared states (`obelisk_state`, `charging`, `shattered`, `crystal`, `spawn_lightning`, `locked`, `active`) across `Idle -> Charging (0,1,0,0,*,1,1) -> Running (2,1,1,1..3,*,1,1) -> Frozen (3,1,2,0,0,1,1) -> Battle (4,1,2,0,0,1,0) -> Ending/Finished (5,1,2,0,0,1,0)` (official 3.29 captures). Clicking also sends `0x2bc` `InteractionAction` `[0]`. When a General spawns, base-data property `0xec72e38c` links its entity id onto the monolith (`0x2c1` live update + `0x2bb` for late joiners) so `spawn_lightning=1` aims bolts towards the General while frozen, and the formation axis aligns the General's army with the monolith's forward rotation.
+- `LegionFlashLight` (`Metadata/Terrain/Leagues/Legion/Objects/LegionFlashLight`) is created alongside each monolith with base-data properties `0x40f0fc9c` and `0x7700c879` = monolith id, `Positioned` `flags0 = 0x02` (parent lookup), and `StateMachine` (`foggy`); at the shatter, `0x2bc` `Animated` `[0]` triggers the flash.
+- Every Legion monster and war chest has the states `present`, `breakout`, `activated`, `owning_initiator` (generals also `general`, `fleeing`, `disappear`).
   The crystal is part of the monster's own model, so a new monster is drawn encased with nothing sent.
-  Frozen is `breakout` 0, `activated` 0; broken out is `breakout` 1 (crystal off, freed glow); fighting is `activated` 1.
+  Hidden is `present=0, breakout=0, activated=0, owning_initiator=<monolith>`; revealed is `present=1`; broken out is `present=1, breakout=1` (crystal off, freed glow); fighting is `present=1, breakout=1, activated=1`.
   A general still frozen carries the about-to-flee effect; `fleeing=1` plays its flee animation.
 - Stasis is the client's own `LegionBreakout` action (action type 0xd8fe, skill 0x18fe), created with the monster (Actor current action) in state 0:
   hidden, no collision and no hits on the client and the server (`noBodyUntilReleased`). At the shatter a 0x2c8 state 2 reveals each member, nearest the
@@ -35,8 +35,8 @@ The rules the code follows are the wiki's for 3.29; what the client data and cod
 
 - 3270 `LegionMonolithPulse`: the radial shockwave at shatter and again at release (`00:00` / early end); removed once its clip ends so joiners do not replay it.
 - 3326 `LegionChestBreakoutExplode`: a war chest breaking out.
-- `LegionFactions.MiscAnimatedKey1` (break-out, `breaking_free.ao`) and keys 2, 3 and 5 are played by the client from the action (state 3), no longer by an effect object;
-  `LegionFlashLight` at the shatter is not sent (no known trigger).
+- `LegionFactions.MiscAnimatedKey1` (break-out, `breaking_free.ao`) and keys 2, 3 and 5 are played by the client from the action (state 3), no longer by an effect object.
+- Area environment overrides (S->C `0xdf`, `Environments` rows looked up by `Id` so row shifts across builds do not break): `LegionLeagueWorld` (`0.5` s in at shatter, `-2.0` s out at freeze), `LegionLeagueWorldBattle` (`0.0` s in at release, `-2.0` s out `8/30` s into Ending), and `LegionLeagueWorldPostBattle` (`0.2` s in at Ending, `-2.0` s out `76/30` s into Ending). Multi-monolith instances guard fade-outs while another monolith is still active.
 
 ## The Legion tables
 
@@ -61,7 +61,7 @@ The code that reads them is `LegionArmy.Compose`; a correction goes there.
 `0x1416290a0` (the encounter constructor) sets the timer to `(col3 / 1000 + stat 9772) * (100 + map_legion_duration_+%) / 100`
 seconds; stat 9772 is the endless mode's, ignored here. The row is picked by `0x141eb5c00`: the highest `MinLevel` <= level.
 So 30 s at level 1, 28 s from 15, 15 s from 68. The server sends it with S->C 0x163 type 4 (`InstanceTimers.MissionTimer`).
-The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x2c9 payload (mode 0 creates the encounter, mode 5 sets active and state).
+The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents.EnterMessages` before area objects for late joiners) and driven with S->C `0x2c9` payloads: mode 0 (37 bytes including monolith angle and timer duration), mode 1 (`0x01`, activated at shatter), and mode 5 (`0x05`, stage/step `1,1 -> 1,2 -> 1,3 -> 2,4 -> 2,5`).
 
 ## Open questions for the live check
 
@@ -104,7 +104,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
   side 60 units apart; `hidden` 1 removes the effect (`0x1415d1d50` registers the behaviour). The row is the table's row index, not `IntId`.
 - The minimap icon is not part of the buff: stat 2494 `monster_minimap_icon` = the row's `MinimapIconsKey` + 1, read once when the client builds the entry
   (`0x142191100`), and stat 10006 `monster_hide_minimap_icon` non-zero hides it (`0x142191200`), so the server creates the member with both and sets 10006 to 0 at the reveal.
-- The opened chest object has no Buffs component, so it shows only the icon. No client table links a reward type to items: what a type drops is the server's own
+- The openable chest inherits `Metadata/Chests/LegionChests/LegionChestBase` (8 serialized components including an empty `StateMachine`, `Animated = 0` so the client loads `Chests.AOFiles[0]`). While closed it displays the minimap icon stat and links its primary floating 3D reward symbol (`EffectObject` at capture height `25 / -195.3125f` and `LegionRewardTypeVisuals.__col4` scale) via base-data variable `0xf3a80181`; opening the chest removes all floating symbols. No client table links a reward type to items: what a type drops is the server's own
   (`LegionRewards.cs`, the row -> kind table). Incubators (row 17) no longer drop in 3.29, row 11 repeats row 10 (Essences), and endgame symbols are level-gated (Maps/Scarabs L68+, Fragments L36+, league pools L30+) so campaign monoliths do not roll empty symbols.
 - Pool rules: Abyss rolls Magic/Rare Eye Jewels and Rare Stygian Vise with its Abyssal Socket (never white 0-mod jewels); Harbinger drops Shards plus rarer full orbs (no Beachhead unique scrolls); Fragments uses an explicit weighted allowlist (Sacrifice, Offering, Vessel, Mortal, normal Legion Emblems, Elder/Shaper/Maven); Essences excludes all Deafening and corruption-only tiers; Uniques uses `IsDropEligibleUnique`; Maps uses `RollMapDropForKill`; Scarabs passes `MapModsOf`; Divination mixes Divination Cards and Stacked Decks; Gems drops Superior/Vaal gems and occasional GCP; Ruthless scales counts and splinters by `LeagueRules.ItemDropMultiplier`.
 - A sergeant's reward chance is the level's `LegionBalancePerLevel` `__col1` (100 to level 9, down to 50 from level 41) plus stat 13951; what that column means is a guess.
