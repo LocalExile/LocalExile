@@ -193,6 +193,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Sunder and its variants time their wave segments and victim shockwaves. Earthbreaking keeps overlapping uses, and
   Trarthus can redirect at enemies and terrain.
+- Ice Crash lands in three timed circles with one contact per enemy. Cadence uses the swinging hand's radius and
+  requires two compatible weapons.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.

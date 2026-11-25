@@ -285,7 +285,7 @@ public static partial class Game
     }
 
     static double MeleeAreaSwingReach(Player player, SkillCatalog.Unarmed weapon, int effect,
-        IReadOnlyDictionary<uint, int> skillStats, int swingReach)
+        IReadOnlyDictionary<uint, int> skillStats, int swingReach, AttackHand hand)
     {
         double reach = swingReach + 2;
         if (!weapon.Melee || !SkillsFor(player).IsArea(effect) || SkillsFor(player).IsStrike(effect)) return reach;
@@ -293,9 +293,9 @@ public static partial class Game
         string? effectId = SkillsFor(player).EffectId(effect);
         double areaReach = SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action
             ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus))
-            : effectId is "IceCrash" or "IceCrashAltX" or "IceCrashAltY"
-                ? SkillRadius(player, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseTertiaryAreaOfEffectRadius) is > 0 and var t ? t : 31,
-                    skillStats, spell: false, effect) + swingReach
+            : IceCrashUse.Handles(effectId)
+                ? SkillRadius(player, IceCrashUse.BaseRadius(IceCrashUse.Cadence(effectId) ? (hand == AttackHand.Off ? 1 : 0) : 2,
+                    skillStats), skillStats, spell: false, effect) + swingReach
                 : radius + swingReach;
         return Math.Max(reach, areaReach);
     }
@@ -370,10 +370,12 @@ public static partial class Game
             if (!AttackReady(player, use.SkillId, gem.Effect, gem.Level, out _, use.Slot)) return;
             (int X, int Y) aim = (use.X, use.Y);
             (int X, int Y) stop = default;
-            var groundWeapon = WeaponFor(player);
+            var groundHand = IceCrashUse.Handles(SkillsFor(player).EffectId(gem.Effect))
+                ? AttackHandFor(player, use.SkillId, use.Slot) : AttackHand.Main;
+            var groundWeapon = HandWeapon(player, groundHand);
             var groundStats = SupportedSkill(player, use.SkillId).Stats;
             int groundSwingReach = MeleeSkillReach(player, groundWeapon, gem.Effect, groundStats);
-            double groundAdmitReach = MeleeAreaSwingReach(player, groundWeapon, gem.Effect, groundStats, groundSwingReach);
+            double groundAdmitReach = MeleeAreaSwingReach(player, groundWeapon, gem.Effect, groundStats, groundSwingReach, groundHand);
             // Not in reach of the aim (no path, an aim off the map, a body in the way): the client's action ends without
             // a swing, so nothing is paid or echoed, as CastOn's SwingInReach refuses it for a monster. The reach is the
             // weapon's range plus the same 2 cells of slack CastOn and Attack give; a normal arrival stops at range - 1.
@@ -809,11 +811,12 @@ public static partial class Game
                 return;
             }
             // The reach of the weapon this use swings (AttackHands): a dual-wielded off hand walks up to its own.
-            var weapon = HandWeapon(player, AttackHandFor(player, use.SkillId, use.Sequence));
+            var swingHand = AttackHandFor(player, use.SkillId, use.Sequence);
+            var weapon = HandWeapon(player, swingHand);
             var supportedStats = SupportedSkill(player, use.SkillId).Stats;
             int swingReach = MeleeSkillReach(player, weapon, gem.Effect, supportedStats);
             weapon = weapon with { Range = swingReach };
-            double admitReach = MeleeAreaSwingReach(player, weapon, gem.Effect, supportedStats, swingReach);
+            double admitReach = MeleeAreaSwingReach(player, weapon, gem.Effect, supportedStats, swingReach, swingHand);
             int precision = AttackPrecision(player);
             double now = AreaTime(player);
             int action = 0;
@@ -2971,6 +2974,7 @@ public static partial class Game
         HashSet<uint> struck;
         int epoch = player.ProjectileEpoch;
         SunderWave? sunder = null;
+        IceCrashUse? iceCrash = null;
         using (ProjectileMutation(player, advance: scheduledSession is null))
         {
             double now = ProjectileWorldTime(player);
@@ -2980,6 +2984,14 @@ public static partial class Game
             if (channelGeneration is not null
                 && PlayerActionBlocked(player, AreaTime(player), AreaTime(player))) return;
             CastingIntensity(player, skillId)?.Complete();
+            if (!spell && areaAction == IceCrashUse.Action && IceCrashUse.Handles(effectId) && scheduledSession is null)
+            {
+                centre = IceCrashUse.Impact(player, from, to, MeleeSkillReach(player, weapon, gem.Effect, skillStats));
+                iceCrash = new(player, centre, epoch, hand, IceCrashUse.Cadence(effectId),
+                    SkillAreaStats(player, areaStats, gem.Effect), skillStats, radiusMore * chargeRadius, radiusOverride,
+                    excludeMonster, singleStrikeTarget, once, targetFilter);
+                radius = iceCrash.Extent;
+            }
             if (!spell && !immediate && triggeredCurrent is null && strikeIndex == 0)
             {
                 int freezeMore = Stat(global::Stat.GlacialHammerThirdHitFreezeAsThoughDealtDamagePlusPct);
@@ -3067,7 +3079,7 @@ public static partial class Game
             else
             {
                 var candidates = centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt);
-                found = sunder is not null ? [] : shieldUse is null ? candidates.ToList() : candidates.Where(target =>
+                found = sunder is not null || iceCrash is not null ? [] : shieldUse is null ? candidates.ToList() : candidates.Where(target =>
                     shieldUse.Includes(target.Key, target.At, LivingCollision.Size(target.Value))).ToList();
                 if (elementalHit)
                 {
@@ -3281,6 +3293,11 @@ public static partial class Game
                         }
                         finally { StatsScope.Value = savedScope; }
                     }
+                    else if (iceCrash is not null)
+                    {
+                        await SettleSweep();
+                        if (!await iceCrash.AppendContacts(targets)) break;
+                    }
                     else if (!fissure || !await AddFissureContacts()) break;
                 }
                 if (hexblast && victim > 0 && !hexblastExpanded) break;
@@ -3315,8 +3332,8 @@ public static partial class Game
                     // Catch up earlier projectile contacts before reading any live offensive input. The first accepted
                     // target opens one fresh character scope, which every victim reuses until this sweep's loop exits.
                     if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused
-                        || sunder is not null && !player.ProjectileActive(epoch)
-                        || !(travellingSweep || hammer is not null || sunder is not null)
+                        || (sunder is not null || iceCrash is not null) && !player.ProjectileActive(epoch)
+                        || !(travellingSweep || hammer is not null || sunder is not null || iceCrash is not null)
                             && (!Current() || !holdsItsSwing && !preservesSwing && cooldownUse is null
                                 && triggeredCurrent is null && !PlayerActionCurrent(player, action))) break;
                     if (m.Dead || m.Life == 0 || !m.Hostile
@@ -3518,15 +3535,15 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, quake.AilmentMore),
                         };
                     }
-                    if (sunderShockwave)
+                    double waveDamageMore = sunderShockwave ? sunder!.ShockwaveMore : iceCrash?.DamageMore ?? 1;
+                    if (waveDamageMore != 1)
                     {
-                        double shockwaveMore = sunder!.ShockwaveMore;
-                        contactHit = contactHit.Scale(shockwaveMore);
+                        contactHit = contactHit.Scale(waveDamageMore);
                         profile = profile with
                         {
-                            Ignite = RepeatAilment(profile.Ignite, shockwaveMore),
-                            Bleed = RepeatAilment(profile.Bleed, shockwaveMore),
-                            Poison = RepeatAilment(profile.Poison, shockwaveMore),
+                            Ignite = RepeatAilment(profile.Ignite, waveDamageMore),
+                            Bleed = RepeatAilment(profile.Bleed, waveDamageMore),
+                            Poison = RepeatAilment(profile.Poison, waveDamageMore),
                         };
                     }
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
