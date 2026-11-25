@@ -121,6 +121,9 @@ public static partial class Game
                 GainOnHit = (sources.GainOnHit.Life + target.Curses[Stat.LifeGrantedWhenHitByAttacks],
                     sources.GainOnHit.Mana + target.Curses[Stat.ManaGrantedWhenHitByAttacks], sources.GainOnHit.EnergyShield) };
         }
+        double now = ProjectileWorldTime(player);
+        if (sources.LifeLeechVsBleeding is > 0 and var leechVsBleeding && target.Bleeds.Until > now)
+            sources = sources with { Life = sources.Life.Add(DamagePacket.Empty.Select((_, _) => new(leechVsBleeding, leechVsBleeding))) };
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
         amounts.Life += sources.OverkillLife(directDamage, target.Life);
@@ -135,7 +138,6 @@ public static partial class Game
                 if (session.ConvertsLifeToEnergyShield) amounts.Life = 0;
             }
         }
-        double now = ProjectileWorldTime(player);
         session.SetLifeRecoveryRedirected(now, HasVampiricMinion(player, now));
         double powerInstant = sources.InstantLeechPerEnemyPower == 0 ? 0
             : (double)sources.InstantLeechPerEnemyPower * WarcryPower(target.Rarity);
