@@ -156,16 +156,22 @@ public sealed class SkillCatalog
         if (_tables is not { } t || effectRow < 0 || effectRow >= t.Effects.Count) return [];
         var e = t.Effects[effectRow];
         var stats = new Dictionary<uint, int>();
-        var constant = new HashSet<uint>();
+        var resolved = new HashSet<uint>();
         if (e.StatSet >= 0 && e.StatSet < t.StatSetBase.Count)
         {
             var (implicits, constants) = t.StatSetBase[e.StatSet];
             foreach (int s in implicits) stats[(uint)s + 1] = 1;
-            foreach (var (s, v) in constants) { stats[(uint)s + 1] = v; constant.Add((uint)s + 1); }
+            foreach (var (s, v) in constants) { stats[(uint)s + 1] = v; resolved.Add((uint)s + 1); }
         }
         int gesspl = PickLevel(t.StatSetsPerLevel, e.StatSet, level);
-        // A per-level stat that is also a constant adds to it (Righteous Fire: radius 18 + 0 at level 1, + 5 at level 20).
-        if (gesspl >= 0) foreach (var (s, v) in t.StatSetLevelStats[gesspl]) stats[(uint)s + 1] = (constant.Contains((uint)s + 1) ? stats[(uint)s + 1] : 0) + v;
+        // Per-level entries add to constants and to earlier per-level entries. Vortex of Projection has a resolved
+        // cold damage rate and a negative additional entry for that same stat. Implicit flags are still replaced.
+        if (gesspl >= 0)
+            foreach (var (s, v) in t.StatSetLevelStats[gesspl])
+            {
+                uint key = (uint)s + 1;
+                stats[key] = (resolved.Add(key) ? 0 : stats[key]) + v;
+            }
         int gepl = PickLevel(t.PerLevel, effectRow, level);
         if (e.CastTime > 0)
         {
