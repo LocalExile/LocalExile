@@ -864,10 +864,9 @@ The state uses the paused connection clock and lazy expiry at the next hit/state
 instances until expiry/removal. Native impale-count and visual publication are still open.
 
 Client stat sets `DoubleStrikeAltX` and `BearTrapAltX` grant the same 100% killing-blow reflection stat.
-The trap's chance and impale effect are general stats on a secondary hit. Unlike Call of Steel, the killing-blow
-stat has no instruction to remove impales or multiply by remaining hits. Use one reflection of the live stored
-amount after the contact, including an impale created by that contact. The data exports no radius. The current
-model uses 23 cells as the approximate observed radius, independent of skill area modifiers.
+The trap's chance and impale effect are general stats on a secondary hit. The model reflects the live stored
+amount once after the contact, including an impale created by that contact. Remaining instances stay on the
+corpse for Call of Steel. The approximate observed radius is 23 cells and skill area modifiers do not scale it.
 
 The reflected total receives the existing target physical reduction and generic damage-taken calculation once.
 It receives no new source modifiers, conversion, critical multiplier, spell-only damage taken or returning-projectile
