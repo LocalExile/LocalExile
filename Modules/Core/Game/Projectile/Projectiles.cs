@@ -992,7 +992,8 @@ public static partial class Game
                 CrueltyOnHitLocked(Player, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Player, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
-            else ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            else if (!shot.FromTrapOrMine)
+                ArcaneSurgeOnSpellHitLocked(Player, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
