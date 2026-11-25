@@ -774,7 +774,7 @@ public static partial class Game
             using (new PlayerStatScope(player, fresh: true))
             {
                 bytes.Add(PlayerStatsOffFrames(player));
-                bytes.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
+                bytes.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
             }
             return bytes.Count == 0 ? null : [.. bytes];
         });

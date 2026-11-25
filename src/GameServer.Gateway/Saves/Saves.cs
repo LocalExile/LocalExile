@@ -49,6 +49,7 @@ public static class Saves
         yield return baseKey;
         if (leagueKey != baseKey) yield return leagueKey;
         yield return "guild:" + leagueKey;
+        yield return "trade:" + leagueKey;
     }
 
     /// <summary>Keeps <paramref name="character"/> and its account stash in memory while in an area so gameplay makes no

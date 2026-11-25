@@ -40,6 +40,11 @@ public static partial class Game
             var activeBuff = player.Area.Buffs.Find(player.Id, buffInstance);
             // Any live AreaBuffs entry whose BuffDefinitions row is not Removable is rejected immediately.
             if (activeBuff is null || !IsRemovableBuff(activeBuff.Row)) return false;
+            if (CancelCooldownTriggerLocked(player, activeBuff))
+            {
+                if (publish) postPublish = () => SendOwnAuraChanges(player);
+                return true;
+            }
 
             // 1. Grace Period (row 6, Removable = 1).
             if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id

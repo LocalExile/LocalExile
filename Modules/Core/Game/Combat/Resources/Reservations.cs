@@ -73,13 +73,16 @@ public static partial class Game
             : 0;
         var lifeReservation = LifeReservation.Of(player.Pools, player.QualifiedItemLifeReservationPercent,
             player.Auras.Values, proposedLife);
-        return (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + mana + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false) <= player.Pools.Mana
-            && (long)lifeReservation.Required + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true) < player.Pools.Life;
+        return (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + mana
+                + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false) + CooldownTriggerReservation(player, life: false) <= player.Pools.Mana
+            && (long)lifeReservation.Required + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true)
+                + CooldownTriggerReservation(player, life: true) < player.Pools.Life;
     }
 
     public static int AdditionalLifeReservation(Player player) => (int)Math.Clamp(
         (long)PetrifiedBlood.RequiredLife(player.Pools, player.PetrifiedBlood)
-        + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true),
+        + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true)
+        + CooldownTriggerReservation(player, life: true),
         0, int.MaxValue);
 
     public static void ClampReservedResources(Player player)

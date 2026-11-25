@@ -115,8 +115,8 @@ public static partial class Game
                     lock (ropes) ropes.Remove(rope);
                 if (rope.ClaimRemoval() && rope.BuffRow != 0)
                     Player.Area.Buffs.Clear(rope.TargetId, rope.BuffRow, rope.SourceId, tag: rope.BuffTag);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.BeamId);
             }
         }
 
@@ -177,8 +177,8 @@ public static partial class Game
             // The movement update already sends the combined walk modifier. The buff owns the icon; the beam follows
             // the moving target while its other end stays attached to the stationary ground arrow.
             if (row != 0) Player.Area.Buffs.Set(key.Id, BuffRows.Spec(row, rope.SourceId, null, tag: tag));
-            Player.ProjectileObjects.Add(anchorId);
-            Player.ProjectileObjects.Add(beamId);
+            Player.TrackProjectileObject(anchorId);
+            Player.TrackProjectileObject(beamId);
             Create(anchorId, () =>
             {
                 if (rope.Ended) return null;
@@ -187,6 +187,8 @@ public static partial class Game
                     InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(x, y, demonic ? DemonicSnareArrowAo : SnareArrowAo).Blob());
             }, wake: true);
+            ushort beamRow = demonic ? DemonicSnareBeamRow : SnareBeamRow;
+            var lastEnd = ((int)Math.Round(centre.X), (int)Math.Round(centre.Y));
             Create(beamId, () =>
             {
                 if (rope.Ended) return null;
@@ -194,7 +196,7 @@ public static partial class Game
                 return InstanceEntities.CreateObject(beamId,
                     InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath), new BeamEffectObject(x, y, anchorId,
                         (float)centre.X * BeamEffectObject.WorldPerCell, (float)centre.Y * BeamEffectObject.WorldPerCell,
-                        key.Id, demonic ? DemonicSnareBeamRow : SnareBeamRow).Blob());
+                        key.Id, beamRow).Blob());
             }, wake: true);
 
             long interval = ProjectileRuntime.Time(.1);
@@ -207,13 +209,23 @@ public static partial class Game
                     return;
                 }
                 double at = Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                var pos = monster.Walk.Position(at);
                 if (!Player.Area.Monsters.TryGetValue(key.Id, out var current) || !ReferenceEquals(current, monster)
-                    || !rope.Holds(monster, Vector(monster.Walk.Position(at))))
+                    || !rope.Holds(monster, Vector(pos)))
                 {
                     if (monster.Bleeds.Burning) SettleBleeding(monster, at);
                     lock (ropes) ropes.Remove(rope);
                     RemoveEnsnare(rope);
                     return;
+                }
+                if (rope.BeamCreated && pos != lastEnd)
+                {
+                    lastEnd = pos;
+                    WorldRecords(beamId, () => !rope.Ended && rope.BeamCreated
+                        ? [InstanceEntities.BeamUpdate(beamId, new BeamEffectObject(x, y, anchorId,
+                            pos.X * BeamEffectObject.WorldPerCell, pos.Y * BeamEffectObject.WorldPerCell,
+                            key.Id, beamRow))]
+                        : null);
                 }
                 Runtime.Schedule(Runtime.Now + interval, Check);
             }
@@ -227,19 +239,19 @@ public static partial class Game
             if (!Active)
             {
                 lock (activeSnares) activeSnares.Remove(rope);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.BeamId);
                 return;
             }
             WorldRecords(rope.BeamId, () =>
             {
-                Player.ProjectileObjects.Remove(rope.BeamId);
+                Player.UntrackProjectileObject(rope.BeamId);
                 return rope.BeamCreated ? [InstanceProtocol.RemoveObject(rope.BeamId)] : null;
             }, remove: true);
             WorldRecords(rope.AnchorId, () =>
             {
                 lock (activeSnares) activeSnares.Remove(rope);
-                Player.ProjectileObjects.Remove(rope.AnchorId);
+                Player.UntrackProjectileObject(rope.AnchorId);
                 return rope.AnchorCreated ? [InstanceProtocol.RemoveObject(rope.AnchorId)] : null;
             }, remove: true);
         }

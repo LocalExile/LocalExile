@@ -59,7 +59,11 @@ public static partial class Game
         int chance = fighter.Monster.Effects[Stat.ChanceToGainOnslaughtOnKillFor4SecondsPct];
         if (chance <= 0 || fighter.Monster.Dead || !GolemCurrent(player, fighter)
             || !GameServer.Core.World.RandomRolls.Chance(chance, 100, AreaRng(player))) return;
-        const double seconds = 4;
+        GainMinionOnslaughtLocked(player, fighter, now, 4);
+    }
+
+    static void GainMinionOnslaughtLocked(Player player, GolemState.Golem fighter, double now, double seconds)
+    {
         if (fighter.OnslaughtUntil >= now + seconds) return;
         fighter.OnslaughtUntil = now + seconds;
         if (ItemsFor(player).Onslaught is { } onslaught)
@@ -86,8 +90,7 @@ public static partial class Game
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);
         var state = player.Minions;
-        if (!state.OutputQueue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
-            state.OutputQueue.Add(new([], "Vaal souls after minion kill", Kind: PlayerMinions.OutputKind.Vaal));
+        QueueVaalSoulPresentationLocked(player, "Vaal souls after minion kill");
         if (!state.Rewarded.Add(monster) || HardcoreProgressBlocked(player) || monster.Variety is not { } variety || !monster.Hostile) return;
         var at = monster.Walk.Position(now);
         var partyShares = PartyExperienceShares(player, at);
@@ -101,7 +104,7 @@ public static partial class Game
         {
             WitchbaneOnKill(player, monster, now);
             QueueMadnessExplosionLocked(player, victimId, monster);
-            player.RecentEvents.RecordAmount(StatConditions.KilledEnemy, now);
+            RecordPlayerMonsterKill(player, monster, now);
             SpiritChargeOnKill(player, now);
             state.OutputQueue.Add(new([], null, Kind: PlayerMinions.OutputKind.PlayerKill, Kill: modMonster));
             var charge = new PlayerMinions.AcceptedCharges(true, false, monster.Rarity, null, null, false, now,
@@ -315,7 +318,7 @@ public static partial class Game
                 await SendWorldRemoval(player, id, output.Log, atGate: () =>
                 {
                     var records = Project();
-                    if (records is not null) player.ProjectileObjects.Remove(id);
+                    if (records is not null) player.UntrackProjectileObject(id);
                     return records;
                 });
             }
@@ -353,7 +356,7 @@ public static partial class Game
                     if (whole > 0 && items.ChangeUnsaved(PlayerInventories.Flask, flask.Id, item => Flasks.Gain(item, charges, whole)) is { } done) changed.Add(done);
                 }
                 return ([.. changed.Select(i => i.Id)], changed);
-            }, _ => "0x00bf flask charges (accepted minion kill)", retainOutput: true);
+            }, _ => "0x00c6 flask charges (accepted minion kill)", retainOutput: true);
             if (!Current() || state.FlaskRewards.Count > 0 && ReferenceEquals(state.FlaskRewards[0], reward)) return;
         }
         long revision, account;

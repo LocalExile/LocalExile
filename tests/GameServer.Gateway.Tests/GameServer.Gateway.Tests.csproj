@@ -45,5 +45,6 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
     <!-- The Bestiary mission's effect bytes and tables (BestiaryTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>

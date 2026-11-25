@@ -320,3 +320,17 @@ The shift-click gesture and 3.29.3d picker were not exercised in that run.
 
 The native target owns its sockets and ordinary modifiers. A donor remains separately saved by the target and is
 returned to an empty cursor. No additional numerical stats are enabled by native binding alone.
+
+## Offline local shop, mystery/salvage boxes and JSON error
+
+- **C→S 0x012c** (`0x141fa1160`): `WStr packageId`, `WStr extra`, `u32 BE quantityOrPrice`, `u8 flags` →
+  **S→C 0x0204** (`0x1421b1f10`, `u8 isStore`, `u8 isGuild`, record, `u8 justReceived`) + **S→C 0x012d** (`u16 BE code`,
+  `WStr msg`) + **S→C 0x0131** (four `u32 BE` point balances).
+- **C→S 0x012e** (2 B): reload shop/inventory → `0x0131` + **S→C 0x0132** (`0x1421ad4a0` / `0x1421490a0`: `u16 BE status`,
+  `u16 BE blobLen`; non-empty blob is `u32 LE uncompressedSize` + LZ4 raw block over `u32 LE utf8Len + UTF-8 JSON`) + `0x01f4`.
+- **C→S 0x0130 / 0x0138** (`0x141fa1600`, 4 narrow UTF-8 strings): offline-only replies via **S→C 0x0133** (`u16 BE code`,
+  `u16 BE len`, UTF-8 JSON) and **S→C 0x0282** (`0x141fa6350`, `u16 BE len`, UTF-8 JSON `{"error":{"message":...,"fields":[]}}`)
+  + **S→C 0x0139** (`u16 BE code`).
+- **C→S 0x0206** (6 B, `u32 BE recordId`, mystery box) and **C→S 0x026e** (`u32 BE boxId`, `u16 BE count`, `count × u32 BE`,
+  salvage box) resolve against `MysteryBoxes`, `SalvageBoxes`, `MicrotransactionRecycleOutcomes` and `MtxTypeGameSpecific`
+  in `client.db`, emitting **S→C 0x0205** (`u8 isStore`, `u8 isGuild`, `u32 BE recordId`) and **S→C 0x0204**.

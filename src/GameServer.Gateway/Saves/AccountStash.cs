@@ -27,7 +27,11 @@ public sealed partial class AccountStash
     /// never mixes them up with the personal stash's: inventory ids from 0x900, item ids from 0x50000000.</summary>
     public const uint GuildFirstInventoryId = 0x900, GuildFirstItemId = 0x50000000;
 
-    /// <summary>The size of each stash's item id range (personal 0x40000000…, guild 0x50000000…).</summary>
+    /// <summary>The async-trade merchant stash's tabs and items (S→C 0x7b kind 0x63, 0x136 kind 2) take their own range
+    /// in manager 0: inventory ids from 0xa00, item ids from 0x60000000.</summary>
+    public const uint TradeFirstInventoryId = 0xa00, TradeFirstItemId = 0x60000000;
+
+    /// <summary>The size of each stash's item id range (personal 0x40000000…, guild 0x50000000…, trade 0x60000000…).</summary>
     const uint ItemIdRange = 0x10000000;
 
     /// <summary>This stash's tab i inventory id.</summary>
@@ -35,6 +39,12 @@ public sealed partial class AccountStash
 
     /// <summary>Whether this is the guild stash.</summary>
     public bool IsGuild => _firstInventoryId == GuildFirstInventoryId;
+
+    /// <summary>Whether this is the async-trade merchant stash.</summary>
+    public bool IsTrade => _firstInventoryId == TradeFirstInventoryId;
+
+    /// <summary>The S→C 0x136 / C→S 0xc7 / S→C 0xc8 stash kind byte for this stash.</summary>
+    public byte StashKind => IsGuild ? InstanceStash.Guild : IsTrade ? InstanceStash.Trade : InstanceStash.Personal;
 
     /// <summary>A tab: name, StashType row, colour, items, and its affinities (a bitset of StashTabAffinityId rows, set in the
     /// tab settings, C→S 0xd3).</summary>
@@ -58,7 +68,7 @@ public sealed partial class AccountStash
     /// slots are cells x = slot index of a StorageSlots-wide grid, as their layouts' FirstSlotIndex).</summary>
     public static readonly Dictionary<byte, (string Name, byte Width, byte Height)> Types = new()
     {
-        [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
+        [0] = ("NormalStash", 12, 12), [1] = ("PremiumStash", 12, 12), [2] = ("TradeStash", 12, 12), [3] = ("CurrencyStash", 142, 4), [4] = ("UniqueStash", 254, 4),
         [5] = ("MapStash", 12, 6), [7] = ("QuadStash", 24, 24), [8] = ("EssenceStash", 110, 4), [9] = ("FragmentStash", 255, 9),
         [6] = ("DivinationCardStash", 255, 2), [12] = ("DelveStash", 41, 4), [13] = ("BlightStash", 83, 4),
         [14] = ("UltimatumStash", 62, 5), [15] = ("DeliriumStash", 88, 1),
@@ -133,6 +143,110 @@ public sealed partial class AccountStash
         new("Guild 1", 1, 0x1e, 0x8c, 0x3c, []), new("Guild 2", 1, 0x1e, 0x8c, 0x3c, []), new("Guild Quad", 7, 0x8a, 0x2b, 0xe2, []),
     ];
 
+    /// <summary>The async-trade merchant stash of the account, scoped to the league. Refused in SSF.</summary>
+    public static AccountStash ForTrade(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
+        solo ? throw new InvalidOperationException("Async-trade storage is unavailable in Solo Self-Found.")
+            : Create("trade:" + Key(account, league), catalog, TradeFirstInventoryId, TradeFirstItemId, TradeStarterTabs);
+
+    /// <summary>The starter tabs for an async-trade merchant stash (StashType row 2 TradeStash, 12 × 12).</summary>
+    static readonly SavedTab[] TradeStarterTabs =
+    [
+        new("Merchant Tab 1", StashRules.Trade, 0x2c, 0x6e, 0xc8, [], Public: true),
+        new("Merchant Tab 2", StashRules.Trade, 0xc8, 0x8c, 0x1e, [], Public: true),
+    ];
+
+    const string TradeEarningsModuleKey = "async-trade.earnings.v1";
+    const string TradeHistoryModuleKey = "async-trade.history.v1";
+
+    /// <summary>One persisted async-trade sale history record.</summary>
+    public sealed record SavedTradeSale(ulong Timestamp, uint CurrencyTypeHash, uint CurrencyAmount, bool Sold, CharacterSaves.SavedItem Item);
+
+    /// <summary>Current async-trade earnings currency balances saved in this stash.</summary>
+    public IReadOnlyList<InstanceAsyncTrade.EarningBalance> TradeEarnings()
+    {
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            return [.. map.Where(kv => kv.Value > 0).OrderBy(kv => kv.Key).Select(kv => new InstanceAsyncTrade.EarningBalance(kv.Key, kv.Value))];
+        }
+    }
+
+    /// <summary>Credits async-trade earnings currency atomically and persists.</summary>
+    public uint AddTradeEarnings(uint currencyTypeHash, uint amount)
+    {
+        if (currencyTypeHash == 0 || amount == 0) return 0;
+        uint next;
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            ulong sum = (ulong)map.GetValueOrDefault(currencyTypeHash) + amount;
+            next = (uint)Math.Min(sum, uint.MaxValue);
+            map[currencyTypeHash] = next;
+            WriteTradeEarningsLocked(map);
+        }
+        Persist();
+        return next;
+    }
+
+    /// <summary>Debits up to <paramref name="amount"/> of <paramref name="currencyTypeHash"/> from saved async-trade
+    /// earnings if available. Returns false without mutation if insufficient balance.</summary>
+    public bool TryDebitTradeEarnings(uint currencyTypeHash, uint amount, out uint remaining)
+    {
+        remaining = 0;
+        if (currencyTypeHash == 0 || amount == 0) return false;
+        lock (_lock)
+        {
+            var map = ReadTradeEarningsLocked();
+            uint held = map.GetValueOrDefault(currencyTypeHash);
+            if (held < amount) { remaining = held; return false; }
+            remaining = held - amount;
+            if (remaining == 0) map.Remove(currencyTypeHash);
+            else map[currencyTypeHash] = remaining;
+            WriteTradeEarningsLocked(map);
+        }
+        Persist();
+        return true;
+    }
+
+    /// <summary>Persisted async-trade sale history entries (oldest or insertion order, capped at 200).</summary>
+    public IReadOnlyList<SavedTradeSale> TradeSaleHistory()
+    {
+        lock (_lock) return ReadTradeHistoryLocked();
+    }
+
+    /// <summary>Appends an async-trade sale history record and persists.</summary>
+    public void RecordTradeSale(ulong timestamp, uint currencyTypeHash, uint currencyAmount, bool sold, Item item)
+    {
+        lock (_lock)
+        {
+            var list = ReadTradeHistoryLocked();
+            list.Add(new SavedTradeSale(timestamp, currencyTypeHash, currencyAmount, sold, CharacterSaves.ToSaved(item, _mods)));
+            if (list.Count > 200) list.RemoveRange(0, list.Count - 200);
+            _moduleData[TradeHistoryModuleKey] = JsonSerializer.Serialize(list, Opts);
+        }
+        Persist();
+    }
+
+    Dictionary<uint, uint> ReadTradeEarningsLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeEarningsModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<uint, uint>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    void WriteTradeEarningsLocked(Dictionary<uint, uint> map)
+    {
+        if (map.Count > 0) _moduleData[TradeEarningsModuleKey] = JsonSerializer.Serialize(map, Opts);
+        else _moduleData.Remove(TradeEarningsModuleKey);
+    }
+
+    List<SavedTradeSale> ReadTradeHistoryLocked()
+    {
+        if (!_moduleData.TryGetValue(TradeHistoryModuleKey, out var json) || string.IsNullOrWhiteSpace(json)) return [];
+        try { return JsonSerializer.Deserialize<List<SavedTradeSale>>(json, Opts) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
     static AccountStash Create(string account, ItemCatalog catalog, uint firstInventoryId, uint firstItemId, SavedTab[] starter) =>
         ByAccount.GetOrAdd(account, name =>
         {
@@ -146,7 +260,7 @@ public sealed partial class AccountStash
             var headers = save?.Tabs ?? [.. starter];
             // A stash saved before a starter tab existed gets it at the end: a special tab type it has none of (Delve,
             // Blight, Unique …: 2026-10-22), or a normal tab "3" / "4" (the real game starts with four).
-            var added = save is null ? [] : starter.Where(s => s.Type is not (0 or 1 or 7) ? headers.All(h => h.Type != s.Type)
+            var added = save is null ? [] : starter.Where(s => s.Type is not (0 or 1 or 2 or 7) ? headers.All(h => h.Type != s.Type)
                 : s.Type == 0 && headers.All(h => h.Type != 0 || h.Name != s.Name)).ToList();
             if (added.Count > 0) headers = [.. headers, .. added];
             for (int i = 0; i < headers.Count; i++)
@@ -547,7 +661,7 @@ public sealed partial class AccountStash
     /// <summary>Whether <paramref name="tab"/> is marked Public (trade-listed; currency cannot be used out of it).</summary>
     public bool IsPublic(int tab) { lock (_lock) return tab >= 0 && tab < _tabs.Count && _tabs[tab].Saved.Public; }
 
-    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public, premium <paramref name="tab"/>.</summary>
+    /// <summary>Sets or clears an item's price note (C→S 0x1a1) inside an open, visible, public premium tab or async-trade tab.</summary>
     public InventoryItem? SetItemNote(int tab, uint itemId, string? note)
     {
         string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
@@ -557,7 +671,7 @@ public sealed partial class AccountStash
         {
             if (tab < 0 || tab >= _tabs.Count) return null;
             var t = _tabs[tab];
-            if (t.Saved.Hidden || !t.Saved.Public || !IsPremium(t.Saved.Type)) return null;
+            if (t.Saved.Hidden || (!IsTrade && t.Saved.Type != StashRules.Trade && (!t.Saved.Public || !IsPremium(t.Saved.Type)))) return null;
             int at = t.Items.FindIndex(i => i.Id == itemId);
             if (at < 0) return null;
             result = t.Items[at] = t.Items[at] with { Item = t.Items[at].Item with { Note = normalized } };
@@ -572,6 +686,21 @@ public sealed partial class AccountStash
     {
         lock (_lock)
             return inventoryId >= _firstInventoryId && inventoryId < _firstInventoryId + _tabs.Count ? (int)(inventoryId - _firstInventoryId) : null;
+    }
+
+    /// <summary>Resolves a specialty sub-tab (Map page or Unique category) owned by <paramref name="parentTab"/> matching
+    /// <paramref name="subTabKey"/>, or <paramref name="parentTab"/> itself when <paramref name="subTabKey"/> is 0 or already matches it.</summary>
+    public int? FindSubTab(int parentTab, ulong subTabKey)
+    {
+        lock (_lock)
+        {
+            if (parentTab < 0 || parentTab >= _tabs.Count || _tabs[parentTab].Saved.Hidden) return null;
+            if (subTabKey == 0 || _tabs[parentTab].Saved.UniqueCategory == subTabKey) return parentTab;
+            for (int i = 0; i < _tabs.Count; i++)
+                if (_tabs[i].Saved.Parent == parentTab && _tabs[i].Saved.UniqueCategory == subTabKey && !_tabs[i].Saved.Hidden)
+                    return i;
+            return null;
+        }
     }
 
     /// <summary>The tab list for S→C 0x21 / 0x136. The last tab carries affinity bit <paramref name="selectBit"/> (if
@@ -647,6 +776,78 @@ public sealed partial class AccountStash
         return it;
     }
 
+    /// <summary>The free input cell beside the blight tab's anoint cell that Ctrl + click on <paramref name="oilId"/>
+    /// fills while the anoint cell holds an item (retail, 2026-11-24): the first empty one of
+    /// <see cref="StashRules.AnointInputs"/>, as (slot, 0). Null when the anoint cell is empty, the oil already sits in an
+    /// input or anoint cell, or isn't an oil the inputs take; <paramref name="full"/> says the inputs it takes are all taken.</summary>
+    public (int X, int Y)? AnointInputFor(int tab, uint oilId, out bool full)
+    {
+        full = false;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return null;
+            var t = _tabs[tab];
+            if (t.Saved.Type != StashRules.Blight || t.Items.Find(i => i.Id == oilId) is not { } oil) return null;
+            if (_rules.IsInputSlot(t.Saved.Type, oil.X, oil.Y) || _rules.TakesAnything(t.Saved.Type, oil.X, oil.Y)) return null;
+            if (!t.Items.Any(i => _rules.TakesAnything(t.Saved.Type, i.X, i.Y))) return null;
+            var inputs = _rules.AnointInputs(t.Saved.Type, oil.Item.TypeHash);
+            if (inputs.Count == 0) return null;
+            foreach (int slot in inputs)
+                if (!t.Items.Any(i => i.X == slot && i.Y == 0)) return (slot, 0);
+            full = true;
+            return null;
+        }
+    }
+
+    /// <summary>Atomically moves one oil from <paramref name="oilId"/> in a blight tab into the first free input cell
+    /// beside the anoint cell (with a fresh stash id). Null when inputs do not apply; <paramref name="full"/> when
+    /// inputs apply but are all taken.</summary>
+    public (InventoryItem Placed, InventoryItem? LeftInTab)? MoveToAnointInput(int tab, uint oilId,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out bool full)
+    {
+        full = false;
+        (InventoryItem Placed, InventoryItem? LeftInTab) result;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count) return null;
+            var t = _tabs[tab];
+            if (t.Saved.Type != StashRules.Blight) return null;
+            int at = t.Items.FindIndex(i => i.Id == oilId);
+            if (at < 0) return null;
+            var oil = t.Items[at];
+            if (_rules.IsInputSlot(t.Saved.Type, oil.X, oil.Y) || _rules.TakesAnything(t.Saved.Type, oil.X, oil.Y)) return null;
+            if (!t.Items.Any(i => _rules.TakesAnything(t.Saved.Type, i.X, i.Y))) return null;
+            var inputs = _rules.AnointInputs(t.Saved.Type, oil.Item.TypeHash);
+            if (inputs.Count == 0) return null;
+            int targetSlot = -1;
+            foreach (int slot in inputs)
+                if (!t.Items.Any(i => i.X == slot && i.Y == 0)) { targetSlot = slot; break; }
+            if (targetSlot < 0) { full = true; return null; }
+            if (shapeOf(oil.Item) is not { } shape) return null;
+            if (CellIn(t, oil.Item, targetSlot, 0, out _) is not var (cx, cy)) return null;
+            if (InTheWay(t, cx, cy, shape, shapeOf).Count > 0) { full = true; return null; }
+            var oneItem = oil.Item with { StackSize = 1 };
+            if (!t.Saved.Public && oneItem.Note is not null) oneItem = oneItem with { Note = null };
+            var placed = new InventoryItem(_nextItemId++, (byte)cx, (byte)cy, oneItem);
+            InventoryItem? left = null;
+            if (oil.Item.StackSize > 1)
+            {
+                left = oil with { Item = oil.Item with { StackSize = (ushort)(oil.Item.StackSize - 1) } };
+                t.Items[at] = left;
+            }
+            else
+            {
+                t.Items.RemoveAt(at);
+                if (oil.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+            }
+            if (placed.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+            t.Items.Add(placed);
+            result = (placed, left);
+        }
+        Persist(tab);
+        return result;
+    }
+
     /// <summary>Whether a tab holds items of this type (<see cref="StashRules"/>: a special tab only its own kind).</summary>
     public bool Holds(int tab, uint itemType)
     {
@@ -673,13 +874,26 @@ public sealed partial class AccountStash
             { why = "this unique does not belong to the collection category"; return null; }
             return (unique.X, unique.Y);
         }
-        if (_rules.TakesAnything(t.Saved.Type, x, y)) return (x, y);   // the currency tab's crafting slot: any item, where dropped
+        if (_rules.TakesAnything(t.Saved.Type, x, y)) return (x, y);   // a crafting slot (currency, delve, blight's anoint cell): any item
+        if (_rules.IsMapSlot(t.Saved.Type, x, y))
+        {
+            if (_rules.MapTier(item.TypeHash) is null || !_rules.IsBlightedMap(item))
+            { why = $"the {TypeName(t)} tab's map cells take Blighted and Blight-ravaged maps only"; return null; }
+            return (x, y);
+        }
         if (!_rules.Holds(t.Saved.Type, item.TypeHash)) { why = $"the {TypeName(t)} tab doesn't hold that item"; return null; }
         if (!_rules.Slotted(t.Saved.Type)) return (x, y);
         if (_rules.IsOverflowSlot(t.Saved.Type, x, y)) return (x, y);   // a spare cell under the crafting slot: where dropped
+        if (_rules.IsInputSlot(t.Saved.Type, x, y)) return (x, y);      // a crafting input beside the anoint cell: where dropped
         if (_rules.SlotOf(t.Saved.Type, item.TypeHash) is not int slot) { why = $"the {TypeName(t)} tab has no slot for that item"; return null; }
         return SlotCell(t, slot);
     }
+
+    // The blight tab's map row for a Ctrl + click (0xe1 affinity 13, or 0xe0): a Blighted or Blight-ravaged map, the same
+    // test CellIn makes on a map cell; an ordinary map has no Blight affinity.
+    bool TakesInMapRow(TabState t, Item item) =>
+        t.Saved.UniqueCategory == 0 && _rules.MapTier(item.TypeHash) is not null && _rules.IsBlightedMap(item)
+        && Enumerable.Range(0, t.Grid.W).Any(x => _rules.IsMapSlot(t.Saved.Type, x, 0));
 
     // Slot n is cell (n mod width, n / width): divination cards span two rows, and fragments use their Subtab row.
     static (int X, int Y) SlotCell(TabState t, int slot) => (slot % t.Grid.W, slot / t.Grid.W);
@@ -696,7 +910,8 @@ public sealed partial class AccountStash
     // slot, which holds any item at its own stack size).
     int MaxStack(TabState t, Item item, PlayerInventories.Shape shape, int x, int y) =>
         !item.Components.Contains("Stack") ? 1 :
-        _rules.TakesAnything(t.Saved.Type, x, y) ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
+        _rules.TakesAnything(t.Saved.Type, x, y) || _rules.IsInputSlot(t.Saved.Type, x, y) || _rules.IsMapSlot(t.Saved.Type, x, y)
+            ? shape.MaxStack : _rules.MaxStack(t.Saved.Type, item.TypeHash) ?? shape.MaxStack;
 
     /// <summary>The item put into a tab at (x, y) (in a slotted tab, its own slot), and the one item it was dropped on
     /// (taken out, for the cursor), or null with the reason: the tab doesn't hold it, outside the grid or more than one
@@ -725,8 +940,10 @@ public sealed partial class AccountStash
             // A character's id (counted from 1 per character) becomes a stash id: two characters' items never share one.
             // An item keeps the id this stash gave it; one from a character or the other stash gets one of this stash's.
             var placed = held with { Id = OwnId(held.Id) ? held.Id : _nextItemId++, X = (byte)x, Y = (byte)y };
-            t.Items.Add(placed);
             if (placed.Item.Note is { Length: > 0 } || displaced?.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+            // A price note lives only in a public tab: retail clears it when the item lands in one that isn't (2026-11-24).
+            if (!t.Saved.Public && placed.Item.Note is not null) placed = placed with { Item = placed.Item with { Note = null } };
+            t.Items.Add(placed);
             result = (placed, displaced);
         }
         Persist(tab);
@@ -786,6 +1003,7 @@ public sealed partial class AccountStash
             var t = _tabs[tab];
             if (shapeOf(item) is not { } shape) { why = "unknown item type"; return null; }
             if (CellIn(t, item, 0, 0, out why) is not var (slotX, slotY)) return null;
+            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             bool slotted = _rules.Slotted(t.Saved.Type);
             int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
             left = item.StackSize;
@@ -986,6 +1204,9 @@ public sealed partial class AccountStash
         {
             if (tab < 0 || tab >= _tabs.Count || shapeOf(item) is not { } shape) return null;
             var t = _tabs[tab];
+            if (TakesInMapRow(t, item))   // the first free map cell; null when the row is full
+                return Enumerable.Range(0, t.Grid.W).Where(x => _rules.IsMapSlot(t.Saved.Type, x, 0) && !t.Items.Any(i => i.X == x && i.Y == 0))
+                    .Select(x => ((byte, byte)?)((byte)x, (byte)0)).FirstOrDefault();
             if (CellIn(t, item, 0, 0, out _) is not var (sx, sy)) return null;
             if (t.Saved.UniqueCategory != 0)
                 return t.Saved.Type == StashRules.Map
@@ -1004,6 +1225,36 @@ public sealed partial class AccountStash
 
     /// <summary>What <see cref="Pay"/> took, per tab: the stacks it emptied (ids) and the ones it left smaller.</summary>
     public sealed record Payment(IReadOnlyDictionary<int, (List<uint> Removed, List<InventoryItem> Changed)> Tabs);
+
+    /// <summary>Spends one unit from the named stack, using its current size when multiple players share a stash.</summary>
+    public Payment? PayOne(int tab, InventoryItem selected)
+    {
+        Payment payment;
+        lock (_lock)
+        {
+            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Public) return null;
+            var items = _tabs[tab].Items;
+            int at = items.FindIndex(i => i.Id == selected.Id && i.Item.TypeHash == selected.Item.TypeHash);
+            if (at < 0) return null;
+            var current = items[at];
+            var tabs = new Dictionary<int, (List<uint> Removed, List<InventoryItem> Changed)>();
+            if (current.Item.StackSize > 1)
+            {
+                var left = current with { Item = current.Item with { StackSize = (ushort)(current.Item.StackSize - 1) } };
+                items[at] = left;
+                tabs[tab] = ([], [left]);
+            }
+            else
+            {
+                items.RemoveAt(at);
+                if (current.Item.Note is { Length: > 0 }) _itemNotesDirty = true;
+                tabs[tab] = ([current.Id], []);
+            }
+            payment = new(tabs);
+        }
+        Persist(tab);
+        return payment;
+    }
 
     /// <summary>
     /// Takes <paramref name="amount"/> of an item type from the stash's stacks, in any tab (smallest stacks first), in one
