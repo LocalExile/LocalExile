@@ -611,7 +611,7 @@ public static partial class MapHarbinger
         var standing = new List<MonsterCatalog.Variety>();
         var any = new List<MonsterCatalog.Variety>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        if (Packs.For(player.Layout.Id)?.Scattered is { Count: > 0 } scattered)
+        if (InstancePacks(player)?.Scattered is { Count: > 0 } scattered)
         {
             foreach (var p in scattered)
                 foreach (var e in p.Pack.Entries)

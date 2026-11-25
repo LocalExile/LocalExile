@@ -39,10 +39,10 @@ static partial class SurvivorsRunRules
         int.TryParse(Environment.GetEnvironmentVariable("Game_SURVIVORS_MAX_ALIVE"), out int n)
             ? Math.Clamp(n, 10, 800) : SurvivorsRules.DefaultMaxAlive;
 
-    /// <summary>The area's packs, deduplicated and ordered by the life the client gives the variety at the area level.</summary>
+    /// <summary>The instance's packs (the area's own and, on a map, its draw from the shared pool), deduplicated and ordered by the life the client gives the variety at the area level.</summary>
     internal static SurvivorsRoster? SurvivorsRosterFor(Player player)
     {
-        if (Packs.For(player.Layout.Id) is not { } area) return null;
+        if (global::Game.InstancePacks(player) is not { } area) return null;
         byte level = (byte)Math.Clamp(area.AreaLevel, 1, 100);
         IEnumerable<int> rows = area.Scattered.SelectMany(s => s.Pack.Entries.Select(e => e.Variety))
             .Concat(area.Named.Values.SelectMany(p => p.Entries.Select(e => e.Variety)))
