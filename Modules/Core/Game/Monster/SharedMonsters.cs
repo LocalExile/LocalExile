@@ -393,6 +393,7 @@ public static partial class Game
             var gone = InstanceProtocol.RemoveObject(id);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(gone.AsSpan(6), uint.MaxValue);
             player.Area.Delta.Add(id, gone, null, AreaDelta.Kind.Remove, except: player);
+            player.Minions.Bodies.RemoveAll(b => b.Id == id);   // a body waiting to go has been taken away just now
         }
     }
 

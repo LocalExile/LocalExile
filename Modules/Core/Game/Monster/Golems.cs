@@ -521,8 +521,14 @@ public static partial class Game
         return id;
     }
 
-    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true)
+    // dies: the body of a summon that ended in play stays for SummonBodySeconds with its life at 0 (RemoveMinionBodiesLocked
+    // takes it away); otherwise it is removed at once.
+    static void RemoveGolemLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing = true) =>
+        RemoveGolemBodyLocked(player, golem, now, reconcileBlessing, dies: false);
+
+    static void RemoveGolemBodyLocked(Player player, GolemState.Golem golem, double now, bool reconcileBlessing, bool dies)
     {
+        bool shown = golem.Monster.Dead || golem.Monster.Life == 0;
         ClearSharedMinionAuras(player, golem.Id);
         ClearMinionFlasksLocked(player, golem, now);
         ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
@@ -538,9 +544,13 @@ public static partial class Game
         golem.Monster.ActionGeneration++; golem.Monster.Dead = true; golem.Monster.Life = 0;
         if (player.Area.Monsters.TryGetValue(golem.Id, out var held) && ReferenceEquals(held, golem.Monster))
         {
-            player.Area.Monsters.Remove(golem.Id); player.MinionOrigins.TryRemove(golem.Id, out _);
-            player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
-                Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
+            if (dies) SummonBodyDiesLocked(player, golem, shown, now);
+            else
+            {
+                player.Area.Monsters.Remove(golem.Id); player.MinionOrigins.TryRemove(golem.Id, out _);
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(golem.Id), "golem removed", golem.Id,
+                    Kind: PlayerMinions.OutputKind.Remove, WorldId: golem.Id, RemovesObject: true));
+            }
         }
         player.Golems.RefreshAt = 0;
         if (reconcileBlessing) ReconcileGuardianBlessingLocked(player);
