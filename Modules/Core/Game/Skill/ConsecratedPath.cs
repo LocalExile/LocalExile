@@ -67,8 +67,9 @@ public static partial class Game
         double seconds = SkillDurationModifiers.Seconds(Skill(Stat.BaseSkillEffectDuration), PlayerStat, Skill);
         if (seconds <= 0) return;
 
-        bool profane = Skill(Stat.ConsecratedPathAndPurifyingFlameCreateProfaneGroundInsteadOfConsecratedGround) != 0
-            || PlayerStat(Stat.ConsecratedPathAndPurifyingFlameCreateProfaneGroundInsteadOfConsecratedGround) != 0;
+        bool Has(uint key) => Skill(key) != 0 || PlayerStat(key) != 0;
+        bool profane = Has(Stat.ConsecratedPathAndPurifyingFlameCreateProfaneGroundInsteadOfConsecratedGround)
+            || Has(Stat.CreateProfaneGroundInsteadOfConsecratedGround);
         var kind = profane ? FlaskGrounds.Kind.ProfaneGround : FlaskGrounds.Kind.ConsecratedGround;
         int taken = profane ? 0 : OwnConsecratedGroundCreatedLocked(player, stats);
         player.FlaskGrounds.Add(new(kind, at.X, at.Y, groundRadius, now + seconds,
