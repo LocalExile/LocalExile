@@ -118,7 +118,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
-- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
+- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll. Either Impaling strike
+  can reflect stored physical damage to nearby enemies on a kill.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, mainâ€¦), with that
   weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
@@ -347,6 +348,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
+  Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon

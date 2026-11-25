@@ -3598,7 +3598,13 @@ public static partial class Game
                                     ItemMinionsOnWeaponCriticalLocked(player, secondWeaponContactSource, m, at);
                             }
                         }
-                        if (applied.Value.Life == 0) RecordTinctureKill(m, tinctureKill);
+                        if (applied.Value.Life == 0)
+                        {
+                            RecordTinctureKill(m, tinctureKill);
+                            ReflectKillingBlowImpalesLocked(player, m,
+                                skillStats.GetValueOrDefault(global::Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance),
+                                at, playerStats, playerKill: true);
+                        }
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
                         if (applied.Value.Life == 0) DevourOnKill(player, m, skillStats);
