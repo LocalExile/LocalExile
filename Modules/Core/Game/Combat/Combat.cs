@@ -2884,8 +2884,8 @@ public static partial class Game
                     {
                         var splashAt = m.Walk.Position(now);
                         foreach (var (sid, sm) in player.Area.MonstersNear(splashAt, splash.Radius))
-                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
-                                && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
+                            if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null
+                                && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius && struck.Add(sid))
                             {
                                 targets.Add((sid, sm));
                                 splashMore[sid] = splash.More;

@@ -110,8 +110,8 @@ Nothing yet.
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
-  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
-  ([25](../docs/protocol/25-gem-supports.md)).
+  the native panel's per-hit damage convention.
+  Melee Splash checks the radius of each strike before counting its targets ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
