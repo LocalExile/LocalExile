@@ -85,6 +85,7 @@ public static partial class Game
         // Glacial Hammer's shatter has its own condition and leaves no overkill damage or cull recovery.
         if (shatter && hit.Life > 0 && !hit.StageStarts && !m.StageRunning)
         {
+            m.Overkill = 0;
             m.Life = hit.Life;
             return TakeOwnerDamageLocked(player, m, (int)Math.Min(int.MaxValue, hit.Life), rampageSource, playerStats);
         }

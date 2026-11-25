@@ -95,7 +95,9 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
+  Crystalfall accepts a compatible Slam with an unarmed main hand, including while holding a shield.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
+  Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
@@ -167,7 +169,8 @@ Nothing yet.
   Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
   to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
-  Vaal Rejuvenation Totem regenerates life and redirects part of nearby allies' hit damage into the totem's life.
+  Rejuvenation Totem regenerates life for nearby players and minions; the Vaal version also redirects part of allies'
+  hit damage into the totem's life.
   Offline regressions cover Vaal Heavy Strike contact and knockback, Vaal Arctic Armour mitigation, Blazing Salvo
   impacts and the three Spectral Shield Throw variants.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).

@@ -2085,6 +2085,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   The 3.29.3c client creates its three bolts locally: a server create duplicates them.
   A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
   The native flights have different durations; their per-projectile speed variation is not yet mirrored.
+  Lightning Strike of Arcing (`LightningStrikeAltX`) uses the same action and one bolt at base. The melee target is
+  excluded from its bolt, and a successful melee hit makes the bolt unable to miss. Its stats give the bolt 50% less
+  hit and ailment damage and 10% more per chain already made, so the first projectile contact has no chain bonus.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
@@ -2754,9 +2757,9 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bd) a second after.
   An area change starts a new connection without totems.
 - Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
-  gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
-  stats the skill holds, scaled by the player's aura effect.
-  The strongest covering totem counts; the player gets buff 172 (0x1c1, source the player) and his stats while it does.
+  gives the owner and nearby allied players and minions the skill's `base_life_regeneration_rate_per_minute`,
+  scaled by the caster's aura effect. Each recipient uses the strongest covering totem.
+  The player gets buff 172 (0x1c1, source the player) while covered by the ordinary aura. The Vaal aura uses row 2201.
 - Damage taken from the nearest totem: `damage_removed_from_your_nearest_totem_before_life_or_es_%` (Forest of
   Ancestors, Kaom's Leadership) moves that share of each part of a monster or `/hit` hit, after mitigation and before
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
