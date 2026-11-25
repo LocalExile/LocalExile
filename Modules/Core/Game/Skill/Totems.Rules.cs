@@ -373,6 +373,8 @@ public static partial class Game
             bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(objectId, skillId, TotemMinionType)],
                 CanDetonateMines(player)));
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
+            if (playerStats.GetValueOrDefault(Stat.TotemsTauntEnemiesAroundThemForXSecondsWhenSummoned) is > 0 and var tauntSeconds)
+                TauntFromTotemLocked(player, placed, 30, tauntSeconds, now);
             StartTotemTimer(player);
             if (replaced.Count > 0)
             {
