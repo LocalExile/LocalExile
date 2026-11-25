@@ -1261,7 +1261,7 @@ public static partial class Game
         bool TotemPlacementCurrent()
         {
             return !player.Closed && !player.LeavingArea && !player.RageRetired
-                && (cooldownUse?.Current(player) ?? true)
+                && (cooldownUse?.Current(player, ignoreAction: true) ?? true)
                 && (vaalUse is null || VaalAdmissionCurrent(player, vaalUse))
                 && (channelGeneration is not int generation || ChannelCurrent(player, skillId, action, generation));
         }
