@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public class MagebloodTests
 {
     [Fact]
-    public void Mageblood_applies_the_leftmost_or_foulborn_rightmost_magic_utility_flasks_scaled_by_flask_effect()
+    public async Task Mageblood_applies_the_leftmost_or_foulborn_rightmost_magic_utility_flasks_scaled_by_flask_effect()
     {
         var path = Path.Combine(Path.GetTempPath(), $"mageblood-{Guid.NewGuid():N}.db");
         Saves.Open(path);
@@ -53,6 +53,22 @@ public class MagebloodTests
                 return Game.MagebloodSources(player, character).Where(s => s.Effect == Effect("Jade Flask")).Max(s => s.Value);
             }
             Assert.Equal(Evasion(_ => 0) * 3 / 2, Evasion(name => name == Stat.FlaskEffectPlusPct ? 50 : 0));
+
+            // Area entry builds PoolsFor without calling RecomputePoolsAndSpeed; a leftmost Quartz Flask must still set
+            // player.Phasing and publish phasing_buff + PhaseThroughObjects immediately without re-slotting the flask.
+            bar.Put(PlayerInventories.Flask, new(306, 0, 0, Flask("Quartz Flask", ItemRarity.Magic)));
+            Applied(Belt(leftmost), _ => 0);
+            player.Phasing = false;
+            player.Pools = Game.PoolsFor(player, 90);
+            player.PlayerLife = 100;
+            Assert.True(player.Phasing);
+            Assert.True(player.IsPhasing);
+            player.Area.Stats.Created(player.Id, []);
+            await Game.SyncPhasing(player);
+            player.Area.Stats.Publish();
+            Assert.Equal(1, player.Area.Stats.WrittenValue(player.Id, Stat.PhaseThroughObjects));
+            Assert.Equal(1, player.Area.Stats.WrittenValue(player.Id, Stat.VirtualPhaseThroughObjects));
+            Assert.True(player.Area.Buffs.HasRow(player.Id, 336));
         }
         finally { PlayerInventories.Forget(player.Character.Name!); TestEnvironment.ReleaseSaves(path); }
     }

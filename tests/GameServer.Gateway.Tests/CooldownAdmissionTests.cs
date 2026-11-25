@@ -36,6 +36,57 @@ public sealed class CooldownAdmissionTests
         Assert.Null(Game.NativeCooldownRefresh(c, c.ProjectileEpoch, () => current));
     }
 
+    sealed class Clock : IPlayerUpdateSchedule
+    {
+        public double Time;
+        public double Now(Player _) => Time;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public void Shared_blink_debit_publishes_the_dash_copy_whose_plan_it_used()
+    {
+        using var f = new Fixture();
+        var player = f.Player;
+        ushort first = f.Equip(PlayerInventories.Weapon1, "Dash").Single();
+        f.Equip(PlayerInventories.Helmet, "Dash", "Second Wind Support");
+        ushort second = Game.GemSkillEffects(player).Single(g => g.Name == "Dash" && g.Id != first).Id;
+        ushort frostblink = f.Equip(PlayerInventories.Gloves, "Frostblink").Single();
+        var firstPlan = Game.CooldownForSkill(player, first)!.Value;
+        var secondPlan = Game.CooldownForSkill(player, second)!.Value;
+        Assert.NotEqual(firstPlan.RecoveryRate, secondPlan.RecoveryRate);
+        int dashEffect = Game.SupportedSkill(player, second).Effect;
+        int frostblinkEffect = Game.SupportedSkill(player, frostblink).Effect;
+        Assert.True(Game.CooldownKey(player, dashEffect, second) < 0);
+        player.ClientSkillIds.UnionWith([first, second, frostblink]);
+
+        var clock = new Clock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            Assert.True(Game.TryBeginSkillCooldownUse(player, second, dashEffect, secondPlan, true, () => { }, out var dash));
+            Assert.True(dash!.CommitNativeUse(player, second));
+            clock.Time += 60;
+            Game.RefreshSingleUseCooldowns(player);
+
+            Assert.True(Game.TryBeginSkillCooldownUse(player, frostblink, frostblinkEffect,
+                Game.CooldownForSkill(player, frostblink), true, () => { }, out var frost));
+            var receipt = Assert.Single(frost!.SharedUses);
+            Assert.Equal(secondPlan.RecoveryRate, receipt.State.Rate);
+            Assert.Equal(second, receipt.Skill);
+            Assert.True(frost.CommitNativeUse(player, frostblink));
+
+            float seconds = secondPlan.BaseMilliseconds / 1000f;
+            var expected = InstanceEntities.PlayerSingleUseCooldowns(player.Id,
+                [new(second, seconds, seconds, (float)secondPlan.RecoveryRate, 1)]);
+            var actual = Game.NativeCooldownRefresh(player, player.ProjectileEpoch,
+                () => [(first, dashEffect), (second, dashEffect)]);
+            Assert.Equal(expected, actual);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public void Duplicate_active_gems_keep_stored_uses_and_do_not_reset_recharge_debt()
     {

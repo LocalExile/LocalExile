@@ -14,6 +14,9 @@ public sealed class PlayerElementalAilments
         int ChillEffectFinalPct, int ShockDurationFinalPct, int IgniteDamageFinalPct)
     {
         public bool NeverFreeze { get; init; }
+        public bool AllDamageCanIgnite { get; init; }
+        public bool AllDamageCanFreeze { get; init; }
+        public bool AllDamageCanShock { get; init; }
         /// <summary>The source skill's own stats, for the rules that read more of them than the fields above.</summary>
         public Func<uint, int>? SourceStats { get; init; }
     }
@@ -191,11 +194,15 @@ public sealed class PlayerElementalAilments
             void Add(Kind kind, double magnitude, double seconds) => AddLocked(kind, magnitude,
                 seconds * durationFactor, now, get, random, source, critAvoid);
             if (critical || RandomRolls.Chance(settings.IgniteChance, 100, random))
-                Add(Kind.Ignite, baseHit[DamageType.Fire].Min * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
+            {
+                double fire = settings.AllDamageCanIgnite ? baseHit.MinTotal : baseHit[DamageType.Fire].Min;
+                Add(Kind.Ignite, fire * .9 * (critical ? MonsterCriticalAilmentMultiplier : 1)
                     * Math.Max(0, 1 + settings.IgniteDamageFinalPct / 100.0), 4);
+            }
             if (maxLife == 0) return;
             double cold = taken[DamageType.Cold].Min / maxLife;
-            double lightning = taken[DamageType.Lightning].Min / maxLife;
+            double freeze = settings.AllDamageCanFreeze ? taken.MinTotal / maxLife : cold;
+            double lightning = (settings.AllDamageCanShock ? taken.MinTotal : taken[DamageType.Lightning].Min) / maxLife;
             // Changing Seasons (all_damage_taken_can_chill): every type of the hit's damage counts toward its chill.
             double chilling = get(Stat.AllDamageTakenCanChill) != 0 ? taken.MinTotal / maxLife : cold;
             double chill = Math.Min(30, Math.Floor(50 * Math.Pow(chilling, .4)
@@ -203,7 +210,7 @@ public sealed class PlayerElementalAilments
                 * Math.Max(0, 1 + settings.ChillEffectFinalPct / 100.0)));
             if (chill >= 5) Add(Kind.Chill, chill, 2);
             if (!settings.NeverFreeze && (critical || RandomRolls.Chance(settings.FreezeChance, 100, random)))
-                Add(Kind.Freeze, 100, Math.Min(3, 6 * cold));
+                Add(Kind.Freeze, 100, Math.Min(3, 6 * freeze));
             double shock = Math.Min(50, Math.Floor(50 * Math.Pow(lightning, .4)
                 * Math.Max(0, 1 + EffectOnSelfPct(Kind.Shock, get) / 100.0)));
             if (shock >= 5 && (critical || RandomRolls.Chance(settings.ShockChance, 100, random)))
