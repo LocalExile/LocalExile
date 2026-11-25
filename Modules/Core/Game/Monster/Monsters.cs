@@ -367,11 +367,14 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false) =>
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape);
 
     /// <summary>The same, for an owned object whose create carries base data (owner, the object it came from, itself) and object
     /// flag 0x02, as the official servers' minions. A separate overload: the one above keeps its signature for compiled mods.</summary>
@@ -387,11 +390,11 @@ public static partial class Game
         Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
         MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
-        bool bulk = false, bool nonBlocking = false) =>
+        bool bulk = false, bool nonBlocking = false, Func<MonsterObject, MonsterObject>? shape = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, ownedBaseData);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape, ownedBaseData);
 
     static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
@@ -406,7 +409,11 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false, Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData = null)
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null,
+        Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData = null)
     {
         // Flag 0x02 wakes the object in its create, which only the owned branch sends that way; the other one wakes it separately.
         if (ownedBaseData is not null && owned is null) throw new ArgumentException("base data needs an owned spawn", nameof(ownedBaseData));
@@ -682,7 +689,7 @@ public static partial class Game
         {
             // An owned object's create names its owner, what it came from and itself, with object flag 0x02 (MonsterObject.BaseData).
             BaseData = ownedBaseData?.Invoke(id) ?? [], ObjectFlags = ownedBaseData is null ? (byte)0 : (byte)0x02,
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Chain = variety.Chain, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(player, variety),
             AnimationSeed = animationSeed,
@@ -691,6 +698,7 @@ public static partial class Game
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
+        if (shape is not null) monster = shape(monster);
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2bb type is its hash.
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
@@ -725,7 +733,7 @@ public static partial class Game
                     AddMonsterLocked(); admitted = true;
                     return create;
                 }
-            }, createLog, wake: monster.ObjectFlags == 0,   // flag 0x02 wakes it itself (CreateInWakeZone)
+            }, createLog, wake: (monster.ObjectFlags & 0x02) == 0,   // flag 0x02 wakes it itself (CreateInWakeZone)
                 afterCreation: initialDeath ? () => [InstanceProtocol.LifeUpdate(id, 0)] : null);
             if (!admitted) return 0;
         }
@@ -2949,7 +2957,9 @@ public static partial class Game
         foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
-        var suppression = spellHit ? Suppression(player) : default;
+        var map = MapModsOf(player);
+        var suppression = spellHit && (map?.Get(Stat.MapPlayerCannotSuppressSpellDamage) ?? 0) == 0
+            ? Suppression(player) : default;
         bool RollSuppression() => spellHit && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
@@ -2996,6 +3006,9 @@ public static partial class Game
         int blockChance = a.Spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
         if (projectile)
             blockChance = stats.GetValueOrDefault(a.Spell ? Stat.SpellProjectileBlockPct : Stat.ProjectileAttackBlockPct, blockChance);
+        if (map is not null && (map.Get(Stat.MapPlayerCannotBlock) != 0
+            || map.Get(a.Spell ? Stat.MapPlayerCannotBlockSpells : Stat.MapPlayerCannotBlockAttacks) != 0))
+            blockChance = 0;
         bool blocked = !a.Secondary && DamageModel.Blocks(blockChance,
             player.IncomingHitRandom.NextDouble() * 100, a.Spell ? player.Pools.SpellBlockLucky : player.Pools.AttackBlockLucky,
             a.Spell ? player.Pools.SpellBlockUnlucky : player.Pools.AttackBlockUnlucky);
@@ -3005,7 +3018,8 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
+        int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
+            + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3071,6 +3085,11 @@ public static partial class Game
         int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
             ailmentTaken);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
+        if (!blocked)
+        {
+            ApplyEqualisingHitLocked(player, m);
+            if (player.PlayerLife > 0) QueueMonsterFlaskChargeLossLocked(player, m);
+        }
         TrimLeechLocked(player);
         var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
@@ -3129,6 +3148,8 @@ public static partial class Game
             player.PlayerLife = PetrifiedBlood.RecoverLife(player, player.PlayerLife, (long)damage * recoverPct / 100, ref carry);
             TrimLeechLocked(player);
         }
+        if (!blocked && player.PlayerLife > 0)
+            IncomingImpaleContactLocked(player, id, m, attackHit, rolled[DamageType.Physical].Min, now, here, stats);
         uint life = player.PlayerLife;
         RageWhenHitLocked(player);
         if (!blocked && player.PlayerLife > 0 && m.Effects[Stat.GlobalChanceToBlindOnHitPct] is > 0 and var blindChance
@@ -3149,15 +3170,18 @@ public static partial class Game
 
     static PlayerElementalAilments.HitSettings MergeMonsterModAilments(PlayerElementalAilments.HitSettings skill, MonsterModEffects e)
     {
-        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : 0;
-        int freeze = Math.Max(0, e[Stat.BaseChanceToFreezePct]);
-        int shock = e[Stat.AlwaysShock] > 0 ? 100 : 0;
-        if (ignite == 0 && freeze == 0 && shock == 0) return skill;
+        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToIgnitePct]);
+        int freeze = e[Stat.AlwaysFreeze] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToFreezePct]);
+        int shock = e[Stat.AlwaysShock] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToShockPct]);
+        bool all = e[Stat.AllDamageCanIgniteFreezeShock] != 0;
         return skill with
         {
-            IgniteChance = Math.Min(100, skill.IgniteChance + ignite),
-            FreezeChance = Math.Min(100, skill.FreezeChance + freeze),
-            ShockChance = Math.Min(100, skill.ShockChance + shock),
+            IgniteChance = (int)Math.Min(100, (long)skill.IgniteChance + ignite),
+            FreezeChance = (int)Math.Min(100, (long)skill.FreezeChance + freeze),
+            ShockChance = (int)Math.Min(100, (long)skill.ShockChance + shock),
+            AllDamageCanIgnite = skill.AllDamageCanIgnite || all || e[Stat.AllDamageCanIgnite] != 0,
+            AllDamageCanFreeze = skill.AllDamageCanFreeze || all || e[Stat.AllDamageCanFreeze] != 0,
+            AllDamageCanShock = skill.AllDamageCanShock || all || e[Stat.AllDamageCanShock] != 0,
         };
     }
 

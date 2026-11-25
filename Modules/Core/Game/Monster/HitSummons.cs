@@ -141,7 +141,7 @@ public static partial class Game
                     ? request.Monster.Rarity : MonsterRarity.Normal);
             // The raise removes a corpse that was not created as one (SummonFighterCore); it is removed here only otherwise.
             if (id != 0 && request.ConsumeCorpse)
-                ConsumeHitSummonCorpseLocked(player, request, removedByRaise: !request.Monster.CreatedAsCorpse);
+                ConsumeHitSummonCorpseLocked(player, request, removedByRaise: !request.Monster.CreatedAsCorpse && request.Monster.ObjectId != 0);
         }
     }
 
