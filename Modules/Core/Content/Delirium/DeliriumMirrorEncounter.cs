@@ -418,11 +418,11 @@ public sealed class DeliriumMirrorEncounter
             foreach (var peer in Clients(player))
             {
                 if (fog is not null)
-                    await PlayerOf(peer).Send(fog, "0x00df blend in Delirium fog");
+                    await PlayerOf(peer).Send((byte[])fog.Clone(), "0x00df blend in Delirium fog");
                 if (snap is not null)
-                    await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
+                    await PlayerOf(peer).Send((byte[])snap.Clone(), "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
                 if (animation is not null)
-                    await PlayerOf(peer).Send(animation, $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
+                    await PlayerOf(peer).Send((byte[])animation.Clone(), $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             }
         }
         finally { state.Gate.Release(); }
@@ -558,11 +558,11 @@ public sealed class DeliriumMirrorEncounter
                 ? InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Affliction, (uint)sec)
                 : InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Affliction);
             foreach (var peer in Clients(player))
-                await PlayerOf(peer).Send(pkt, sec > 0 ? $"0x0163 Delirium fog countdown {sec}s" : "0x0163 hide Delirium fog timer");
+                await PlayerOf(peer).Send((byte[])pkt.Clone(), sec > 0 ? $"0x0163 Delirium fog countdown {sec}s" : "0x0163 hide Delirium fog timer");
         }
         if (tilesPacket is not null)
             foreach (var peer in Clients(player))
-                await PlayerOf(peer).Send(tilesPacket, "0x02c9 ruleset AfflictionEncounterRules mode 1 (reward tiles)");
+                await PlayerOf(peer).Send((byte[])tilesPacket.Clone(), "0x02c9 ruleset AfflictionEncounterRules mode 1 (reward tiles)");
         if (shouldSpawn)
             await SpawnPack(player, state);
     }
@@ -646,11 +646,11 @@ public sealed class DeliriumMirrorEncounter
         var fog = AfflictionRuleset.FogEnvironment(false);
         foreach (var peer in Clients(player))
         {
-            await PlayerOf(peer).Send(hideTimer, "0x0163 hide Delirium fog timer (encounter ended)");
+            await PlayerOf(peer).Send((byte[])hideTimer.Clone(), "0x0163 hide Delirium fog timer (encounter ended)");
             if (fog is not null)
-                await PlayerOf(peer).Send(fog, "0x00df blend out Delirium fog");
+                await PlayerOf(peer).Send((byte[])fog.Clone(), "0x00df blend out Delirium fog");
             if (snap is not null)
-                await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (ended)");
+                await PlayerOf(peer).Send((byte[])snap.Clone(), "0x02c9 ruleset AfflictionEncounterRules mode 0 (ended)");
             await WorldOf(peer).RefreshStats();
         }
 
