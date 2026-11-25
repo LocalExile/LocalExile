@@ -63,8 +63,9 @@ essence upgrading remain separate features.
   it natively. See [the evidence](../docs/re/exalted-coe.md).
   Chaos rerolls the same rare pool, keeps metamod locks and refuses flasks/empty pools. Recheck it natively. See
   [the evidence](../docs/re/chaos-coe.md).
-  Vaal's local outcome rule has validated admission (corrupted/mirrored/unique/unsupported/empty refused); official
-  CoE Vaal outcomes remain separate. See [the boundary](../docs/re/vaal-coe.md).
+  Vaal Orb implements the 3.29 retail outcome tables across gems, equipment (normal through unique), maps/MapKeys,
+  jewels (standard, Abyss, Cluster) and flasks in `Modules/Core/Game/Item/VaalCorruption.cs`; fresh real-client
+  verification remains pending. See [the notes](../docs/re/vaal-coe.md).
   Chance's local 30/70 rule has validated admission; CoE beta has no Chance handler, so official unique/rarity
   outcomes remain separate. See [the boundary](../docs/re/chance-coe.md).
   Annulment's removal rule has validated admission and CoE metamod/rarity checks; recheck it natively. See
@@ -133,4 +134,4 @@ essence upgrading remain separate features.
 ## 5. Project
 
 - Completed currency metacraft protection for supported explicit-affix currencies;
-  specialized unsupported currencies and official Chance/Vaal outcome distributions remain separate work.
+  specialized unsupported currencies and official Chance outcome distributions remain separate work.

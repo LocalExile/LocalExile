@@ -844,8 +844,10 @@ public static partial class Game
         a = CurrentMinionHit(a, current);
         if (!a.Attack.Spell && !TauntPreventsAttackEvasion(player, target, now))
         {
-            int accuracy = g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
-                + g.Monster.Mods.Effects[Stat.AccuracyRating]);
+            int accuracy = GolemStat(g.Player, Stat.MinionsAccuracyIsEqualToYours) != 0
+                ? player.Pools.Accuracy
+                : g.Monster.Mods.Effects.Accuracy((Monsters.BaseAccuracy(g.Monster.Level) ?? 0)
+                    + g.Monster.Mods.Effects[Stat.AccuracyRating]);
             int evasion = UnderBlind(player, id, target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0));
             if (!DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), AreaRng(player).Next(100))) return false;
         }
@@ -862,8 +864,12 @@ public static partial class Game
         double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
             || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
-            || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge))
-            factor *= ConditionalSupportMore(supported.Stats, attack: !a.Attack.Spell, chilled: false, lowLife: false,
+            || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge)
+            || supported.Stats.ContainsKey(Stat.SupportHypothermiaDamagePlusPctVsChilledEnemiesFinal)
+            || supported.Stats.ContainsKey(Stat.SupportExecutionerDamageVsEnemiesOnLowLifePlusPctFinal))
+            factor *= ConditionalSupportMore(supported.Stats, attack: !a.Attack.Spell,
+                chilled: target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
+                lowLife: FlaskRecovery.LowLife(target.Life, target.MaxLife),
                 fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now),
                 enduranceCharges: g.CombatCharges?.Held(ChargeType.Endurance) ?? 0);
         if (!a.Attack.Spell && !a.Attack.Secondary && g.Definition.Kind == "Spectre" && g.Monster.Variety?.Id is
@@ -909,9 +915,14 @@ public static partial class Game
         bool invert = inversionChance > 0 && rolled.Components.Any(component =>
                 DamageTypes.IsElemental(component.Type) && component.Range.Max > 0)
             && RandomRolls.Chance(inversionChance, 100, random);
+        var penetration = profile?.Penetration ?? default;
+        if (target.HasCurses && target.Curses.HasActive(now)
+            && GolemStat(g.Player, Stat.MinionsPenetrateElementalResistancesPctVsCursedEnemies) is int cursedPen and not 0)
+            penetration = new(penetration.Fire + cursedPen, penetration.Cold + cursedPen, penetration.Lightning + cursedPen,
+                penetration.Chaos, penetration.ColdVsChilled);
         var mitigated = rolled.Select((type, range) =>
         {
-            var resistance = MonsterHitResistance(target, type, profile?.Penetration ?? default, now);
+            var resistance = MonsterHitResistance(target, type, penetration, now);
             double effective = HitResistances.FinalValue(type, resistance, strike, resistanceMods, invert);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
@@ -928,14 +939,10 @@ public static partial class Game
             CannotKill = cull.CannotKill || MinionIgniteKillRule(currentPlayer, target, now).CannotKill,
         };
         int chaosDamage = MonsterHitChaosDamage(target, mitigated, a.Attack.Spell, now, damage, projectileTaken, ignorePhysical);
-        bool attackCanImpale = !a.Attack.Spell && !a.Attack.Secondary && rolled[DamageType.Physical].Min > 0
-            && (effects[Stat.AttacksImpaleOnHitPctChance] != 0 || effects[Stat.ImpaleOnHitPctChance] != 0
-                || GolemStat(a.Stats, Stat.AttacksImpaleOnHitPctChance) != 0
-                || g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) > 0);
-        ImpaleContact? impale = attackCanImpale || target.Impale.Stacks > 0
-            ? new(attackCanImpale ? rolled[DamageType.Physical].Min : 0, now,
-                attackCanImpale ? ImpaleStats.From(effects.Stats, Stats, attack: true, a.Stats, g.Weapon?.LocalSources) : default,
-                random) : null;
+        bool physicalAttack = !a.Attack.Spell && !a.Attack.Secondary && rolled[DamageType.Physical].Min > 0;
+        var settings = physicalAttack ? WeaponImpaleSettings(effects.Stats, Stats, attack: true, a.Stats, g.Weapon) : default;
+        ImpaleContact? impale = settings.Chance > 0 || target.Impale.Stacks > 0
+            ? new(physicalAttack ? rolled[DamageType.Physical].Min : 0, now, settings, random) : null;
         if (ApplyMonsterHitCoreLocked(player, target, damage, rampageSource: null, playerStats: null,
             allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage, impale: impale) is not { } hit) return false;
         if (!a.Attack.Spell && !a.Attack.Secondary && damage > 0)

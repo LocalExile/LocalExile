@@ -75,7 +75,16 @@ public static partial class Game
         MonsterCharges.TryGetValue(m, out var s)
             ? (s.Endurance, s.Frenzy, s.Power) : (0, 0, 0);
 
-    /// <summary>Grants <paramref name="count"/> charges of <paramref name="type"/> to <paramref name="m"/>, capped at 3
+    static int MonsterChargeMaximum(SpawnedMonster monster, ChargeType type) =>
+        Math.Max(0, ActorScale.Saturate(MonsterMaxCharges + (long)(type switch
+        {
+            ChargeType.Endurance => monster.Effects[Stat.MapMonsterMaximumEnduranceCharges],
+            ChargeType.Frenzy => monster.Effects[Stat.MapMonsterMaximumFrenzyCharges],
+            ChargeType.Power => monster.Effects[Stat.MapMonsterMaximumPowerCharges],
+            _ => 0
+        })));
+
+    /// <summary>Grants <paramref name="count"/> charges of <paramref name="type"/> to <paramref name="m"/>, capped by its maximum
     /// and lasting 10 s, and immediately syncs its temporary stats and client charge buff (refreshing duration even
     /// when already at max stacks).</summary>
     public static void GrantMonsterChargeLocked(GameArea? area, uint id, SpawnedMonster m, ChargeType type, double now, int count = 1)
@@ -83,18 +92,19 @@ public static partial class Game
         if (count <= 0 || m.Dead || m.Life == 0 || !m.Hostile) return;
         var state = GetOrCreateChargeState(m);
         double until = now + MonsterChargeDurationSeconds;
+        int maximum = MonsterChargeMaximum(m, type);
         switch (type)
         {
             case ChargeType.Endurance:
-                state.Endurance = Math.Min(MonsterMaxCharges, state.Endurance + count);
+                state.Endurance = (int)Math.Min(maximum, (long)state.Endurance + count);
                 state.EnduranceUntil = until;
                 break;
             case ChargeType.Frenzy:
-                state.Frenzy = Math.Min(MonsterMaxCharges, state.Frenzy + count);
+                state.Frenzy = (int)Math.Min(maximum, (long)state.Frenzy + count);
                 state.FrenzyUntil = until;
                 break;
             case ChargeType.Power:
-                state.Power = Math.Min(MonsterMaxCharges, state.Power + count);
+                state.Power = (int)Math.Min(maximum, (long)state.Power + count);
                 state.PowerUntil = until;
                 break;
         }
@@ -107,14 +117,11 @@ public static partial class Game
     {
         if (m.Dead || m.Life == 0 || !m.Hostile) return;
         var e = m.Effects;
-        if (!blocked) StealMapChargesLocked(player, id, m, victim: null, now, random);
-        if (!blocked && e[Stat.AddFrenzyChargeOnSkillHitPct] is int frenzyPct and > 0
-            && RandomRolls.Chance(frenzyPct, 100, random))
-            GrantMonsterChargeLocked(player.Area, id, m, ChargeType.Frenzy, now);
-
-        if (!blocked && e[Stat.AddPowerChargeOnSkillHitPct] is int powerPct and > 0
-            && RandomRolls.Chance(powerPct, 100, random))
-            GrantMonsterChargeLocked(player.Area, id, m, ChargeType.Power, now);
+        if (!blocked)
+        {
+            StealMapChargesLocked(player, id, m, victim: null, now, random);
+            GainMonsterHitChargesLocked(player.Area, id, m, now, random);
+        }
 
         if (spell && e[Stat.GainXPowerChargesOnCastingASpell] is int spellPower and > 0)
             GrantMonsterChargeLocked(player.Area, id, m, ChargeType.Power, now, spellPower);
@@ -129,6 +136,23 @@ public static partial class Game
                 if (!charges.Converted(type) && charges.CanSpend(type))
                     charges.Enqueue(new ChargeEvent.Spend(type, 1, "of Enervation"));
         }
+    }
+
+    static void GainMonsterHitChargesLocked(GameArea area, uint id, SpawnedMonster monster, double now, Random random)
+    {
+        if (monster.Effects[Stat.AddFrenzyChargeOnSkillHitPct] is > 0 and var frenzy
+            && RandomRolls.Chance(frenzy, 100, random))
+            GrantMonsterChargeLocked(area, id, monster, ChargeType.Frenzy, now);
+        if (monster.Effects[Stat.AddPowerChargeOnSkillHitPct] is > 0 and var power
+            && RandomRolls.Chance(power, 100, random))
+            GrantMonsterChargeLocked(area, id, monster, ChargeType.Power, now);
+    }
+
+    static void GainMonsterChargeWhenHitLocked(Player player, SpawnedMonster monster, double now)
+    {
+        if (monster.Effects[Stat.ChanceToGainEnduranceChargeWhenHitPct] is > 0 and var chance
+            && RandomRolls.Chance(chance, 100, AreaRng(player)))
+            GrantMonsterChargeLocked(player.Area, monster.ObjectId, monster, ChargeType.Endurance, now);
     }
 
     static void StealMapChargesLocked(Player player, uint attacker, SpawnedMonster monster, GolemState.Golem? victim,
@@ -204,7 +228,7 @@ public static partial class Game
             {
                 state.LastEnduranceTickAt = now;
                 int gain = m.Effects[Stat.GainEnduranceChargePerSecondIfHaveBeenHitRecently];
-                state.Endurance = Math.Min(MonsterMaxCharges, state.Endurance + gain);
+                state.Endurance = (int)Math.Min(MonsterChargeMaximum(m, ChargeType.Endurance), (long)state.Endurance + gain);
                 state.EnduranceUntil = now + MonsterChargeDurationSeconds;
                 refreshed = ChargeType.Endurance;
             }

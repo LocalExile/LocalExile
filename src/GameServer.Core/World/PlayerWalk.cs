@@ -389,9 +389,15 @@ public sealed class PlayerWalk
     public (int X, int Y) Order(int targetX, int targetY, double now) => Walk((targetX, targetY), 0, -1, now);
 
     /// <summary>Puts the walker at a cell (a teleport, e.g. S→C 0x1b7): no walk in progress.</summary>
-    public void Teleport(int x, int y, double now)
+    public void Teleport(int x, int y, double now) => Put(x, y, now, displaced: true);
+
+    /// <summary>Puts the walker at a cell without counting it as a teleport (<see cref="ObserveTravel"/>): a
+    /// correction of where the server thinks the walker is, not a displacement. No walk in progress.</summary>
+    public void Place(int x, int y, double now) => Put(x, y, now, displaced: false);
+
+    void Put(int x, int y, double now, bool displaced)
     {
-        if (_travel is not null)
+        if (displaced && _travel is not null)
         {
             SettleTravel(now);
             if (_travel is { } travel && At(now, out _) != (x, y))

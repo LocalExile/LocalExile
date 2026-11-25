@@ -22,7 +22,9 @@ static partial class Game
 
     static readonly RuleTable<Player, StaticStrikeState> StaticStrikeStates = new();
 
-    public static bool IsStaticStrike(int effect) => Skills.EffectId(effect) == "StaticStrike";
+    public static bool IsStaticStrike(int effect) => Skills.EffectId(effect) is "StaticStrike" or "StaticStrikeAltX";
+
+    static bool IsGatheringLightning(int effect) => Skills.EffectId(effect) == "StaticStrikeAltX";
 
     public static Task ScheduleStaticStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
@@ -62,6 +64,12 @@ static partial class Game
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll,
         ushort sequence, int repeat = 0, bool cryExerted = false, double? ruthlessMore = null)
     {
+        if (IsGatheringLightning(gem.Effect))
+        {
+            ReleaseGatheringLightning(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
+                repeat, cryExerted, ruthlessMore);
+            return;
+        }
         bool hit = false;
         var source = SupportedSkill(player, skillId);
         var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, aim,

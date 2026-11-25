@@ -27,6 +27,9 @@ public sealed class MonsterPoisons
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
+        public bool AllDamageWithWeapon { get; init; }
+        public int AdditionalWithWeapon { get; init; }
+
         /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
         public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
             IReadOnlyDictionary<uint, int>? local = null, bool projectileAttack = false)
@@ -45,7 +48,11 @@ public sealed class MonsterPoisons
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
                 local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0, projectileChance, Secondary: hand == "secondary",
                 NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
-                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0)
+            {
+                AllDamageWithWeapon = local?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) is not (null or 0),
+                AdditionalWithWeapon = local?.GetValueOrDefault(Stat.LocalNumAdditionalPoisonsToInflictWhenInflictingPoison) ?? 0,
+            };
         }
     }
 
@@ -153,8 +160,11 @@ public sealed class MonsterPoisons
             double stepDamage = sumDps * Math.Max(0, factor) * (cuts[k] - cuts[k - 1]);
             // Preserve the stacks at the lethal contact, even when this advance also expires them. Death callbacks
             // run after the step and cannot recover that state from the live list.
-            if (advancedDeath is null && lifeAtStart is > 0 && damage + stepDamage >= lifeAtStart.Value)
-                advancedDeath = StrongestOf(active.Where(p => p.From <= mid && mid < p.Until));
+            if (advancedDeath is null && lifeAtStart is > 0 && mitigated > 0 && damage + stepDamage >= lifeAtStart.Value)
+            {
+                double at = cuts[k - 1] + Math.Clamp((lifeAtStart.Value - damage) / mitigated, 0, seconds);
+                advancedDeath = CaptureDeath(at, mid);
+            }
             damage += stepDamage;
         }
         last = until;
@@ -173,23 +183,48 @@ public sealed class MonsterPoisons
     public void ClearAtDeath(double now, bool poisonDeath = false)
     {
         cleared = (poisonDeath ? advancedDeath : null) ?? cleared
-            ?? StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+            ?? CaptureDeath(now, now);
         DiedPoisoned = cleared is not null; active.Clear(); carry = 0;
     }
 
     /// <summary>Freeze the poison on an accepted death before asynchronous kill presentation can outlive it.</summary>
     public void RememberDeath(double now)
     {
-        cleared = StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+        cleared = CaptureDeath(now, now);
         DiedPoisoned = cleared is not null;
     }
 
-    (double DamagePerSecond, double Until)? cleared, advancedDeath;
+    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest);
+    DeathPoison? cleared, advancedDeath;
+
+    /// <summary>The death's timestamp and remaining poison damage before target mitigation. A deferred death callback
+    /// retains that snapshot even after the poison ticker drops the live stacks.</summary>
+    public (double At, double Remaining)? RemainingAtDeath(double now)
+    {
+        var death = cleared ?? CaptureDeath(now, now);
+        return death is { } value ? (value.At, value.Remaining) : null;
+    }
+
+    DeathPoison? CaptureDeath(double at, double sample)
+    {
+        (double DamagePerSecond, double Until)? strongest = null;
+        double remaining = 0;
+        foreach (var poison in active)
+        {
+            if (poison.From <= at && at < poison.Until)
+                remaining += poison.DamagePerSecond * (poison.Until - at) * expiryRate;
+            if (poison.From <= sample && sample < poison.Until
+                && (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
+                    || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until))
+                strongest = (poison.DamagePerSecond, poison.Until);
+        }
+        return strongest is { } best ? new(at, remaining, best) : null;
+    }
 
     /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the
     /// poisons ended (<see cref="ClearAtDeath"/>): a deferred kill callback keeps the state of that death.</summary>
     public (double DamagePerSecond, double Until)? Strongest(double now) =>
-        cleared ?? StrongestOf(active.Where(p => p.From <= now && now < p.Until));
+        cleared?.Strongest ?? StrongestOf(active.Where(p => p.From <= now && now < p.Until));
 
     static (double DamagePerSecond, double Until)? StrongestOf(IEnumerable<Poison> stacks)
     {

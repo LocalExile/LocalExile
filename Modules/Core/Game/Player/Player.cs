@@ -82,7 +82,7 @@ public static partial class Game
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
                     ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
-                candidate = WithCasterAuraStamps(candidate, CharacterStatSources(player).Stats);
+                candidate = WithCasterAuraStamps(player, candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }
@@ -251,12 +251,14 @@ public static partial class Game
         player.ChannelMovement = default;
         EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
+        ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
+        ClearSteelWardOnDeath(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
-        VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
+        ClearDoubleStrikeMomentum(player);
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
@@ -408,16 +410,21 @@ public static partial class Game
     public static uint ManaCost(StatCatalog stats, SkillCatalog skills, int effect, int level, int quality) =>
         Stat.ManaCost is var k ? (uint)skills.EffectStats(effect, level, quality).Where(kv => kv.Item1 == k).Select(kv => kv.Item2).FirstOrDefault() : 0;
 
+    static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
+        out uint es, out uint fromEs, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100) =>
+        SkillCostLocked(player, skillId, own, out cost, out life, out es, out fromEs, out _, out playerStats, costPercent);
+
     // What a use of the skill costs now (PayMana's rules), and whether the player can pay it. Called in the area's frame.
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out uint es, out uint fromEs, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
+        out uint es, out uint fromEs, out int rage, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
     {
         cost = 0;
         life = 0;
         es = 0;
         fromEs = 0;
+        rage = 0;
         playerStats = new Dictionary<uint, int>();
         if (CombatLifetime is not null && !CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
             return false;
@@ -461,9 +468,10 @@ public static partial class Game
             {
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
-                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    && (own.TryGetValue(Stat.ManaCost, out int unsplitBase) || Own(Stat.BaseManaCostPct) > 0))
                 {
-                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0
+                        || Own(Stat.BaseManaCostPct) > 0)
                         unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
@@ -477,13 +485,17 @@ public static partial class Game
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
         if (Read(Stat.NoManaCost) != 0) cost = 0;
         es = (uint)Math.Max(0, Read(Stat.EsCost));
+        rage = ChainbreakerRageCost(Read);
         if (costPercent != 100)
         {
             cost = (uint)((long)cost * costPercent / 100);
             life = (int)((long)life * costPercent / 100);
             es = (uint)((long)es * costPercent / 100);
+            rage = (int)((long)rage * costPercent / 100);
         }
-        if (es > player.EnergyShield.Current) return false;
+        if (es > player.EnergyShield.Current
+            || rage > 0 && player.Rage.Read(ProjectileWorldTime(player), RageStats.Inputs(player, Read)).Current < rage)
+            return false;
         bool Has(uint name) => Read(name) != 0;
         if (Has(Stat.VirtualSpendEnergyShieldForCostsBeforeMana) || Has(Stat.KeystoneEldritchBattery))
             fromEs = Math.Min(cost, player.EnergyShield.Current - es);
@@ -495,7 +507,7 @@ public static partial class Game
     public static bool CanPaySkillCost(Player player, ushort skillId)
     {
         var own = SupportedSkill(player, skillId).Stats;
-        return SkillCostLocked(player, skillId, own, out _, out _, out _, out _, out _);
+        return SkillCostLocked(player, skillId, own, out _, out _, out _, out _, out _, out _);
     }
 
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
@@ -507,16 +519,37 @@ public static partial class Game
     public static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(player, skillId, out cost, out lifeCost, 100);
 
-    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
+    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent,
+        bool useSpell = true, ChargeType? cooldownBypass = null)
     {
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
         lifeCost = 0;
-        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var playerStats, costPercent))
+        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs,
+                out int rage, out var playerStats, costPercent))
         {
             cost = 0;
             return false;
         }
+        double rageAt = 0;
+        RageState.Inputs rageInputs = default;
+        if (rage > 0)
+        {
+            rageAt = ProjectileWorldTime(player);
+            rageInputs = RageStats.Inputs(player, playerStats.GetValueOrDefault);
+            if (player.Rage.Read(rageAt, rageInputs).Current < rage)
+            {
+                cost = 0;
+                return false;
+            }
+        }
+        if (cooldownBypass is { } charge && !ChargesOf(player).Spend(charge))
+        {
+            cost = 0;
+            return false;
+        }
+        if (rage > 0 && !player.Rage.Spend(rage, rageAt, rageInputs))
+            throw new InvalidOperationException("Chainbreaker Rage cost changed inside admission");
         if (es + fromEs > 0)
         {
             player.EnergyShield.Spend(es + fromEs);
@@ -1539,7 +1572,8 @@ public static partial class Game
         return atCap ? (0, before, after) : (percent, before, after);
     }
 
-    // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
+    // The player's final uncapped resistance for one damage type: the passive/gear modifier plus the Kitava quest
+    // penalty and scorch, then Tempered by War's 50% less Cold and Lightning resistance before capping.
     public static int Resistance(Player player, DamageType type)
     {
         int modifier = type switch
@@ -1550,7 +1584,11 @@ public static partial class Game
             DamageType.Chaos => player.Pools.ChaosResistance,
             _ => 0,
         };
-        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(player) + PlayerScorchedResistance(player, type);
+        if (type == DamageType.Physical) return modifier;
+        int total = modifier + ResistancePenalty(player) + PlayerScorchedResistance(player, type);
+        if (player.Pools.HalveColdAndLightningResistance && type is DamageType.Cold or DamageType.Lightning)
+            total /= 2;
+        return total;
     }
 
     // The per-type maximum from Character.ot's 75 plus the passive/gear maximum-resistance modifiers, hard-capped at 90.
@@ -1631,6 +1669,7 @@ public static partial class Game
     public static int PlayerEvasionBase(Player player, double now)
     {
         EnsureConditionalItemPools(player);
+        if (player.Pools.EvasionBasedOnWard) return WardDefenceRating(player);
         return player.Walk.Moving(now) && player.Pools.EvasionWhileMoving is int moving ? moving : player.Pools.Evasion;
     }
 
@@ -1654,6 +1693,7 @@ public static partial class Game
             {
                 await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
+                ClearOwnerAttacks(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
                 await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");
@@ -1677,12 +1717,15 @@ public static partial class Game
                 await GameEvents.RunResurrected(player);
                 return;
             }
-            // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
-            // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
+            // The Oasis's local gates set a checkpoint at their arrival. Otherwise use the activated waypoint or the
+            // entry point. Both keep the same instance and its encounter progression.
             bool activated;
             lock (player.Character.Waypoints)
                 activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
-            var (x, y) = player.Layout.Checkpoint(activated);
+            var gateCheckpoint = !inTown ? ShakariEncounter.CheckpointOf(player) : null;
+            var (x, y) = gateCheckpoint ?? player.Layout.Checkpoint(activated);
+            string checkpointReason = gateCheckpoint is not null ? "the last Oasis gate"
+                : activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point";
             // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
             // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
             await SendResurrectFade(player, (x, y));
@@ -1705,7 +1748,7 @@ public static partial class Game
             await SendWorldRecord(player, player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 0)]),
                 "0x01b3 player is_dead = 0");
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
-                $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
+                $"0x01b7 player to the checkpoint ({x}, {y}): {checkpointReason}");
             await GameEvents.RunResurrected(player);
         }
         finally { Volatile.Write(ref player.Resurrecting, 0); }
@@ -1864,8 +1907,9 @@ public static partial class Game
             var tabs = PersonalStashOf(player).Records((int)StashSelectAffinity);
             var tradeTabs = player.Character.Ssf ? null : TradeStashOf(player).Records(null);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(player)).WeaponSet == 1;
-            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms",
-                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs)));
+            bool ownHideout = OwnHideout(player);
+            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms{(ownHideout ? ", own hideout" : "")}",
+                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs, ownHideout)));
             messages.AddRange(GameEvents.RunEnterMessages(player));
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and

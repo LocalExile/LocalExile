@@ -18,6 +18,9 @@ public static partial class Game
         get(Stat.ActiveSkillIgniteDamagePlusPctFinal))
     {
         NeverFreeze = get(Stat.NeverFreeze) != 0,
+        AllDamageCanIgnite = get(Stat.AllDamageCanIgnite) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
+        AllDamageCanFreeze = get(Stat.AllDamageCanFreeze) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
+        AllDamageCanShock = get(Stat.AllDamageCanShock) != 0 || get(Stat.AllDamageCanIgniteFreezeShock) != 0,
         // Scorch and Brittle (AlternateAilmentsOnPlayerLocked) read the boss skills' chance_to_scorch_% and the like.
         SourceStats = get,
     };
@@ -35,11 +38,20 @@ public static partial class Game
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
+                && !settings.AllDamageCanIgnite && !settings.AllDamageCanFreeze && !settings.AllDamageCanShock
                 && Get(Stat.AllDamageTakenCanChill) == 0) return;
         // Ailment damage is a separate ordinary roll from the pre-hit range. Hit luck and the hit's critical
         // multiplier cannot alter its distribution; non-damaging ailments still use the actual mitigated hit.
-        int fire = critical || settings.IgniteChance > 0 ? baseHit[DamageType.Fire].Roll(player.IncomingHitRandom) : 0;
-        var ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+        var ailmentBase = DamagePacket.Empty;
+        if (critical || settings.IgniteChance > 0)
+        {
+            if (settings.AllDamageCanIgnite) ailmentBase = baseHit.Roll(player.IncomingHitRandom);
+            else
+            {
+                int fire = baseHit[DamageType.Fire].Roll(player.IncomingHitRandom);
+                ailmentBase = DamagePacket.Of(DamageType.Fire, fire, fire);
+            }
+        }
         double durationFactor = LetheShadeAilmentDuration(Get);
         ApplyPlayerAilmentsLocked(player, now, ailments =>
             ailments.Apply(ailmentBase, taken, critical, player.PlayerMaxLife, now, Get, player.IncomingHitRandom, settings, source,
@@ -290,10 +302,16 @@ public static partial class Game
         }));
     }
 
+    static int MapSkillActionSpeedPerUse(Player player) =>
+        MapModsOf(player)?.Get(Stat.MapPlayerActionSpeedPlusPctPerRecentSkillUse) ?? 0;
+
     public static double PlayerActionFactorFrom(Player player, Func<uint, int> get)
     {
+        double now = AreaTime(player);
         double extra = get(Stat.HasTailwind) == 0 ? 0 : Math.Floor(8 * Math.Max(0, 1 + get(Stat.TailwindEffectOnSelfPlusPct) / 100d)) - 8;
-        double factor = player.ElementalAilments.TotalActionFactor(AreaTime(player), get(Stat.ActionSpeedMinusPct) - extra)
+        int mapSpeed = MapSkillActionSpeedPerUse(player);
+        if (mapSpeed != 0) extra += (double)mapSpeed * player.RecentEvents.Amount(StatConditions.UsedSkill, now);
+        double factor = player.ElementalAilments.TotalActionFactor(now, get(Stat.ActionSpeedMinusPct) - extra)
             * Math.Max(.01, 1 + get(Stat.TemporalChainsActionSpeedPlusPctFinal) / 100d);
         if (get(Stat.ActionSpeedCannotBeReducedBelowBase) != 0) factor = Math.Max(1, factor);
         // Rakiata's Leadership: action speed cannot be modified below 100% + this value (the level 1 spirit's 10 is

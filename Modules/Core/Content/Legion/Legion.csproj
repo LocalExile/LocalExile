@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Legion as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+  <ItemGroup>
+    <!-- The timer and the army plan (LegionTests). -->
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+
+</Project>

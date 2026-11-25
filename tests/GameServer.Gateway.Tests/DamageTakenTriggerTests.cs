@@ -101,6 +101,35 @@ public class DamageTakenTriggerTests
             finally { session.Invalidate(); player.Connection.WorldOutput.Close(); }
         });
     }
+    [Fact]
+    public void Cast_on_crit_keeps_socket_order_when_alternating_attacks()
+    {
+        using var f = new TriggeredSummonTests.Fixture();
+        f.Equip(("Heavy Strike", 1), ("Glacial Hammer", 1), ("Fireball", 1), ("Freezing Pulse", 1),
+            ("Cast On Critical Strike Support", 1));
+        var gems = Game.GemSkillEffects(f.Player).ToDictionary(gem => gem.Name, gem => gem.Id);
+        var heavy = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureCriticalTriggerSource(f.Player, gems["Heavy Strike"]));
+        var glacial = Assert.IsType<Game.LinkedTriggerSource>(Game.CaptureCriticalTriggerSource(f.Player, gems["Glacial Hammer"]));
+        ushort fireball = gems["Fireball"], pulse = gems["Freezing Pulse"];
+        Assert.Equal(new[] { fireball, pulse }, heavy.Spells.Select(spell => spell.Skill));
+        Assert.Equal(new[] { fireball, pulse }, glacial.Spells.Select(spell => spell.Skill));
+
+        Assert.True(Game.ReleaseCriticalTrigger(f.Player, f.Session, heavy, true, true, (120, 100), 10));
+        f.Session.AdvanceTo(0);
+        Assert.Equal(fireball, Assert.IsType<ProjectileOffense>(Assert.Single(f.Session.Runtime.Projectiles).Use.Payload).SourceSkill);
+
+        Assert.False(Game.ReleaseCriticalTrigger(f.Player, f.Session, glacial, false, true, (120, 100), 11));
+        Assert.True(Game.ReleaseCriticalTrigger(f.Player, f.Session, glacial, true, true, (120, 100), 11));
+        f.Session.AdvanceTo(0);
+        Assert.Equal(new[] { fireball, pulse }, f.Session.Runtime.Projectiles
+            .Select(projectile => Assert.IsType<ProjectileOffense>(projectile.Use.Payload).SourceSkill));
+
+        Assert.True(Game.ReleaseCriticalTrigger(f.Player, f.Session, heavy, true, true, (120, 100), 12));
+        f.Session.AdvanceTo(0);
+        Assert.Equal(new[] { fireball, pulse, fireball }, f.Session.Runtime.Projectiles
+            .Select(projectile => Assert.IsType<ProjectileOffense>(projectile.Use.Payload).SourceSkill));
+    }
+
     // Cast on Melee Kill: only a hostile kill by the linked melee attack releases the next linked spell.
     [Fact]
     public void Cast_on_melee_kill_releases_linked_spells_only_on_hostile_melee_kills()

@@ -1,9 +1,229 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class ProjectileReleaseRegressionTests
 {
+    [Fact]
+    public async Task Gathering_lightning_is_granted_after_a_paid_melee_hit()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        player.Pools = player.Pools with { Accuracy = 10_000 };
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (!ReferenceEquals(owner, player)) return values;
+            values[Stat.GlobalCannotCrit] = 1;
+            values[Stat.AttackMinimumAddedPhysicalDamage] = values[Stat.AttackMaximumAddedPhysicalDamage] = 1_000;
+            return values;
+        });
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Static Strike of Gathering Lightning", 1)));
+            var primary = Target(941, 108);
+            var firstBeam = Target(942, 137);
+            var chain = Target(943, 180);
+            Assert.Equal(0, WireChains());
+            await Swing(94, 0);
+            Assert.False(player.Area.Buffs.HasRow(player.Id, 2687));
+            Assert.Equal(primary.MaxLife, primary.Life);
+
+            await Swing(108, 941);
+            uint firstDamage = primary.MaxLife - primary.Life;
+            uint firstBeamDamage = firstBeam.MaxLife - firstBeam.Life;
+            Assert.True(firstDamage > 0);
+            Assert.True(player.Area.Buffs.HasRow(player.Id, 2687));
+            Assert.True(firstBeamDamage > 0);
+            Assert.Equal(chain.MaxLife, chain.Life);
+            CheckStacks(1);
+
+            uint primaryBefore = primary.Life, beamBefore = firstBeam.Life;
+            await Swing(108, 941);
+            Assert.InRange((double)(primaryBefore - primary.Life) / firstDamage, 1.06, 1.10);
+            Assert.InRange((double)(beamBefore - firstBeam.Life) / firstBeamDamage, 1.06, 1.10);
+            Assert.True(chain.Life < chain.MaxLife);
+            CheckStacks(2);
+
+            uint chainBefore = chain.Life;
+            clock.At += 4.1;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.False(player.Area.Buffs.HasRow(player.Id, 2687));
+            Assert.Equal(0, WireChains());
+            await Swing(108, 941);
+            Assert.Equal(chainBefore, chain.Life);
+            CheckStacks(1);
+
+            async Task Swing(int x, uint id)
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (x, 100), id));
+                clock.At += 1;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                Assert.True(player.PlayerMana < mana);
+            }
+
+            SpawnedMonster Target(uint id, int x)
+            {
+                var target = new SpawnedMonster("Static Strike target", new(x, 100, 0), 0, 0, 100_000)
+                    { ObjectId = id, NoRewards = true };
+                player.Area.Monsters.Add(id, target);
+                player.Area.Grid.Set(new(id), (x, 100));
+                return target;
+            }
+
+            void CheckStacks(ushort count)
+            {
+                ushort instance = player.Area.Buffs.Next;
+                player.Area.Buffs.Publish();
+                var buff = player.Area.Buffs.Find(player.Id, instance);
+                Assert.NotNull(buff);
+                Assert.Equal((ushort)2687, buff.Row);
+                Assert.Equal(count, buff.Stacks);
+                Assert.Equal(count, WireChains());
+            }
+
+            int WireChains() => Game.PlayerSkills(player).Single(row => row.Id == skill).Stats!
+                .FirstOrDefault(stat => stat.Key == Stat.VirtualNumberOfChainsForBeams).Value;
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Gathering_lightning_uses_the_quality_cap_and_restarts_after_its_buff_is_cleared()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        player.Pools = player.Pools with { Accuracy = 10_000 };
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Static Strike of Gathering Lightning", 1)));
+            var items = Game.ItemsOf(player);
+            var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+            items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+            {
+                Sockets = [item.Sockets[0] with { Gem = item.Sockets[0].Gem! with { Quality = 20 } }],
+            });
+            Assert.Equal(12, Game.SupportedSkill(player, skill).Stats[Stat.StaticStrikeMaximumGatheringLightningStacks]);
+            var target = new SpawnedMonster("Static Strike target", new(108, 100, 0), 0, 0, 100_000)
+                { ObjectId = 951, NoRewards = true };
+            player.Area.Monsters.Add(951, target);
+            player.Area.Grid.Set(new(951), (108, 100));
+            for (int count = 1; count <= 13; count++)
+                await SwingAndCheck((ushort)Math.Min(count, 12));
+
+            player.Area.Buffs.ClearAll(player.Id);
+            Assert.False(player.Area.Buffs.HasRow(player.Id, 2687));
+            await SwingAndCheck(1);
+
+            async Task SwingAndCheck(ushort count)
+            {
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (108, 100), 951));
+                clock.At += 1;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                ushort instance = player.Area.Buffs.Next;
+                player.Area.Buffs.Publish();
+                Assert.Equal(count, player.Area.Buffs.Find(player.Id, instance)?.Stacks);
+            }
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Arcing_strike_applies_a_melee_hit_and_makes_its_bolt_unavoidable()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        using var stats = ArcingDamage(player);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Lightning Strike of Arcing", 1)));
+            var primary = AddArcingTarget(player, 921, 109, 100);
+            var distant = AddArcingTarget(player, 922, 130, 100);
+            uint mana = player.PlayerMana;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (109, 100), 921));
+            while (fixture.Session.Runtime.Projectiles.Count == 0 && clock.At < 3)
+            {
+                clock.At += .01;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            }
+
+            Assert.True(player.PlayerMana < mana);
+            var bolt = Assert.Single(fixture.Session.Runtime.Projectiles);
+            var shot = Assert.IsType<ProjectileOffense>(bolt.Use.Payload);
+            Assert.Equal((uint)921, shot.ExcludedTarget?.Id);
+            Assert.True(shot.AccuracyProfile?.CannotBeEvaded);
+            Assert.Equal(4, bolt.Profile.Chain);
+            uint melee = primary.MaxLife - primary.Life;
+            Assert.True(melee > 0);
+
+            clock.At += 2;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.Equal(melee, primary.MaxLife - primary.Life);
+            Assert.Equal(-1, distant.AttackEvasion.Value);
+            Assert.InRange((double)(distant.MaxLife - distant.Life) / melee, .49, .51);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
+    public async Task Arcing_bolt_gains_damage_for_each_chain_it_has_already_made()
+    {
+        var clock = new Clock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = Prepare(fixture, clock.At, "Gnarled Branch");
+        using var stats = ArcingDamage(player);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip(("Lightning Strike of Arcing", 1)));
+            var targets = Enumerable.Range(0, 6)
+                .Select(i => AddArcingTarget(player, (uint)(931 + i), 140, 100 + 15 * i)).ToArray();
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (170, 100)));
+            clock.At += 3;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+
+            var damage = targets.Select(t => t.MaxLife - t.Life).ToArray();
+            Assert.True(damage[0] > 0);
+            for (int i = 1; i <= 4; ++i)
+                Assert.InRange((double)damage[i] / damage[0], .99 + .1 * i, 1.01 + .1 * i);
+            Assert.Equal(0u, damage[5]);
+            Assert.All(targets.Take(5), t => Assert.NotEqual(-1, t.AttackEvasion.Value));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    static IDisposable ArcingDamage(Player player)
+    {
+        player.Pools = player.Pools with { Accuracy = 10_000 };
+        return GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (!ReferenceEquals(owner, player)) return values;
+            values[Stat.GlobalCannotCrit] = 1;
+            values[Stat.AttackMinimumAddedPhysicalDamage] = values[Stat.AttackMaximumAddedPhysicalDamage] = 10_000;
+            return values;
+        });
+    }
+
+    static SpawnedMonster AddArcingTarget(Player player, uint id, int x, int y)
+    {
+        var target = new SpawnedMonster("Arcing target", new(x, y, 0), 0, 0, 100_000)
+            { ObjectId = id, NoRewards = true };
+        player.Area.Monsters.Add(id, target);
+        player.Area.Grid.Set(new(id), (x, y));
+        return target;
+    }
+
     [Fact]
     public async Task Artillery_ballista_shapes_resolve_after_paid_placement()
     {
