@@ -40,7 +40,7 @@ public class PartyChatTests
         leader.Connection.Outbox = leaderOutbox;
         member.Connection.Outbox = memberOutbox;
         outsider.Connection.Outbox = outsiderOutbox;
-        leader.Controlled = member.Controlled = outsider.Controlled = false;
+        leader.Connection.Driven = member.Connection.Driven = outsider.Connection.Driven = null;
         try
         {
             await PartyRoster.InviteHuman(leader, member.Character.Name!);

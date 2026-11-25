@@ -531,7 +531,7 @@ public static partial class Game
             await WarpToHideout(player, why);
             return;
         }
-        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+        var target = InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
         if (target is null)
