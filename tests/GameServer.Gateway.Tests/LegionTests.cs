@@ -333,5 +333,21 @@ public sealed class LegionTests
         Assert.NotNull(stasis);
         Assert.False(stasis!.Identified);
         Assert.Equal(84, stasis.ItemLevel);
+        // 5-way Domain end-burst drops faction Timeless Jewels and can drop Unrelenting Timeless Emblems from killed Generals.
+        bool sawUberEmblem = false, sawTimelessJewel = false;
+        var fiveKills = fiveFactions.ToDictionary(f => f, _ => 3);
+        for (int seed = 1; seed <= 40 && !(sawUberEmblem && sawTimelessJewel); seed++)
+        {
+            var burst = LegionRewards.RollDomainRewards(domainDummy, [0, 1, 15], fiveKills, totalKills: 120, factionCount: 5, uberCount: 0, level: 80, new Random(seed));
+            foreach (var item in burst)
+            {
+                string? bid = catalog.ByHash(item.TypeHash)?.Id;
+                if (bid == TimelessJewelCatalog.BaseId) sawTimelessJewel = true;
+                if (bid is not null && bid.StartsWith("Metadata/Items/MapFragments/CurrencyLegionFragment", StringComparison.Ordinal) && bid.EndsWith("Uber", StringComparison.Ordinal))
+                    sawUberEmblem = true;
+            }
+        }
+        Assert.True(sawTimelessJewel, "5-way Domain must drop Timeless Jewels from defeated Generals");
+        Assert.True(sawUberEmblem, "4/5-way Domain Generals must be able to drop Unrelenting Timeless Emblems");
     }
 }

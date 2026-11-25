@@ -153,6 +153,6 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Kills bank Sergeant/General rewards and cancel mid-timer item drops (keeping `+500%` General gold from
   `LegionEndlessGeneralGold`). At `00:00`, surviving monsters are removed, `LegionDomainRewardCrystal` activates (`active=1`),
   `LegionSoulercoaster1` (`MiscAnimated` 3357) plays, and accumulated loot — including faction-matched Timeless Jewels via
-  `TimelessJewelCatalog.Create`, rare Unrelenting `Stasis Prison`, Enshrouding Crystals, and banked reward rolls — drops
-  in golden-angle rings around the crystal.
+  `TimelessJewelCatalog.Create`, Unrelenting Timeless Emblems (4/5-way Generals), rare Unrelenting `Stasis Prison`,
+  Enshrouding Crystals, and banked reward rolls — drops in golden-angle rings around the crystal.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

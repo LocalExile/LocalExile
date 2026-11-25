@@ -28,14 +28,14 @@ static class LegionRewards
     const int ChestItemsPerReward = 3, HoardItemsPerReward = 4;
     const int ChestSplinterChance = 60, ChestSplinterMin = 4, ChestSplinterMax = 10, HoardSplinterChance = 100, HoardSplinterMin = 10, HoardSplinterMax = 20;
 
-    /// <summary>The faction's splinter, Timeless Emblem, Enshrouding Crystal (BaseItemTypes ids) and Timeless Jewel (unique name), by LegionFactions Id. Afarud uses Maraketh's.</summary>
-    static readonly Dictionary<string, (string Splinter, string Emblem, string Crystal, string Jewel)> Factions = new()
+    /// <summary>The faction's splinter, Timeless Emblem, Unrelenting Emblem, Enshrouding Crystal (BaseItemTypes ids) and Timeless Jewel (unique name), by LegionFactions Id. Afarud uses Maraketh's.</summary>
+    static readonly Dictionary<string, (string Splinter, string Emblem, string UberEmblem, string Crystal, string Jewel)> Factions = new()
     {
-        ["Karui"] = ("Metadata/Items/Currency/CurrencyLegionKaruiShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentKarui", "Metadata/Items/Currency/LegionCocoonGloves", "Lethal Pride"),
-        ["Maraketh"] = ("Metadata/Items/Currency/CurrencyLegionMarakethShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentMaraketh", "Metadata/Items/Currency/LegionCocoonBodyArmour", "Brutal Restraint"),
-        ["EternalEmpire"] = ("Metadata/Items/Currency/CurrencyLegionEternalEmpireShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentEternal", "Metadata/Items/Currency/LegionCocoonBoots", "Elegant Hubris"),
-        ["Templar"] = ("Metadata/Items/Currency/CurrencyLegionTemplarShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentTemplar", "Metadata/Items/Currency/LegionCocoonShield", "Militant Faith"),
-        ["Vaal"] = ("Metadata/Items/Currency/CurrencyLegionVaalShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentVaal", "Metadata/Items/Currency/LegionCocoonHelmet", "Glorious Vanity"),
+        ["Karui"] = ("Metadata/Items/Currency/CurrencyLegionKaruiShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentKarui", "Metadata/Items/MapFragments/CurrencyLegionFragmentKaruiUber", "Metadata/Items/Currency/LegionCocoonGloves", "Lethal Pride"),
+        ["Maraketh"] = ("Metadata/Items/Currency/CurrencyLegionMarakethShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentMaraketh", "Metadata/Items/MapFragments/CurrencyLegionFragmentMarakethUber", "Metadata/Items/Currency/LegionCocoonBodyArmour", "Brutal Restraint"),
+        ["EternalEmpire"] = ("Metadata/Items/Currency/CurrencyLegionEternalEmpireShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentEternal", "Metadata/Items/MapFragments/CurrencyLegionFragmentEternalUber", "Metadata/Items/Currency/LegionCocoonBoots", "Elegant Hubris"),
+        ["Templar"] = ("Metadata/Items/Currency/CurrencyLegionTemplarShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentTemplar", "Metadata/Items/MapFragments/CurrencyLegionFragmentTemplarUber", "Metadata/Items/Currency/LegionCocoonShield", "Militant Faith"),
+        ["Vaal"] = ("Metadata/Items/Currency/CurrencyLegionVaalShard", "Metadata/Items/MapFragments/CurrencyLegionFragmentVaal", "Metadata/Items/MapFragments/CurrencyLegionFragmentVaalUber", "Metadata/Items/Currency/LegionCocoonHelmet", "Glorious Vanity"),
     };
 
     const string StackedDeck = "Metadata/Items/DivinationCards/DivinationCardDeck";
@@ -419,6 +419,12 @@ static class LegionRewards
             {
                 int crystalPct = Math.Clamp(20 + uberCount * 10, 0, 75);
                 if (rng.Next(100) < crystalPct) stacks.Add((f.Crystal, 1));
+                // 4-way / 5-way Domain Generals can drop their faction's Unrelenting Timeless Emblem (progression into Unrelenting Domain).
+                if (factionCount >= 4)
+                {
+                    int uberEmblemPct = Math.Clamp(12 + Math.Min(5, kills) * 4 + uberCount * 4, 0, 50);
+                    if (rng.Next(100) < uberEmblemPct) stacks.Add((f.UberEmblem, 1));
+                }
             }
         }
         // Guarantee at least one Timeless Jewel on 4-way/5-way or Unrelenting runs when at least one General was slain.
