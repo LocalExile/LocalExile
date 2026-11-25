@@ -29,6 +29,9 @@ public static partial class Game
 
     const string VaalLightningWarpEffect = "VaalLightningWarpInstant";
 
+    internal static bool IsLightningWarpEffect(string? effect) =>
+        effect is "LightningWarp" or "LightningWarpHardMode" or "LightningWarpRoyale" or VaalLightningWarpEffect;
+
     static bool ScheduleLightningWarp(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         Func<bool> current, SkillCriticalRoll? critical)

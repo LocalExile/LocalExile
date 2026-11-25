@@ -1633,7 +1633,7 @@ public static partial class Game
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && GolemData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId)
-            && SkillsFor(player).EffectId(gem.Effect) is "LightningWarp" or VaalLightningWarpEffect)
+            && IsLightningWarpEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll));
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
