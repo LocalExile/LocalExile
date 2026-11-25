@@ -3208,6 +3208,8 @@ public static partial class Game
                 if (victim == targets.Count)
                 {
                     if (iceCrash is null) break;
+                    sweepStats?.Dispose();
+                    sweepStats = null;
                     await SettleSweep();
                     if (!await iceCrash.AppendContacts(targets)) break;
                 }
