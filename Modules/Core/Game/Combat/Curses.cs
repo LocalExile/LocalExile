@@ -428,6 +428,7 @@ public static partial class Game
                 m.RuleAilments.SetExpiryRate(now, rate);
                 m.SpiderWebs.SetExpiryRate(now, rate);
                 m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
+                RetimePestilentStrike(player, id, m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }
