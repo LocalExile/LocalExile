@@ -394,6 +394,52 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x140312da0` / `0x1403119d0` | Fn | Shared stash withdrawal click handler / bulk click entry; forwards bulk 1 to 0xe3 |
 | `0x140dc2640` | Fn | show / hide a panel (a second 0x7b kind 1 would close the stash) |
 
+## Kingsmarch's Mapping window ([30](30-kalguur-mapping.md))
+| Address | Kind | What |
+|---|---|---|
+| `0x140d9e5c0` | Fn | Mapping window factory (0x2f0 bytes, vtable `0x1430e0438`); panel at `+0x2e8` |
+| `0x140555630` | Fn | Mapping panel factory: allocates 0x398, runs `0x14054a2f0`, appends to a vector |
+| `0x14054a2f0` | Fn | Mapping panel ctor: captions every control from ClientStrings ids 0x1d00–0x1d55 (**id = `_row` + 1**), registers the click handlers; also builds the `Art/2DArt/UIImages/InGame/Village/MapRunning/MapRunningButtonBG` row |
+| `0x140d632c0` | Fn | Settlers UI manager ctor: builds every Settlers window eagerly, one factory per slot — map-runners window `FUN_140d9e5c0` → `manager + 0x618` (also `+0x5f8`, `+0x600`, `+0x608`, `+0x610`, `+0x620`, `+0x628`, `+0x630`) |
+| `0x140dad910` | Fn | 34418-byte Settlers screen dispatcher: creates the town-map window (via `0x1405550f0` → `0x1405235c0` → `0x140521d00`); it does **not** create the map-runners window |
+| `0x1430d22c0` | Vt | Mapping panel vtable: slot 8 dtor `0x14054cf10`, slot 32 tick `0x14054d120`, slot 50 close `0x14054d400` |
+| `0x14054d120` | Fn | panel tick: `+0x1e8` bit 11 gate, `+0x372` → populate, `+0x373` / `DAT_1436adf9c` → refresh |
+| `0x14054de50` | Fn | panel refresh from the village snapshot (`FUN_1417690f0`) for the selected device index at `+0x370` |
+| `0x14054d9a0` | Fn | panel populate: VillageJobs.dat / VillageJobTypes.dat, needs `+0x2e0`, `+0x300`, `+0x371` |
+| `0x1417690f0` | Fn | mapping-record snapshot copier: 0x110 bytes from **record `+0x190`** (three 0x18-byte records at `+0xbe`/`+0xd6`/`+0xee` inside it), then `FUN_1424c4550` appends from record `+0x160`/`+0x2a0` |
+| `0x14054e550` | Fn | the only writer of a valid selection: `+0x370 = index`, `+0x371 = 1`, rebuilds the child at `+0x380` |
+| `0x14054d050` / `0x14054d400` | Fn | mapping open / close paths, `SettlersLeague_MappingOpen` / `…Close` |
+| `0x140ddd910` / `0x140d95fd0` | Fn | the two open entries (no static callers): HUD path reads the panel from `hud + 0x9e8`; Settlers path reads the window from `manager + 0x618`, then `FUN_14054d050(window + 0x2e8, mode)` and shows it with `FUN_140774d20(*(manager + 0x310), *(manager + 0x618), 0, 1, 1, 0)` |
+| `0x14054d650` / `0x14054d6b0` / `0x14054d710` / `0x14054d780` | Fn | button handlers: C→S 0x2ca opcodes 0x0c, 0x0d, 0x0e (+1), 0x0e (+0) |
+| `0x14054d7f0` / `0x14054d8c0` / `0x14054d850` / `0x14054d920` | Fn | button handlers: opcodes 0x0f, 0x10, 0x11, 0x1d |
+| `0x1405479c0` | Fn | device selection change: opcode 0x04 with the list count |
+| `0x1421a1960` | Fn | sends one 0x2ca: build `0x141fa7a10`, run the gadget, `0x1421752b0` + `0x140dfa160` |
+| `0x141fa7a10` / `0x141fa7c10` | Fn | 0x2ca message ctor / writer (u16 BE, u8 0xaf, length, payload) |
+| `0x1435cb1d0` | Cls | C→S 0x2ca class vtable |
+| `0x14348da00`, `0x14348dc58`, `0x14348de10`, `0x14348dd08`, `0x14348dbf8`, `0x14348e868`, `0x14348dc28`, `0x14348e178` | Data | the button gadget descriptors (opcode writers `0x141777aa0`, `a10`, `950`, `d70`, `d20`, `cd0`, `8c0`, `0x141778100`) |
+| `0x14052c110` | Fn | Settlers UI sound name selector (kind 5 = `SettlersLeague_MappingWorkerOpen/Close`) |
+| `0x1444dee10`, `0x1444de380`, `0x1444de4d0`, `0x1444de7e0` | Data | RTTI of `ClientVillage::StartMapping`, `SetPauseMappingAfterCurrentMap`, `InterruptMapping`, `OpenMappingRewards` |
+| `0x02ca` | C→S | every Mapping-window button: u8 opcode + fixed arguments (30-kalguur-mapping.md §3) |
+
+## Kingsmarch's other settlement windows ([31](31-kalguur-settlement-windows.md))
+| Address | Kind | What |
+|---|---|---|
+| `0x140dad190` / `0x140dad150` | Fn | Kingsmarch UI manager ctor / its allocation entry (`.rdata 0x1431fbf60`) |
+| `0x140dba5d0` | Fn | fan-out setter: dedupes against `manager+0x2c8`, stores the settlement object there, then ~30 window setters including `FUN_1404da1c0(*(manager+0x8d8), object)` (line 1468) — the reason the record message must precede the `0x7b` open |
+| `0x1404da1c0` | Fn | the `window+0x2e0 = settlement object` setter used by the Mapping/Harbour windows |
+| `0x14050b800` | Fn | Recruitment panel ctor (`0x55`, title `0x1c8a` = row 7305); handlers run with the **manager** as context and send from `manager+0x360` |
+| `0x14057c2b0` | Fn | Harbour panel ctor (`0x58`, title `0x1ca3` = row 7330); sends from `panel+0x2e0` |
+| `0x140512680` | Fn | Rewards window ctor (title `0x1ccd` = row 7372); shared by Mapping and Shipping, kind from `panel+0x380` (5/6) |
+| `0x14053cfd0` / `0x14053d100` | Fn | Smelting row handlers: opcode `0x12` with the selected row byte, sender = record at `panel+0x6e8` |
+| `0x140537e80` | Fn | Smelting: opcode `0x05`, no payload, from `panel+0x340` |
+| `0x14348df08` / `0x14348e358` / `0x14348e1a8` | Data | recruitment gadgets: `0x00` reroll (mode byte), `0x01` fire worker, `0x02` hire recruit |
+| `0x14348e790` / `0x14348d940` / `0x14348dd98` / `0x14348dd68` / `0x14348e258` / `0x14348dca8` / `0x14348e7f0` | Data | harbour gadgets: `0x06` shipment, `0x07`/`0x12` row byte, `0x08`/`0x09` no payload, `0x0a`, `0x0b` port string |
+| `0x14348d970` | Data | smelting `0x12` gadget (different from the harbour's `0x12` — the descriptor, not the opcode, is the identity) |
+| `0x14348dcd8` / `0x14348da30` | Data | rewards gadgets: `0x16` take, `0x17` discard all (Ctrl skips the confirmation dialog) |
+| `0x14348db60` | Data | the shared `0x03` row-select gadget (recruitment, worker editor, town map, harbour) |
+| id `0x1de6` / id `0x1cd2` / id `0xe49` | Str | the discard-all confirmation: Mapping warning (row 7653), Shipping warning (7377), title "Warning" (3656) |
+| `KalguurRecruitmentWindow::FireWorkerClickedHandler` … | Str | RTTI/assert strings that name the methods (`KalguurWorkerEditor::UpdateWorkers`, `KalguurShippingWindow::AbandonHandler`, `ShipingDestinationPin::UpdatePortQuota`, `KalguurShipFrame::HasAnyCrew`, `KalguurShipRiskPopup::SetInfoLabel`, `KalguurRewardsWindow::DisgardAllButtonClickedHandler`) |
+
 ## Strings worth searching
 "Connect time to instance server was", "Client-Safe Instance ID = ", "Generating level ", "Instance sent world area
 that does not exist with hash: ", "Area reported by instance does not exist", "Unable to deserialise packet with pid ",
