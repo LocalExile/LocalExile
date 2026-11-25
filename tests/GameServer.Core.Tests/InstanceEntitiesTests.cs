@@ -377,7 +377,7 @@ public class InstanceEntitiesTests
         Assert.False(MonsterObject.CanSerialize([.. MonsterObject.BaseComponents, "StateMachine"]));
         Assert.False(MonsterObject.CanSerialize(["Positioned", "Animated"]));
         Assert.False(MonsterObject.CanSerialize([]));
-        Assert.Throws<ArgumentException>(() => new MonsterObject(0, 0, 1, [.. MonsterObject.BaseComponents, "Mercenary"]).Blob());
+        Assert.Throws<ArgumentException>(() => new MonsterObject(0, 0, 1, [.. MonsterObject.BaseComponents, "UnknownComponent"]).Blob());
     }
 
     [Fact]
