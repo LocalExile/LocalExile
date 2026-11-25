@@ -269,7 +269,7 @@ public static partial class Game
             || playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesAreChilled) != 0);
         bool masterOfFire = playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesHaveFireExposure) != 0;
         bool heraldry = playerStats.GetValueOrDefault(Stat.NearbyEnemiesHaveFireExposureWhileYouAreAffectedByHeraldOfAsh) != 0
-            && AffectedByAura(player, "HeraldOfAsh");
+            && ReservationAura(player, "HeraldOfAsh") is not null;
         int nearbyFireExposure = alive && (masterOfFire || heraldry)
             ? InflictedExposure(playerStats.GetValueOrDefault, DamageType.Fire, DefaultExposure) : 0;
         var here = player.Walk.Position(now);
