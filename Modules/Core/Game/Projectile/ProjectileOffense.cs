@@ -90,6 +90,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     }
 
     internal LancingSteelHitSeries? LancingSteelHits { get; init; }
+    internal double ShatteringSteelAmmoHitBonus { get; init; }
     public BlindHitInput Blind { get; init; }
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>

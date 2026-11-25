@@ -852,6 +852,8 @@ public static partial class Game
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
+            if (shot.ShatteringSteelAmmoHitBonus > 0)
+                more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);

@@ -154,6 +154,7 @@ public static partial class Game
                     };
                     return use with { Profile = profile };
                 }
+                use = PrepareSteelRelease(context, use, effect);
                 var shot = (ProjectileOffense)use.Payload!;
                 if (effect is "LancingSteel" or "LancingSteelAltX"
                     && context.Own(Stat.LancingSteelDamagePlusPctFinalAfterFirstHitOnTarget) is not 0 and var repeatPct)

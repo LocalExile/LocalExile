@@ -1606,6 +1606,8 @@ public static partial class Game
             return CompleteSupportedUse(await CastBrandRecall(player, skillId, gem, Current));
         if (gem.Name is not null && IsBrandsurge(player, gem.Effect))
             return CompleteSupportedUse(await CastBrandsurge(player, skillId, gem, from, to, recoveryGeneration, Current, criticalRoll));
+        if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == CallOfSteelEffect)
+            return CompleteSupportedUse(ScheduleCallOfSteel(player, skillId, recoveryGeneration, Current));
         if (gem.Name is not null && IsBladefallTrarthus(gem.Effect))
             return CompleteSupportedUse(await ActivateBladefallTrarthus(player, skillId));
         if (vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) == VaalArcticArmourEffect)

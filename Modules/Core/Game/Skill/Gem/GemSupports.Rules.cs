@@ -56,7 +56,7 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
-                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
                 || g.EffectId == ShaperMemoryEffect
