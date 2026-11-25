@@ -251,12 +251,13 @@ public static partial class Game
         player.ChannelMovement = default;
         EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
+        ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
+        ClearSteelWardOnDeath(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
-        VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
@@ -461,9 +462,10 @@ public static partial class Game
             {
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
-                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    && (own.TryGetValue(Stat.ManaCost, out int unsplitBase) || Own(Stat.BaseManaCostPct) > 0))
                 {
-                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0
+                        || Own(Stat.BaseManaCostPct) > 0)
                         unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
@@ -507,12 +509,14 @@ public static partial class Game
     public static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(player, skillId, out cost, out lifeCost, 100);
 
-    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
+    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent,
+        bool useSpell = true, ChargeType? cooldownBypass = null)
     {
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
         lifeCost = 0;
-        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var playerStats, costPercent))
+        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var playerStats, costPercent)
+            || cooldownBypass is { } charge && !ChargesOf(player).Spend(charge))
         {
             cost = 0;
             return false;
@@ -1654,6 +1658,7 @@ public static partial class Game
             {
                 await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
+                ClearOwnerAttacks(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
                 await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");

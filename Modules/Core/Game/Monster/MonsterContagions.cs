@@ -28,6 +28,8 @@ static partial class Game
         Stat.SupportTrapAndMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
     ];
 
+    static bool IsContagionEffect(string? effect) => effect is "Contagion" or "ContagionAltX" or "ContagionAltY";
+
     /// <summary>Contagion (GrantedEffects <c>Contagion</c>) or Contagion of Subsiding (<c>ContagionAltX</c>): what one cast
     /// puts on each monster in its area; null for any other skill. Its damage is base_chaos_damage_to_deal_per_minute (the
     /// gem level's resolved value) with the increases a spell's chaos damage over time takes (its implicit
@@ -36,7 +38,7 @@ static partial class Game
     internal static MonsterContagion.Cast? ContagionCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("Contagion" or "ContagionAltX" or "ContagionAltY")) return null;
+        if (!IsContagionEffect(id)) return null;
         var gem = SupportedSkill(player, skillId);
         var own = gem.Stats;
         var playerStats = CharacterPlayerStats(player);

@@ -27,6 +27,9 @@ public sealed class MonsterPoisons
     {
         public static readonly Settings None = new(0, 0, 0, 0, 0, 0);
 
+        public bool AllDamageWithWeapon { get; init; }
+        public int AdditionalWithWeapon { get; init; }
+
         /// <summary><paramref name="local"/>: the attacking weapon's local stats (none for a spell).</summary>
         public static Settings From(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
             IReadOnlyDictionary<uint, int>? local = null, bool projectileAttack = false)
@@ -45,7 +48,11 @@ public sealed class MonsterPoisons
                 Row("minimum", "critical"), Row("maximum", "critical"), seconds,
                 local?.GetValueOrDefault(Stat.LocalPoisonOnHitPct) ?? 0, projectileChance, Secondary: hand == "secondary",
                 NeverFromCrit: get(Stat.KeystoneElementalOverload) != 0,
-                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0);
+                OnlyFromCrit: get(Stat.KeystoneAilmentCrit) != 0)
+            {
+                AllDamageWithWeapon = local?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) is not (null or 0),
+                AdditionalWithWeapon = local?.GetValueOrDefault(Stat.LocalNumAdditionalPoisonsToInflictWhenInflictingPoison) ?? 0,
+            };
         }
     }
 
