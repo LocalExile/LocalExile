@@ -4129,8 +4129,8 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   `frenzy_charge_duration_+%_per_frenzy_charge` × the Frenzy Charges after the gain) × (1 +
   `power_charge_duration_+%_final`), floored to milliseconds. Gaining a charge restarts the duration of every charge of
   its type, also at the maximum, where none is added, and all charges of a type expire together (poewiki). The maximum
-  is `ChargePanelStats`' (3 from Character.ot plus `max_*_charges`, the combined power-and-endurance and
-  power-and-frenzy mods and `maximum_frenzy_power_endurance_charges`; verified on the native Charges tab with all three
+  is `ChargePanelStats`' (3 from Character.ot plus `max_*_charges`, the combined power-and-endurance
+  mod and `maximum_frenzy_power_endurance_charges`; verified on the native Charges tab with all three
   baseline rows at `0 / 3`); the minimum is `base_minimum_*_charges` +
   `minimum_frenzy_power_endurance_charges`, at most the maximum, and is always held; a gain adds on top of what the
   character has (Path of Building: max(charges, min(maximum, minimum)); poewiki: the maximum takes priority). A lower

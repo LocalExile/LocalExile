@@ -37,6 +37,39 @@ public sealed class PhreciaFourClassesTests
         finally { Environment.SetEnvironmentVariable(optIn, previous); }
     }
 
+    // "+# to Maximum Power and Frenzy Charges" is only this family's: its module gives the game the two maximums, and
+    // the charge maximums come out as they did when the rules read the combined stat themselves.
+    [Fact]
+    public void The_Whisperers_combined_charge_maximum_reaches_the_rules_as_the_two_maximums()
+    {
+        const string optIn = "Game_VERIFIED_WHISPERER";
+        var definition = Assert.Single(PhreciaTree().Definitions, candidate => candidate.Name == "Whisperer");
+        var policy = (IAscendancyFamilyPolicy)Activator.CreateInstance(
+            typeof(GameServer.Modules.PhreciaAscendancies.PhreciaAscendanciesModule).Assembly
+                .GetType("GameServer.Modules.PhreciaAscendancies.PhreciaFamilyPolicy", throwOnError: true)!, nonPublic: true)!;
+        string? previous = Environment.GetEnvironmentVariable(optIn);
+        try
+        {
+            Environment.SetEnvironmentVariable(optIn, "1");
+            var node = Assert.Single(definition.Nodes.Values, n => n.Stats.Any(s => s.Key == Stat.MaximumPowerAndFrenzyChargesPlus));
+            int combined = node.Stats.Single(s => s.Key == Stat.MaximumPowerAndFrenzyChargesPlus).Value;
+            Assert.True(combined > 0);
+            var given = policy.NodeStats(definition, node.Id, node.Stats);
+            Assert.DoesNotContain(given, s => s.Key == Stat.MaximumPowerAndFrenzyChargesPlus);
+            Assert.Contains((Stat.MaxFrenzyCharges, combined), given);
+            Assert.Contains((Stat.MaxPowerCharges, combined), given);
+            // Every other stat of the node passes as it is, in its place.
+            Assert.Equal(node.Stats.Where(s => s.Key != Stat.MaximumPowerAndFrenzyChargesPlus),
+                given.Where(s => s.Key != Stat.MaxFrenzyCharges && s.Key != Stat.MaxPowerCharges));
+            var sums = given.GroupBy(s => s.Key).ToDictionary(g => g.Key, g => g.Sum(s => s.Value));
+            var maximums = ChargePanelStats.Compute(key => sums.GetValueOrDefault(key)).ToDictionary(r => r.Stat, r => r.Value);
+            Assert.Equal(ChargePanelStats.BaseMaximumCharges + combined, maximums[Stat.VirtualMaximumFrenzyCharges]);
+            Assert.Equal(ChargePanelStats.BaseMaximumCharges + combined, maximums[Stat.VirtualMaximumPowerCharges]);
+            Assert.Equal(ChargePanelStats.BaseMaximumCharges, maximums[Stat.VirtualMaximumEnduranceCharges]);
+        }
+        finally { Environment.SetEnvironmentVariable(optIn, previous); }
+    }
+
     // One action-speed bucket (main) with Changing Seasons and the base-speed ceiling (this PR): a reversed 20% chill
     // speeds the player up, the character's own action_speed_-% 10 still slows, and Juggernaut's
     // not_affected_by_action_speed_modifiers caps the result at base speed.
