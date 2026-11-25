@@ -239,6 +239,7 @@ public sealed class MapRunCatalog
                     if (System.Text.RegularExpressions.Regex.Match(leaf, @"^Scarab([A-Za-z]+?)\d") is { Success: true } kind)
                     {
                         string name = kind.Groups[1].Value.ToLowerInvariant();
+                        if (name.EndsWith("new", StringComparison.Ordinal)) name = name[..^3];
                         scarabKinds[name] = scarabKinds.GetValueOrDefault(name) + 1;
                     }
                 }
