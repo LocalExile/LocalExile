@@ -290,8 +290,14 @@ public static partial class Game
     {
         double reach = swingReach + 2;
         if (!weapon.Melee || !SkillsFor(player).IsArea(effect) || SkillsFor(player).IsStrike(effect)) return reach;
-        int radius = SkillRadius(player, skillStats, spell: false, effect);
         string? effectId = SkillsFor(player).EffectId(effect);
+        int radius;
+        if (CleaveAttack(effectId))
+        {
+            double now = AreaTime(player);
+            radius = CleaveRadius(player, effect, skillStats, player.Walk.Position(now), now);
+        }
+        else radius = SkillRadius(player, skillStats, spell: false, effect);
         double areaReach = SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action
             ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus))
             : effectId is "IceCrash" or "IceCrashAltX" or "IceCrashAltY"
@@ -2961,8 +2967,17 @@ public static partial class Game
             delay = AttackTiming.ContactDelay(attackSeconds, contactFraction, 0) + repeatDelay;
         }
         var shieldWaves = shieldUse?.Waves;
+        CleaveArc? cleave = null;
+        if (!spell && CleaveAttack(effectId))
+        {
+            double now = AreaTime(player);
+            int arcRadius = CleaveRadius(player, gem.Effect, areaStats, from, now);
+            var direction = from == to ? (0d, -1d) : GroundSlamWave.Direction(from, to);
+            cleave = new(from, direction, Math.Max(0, (int)(arcRadius * radiusMore * chargeRadius)));
+        }
         bool tumultContact = channelGeneration is not null && effectId == "CycloneAltX" && radiusOverride is null;
-        int radius = tumultContact ? 0 : lacerate?.Waves.Radius ?? shieldWaves?.CentreRadius ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
+        int radius = tumultContact ? 0 : cleave?.Radius ?? lacerate?.Waves.Radius ?? shieldWaves?.CentreRadius
+            ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
             : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore * chargeRadius);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
@@ -2990,6 +3005,7 @@ public static partial class Game
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
         if (divineBlast) centre = to;
         if (lacerate is not null) centre = lacerate.Waves.Origin;
+        if (cleave is { } cleaveArc) centre = cleaveArc.Origin;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
         // invisible in the log (the live tests cannot count what a swing did without it).
@@ -3161,15 +3177,18 @@ public static partial class Game
             }
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
                 (contactTargets is null
-                    ? (boneshatter is not null || lacerate is not null || nearbyOnly ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
+                    ? (boneshatter is not null || lacerate is not null || cleave is not null || nearbyOnly
+                        ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
                     : contactTargets.Select(id => new KeyValuePair<uint, SpawnedMonster>(id, player.Area.Monsters.GetValueOrDefault(id)!))
                         .Where(entry => entry.Value is not null))
                 .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && (contactTargets is not null || shieldWaves is not null || lacerate is not null || e.Distance <= reachLimit)
+                    && (contactTargets is not null || shieldWaves is not null || lacerate is not null || cleave is not null || e.Distance <= reachLimit)
                     && (lacerate is null || !e.Value.WorldHidden && lacerate.Waves.Covers(lacerate.Phase, e.At, LivingCollision.Size(e.Value)))
+                    && (cleave is not { } arc || !e.Value.WorldHidden
+                        && arc.Covers(e.At, e.Distance, LivingCollision.Size(e.Value)) && CleaveSight(player, c, e.At))
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
@@ -3950,7 +3969,9 @@ public static partial class Game
                     + $"side radius {shieldWave.Waves.SideRadius}, centre radius {shieldWave.Waves.CentreRadius}"
                 : lacerate is { } slash
                     ? $"in Lacerate wave {slash.Phase + 1}, {slash.Waves.Angle} deg, {radius} cells from ({centre.X}, {centre.Y})"
-                    : $"within {radius} cells of ({centre.X}, {centre.Y})";
+                    : cleave is { }
+                        ? $"in Cleave's forward arc of {radius} cells from ({centre.X}, {centre.Y})"
+                        : $"within {radius} cells of ({centre.X}, {centre.Y})";
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";

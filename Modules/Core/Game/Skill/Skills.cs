@@ -1302,6 +1302,8 @@ public static partial class Game
         var skills = SkillsFor(player);
         var allowed = skills.WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
+        if (skills.EffectId(effect) == "CleaveAltX" && !CleaveHasAxeAndSword(player))
+            return "Cleave of Rage requires dual wielding a one-handed axe and a one-handed sword";
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
