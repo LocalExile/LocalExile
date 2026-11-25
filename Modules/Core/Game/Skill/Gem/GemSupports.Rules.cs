@@ -271,7 +271,8 @@ public static partial class Game
         List<GemSupports.Candidate> candidates, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IReadOnlySet<uint>? inactive, bool sourceIsGem)
     {
-        int? weaponClass = null;
+        // An empty or inactive main hand attacks with the Unarmed class.
+        int? weaponClass = UnarmedClassRow;
         bool allOneHandMelee = false;
         if (candidates.Exists(c => Supports.Of(c.Effect) is { Weapons.Length: > 0 }))
         {
@@ -1068,7 +1069,8 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+        var local = UsesShieldAccuracy(SkillsFor(player), gem.Effect) ? null : MainHandLocalSources(player);
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, local)
             with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 

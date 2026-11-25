@@ -671,14 +671,21 @@ public static partial class Game
                         stats[Stat.CombinedOffHandAttackSpeedPlusPct] = shieldOffSpeed.IncreasedPct;
                         stats[Stat.CombinedOffHandAttackSpeedPlusPctFinal] = shieldOffSpeed.MorePct;
                     }
-                    foreach (var (field, value) in new[]
+                    int hitChance = accuracy.Chance(Monsters.BaseEvasion(player.Pools.Level) ?? 0, false, false);
+                    int evasiveHitChance = accuracy.Chance(Monsters.BaseEvasiveEvasion(player.Pools.Level) ?? 0, false, false);
+                    stats[Stat.MainHandAccuracyRating] = accuracy.Rating;
+                    stats[Stat.MainHandChanceToHitPct] = hitChance;
+                    stats[Stat.MainHandChanceToHitEvasiveMonstersPct] = evasiveHitChance;
+                    if (shieldWeapon is not null)
                     {
-                        (Stat.MainHandAccuracyRating, accuracy.Rating),
-                        (Stat.MainHandChanceToHitPct, accuracy.Chance(Monsters.BaseEvasion(player.Pools.Level) ?? 0, false, false)),
-                        (Stat.MainHandChanceToHitEvasiveMonstersPct, accuracy.Chance(Monsters.BaseEvasiveEvasion(player.Pools.Level) ?? 0, false, false)),
-                    })
-                        if (field is var key)
-                            stats[key] = value;
+                        // The client rolls the shield attack through its off-hand fields; the panel uses the main-hand rows.
+                        int alwaysHit = accuracy.CannotBeEvaded ? 1 : 0;
+                        stats[Stat.MainHandAlwaysHit] = alwaysHit;
+                        stats[Stat.OffHandAlwaysHit] = alwaysHit;
+                        stats[Stat.OffHandAccuracyRating] = accuracy.Rating;
+                        stats[Stat.OffHandChanceToHitPct] = hitChance;
+                        stats[Stat.OffHandChanceToHitEvasiveMonstersPct] = evasiveHitChance;
+                    }
                     // A dual-wielded attack gem whose weapon restriction the off hand fits swings it too: its own rows,
                     // with the same supports, and the per-use / per-second / attacks-per-second rows combine both hands
                     // (alternating, or both at once for skill_double_hits_when_dual_wielding: AttackHands).

@@ -21,7 +21,7 @@ public static class SkillArea
 
     static int? KnownBaseRadius(string? effect) =>
         effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
-            : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+            : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" ? 18
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
@@ -147,9 +147,15 @@ public static class GroundSlamWave
 {
     /// <summary>ActionTypes "DistanceScaledGroundSlam" HASH16 (row 3): the action of the player's Ground Slam and its
     /// alternate-quality and Royale forms (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale
-    /// and PlaytestSlam). Vaal Ground Slam's own skill is "VaalDistanceScaledGroundSlam" (row 4), so the Vaal blast keeps
-    /// its radial hit.</summary>
+    /// and PlaytestSlam). Vaal Ground Slam uses "VaalDistanceScaledGroundSlam" (row 4) for its own radial wave.</summary>
     public const ushort Action = 0x2390;
+
+    // The Vaal action reaches its scaled radius in a fixed time (the 3.29.3c action update).
+    public const int VaalBaseRadius = 39;
+    public const double VaalTravelSeconds = 0.375;
+
+    public static double VaalAdvanceSeconds(double distance, int radius) =>
+        VaalTravelSeconds * Math.Max(0, distance) / Math.Max(1, radius);
 
     /// <summary>The wave's reach in cells at the generic area radius (12 cells). The exported tables carry no length;
     /// the community describes Ground Slam's wave as about 60 units and the client draws it well past melee reach, so
