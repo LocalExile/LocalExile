@@ -33,8 +33,8 @@ public static class ShrineManager
     {
         public readonly SemaphoreSlim Gate = new(1, 1);
         public readonly Dictionary<uint, ShrineInstance> Instances = [];
-        // The shrines the area's clients were shown (each one the area's object, created once).
-        public readonly HashSet<uint> Shown = [], Spent = [];
+        // The shrines the area's clients were shown (each one the area's object, created once), spent, and guard-spawned.
+        public readonly HashSet<uint> Shown = [], Spent = [], GuardsSpawned = [];
         public bool Spawned;
     }
 
@@ -132,7 +132,12 @@ public static class ShrineManager
         Of(player).Instances[id] = shrine;
         await Present(player, shrine);
         if (shrine.State == ShrineState.Inactive)
-            foreach (var effect in shrine.Before) await effect.OnSpawn(new(player, AreaTime(player)), shrine);
+        {
+            bool spawnGuards = Of(player).Area.GuardsSpawned.Add(id);
+            foreach (var effect in shrine.Before)
+                if (spawnGuards || effect is not GuardedPacksEffect)
+                    await effect.OnSpawn(new(player, AreaTime(player)), shrine);
+        }
     }
 
     static async Task Present(Player player, ShrineInstance shrine)
