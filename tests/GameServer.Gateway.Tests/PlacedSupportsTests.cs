@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using Xunit.Abstractions;
 
@@ -56,6 +57,7 @@ public sealed class PlacedSupportsTests(ITestOutputHelper output)
     [Fact]
     public async Task Invention_scales_real_trap_and_mine_hits_by_time_on_the_ground()
     {
+        await TinkerskinRecoversShieldWhenAnEnemyTriggersTheTrap();
         using var fixture = new TriggeredSummonTests.Fixture();
         var player = fixture.Player;
         var clock = new PlacedClock();
@@ -129,6 +131,67 @@ public sealed class PlacedSupportsTests(ITestOutputHelper output)
             }
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    static async Task TinkerskinRecoversShieldWhenAnEnemyTriggersTheTrap()
+    {
+        var clock = new PlacedClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        var armour = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Tinkerskin", new Random(17)));
+        uint mod = Program.Items.Mods.ById("GainEnergyShieldOnTrapTriggeredUnique__1_")!.Hash;
+        Assert.Equal(50, Assert.Single(Assert.Single(armour.Mods, value => value.Hash == mod).Values));
+        var plain = armour with { Mods = [.. armour.Mods.Where(value => value.Hash != mod)] };
+        var items = Game.ItemsOf(player);
+        uint host = items.Add(PlayerInventories.BodyArmour, 0, 0, plain)!.Id;
+        ushort skill = Assert.Single(fixture.Equip(("Ice Trap", 18), ("Added Cold Damage Support", 18), ("Increased Area of Effect Support", 18)));
+        Assert.Equal(2, Game.SupportedSkill(player, skill).Supports.Count);
+        using var sources = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player)) values[Stat.BaseMaximumEnergyShield] = 200;
+            return values;
+        });
+        Game.RecomputePoolsAndSpeed(player);
+        Assert.True(player.Pools.EnergyShield >= 50);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            uint before = await Trigger(proximity: true);
+            items.Change(PlayerInventories.BodyArmour, host, _ => armour);
+            Assert.Equal(50, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy));
+            uint after = await Trigger(proximity: true);
+            uint expired = await Trigger(proximity: false);
+            Console.WriteLine($"Tinkerskin Energy Shield: proximity {before} -> {after}, duration {expired}");
+            Assert.Equal((0u, 50u, 0u), (before, after, expired));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+
+        async Task<uint> Trigger(bool proximity)
+        {
+            clock.At += 1;
+            fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(clock.At)));
+            player.EnergyShield.Empty();
+            uint mana = player.PlayerMana;
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            Assert.True(player.PlayerMana < mana);
+            var placed = Assert.Single(player.Placed.All.Values);
+            Assert.False(placed.Mine);
+            const uint id = 900;
+            var enemy = new SpawnedMonster("ice trap target", new(placed.At.X, placed.At.Y, 0), 0, 0, 100000);
+            if (proximity) player.Area.Monsters.Add(id, enemy);
+            clock.At = proximity ? placed.Armed + .01 : placed.Until + .01;
+            await Game.PlayerMinionsTick(player, clock.At);
+            Assert.Empty(player.Placed.All);
+            if (proximity)
+            {
+                Assert.True(enemy.Life < enemy.MaxLife);
+                player.Area.Monsters.Remove(id);
+            }
+            return player.EnergyShield.Current;
+        }
     }
 
     sealed class PlacedClock : IPlayerUpdateSchedule
