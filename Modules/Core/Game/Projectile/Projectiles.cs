@@ -851,10 +851,13 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats, spider.Local) : default;
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            var steel = shot.LancingSteelHits;
+            if (steel?.Targets.Contains(contact.Target) == true)
+                shot = shot.ScaleDamage(steel.RepeatMultiplier);
             int projectileFreezeChance = 0;
             if (shot.FreezingPulseFalloff)
             {
@@ -884,6 +887,8 @@ public static partial class Game
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
             if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
             if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
+            if (shot.ShatteringSteelAmmoHitBonus > 0)
+                more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
@@ -942,6 +947,7 @@ public static partial class Game
                 cullPlayer: null, chaosDamage: chaosDamage,
                 preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             if (!immune && hit.Value.Life > 0 && shot.SomaticApplications is not null)
@@ -991,7 +997,8 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
+                    areaHit: contact.IsArea);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
@@ -1004,8 +1011,10 @@ public static partial class Game
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)));
-            if (shot.ActualCaster is null) RageOnHitLocked(Player, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
-                contact.Projectile.ReactionRandomSource, player);
+            if (shot.ActualCaster is null)
+                RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
+                    shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,
+                    contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,

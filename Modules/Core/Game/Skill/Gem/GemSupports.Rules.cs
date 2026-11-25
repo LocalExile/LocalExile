@@ -57,7 +57,7 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
-                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
                 || g.EffectId == ShaperMemoryEffect
@@ -787,6 +787,7 @@ public static partial class Game
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
         public HitIncreases WeaponTypedIncreases { get; init; }
+        public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
         public bool Armed { get; init; }
         public bool Claw { get; init; }
         public double ReleaseAilmentMore { get; init; } = 1;
@@ -999,6 +1000,7 @@ public static partial class Game
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
+            WeaponStats = secondary ? null : attackWeapon?.LocalSources,
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
             ReleaseAilmentMore = gem.Stats.ContainsKey(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed)
                 ? OverheatAilmentMore(player, skillId) : 1,
@@ -1051,7 +1053,8 @@ public static partial class Game
     public static List<(uint Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
         long additionalIncreased = 0)
     {
-        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee);
+        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        { WeaponStats = inputs.WeaponStats };
         return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
     }
 

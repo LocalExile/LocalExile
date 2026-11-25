@@ -23,6 +23,17 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    const ushort MarkedForDeathBuffRow = 2431;
+    static readonly IReadOnlyDictionary<uint, int> MarkedForDeathStats =
+        new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 50 };
+
+    static int MapDeathMarkDuration(Player player, SpawnedMonster monster) =>
+        monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            ? MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) ?? 0 : 0;
+
+    static Task ApplyMapDeathMarkOnKill(Player player, int milliseconds) =>
+        AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d);
+
     static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
     {
         if (map is null) return;
@@ -135,6 +146,8 @@ public static partial class Game
         if (mods.Get(Stat.MapMonstersPoisonOnHit) != 0)
             extra[Stat.BaseChanceToPoisonOnHitPct] =
                 extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
+        Gain(Stat.MapMonstersChanceToImpalePct, Stat.MapMonstersChanceToImpalePct);
+        Gain(Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs, Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs);
         Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
         Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
         Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToIgnitePct);

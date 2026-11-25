@@ -303,10 +303,15 @@ public static partial class Game
     // and the increased damage taken with the shock's. Fortification is the caller's, so a hit with several parts can
     // apply it once to its totals as a monster's hit does.
     public static int TakenAfterResistance(Player player, DamageType type, int resisted, int effectiveArmour,
-        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
+        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell) =>
+        TakenAfterResistance(player, type, resisted, effectiveArmour, stats, attack, ranged, spell, additionalIncreased: 0);
+
+    static int TakenAfterResistance(Player player, DamageType type, int resisted, int effectiveArmour,
+        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell, int additionalIncreased)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
+        int increased = ActorScale.Saturate((long)PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell)
+            + additionalIncreased);
         var reduction = PlayerDamageReduction(player, stats);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
