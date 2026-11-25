@@ -23,7 +23,15 @@ public static partial class Game
             ChargeType.Frenzy => StatConditions.GainedFrenzyCharge,
             ChargeType.Power => StatConditions.GainedPowerCharge,
             _ => StatConditions.GainedEnduranceCharge,
-        }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until)));
+        }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
+        {
+            OnslaughtFromFrenzy = (at, seconds) =>
+            {
+                if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;
+                MarkPlayerStats(player, PlayerStatStep.Onslaught);
+                PresentStats(player);
+            }
+        });
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SkillCatalog, System.Collections.Concurrent.ConcurrentDictionary<(int Effect, int Level, int Quality), Func<uint, int>>> ChargeHitSkillStats = new();
 

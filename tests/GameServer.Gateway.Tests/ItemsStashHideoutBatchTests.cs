@@ -244,8 +244,8 @@ public class ItemsStashHideoutBatchTests : IDisposable
         Assert.Equal(InstanceCurrencyExchange.ErrorCouldNotFindSellItems, BinaryPrimitives.ReadUInt16BigEndian(errPacket.AsSpan(2)));
 
         var place = InstanceHideoutEditing.ReadPlace(messages[3].Bytes);
-        Assert.Equal((0xdeadbeefu, (ushort)210, (ushort)330, 1.25f, (byte)2, true),
-            (place.Hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored));
+        Assert.Equal((false, 0xdeadbeefu, (ushort)210, (ushort)330, 1.25f, (byte)2, true),
+            (place.ByHash, place.Id, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored));
         Assert.Equal(0x3100u, InstanceHideoutEditing.ReadReclaim(messages[4].Bytes));
         Assert.Equal((byte)1, InstanceHideoutEditing.ReadReset(messages[5].Bytes));
         Assert.Equal((ushort)0, InstanceHideoutEditing.ReadMusic(messages[6].Bytes));
@@ -295,11 +295,12 @@ public class ItemsStashHideoutBatchTests : IDisposable
         Assert.Equal(mirrorFull.Hash, completedShard.Item.TypeHash);
         Assert.Equal((ushort)1, completedShard.Item.StackSize);
 
-        // 0x5a (guild hideout placement) frames cleanly and is never accepted into personal AccountHideout.
-        byte[] guildPlace = new LoginWriter().U16(InstanceHideoutEditing.PlaceGuildId)
+        // 0x5a carries the decoration's hash itself; 0x5c is the editor's Delete key on an object.
+        byte[] hashPlace = new LoginWriter().U16(InstanceHideoutEditing.PlaceByHashId)
             .U32(0xdeadbeef).U16(210).U16(330).U32(0).U8(0).U8(0).ToArray();
-        var guildParsed = InstanceHideoutEditing.ReadPlace(guildPlace);
-        Assert.Equal(0xdeadbeefu, guildParsed.Hash);
+        var hashParsed = InstanceHideoutEditing.ReadPlace(hashPlace);
+        Assert.Equal((true, 0xdeadbeefu), (hashParsed.ByHash, hashParsed.Id));
+        Assert.Equal(0x3100u, InstanceHideoutEditing.ReadRemove(new LoginWriter().U16(InstanceHideoutEditing.RemoveId).U32(0x3100).ToArray()));
 
         // ItemDisplayCase league scoping, occupied reclaim/reset refusal, and hideout 750 decoration cap.
         TestEnvironment.OpenOwnSaves("hideout-security");
@@ -335,6 +336,25 @@ public class ItemsStashHideoutBatchTests : IDisposable
         // Emptying the display case allows reclaim and reset again.
         Assert.True(Game.SetAccountDisplayCaseItem(stdPlayer, home.AreaId, caseDeco.Key, null));
         Assert.True(Game.RemoveAccountHideoutDecoration(stdPlayer, home.AreaId, caseDeco.Key));
+
+        // Export immediately after changing a device in the editor, while the entry-time scene still has the template.
+        using (var wire = new CaptureWire())
+        {
+            stdPlayer.Connection.Session = new("hideout-export", wire.Stream, wire.ServerCiphers);
+            stdPlayer.Commands = Program.Commands(stdPlayer);
+            stdPlayer.CurrentHideoutScene = Game.HideoutFurniture(stdPlayer);
+            const uint atzoatl = 3802575025;
+            var variant = new Game.SavedHideoutDecoration(Game.MapDeviceKey, atzoatl, 230, 285, 0.5f);
+            Assert.True(Game.ReplaceAccountHideoutLayout(stdPlayer, home.AreaId,
+                new Dictionary<string, HideoutPlacement> { [Game.MapDeviceKey] = new(230, 285, 0.5f) }, [], null, variant));
+            stdPlayer.Furniture = null;
+            await Game.SaveHideoutLayout(stdPlayer);
+            byte[] bytes = wire.FinishAndDecrypt();
+            var exported = InstanceHideoutEditing.ReadLayout(bytes.AsSpan(0, InstanceHideoutEditing.LayoutLength(bytes)!.Value));
+            var device = Assert.Single(exported.Doodads, d => d.Hash == atzoatl);
+            Assert.Equal((230, 285), ((int)device.X, (int)device.Y));
+            Assert.DoesNotContain(exported.Doodads, d => d.Hash == stdPlayer.CurrentHideoutScene!.Device.Hash);
+        }
 
         // 750 custom decoration cap per hideout.
         for (int i = 0; i < Game.MaxHideoutDecorations; i++)

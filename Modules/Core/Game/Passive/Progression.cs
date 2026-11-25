@@ -1001,6 +1001,7 @@ public static partial class Game
         // A resolver kept by a later consumer may read on another thread.
         readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> read = new();
         public bool TryGetValue(string key, out long value) { read[key] = true; return values.TryGetValue(key, out value); }
+        public bool WasRead(string key) => read.ContainsKey(key);
         public long this[string key] { get { read[key] = true; return values[key]; } }
         // Every amount is always present (zero when nothing happened), so asking whether one is reads no value.
         public bool ContainsKey(string key) => values.ContainsKey(key);

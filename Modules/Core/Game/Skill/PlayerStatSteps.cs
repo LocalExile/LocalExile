@@ -90,6 +90,8 @@ public static partial class Game
                 AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
                 AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
                 AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
+                if (map.Get(Stat.MapPlayerActionSpeedPlusPctPerRecentSkillUse) != 0)
+                    MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);

@@ -438,7 +438,8 @@ public static class ServerLevels
         try
         {
             var files = Files();
-            var area = AreaInfo.Load(Read, areaId, areaLevel);
+            // The listed plugins are named as their states were composed (InstanceEvents.ComposeTerrainPluginStates).
+            var area = AreaInfo.Load(Read, areaId, areaLevel) with { PluginName = AreaTerrainPlugins.NameOf };
             if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
                 area = area with { Stats = played.ToDictionary(s => (int)s.Key, s => s.Value) };
             int category = CategoryOf(areaId, seed);

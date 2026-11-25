@@ -381,6 +381,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
 
+- Breach: maps roll Unstable Breaches; a touch opens the arena and the wave. Hive, boss and rewards are pending.
+
 ## Not working yet
 
 - Area transitions of a generated area the Gateway does not generate itself need a `-Walkmaps` capture for its seed.

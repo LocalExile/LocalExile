@@ -138,8 +138,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps, from non-public stash tabs and onto stash
   tabs too. Docs: [13](../docs/protocol/13-items.md).
-- **Hinekora's Lock** (server rules verified live). Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock",
-  [evidence](../docs/re/hinekora-lock.md).
+- **Hinekora's Lock** (server rules verified live; dual-item 0x29e and type 0x29f foresight wired, live check pending).
+  Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock", [evidence](../docs/re/hinekora-lock.md).
+- Labyrinth Divine Font crafting (0x246/0x2a2/0x245/0x247/0x2a3) and bench craft award toasts (0x1d6) are wired.
+  Live client checks are pending; docs: [21](../docs/protocol/21-hideouts.md).
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
 - Currency metamods: prefix/suffix locks and attack/caster restrictions.
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".

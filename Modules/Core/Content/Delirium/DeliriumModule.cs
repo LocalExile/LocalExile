@@ -12,6 +12,7 @@ public sealed partial class DeliriumModule : IModule
     const string StateKey = "Delirium.Simulacrum";
     readonly ConditionalWeakTable<InstanceState, Run> runs = new();
     readonly ConditionalWeakTable<Player, View> views = new();
+    readonly DeliriumMirrorEncounter mirror = new();
     readonly JsonSerializerOptions serialization = new() { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
     IModuleContext context = null!;
 
@@ -108,19 +109,30 @@ public sealed partial class DeliriumModule : IModule
     {
         LoadData();
         context = module;
-        module.Lifetime.Own(new Cleanup(() => { runs.Clear(); views.Clear(); }));
+        mirror.Attach(module);
+        module.Lifetime.Own(new Cleanup(() => { runs.Clear(); views.Clear(); mirror.Clear(); }));
         GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, global::Game.AreaRng(request.Player)));
+        InstanceEvents.TerrainPluginStates.Add(module.Manifest.Id, DeliriumMirrorEncounter.PlanTerrain);
+        GameEvents.AreaRuleset.Add(module.Manifest.Id, player =>
+            DeliriumMirrorEncounter.IsEligibleMap(player) && AfflictionRuleset.EncounterRow is { } row
+                ? (row, AfflictionRuleset.PreloadGroup) : null);
         GameEvents.AreaHeader.Add(module.Manifest.Id, player => SimulacrumRules.IsArena(player.Layout.Id)
             ? new AreaHeader(null, null) { Level = (byte)SimulacrumRules.Level(State(player).Wave == 0 ? 1 : State(player).Wave) } : null);
-        // Row 103 AfflictionEndGameRules: installs the native Simulacrum ruleset whose 0x2c9 mode 1 feeds the reward HUD.
+        GameEvents.BeforeEnterMessages.Add(module.Manifest.Id, mirror.BeforeEnterMessages);
+        GameEvents.BeforeEnterObject.Add(module.Manifest.Id, mirror.EntryObject);
         GameEvents.EnterMessages.Add(module.Manifest.Id, player =>
             SimulacrumRules.IsArena(player.Layout.Id) && AfflictionRuleset.Row is { } rules
-                ? [($"0x001f ruleset AfflictionEndGameRules (row {rules})", InstanceProtocol.AddRuleset(rules))] : []);
+                ? [($"0x001f ruleset AfflictionEndGameRules (row {rules})", InstanceProtocol.AddRuleset(rules))]
+                : []);
         // A Simulacrum is entered through its map device and left through its own portal; the area's authored waypoint
         // would offer a way out the encounter does not have.
         InstanceEvents.AreaWaypoint.Add(module.Manifest.Id, (player, waypoint) =>
             SimulacrumRules.IsArena(player.Layout.Id) ? null : waypoint);
-        GameEvents.PlayerEntered.Add(module.Manifest.Id, Enter);
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
+        {
+            await Enter(player);
+            await mirror.OnPlayerEntered(player);
+        });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) =>
         {
             if (SimulacrumRules.IsArena(player.Layout.Id))
@@ -132,34 +144,50 @@ public sealed partial class DeliriumModule : IModule
             views.Remove(player);
             return Task.CompletedTask;
         });
-        GameEvents.AreaTick.Add(module.Manifest.Id, start => !SimulacrumRules.IsArena(start.Layout.Id) ? null : async (player, _) =>
+        GameEvents.AreaTick.Add(module.Manifest.Id, start =>
         {
-            if (!Current(player)) return;
-            if (ViewOf(player) is not { Native: true }) await Enter(player);
-            if (player.Paused || player.PlayerLife == 0
-                || !ReferenceEquals(Clients(player).Where(c => c.PlayerLife > 0).MinBy(c => c.Id), player)) return;
-            await Step(player);
+            if (SimulacrumRules.IsArena(start.Layout.Id))
+                return async (player, _) =>
+                {
+                    if (!Current(player)) return;
+                    if (ViewOf(player) is not { Native: true }) await Enter(player);
+                    if (player.Paused || player.PlayerLife == 0
+                        || !ReferenceEquals(Clients(player).Where(c => c.PlayerLife > 0).MinBy(c => c.Id), player)) return;
+                    await Step(player);
+                };
+            return DeliriumMirrorEncounter.IsEligibleMap(start) ? mirror.OnTick : null;
         });
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, requestedAt) =>
         {
-            if (!SimulacrumRules.IsArena(player.Layout.Id) || ViewOf(player) is not { } view || use.TargetId != view.Entity) return false;
-            if (await WorldOf(player).WalkUpTo(view.At.X, view.At.Y, 12, requestedAt)) await Start(player);
-            return true;
+            if (SimulacrumRules.IsArena(player.Layout.Id) && ViewOf(player) is { } view && use.TargetId == view.Entity)
+            {
+                if (await WorldOf(player).WalkUpTo(view.At.X, view.At.Y, 12, requestedAt)) await Start(player);
+                return true;
+            }
+            return await mirror.OnObjectUse(player, use, requestedAt);
         });
         GameEvents.NpcTalk.Add(module.Manifest.Id, async (player, id, _) =>
         {
             if (!SimulacrumRules.IsArena(player.Layout.Id) || ViewOf(player) is not { } v || v.Entity != id) return false;
             await Start(player); return true;
         });
+        GameEvents.Packet(AfflictionRuleset.EndEncounterPacketId).Add(module.Manifest.Id, async (player, _) =>
+            await mirror.OnEndRequested(player));
         GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(drop => { if (SimulacrumRules.IsArena((string)drop.Player.Layout.Id)) { drop.Cancel = true; drop.Gold = 0; } }));
         GameEvents.Experience.Add(module.Manifest.Id, (Action<ExperienceGain>)(gain =>
         {
             if (SimulacrumRules.IsArena((string)gain.Player.Layout.Id))
                 gain.Experience = (uint)Math.Min(uint.MaxValue, (ulong)((ulong)gain.Experience * (uint)(100 + Math.Min(300, (int)(Math.Max(0, (int)(State((Player)gain.Player).Wave - 1)) * 100 / 3))) / 100));
+            else
+                mirror.OnExperience(gain);
         }));
         GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (!SimulacrumRules.IsArena(kill.Player.Layout.Id)) return;
+            if (!SimulacrumRules.IsArena(kill.Player.Layout.Id))
+            {
+                mirror.OnKill(kill);
+                return;
+            }
             var run = State(kill.Player);
             bool last;
             // The ordinary hit path runs kill handlers outside the area's frame, while the spawner and Step change the
@@ -176,10 +204,12 @@ public sealed partial class DeliriumModule : IModule
         {
             if (SimulacrumRules.IsArena(player.Layout.Id))
                 json["simulacrum"] = JsonSerializer.SerializeToNode(State(player), serialization);
+            else if (mirror.Existing(player) is { } m)
+                json["delirium_mirror"] = JsonSerializer.SerializeToNode(m, serialization);
         });
-        // A Simulacrum arena lies inside the Delirium fog for the whole run, so the player carries the fog flags the
-        // client's Delirium logic reads.
-        GameEvents.PlayerStatSources.Add(module.Manifest.Id, PlayerStats);
+        // Simulacrum arenas and active Delirium Mirrors set the fog flags the client's Delirium logic reads.
+        GameEvents.PlayerStatSources.Add(module.Manifest.Id, (player, stats) =>
+            SimulacrumRules.IsArena(player.Layout.Id) ? PlayerStats(player, stats) : mirror.PlayerStats(player, stats));
     }
 
     static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> stats)
