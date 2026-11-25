@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -151,7 +152,7 @@ public class PlayerDamageTakenTests
     // With 50% of Physical Damage from Hits taken as Fire and 50% Fire Resistance, 200 physical is 100 physical +
     // 100 fire at half = 150; the hit that ignored the shift took 200.
     [Fact]
-    public void A_synthetic_spell_hit_takes_physical_damage_as_fire_and_meets_the_fire_resistance()
+    public async Task A_synthetic_spell_hit_takes_physical_damage_as_fire_and_meets_the_fire_resistance()
     {
         var plain = SyntheticPhysicalHit("plain", shifted: false, armour: 0, out var plainPlayer);
         var asFire = SyntheticPhysicalHit("asfire", shifted: true, armour: 0, out var asFirePlayer);
@@ -160,6 +161,96 @@ public class PlayerDamageTakenTests
         Assert.Equal(150, asFire.Damage);
         Assert.Equal(850u, asFirePlayer.PlayerLife);
         Assert.Equal(150, (int)asFire.Taken[DamageType.Fire].Min + (int)asFire.Taken[DamageType.Physical].Min);
+        await SublimeVisionShiftsIncomingHits();
+    }
+
+    static async Task SublimeVisionShiftsIncomingHits()
+    {
+        int CombinedShift(uint key) => key switch
+        {
+            Stat.ColdAndLightningHitAndDotDamagePctTakenAsFireWhileAffectedByPurityOfFire => 30,
+            Stat.ColdDamageOverTimePctTakenAsChaos => 50,
+            _ => 0,
+        };
+        var combined = PlayerDamageTaken.ShiftOverTime(Hit((DamageType.Cold, 100)), CombinedShift);
+        Assert.Equal(20, combined[DamageType.Cold].Min);
+        Assert.Equal(30, combined[DamageType.Fire].Min);
+        Assert.Equal(50, combined[DamageType.Chaos].Min);
+
+        var uniques = new UniqueCatalog(Program.Items);
+        var definition = uniques.Find("Sublime Vision");
+        Assert.NotNull(definition);
+        var measured = new List<(bool Active, DamageType Source, DamageType Destination, double Original,
+            double Shifted, double Taken, uint GroundLoss)>();
+        foreach (var (auraSuffix, destination, stat) in new[]
+        {
+            ("Fire", DamageType.Fire, Stat.ColdAndLightningHitAndDotDamagePctTakenAsFireWhileAffectedByPurityOfFire),
+            ("Ice", DamageType.Cold, Stat.FireAndLightningHitAndDotDamagePctTakenAsColdWhileAffectedByPurityOfIce),
+            ("Lightning", DamageType.Lightning, Stat.FireAndColdHitAndDotDamagePctTakenAsLightningWhileAffectedByPurityOfLightning),
+        })
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var mod = Program.Items.Mods.ById($"SublimeVisionPurityOf{auraSuffix}");
+            Assert.NotNull(mod);
+            var jewel = Assert.IsType<Item>(Enumerable.Range(1, 512).Select(seed => uniques.Create(definition, new Random(seed)))
+                .FirstOrDefault(candidate => candidate?.Mods.Any(roll => roll.Hash == mod.Hash) == true));
+            const byte jewelSlot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(jewelSlot)!.Value);
+            Assert.Null(Game.PassiveJewelRefusal(player, jewelSlot, 0, jewel));
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, jewelSlot, 0, jewel);
+            ushort skill = Assert.Single(fixture.Equip(($"Purity of {auraSuffix}", 1)));
+            var aura = Assert.Single(Game.GemSkillEffects(player));
+
+            async Task Measure(bool active)
+            {
+                Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == skill));
+                var stats = Game.CharacterPlayerStats(player);
+                Assert.Equal(active ? 30 : 0, stats.GetValueOrDefault(stat));
+                int offset = -Game.ResistancePenalty(player);
+                int Resistance(DamageType type) => offset + (type == destination ? 50 : 0);
+                player.Pools = player.Pools with
+                {
+                    Armour = 0, FireResistance = Resistance(DamageType.Fire), ColdResistance = Resistance(DamageType.Cold),
+                    LightningResistance = Resistance(DamageType.Lightning), ChaosResistance = Resistance(DamageType.Chaos),
+                };
+                foreach (var source in DamageTypes.ConversionOrder)
+                {
+                    var hit = Hit((source, 100));
+                    var shifted = PlayerDamageTaken.Shift(hit, stats.GetValueOrDefault);
+                    player.PlayerLife = player.Pools.Life;
+                    uint before = player.PlayerLife;
+                    var exposure = new ArenaHazards.Exposure { Last = 10 };
+                    await ArenaHazards.Ground(player, exposure, 10.5, (_, _) => Hit((source, 200)), () => true);
+                    uint groundLoss = before - player.PlayerLife;
+                    player.PlayerLife = player.Pools.Life;
+                    Assert.True(Game.TrySyntheticEnemyHit(player, source, 100, block: false, spell: true,
+                        suppress: false, out var taken));
+                    measured.Add((active, source, destination, shifted[source].Min, shifted[destination].Min,
+                        taken.Taken[destination].Min, groundLoss));
+                    Console.WriteLine($"Sublime Vision {auraSuffix}, aura active {active}, {source}: " +
+                        $"{shifted[source].Min} original, {shifted[destination].Min} shifted, " +
+                        $"{taken.Taken[destination].Min} taken as {destination}, ground loss {groundLoss}");
+                }
+            }
+
+            await Measure(false);
+            Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
+                Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
+            await Measure(true);
+            Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
+                Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
+            await Measure(false);
+        }
+        Assert.All(measured, result =>
+        {
+            bool matchingType = result.Source == result.Destination;
+            bool shifts = result.Active && !matchingType && DamageTypes.IsElemental(result.Source);
+            Assert.Equal(shifts ? 70 : 100, result.Original);
+            Assert.Equal(shifts ? 30 : matchingType ? 100 : 0, result.Shifted);
+            Assert.Equal(shifts ? 15 : matchingType ? 50 : 0, result.Taken);
+            Assert.Equal(shifts ? 85u : matchingType ? 50u : 100u, result.GroundLoss);
+        });
     }
 
     // Armour is one decision for the hit but reduces only the physical part: with half of the physical hit taken as fire,
