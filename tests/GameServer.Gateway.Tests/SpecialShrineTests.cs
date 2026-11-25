@@ -224,6 +224,13 @@ public sealed partial class ShrineTests
             Assert.DoesNotContain(actor.Key, player.Area.Monsters.Keys);
             await effectController.Tick(new(player, 9), shrine);
             Assert.DoesNotContain(player.Area.Monsters.Values, m => m.Variety?.Id == profile.Body.Id);
+            await effectController.Tick(new(player, 12), shrine);
+            var leaving = Assert.Single(player.Area.Monsters, m => m.Value.Variety?.Id == profile.Body.Id);
+            player.LeavingArea = true;
+            try { await effectController.OnMapUnload(new(player, 12), shrine); }
+            finally { player.LeavingArea = false; }
+            Assert.DoesNotContain(leaving.Key, player.Area.Monsters.Keys);
+            Assert.DoesNotContain(leaving.Key, player.MinionOrigins.Keys);
             player.Area.Monsters.Remove(0x7071);
         }
     }
