@@ -22,6 +22,7 @@ public static partial class Game
         WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1)
     {
         internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
+        internal GameServer.Core.World.DamageType? WildStrikeFollowupElement { get; init; }
     }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
@@ -56,7 +57,7 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
-                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
                 || g.EffectId == ShaperMemoryEffect
@@ -270,7 +271,8 @@ public static partial class Game
         List<GemSupports.Candidate> candidates, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IReadOnlySet<uint>? inactive, bool sourceIsGem)
     {
-        int? weaponClass = null;
+        // An empty or inactive main hand attacks with the Unarmed class.
+        int? weaponClass = UnarmedClassRow;
         bool allOneHandMelee = false;
         if (candidates.Exists(c => Supports.Of(c.Effect) is { Weapons.Length: > 0 }))
         {
@@ -404,13 +406,15 @@ public static partial class Game
     static IReadOnlyDictionary<uint, int> WithManaPoolCost(Player player, SupportedGem skill,
         IReadOnlyDictionary<uint, int> own, int pool)
     {
-        if (pool < 0) return own;
+        int nativePercent = own.GetValueOrDefault(Stat.BaseManaCostPct);
+        if (pool < 0 && nativePercent <= 0) return own;
         int percent = Math.Max(own.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana),
             own.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana));
-        uint native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality);
+        decimal native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality)
+            + player.Pools.Mana * (decimal)nativePercent / 100m;
         decimal factor = skill.Supports.Aggregate(1m, (value, support) => value * support.CostMultiplier / 100m);
         // The added base cost and the gem's own base are charged by the same support multipliers, with one floor.
-        int cost = (int)Math.Clamp(decimal.Floor((native + pool * (decimal)percent / 100m) * factor), 0, int.MaxValue);
+        int cost = (int)Math.Clamp(decimal.Floor((native + Math.Max(0, pool) * (decimal)percent / 100m) * factor), 0, int.MaxValue);
         return new Dictionary<uint, int>(own) { [Stat.BaseManaCost] = cost, [Stat.ManaCost] = cost };
     }
 
@@ -784,6 +788,7 @@ public static partial class Game
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
         public HitIncreases WeaponTypedIncreases { get; init; }
+        public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
         public bool Armed { get; init; }
         public bool Claw { get; init; }
         public double ReleaseAilmentMore { get; init; } = 1;
@@ -799,6 +804,10 @@ public static partial class Game
         bool projectile = false, int addedChaos = 0, bool totem = false)
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
+        bool wildStrike = IsWildStrike(gem.Effect);
+        bool strikeFollowup = gem.WildStrikeFollowupElement is not null;
+        if (strikeFollowup) projectile = gem.WildStrikeFollowupElement == GameServer.Core.World.DamageType.Cold;
+        if (wildStrike && !strikeFollowup) area ??= false;
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
         int manaPool = ManaCostPool(player, gem);
@@ -866,6 +875,11 @@ public static partial class Game
         // A strike and the projectiles it releases each use their own damage modifiers.
         bool projectileStrike = IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect);
         if (projectileStrike) types.Remove(projectile ? 19 : 2);
+        if (wildStrike)
+        {
+            if (strikeFollowup) types.Remove(19);
+            if (!projectile) types.Remove(2);
+        }
         bool volcanicFissure = IsVolcanicFissure(gem.Effect);
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
@@ -881,6 +895,13 @@ public static partial class Game
             else { types.Remove(2); types.Remove(7); }
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
+        if (plan.Kind == SkillHitKind.Spell
+            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage)
+        {
+            long missing = Math.Max(0, (long)UnreservedMana(player) - player.PlayerMana);
+            double lightning = Math.Floor(missing * (double)manaDamage / 100);
+            plan = plan with { SpellBase = plan.SpellBase.Add(GameServer.Core.World.DamageType.Lightning, new(lightning, lightning)) };
+        }
         if (!plan.CanHit) return null;
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
@@ -928,6 +949,8 @@ public static partial class Game
                     AddWeapon(offWeapon!);
             }
         }
+        if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.GainPctOfBaseDaggerDamageAsAddedSpellDamage) is > 0 and var daggerGain)
+            raw = raw.Add(BladeBlastDaggerDamage(player, daggerGain).Scale(AddedEffectiveness(player, gem.Effect, gem.Level)));
         if (molten && projectile && Get(Stat.ActiveSkillHitAilmentDamageWithProjectilePlusPctFinal) is int projFinal and not 0)
             raw = raw.Scale(Math.Max(0, 1 + projFinal / 100.0));
         if (totem && Get(Stat.StygianSpireTotemDamagePlusPctFinalPerMaximumTotem) is int totemMore and not 0)
@@ -978,6 +1001,7 @@ public static partial class Game
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
+            WeaponStats = secondary ? null : attackWeapon?.LocalSources,
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
             ReleaseAilmentMore = gem.Stats.ContainsKey(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed)
                 ? OverheatAilmentMore(player, skillId) : 1,
@@ -1030,7 +1054,8 @@ public static partial class Game
     public static List<(uint Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
         long additionalIncreased = 0)
     {
-        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee);
+        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        { WeaponStats = inputs.WeaponStats };
         return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
     }
 
@@ -1038,7 +1063,8 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+        var local = UsesShieldAccuracy(SkillsFor(player), gem.Effect) ? null : MainHandLocalSources(player);
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, local)
             with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 

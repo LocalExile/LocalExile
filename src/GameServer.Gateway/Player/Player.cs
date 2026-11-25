@@ -266,6 +266,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
 
 public sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
 {
+    /// <summary>Interaction footprint when this NPC is registered on an existing monster body.</summary>
+    public int? MonsterBodySize { get; init; }
     /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
     public byte State { get; set; } = Npc.TransitionState;
 }
@@ -1687,6 +1689,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double LockstepActionScheduledAt;
     public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
+    /// <summary>Where a totem placement's hold ends, 0 for any other hold: until then the client's own Move is not refused.</summary>
+    public double LockstepTotemHoldUntil;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
     public LockstepAttack? LockstepAttack;

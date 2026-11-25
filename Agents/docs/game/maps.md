@@ -113,3 +113,12 @@ When a Voidstone is socketed into the Atlas:
   League extra content is not spawned yet.
 - **The map stash tab** takes nothing yet: the client lists its maps by tier, and how it places them is not known
   ([18](../protocol/18-stash.md) §7).
+
+## Monster hit modifiers
+
+Equalising deducts a percentage of the victim's maximum Life, Mana and Energy Shield on rare and unique monster hits.
+The legacy nearby-ally modifier counts live peers and owned allies around the player at the instant of a monster hit.
+The server estimates that radius at 40 cells.
+
+Simulacrum projects the native early, middle and late flask-drain affixes into each wave's monsters.
+A successful roll on a hit removes one charge from an equipped flask that has a charge.

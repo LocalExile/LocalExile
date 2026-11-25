@@ -299,6 +299,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
     /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Optional aim chosen at each initial emission. The selected direction keeps the projectile's flight range.</summary>
+    public Func<ProjectileVector, ProjectileVector?>? InitialAim { get; init; }
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }

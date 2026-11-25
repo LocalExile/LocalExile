@@ -25,7 +25,7 @@ static partial class Game
     {
         int chains = Math.Max(0, get(Stat.NumberOfChains) + get(Stat.AdditionalBeamOnlyChains) + stacks);
         int more = get(Stat.SupportChainCountPlusPctFinal);
-        return more > 0 ? (int)(chains * (1 + more / 100d)) : chains;
+        return more != 0 ? Math.Max(0, (int)(chains * (1 + more / 100d))) : chains;
     }
 
     static bool IsGatheringLightning(Player player, GrantedSkill skill) =>
@@ -92,10 +92,10 @@ static partial class Game
         int firstRange = Math.Max(1, (int)(35 * range));
         int chainRange = Math.Max(1, (int)(50 * range));
         int chains = GatheringLightningChains(Get, stacks);
-        var hitTargets = contacts.ToHashSet();
         foreach (uint direct in contacts)
         {
             if (!area.Monsters.TryGetValue(direct, out var origin)) continue;
+            var hitTargets = new HashSet<uint> { direct };
             var current = origin;
             for (int hop = 0; hop <= chains && current.Effects[Stat.CannotBeChainedFrom] == 0; hop++)
             {
