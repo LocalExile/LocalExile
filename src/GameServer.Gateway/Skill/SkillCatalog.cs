@@ -557,6 +557,7 @@ public sealed class SkillCatalog
 
     public readonly record struct ReservationCost(int ManaFlat, int ManaPercent, int LifeFlat, int LifePercent)
     {
+        public bool FixedMana { get; init; }
         // The legacy one-pool contract exposes Mana when present, otherwise Life. Raw-pool callers use the
         // Mana*/Life* fields so they never have to infer the resource from a zero value.
         public bool IsLife => ManaFlat == 0 && ManaPercent == 0;
