@@ -106,6 +106,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Essences, Voltaxic Sulphite deposits and Act 6–10 Smuggler's Caches spawn across Acts 1–10 (not checked live).
 - HUD mission timers (S→C 0x163) and countdown timers (S→C 0x162): protocol encoders implemented and wired into
   Allflame lantern collapse (`Deepwater`) and Survivors stage countdowns (`Generic`); not yet checked live.
+- Life-0 `0x2bb` dead-pose bytes and `0x2bc` updates for shrines, ground effects and beams (not checked live).
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,

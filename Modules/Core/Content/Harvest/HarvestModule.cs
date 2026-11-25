@@ -45,8 +45,14 @@ public sealed class HarvestModule : IModule, IDisposable
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, async player =>
         {
-            await SacredGrove.Enter(player);
-            await OshabiEncounter.Enter(player);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await SacredGrove.Enter(player);
+                await OshabiEncounter.Enter(player);
+            }
+            finally { Program.ViewOf.Value = previousView; }
         });
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always(async (player, _) =>
         {
@@ -76,10 +82,38 @@ public sealed class HarvestModule : IModule, IDisposable
             await Craft(module, player, InstanceHarvest.ReadCraft(bytes), LeagueFor(player).HardMode);
             return true;
         });
+        GameEvents.Packet(InstanceHarvest.QuickMoveItemId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            return await QuickMoveItem(player, InstanceHarvest.ReadQuickMoveItem(bytes));
+        });
         GameEvents.Packet(InstanceHarvest.MoveItemId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             return await MoveItem(player, InstanceHarvest.ReadMoveItem(bytes));
         });
+        GameEvents.Packet(InstanceHarvest.ActivateCropId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceHarvest.ActivateCropLength) return false;
+            return await SacredGrove.ActivateFromLabel(player, InstanceHarvest.ReadActivateCrop(bytes));
+        });
+    }
+
+    /// <summary>C→S 0xf8: Ctrl + click an item between main/expanded inventory and HarvestCraftingItem (row 43).</summary>
+    async Task<bool> QuickMoveItem(Player player, InstanceItems.LeagueWindowMove request)
+    {
+        if (WorldOf(player).OpenWindowOwner != Window) return false;
+        var items = ItemsOf(player);
+        if (ItemMoves.MoveToSlot(items, Slot, request.ItemId, request.Into, ShapeOf) is { } moved)
+        {
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.From),
+                items.NextRevision(moved.From), [request.ItemId], []),
+                $"0x00f8 Ctrl + click: item {request.ItemId} leaves row {moved.From}");
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(moved.To),
+                items.NextRevision(moved.To), [], [moved.Placed]),
+                $"0x00f8 Ctrl + click: item {request.ItemId} into row {moved.To}");
+            return true;
+        }
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f8 item {request.ItemId} {(request.Into ? "into" : "out of")} Horticrafting slot refused (missing, slot taken or no room)");
+        return true;
     }
 
     /// <summary>C→S 0xf9: Ctrl + click an item between inventory/stash and HarvestCraftingItem (row 43).</summary>

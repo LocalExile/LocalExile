@@ -101,7 +101,11 @@ public static partial class Game
                 bool here = ReferenceEquals(ground.Area, player.Layout);
                 if (here && now < ground.Until) continue;
                 placed.Grounds.Remove(ground.Id);
-                if (here && ground.Drawn) bytes.Remove(ground.Id);
+                if (here && ground.Drawn)
+                {
+                    bytes.World(ground.Id, InstanceEntities.GroundEffectUpdate(ground.Id, 0, 0f));
+                    bytes.Remove(ground.Id);
+                }
             }
             var playerAt = player.Walk.Position(now);
             bool exposed = player.PlayerLife > 0 && !InGracePeriod(player);

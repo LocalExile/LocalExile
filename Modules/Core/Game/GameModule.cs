@@ -75,6 +75,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadAlchemistsGeniusData();
         Rules.LoadBuffCancelData();
         Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
@@ -341,7 +342,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
-        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.AreaHeader.Add(id, player => new AreaHeader(null, Rules.ActiveAchievementSets(player)));
         GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
         GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
         GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
@@ -465,6 +466,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
+        Rules.ClearPyroclastAuras(player);
         Rules.ForgetSourceValues(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);

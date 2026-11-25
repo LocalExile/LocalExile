@@ -45,5 +45,6 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
     <!-- Alva's incursions and the temple plan (IncursionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>

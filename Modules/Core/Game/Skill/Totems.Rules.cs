@@ -134,7 +134,7 @@ public static partial class Game
     /// Searing Bond are still refused before cost.</summary>
     static bool TotemDoesSomething(Player player, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
-        || SkillsFor(player).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
+        || SkillsFor(player).EffectId(effect) is "DevouringTotem" or "DecoyTotem" or VaalAncestralWarchiefEffect
         || TotemNova(player, effect);
 
     static bool TotemNova(Player player, int effect) => SkillsFor(player).HasType(effect, "Nova")
@@ -190,7 +190,7 @@ public static partial class Game
                 await AreaWait(PlayerUpdateRole.Minions, waitMs);
             }
         }
-        if (source.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale"))
+        if (TotemsPerUse(player, skillId) is 2)
         {
             if (await WaitUntil(placedAt))
                 await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null, count: 2);
@@ -316,7 +316,8 @@ public static partial class Game
         var place = requested;
         var playerStats = CharacterPlayerStats(player);
         bool ballista = BallistaEffect(player, effect) && GolemStat(own, Stat.IsRangedAttackTotem) != 0;
-        bool spellTotem = (SpellTotemEffect(player, effect) || ballista || NativeProjectileTotem(player, effect)) && IsTotemSkill(player, skillId);
+        bool spellTotem = (SpellTotemEffect(player, effect) || ballista || NativeProjectileTotem(player, effect)
+            || SkillsFor(player).EffectId(effect) == VaalAncestralWarchiefEffect) && IsTotemSkill(player, skillId);
         var sourceGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(player, skillId) : null;
         if (spellTotem && proxy is null) return null;
@@ -360,6 +361,7 @@ public static partial class Game
             return CollisionEscape.Find(around, width, height, Floor, blockers,
                 maxRadius: TotemPlacementSearchRadius, moverSize: bodySize) ?? around;
         }
+        bool onslaughtChanged = false;
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = AreaTime(player);
@@ -376,6 +378,7 @@ public static partial class Game
             placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
+            onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
             if (replaced.Count > 0)
             {
@@ -448,6 +451,7 @@ public static partial class Game
             if (finishPlacement is null) TotemRecords(player, bytes);
             return bytes.Build();
         });
+        if (onslaughtChanged) await SendKillOnslaught(player);
         if (created is not uint pendingId || finishPlacement is null) return created;
         bool active = false;
         try
@@ -476,6 +480,7 @@ public static partial class Game
                 });
                 if (!paused) break;
             }
+            if (onslaughtChanged) await SendKillOnslaught(player);
             return active ? pendingId : null;
         }
         finally
@@ -483,6 +488,40 @@ public static partial class Game
             if (!active && !player.Closed && !player.LeavingArea)
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
+    }
+
+    /// <summary>How many totems one use of the skill summons: two with Multiple Totems Support (its `summon_2_totems` stat, Stats row 8677, or the support gem itself), or on `chance_to_summon_two_totems_%` (Stats row 15272; Crucible weapon trees, Animal Charm), never more than the skill's limit -- CreateTotems clamps the count to it. A skill with a cooldown summons one a use (Multiple Totems Support: each totem takes a use).</summary>
+    public static int TotemsPerUse(Player player, ushort skillId)
+    {
+        if (CooldownForSkill(player, skillId) is not null) return 1;
+        var own = SupportedSkill(player, skillId);
+        bool two = GolemStat(own.Stats, Stat.Summon2Totems) != 0
+            || own.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale")
+            || Random.Shared.Next(100) < GolemStat(SupportedStats(player, skillId), Stat.ChanceToSummonTwoTotemsPct);
+        return two ? 2 : 1;
+    }
+
+    static bool TotemSummonedLocked(Player player, (int X, int Y) at, double now,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        player.RecentEvents.Record(StatConditions.SummonedTotem, now);
+        if (stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
+        {
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+            PresentStats(player);
+        }
+        if (stats.GetValueOrDefault(Stat.GainArcaneSurgeWhenYouSummonATotem) != 0)
+            GainArcaneSurgeLocked(player, now);
+
+        const int hinderRadius = 30;
+        if (stats.GetValueOrDefault(Stat.TotemHinderNearbyEnemiesWhenSummonedWith25PctReducedMovementSpeed) != 0)
+            foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
+                if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
+                    && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
+                    ApplyHinderLocked(enemy, now, fromTotem: true);
+
+        return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
+            && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);
     }
 
     /// <summary>
@@ -561,6 +600,8 @@ public static partial class Game
         foreach (var totem in player.Totems.Living(now))
             if (totem.Aura is not null) next = Math.Min(next ?? double.PositiveInfinity, totem.Until);
         if (next is double changes) StatsChangeIn(changes - now);
+        if (VaalWarchiefMeleeBonus(player, now) is > 0 and var melee)
+            stats[Stat.SlamAncestorTotemGrantedMeleeDamagePlusPctFinal] = melee;
         if (player.PlayerLife == 0 || covering is not { Totem.Aura: { } aura } source) return;
         if (source.Owner != player) StatsChangeIn(Math.Max(0, source.Totem.Until - AreaTime(source.Owner)));
         foreach (var (key, value) in aura.Stats)
@@ -600,11 +641,13 @@ public static partial class Game
             player.RemoveBlocker(t.Id);
             bytes.Remove(t.Id);
         }
-        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now).Where(t => t.Aura is not null)
-                .Select(t => (t.Id, t.Aura!.Radius, t.At)),
+        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now)
+                .Select(t => (t.Id, Radius: t.Aura?.Radius ?? VaalWarchiefActivationRange(player, t), t.At))
+                .Where(t => t.Radius > 0),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
         SyncRejuvenationAllyZones(player, now);
         SyncReceivedTotemAuraLocked(player, now, bytes);
+        SyncVaalWarchiefBuff(player, now, bytes);
         return bytes.Count == 0 ? null : bytes.Build();
     }
 
@@ -715,39 +758,46 @@ public static partial class Game
         TotemNovaLocked(player, session, totem, totem.At, radius, sequence, ringArt: ringArt);
 
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
-        (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null)
+        (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
+        Func<(int X, int Y), bool>? covers = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
         var caster = TotemCasterStats(CharacterPlayerStats(player));
         var blind = BlindHitInput.Capture(caster, skill.Stats);
-        var hit = new SkillDamageContext(SkillHitKind.Spell, caster).Hit(SupportedHitFrom(inputs, suppress: false));
+        bool attack = SkillsFor(player).IsAttack(skill.Effect);
+        var hit = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster)
+            .Hit(SupportedHitFrom(inputs, suppress: false));
         if (hit.IsZero) return;
+        var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
         var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
-        var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
+        var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
         void Contact(uint id, SpawnedMonster m)
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
-                || MonsterBlocks(m, AreaRng(player), spell: true)) return;
-            var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
+                || covers?.Invoke(targetAt) == false) return;
+            if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
+                AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
+            if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
+            var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, attack, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, totem.SkillId),
                 SupportedCriticalChanceVsBlinded(player, totem.SkillId, false), SupportedCriticalChanceVsGround(player, totem.SkillId, false));
-            bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
-            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
+            bool crit = RollCriticalStrike(player, chance, skill.Stats, attack, skillRoll: criticalRoll, playerStats: caster);
+            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, attack, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
             if (crit) damage = DamageModel.CriticalDamage(damage,
                 CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId), now, caster, skill.Stats));
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: !attack, now, damage);
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
+                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     blind: blind, hitOrigin: totem.At, playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));

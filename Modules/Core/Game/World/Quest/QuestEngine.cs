@@ -184,7 +184,7 @@ public static partial class Game
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    public static async Task UseQuestItem(Player player, PlayerInventories items,
+    public static async Task<bool> UseQuestItem(Player player, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
@@ -192,14 +192,15 @@ public static partial class Game
         try
         {
             PlayerInventories.Consumption? taken;
-            if (HardcoreProgressBlocked(player)) return;
+            if (HardcoreProgressBlocked(player)) return false;
             taken = QuestItems.Use(items, CharacterName(player), row, item.Id, flags);
-            if (taken is null) return;
+            if (taken is null) return false;
             uint inventoryId = PlayerInventories.InventoryId(row);
             await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventoryId}: {type.Name} used ({flags.Use})");
             await SetQuestFlagsHeld(player, [flags.Use!]);
             if (flags.Grant is { } grant) await SetQuestFlagsHeld(player, [grant], on: false);
+            return true;
         }
         finally { player.Character.QuestGate.Release(); }
     }
