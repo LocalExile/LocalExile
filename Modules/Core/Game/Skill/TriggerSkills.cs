@@ -110,7 +110,7 @@ public static partial class Game
             live.Add(skill.Id);
             if (!state.Counters.TryGetValue(skill.Id, out var counter) || !SameTriggerSource(counter.Gem, gem))
                 state.Counters[skill.Id] = counter = new(gem);
-            if (TriggerGuardSpell(player, gem) && !TriggerGuardReady(player, at)) continue;
+            if (TriggerGuardSpell(player, gem) && !GuardAvailableForTrigger(player, at)) continue;
             if (counter.Pending || at < counter.ReadyAt || at < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) continue;
             if (stunned)
             {

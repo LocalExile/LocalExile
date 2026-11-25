@@ -54,14 +54,17 @@ public static class InstanceProtocol
     /// (0x22 + 0x2bb) to exist already.
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
-    /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
+    /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.
+    /// Flag bit 2 is "this is my own hideout" (→ session +0xcd36); without it the Decorations panel never leaves
+    /// "Loading…" (03-area-and-world.md §5).</remarks>
     public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false,
-        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null)
+        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null, bool ownHideout = false)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
         InstanceStash.WriteTabs(w, tradeStash ?? []);
-        return w.U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
+        byte flags = (byte)((secondWeaponSet ? 0x01 : 0) | (ownHideout ? 0x04 : 0));
+        return w.U16(0).WStr("").Bytes([flags, 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
@@ -530,6 +533,9 @@ public static class InstanceProtocol
 
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
+    // Mods compiled against 0.6.0-beta bind to this one-argument signature.
+    public static byte[] DeathScreen(byte flags) => DeathScreen(flags, 0);
+
     /// <summary>
     /// S→C 0x55 (instance group, class 0x1435e68a8, read 0x1421a6190, dispatcher case 0x14 → listeners at +0xf78): the
     /// death screen. u8 flags: bit0, bit1 = hide, bit2, bit3, bit4; unless hidden: u32 BE (+0x18), a u8 when that u32 is
@@ -539,7 +545,7 @@ public static class InstanceProtocol
     /// flag is set); its right button "Resurrect at Checkpoint" with bit2 (without bit0); a third "Spectate" (PvP).
     /// Live 2026-10-17: 0x04 showed only "Resurrect at Checkpoint".
     /// </summary>
-    public static byte[] DeathScreen(byte flags, ushort deaths = 0)
+    public static byte[] DeathScreen(byte flags, ushort deaths)
     {
         var w = new LoginWriter().U16(DeathScreenId).U8(flags);
         if ((flags & 2) == 0) w.U32(0).U16(deaths);
@@ -548,14 +554,104 @@ public static class InstanceProtocol
 
     public const ushort GameMessageId = 0x18;
 
+    /// <summary>Highest 1-based <c>BackendErrors.dat</c> id carried unshifted in S→C 0x18 (reader <c>0x1421a3b07</c>:
+    /// values &lt;= 0x2d2 select <c>BackendErrors</c>, values &gt; 0x2d2 subtract 0x2d3 for <c>ClientStrings2</c>,
+    /// and bit 15 (<c>0x8000</c>) selects <c>ClientStrings</c>).</summary>
+    public const ushort BackendErrorMaxId = 0x02d2;
+
+    /// <summary>Text table selected by the encoded id word in S→C 0x18 (<c>0x1421a3ab0</c>).</summary>
+    public enum GameMessageSource : byte { BackendError = 0, ClientString = 1, ClientString2 = 2 }
+
+    /// <summary>Common 1-based <c>BackendErrors.dat</c> ids used with <see cref="GameMessage"/>.</summary>
+    public static class BackendErrorId
+    {
+        public const ushort PlayerSlain = 198;
+        public const ushort FullAtlasPassiveSkillRefund = 236;
+        public const ushort ReceivedAtlasRespecPoint1 = 549;
+        public const ushort ReceivedAtlasRespecPointN = 550;
+        public const ushort ReceivedAtlasPassivePoint1 = 551;
+        public const ushort ReceivedAtlasPassivePointN = 552;
+    }
+
     /// <summary>
-    /// S→C 0x18 on the instance connection, the message with strings (read 0x1421a3ab0 → 0x1429a60d0): message id 198,
-    /// 0xffff, u16 0, two u32 0 fields, and a stat/string list with 0 stats and 1 compact wide string (<c>WStr</c>).
-    /// The official server sends it on the player's death with the dead character's name, measured on 12 official
-    /// 3.29.3b captures.
+    /// S→C 0x18 (read <c>0x1421a3ab0</c> -> <c>0x1429a60d0</c>, write <c>0x1421a3980</c> ->
+    /// <c>0x1429a5f50</c>, dispatcher case 3): localized system/error chat message by text table id.
+    /// Wire: <c>u16 BE encodedId</c>, <c>u16 BE npcRow</c> (<c>0xffff</c> = none), <c>u16 LE flags</c> (raw),
+    /// <c>u32 BE holdTimeMs</c>, <c>u32 LE chatColour</c> (raw <c>ChatColours.dat</c> row), <c>u8 numArgCount</c>,
+    /// <c>u8 strArgCount</c>, <c>numArgCount × (u8 slot, CompactInt value)</c>, <c>strArgCount × WStr</c>.
+    /// </summary>
+    public static byte[] GameMessage(
+        GameMessageSource source,
+        ushort id,
+        ushort npcRow = 0xffff,
+        ushort flags = 0,
+        uint holdTimeMs = 0,
+        uint chatColour = 0,
+        IReadOnlyList<(byte Slot, int Value)>? numericArgs = null,
+        IReadOnlyList<string>? stringArgs = null)
+    {
+        ushort encodedId = source switch
+        {
+            GameMessageSource.ClientString => (ushort)(0x8000 | (id & 0x7fff)),
+            GameMessageSource.ClientString2 => checked((ushort)(BackendErrorMaxId + 1 + id)),
+            _ => id,
+        };
+        int numCount = Math.Min(numericArgs?.Count ?? 0, byte.MaxValue);
+        int strCount = Math.Min(stringArgs?.Count ?? 0, byte.MaxValue);
+        var w = new LoginWriter()
+            .U16(GameMessageId)
+            .U16(encodedId)
+            .U16(npcRow)
+            .U8((byte)flags).U8((byte)(flags >> 8))
+            .U32(holdTimeMs)
+            .RawU32(chatColour)
+            .U8((byte)numCount)
+            .U8((byte)strCount);
+        for (int i = 0; i < numCount; i++)
+        {
+            var (slot, value) = numericArgs![i];
+            w.U8(slot);
+            CompactInt(w, value);
+        }
+        for (int i = 0; i < strCount; i++) w.WStr(stringArgs![i]);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x18 death announcement (<see cref="BackendErrorId.PlayerSlain"/> = 198, <c>"{0} has been slain."</c>).
+    /// Measured on official 3.29.3 captures.
     /// </summary>
     public static byte[] DeathMessage(string characterName) =>
-        new LoginWriter().U16(GameMessageId).U16(198).U16(0xffff).U16(0).U32(0).U32(0).U8(0).U8(1).WStr(characterName).ToArray();
+        GameMessage(GameMessageSource.BackendError, BackendErrorId.PlayerSlain, stringArgs: [characterName]);
+
+    public const ushort AwardDisplayId = 0x01d5, CraftAwardId = 0x01d6, ClientStringNoticeId = 0x02cc;
+
+    /// <summary>0-based <c>AwardDisplay.dat</c> rows for <see cref="AwardDisplay"/> (S→C 0x01d5).</summary>
+    public static class AwardDisplayRow
+    {
+        public const byte LegionMapDeviceAward = 0;
+        public const byte AtlasMissionKirac = 1;
+        public const byte FavouredMapSlotUnlocked = 6;
+        public const byte HarvestCraftingBenchUnlocked = 7;
+        public const byte HeistStashUnlocked = 9;
+        public const byte AtlasPassiveAllocationSetUnlock1 = 37;
+        public const byte AtlasPassiveAllocationSetUnlock2 = 38;
+        public const byte SixthMapDeviceSlotUnlocked = 40;
+    }
+
+    /// <summary>S→C 0x01d5 (3 bytes, read 0x140e27980, dispatcher case 0x86 at 0x142157206):
+    /// displays an <c>AwardDisplay.dat</c> toast (0-based <paramref name="awardRow"/>).</summary>
+    public static byte[] AwardDisplay(byte awardRow) => [0x01, 0xd5, awardRow];
+
+    /// <summary>S→C 0x01d6 (6 bytes, read 0x140911270, dispatcher case 0x87 at 0x142157278):
+    /// displays a Craft Received toast resolving <c>Mods.HASH32</c> (<paramref name="modHash32"/>) via
+    /// <c>CraftingBenchOptions.Name</c> with <c>AwardDisplay</c> row 12 (<c>AtlasMissionGeneric</c>).</summary>
+    public static byte[] CraftAward(uint modHash32) => new LoginWriter().U16(CraftAwardId).U32(modHash32).ToArray();
+
+    /// <summary>S→C 0x02cc (4 bytes, write 0x1421b74f0 / read 0x1421b7550, dispatcher case 0xea):
+    /// displays a <c>ClientStrings</c> notice (<c>u16 LE clientStringId</c>, raw unswapped).</summary>
+    public static byte[] ClientStringNotice(ushort clientStringId) =>
+        [0x02, 0xcc, (byte)clientStringId, (byte)(clientStringId >> 8)];
 
     public const ushort AliveStateId = 0x1f1;
 
@@ -980,38 +1076,55 @@ public static class InstanceProtocol
 /// generation. AreaHash is WorldAreas.HASH16 (unknown: "Instance sent world area that does not exist"). Level 0 means
 /// the area's own level. LeagueStats enables flag 0x21.6 and the first compact pair list (+0x100), copied to world
 /// stats at +0x120 by 0x142189aa0. ReturnAreaHash enables flag 0x21.3 (+0x08) and writes u16 BE WorldAreas.HASH16
-/// immediately after B28 (AreaState +0xc0 via 0x142149620). HideoutPermissions sets flag 0x22.7 (bit 15, 0x80; no extra
-/// wire bytes, AreaState +0xda via 0x142149670 in hideouts). Defaults follow the constructor (0x1421a42b0).
+/// immediately after B28 (AreaState +0xc0 via 0x142149620). GuildHideout sets flag 0x22.7 (bit 15, 0x80; no extra wire
+/// bytes, AreaState +0xda via 0x142149670): the hideout is the guild's (0x1421719c0). There the Decorations panel and the
+/// editor read the guild's owned list (0x1f4 flags 3, session +0xd630; 0x1408dc0c0, 0x140204fc6) instead of the
+/// account's (flags 1, +0xd618), so a personal hideout leaves it clear; 0x21's own-hideout bit marks that one.
+/// Defaults follow the constructor (0x1421a42b0).
 /// B28 is the league category (world +0xd0, <see cref="GameServer.Core.World.LeagueCategory"/>), 60 for none.
 /// </summary>
 public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, byte Level, string Text = "",
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
-    IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
-    IReadOnlyDictionary<uint, int>? DisplayStats = null)
+    IReadOnlyList<byte>? AchievementSets = null, bool GuildHideout = false, ushort? ReturnAreaHash = null,
+    IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
+    IReadOnlyList<byte>? PreloadGroups = null)
 {
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
         bool hasReturnArea = ReturnAreaHash is > 0;
+        bool hasRulesets = Rulesets is { Count: > 0 };
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
             .U8(B1e).U8(B20).U8(B1f).U8(B24)
             .Bytes([
                 (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
-                (byte)((TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                (byte)((hasRulesets ? 1 : 0) | (TerrainData is null ? 0 : 4) | (GuildHideout ? 0x80 : 0)),
                 0,
             ])
             .U8(Level).U8(B1d).U8(B28);
         if (hasReturnArea) writer.U16(ReturnAreaHash!.Value);
-        writer.U16(0)  // vec16<u32> +0x68
-              .U16(0); // vec16<u8> +0x80
+        writer.U16(0); // vec16<u32> +0x68
+        if (PreloadGroups is { Count: > ushort.MaxValue }) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+        writer.U16((ushort)(PreloadGroups?.Count ?? 0));
+        foreach (byte row in PreloadGroups ?? [])
+        {
+            if (row == byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+            writer.U8((byte)(row + 1));
+        }
         // +0x50 becomes instance +0xc418. The shared achievements/league-upgrades TabControl
         // stays hidden when this list is empty, even when the Delve child tab exists.
         if (AchievementSets is { Count: > byte.MaxValue }) throw new ArgumentOutOfRangeException(nameof(AchievementSets));
         writer.U8((byte)(AchievementSets?.Count ?? 0));
         foreach (byte set in AchievementSets ?? []) writer.U8(set);
         writer.U16(0); // vec16<u16> +0xe0
+        if (hasRulesets)
+        {
+            if (Rulesets!.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(Rulesets));
+            writer.U8((byte)Rulesets.Count);
+            foreach (byte row in Rulesets) writer.U8(row);
+        }
         if (hasStats)
         {
             var first = LeagueStats ?? new Dictionary<uint, int>();

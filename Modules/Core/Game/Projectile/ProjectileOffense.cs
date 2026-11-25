@@ -1,3 +1,4 @@
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 
 
@@ -61,6 +62,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FromMine { get; init; }
     internal bool FreezingPulseFalloff { get; init; }
     internal int RemainingChainDamagePercent { get; init; }
+    internal int CompletedChainDamagePercent { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     public string? WeaponClass { get; init; }
@@ -84,6 +86,14 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
     public int DamageMorePerGroundBounce { get; init; }
+    internal sealed class LancingSteelHitSeries(double repeatMultiplier)
+    {
+        public readonly HashSet<ProjectileActorKey> Targets = [];
+        public double RepeatMultiplier { get; } = repeatMultiplier;
+    }
+
+    internal LancingSteelHitSeries? LancingSteelHits { get; init; }
+    internal double ShatteringSteelAmmoHitBonus { get; init; }
     public BlindHitInput Blind { get; init; }
     /// <summary>The hit, area hit and damaging ailments captured with the conditional increased damage against a
     /// Blinded target, or null when the shot has none.</summary>
@@ -110,6 +120,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    internal int ScourgePods { get; init; }
+    internal bool ScourgePodsPerProjectile { get; init; }
+    internal Game.SomaticShellApplications? SomaticApplications { get; init; }
+    internal bool PreventsSomaticShellBreak { get; init; }
+    internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }

@@ -18,7 +18,8 @@ public static partial class Game
     static SpiderDamageSource? CaptureSpiderDamage(Player player, SupportedHitInputs inputs, double effectiveness,
         bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false)
     {
-        if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get) && !HasConditionalHitDamage(inputs))
+        if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)
+            && !HasConditionalHitDamage(inputs) && !HasLocalTargetDamage(local))
             return null;
         int per = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         int cap = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
@@ -75,7 +76,7 @@ public static partial class Game
         if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
         if (hitOnly) return new(hit, default, default, default);
         string hand = source.Secondary ? "secondary" : !source.Attack ? "spell" : source.OffHand ? "off_hand" : "main_hand";
-        var rows = AilmentPanelStats.Compute(new(hand, Spell: !source.Attack && !source.Secondary, source.Melee),
+        var rows = AilmentPanelStats.Compute(new(hand, Spell: !source.Attack && !source.Secondary, source.Melee) { WeaponStats = source.Local },
             raw, source.Conversion, Get, increased + target.AilmentIncrease);
         var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, Get), source.Stats, null,
             !source.Attack && !source.Secondary, hand);

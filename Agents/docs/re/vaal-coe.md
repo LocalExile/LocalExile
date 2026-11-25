@@ -2,20 +2,19 @@
 
 ## Scope
 
-Vaal Orb uses the shared 0x71/0x72 currency path.
-The local outcome rule is deliberately **not** the official Vaal table: the roadmap keeps official Chance/Vaal outcome
-distributions as separate work.
-This change adds a validated `ItemRolls.Vaal` entry point and hardens admission; it does not change the documented
-outcomes.
-`CurrencyEffects.Vaal` delegates to it.
+Vaal Orb (`Metadata/Items/Currency/CurrencyCorrupt`) uses the shared `0x71`/`0x72` currency path and Hinekora's Lock
+`0x29d`/`0x2a0` foresight path via `Game.CurrencyResult`, dispatching to `VaalCorruption.Apply` in
+`Modules/Core/Game/Item/VaalCorruption.cs`.
 
-The local rule remains: a weapon, armour piece or jewellery (ring, amulet, belt) that is modifiable, not unique and
-not corrupted/mirrored is always corrupted.
-A normal or magic item becomes rare with 4-6 affixes; a rare item replaces 1 (20%), 2 (20%), 3 (20%), 4 (20%) or 5
-(10%) affixes, or rerolls all of them (10%, 4-6 affixes, new name).
-One white socket is coloured.
-New refusals: unsupported/unknown or `Unmodifiable` bases, missing Mods, and empty pools (previously `Roll` could
-corrupt an item with no affixes when the data was missing).
+Full 3.29 retail Vaal Orb outcomes are implemented for skill/support gems, equipment (weapons, armour, shields, quivers,
+rings, amulets, belts, fishing rods — normal through unique, including 3.29 white-to-coloured socket corruption,
+`GenerationType = 5` implicits respecting `Level`/`MaxLevel`, Eldritch single-implicit replacement, and 6-affix rare
+bricking with 1/36 max-socket full-link chance), maps/MapKeys (no-change, unidentified, 8-mod rare, +1 tier / T16 to
+Vaal Temple, plus unique map rules), jewels (standard, Abyss, Cluster, Prismatic, Timeless and unique, including
+base-matched corruption-exclusive unique jewels), and flasks (-10% to +10% quality shift). Unidentified non-gem items,
+tinctures (`CanBeCorrupted = 0`), already-corrupted, mirrored, vestigial and unmodifiable bases are refused before
+spending. `CurrencyMoreCorrupt` and `CurrencyIncursionCorrupt1` keep their separate paths via
+`CurrencyEffects.TryAction` (and `ItemRolls.Vaal`).
 
 ## Pinned reference
 
@@ -35,10 +34,9 @@ the official outcome there was "no change".
 A corrupted item is refused with `Invalid crafting setup: ["Item is already corrupted","Item cannot be modified"]`.
 Those constraints support the shared corrupted/mirrored refusal, but not the local 1-5/reroll outcomes.
 
-CoE's official Vaal table includes no-change, reroll-to-6/8, rare upgrades, white sockets, unique jewels and
-per-base outcomes. It also allows flasks, jewels, maps and gems, and unique items.
-The local server rule intentionally stays narrower (weapon/armour/jewellery, no uniques); implementing the official
-table is a separate feature per the roadmap.
+CoE's official Vaal table includes no-change, reroll-to-6/8, rare upgrades, socket colour corruption (inverted to
+white-to-coloured in 3.29), corrupted implicits, unique jewels and per-base outcomes across equipment, flasks, jewels,
+maps, gems and uniques. `VaalCorruption.Apply` now implements those 3.29 retail tables in `Modules/Core/Game/Item/`.
 
 ## Verification
 

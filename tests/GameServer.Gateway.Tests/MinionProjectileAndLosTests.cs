@@ -70,6 +70,39 @@ public sealed class MinionProjectileAndLosTests
             Assert.Null(golem.Pending);
             Assert.Equal((120, 100), golem.Monster.LastTarget);
 
+            // 1b. A pit-anchored large boss whose centre is on blocked terrain (x >= 110) but whose hitbox edge
+            //     (ObjectSize 15 -> radius 14, edge at x = 106) protrudes into clear arena cells must be attackable.
+            f.Player.Use(new AreaLayout(1, "minion-pit-boss-test", 200, 200, 100, 100,
+                (x, y) => x >= 10 && x < 190 && y >= 10 && y < 190, [])
+            {
+                Sight = (x, _) => x >= 110 ? 0 : 1,
+            });
+            f.Player.Area.Monsters.Remove(6001);
+            var pitBoss = new SpawnedMonster("PitBoss", new(120, 100, 20), 60, 15, 5000)
+            {
+                Hostile = true,
+                Variety = enemyVariety with { ObjectSize = 15 },
+                Level = 70,
+                Walk = f.Player.NewMonsterWalk(6002, 120, 100, 20, 14, false),
+            };
+            f.Player.Area.Monsters[6002] = pitBoss;
+            golem.NextMove = 0;
+            golem.Monster.Walk.Teleport(100, 100, 1.5);
+            clock.Time = 1.5;
+            Game.GolemStepLocked(f.Player, golem, 1.5);
+            Assert.NotNull(golem.Pending);
+            golem.Pending = null;
+            golem.Monster.BusyUntil = 0;
+            // At one cell outside the hitbox, a wall in that last cell still blocks the shot.
+            f.Player.Use(f.Player.Layout with { Sight = (x, _) => x == 106 ? 0 : 1 });
+            golem.Monster.Walk.Teleport(105, 100, 1.6);
+            golem.NextMove = 0;
+            clock.Time = 1.6;
+            Game.GolemStepLocked(f.Player, golem, 1.6);
+            Assert.Null(golem.Pending);
+            f.Player.Area.Monsters.Remove(6002);
+            f.Player.Area.Monsters[6001] = enemy;
+
             // 2. Clear LOS, but all abilities are on cooldown while distance (20) < range - 2:
             //    pursuit must clamp f <= 1.0 and never push the minion backward past its current position (x < 100).
             f.Player.Use(new AreaLayout(1, "minion-clear-test", 200, 200, 100, 100,
@@ -125,9 +158,19 @@ public sealed class MinionProjectileAndLosTests
         using var f = new TriggeredSummonTests.Fixture();
         ushort spectreSource = f.Equip(("Raise Spectre", 20), ("Returning Projectiles Support", 20)).First();
         var revenant = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantMapBossStandalone_AtlasUber"));
-        uint spectreId = await Game.SummonFighter(f.Player, spectreSource,
-            Game.SummonData.Find("RaiseSpectre")!, (100, 100), restoredVariety: revenant.Id);
-        var golem = f.Player.Summons.Fighters[spectreId];
+        var area = f.Player.Area;
+        var previous = GameArea.Own(area);
+        Task<uint> summon;
+        try
+        {
+            summon = Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!,
+                (100, 100), restoredVariety: revenant.Id);
+        }
+        finally { GameArea.Own(previous); }
+        var golem = f.Player.Summons.Fighters[await summon];
+        var registration = GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([((ushort)revenant.Row, golem.Monster.Level)]);
+        Assert.Contains(area.Delta.Take(), record => record.Kind == AreaDelta.Kind.Message
+            && record.Only is null && record.Bytes.SequenceEqual(registration));
         var spell = Assert.Single(golem.Abilities, a => a.Id == "RevenantBossSpellProjectile");
         var mods = golem.Monster.Mods.Effects;
         var profile = GatewayProjectileModifiers.Resolve(

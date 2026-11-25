@@ -31,6 +31,7 @@ public static class GatewayProjectileSkillProfiles
     internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
     internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
     internal static bool IsForbiddenRite(string? effect) => effect is "ForbiddenRite" or "ForbiddenRiteAltX";
     public static bool IsMoltenStrike(string? effect) =>
@@ -156,6 +157,25 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = NonContactStops,
             };
 
+        else if (IsShatteringSteel(effect))
+            p = p with
+            {
+                EndArea = new("shattering-steel-cone", 0)
+                {
+                    ConeHalfAngle = Math.PI / 2,
+                    ReplacesDirectContact = false,
+                    ExcludeContactTarget = true,
+                },
+                EndAreaReasons = TerminalStops,
+            };
+        else if (effect is "LancingSteel" or "LancingSteelAltX")
+            p = p with
+            {
+                SequentialDelay = ProjectileRuntime.Time(2d / 30),
+                AimSpreadDistance = 0,
+                SpreadRadians = 0,
+            };
+
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
         // pass below adds the skill's and the support's extra arrows to it.
         if (get(Stat.ProjectilesRain) != 0 || get(Stat.SkillIsRainSkill) != 0) p = ArrowNovaChildren(p);
@@ -183,6 +203,14 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (IsShatteringSteel(effect) && p.ParallelOrigins is null
+            && get(Stat.ActiveSkillAdditionalProjectilesFireParallelXDist) is > 0 and var parallelGap)
+            p = p with
+            {
+                AimSpreadDistance = 0,
+                SpreadRadians = 0,
+                ParallelOrigins = new(p.Count / 2, parallelGap / WorldUnits.PerCell, 0),
+            };
         if (IsMoltenStrike(effect))
         {
             bool groundChains = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) != 0;

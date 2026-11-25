@@ -109,10 +109,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   rerolls".
 - **Orb of Chance** (local rule). Docs: [13](../docs/protocol/13-items.md), "Orb of Chance",
   [admission](../docs/re/chance-coe.md).
-- **Vaal Orb and corruption.** Skill and support gems can change level or quality. The matching Vaal variant can
-  replace an active gem, including its transfigured base skill. Equipment and maps retain the local corruption rules.
-  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption",
-  [admission](../docs/re/vaal-coe.md).
+- **Vaal Orb and corruption** (fresh client check pending): full 3.29 retail outcomes across gems, equipment (normal
+  through unique, 3.29 white-to-coloured socket corruption, `GenerationType = 5` implicits, Eldritch single-implicit
+  replacement, 6-affix rare bricks with 1/36 max-link), maps/MapKeys (unidentified, 8-mod, +1 tier / T16 to Vaal
+  Temple, unique maps), jewels (standard, Abyss, Cluster, corrupted-only uniques) and flasks (-10% to +10% quality);
+  unidentified items and tinctures are refused, and Hinekora's Lock previews match commits.
+  Docs: [13](../docs/protocol/13-items.md), "Vaal Orb and corruption", [notes](../docs/re/vaal-coe.md).
 - **Eldritch Ichors.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
   [evidence](../docs/re/eldritch-ichor-coe.md).
 - **Eldritch Embers.** Docs: [13](../docs/protocol/13-items.md), "Eldritch Ichors and Embers",
@@ -125,8 +127,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   [evidence](../docs/re/enkindling-coe.md).
 - **Instilling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/instilling-coe.md).
-- **Currency results look right in the client** for every implemented currency's main use; Vaal on jewels is outside
-  the local rule. Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
+- **Currency results look right in the client** for every implemented currency's main use (fresh client check pending
+  for the expanded 3.29 Vaal Orb targets). Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
   refused on a worn item ("Item is currently equipped."), and on mirrored or corrupted targets with the client's
   reason ("Item is mirrored.", "Target is corrupted.").
 - **Glassblower's Bauble** (level-scaled quality not checked live).
@@ -138,8 +140,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
 - Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps, from non-public stash tabs and onto stash
   tabs too. Docs: [13](../docs/protocol/13-items.md).
-- **Hinekora's Lock** (server rules verified live). Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock",
-  [evidence](../docs/re/hinekora-lock.md).
+- **Hinekora's Lock** (server rules verified live; dual-item 0x29e and type 0x29f foresight wired, live check pending).
+  Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock", [evidence](../docs/re/hinekora-lock.md).
+- Labyrinth Divine Font crafting (0x246/0x2a2/0x245/0x247/0x2a3) and bench craft award toasts (0x1d6) are wired.
+  Live client checks are pending; docs: [21](../docs/protocol/21-hideouts.md).
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
 - Currency metamods: prefix/suffix locks and attack/caster restrictions.
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
