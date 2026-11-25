@@ -262,11 +262,24 @@ public static partial class Game
         if (playerIgnite && target.Hostile)
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            RecoverLifeOnIgniteLocked(player);
             HerEmbraceOnIgniteLocked(player, now);
             GainFromAttackAilmentLocked(player, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         return [];
+    }
+
+    // Called only for a hostile enemy the player actually ignited. The stat is cached with the other instant gains.
+    static void RecoverLifeOnIgniteLocked(Player player)
+    {
+        if (player.PlayerLife == 0) return;
+        var session = LeechOf(player);
+        if (session.LifeOnIgnite <= 0) return;
+        uint before = player.PlayerLife;
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, session.LifeOnIgnite,
+            ref session.LifeInstantCarry, minimum: 1);
+        session.InstantLifeChanged |= player.PlayerLife != before;
     }
 
     static void ApplyIgniteFirePenaltyLocked(SpawnedMonster target, MonsterIgnites.Settings settings, double now)
