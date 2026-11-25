@@ -105,7 +105,7 @@ public static partial class Game
                 WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get))
             {
                 Armed = WeaponAttributeDamage.Armed(sourceWeapon), OffHand = hand == AttackHand.Off,
-                ProjectileAttackHitIncrease = (long)SupportedAttackDamage.HitModifiers(sourceWeapon, Get)(Stat.ProjectileDamagePlusPct)
+                ProjectileAttackHitIncrease = (long)SupportedAttackDamage.HitModifiers(sourceWeapon, Get, handAccuracy)(Stat.ProjectileDamagePlusPct)
                     - Get(Stat.ProjectileDamagePlusPct),
             },
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
