@@ -1288,9 +1288,15 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
             return false;
         }
+        if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonCorpseMissing(player, skillId, gem.Effect, to, targetId))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: no corpse in reach");
+            await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (no corpse, nothing paid)");
+            return false;
+        }
         if (IsSummonBeastialCompanionEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
-            beastCompanion = SupportedSkill(player, skillId);
+            beastCompanion =SupportedSkill(player, skillId);
             if (beastCompanion.Effect != gem.Effect
                 || !BeastCompanionAdmissionCurrent(player, beastCompanion, skillId))
                 return false;

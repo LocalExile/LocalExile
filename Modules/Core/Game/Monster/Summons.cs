@@ -369,6 +369,16 @@ public static partial class Game
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));
     }
 
+    // A raise that needs a corpse (Raise Zombie, Raise Spectre) with none in reach is refused when the cast is planned,
+    // before any cost is paid. It asks what SummonFighterCore asks, so the two cannot disagree.
+    static bool SummonCorpseMissing(Player player, ushort skillId, int effect, (int X, int Y) aim, uint target)
+    {
+        if (SummonData.Find(SkillsFor(player).EffectId(effect)) is not { } definition
+            || !SummonNeedsCorpse(definition, CharacterPlayerStats(player))) return false;
+        var gem = SupportedSkill(player, skillId);
+        return SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0) is null;
+    }
+
     // The living actor uses the raised body's row, including the old saves that recorded the ordinary monster's row.
     static MonsterCatalog.Variety RaisedSpectreVariety(MonsterCatalog.Variety corpse)
     {

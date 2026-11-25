@@ -20,6 +20,22 @@ public sealed class RaisedMinionCastTests
     }
 
     [Fact]
+    public async Task A_raise_with_no_corpse_in_reach_sends_nothing_and_costs_nothing()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        var source = Assert.Single(f.Equip(("Raise Zombie", 20)));
+        uint mana = player.PlayerMana;
+        var sent = new List<byte[]>(); var previous = Program.Outgoing;
+        Program.Outgoing = (_, bytes) => { lock (sent) sent.Add((byte[])bytes.Clone()); };
+        try { Assert.False(await Game.CastGemSkill(player, source, (100, 100), (100, 100))); }
+        finally { Program.Outgoing = previous; }
+        Assert.Equal(mana, player.PlayerMana);
+        Assert.Empty(player.Summons.Fighters);
+        lock (sent) Assert.DoesNotContain(sent, b => Convert.ToHexString(b).Contains("0203", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task A_raised_zombie_is_created_with_its_corpse_named_and_the_corpse_is_removed_once()
     {
         using var f = new MinionUtilityTests.Fixture();
