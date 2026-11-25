@@ -36,6 +36,29 @@ public sealed class AtlasModule : IModule
             $"0x0018 Atlas passive point(s) earned: +{earned} ({player.Character.AtlasPassivePoints}/{MapCompletionPoints})");
     }
 
+    static async Task CompleteMapOnBossKill(Player player, MonsterInfo monster)
+    {
+        var modPlayer = PlayerOf(player);
+        if (AtlasProgress.OfArea(modPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, monster)) return;
+        var data = WorldOf(modPlayer).CharacterData;
+        await AtlasFeature.DropScryingOrbOnCompletion(player, monster, node);
+        bool completed = AtlasProgress.Complete(data, [node]);
+        bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
+            && AtlasProgress.CompleteBonus(data, [node]);
+        int earned = bonus ? ApplyBonusPoints(player, data) : 0;
+        if (completed)
+        {
+            await Send(player, AtlasProgress.NodeMessage(node, bonus),
+                $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {monster.Name}");
+            await AtlasFeature.Refresh(player);
+            await modPlayer.Tell($"Atlas: {node.Name} completed.");
+        }
+        else if (bonus)
+            await AtlasFeature.Refresh(player);
+        if (bonus) await PublishBonusPoints(player, modPlayer, earned, "Atlas bonus objective completed");
+        else if (completed) await AtlasFeature.SyncTreeFlags(player);
+    }
+
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
     /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
     public static void LoadData()
@@ -63,27 +86,13 @@ public sealed class AtlasModule : IModule
             int n = await AtlasFeature.EnsureUnlocked(player);
             await PlayerOf(player).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
-        GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => CompleteMapOnBossKill(kill.Player, kill.Monster));
+        // Minion, party, and non-playerKill deaths emit GameEvents.Kill without MonsterKilled.
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (AtlasProgress.OfArea(kill.ModPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)) return;
-            var player = kill.Player;
-            var data = WorldOf(kill.ModPlayer).CharacterData;
-            await AtlasFeature.DropScryingOrbOnCompletion(kill, node);
-            bool completed = AtlasProgress.Complete(data, [node]);
-            bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
-                && AtlasProgress.CompleteBonus(data, [node]);
-            int earned = bonus ? ApplyBonusPoints(player, data) : 0;
-            if (completed)
-            {
-                await Send(player, AtlasProgress.NodeMessage(node, bonus),
-                    $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
-                await AtlasFeature.Refresh(player);
-                await kill.ModPlayer.Tell($"Atlas: {node.Name} completed.");
-            }
-            else if (bonus)
-                await AtlasFeature.Refresh(player);
-            if (bonus) await PublishBonusPoints(player, kill.ModPlayer, earned, "Atlas bonus objective completed");
-            else if (completed) await AtlasFeature.SyncTreeFlags(player);
+            var monster = global::Game.ModMonster(kill.Monster, kill.At);
+            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is not { } node || !AtlasProgress.CompletesMap(node, monster)) return;
+            kill.Later(() => CompleteMapOnBossKill(kill.Player, monster));
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async (player, args) =>
@@ -530,16 +539,15 @@ public static class AtlasFeature
     const string ScryingOrb = "Metadata/Items/Currency/CurrencyScryingOrb";
     const string ScouringOrb = "Metadata/Items/Currency/CurrencyConvertToNormal";
 
-    internal static async Task DropScryingOrbOnCompletion(MonsterKill kill, AtlasProgress.Node node)
+    internal static async Task DropScryingOrbOnCompletion(Player player, MonsterInfo monster, AtlasProgress.Node node)
     {
-        var player = kill.Player;
         if (!node.IsNormalMap || global::Game.MapRunOf(player) is not { Atlas: true, Area.Tier: >= 14 } run
             || !GameEvents.AllowsLoot(player)) return;
         var stats = player.Instance.AreaStats(() => global::Game.AreaLeagueStats(player));
         int chance = stats.GetValueOrDefault(Stat.MapDropScryingOrbOnCompletionChancePct);
         if (chance <= 0 || !player.Instance.ContentState.TryAdd("Atlas.ScryingOrbRolled", "1")
             || Random.Shared.Next(100) >= chance || ItemsFor(player).Find(ScryingOrb) is not { Supported: true } type) return;
-        var at = player.Layout.Near((kill.Monster.X, kill.Monster.Y));
+        var at = player.Layout.Near((monster.X, monster.Y));
         var item = ItemCatalog.Create(type) with { ScryingAreaHash = player.Layout.Hash,
             ItemLevel = (byte)Math.Clamp(run.Area.Level > 0 ? run.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100) };
         var ground = new WorldItemObject(at.X, at.Y, item);
