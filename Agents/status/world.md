@@ -119,6 +119,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
   a separate object lifetime; their buffs accept shrine effect and duration modifiers.
   Special shrine rooms share the generated room budget and guard plan; Conqueror buffs can roll influenced rare equipment.
+  Retained shrines bind to each joining connection without granting spent buffs again.
   Evolution and Apparition Scarabs are refused before payment until their upgrade policy and apparition actions are complete.
 
 - Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each

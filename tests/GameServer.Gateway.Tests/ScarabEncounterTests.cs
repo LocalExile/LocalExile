@@ -124,10 +124,13 @@ public sealed class ScarabEncounterTests
         ShrineRegistry.RegisterDefaults();
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
-        using var sources = GameEvents.PlayerStatSources.Add("scarab-regression", ShrineManager.AddStats);
+        var shrineLifetime = new ModuleLifetime("scarab-regression");
+        var shrineContext = System.Reflection.DispatchProxy.Create<IModuleContext, SurvivorsLeagueTests.HookContext>();
+        ((SurvivorsLeagueTests.HookContext)(object)shrineContext).Lifetime = shrineLifetime;
+        new ShrinesModule().Load(shrineContext);
         try
         {
-            await ShrineManager.SpawnArea(owner.Player);
+            await GameEvents.RunPlayerEntered(owner.Player);
             string[] Ids() => instance.ContentState.Where(p => p.Key.StartsWith("Shrines/id/"))
                 .Select(p => p.Value).Order().ToArray();
             var ids = Ids();
@@ -142,10 +145,13 @@ public sealed class ScarabEncounterTests
             Assert.True(instance.HasState(claimed));
             await ShrineManager.LeaveArea(owner.Player);
             await ShrineManager.LeaveArea(peer.Player);
-            await ShrineManager.SpawnArea(owner.Player);
+            // A retained area's AreaGenerated event does not run again. A new connection only gets PlayerEntered.
+            await GameEvents.RunPlayerEntered(owner.Player);
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Player, []));
+            Assert.True(await ShrineManager.Use(owner.Player, new(id, 0, 3, 0), 0));
+            Assert.Empty(ShrineManager.AddStats(owner.Player, [])); // The spent shrine remains registered without regranting.
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
@@ -296,6 +302,8 @@ public sealed class ScarabEncounterTests
         }
         finally
         {
+            GameEventOwners.Release("scarab-regression", GameEventOwners.ModuleRank);
+            shrineLifetime.Stop(ex => throw ex);
             await ShrineManager.LeaveArea(owner.Player);
             await ShrineManager.LeaveArea(peer.Player);
             PlayerInventories.Forget(owner.Player.Character.Name!);

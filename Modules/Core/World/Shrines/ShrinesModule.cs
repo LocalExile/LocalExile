@@ -20,6 +20,7 @@ public sealed class ShrinesModule : IModule
         ShrineRegistry.RegisterDefaults();
         ApparitionRewards.Load();
         GameEvents.AreaGenerated.Add(id, player => ShrineManager.SpawnArea(player));
+        GameEvents.PlayerEntered.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => ShrineManager.Use(player, use, requestedAt));
         GameEvents.CompanionTick.Add(id, async (player, _) => { await ShrineManager.Tick(player); await ShrineGearEffects.Tick(player); });
         GameEvents.Kill.Add(id, kill => { LesserShrines.OnKill(kill); ShrineManager.OnKill(kill); });
