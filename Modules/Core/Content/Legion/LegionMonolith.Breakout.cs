@@ -197,6 +197,27 @@ static partial class LegionMonolith
         module.Log($"chest broke out at ({x}, {y}), freed {near.Count}");
     }
 
+    /// <summary>The early end: every member still frozen breaks out as a hit would break it (the 0x2c8 state 3, the crystal off), so ReleaseArmy then wakes it.
+    /// The rule only ends the encounter when every chest, sergeant and general is out already, so what is left is plain and elite soldiers.</summary>
+    static async Task BreakRemaining(Player player, Encounter e)
+    {
+        LegionStasis.Member[] army;
+        lock (e) army = e.Army ?? [];
+        var left = new List<(Hold Hold, SpawnedMonster Monster)>();
+        var inFlight = new HashSet<uint>();
+        foreach (var m in army)
+        {
+            if (m.Broken || m.Chest || !player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var hold)) continue;
+            bool queued;
+            lock (hold) { queued = hold.Broken; hold.Broken = true; }
+            // A hit already broke it and queued its BreakOut, which has not marked the saved member yet: mark it here, or the release would take it for
+            // unbroken and remove it. The queued BreakOut then finds the member gone or sends its state 3 itself, so it is not freed twice.
+            if (queued) inFlight.Add(m.Id); else left.Add((hold, monster));
+        }
+        if (inFlight.Count > 0) MarkBroken(player, e, inFlight);
+        await Free(player, e, left);
+    }
+
     // ---- the openable chest ----
 
     /// <summary>The chest the war chest becomes (the plan's Chests row; the War Hoard's for a hoard), standing where it was.</summary>

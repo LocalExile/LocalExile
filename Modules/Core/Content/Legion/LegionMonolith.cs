@@ -367,6 +367,7 @@ static partial class LegionMonolith
     static async Task ReleaseArmy(IModuleContext module, Player player, string reason)
     {
         if (Of(player) is not { } e) return;
+        if (reason == "early") await BreakRemaining(player, e);   // the 90% rule breaks out the rest (patch 3.29.0), not removes it
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;

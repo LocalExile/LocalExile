@@ -95,5 +95,5 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - Only the player's own direct hits count: each lowers the frozen monster's life and its life bar, and at 0 it breaks out and its life is refilled (the bar goes). Damage over time does not count (the frozen buff makes the monster invulnerable, and no general hook lowers an invulnerable monster's life).
   Totems, brands, traps, mines and minions do not count yet.
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
-- The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general.
-  Each broken member is then swapped for a new fighting monster, the others vanish, and an unbroken general flees.
+- The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general; the early end breaks out every monster still frozen (patch 3.29.0), which then fights.
+  At either end each broken member is swapped for a new fighting monster; at the timer the others vanish and an unbroken general flees.
