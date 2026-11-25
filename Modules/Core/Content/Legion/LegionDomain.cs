@@ -79,6 +79,8 @@ static class LegionDomain
         /// <summary>Kills RecordKill counted whose drop roll has not yet asked for its slot (MonsterKilled runs before Drops for
         /// hit kills); bounded, not saved.</summary>
         public readonly Dictionary<uint, FighterSlot> RecentKills = [];
+        /// <summary>Slots being spawned right now (not ready), and slots whose variety cannot spawn (never ready); not saved.</summary>
+        public readonly HashSet<int> Spawning = [], NoSpawn = [];
 
         static Dictionary<uint, int> BuildLiveIndex(FighterSlot[] slots)
         {
@@ -510,10 +512,19 @@ static class LegionDomain
         else if (action == 5) await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: true);
     }
 
+    /// <summary>A slot is ready to revive when it is dead long enough, is not being spawned right now and can be spawned at all.
+    /// Call under lock(state).</summary>
+    static bool IsReady(DomainState state, int i, double now)
+    {
+        var s = state.Slots[i];
+        return !s.Alive && now - s.DeadAt >= s.RevivalMs / 1000.0 && !state.Spawning.Contains(i) && !state.NoSpawn.Contains(i);
+    }
+
     static bool AnyReadyToRevive(DomainState state, double now)
     {
-        foreach (var s in state.Slots)
-            if (!s.Alive && now - s.DeadAt >= s.RevivalMs / 1000.0) return true;
+        lock (state)
+            for (int i = 0; i < state.Slots.Length; i++)
+                if (IsReady(state, i, now)) return true;
         return false;
     }
 
@@ -581,8 +592,11 @@ static class LegionDomain
             state.LastResetAt = now;
             state.LastAutoPulseAt = now;
             state.ControlZoneReady = false;
+            for (int i = 0; i < plannedSlots.Length; i++) plannedSlots[i] = plannedSlots[i] with { DeadAt = now };
             state.Slots = plannedSlots;
             state.LiveByMonster.Clear();
+            state.Spawning.Clear();
+            state.NoSpawn.Clear();
             Keep(player, state);
         }
 
@@ -645,7 +659,26 @@ static class LegionDomain
         return [.. list];
     }
 
+    /// <summary>Spawns one slot; a slot already being spawned is left alone, and a failed spawn waits its revival time again.</summary>
     static async Task<uint> SpawnSlot(Player player, DomainState state, int slotIndex, IReadOnlyDictionary<uint, int> areaStats)
+    {
+        lock (state)
+            if (!state.Spawning.Add(slotIndex)) return 0;
+        uint id = 0;
+        try { id = await SpawnSlotCore(player, state, slotIndex, areaStats); }
+        finally
+        {
+            lock (state)
+            {
+                state.Spawning.Remove(slotIndex);
+                if (id == 0 && slotIndex < state.Slots.Length && !state.Slots[slotIndex].Alive)
+                    state.Slots[slotIndex] = state.Slots[slotIndex] with { DeadAt = global::Game.AreaTime(player) };
+            }
+        }
+        return id;
+    }
+
+    static async Task<uint> SpawnSlotCore(Player player, DomainState state, int slotIndex, IReadOnlyDictionary<uint, int> areaStats)
     {
         FighterSlot slot;
         byte areaLevel;
@@ -666,7 +699,12 @@ static class LegionDomain
             if (!state.VarietyCache.TryGetValue(slot.MonsterRow, out variety))
                 state.VarietyCache[slot.MonsterRow] = variety = Monsters.Find(slot.MonsterRow.ToString());
         }
-        if (variety is not { Supported: true } || player.Closed || player.LeavingArea) return 0;
+        if (variety is not { Supported: true })
+        {
+            lock (state) state.NoSpawn.Add(slotIndex);   // never ready: no pulse, no revival count, no save for it
+            return 0;
+        }
+        if (player.Closed || player.LeavingArea) return 0;
 
         IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
             ? [(Stat.MonsterMinimapIcon, icon)] : null;
@@ -719,8 +757,8 @@ static class LegionDomain
             if (state.Phase != DomainPhase.Active) return;
             for (int i = 0; i < state.Slots.Length; i++)
             {
+                if (!IsReady(state, i, now)) continue;
                 var s = state.Slots[i];
-                if (s.Alive || now - s.DeadAt < s.RevivalMs / 1000.0) continue;
                 if (s.Tier >= 2) toRevive.Add(i);
                 else deadCommon.Add(i);
             }
