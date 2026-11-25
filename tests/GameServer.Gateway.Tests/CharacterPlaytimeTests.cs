@@ -42,7 +42,7 @@ public sealed class CharacterPlaytimeTests : IDisposable
         replacement.End(next);
         Assert.Equal("42", CharacterSaves.ModuleData("Played", CharacterPlaytime.SaveKey));
         Assert.Equal(123u, CharacterSaves.Experience("Played"));
-        var bot = PlayerOf("Bot"); bot.Controlled = true;
+        var bot = PlayerOf("Bot"); bot.Connection.Driven = new();
         replacement.Begin(bot); now += 60; replacement.End(bot);
         Assert.Null(CharacterSaves.ModuleData("Bot", CharacterPlaytime.SaveKey));
     }
@@ -175,14 +175,14 @@ public sealed class CharacterPlaytimeTests : IDisposable
         var otherArea = new InstanceState();
 
         var leveler = runtime.PlayerOf(sameArea, wire, "Aria");
-        leveler.Controlled = false;
+        leveler.Connection.Driven = null;
         leveler.Character.ClassRow = SkillCatalog.WitchRow;
         leveler.Pools = leveler.Pools with { Level = 2, Life = 50, Mana = 50 };
 
         var teammate = runtime.PlayerOf(sameArea, wire, "Bram");
-        teammate.Controlled = false;
+        teammate.Connection.Driven = null;
         var outsider = runtime.PlayerOf(otherArea, wire, "Cora");
-        outsider.Controlled = false;
+        outsider.Connection.Driven = null;
 
         var levelerLines = new List<string>();
         var teammateLines = new List<string>();

@@ -259,7 +259,7 @@ public static partial class Game
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         ClearDoubleStrikeMomentum(player);
-        ClearAntiquarianOnDeath(player);
+        ClearWardBreakOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
         player.Totems.KillAll(AreaTime(player));   // and his totems (the tick sends their deaths)
@@ -1207,7 +1207,7 @@ public static partial class Game
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
-                    ClearAntiquarianOnDeath(player);
+                    ClearWardBreakOnDeath(player);
                     player.LastStunnedOrBlockedStunAt = double.NegativeInfinity;
                     player.LastStoppedTakingDotAt = double.NegativeInfinity;
                     player.TakingDotLastTick = false;
@@ -1267,8 +1267,8 @@ public static partial class Game
                     player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife);
-                    double antiquarianLife = player.Antiquarian.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
-                    if (convertLifeRegen) player.EnergyShield.Gain(antiquarianLife);
+                    double wardBreakLife = player.WardBreak.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
+                    if (convertLifeRegen) player.EnergyShield.Gain(wardBreakLife);
                     double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
                     if (noRegeneration) unhingedHitLife = 0;
@@ -1280,7 +1280,7 @@ public static partial class Game
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
-                        + (fortificationLife + antiquarianLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + (fortificationLife + wardBreakLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
                         + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
@@ -1303,7 +1303,7 @@ public static partial class Game
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(player))
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)lifeAfter - lifeTrap), now);
-                        if (trapDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+                        if (trapDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
                     // Petrified Blood's own life loss is not damage and cannot be mitigated; it may kill, through the
@@ -1314,7 +1314,7 @@ public static partial class Game
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player,
                             (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero)), now);
-                        if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+                        if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
                     bool survived = CompleteResourceRecoveryLocked(player, recoveryFrom, now, recoveryStats,
@@ -1398,7 +1398,7 @@ public static partial class Game
     {
         LeechOf(player).TakeRecovery(now);
         FortificationOf(player).TakeRecovery(now);
-        player.Antiquarian.TakeRecovery(now);
+        player.WardBreak.TakeRecovery(now);
         player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
@@ -1785,7 +1785,7 @@ public static partial class Game
         RestoreRampage(player);
         RestoreResourceEffects(player);
         RestoreVaalSouls(player);
-        RestoreAntiquarian(player);
+        RestoreWardBreak(player);
         player.Ward.SetMaximum(player.Pools.Ward);
         pools = player.Pools;
         var stats = CharacterPlayerStatsSnapshot(player, out _, out var panelSources, capturePanelSources: true);

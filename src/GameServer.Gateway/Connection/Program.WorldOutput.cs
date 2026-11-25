@@ -309,6 +309,6 @@ public partial class Program
     {
         player.Connection.CloseReason ??= "World output failed; its cipher stream cannot be retried";
         player.Closed = true;
-        player.Connection.Session.Stream.Close();
+        player.Connection.Disconnect();
     }
 }

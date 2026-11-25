@@ -30,7 +30,8 @@ public enum ModKind
 {
     /// <summary>A feature others may depend on.</summary>
     Feature,
-    /// <summary>A league: not a mod or a module, kept so an old manifest says what is wrong.</summary>
+    /// <summary>Among the mods, a package: its folder carries leagues (Leagues/) and modules (Modules/), and needs no assembly
+    /// of its own. Not a module's kind.</summary>
     League,
     /// <summary>A small script.</summary>
     Script,

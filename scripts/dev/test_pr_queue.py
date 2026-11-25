@@ -33,24 +33,13 @@ PATHS = [
 
 
 class PrQueueTests(unittest.TestCase):
-    def test_owners_and_the_authors_moves_are_read_as_github_reads_them(self):
+    def test_owners_are_read_as_github_reads_them(self):
         rules = pr_queue.owner_rules(CODEOWNERS)
         for path, expected in PATHS:
             with self.subTest(path=path):
                 hit = pr_queue.owners_of(path, rules)
                 self.assertEqual(hit[0] if hit else None, expected)
         self.assertEqual(pr_queue.owners_of("src/Launcher/Program.cs", rules)[1], ["lead", "second"])
-
-        rows = [("labeled", "2026-01-01T10:00:00Z", "bug", "lead"),
-                ("committed", "2026-01-02T09:00:00Z", "", ""),
-                ("labeled", "2026-01-02T10:00:00Z", "needs-author", "lead"),
-                ("commented", "2026-01-02T11:00:00Z", "", "lead")]
-        self.assertEqual(pr_queue.moves_since_label(rows, "author"),
-                         {"set": "2026-01-02", "pushed": False, "replied": False})
-        rows += [("commented", "2026-01-03T08:00:00Z", "", "author"), ("committed", "2026-01-03T09:00:00Z", "", "")]
-        self.assertEqual(pr_queue.moves_since_label(rows, "author"),
-                         {"set": "2026-01-02", "pushed": True, "replied": True})
-        self.assertIsNone(pr_queue.moves_since_label(rows[:2], "author"))
 
     def test_conflicts_stacks_and_protected_paths_add_up_to_the_labels(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -91,12 +80,26 @@ class PrQueueTests(unittest.TestCase):
             pulls = {1: {"head": one}, 2: {"head": two}, 3: {"head": three}, 4: {"head": four}}
             queue = pr_queue.Queue(root, main, pulls)
             labels = {number: sorted(pr_queue.wanted_labels(queue.entry(number), pulls[number])) for number in pulls}
-            self.assertEqual(labels, {1: ["needs-author"], 2: ["BLOCKED"], 3: ["protected-files"], 4: []})
+            self.assertEqual(labels, {1: [], 2: ["BLOCKED"], 3: ["protected-files"], 4: []})
             self.assertEqual(queue.entry(1)["conflicts"], ["src/Game.cs"])
             self.assertEqual((queue.entry(2)["stackedOn"], queue.entry(2)["inherited"]), (1, True))
             self.assertEqual(queue.entry(3)["conflicts"], [])      # the status list keeps both sides' lines
-            self.assertEqual(sorted(pr_queue.wanted_labels(queue.entry(4), {"review": "CHANGES_REQUESTED"})),
-                             ["needs-author"])
+            self.assertEqual(pr_queue.wanted_labels(queue.entry(4), {"review": "CHANGES_REQUESTED"}), {})
+
+            def make_result(number, **overrides):
+                entry = queue.entry(number)
+                pull = {"author": "alice", "draft": False, "mergeable": "MERGEABLE", "review": None,
+                        "labels": [], "assignees": [], "failing": [], **overrides}
+                return {"number": number, **pull, **entry, "wanted": pr_queue.wanted_labels(entry, pull)}
+
+            reported = pr_queue.report([make_result(1, mergeable="CONFLICTING"),
+                                        make_result(4, review="CHANGES_REQUESTED")])
+            self.assertIn("#1 alice", reported)
+            self.assertIn("conflicts with main: src/Game.cs", reported)
+            self.assertIn("#4 alice", reported)
+            self.assertIn("changes requested", reported)
+            self.assertNotIn("Waiting on nothing", reported)
+            self.assertIn("Waiting on nothing: #4", pr_queue.report([make_result(4)]))
 
 
 if __name__ == "__main__":
