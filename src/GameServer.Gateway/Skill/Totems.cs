@@ -91,6 +91,8 @@ public sealed class TotemState
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
+        /// <summary>Whether its removal from the owner's minion roster was written.</summary>
+        public bool RosterRemovalSent;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
