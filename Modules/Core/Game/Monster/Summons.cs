@@ -449,8 +449,8 @@ public static partial class Game
                             origin, target, current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
                         if (clone == 0 && AllowClone()) return false;
                     }
-                    if (!await CommitTravelLanding(player, landing,
-                            () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone)))) return false;
+                    if (await CommitTravelLanding(player, landing,
+                            () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone))) is null) return false;
                     released = true;
                 }
                 else if (await SummonFighterCore(player, source, definition, aim, target,
