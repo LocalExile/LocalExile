@@ -80,7 +80,8 @@ public static partial class Game
             || Dist(initial.Walk.Position(now), origin) > targetRange) return;
 
         var skill = SupportedSkill(player, skillId);
-        var caster = TotemCasterStats(CharacterPlayerStats(player));
+        var ownerStats = CharacterPlayerStats(player);
+        var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         var stats = MergeSkillStats(caster, skill.Stats);
         int Get(uint name) => GolemStat(stats, name);
@@ -109,6 +110,7 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
                 totem ? 0 : BearTrapDamageTaken(m, now));
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
+            if (totem) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
             if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id);
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
