@@ -22,6 +22,7 @@ public sealed class PackCatalog
         this.folder = folder;
         _data = Load(folder);
         VarietyRows = LoadVarietyRows();
+        tagRows = LoadTagRows();
     }
 
     public sealed record Pack(int Row, string Id, int MinCount, int MaxCount, int BossChance, int BossCount,
@@ -85,16 +86,15 @@ public sealed class PackCatalog
 
     /// <summary>Tag rows an area's AreaTypeTags names that no pack carries, and the pack tag they stand for. The pool's
     /// whole tag vocabulary is eight terrain tags (beach, dungeon, cave, forest, swamp, mountain, urban, temple) and
-    /// all but three map areas name one of them in AreaTypeTags directly. Forbidden Woods names "forestdark", and all
-    /// 45 pool packs its 13 captured official instances used carry "forest" (45% of the pool passes that filter). The
-    /// Carcass ("sewers") and Dry Sea ("desert_area", "desert_map_area") are left out: no capture shows which pack tag
+    /// all but three map areas name one of them in AreaTypeTags directly. Forbidden Woods names "forestdark", and every
+    /// pool pack its captured official instances used carries "forest". The Carcass ("sewers") and Dry Sea ("desert_area", "desert_map_area") are left out: no capture shows which pack tag
     /// they stand for, so those two take the pool unfiltered rather than a guessed tag.</summary>
     static readonly IReadOnlyDictionary<string, string> TagAliases = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["forestdark"] = "forest",
     };
 
-    private readonly (List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags)> Areas, Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses, int PoolArea)? _data;
+    private readonly (List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags, bool Unique)> Areas, Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses, int PoolArea)? _data;
 
     /// <summary>A map area's pool by WorldAreas row. It depends on the tables only, so the pack scan and the terrain
     /// cut behind it run once per area rather than on every <see cref="For"/> call.</summary>
@@ -137,8 +137,10 @@ public sealed class PackCatalog
             Density = density,
             Act = d.Areas[row].Act,
             AllWorldBosses = d.AllWorldBosses,
-            // Only a map area (one with a Maps.dat row) draws from the shared pool.
-            Pool = d.MapPacks.ContainsKey(row) ? _pools.GetOrAdd(row, r => PoolFor(d, r, [.. scattered.Select(s => s.Item1.Row)])) : [],
+            // Only an ordinary map area draws from the shared pool: one with a Maps.dat row that WorldAreas does not
+            // mark IsUniqueMapArea (The Shaper's Realm, Tower of Ordeals and The Beachhead have an empty signature list
+            // and stay as they were).
+            Pool = d.MapPacks.ContainsKey(row) && !d.Areas[row].Unique ? _pools.GetOrAdd(row, r => PoolFor(d, r, [.. scattered.Select(s => s.Item1.Row)])) : [],
         };
     }
 
@@ -147,10 +149,8 @@ public sealed class PackCatalog
     /// pack whose Tags is empty stands anywhere, else one of its Tags must be an AreaTypeTags of the area (through
     /// <see cref="TagAliases"/>). The cut is dropped when the area's own tags name nothing the pool uses, so an area
     /// whose terrain tag is not in the pool's vocabulary gets the whole pool rather than only the untagged packs.
-    /// Official captures: of the 147 pool packs the 31 captured map instances used, 126 satisfy this rule; the 21 that
-    /// do not are all in areas (Summit, Estuary, Pier) whose AreaTypeTags is not their terrain, where the cut has no
-    /// measurable effect either way.</summary>
-    static List<(Pack, int)> PoolFor((List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags)> Areas,
+    /// The capture figures behind the rule are in 14-monster-packs.md.</summary>
+    List<(Pack, int)> PoolFor((List<Pack> Packs, List<(string Id, int Level, int Act, int[] Bosses, int[] TypeTags, bool Unique)> Areas,
         Dictionary<int, List<int>> MapPacks, HashSet<int> AllWorldBosses, int PoolArea) d, int row, HashSet<int> already)
     {
         var pool = new List<(Pack, int)>();
@@ -169,24 +169,27 @@ public sealed class PackCatalog
     }
 
     /// <summary>A Tags row as the pool reads it: itself, plus what <see cref="TagAliases"/> says it stands for.</summary>
-    static IEnumerable<int> ResolveTag(int row)
+    IEnumerable<int> ResolveTag(int row)
     {
         yield return row;
-        if (TagRows.Value is not { } rows) yield break;
+        if (tagRows is not { } rows) yield break;
         foreach (var (from, to) in TagAliases)
             if (rows.GetValueOrDefault(from, -1) == row && rows.GetValueOrDefault(to, -1) is int t && t >= 0)
                 yield return t;
     }
 
-    /// <summary>Tags rows by Id, for <see cref="TagAliases"/>; null where the table is missing.</summary>
-    static readonly Lazy<Dictionary<string, int>?> TagRows = new(() =>
+    /// <summary>Tags rows by Id, for <see cref="TagAliases"/>; null where the table is missing. Read when the catalog is
+    /// built, with the rest of its data.</summary>
+    readonly Dictionary<string, int>? tagRows;
+
+    static Dictionary<string, int>? LoadTagRows()
     {
         if (!ClientTables.Has("Tags")) return null;
         var rows = new Dictionary<string, int>(StringComparer.Ordinal);
         int row = 0;
         foreach (var t in ClientTables.Table("Tags")) { if (t.TextOrNull("Id") is { } id) rows.TryAdd(id, row); row++; }
         return rows;
-    });
+    }
 
     public Pack? Find(string id) => _data?.Packs.FirstOrDefault(p => p.Id == id);
 
@@ -203,7 +206,7 @@ public sealed class PackCatalog
         return rows;
     }
 
-    private static (List<Pack>, List<(string, int, int, int[], int[])>, Dictionary<int, List<int>>, HashSet<int>, int)? Load(string folder)
+    private static (List<Pack>, List<(string, int, int, int[], int[], bool)>, Dictionary<int, List<int>>, HashSet<int>, int)? Load(string folder)
     {
         if (!ClientTables.Has("MonsterPacks") || !ClientTables.Has("MonsterPackEntries") || !ClientTables.Has("WorldAreas")) return null;
         var byPack = new Dictionary<int, List<(int, int)>>();
@@ -254,13 +257,13 @@ public sealed class PackCatalog
                 Tags = [.. p.Ints("Tags")],
             });
         }
-        var areaRows = new List<(string, int, int, int[], int[])>();
+        var areaRows = new List<(string, int, int, int[], int[], bool)>();
         var allWorldBosses = new HashSet<int>();
         foreach (var a in ClientTables.Table("WorldAreas"))
         {
             int[] bosses = [.. a.Ints("Bosses_MonsterVarietiesKeys")];
             foreach (int b in bosses) allWorldBosses.Add(b);
-            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"), a.IntOrNull("Act") ?? 0, bosses, [.. a.Ints("AreaTypeTags")]));
+            areaRows.Add((a.Text("Id") ?? "", a.Int("AreaLevel"), a.IntOrNull("Act") ?? 0, bosses, [.. a.Ints("AreaTypeTags")], a.BoolOrNull("IsUniqueMapArea") == true));
         }
         // Maps.dat: a map's area → its packs (optional table: without it maps have no packs of their own).
         var mapPacks = new Dictionary<int, List<int>>();
@@ -304,9 +307,8 @@ public static class AreaPopulation
 
     /// <summary>How many of the shared map pool's packs (<see cref="PackCatalog.AreaPacks.Pool"/>) one map instance
     /// draws. How many pack types an instance has is decided by the official server and is not in the client, so this
-    /// is our own number like <see cref="CellsPerPack"/>: the 31 captured official map instances used 3 to 8 distinct
-    /// pool packs each (median 5; 9 as an upper bound where a variety belongs to several packs), and the campaign
-    /// areas list a median of 5 packs and a 90th percentile of 9, so 7 sits in both. Without a cap the pool would be
+    /// is our own number like <see cref="CellsPerPack"/>, chosen from the captured official instances' counts (see
+    /// 14-monster-packs.md). Without a cap the pool would be
     /// re-rolled at every pack centre and a map would show nearly 300 varieties.</summary>
     public const int MapPoolPacks = 7;
 

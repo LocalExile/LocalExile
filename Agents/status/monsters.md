@@ -37,7 +37,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   suit the area's `AreaTypeTags`: before that Forbidden Woods had only `chaos-vendigo1` and every monster of the map was
   a Vendigo. The draw is the instance's one set of packs (`AreaPopulation.ForInstance`, asked for through
   `Game.InstancePacks`): the scattered monsters, a strongbox's guards and summons, an Essence's monster, a Harbinger's
-  wave, the Torment dig and the Survivors roster all pick from it. Which key the areas whose `AreaTypeTags` is not their
+  wave, the Torment dig and the Survivors roster pick from it where they run. The Harbinger, Torment and Essence
+  on/off checks still read the map's own signature list, so on a map whose list is empty they do not start.
+  Unique map areas (WorldAreas `IsUniqueMapArea`) get no pool. Which key the areas whose `AreaTypeTags` is not their
   terrain use (Summit, Estuary, Pier) is open; the per-instance draw size is our own number.
   Code: `MonsterPacks.cs`, Gateway (`PopulateArea`, `Game.InstancePacks`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).

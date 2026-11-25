@@ -424,7 +424,7 @@ tag vocabulary is eight terrain tags (beach, dungeon, cave, forest, swamp, mount
 Measured against the official captures: of the 147 pool packs the 31 captured official map instances can be shown to
 have used, 126 satisfy that rule. The 21 that do not are all in areas whose `AreaTypeTags` is plainly not their
 terrain: every Summit instance (tagged `urban`) used mountain, beach and forest packs, and so did Estuary (`beach`) and
-Pier (`urban`); for those areas the filter has no measurable effect. For Forbidden Woods it is decisive: all 45 pool
+Pier (`urban`). For Forbidden Woods it is decisive: all 45 pool
 picks across 13 instances carry `forest` where only 45% of the pool does. **Open:** what key those areas use instead of
 `AreaTypeTags`; their topology or tileset is the obvious candidate and no capture settles it.
 
@@ -444,7 +444,10 @@ same (area, hash, seed).
 instance's draw and whose `Pool` is empty, so a second call changes nothing. Everything that picks a monster "out of the
 area's packs" asks `Game.InstancePacks` (kept per instance) rather than reading the catalogue's `Scattered`: the
 scattered population, a strongbox's guards and summons, an Essence's monster, a Harbinger's wave, the Torment dig and the
-Survivors roster. The draw's only filter is "has a variety this server can write", which every caller can apply, so no
+Survivors roster, wherever they run. The Harbinger, Torment and Essence on/off checks still read the map's own signature
+list (`Packs.For(...).Scattered`), so on a map whose list is empty they do not start. Unique map areas (WorldAreas
+`IsUniqueMapArea`: The Shaper's Realm, Tower of Ordeals, The Beachhead) have an empty list and get no pool; ordinary
+maps with an empty list (Bazaar, Chateau) do get one. The draw's only filter is "has a variety this server can write", which every caller can apply, so no
 two of them draw differently; a pack's members are filtered again where they are placed.
 
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from

@@ -42,6 +42,18 @@ public class InstancePackPicksTests
             .Select(s => s.Pack).Where(p => p.StartsWith("chaos-", StringComparison.Ordinal)).Distinct().Order(StringComparer.Ordinal)];
         Assert.All(Standing(instance), pack => Assert.Contains(pack, instance.Scattered.Select(s => s.Pack.Id)));
         Assert.Equal(Standing(instance), Standing(catalogue));
+
+        // The player's own ask: without an instance it is drawn uncached, with one it is kept (the same reference twice),
+        // and both are the draw the population makes with the production predicate.
+        var layout = new AreaLayout(0x1234, Woods, 600, 600, 50, 50, (_, _) => true, []);
+        var player = new Player(layout, 1, 7u);
+        var uncached = Game.InstancePacks(player)!;
+        player = new Player(layout, 1, 7u) { Instance = new InstanceState() };
+        var kept = Game.InstancePacks(player)!;
+        Assert.Same(kept, Game.InstancePacks(player));
+        var production = AreaPopulation.ForInstance(catalogue, seed0, row => Game.Monsters.Find(row.ToString()) is { Supported: true });
+        Assert.Equal(production.Scattered.Select(s => s.Pack.Row), kept.Scattered.Select(s => s.Pack.Row));
+        Assert.Equal(production.Scattered.Select(s => s.Pack.Row), uncached.Scattered.Select(s => s.Pack.Row));
     }
 
     [Fact]
@@ -52,7 +64,10 @@ public class InstancePackPicksTests
         int forest = GameServer.Core.ClientTables.Table("Tags").Select((t, i) => (Id: t.TextOrNull("Id"), Row: i)).First(t => t.Id == "forest").Row;
         Assert.All(pool, p => Assert.True(p.Pack.Tags.Count == 0 || p.Pack.Tags.Contains(forest), p.Pack.Id));
         Assert.Contains(pool, p => p.Pack.Tags.Contains(forest));
-        // A campaign area has no pool.
+        // A campaign area has no pool, and neither has a unique map area; an ordinary map with an empty signature list does.
         Assert.Empty(Game.Packs.For("1_1_2")!.Pool);
+        Assert.Empty(Game.Packs.For("MapWorldsShapersRealm")!.Pool);
+        Assert.Empty(Game.Packs.For("MapWorldsUltimatumBossArena")!.Pool);
+        Assert.NotEmpty(Game.Packs.For("MapWorldsBazaar")!.Pool);
     }
 }

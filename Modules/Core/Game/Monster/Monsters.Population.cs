@@ -19,6 +19,7 @@ public static partial class Game
     public static PackCatalog.AreaPacks? InstancePacks(Player player)
     {
         var layout = player.Layout;
+        if (player.Instance is null) return InstancePacks(layout.Id, layout.Hash, player.Seed);
         var cached = InstancePackCache.TryGetValue(player.Instance, out var hit) ? hit : null;
         if (cached is not null && cached.AreaId == layout.Id && cached.Hash == layout.Hash && cached.Seed == player.Seed)
             return cached.Packs;
