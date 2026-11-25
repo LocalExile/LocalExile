@@ -1,3 +1,5 @@
+using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 public static partial class Game
@@ -55,6 +57,38 @@ public static partial class Game
         long additionalChance = (twoHanded ? Get(Stat.AttacksWithTwoHandedWeaponsImpaleOnHitPctChance) : 0)
             + (axeOrSword ? Get(Stat.ImpaleOnHitPctChanceWithAxesSwords) : 0);
         return ImpaleStats.From(stats, catalog, attack, own, local, critical, additionalChance);
+    }
+
+    // The gem's nearby effect is estimated at 2.3 m. Its stat set does not export a radius.
+    const int KillingBlowImpaleRadius = 23;
+
+    static void ReflectKillingBlowImpalesLocked(Player player, SpawnedMonster killed, int chance,
+        double now, IReadOnlyDictionary<uint, int> stats, bool playerKill)
+    {
+        if (chance <= 0 || killed.Impale.Stacks == 0) return;
+        killed.Impale.Expire(now);
+        double stored = killed.Impale.Bonus;
+        if (stored <= 0 || !RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+
+        // The killing contact has settled. This is the reflected damage of the active impales, including one
+        // inflicted by that contact. Their remaining hits stay with the corpse for a later Call of Steel.
+        var centre = killed.Walk.Position(now);
+        var session = ProjectilesFor(player);
+        long at = ProjectileRuntime.Time(now);
+        foreach (var (id, enemy) in player.Area.MonstersNear(centre, KillingBlowImpaleRadius))
+        {
+            if (enemy is not { Hostile: true, OwnerId: null, Dead: false, Life: > 0, Invulnerable: false, WorldHidden: false }
+                || Dist(centre, enemy.Walk.Position(now)) > KillingBlowImpaleRadius) continue;
+            int damage = MonsterImpaleDamage(enemy, stored, now);
+            if (damage <= 0 || ApplyMonsterHitLocked(player, enemy, damage, playerStats: stats, allyAt: centre) is not { } hit)
+                continue;
+            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
+                $"killing-blow impale reflection on monster 0x{id:x} for {damage}");
+            if (hit.StageStarts) CommitProjectileBossStage(session, id, enemy, at);
+            if (hit.Life != 0) continue;
+            if (!playerKill) OwnedKillLocked(enemy, 0);
+            CommitProjectileKill(session, id, enemy, at, AreaRng(player), playerKill);
+        }
     }
 
     static readonly RuleTable<Player, IncomingImpale> IncomingImpales = new();

@@ -861,7 +861,13 @@ their stored values are summed into one reflected physical hit, remaining hit co
 new chance/target-avoidance roll may add an instance. Nonphysical and zero-damage hits can trigger existing
 instances but cannot create one. There is no independent five-stack cap; modifiers can extend the effective count.
 The state uses the paused connection clock and lazy expiry at the next hit/state observation. Corpses retain their
-instances until expiry/removal; native impale-count/visual publication and corpse consumers are not implemented.
+instances until expiry/removal. Native impale-count and visual publication are still open.
+
+Client stat sets `DoubleStrikeAltX` and `BearTrapAltX` grant the same 100% killing-blow reflection stat.
+The trap's chance and impale effect are general stats on a secondary hit. Unlike Call of Steel, the killing-blow
+stat has no instruction to remove impales or multiply by remaining hits. Use one reflection of the live stored
+amount after the contact, including an impale created by that contact. The data exports no radius. The current
+model uses 23 cells as the approximate observed radius, independent of skill area modifiers.
 
 The reflected total receives the existing target physical reduction and generic damage-taken calculation once.
 It receives no new source modifiers, conversion, critical multiplier, spell-only damage taken or returning-projectile

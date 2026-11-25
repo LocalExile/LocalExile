@@ -807,6 +807,8 @@ public static partial class Game
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int burningMorePct = GolemStat(placed.Own, Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
+        int killingBlowImpale = placed.Own.GetValueOrDefault(Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance);
+        var secondaryImpale = killingBlowImpale > 0 ? ImpaleStats.FromSecondaryHit(playerStats, placed.Own) : default;
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
         int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
         GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
@@ -842,7 +844,14 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
                 LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
+            if (killingBlowImpale > 0)
+            {
+                double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, multiplier) / 100d : 1);
+                damage = ApplyPlayerImpaleContact(player, m, damage, physical, now, now, secondaryImpale, AreaRng(player)).Damage;
+            }
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
+            if (hit.Life == 0)
+                ReflectKillingBlowImpalesLocked(player, m, killingBlowImpale, now, playerStats, playerKill: false);
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
             double targetAilmentMore = ailmentMore * targetMore;
