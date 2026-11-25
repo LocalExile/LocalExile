@@ -60,7 +60,7 @@ public static partial class Game
         int reach = Math.Max(0, weapon.Range + StatValue(Stat.AttackMaximumActionDistancePlus));
         int scale = (int)((100 + SkillArea.RadiusPercent(StatValue, spell: false,
             sand ? PerforateSandAreaMore(StatValue) : 1)) * radiusMore);
-        uint repeatsLeft = repeat > 0 ? (uint)Math.Max(0, MeleeAttackRepeats(player, gem.Id) - repeat) : 0;
+        uint repeatsLeft = (uint)Math.Max(0, MeleeAttackRepeats(player, gem.Id) - repeat);
         var steps = PerforateSteps(from, to, reach, count, sand, bloodshed, scale,
             StatValue(Stat.BloodSpearsAoeModifiersApplyToBloodSpearPlacementRangeAtPctValue), sequence, player.Id,
             repeatsLeft: repeatsLeft);
@@ -109,8 +109,9 @@ public static partial class Game
 
     static bool PerforateCovers(PerforateStep step, (int X, int Y) target, int body)
     {
-        if (Dist(step.Centre, target) <= step.Radius + body) return true;
-        if (step.LineStart is not { } start || step.LineEnd is not { } end) return false;
+        if (step.LineStart is not { } start || step.LineEnd is not { } end)
+            return Dist(step.Centre, target) <= step.Radius + body;
+        if (start == end) return Dist(start, target) <= step.LineHalfWidth + body;
         var direction = GroundSlamWave.Direction(start, end);
         double x = target.X - start.X, y = target.Y - start.Y;
         double along = x * direction.X + y * direction.Y;

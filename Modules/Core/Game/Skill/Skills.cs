@@ -706,6 +706,8 @@ public static partial class Game
                         && OffhandWeaponFor(player) is { } offWeapon)
                     {
                         offInputs = SupportedHitInputsFor(player, id, weapon: offWeapon);
+                        if (offInputs is not null && bloodMore != 1)
+                            offInputs = offInputs with { Raw = offInputs.Raw.Scale(bloodMore) };
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
                         if (dualWieldMore != 1) offHit = offHit.Scale(dualWieldMore);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
