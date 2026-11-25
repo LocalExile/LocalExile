@@ -258,11 +258,18 @@ static class LegionDomain
         return Math.Max(30.0, BaseTimerSeconds + bonus);
     }
 
-    /// <summary>Builds per-revival EncounterStats for monsters revived in an Unrelenting Domain of Timeless Conflict.</summary>
+    /// <summary>The monster's toughness (less damage taken) gained per revival: the emblems' uber_domain_monster_tankiness_+%_per_revival
+    /// (every Timeless Emblem carries 10).</summary>
+    public static int RevivalToughness(IReadOnlyDictionary<uint, int> areaStats, int revivalCount) =>
+        revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterTankinessPlusPctPerRevival) * revivalCount;
+
+    /// <summary>Per-revival EncounterStats of the emblems used (summed over them, times the revival count) for a monster revived
+    /// in a Domain of Timeless Conflict. The consumers today are damage_+% and the phys-as-chaos gain (hit damage); the rest is
+    /// carried for when monsters read them. Tankiness is applied as toughness (<see cref="RevivalToughness"/>).</summary>
     public static Dictionary<uint, int>? UberRevivalStats(IReadOnlyDictionary<uint, int> areaStats, int revivalCount)
     {
         if (revivalCount <= 0) return null;
-        int stacks = Math.Min(10, revivalCount);
+        int stacks = revivalCount;
         var stats = new Dictionary<uint, int>();
         void Add(uint areaStat, uint monsterStat)
         {
@@ -278,6 +285,10 @@ static class LegionDomain
         Add(Stat.UberDomainMonsterAdditionalPhysicalDamageReductionPctPerRevival, Stat.BaseAdditionalPhysicalDamageReductionPct);
         Add(Stat.UberDomainMonsterAllResistancesPlusPctPerRevival, Stat.BaseResistAllElementsPct);
         Add(Stat.UberDomainMonsterAvoidStunPctPerRevival, Stat.BaseAvoidStunPct);
+        Add(Stat.UberDomainMonsterAccuracyPlusPctPerRevival, Stat.AccuracyRatingPlusPct);
+        Add(Stat.UberDomainMonsterPenetrateAllResistancesPctPerRevival, Stat.BasePenetrateElementalResistancesPct);
+        Add(Stat.UberDomainMonsterPhysicalDamagePctToAddAsChaosPerRevival, Stat.PhysicalDamagePctToAddAsChaos);
+        Add(Stat.UberDomainMonsterAreaOfEffectPlusPctPerRevival, Stat.SkillAreaOfEffectPlusPct);
         return stats.Count > 0 ? stats : null;
     }
 
@@ -682,7 +693,6 @@ static class LegionDomain
     {
         FighterSlot slot;
         byte areaLevel;
-        int uberCount;
         uint initiatorId;
         lock (state)
         {
@@ -690,7 +700,6 @@ static class LegionDomain
             slot = state.Slots[slotIndex];
             if (slot.Alive) return slot.CurrentId;
             areaLevel = (byte)Math.Clamp(state.Level, 1, 100);
-            uberCount = state.UberCount;
             initiatorId = state.InitiatorId;
         }
         MonsterCatalog.Variety? variety;
@@ -719,13 +728,12 @@ static class LegionDomain
             });
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var monster)) return 0;
 
-        if (uberCount > 0 && slot.RevivalCount > 0)
+        if (slot.RevivalCount > 0)
         {
-            double lifeMult = 1.0 + 0.12 * Math.Min(10, slot.RevivalCount) * uberCount;
-            monster.MaxLife = (uint)Math.Clamp(Math.Round(monster.MaxLife * lifeMult), 1, uint.MaxValue);
-            monster.Life = monster.MaxLife;
-            if (UberRevivalStats(areaStats, slot.RevivalCount) is { } uberStats)
-                monster.EncounterStats = uberStats;
+            if (RevivalToughness(areaStats, slot.RevivalCount) is > 0 and int toughness)
+                monster.Mods = monster.Mods with { Effects = monster.Mods.Effects.Plus(global::Game.MonsterToughness, toughness) };
+            if (UberRevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
+                monster.EncounterStats = revivalStats;
         }
         if (slot.Rewards is { Length: > 0 }) LegionStasis.ShowRewards(player, id, slot.Rewards, false);
 

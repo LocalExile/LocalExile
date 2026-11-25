@@ -148,6 +148,8 @@ public sealed class LegionTests
             Assert.True(req.ReturnToSource);
             Assert.Equal(15.0 + 60.0 * n, LegionDomain.TimerSecondsFor(req.Opening.Mods.Stats, n));
             Assert.Equal(n, req.Opening.Mods.Get(Stat.MapNumLegionFragments));
+            Assert.Equal(10 * n * 3, LegionDomain.RevivalToughness(req.Opening.Mods.Stats, 3));
+            Assert.True(LegionDomain.UberRevivalStats(req.Opening.Mods.Stats, 3)!.ContainsKey(Stat.PhysicalDamagePctToAddAsChaos) || n < 5);
         }
         var uberReq = new MapOpening(opener, [.. uberIds.Select(EmblemSlot)], false, null, "");
         LegionDomain.ResolveOpening(uberReq);
