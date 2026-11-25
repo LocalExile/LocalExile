@@ -88,7 +88,8 @@ public static partial class Game
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
             Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
-                && !HasContactDamage(Get) && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+                && !HasContactDamage(Get) && !HasLocalTargetDamage(sourceWeapon.LocalSources)
+                && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 WieldingWand: sourceWeapon.WieldingWand, Volatile: false,

@@ -632,7 +632,7 @@ public static partial class Game
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
                     sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
-                    ImpaleStats.From(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
+                    WeaponImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon, critical));
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
@@ -754,7 +754,7 @@ public static partial class Game
         playerStats = SpiderAttackStats(playerStats, webs);
         bool lowLife = EnemyOnLowLife(target);
         int Get(uint key) => GolemStat(playerStats, key);
-        var contact = ContactDamage(player, target, at, playerStats);
+        var contact = ContactDamage(player, target, at, playerStats, weapon.LocalSources);
         var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
             weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
             claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"), contact: contact);
@@ -3030,7 +3030,7 @@ public static partial class Game
                         sweepProfile = Profile(0);
                         double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
                         sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
-                            bow: false, offHand: hand == AttackHand.Off);
+                            bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources));
                         if (sweepSpider is not null && !spell && shield is null)
                         {
                             if (hand != AttackHand.Off)
@@ -3047,8 +3047,8 @@ public static partial class Game
                         sweepMultiplier = SupportedCriticalMultiplier(player, skillId, sourceWeapon);
                         if (!spell) accuracy = SupportedAccuracy(player, skillId, hand);
                         leech = HitLeechSources(playerStats, !spell, skillStats, local, !spell && SkillsFor(player).IsMelee(gem.Effect));
-                        impale = ImpaleStats.From(playerStats, Stats, !spell, skillStats, local);
-                        criticalImpale = ImpaleStats.From(playerStats, Stats, !spell, skillStats, local, critical: true);
+                        impale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon);
+                        criticalImpale = WeaponImpaleSettings(playerStats, Stats, !spell, skillStats, spell || shield is not null ? null : sourceWeapon, critical: true);
                         if (removeStunAndKnockback)
                         {
                             var adjusted = new Dictionary<uint, int>(skillStats)
@@ -3095,13 +3095,13 @@ public static partial class Game
                         bool close = spider.Melee && spider.Stats.GetValueOrDefault(global::Stat.MeleeDamagePlusPctAtCloseRange) != 0
                             && InCloseRange(player, m, hitAt);
                         bool blinded = Blinded(player, id, hitAt);
-                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats);
+                        var conditionalDamage = ContactDamage(player, m, hitAt, spider.Stats, spider.Local);
                         var woven = SpiderDamageProfile(spider, webs, blinded, targetIgnited, bleeding,
                             lowLife, maimed, close, conditionalDamage);
                         var conditionalHit = mainHandMore == 1 ? woven.Hit : woven.Hit.Scale(mainHandMore);
                         if (sweepOffSpider is { } off)
                             conditionalHit = conditionalHit.Add(SpiderDamageProfile(off, webs, blinded, targetIgnited, bleeding,
-                                lowLife, maimed, close, conditionalDamage).Hit);
+                                lowLife, maimed, close, ContactDamage(player, m, hitAt, off.Stats, off.Local)).Hit);
                         double contactMore = ruthless * dualWieldMore;
                         if (contactMore != 1) conditionalHit = conditionalHit.Scale(contactMore);
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));

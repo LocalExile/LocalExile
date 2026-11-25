@@ -313,7 +313,8 @@ public static partial class Game
             }
 
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
-            var local = HandLocalSources(player, hand);
+            var attackSource = HandWeapon(player, hand);
+            var local = attackSource.LocalSources;
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
@@ -322,8 +323,8 @@ public static partial class Game
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand);
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
-            var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
-            var criticalImpale = ImpaleStats.From(playerStats, Stats, true, skillStats, local, critical: true);
+            var impale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource);
+            var criticalImpale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource, critical: true);
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);

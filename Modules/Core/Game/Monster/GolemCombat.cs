@@ -934,7 +934,7 @@ public static partial class Game
                 || g.Weapon?.LocalSources?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) > 0);
         ImpaleContact? impale = attackCanImpale || target.Impale.Stacks > 0
             ? new(attackCanImpale ? rolled[DamageType.Physical].Min : 0, now,
-                attackCanImpale ? ImpaleStats.From(effects.Stats, Stats, attack: true, a.Stats, g.Weapon?.LocalSources) : default,
+                attackCanImpale ? WeaponImpaleSettings(effects.Stats, Stats, attack: true, a.Stats, g.Weapon) : default,
                 random) : null;
         if (ApplyMonsterHitCoreLocked(player, target, damage, rampageSource: null, playerStats: null,
             allyAt: from, cull: cull, cullPlayer: null, chaosDamage: chaosDamage, impale: impale) is not { } hit) return false;

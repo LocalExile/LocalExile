@@ -25,6 +25,16 @@ public static partial class Game
         return (ImpaleStats.AddReflected(directDamage, MonsterImpaleDamage(target, stored, mitigationAt)), stored, applied);
     }
 
+    internal static ImpaleStats.Settings WeaponImpaleSettings(IReadOnlyDictionary<uint, int> stats, StatCatalog catalog,
+        bool attack, IReadOnlyDictionary<uint, int>? own, SkillCatalog.Unarmed? weapon, bool critical = false)
+    {
+        string? itemClass = weapon?.ItemClass;
+        var local = weapon?.LocalSources;
+        bool twoHanded = itemClass is "Bow" or "FishingRod" || IsTwoHandMeleeClass(itemClass);
+        bool axeOrSword = WeaponTypeDamage.FamilyOf(itemClass) is "axe" or "sword" || WeaponIdentity.AllOneHandMelee(local);
+        return ImpaleStats.From(stats, catalog, attack, own, local, critical, twoHanded, axeOrSword);
+    }
+
     static readonly RuleTable<Player, IncomingImpale> IncomingImpales = new();
     // The map description names nearby allies without exporting the distance in its mod row.
     const int MapImpaleBlastRadius = 30;

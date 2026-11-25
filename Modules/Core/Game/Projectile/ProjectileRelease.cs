@@ -430,7 +430,8 @@ public static partial class Game
         var shield = spell ? null : ShieldWeapon(player, skillId);
         var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);
-        var local = spell || shield is not null ? null : HandLocalSources(player, swingHand);
+        var attackSource = spell || shield is not null ? null : HandWeapon(player, swingHand);
+        var local = attackSource?.LocalSources;
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
         string hand = spell ? "spell" : "main_hand";
         var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
@@ -473,8 +474,8 @@ public static partial class Game
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
-            ImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local),
-            CriticalImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local, critical: true),
+            ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
+            CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),
             AccuracyProfile = spell ? null : SupportedAccuracy(player, skillId, swingHand), CriticalRoll = criticalRoll,
             Leech = HitLeechSources(playerStats, !spell, own, weaponAttack ? local : null), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get(Stat.ImpaleOnHitPctChance),

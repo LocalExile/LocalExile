@@ -18,7 +18,8 @@ public static partial class Game
     static SpiderDamageSource? CaptureSpiderDamage(Player player, SupportedHitInputs inputs, double effectiveness,
         bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false)
     {
-        if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get) && !HasConditionalHitDamage(inputs))
+        if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)
+            && !HasConditionalHitDamage(inputs) && !HasLocalTargetDamage(local))
             return null;
         int per = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         int cap = inputs.Get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
