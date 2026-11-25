@@ -29,8 +29,12 @@ public static class ShrineRegistry
     /// </summary>
     public static void RegisterDefaults()
     {
-        foreach (string id in ShrineCatalog.ApparitionIds.Append("UpgradeOnKill"))
+        foreach (string id in new[] { "BrineKing", "Lunaris", "Solaris", "Arakaali", "UpgradeOnKill" })
             Register(new ShrineDefinition { Id = id, BeforeActivation = [() => new MonsterAuraEffect()] });
+        foreach (string id in new[] { "Warlord", "Crusader", "Redeemer", "Hunter" })
+            Register(new ShrineDefinition { Id = id,
+                BeforeActivation = [() => new MonsterAuraEffect(), () => new ApparitionEffect()],
+                AfterActivation = [() => new ApparitionEffect()] });
 
         Register(new ShrineDefinition
         {

@@ -41,8 +41,9 @@ public sealed partial class ShrineTests
         {
             var evolving = new MapOpening(player, [], false, new(new(1, "test", "Test", 1), mods), "");
             ShrineMapAdmission.Check(evolving);
-            Assert.Null(evolving.Opening);
-            Assert.Contains("not been consumed", evolving.Reason);
+            Assert.NotNull(evolving.Opening);
+            Assert.Contains("Shrines.Evolving", evolving.HandledContent);
+            Assert.Contains("Shrines.Apparitions", evolving.HandledContent);
             foreach (string id in ShrineCatalog.ApparitionIds)
             {
                 var row = ShrineCatalog.Find(id)!;
@@ -157,5 +158,140 @@ public sealed partial class ShrineTests
             var original = drop with { Item = ineligible };
             Assert.Same(original, ApparitionRewards.Apply(original, _ => 100, rolls, new Random(2)));
         }
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+            await ApparitionCombat(player);
+            TemporaryShrineDamage(player);
+            await EvolutionLifecycle(player);
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+        }
+    }
+
+    static async Task ApparitionCombat(Player player)
+    {
+        player.Walk.Teleport(100, 100, 0);
+        foreach (string id in new[] { "Warlord", "Crusader", "Hunter", "Redeemer" })
+        foreach (bool claimed in new[] { false, true })
+        {
+            var row = ShrineCatalog.Find(id)!;
+            var profile = ApparitionEffect.Describe(player, row, claimed);
+            Assert.Equal(12, profile.Interval);
+            Assert.Contains(claimed ? "/Player/" : "/AtlasExiles/Atlas", profile.Body.Id);
+            Assert.NotEmpty(profile.Payloads);
+            foreach (int effect in profile.Payloads)
+            {
+                var attack = BossKits.AttackFor(player, profile.Body, 70, effect, 0x4000);
+                Assert.True(attack.Damage.MaxTotal > 1, $"{id} {claimed} effect {effect}: {attack.Damage}");
+                if (id == "Redeemer")
+                {
+                    Assert.Contains("Tornado", ApparitionEffect.TornadoProjectile(player, effect, 70).Metadata, StringComparison.OrdinalIgnoreCase);
+                    Assert.True(ApparitionEffect.Convert(player, effect, 70, attack.Damage)[DamageType.Cold].Max > 1);
+                }
+            }
+            if (!claimed) continue;
+            var target = new SpawnedMonster("apparition target", new(110, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000000)
+                { Life = 1000000, Variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie"), Level = 1 };
+            player.Area.Monsters[0x7071] = target;
+            player.Area.Grid.Set(new(0x7071), (110, 100));
+            var effectController = new ApparitionEffect();
+            var shrine = new ShrineInstance { Definition = row, At = (100, 100), State = ShrineState.Used, ObjectId = 0x9090 };
+            await effectController.Tick(new(player, 0), shrine);
+            var actors = player.Area.Monsters.Where(p => p.Value.NoRewards && p.Value.Variety?.Id == profile.Body.Id).ToArray();
+            Assert.True(actors.Length == 1, $"{id}: expected one apparition; alive={player.PlayerLife}, closed={player.Closed}, monsters={string.Join(';', player.Area.Monsters.Select(m => m.Value.Label))}");
+            var actor = Assert.Single(actors);
+            Assert.True(actor.Value.Invulnerable);
+            Assert.Null(actor.Value.OwnerId);
+            Assert.Null(actor.Value.Attack);
+            await effectController.Tick(new(player, profile.CastSeconds + .7), shrine);
+            if (id == "Redeemer")
+            {
+                var session = Game.ProjectilesFor(player);
+                Assert.NotEmpty(session.Runtime.Projectiles);
+                session.AdvanceTo(session.Runtime.Now + GameServer.Core.Projectiles.ProjectileRuntime.Time(1.5));
+            }
+            Assert.True(target.Life < target.MaxLife, id + " did not land a contact");
+            await effectController.OnExpired(new(player, 7), shrine);
+            Assert.DoesNotContain(actor.Key, player.Area.Monsters.Keys);
+            await effectController.Tick(new(player, 9), shrine);
+            Assert.DoesNotContain(player.Area.Monsters.Values, m => m.Variety?.Id == profile.Body.Id);
+            player.Area.Monsters.Remove(0x7071);
+        }
+    }
+
+    static void TemporaryShrineDamage(Player player)
+    {
+        var inactive = new SpawnedMonster("inactive", new(100, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000);
+        var original = DamagePacket.Of(DamageType.Physical, 100, 100);
+        var random = new Random(1);
+        for (int i = 0; i < 100; i++) Game.MonsterTemporaryHit(inactive, original, random);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        long bytes = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10000; i++) Game.MonsterTemporaryHit(inactive, original, random);
+        bytes = GC.GetAllocatedBytesForCurrentThread() - bytes;
+        watch.Stop();
+        Assert.Equal(0, bytes);
+        Console.WriteLine($"Temporary monster offence inactive: {watch.Elapsed.TotalMilliseconds:0.###} ms / 10000 hits, {bytes} bytes");
+        var damage = Game.TemporaryMonsterDamage(DamagePacket.Of(DamageType.Physical, 100, 100),
+            new Dictionary<uint, int> { [Stat.PhysicalDamagePctToAddAsChaos] = 10, [Stat.ChaosDamagePlusPct] = 50 }, new Random(1));
+        Assert.Equal(100, damage[DamageType.Physical].Min);
+        Assert.Equal(15, damage[DamageType.Chaos].Min);
+        damage = Game.TemporaryMonsterDamage(DamagePacket.Of(DamageType.Physical, 100, 100),
+            new Dictionary<uint, int> { [Stat.BaseConvertPctPhysicalDamageToRandomElement] = 50 }, new Random(1));
+        Assert.Equal(50, damage[DamageType.Physical].Min);
+        Assert.Equal(100, damage.MinTotal);
+        var monster = new SpawnedMonster("aura target", new(100, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000);
+        monster.SetTemporaryStats("shrine", new Dictionary<uint, int>
+            { [Stat.ElementalDamageTakenPlusPct] = -50, [Stat.DegenEffectPlusPct] = -50,
+              [Stat.BaseAvoidProjectilesPctChance] = 100, [Stat.BaseReduceEnemyColdResistancePct] = 10 });
+        Assert.Equal(50, Game.MonsterTakesMitigated(monster, DamagePacket.Of(DamageType.Cold, 100, 100), true, 0));
+        Assert.Equal(.5, Game.MonsterDamageTaken(monster, true, 0));
+        Assert.True(Game.MonsterAvoidsProjectile(monster, new Random(1)));
+        Assert.Equal(10, Game.MonsterPenetration(monster.Effects, DamageType.Cold));
+        monster.SetTemporaryStats("hexproof", new Dictionary<uint, int> { [Stat.Hexproof] = 1 });
+        Assert.False(Game.ApplyCurseDataLocked(player, monster, 0, "ElementalWeakness", new Dictionary<uint, int>(), 0, false));
+    }
+
+    static async Task EvolutionLifecycle(Player player)
+    {
+        ShrineRegistry.RegisterDefaults();
+        using var sources = GameEvents.PlayerStatSources.Add("shrine-regression", (p, stats) =>
+        {
+            ShrineManager.AddStats(p, stats);
+            stats[Stat.ChanceToUpgradeMonstersOnKillPermyriad] = 10000;
+            return stats;
+        });
+        var position = player.Walk.Position(0);
+        await ShrineManager.SpawnAroundPlayer(player, ["UpgradeOnKill"]);
+        uint shrineId = uint.Parse(player.Instance!.ContentState[$"Shrines/id/{position.X + 12}/{position.Y}"]);
+        player.Walk.Teleport(position.X + 12, position.Y, 0);
+        await ShrineManager.Use(player, new(shrineId, 0, 1, 0), 0);
+        var variety = Game.Monsters.All.First(v => v.Supported && v.Id.Contains("/Zombies/Zombie"));
+        var dead = new SpawnedMonster("evolving corpse", new(100, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000)
+            { Variety = variety, Dead = true, Life = 0, Level = 70, Rarity = MonsterRarity.Normal };
+        var kill = new KillContext(player, dead, variety.Id, (100, 100)) { PlayerKill = false };
+        EvolutionShrine.OnKill(kill);
+        Assert.Single(kill.Afterwards); // Owned kills are eligible too.
+        foreach (var send in kill.Afterwards) await send();
+        Assert.Contains(player.Area.Monsters.Values, m => ReferenceEquals(m.Variety, variety) && m.Rarity == MonsterRarity.Magic);
+        var duplicate = new KillContext(player, dead, variety.Id, (100, 100));
+        EvolutionShrine.OnKill(duplicate);
+        Assert.Empty(duplicate.Afterwards);
+        Assert.False(EvolutionShrine.Eligible(new("Breach", dead.Walk, 20, 5, 1000) { Variety = variety, SummonerId = 123 }));
+        Assert.False(EvolutionShrine.Eligible(new("rare", dead.Walk, 20, 5, 1000) { Variety = variety, Rarity = MonsterRarity.Rare }));
+        Assert.Equal(2500, EvolutionShrine.Chance(2500, 0, 100));
+        Assert.True(EvolutionShrine.Chance(2500, 100, 100) < 2500);
+        Assert.True(EvolutionShrine.Chance(2500, int.MaxValue, int.MaxValue) >= 0);
+        await ShrineManager.LeaveArea(player);
+        Assert.False(ShrineManager.HasBuff(player, ShrineCatalog.Find("UpgradeOnKill")!.BuffRow));
     }
 }

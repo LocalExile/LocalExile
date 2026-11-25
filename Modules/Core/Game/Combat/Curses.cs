@@ -92,7 +92,7 @@ public static partial class Game
         int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
         bool hexMaster = Get(Stat.KeystoneHexMaster) != 0;
-        if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
+        if (monster.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
             && (effect != "ElementalWeakness" || Get(Stat.ElementalWeaknessIgnoresHexproof) == 0)
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;

@@ -249,8 +249,8 @@ public sealed partial class ShrineTests
                 { [Stat.MapNumExtraApparitionShrines] = 2 }));
             var request = new MapOpening(player, [], false, opening, "");
             ShrineMapAdmission.Check(request);
-            Assert.Null(request.Opening);
-            Assert.Contains("not been consumed", request.Reason);
+            Assert.NotNull(request.Opening);
+            Assert.Contains("Shrines.Apparitions", request.HandledContent);
             var ordinary = new MapOpening(player, [], false, opening with { Mods = MapMods.None }, "");
             ShrineMapAdmission.Check(ordinary);
             Assert.NotNull(ordinary.Opening);

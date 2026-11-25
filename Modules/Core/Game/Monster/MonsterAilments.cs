@@ -33,7 +33,8 @@ public static partial class Game
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
         bool chaos, double increasedPct) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
-            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
+            + (!hit ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "settings": {
+    "evolutionDeclinePerSuccessPermyriad": {
+      "type": "number", "default": 100, "min": 1, "max": 10000,
+      "label": "Evolution local decline coefficient",
+      "description": "Local approximation, not a published GGG coefficient. Chance is the buff's initial chance divided by (1 + successful upgrades in this area times this value / 10000). Refreshing the buff does not reset the count.",
+      "applies": "restart"
+    }
+  }
+}

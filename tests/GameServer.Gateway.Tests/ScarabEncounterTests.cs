@@ -341,15 +341,15 @@ public sealed class ScarabEncounterTests
         var evolving = Request("ScarabDomination3");
         MapScarabContent.Describe(evolving);
         ShrineMapAdmission.Check(evolving);
-        Assert.Contains("Shrines.Evolving", Assert.Single(evolving.UnhandledContent));
+        Assert.Empty(evolving.UnhandledContent);
         var numeric = Request("ScarabMapsNew1", "ScarabDivinationCardsNew2");
         MapScarabContent.Describe(numeric);
         Assert.Empty(numeric.UnhandledContent);
         var rejected = Request("ScarabDomination2");
         rejected.Opening = opening with { Mods = MapRunCatalog.Load("data").Of(rejected.Slots, Program.Items.Mods) };
         ShrineMapAdmission.Check(rejected);
-        Assert.Null(rejected.Opening);
-        Assert.Contains("not been consumed", rejected.Reason);
+        Assert.NotNull(rejected.Opening);
+        Assert.Contains("Shrines.Apparitions", rejected.HandledContent);
         var arcanist = Assert.IsType<StrongboxCatalog.Definition>(StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Arcanist"));
         Assert.Equal(81, StrongboxCatalog.Weight(arcanist, 70, false, MapMods.None));
         Assert.Equal(0, StrongboxCatalog.Weight(arcanist, 25, false, MapMods.None));

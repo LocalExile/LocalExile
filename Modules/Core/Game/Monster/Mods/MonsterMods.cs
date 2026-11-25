@@ -228,7 +228,7 @@ public static partial class Game
         double withered = witheredPct == 0 ? 0 : chaosDamage * (MonsterDamageTaken(m, spell, now,
             elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct + witheredPct) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 && e[Stat.ElementalDamageTakenPlusPct] == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
@@ -273,7 +273,7 @@ public static partial class Game
                 increasedPct: additionalTakenPct + witheredPct);
         double withered = rawChaos * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
+        double elementalFactor = m.TakenFromPlayer.Elemental == 0 && e[Stat.ElementalDamageTakenPlusPct] == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
             * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)

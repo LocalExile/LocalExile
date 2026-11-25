@@ -531,6 +531,7 @@ public static class ShrineManager
 
     public static async Task LeaveArea(Player player)
     {
+        EvolutionShrine.LeaveArea(player);
         if (!States.TryGetValue(player, out var state)) return;
         await state.Area.Gate.WaitAsync();
         try

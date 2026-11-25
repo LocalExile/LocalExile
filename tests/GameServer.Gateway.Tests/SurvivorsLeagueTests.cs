@@ -247,6 +247,7 @@ public sealed class SurvivorsLeagueTests
         {
             "get_Lifetime" => Lifetime,
             "get_Manifest" => new ModManifest(Lifetime.Id, "0", ModKind.Feature, [], Lifetime.Id + ".dll"),
+            "Settings" => System.Text.Json.JsonSerializer.Deserialize("{}", method.GetGenericArguments()[0]),
             _ => throw new NotSupportedException(method.Name),
         };
     }

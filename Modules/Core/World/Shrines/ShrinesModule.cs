@@ -19,11 +19,12 @@ public sealed class ShrinesModule : IModule
         string id = module.Manifest.Id;
         ShrineRegistry.RegisterDefaults();
         ApparitionRewards.Load();
+        EvolutionShrine.Policy = module.Settings<EvolutionShrine.Settings>();
         GameEvents.AreaGenerated.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.PlayerEntered.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => ShrineManager.Use(player, use, requestedAt));
         GameEvents.CompanionTick.Add(id, async (player, _) => { await ShrineManager.Tick(player); await ShrineGearEffects.Tick(player); });
-        GameEvents.Kill.Add(id, kill => { LesserShrines.OnKill(kill); ShrineManager.OnKill(kill); });
+        GameEvents.Kill.Add(id, kill => { LesserShrines.OnKill(kill); ShrineManager.OnKill(kill); EvolutionShrine.OnKill(kill); });
         GameEvents.MapOpening.Add(id, ShrineMapAdmission.Check);
         GameEvents.Drops.Add(id, ApparitionRewards.Drops);
         GameEvents.BuffCancel.Add(id, ShrineManager.CancelBuff);

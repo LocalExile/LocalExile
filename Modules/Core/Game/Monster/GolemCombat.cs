@@ -910,6 +910,7 @@ public static partial class Game
         resistanceMods = ImpurityHitMods(target, now, resistanceMods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var random = AreaRng(player);
+        if (projectile && MonsterAvoidsProjectile(target, random)) return false;
         int inversionChance = GolemStat(supported.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance)
             + GolemStat(a.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
         bool invert = inversionChance > 0 && rolled.Components.Any(component =>
@@ -994,7 +995,7 @@ public static partial class Game
             double ailmentArea = Golem(Stat.ElementalStatusEffectAuraRadius) > 0
                 ? SkillArea.Modifier(Golem, a.Attack.Spell) : 1;
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], AreaRng(player), ailmentArea);
+                n => target.Effects[n], AreaRng(player), ailmentArea);
             if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
                 || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
                 ExposureOnHitLocked(target, Golem, mitigated, now, random);
