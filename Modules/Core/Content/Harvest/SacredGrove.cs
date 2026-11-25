@@ -376,8 +376,14 @@ public static class SacredGrove
         var shown = Presented.GetOrCreateValue(player);
         if (shown.Contains(o.Id) || Describe(o) is not var (quest, _)) return;
         byte[] blob = InstanceEntities.CreateObject(o.Id, InstanceEntities.ObjectTypeHash(o.Type), quest.Blob());
-        await SendWorldCreate(player, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
-            wake: true, awaitBirth: false);
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
+        {
+            await SendWorldCreate(player, o.Id, () => blob, $"grove {o.Type[ObjectRoot.Length..]} 0x{o.Id:x} at ({o.X}, {o.Y})",
+                wake: true, awaitBirth: false);
+        }
+        finally { Program.ViewOf.Value = previousView; }
         if (Blocks(o)) Block(player, o);
         else player.RemoveBlocker(o.Id);
         shown.Add(o.Id);
@@ -425,15 +431,21 @@ public static class SacredGrove
         foreach (var member in Members(player))
         {
             var shown = Presented.GetOrCreateValue(member);
-            foreach (var o in changed)
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = member;
+            try
             {
-                if (Describe(o) is not var (quest, type)) continue;
-                if (!Blocks(o)) member.RemoveBlocker(o.Id);
-                if (!shown.Contains(o.Id)) continue;
-                int index = type.Components.ToList().IndexOf("StateMachine");
-                await SendWorldRecord(member, o.Id,
-                    InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                foreach (var o in changed)
+                {
+                    if (Describe(o) is not var (quest, type)) continue;
+                    if (!Blocks(o)) member.RemoveBlocker(o.Id);
+                    if (!shown.Contains(o.Id)) continue;
+                    int index = type.Components.ToList().IndexOf("StateMachine");
+                    await SendWorldRecord(member, o.Id,
+                        InstanceEntities.StateMachineUpdate(o.Id, (byte)index, quest.StateMachine!), null);
+                }
             }
+            finally { Program.ViewOf.Value = previousView; }
         }
     }
 
@@ -622,7 +634,12 @@ public static class SacredGrove
             // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
             // area.Gate for a frame per seed object.
             if (toRemove.Count > 0)
-                await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null)));
+            {
+                var previousView = Program.ViewOf.Value;
+                Program.ViewOf.Value = member;
+                try { await Task.WhenAll(toRemove.Select(id => SendWorldRemoval(member, id, null))); }
+                finally { Program.ViewOf.Value = previousView; }
+            }
         }
     }
 
@@ -708,13 +725,19 @@ public static class SacredGrove
             var again = regrown.Where(o => shown.Contains(o.Id)).ToList();
             // Together: a lockstep client's removal is written at the frame end, so one after another they would hold
             // this tick for a frame per object.
-            await Task.WhenAll(again.Select(o => SendWorldRemoval(member, o.Id, null)));
-            if (member.Closed || member.LeavingArea) continue;
-            foreach (var o in again)
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = member;
+            try
             {
-                shown.Remove(o.Id);
-                await Present(member, o);
+                await Task.WhenAll(again.Select(o => SendWorldRemoval(member, o.Id, null)));
+                if (member.Closed || member.LeavingArea) continue;
+                foreach (var o in again)
+                {
+                    shown.Remove(o.Id);
+                    await Present(member, o);
+                }
             }
+            finally { Program.ViewOf.Value = previousView; }
         }
     }
 }
