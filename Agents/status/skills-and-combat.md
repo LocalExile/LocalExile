@@ -314,7 +314,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `virtual_*_for_requirements`), dual-wield snapshot sync, and light radius virtual stats (`virtual_light_radius_+%`,
   `virtual_blind_does_not_affect_light_radius`; new virtuals not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
-- Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) Â§4.
+- Attack speed passives and attack timing.
+  Lockstep: an action during a strike's walk-up or swing starts from the client's cell; cost pays before the 0x1ab.
+  Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Selected spell hit damage panel (#188). Docs: [11](../docs/protocol/11-skills.md) Â§9 and Â§14.
 - Critical strikes. Docs: [11](../docs/protocol/11-skills.md) Â§5.
