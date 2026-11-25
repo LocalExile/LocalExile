@@ -23,8 +23,13 @@ static class LegionDomain
     public const string RewardCrystalType = "Metadata/Terrain/Leagues/Legion/Objects/LegionDomainRewardCrystal";
     public const string EnteredQuestFlag = "EnteredDomainOfTimelessConflict";
     const string PulseModel = "Metadata/Effects/Spells/monsters_effects/essence/monolith_pulse/monolith_pulse.ao";
-    /// <summary>MiscAnimated 3357 LegionSoulercoaster1.</summary>
-    const int SoulercoasterKey = 3357;
+    /// <summary>MiscAnimated 3357 LegionSoulercoaster1; 3337 LegionControlZone (endgame/control_zone.ao) and 3338
+    /// LegionControlZonePerimeter (standhere.ao), which no client code creates: the server places both at the centre.</summary>
+    const int SoulercoasterKey = 3357, ControlZoneKey = 3337, PerimeterKey = 3338;
+    /// <summary>control_zone.ao's rig (control_zone/rig.amd): clip 0 idle (loop), 5 revival_wave (1333 ms, once; BigHit and RevWave
+    /// sounds, the pillar blast, a screen shake), played with S->C 0x1b2 kind 0 at each wave.</summary>
+    const uint ZoneIdleClip = 0, ZoneWaveClip = 5;
+    const double ZoneWaveSeconds = 1.333;
     const string SaveKey = "LegionDomain";
     /// <summary>GUESS: how near LegionEndlessInitiator a player starts the Domain (walking there, or using the monolith).</summary>
     const double StartRadius = 28.0;
@@ -61,11 +66,11 @@ static class LegionDomain
         string[] Factions, int UberCount, double TimerSeconds, double WaveSeconds,
         double StartedAt, double EndsAt, double LastWaveAt,
         int Waves, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
-        FighterSlot[] Slots);
+        FighterSlot[] Slots, uint ZoneId = 0, uint PerimeterId = 0);
 
     sealed class DomainState(SavedDomain s)
     {
-        public uint InitiatorId = s.InitiatorId, CrystalId = s.CrystalId;
+        public uint InitiatorId = s.InitiatorId, CrystalId = s.CrystalId, ZoneId = s.ZoneId, PerimeterId = s.PerimeterId;
         public int X = s.X, Y = s.Y, Level = s.Level;
         public float? Z = s.Z;
         public DomainPhase Phase = (DomainPhase)s.Phase;
@@ -126,7 +131,7 @@ static class LegionDomain
 
         public SavedDomain Snapshot() => new(InitiatorId, CrystalId, X, Y, Z, Level, (int)Phase,
             Factions, UberCount, TimerSeconds, WaveSeconds, StartedAt, EndsAt, LastWaveAt,
-            Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots]);
+            Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ZoneId, PerimeterId);
     }
 
     static readonly ConditionalWeakTable<object, DomainState> Domains = new();
@@ -426,7 +431,7 @@ static class LegionDomain
             var saved = new SavedDomain(player.TakeObjectId(), CrystalSupported ? player.TakeObjectId() : 0,
                 near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions, uberCount,
                 timerSec, waveSec, 0, 0, double.NegativeInfinity,
-                0, 0, [], [], slots);
+                0, 0, [], [], slots, player.TakeObjectId(), player.TakeObjectId());
             state = Domains.GetValue(instance, _ => new DomainState(saved));
             lock (state) Keep(player, state);
             module.Log($"{PlayerOf(player).Character}: Domain of Timeless Conflict ({player.Layout.Id}, L{level}) ready at ({state.X}, {state.Y}) — {string.Join("+", factions)} ({uberCount} Unrelenting), timer {timerSec:0}s, {slots.Length} soldiers planned");
@@ -661,6 +666,12 @@ static class LegionDomain
                     m.SetBlocker(state.InitiatorId, state.X, state.Y, Math.Max(1, InitiatorInfo.Size));
         }
 
+        if (phase != DomainPhase.Finished)
+        {
+            await ShowZoneEffect(player, state.ZoneId, ControlZoneKey, state.X, state.Y);
+            await ShowZoneEffect(player, state.PerimeterId, PerimeterKey, state.X, state.Y);
+        }
+
         if (state.CrystalId != 0 && CrystalSupported && !player.Area.Objects.Has(state.CrystalId)
             && BuildCrystalObject(state.X, state.Y, state.Z, phase == DomainPhase.Finished) is { } crysObj)
         {
@@ -671,6 +682,31 @@ static class LegionDomain
                     await global::Game.SendWorldRecord(PlayerOf(p), state.CrystalId, InstanceProtocol.EnterWakeZone(state.CrystalId));
             });
         }
+    }
+
+    /// <summary>Creates a lasting MiscAnimated effect object at the centre (once for the area; a later player gets it from the area).</summary>
+    static async Task ShowZoneEffect(Player player, uint id, int miscAnimated, int x, int y)
+    {
+        if (id == 0 || player.Area.Objects.Has(id) || LegionData.Current.MiscAnimatedModels.GetValueOrDefault(miscAnimated) is not { } model) return;
+        var create = InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(x, y, model).Blob());
+        await LegionOutput.ToArea(player, async p =>
+        {
+            if (await global::Game.SendWorldCreate(PlayerOf(p), id, create, $"0x02bb MiscAnimated {miscAnimated} 0x{id:x}"))
+                await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceProtocol.EnterWakeZone(id));
+        });
+    }
+
+    /// <summary>Plays control_zone.ao's revival_wave once, then its idle again.</summary>
+    static async Task PlayRevivalWave(Player player, DomainState state)
+    {
+        uint id = state.ZoneId;
+        if (id == 0 || !player.Area.Objects.Has(id)) return;
+        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceProtocol.AnimationUpdate(id, 0, ZoneWaveClip, 1f), $"0x01b2 control zone 0x{id:x}: revival_wave"));
+        var instance = player.Instance;
+        global::Game.SendAfter(player, ZoneWaveSeconds, () =>
+            ResolveRunner(player, instance) is { } runner && runner.Area.Objects.Has(id)
+                ? LegionOutput.ToArea(runner, p => global::Game.SendWorldRecord(p, id, InstanceProtocol.AnimationUpdate(id, 0, ZoneIdleClip, 1f), null))
+                : Task.CompletedTask);
     }
 
     static async Task SyncRulesToPlayer(Player player, DomainState state)
@@ -802,6 +838,7 @@ static class LegionDomain
     {
         int bosses;
         lock (state) bosses = wave.Count(i => state.Slots[i].Tier >= 2);
+        await PlayRevivalWave(player, state);
         int rising = await StartRising(module, player, state, wave, revival: true);
         module.Log($"Domain revival wave #{state.Waves}: {rising} ghosts rising ({bosses} sergeants/generals, {wave.Count - bosses} soldiers)");
     }
@@ -890,8 +927,9 @@ static class LegionDomain
             await PlayerOf(m).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)Math.Ceiling(state.TimerSeconds)),
                 $"0x0163 mission timer Legion domain: {state.TimerSeconds:0} s");
         }
-        await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: false);
-        await PlayEffect(player, PulseModel, state.X, state.Y, scale: 6f);
+        // The client shows the zone (counter.epk on a player within 60 cells) while checking_control_zone is 1: from now to the end.
+        await UpdateInitiatorState(player, state, obeliskState: 1, checkingControlZone: true);
+        await PlayRevivalWave(player, state);
 
         // Every soldier wakes at once: its ghost stands up and becomes its fighter (StepRising).
         int woken = await StartRising(module, player, state, rising, revival: false);
@@ -1140,6 +1178,8 @@ static class LegionDomain
         }
 
         await UpdateInitiatorState(player, state, obeliskState: 3, checkingControlZone: false);
+        foreach (uint zone in new[] { state.ZoneId, state.PerimeterId })
+            if (zone != 0 && player.Area.Objects.Has(zone)) await LegionOutput.Remove(player, zone);
         await UpdateCrystalState(player, state, active: true);
         await PlayEffect(player, PulseModel, state.X, state.Y, scale: 6f);
         if (LegionData.Current.MiscAnimatedModels.GetValueOrDefault(SoulercoasterKey) is { } soulAo)

@@ -135,6 +135,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
   there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
   fallback, and `map_legion_endless_monolith_pulse_time_ms` (20000) as the shortest time between two waves.
+- No client code creates `MiscAnimated` 3337 `LegionControlZone` (`endgame/control_zone.ao`) or 3338 `LegionControlZonePerimeter`
+  (`standhere.ao`): the server places both at the centre until 00:00. `control_zone/rig.amd` clips: 0 `idle` (loop), 1 `idle_off`,
+  2 `off`, 3 `player_in`, 4 `player_out`, 5 `revival_wave` (1333 ms, once), played with S->C 0x1b2 kind 0 (wave clip at the start
+  and each wave, then idle).
 - Monsters come from `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival cooldowns
   `6 s / 6 s / 16 s / 24 s`); the end `MiscAnimated` 3357.
 - A soldier that does not fight is a ghost running the client's `LegionRevive` action (type 0xd59a, skill 0x159a; wire layout:
