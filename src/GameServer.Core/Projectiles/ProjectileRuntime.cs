@@ -700,6 +700,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void Publish(ProjectileEventKind kind, ProjectileEntity p, ProjectileEndReason? reason = null) =>
         world.Publish(new(kind, p, Now, p.Position, reason));
 
+    /// <summary>Consumes one still-active flight without triggering its ordinary landing, fork, or return.</summary>
+    public bool Consume(long id)
+    {
+        if (!projectiles.TryGetValue(id, out var projectile)) return false;
+        End(projectile, ProjectileEndReason.Consumed, allowReturn: false);
+        return true;
+    }
+
     /// <summary>Retires one owner's live flights and delayed areas without disturbing other actors' uses.</summary>
     public void Discard(Func<ProjectileUse, bool> matches)
     {

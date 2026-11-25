@@ -5,7 +5,7 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond";
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX";
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -81,6 +81,15 @@ public static partial class Game
                             return ((double)x * x + (double)y * y) <= (double)radius * radius
                                 || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
                         });
+                }
+                else if (effect == "VortexAltX")
+                    ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
+                        sequence, repeat, damageMore, brandedTarget);
+                else if (effect == "FlameSurgeAltX")
+                {
+                    // The spell data describes a forward surge. The local reach and cone angle approximate its hitbox.
+                    int reach = Radius(46);
+                    Hit(from, reach, targetFilter: (_, at) => GroundSlamWave.Covers(direction, from, at, 25, reach));
                 }
                 else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
                 {

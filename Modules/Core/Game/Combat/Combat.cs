@@ -3329,8 +3329,19 @@ public static partial class Game
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                             && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, at,
-                                attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect))) is { } packets)
+                                AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)), out double igniteDps) is { } packets)
+                        {
                             (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
+                            if (Stat(global::Stat.FlameSurgeBurningGroundOnIgniteDamagePct) is > 0 and var burningPct)
+                            {
+                                var session = ProjectilesFor(player);
+                                double duration = SkillDurationModifiers.Seconds(Stat(global::Stat.BaseSkillEffectDuration),
+                                    key => playerStats.GetValueOrDefault(key), Stat);
+                                int groundRadius = SkillRadius(player, 25, skillStats, spell: true, gem.Effect, playerStats);
+                                session.PlaceDamageGround(ProjectileSession.Vector(m.Walk.Position(at)), groundRadius,
+                                    duration, DamageType.Fire, igniteDps * burningPct / 100d, session.Runtime.Now);
+                            }
+                        }
                         if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
                             && BleedOnHitLocked(player, id, m, profile.Bleed, critical, at,
                                 BleedReflected(playerStats)) is { } cut)
