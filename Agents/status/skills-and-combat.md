@@ -94,6 +94,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Elemental Hit (melee): chooses one element per swing and filters damage after conversion, then hits the area around
+  a successful strike. A pre-existing ailment of the chosen element increases the radius. The selected element agrees
+  with the supported client's predicted action.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
