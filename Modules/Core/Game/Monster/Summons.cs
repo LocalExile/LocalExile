@@ -364,8 +364,12 @@ public static partial class Game
     {
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
             && CorpseTypeAllowsUse(m, minionSkill: true, cannotUseSpectreCorpses) && m.Rarity != MonsterRarity.Unique;
-        // The corpse the cast was planned on, while it is still usable; otherwise the lookup runs as it always did.
-        if (preferred is not null && Allowed(preferred)) return preferred;
+        // The corpse the cast was planned on, while it is still present and usable; otherwise the lookup runs as it always did.
+        if (preferred is not null && Allowed(preferred)
+            && (preferred.ObjectId != 0
+                ? player.Area.Monsters.TryGetValue(preferred.ObjectId, out var live) && ReferenceEquals(live, preferred)
+                : player.Area.Monsters.Values.Any(m => ReferenceEquals(m, preferred))))
+            return preferred;
         if (target != 0 && player.Area.Monsters.GetValueOrDefault(target) is { } selected && Allowed(selected)) return selected;
         return player.Area.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(player)), aim) <= radius)
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));

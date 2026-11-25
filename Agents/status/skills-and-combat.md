@@ -326,11 +326,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
-  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
-  Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse in reach is refused before its cost is paid (not checked live).
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types, and a placed totem
   is listed under `TotemMinion` until it dies (not checked live).
-  Owned minions are created as the official servers send them; a raise removes its corpse (not checked live).
+  Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
+  in reach is refused before its cost is paid (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
