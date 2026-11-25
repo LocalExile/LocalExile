@@ -142,7 +142,7 @@ static partial class LegionMonolith
         player.Instance?.KeptAreaStats ?? global::Game.AreaLeagueStats(player);
 
     static readonly ConditionalWeakTable<object, Encounter[]> Encounters = new();
-    static readonly JsonSerializerOptions Json = new();
+    static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     static QuestObjectTypes.Info? Info, FlashLightInfo, ChestBaseInfo;
     static StateMachineData? Defaults, FlashLightDefaults, ChestBaseStates;

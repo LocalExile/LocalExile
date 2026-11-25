@@ -91,7 +91,7 @@ static class LegionDomain
     }
 
     static readonly ConditionalWeakTable<object, DomainState> Domains = new();
-    static readonly JsonSerializerOptions Json = new();
+    static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     static QuestObjectTypes.Info? InitiatorInfo, CrystalInfo;
     static StateMachineData? InitiatorDefaults, CrystalDefaults;

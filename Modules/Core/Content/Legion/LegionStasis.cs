@@ -48,7 +48,7 @@ static class LegionStasis
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter>> FightersByArea = new();
     static volatile bool anyFighter;
     const string FightersSaveKey = "LegionFighters";
-    static readonly JsonSerializerOptions Json = new();
+    static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
     /// <summary>True once any fighter was registered (the drops' cheap first test); false after the module's cleanup.</summary>
     public static bool AnyFighter => anyFighter;
