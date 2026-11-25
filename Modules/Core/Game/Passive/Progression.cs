@@ -183,6 +183,13 @@ public static partial class Game
             sources[Stat.AttackSpeedPlusPct] = ActorScale.Saturate((long)sources.GetValueOrDefault(Stat.AttackSpeedPlusPct)
                 + sources.GetValueOrDefault(Stat.MinionAttackSpeedPlusPct) + sources.GetValueOrDefault(Stat.MinionAttackAndCastSpeedPlusPct));
         ApplyRecoveryKeystoneStats(sources);
+        ApplyDamageTakenKeystoneStats(sources);
+        if (sources.GetValueOrDefault(Stat.KeystoneFirePurist) != 0)
+            sources[Stat.DealNoNonFireDamage] = 1;
+        if (sources.GetValueOrDefault(Stat.KeystoneColdPurist) != 0)
+            sources[Stat.DealNoNonColdDamage] = 1;
+        if (sources.GetValueOrDefault(Stat.KeystoneLightningPurist) != 0)
+            sources[Stat.DealNoNonLightningDamage] = 1;
         double now = AreaTime(player);
         ApplyZombieDamageBonus(player, sources, now);
         int mapBuffTime = MapModsOf(player)?.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory) ?? 0;
@@ -1389,6 +1396,10 @@ public static partial class Game
                 Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
             };
         }
+        if (EquipmentInput(Stat.KeystoneTemperedByWar) != 0)
+            pools = pools with { ColdResistance = pools.ColdResistance / 2, LightningResistance = pools.LightningResistance / 2 };
+        if (EquipmentInput(Stat.KeystoneMedvedsExchange) != 0)
+            pools = pools with { Ward = (uint)(pools.Ward * 60L / 100) };
         player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
         return pools with
         {
@@ -1399,6 +1410,29 @@ public static partial class Game
             AttackerSlowPct = EquipmentInput(AttackerSlow), EnemyRegenerationOnHitPct = EquipmentInput(EnemyRegenerationOnHit),
             VsBlindedCriticalPct = EquipmentInput(VsBlindedCriticalStat), WhileMovingStats = WhileMovingInputs.Any(n => EquipmentInput(n) != 0),
         };
+    }
+
+    static void ApplyDamageTakenKeystoneStats(Dictionary<uint, int> sources)
+    {
+        void Add(uint stat, int value) => sources[stat] = ActorScale.Saturate((long)sources.GetValueOrDefault(stat) + value);
+        if (sources.GetValueOrDefault(Stat.KeystoneDivineFlesh) != 0)
+        {
+            sources[IncomingResourceDefences.BypassStat] = 100;
+            Add(Stat.FireDamageTakenPctAsChaos, 50);
+            Add(Stat.ColdDamageTakenPctAsChaos, 50);
+            Add(Stat.LightningDamageTakenPctAsChaos, 50);
+            Add(Stat.FireDamageOverTimePctTakenAsChaos, 50);
+            Add(Stat.ColdDamageOverTimePctTakenAsChaos, 50);
+            Add(Stat.LightningDamageOverTimePctTakenAsChaos, 50);
+            Add(Stat.BaseMaximumChaosDamageResistancePct, 5);
+        }
+        if (sources.GetValueOrDefault(Stat.KeystoneTemperedByWar) != 0)
+        {
+            Add(Stat.ColdDamageTakenPctAsFire, 50);
+            Add(Stat.LightningDamageTakenPctAsFire, 50);
+            Add(Stat.ColdDamageOverTimePctTakenAsFire, 50);
+            Add(Stat.LightningDamageOverTimePctTakenAsFire, 50);
+        }
     }
 
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),
@@ -1632,7 +1666,8 @@ public static partial class Game
         {
             ConvertSuppressionToSpellDodge = Get(Stat.KeystoneAcrobatics) != 0,
             BaseSpellDodgeChance = Get(Stat.ChanceToDodgeSpellsPct),
-            NoEnergyShield = Get(Stat.KeystoneMiracleOfThaumaturgy) != 0,
+            NoEnergyShield = Get(Stat.KeystoneMiracleOfThaumaturgy) != 0 || Get(Stat.KeystoneVoranasAdaption) != 0,
+            NoEnergyShieldFromIntelligence = Get(Stat.KeystoneSolipsism) != 0,
         };
     }
 

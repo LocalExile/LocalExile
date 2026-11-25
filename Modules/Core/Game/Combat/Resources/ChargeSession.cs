@@ -101,6 +101,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         }
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
         foreach (uint name in ChargeTriggers.Observed) Record(name);
+        Record(Stat.KeystoneQuietMight);
         observed = seen;
     }
 
@@ -223,7 +224,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             log.Add(set.Type is { } t ? $"{Charges.Name(t)} charges set to {set.Count}" : "charges cleared");
             return;
         }
-        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log);
+        foreach (var gain in ChargeGains.Roll(e, stats, weapon(), rng)) Apply(gain, now, rng, log, stats);
     }
 
     StepResult Finish(double now, List<string> log, Random? rng = null)
@@ -272,8 +273,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         }
     }
 
-    void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
+    void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log, Func<uint, int>? stats = null)
     {
+        if (gain is { Type: ChargeType.Frenzy, Count: > 0 }
+            && (stats?.Invoke(Stat.KeystoneQuietMight) ?? Observed(Stat.KeystoneQuietMight)) != 0)
+            gain = gain with { Type = ChargeType.Power };
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {

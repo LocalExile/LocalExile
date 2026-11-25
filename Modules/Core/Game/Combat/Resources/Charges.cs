@@ -305,7 +305,9 @@ public static partial class Game
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased));
+        double now = AreaTime(player);
+        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+            * WindDancerHitFactor(player, attack, now, stats));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every

@@ -136,6 +136,12 @@ public static partial class Game
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
         var settings = MonsterIgnites.Settings.From(rows, hand, get);
+        if (get(Stat.KeystoneFirePurist) != 0)
+            settings = settings with {
+                Seconds = settings.Seconds / 4,
+                Min = settings.Min * .75, Max = settings.Max * .75,
+                CriticalMin = settings.CriticalMin * .75, CriticalMax = settings.CriticalMax * .75
+            };
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
         int per = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         if (per > 0)

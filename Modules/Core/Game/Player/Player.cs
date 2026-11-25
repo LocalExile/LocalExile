@@ -1631,6 +1631,7 @@ public static partial class Game
     public static int PlayerEvasionBase(Player player, double now)
     {
         EnsureConditionalItemPools(player);
+        if (StatSourceValues(player).GetValueOrDefault(Stat.KeystoneVoranasAdaption) != 0) return WardDefenceRating(player);
         return player.Walk.Moving(now) && player.Pools.EvasionWhileMoving is int moving ? moving : player.Pools.Evasion;
     }
 

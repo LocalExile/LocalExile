@@ -145,6 +145,7 @@ public static class CharacterStats
         public bool ConvertSuppressionToSpellDodge { get; init; }
         public int BaseSpellDodgeChance { get; init; }
         public bool NoEnergyShield { get; init; }
+        public bool NoEnergyShieldFromIntelligence { get; init; }
         public static readonly Bonus None = new();
     }
 
@@ -307,7 +308,7 @@ public static class CharacterStats
         if (b.NoMana) mana = 0;
         // Native ClientStrings IntelligenceDescription: 10 Intelligence grants 1% increased ES.
         // Pinned PoB CalcPerform applies complete groups after resolving final attributes.
-        long totalEnergyShieldPct = (b.NoIntelligenceBonuses ? 0L : intel / 10L) + b.EnergyShieldPct
+        long totalEnergyShieldPct = (b.NoIntelligenceBonuses || b.NoEnergyShieldFromIntelligence ? 0L : intel / 10L) + b.EnergyShieldPct
             + (long)b.EnergyShieldPctPerTenStrength * (str / 10);
         int energyShieldPct = (int)Math.Clamp(totalEnergyShieldPct, int.MinValue, int.MaxValue);
         uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,

@@ -15,6 +15,8 @@ public static partial class Game
             stats[Stat.CannotRechargeEnergyShield] = 1;
         if (stats.GetValueOrDefault(Stat.KeystoneSoulTether) != 0)
             stats[Stat.NoEnergyShieldRechargeOrRegeneration] = 1;
+        if (stats.GetValueOrDefault(Stat.KeystoneFocusedRage) != 0)
+            stats[Stat.NoManaRegeneration] = 1;
     }
 
     static double LifeRegenerationKeystoneFactor(Func<uint, int> get) =>
