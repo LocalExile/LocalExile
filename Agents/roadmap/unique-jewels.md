@@ -141,12 +141,10 @@ Reference, measurements and live evidence: [timeless-jewels](../docs/game/timele
 - Done: the item data, `/timeless`, the alternate-tree generator, the fixed radius, replacement/addition stats, the
   one-Historic limit, save/load, the live client check, Militant Faith's two random devotion mods on the item, and the
   `DevotionStats` scaling of those mods by `floor(Devotion / 10)`.
-- Remaining: the conqueror keystones' special gameplay mechanics (the stat rows are applied, but Divine Flesh,
-  Chainbreaker and the rest have no consumers yet), the per-Devotion target stats whose consumers are still missing
-  (curse duration, minion/totem/brand/channelled, mana cost and shield defences), legacy conquerors, and any future
-  per-node stat overrides shared with the radius unique jewels.
-- Next done point: at least one conqueror keystone's mechanic is modelled and checked in combat, without changing the
-  already verified small/notable replacement.
+- Remaining: live checks for the implemented keystone effects, the other conqueror keystones, and legacy conquerors.
+- Per-Devotion consumers are still missing for curse duration, minions, totems, brands, channelled skills, mana cost
+  and shield defences. Future per-node stat overrides are shared with radius unique jewels.
+- Next done point: exercise the conqueror keystones in live combat and retain the existing alternate-tree replacement.
 
 ### 6. Abyss jewels and cluster jewels
 

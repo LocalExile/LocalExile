@@ -343,6 +343,7 @@ public static partial class Game
                 SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
             };
+            repriced = WithCasterAuraStamps(player, repriced, input.Raw);
             if (repriced == aura) continue;
             player.Auras[aura.SkillId] = repriced;
             changedAuras.Add(repriced);
@@ -404,18 +405,11 @@ public static partial class Game
         // Commander of Darkness: the caster's current values, stamped onto each running aura so the allies
         // and minions it reaches learn them (AuraCatalog.Aura's Commander* fields). The reconcile cache
         // compares Sources, so allocating or removing the node re-runs this loop.
-        var commander = CommanderOfDarkness(inputs.Sources);
         List<AuraCatalog.Aura>? restamped = null;
         foreach (var aura in player.Auras.Values)
         {
-            int perAura = AuraCatalog.PerAuraEffectPctFor(aura, inputs.Sources);
-            if (perAura != aura.PerAuraEffectPct
-                || commander.Speed != aura.CommanderAttackCastSpeedPct
-                || commander.Resistance != aura.CommanderElementalResistancePct
-                || commander.Damage != aura.CommanderDamagePct)
-                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura,
-                    CommanderAttackCastSpeedPct = commander.Speed, CommanderElementalResistancePct = commander.Resistance,
-                    CommanderDamagePct = commander.Damage });
+            var next = WithCasterAuraStamps(player, aura, inputs.Sources);
+            if (!ReferenceEquals(next, aura)) (restamped ??= []).Add(next);
         }
         if (restamped is not null)
         {

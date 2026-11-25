@@ -84,12 +84,15 @@ public sealed class TotemState
         public Item? SourceItem;
         public bool Ballista;
         public int BonusSlots;
+        public int PlacementGroup { get; init; }
         public double NextCast;
         public SingleUseCooldownState? Cooldown;
         public ushort Sequence;
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
+        /// <summary>Whether its removal from the owner's minion roster was written.</summary>
+        public bool RosterRemovalSent;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
@@ -104,25 +107,45 @@ public sealed class TotemState
     public IReadOnlyList<Totem> All => _totems;
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
 
-    /// <summary>Adds a totem; the oldest living ones die until at most <paramref name="limit"/> live. The ones it replaced.</summary>
+    public static int SharedLimit(int limit, int? ordinaryLimit, int bonusSlots, IEnumerable<Totem> living)
+    {
+        if (ordinaryLimit is not int ordinary) return limit;
+        int bonus = Math.Max(bonusSlots, living.Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
+        return Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
+    }
+
+    /// <summary>The bodies a placement replaces, in order. Each group's bonus raises the shared cap while that
+    /// group is present and the largest live bonus applies. The incoming group still uses its own placement limit.</summary>
+    public List<Totem> Replacements(int limit, double now, int? ordinaryLimit, bool ballista, int group, int bonusSlots)
+    {
+        var living = Living(now).ToList();
+        var replaced = new List<Totem>();
+        if (ordinaryLimit is not null && !ballista)
+        {
+            bool SameGroup(Totem totem) => !totem.Ballista && totem.PlacementGroup == group;
+            int groupCount = living.Count(SameGroup);
+            for (int i = 0; i < living.Count && groupCount >= limit; i++)
+                if (SameGroup(living[i]))
+                {
+                    replaced.Add(living[i]);
+                    living.RemoveAt(i--);
+                    groupCount--;
+                }
+        }
+        int total = SharedLimit(limit, ordinaryLimit, bonusSlots, living);
+        while (living.Count >= total && living.Count > 0)
+        {
+            replaced.Add(living[0]);
+            living.RemoveAt(0);
+        }
+        return replaced;
+    }
+
+    /// <summary>Adds a totem and retires the bodies the placement replaces.</summary>
     public List<Totem> Place(Totem totem, int limit, double now, int? ordinaryLimit = null)
     {
-        var replaced = new List<Totem>();
-        void Retire(Totem old) { old.DiedAt = now; replaced.Add(old); }
-        if (ordinaryLimit is int ordinary)
-        {
-            // Ballista-only bonus slots do not let ordinary totems exceed their own cap. Placing one ordinary
-            // totem beside two ballistas must not remove both ballistas as the old all-totem limit of one did.
-            if (!totem.Ballista)
-                foreach (var old in Living(now).Where(t => !t.Ballista).ToArray())
-                    if (Living(now).Count(t => !t.Ballista) >= limit) Retire(old);
-            int bonus = Math.Max(totem.BonusSlots, Living(now).Where(t => t.Ballista).Select(t => t.BonusSlots).DefaultIfEmpty(0).Max());
-            int total = Math.Max(limit, (int)Math.Min(int.MaxValue, (long)ordinary + bonus));
-            while (Living(now).Count() >= total && Living(now).FirstOrDefault() is { } oldest) Retire(oldest);
-        }
-        else
-            foreach (var old in Living(now).ToArray())
-                if (Living(now).Count() >= limit) Retire(old);
+        var replaced = Replacements(limit, now, ordinaryLimit, totem.Ballista, totem.PlacementGroup, totem.BonusSlots);
+        foreach (var old in replaced) old.DiedAt = now;
         _totems.Add(totem);
         Changed?.Invoke();
         return replaced;

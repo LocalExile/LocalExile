@@ -75,7 +75,7 @@ public static partial class Game
                 now, stats, recouped);
             player.PlayerLife = (uint)Math.Max(0, (long)lifeBefore - lifeDamage);
             TrimLeechLocked(player);
-            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0);
+            RecordIncomingHitLocked(player, now, spell, blocked, suppressed, lifeDamage, dealt > 0, attack: !spell);
             RecentHitLifeLossOnHitLocked(player, now);
             UnhingedHitRecoveryLocked(player, now, stats);
             if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }

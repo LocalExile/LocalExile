@@ -298,6 +298,7 @@ public static partial class Game
             if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
+            int? totemPlacements = null;
             ChargeType? bypass = null;
             bool cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
@@ -323,6 +324,13 @@ public static partial class Game
                     if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge
                         || !ChargesOf(player).CanSpend(charge)) return false;
                     bypass = charge;
+                }
+                if (reserve && skillId is ushort totemSkill && IsTotemSkill(player, totemSkill))
+                {
+                    // Each totem uses a stored cooldown, but the placement skill pays once per action.
+                    totemPlacements = bypass is null && !cooldownReset && state.Ready
+                        && TotemLimit(player, totemSkill) >= 2 && WantsTwoTotems(player, totemSkill)
+                        && state.TryUse(now, cooldown) ? 2 : 1;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
                 if (reserve && bypass is null && !cooldownReset)
@@ -358,7 +366,7 @@ public static partial class Game
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
                 instant, reserve, bypass is null ? state : null, bypass is null ? state?.UseVersion ?? 0 : 0, stance)
             {
-                SharedUses = sharedUses, Paid = paid, Attack = attack,
+                SharedUses = sharedUses, Paid = paid, Attack = attack, TotemPlacements = totemPlacements,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
             if (ticket is not null) ticket.EnduranceChargesAfterCost = enduranceCharges;

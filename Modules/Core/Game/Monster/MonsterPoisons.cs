@@ -63,6 +63,7 @@ public static partial class Game
         if ((allDamage ? mitigated.MinTotal : phys + chaos) <= 0) return false;
 
         if (MonsterPoisons.Prohibited(Get)) return false;
+        if (Get(Stat.CannotPoisonPoisonedEnemies) != 0 && target.Poisons.Stacks(now) > 0) return false;
 
         long chance = (long)Get(Stat.BaseChanceToPoisonOnHitPct)
             + (spell
@@ -83,9 +84,11 @@ public static partial class Game
         // each poison applied.
         int doubleChance = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
             ? Math.Min(finalChance, 100) : 0;
+        bool additionalAllowed = Get(Stat.CannotInflictAdditionalPoisons) == 0;
+        int extraOnFreshTarget = additionalAllowed ? Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies) : 0;
+        int extraWithWeapon = additionalAllowed && !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0;
         if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
-            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random,
-            !spell && !settings.Secondary ? settings.AdditionalWithWeapon : 0)) return false;
+            extraOnFreshTarget, doubleChance, random, extraWithWeapon)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;

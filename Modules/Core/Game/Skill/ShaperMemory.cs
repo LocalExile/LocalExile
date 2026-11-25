@@ -184,7 +184,7 @@ public static partial class Game
                     foreach (var (enemyId, enemy) in area.MonstersNear(centre, reach))
                         if (enemy is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
                             && enemy.Effects[Stat.BaseCannotBeDamaged] == 0
-                            && InsideFrigidBondBeam(enemy.Walk.Position(now), from, aim, radius))
+                            && InsideBondBeam(enemy.Walk.Position(now), from, aim, radius))
                         {
                             int damage = ActorScale.Saturate((long)packet.Components.Sum(p => p.Range.Min * MonsterDotTaken(enemy, p.Type, now)));
                             Damage(enemyId, enemy, damage, true, now);
