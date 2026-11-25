@@ -6,14 +6,14 @@ using GameServer.Core.World;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
-/// whose league lists it, a mod's in every league while it is loaded. They run in that order: the league's code, then the modules', then the
-/// mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
+/// whose league lists it, a mod's in every league that takes it (all, unless its league.json says) while it is loaded. They run in
+/// that order: the league's code, then the modules', then the mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
     {
-        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner)
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank ? league.Takes(Owner) : league.Modules.Contains(Owner)
             || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
     }
 
