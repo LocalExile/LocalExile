@@ -71,22 +71,28 @@ public sealed class SummonDeathTests
             var queue = f.Player.Minions.OutputQueue;
             Assert.Single(queue, o => o.Kind == PlayerMinions.OutputKind.Life && o.TargetId == id && ReferenceEquals(o.Target, zombie));
             Assert.DoesNotContain(queue, o => o.RemovesObject && o.WorldId == id);
+            // What the area writes to every client at the frame's end: the summon's life 0 (the life component, as for a
+            // monster that dies), and no removal.
+            f.Player.Area.Life.Publish();
+            var written = f.Player.Area.Delta.Take();
+            Assert.Single(written, r => r.Entity == id && r.Bytes.AsSpan().SequenceEqual(InstanceProtocol.LifeUpdate(id, 0, orderKey: uint.MaxValue)));
+            Assert.DoesNotContain(written, r => r.Entity == id && r.Kind == AreaDelta.Kind.Remove);
 
             var previous = Program.Outgoing;
             Program.Outgoing = (_, bytes) => { lock (sent) sent.Add((frames.Time, (byte[])bytes.Clone())); };
             try
             {
-                frames.Time = 2 + Game.SummonBodySeconds - .05;
+                frames.Time = 2 + 21 * Program.TickSeconds - .05;
                 await Game.PlayerMinionsTick(f.Player, frames.Time);
                 Assert.Equal(-1, Find(sent, remove).Message);
-                frames.Time = 2 + Game.SummonBodySeconds + .05;
+                frames.Time = 2 + 21 * Program.TickSeconds + .05;
                 await Game.PlayerMinionsTick(f.Player, frames.Time);
                 await Game.PlayerMinionsTick(f.Player, frames.Time + 1);
             }
             finally { Program.Outgoing = previous; }
             var removed = Find(sent, remove);
             Assert.True(removed.Message >= 0);
-            Assert.InRange(removed.At - 2, Game.SummonBodySeconds - .15, Game.SummonBodySeconds + .15);
+            Assert.InRange(removed.At - 2, 21 * Program.TickSeconds - .15, 21 * Program.TickSeconds + .15);
             // Every message about the body that is not its removal came before the removal.
             lock (sent) Assert.DoesNotContain(sent.Skip(removed.Message + 1), s => s.Bytes.AsSpan().IndexOf(BitConverter.GetBytes(id).Reverse().ToArray()) >= 0);
             Assert.Equal(1, Count(sent, remove));
@@ -98,11 +104,12 @@ public sealed class SummonDeathTests
     }
 
     [Fact]
-    public async Task A_body_that_two_paths_reach_is_removed_once()
+    public async Task A_body_that_two_paths_reach_or_whose_owner_leaves_inside_the_21_frames_is_removed_once()
     {
         using var f = new MinionUtilityTests.Fixture();
         var frames = new Frames(); var outer = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, frames);
+        var ownedBefore = GameArea.Own(f.Player.Area);
         try
         {
             var (id, zombie, fighter, _) = await Expire(f, frames);
@@ -113,6 +120,17 @@ public sealed class SummonDeathTests
             Assert.Single(f.Player.Minions.Bodies, b => b.Id == id);
             Assert.Empty(f.Player.Summons.Fighters);
 
+            // The owner leaves the area inside the 21 frames: the other clients are told once, and the body does not stay.
+            Assert.True(f.Player.MinionOrigins.ContainsKey(id));
+            f.Player.Area.Delta.Take();
+            Game.LeaveArea(f.Player);
+            var gone = InstanceProtocol.RemoveObject(id); gone[6] = gone[7] = gone[8] = gone[9] = 0xff;
+            Assert.Single(f.Player.Area.Delta.Take(), r => r.Entity == id && r.Kind == AreaDelta.Kind.Remove && r.Bytes.AsSpan().SequenceEqual(gone));
+            Assert.Empty(f.Player.Minions.Bodies);
+            Assert.False(f.Player.Area.Monsters.ContainsKey(id));
+            Assert.False(f.Player.MinionOrigins.ContainsKey(id));
+
+            // Nor does the timed removal send a second one.
             var sent = new List<(double, byte[])>(); var previous = Program.Outgoing;
             Program.Outgoing = (_, bytes) => { lock (sent) sent.Add((frames.Time, (byte[])bytes.Clone())); };
             try
@@ -122,10 +140,9 @@ public sealed class SummonDeathTests
                 await Game.PlayerMinionsTick(f.Player, frames.Time + 1);
             }
             finally { Program.Outgoing = previous; }
-            var gone = InstanceProtocol.RemoveObject(id); gone[6] = gone[7] = gone[8] = gone[9] = 0xff;
-            Assert.Equal(1, Count(sent, gone));
-            Assert.False(f.Player.Area.Monsters.ContainsKey(id));
+            Assert.Equal(0, Count(sent, gone));
+            Assert.DoesNotContain(f.Player.Area.Delta.Take(), r => r.Entity == id && r.Kind == AreaDelta.Kind.Remove);
         }
-        finally { Game.AreaUpdateContext.Value = outer; }
+        finally { GameArea.Own(ownedBefore); Game.AreaUpdateContext.Value = outer; }
     }
 }

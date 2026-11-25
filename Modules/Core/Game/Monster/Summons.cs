@@ -762,7 +762,7 @@ public static partial class Game
     }
 
     /// <summary>How long the body of a summon that died stays before it is removed: 21 frames.</summary>
-    public const double SummonBodySeconds = 21 / 30.0;
+    public const double SummonBodySeconds = 21 * Program.TickSeconds;
 
     /// <summary>A summon that ended in play (its time is up, it was killed, its owner died, a new one replaced it past the
     /// limit) dies where it stands: its life goes to 0 (not again when it was killed, which showed it already), it is not a
@@ -783,7 +783,7 @@ public static partial class Game
     // dies: see SummonBodyDiesLocked. Not for one already dead and waiting to be re-formed (a Spectre with a finite ReviveAt).
     static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true, bool dies = false)
     {
-        dies &= !double.IsFinite(fighter.ReviveAt);
+        bool diesHere = dies && !double.IsFinite(fighter.ReviveAt);   // each summon by its own ReviveAt; its children by theirs
         if (fighter.Definition.Kind == "Phantasm")
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
         if (fighter.Definition.Kind == "Spectre")
@@ -798,7 +798,7 @@ public static partial class Game
         SpectreChildParents.Remove(fighter);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
-        RemoveGolemBodyLocked(player, fighter, now, reconcileBlessing, dies);
+        RemoveGolemBodyLocked(player, fighter, now, reconcileBlessing, diesHere);
         player.Minions.StatRevision++;
     }
 
