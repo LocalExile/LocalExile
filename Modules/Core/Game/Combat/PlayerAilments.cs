@@ -34,6 +34,7 @@ public static partial class Game
         PlayerElementalAilments.HitSettings settings, uint? source = null)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
+        if (Get(Stat.AllDamageTakenCanIgnite) != 0) settings = settings with { AllDamageCanIgnite = true };
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
