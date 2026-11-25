@@ -1,6 +1,20 @@
 
 public static partial class Game
 {
+    static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
+    {
+        if (percent <= 0 || player.PlayerLife == 0) return;
+        uint lost = (uint)Math.Min(player.PlayerLife, (long)player.PlayerMaxLife * percent / 100);
+        if (lost == 0) return;
+        player.PlayerLife = VaalImmortalCallLife(player, player.PlayerLife - lost, now);
+        if (player.PlayerLife != 0) return;
+        player.InvalidateIncomingHits();
+        RecordHardcoreDeath(player);
+        int epoch = player.IncomingHitEpoch;
+        ProjectilesFor(player).Enqueue(() => RunOnAreaFrame(player,
+            () => PlayerDiedAtEpoch(player, "life lost on critical strike", epoch)));
+    }
+
     // "Your Critical Strikes do not deal extra Damage": the stat, and the two keystones whose text says the same
     // (Elemental Overload, Perfect Agony). Resolute and Precise Technique say "Never deal Critical Strikes", which is
     // CriticalProhibitedBy instead.
