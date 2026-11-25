@@ -989,6 +989,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     public IReadOnlyList<GrantedSkill>? Skills { get; init => field = Owned.List(value); } = Owned.List(Skills);
     public IReadOnlyList<(uint Key, int Value)>? Stats { get; init => field = Owned.List(value); } = Owned.List(Stats);
 
+    /// <summary>The type's .ot chain (object-types.json), for lineage-gated extras in <see cref="CanSerialize"/>:
+    /// empty when the caller does not know it, in which case no lineage-gated extra is allowed.</summary>
+    public IReadOnlyList<string> Chain { get; init; } = [];
+
     /// <summary>Resolved source flags; absent metadata conservatively writes zero.</summary>
     public MonsterLifeData? LifeData { get; init; }
     /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
@@ -1048,10 +1052,24 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// Mercenary (the Mercenaries varieties) reads a u16, <see cref="MercenaryBuild"/>;
     /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
     /// 0x141e47880 as <see cref="QuestObject"/> writes it. BlightTower's only vtable (0x1435b5728) has a bare `ret` slot 17
-    /// (Agents/docs/re/components.md), so it reads nothing.</summary>
+    /// (Agents/docs/re/components.md), so it reads nothing. SectorEvents is not in this set: it reads nothing, but
+    /// it is writable only for the Heist rogue-allies lineage (see <see cref="LineageExtras"/>).</summary>
     // LimitedLifespan (0x1435b2e28) also reads no bytes at creation.
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
         "NPC", "InteractionAction", "Timer", "Mercenary", "TriggerableBlockage", "BlightTower", "LimitedLifespan"];
+
+    /// <summary>Components that read nothing but are writable only for types whose .ot chain includes a base type a
+    /// module registered (<see cref="AllowExtraFor"/>); the other types that carry the component stay uncreatable.
+    /// A registration needs the same evidence as <see cref="Extras"/>: the component reads nothing.</summary>
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> LineageExtras = new(StringComparer.Ordinal);
+
+    /// <summary>Lets <paramref name="component"/>, a component the client's create reads nothing for, be written for the
+    /// types whose .ot chain includes <paramref name="baseType"/>. Called by a module at data load.</summary>
+    public static void AllowExtraFor(string component, string baseType) => LineageExtras[component] = baseType;
+
+    static bool IsLineageExtra(string component, IReadOnlyList<string>? chain) =>
+        chain is not null && LineageExtras.TryGetValue(component, out string? lineage)
+            && chain.Contains(lineage, StringComparer.Ordinal);
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -1059,13 +1077,15 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Whether <see cref="Blob"/> can serialize a type with these deserialized components.</summary>
     /// StateMachine needs the type's shared states and timers (<see cref="StateMachineData"/>).
-    public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false) =>
+    /// <param name="chain">The type's .ot chain (object-types.json). A lineage-gated extra is allowed only when
+    /// the chain includes its base type; null or empty allows none.</param>
+    public static bool CanSerialize(IReadOnlyList<string> components, bool haveStateMachine = false, IReadOnlyList<string>? chain = null) =>
         components.Count >= BaseComponents.Length && components.Take(BaseComponents.Length).SequenceEqual(BaseComponents) &&
-        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone") && (c != "StateMachine" || haveStateMachine));
+        components.Skip(BaseComponents.Length).All(c => (Extras.Contains(c) || c == "ControlZone" || IsLineageExtra(c, chain)) && (c != "StateMachine" || haveStateMachine));
 
     public byte[] Blob()
     {
-        if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
+        if (!CanSerialize(Components, StateMachine is not null, Chain)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
         w.U8(0);            // object flags
         w.U8(0);            // base data entry count
@@ -1128,7 +1148,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // unblocked: its own body is what stands in the way.
                 case "TriggerableBlockage": w.U8(0); break;
                 // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
-                // Functions, PlayerClass, DiesAfterTime, Timer, LimitedLifespan, BlightTower: no data.
+                // Functions, PlayerClass, DiesAfterTime, Timer, LimitedLifespan, BlightTower, SectorEvents: no data.
             }
         }
         w.U8(0);            // tasks
@@ -1159,6 +1179,8 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
 {
     public IReadOnlyList<string>? Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     public static readonly string[] BaseComponents = ["Positioned", "Stats", "Pathfinding", "Buffs", "Life", "Animated", "Actor", "PetAi"];
+    /// <summary>Facing in radians (a hideout pet's saved rotation).</summary>
+    public float Rotation { get; init; }
 
     static readonly HashSet<string> Extras = ["StateMachine", "Functions", "BaseEvents"];
 
@@ -1174,7 +1196,7 @@ public sealed record PetObject(int GridX, int GridY, uint Owner, IReadOnlyList<s
         w.U8(0).U8(0);                                                        // object flags, base data entries
         // Positioned: team 0 (the player's), and flags1 0x08 with 1 (→ +0x1e6 bit 0x40), which the client's object
         // collision test (0x141e65ae0) skips: walkers, the player's own included, pass through the pet.
-        w.Positioned(GridX, GridY, blocksNoWalker: true);
+        w.Positioned(GridX, GridY, Rotation, blocksNoWalker: true);
         w.Stats([]).U32(0).U32(0).U8(0);                                      // Stats
         w.U16(0);                                                             // Buffs
         Pool(w, 1); Pool(w, 0); Pool(w, 0); w.U8(0);                          // Life: alive

@@ -58,7 +58,7 @@ public static partial class Game
         if (hideout.First(WaypointObject.MetadataPath) is { } wp)
             AddFunctional("waypoint", wp, player.Layout.Waypoint?.GridX ?? wp.X,
                 player.Layout.Waypoint?.GridY ?? wp.Y, player.Layout.Waypoint?.Rotation ?? wp.Rotation);
-        if (player.CurrentHideoutScene is { } scene)
+        if (HideoutFurniture(player) is { } scene)
         {
             var guildTemplate = hideout.First(StashObject.GuildMetadataPath);
             AddFunctional("stash", scene.Stash, scene.Stash.X, scene.Stash.Y, scene.Stash.Rotation);

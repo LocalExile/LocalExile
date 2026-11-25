@@ -324,6 +324,8 @@ public static partial class Game
         bool criticalProjectileKnockback = critical && projectileDamage
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
+        if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
+            criticalProjectileKnockback = false;
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
             attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker

@@ -136,6 +136,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+  The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
 - Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
 - Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
@@ -179,6 +180,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
   assembly.
 
+- Expedition in maps and Acts 6-10 supports placing explosives, detonating markers and opening excavated chests.
+  The installed client produced chest loot in Forbidden Woods in Lockstep and on the Act 6 Coast in Predictive.
 - Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
 - Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 
@@ -214,6 +217,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
+- Simulacrum's flask drain and map hit effects work offline. See [map hits](../docs/game/maps.md#monster-hit-modifiers).
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.
@@ -233,7 +237,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   The map-device underfoot escape and walking through its released old position were verified in the client.
   Extracted AO hull radii cover small and large map devices; persistence and clearance have automated coverage.
   Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
-  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5d`/`0x5e`, capped at 750; `0x5a` guild placement refused),
+  The Decorations panel loads its list in the owner's hideout (0x21 own-hideout bit; it stayed on "Loading…" without it,
+  live 2026-11-22). Placing (`C→S 0x59` by owned record, `0x5a` by hash), deleting (`0x5c` Delete key, `0x5d`) and
+  resetting (`0x5e`) custom decorations, capped at 750, are saved per account; pets stand as ownerless pet objects.
+  A placed map device variant replaces the working device, with its button from MapDevices.dat, a blocker that stops
+  short of the button, and its model's own portal places or ring radius; the Puzzle Cube is refused.
   `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),
   league-scoped Item Display Case (`0x7b` `0x49`, `0x67`, `0x68`), Horticrafting Ctrl + click (`0xf9`),
   and `RecipeUnlockDisplay` area unlock flags are implemented (offline verified; live client checks pending).
@@ -450,7 +458,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Not working yet
 
-- Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
+- Hideouts: changing a placed decoration's appearance and the Puzzle Cube map device are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
 - Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
