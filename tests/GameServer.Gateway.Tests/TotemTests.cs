@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
