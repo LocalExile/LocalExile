@@ -32,6 +32,10 @@ static class TestEnvironment
         GameServer.Modules.Survivors.SurvivorsSkillsModule.LoadData();
         GameServer.Modules.Harvest.HarvestModule.LoadData();
         GameServer.Modules.Deepwater.DeepwaterModule.LoadData();
+        GameServer.Modules.Bestiary.BestiaryModule.LoadData();
+        GameServer.Modules.Incursion.IncursionModule.LoadData();
+        GameServer.Modules.Abyss.AbyssModule.LoadData();
+        GameServer.Modules.Betrayal.BetrayalModule.LoadData();
         GameServer.Modules.Delirium.DeliriumModule.LoadData();
         // A test that loads a character's inventories expects a save store; the test order is not stable, so
         // open the scratch one before any test and let ReleaseSaves return to it.

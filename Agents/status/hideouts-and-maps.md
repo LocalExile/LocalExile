@@ -179,6 +179,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
   assembly.
 
+- Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
+- Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
+
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
   packs stay out of the grove.
@@ -200,6 +203,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Station. Oshabi's fight ran in the client from the soul tree to the altar (four colours, adds, rewards, Bloodline
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
+
+- Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
   Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live

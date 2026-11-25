@@ -106,7 +106,7 @@ public static partial class Game
     public static async Task PublishQuestFlags(Player player, QuestFlagCommit change, bool on = true)
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: quest flag {flag} {(on ? "set" : "cleared")}");
-        if (!player.Connection.PlayerSent) return;
+        if (player.Closed || !player.Connection.PlayerSent) return;
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
