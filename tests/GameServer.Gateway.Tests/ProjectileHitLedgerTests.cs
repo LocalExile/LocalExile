@@ -39,5 +39,11 @@ public sealed class ProjectileHitLedgerTests
         Assert.Empty(runtime.Projectiles);
         Assert.Equal(0, ledger.Count); // The flight's entries and the stale one go once the flight is removed.
         Assert.Equal(hitsSoFar, world.Hits.Count);
+        // An impact resolves at once with no flight: its key is left behind and the next advance prunes it.
+        var impact = new ProjectileUse(profile, new(1), new(1), 1, new(0, 0), new(100, 0));
+        runtime.ImpactTarget(impact, world.Targets[1], "synthetic");
+        Assert.Equal(1, ledger.Count);
+        runtime.AdvanceTo(runtime.Now + ProjectileRuntime.TickQuanta);
+        Assert.Equal(0, ledger.Count);
     }
 }

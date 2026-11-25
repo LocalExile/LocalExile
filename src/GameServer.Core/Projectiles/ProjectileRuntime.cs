@@ -12,8 +12,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly HashSet<long> pendingEmissions = [];
     readonly HashSet<long> activeGroups = [];
     long sequence, commandSequence, terrainEpoch;
-    // Counts every moment a hit-ledger group (flight, emission, child emission or delayed area) can leave the active set.
-    // The ledger is pruned only when this moved, because an unchanged active set cannot have made any key stale.
+    // Counts every moment a hit-ledger group can stop being active: a flight, emission, child emission or delayed area
+    // leaving its set, or a group that resolves at once and never enters one (impacts, targeted hits, immediate areas).
+    // The ledger is pruned only when this moved, because otherwise no key can have become stale.
     long removals, prunedAt;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;

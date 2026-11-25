@@ -115,15 +115,20 @@ public sealed partial class ProjectileRuntime
             && a.Key != p.Use.Owner && (a.Position(Now) - origin).Length <= recipe.Radius)
             .OrderBy(a => (a.Position(Now) - origin).Length).ThenBy(a => a.Key.Id).Take(recipe.Count))
             Damage(p, target, recipe.Stage, hitEvent, new());
+        removals++; // The hit event group is finished and was never active.
     }
 
     /// <summary>Resolve a grounded projectile impact without a horizontal flight or a direct-hit victim.</summary>
     public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
-        => Area(ImpactEntity(use, centre), area);
+        { Area(ImpactEntity(use, centre), area); removals++; }
 
     /// <summary>Resolve a staged contact against one selected target without a horizontal flight.</summary>
-    public ProjectileHitResult ImpactTarget(ProjectileUse use, ProjectileActor target, string stage) =>
-        Damage(ImpactEntity(use, target.Position(Now)), target, stage);
+    public ProjectileHitResult ImpactTarget(ProjectileUse use, ProjectileActor target, string stage)
+    {
+        var result = Damage(ImpactEntity(use, target.Position(Now)), target, stage);
+        removals++; // The impact group is finished and was never active.
+        return result;
+    }
 
     ProjectileEntity ImpactEntity(ProjectileUse use, ProjectileVector centre)
     {
@@ -179,7 +184,11 @@ public sealed partial class ProjectileRuntime
             }
             // Rejected centres consume their spatial sample, but no time in the surviving sequence.
             long at = checked(Now + recipe.Delay + areaIndex++ * recipe.Interval);
-            if (at == Now) ResolveArea(context, recipe, centre, victim, areaId);
+            if (at == Now)
+            {
+                ResolveArea(context, recipe, centre, victim, areaId);
+                removals++; // Resolved at once: this area group was never active.
+            }
             else
             {
                 pendingAreas.Add(areaId, context);
