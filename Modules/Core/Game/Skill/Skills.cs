@@ -795,7 +795,7 @@ public static partial class Game
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }
             // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
-            bool paysLife = Lifetap.ConvertsCostToLife(own, playerStats);
+            bool paysLife = Lifetap.ConvertsCostToLife(own, stats);
             if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
                 Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, paysLife ? player.Pools.Life : player.Pools.Mana));
             // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
