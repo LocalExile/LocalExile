@@ -322,13 +322,36 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
-    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    // The area's type set is shared. Every existing viewer needs the registration before
+    // an ordinary spawn or a restored summon publishes a create using that type.
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level,
+        Func<bool>? ownedCurrent = null)
     {
         if (player.MonsterTypes.Contains((variety.Row, level))) return;
-        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
-            CurrentGameWork && !player.Closed && !player.LeavingArea
-                && player.MonsterTypes.Add((variety.Row, level))
-                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+        string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
+        if (player.Area.Owned)
+        {
+            if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                && (ownedCurrent is null || ownedCurrent()))
+                await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
+        }
+        else
+        {
+            byte[]? typeBytes = null;
+            await Send(player, [], typeLog, atGate: () =>
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea
+                    || (ownedCurrent is not null && !ownedCurrent())
+                    || !player.MonsterTypes.Add((variety.Row, level)))
+                    return null;
+                typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
+                return typeBytes.ToArray();
+            });
+            if (typeBytes is not null)
+                foreach (var peer in player.Frames.Players())
+                    if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
+                        await Send(peer, typeBytes.ToArray(), typeLog);
+        }
     }
 
     public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
@@ -654,33 +677,7 @@ public static partial class Game
             // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
             // In the area's frame, register via Area.Delta (Kind.Message, WorldOrder.First) so every party member
             // receives 0x0020 before the 0x02bb create (WorldOrder.Last) in the same frame.
-            if (!player.MonsterTypes.Contains((variety.Row, level)))
-            {
-                string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
-                if (player.Area.Owned)
-                {
-                    if (CurrentGameWork && !player.Closed && !player.LeavingArea
-                        && (ownedCurrent is null || ownedCurrent()))
-                        await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
-                }
-                else
-                {
-                    byte[]? typeBytes = null;
-                    await Send(player, [], typeLog, atGate: () =>
-                    {
-                        if (!CurrentGameWork || player.Closed || player.LeavingArea
-                            || (ownedCurrent is not null && !ownedCurrent())
-                            || !player.MonsterTypes.Add((variety.Row, level)))
-                            return null;
-                        typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
-                        return typeBytes.ToArray();
-                    });
-                    if (typeBytes is not null)
-                        foreach (var peer in player.Frames.Players())
-                            if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
-                                await Send(peer, typeBytes.ToArray(), typeLog);
-                }
-            }
+            await EnsureMonsterTypeSent(player, variety, level, ownedCurrent);
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]

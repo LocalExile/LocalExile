@@ -212,7 +212,8 @@ public static partial class Game
         }
         bool spectre = g.Definition.Kind == "Spectre";
         bool pairedCannibal = spectre && CannibalEmpowered(player, g, now);
-        bool clearShot = MinionHasClearShot(player, here, target.At);
+        int targetRadius = Math.Max(0, LivingCollision.Size(target.M));
+        bool clearShot = MinionHasClearShot(player, here, target.At, targetRadius);
         static bool CanHitFromHere(GolemState.Ability a, bool clearShot) =>
             clearShot || a.Attack.Ranged && a.Projectile is not { Lobbed: false } || !a.Attack.Ranged && a.Attack.Damage.MaxTotal == 0;
         var ability = g.Abilities.Where(a => (g.Definition.IsGolem || a.Attack.Damage.MaxTotal > 0 || spectre && SpectreUtilityAction(a.Effect))
@@ -449,13 +450,20 @@ public static partial class Game
         return walkableFallback ?? target;
     }
 
-    static bool MinionHasClearShot(Player player, (int X, int Y) from, (int X, int Y) to)
+    static bool MinionHasClearShot(Player player, (int X, int Y) from, (int X, int Y) to, int targetRadius)
     {
         if (from == to) return true;
+        double dx = to.X - from.X, dy = to.Y - from.Y;
+        double dist = Math.Sqrt(dx * dx + dy * dy);
+        if (dist <= targetRadius) return true;
+        double endX = targetRadius > 0 ? to.X - dx / dist * targetRadius : to.X;
+        double endY = targetRadius > 0 ? to.Y - dy / dist * targetRadius : to.Y;
+        var start = new ProjectileVector(from.X, from.Y);
+        var end = new ProjectileVector(endX, endY);
         if (ProjectileGrid.Of(player.Layout.Id, player.Seed) is { } grid)
-            return ProjectileGeometry.TraceGrid(new(from.X, from.Y), new(to.X, to.Y), grid.Blocks) is null;
+            return ProjectileGeometry.TraceGrid(start, end, (x, y) => (x != to.X || y != to.Y) && grid.Blocks(x, y)) is null;
         if (player.Layout.Sight is { } sight)
-            return ProjectileGeometry.TraceGrid(new(from.X, from.Y), new(to.X, to.Y), (x, y) => sight(x, y) == 0) is null;
+            return ProjectileGeometry.TraceGrid(start, end, (x, y) => (x != to.X || y != to.Y) && sight(x, y) == 0) is null;
         return true;
     }
 
