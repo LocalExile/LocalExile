@@ -615,7 +615,8 @@ public static class StatConditions
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
         // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
-        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
+        if (statId is "mine_area_damage_+%_if_detonated_mine_recently"
+            or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
@@ -853,6 +854,7 @@ public static class StatConditions
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
     public static bool SourceLocalCondition(string id) => id is "spell_chance_to_shock_frozen_enemies_%"
         or "local_display_gain_power_charge_on_spending_mana"
+        or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered"
         || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 

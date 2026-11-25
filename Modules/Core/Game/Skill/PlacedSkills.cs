@@ -630,6 +630,22 @@ public static partial class Game
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
     }
 
+    static void TrapFogOfWarLocked(Player player, (int X, int Y) at, int level, double now)
+    {
+        if (level <= 0) return;
+        var skills = SkillsFor(player);
+        int effect = skills.EffectRow("FogOfWar");
+        if (effect < 0) return;
+        var stats = skills.EffectStats(effect, level, 0).ToDictionary(pair => pair.Item1, pair => pair.Item2);
+        double seconds = stats.GetValueOrDefault(Stat.BaseSkillEffectDuration) / 1000d;
+        if (seconds <= 0 || !RandomRolls.Chance(stats.GetValueOrDefault(Stat.ChanceToCastWhenYourTrapIsTriggeredPct),
+            100, AreaRng(player))) return;
+        var kind = FlaskGrounds.Kind.SmokeCloud;
+        int radius = SkillRadius(player, stats, spell: true, effect);
+        player.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds, QueueGroundArtLocked(player, kind, at, radius)));
+        PresentNearby(player);
+    }
+
     static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now,
         KeyValuePair<uint, SpawnedMonster> triggeringEnemy, WorldRecordBuilder bytes)
     {
@@ -1106,16 +1122,18 @@ public static partial class Game
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
-                    if (nearby && !skitter)
+                    if (!placed.Mine && (nearby || skitter))
                     {
                         var ownerStats = PlayerStatValues(player);
-                        if (ownerStats.GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy) is > 0 and var shield
+                        if (nearby && !skitter && ownerStats.GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy) is > 0 and var shield
                             && ownerStats.GetValueOrDefault(Stat.CannotRecoverEnergyShield) == 0
                             && ownerStats.GetValueOrDefault(Stat.NoEnergyShieldRecovery) == 0)
                         {
                             player.EnergyShield.Recover((uint)shield);
                             TrimLeechLocked(player);
                         }
+                        TrapFogOfWarLocked(player, placed.At,
+                            ownerStats.GetValueOrDefault(Stat.LocalDisplayTriggerLevelXSmokeCloudOnTrapTriggered), now);
                     }
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
