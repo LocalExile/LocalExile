@@ -608,12 +608,25 @@ public sealed class AbyssEncounter
 
     static void StartArms(State state, IReadOnlyList<(int X, int Y)> clients)
     {
-        // An arm starts when one is closing and a player is within ArmNearDistance of it: `running` turns true with the
-        // first start, so the other arms near a player start in the same tick.
+        // An arm starts when a player approaches its start node (so an area already cleared from afar never leaves the
+        // Abyss inert), or when another arm is closing and a player is within ArmNearDistance of it: `running` turns
+        // true with the first start, so the other arms near a player start in the same tick.
         bool running = state.Arms.Any(a => a.StartedAt is not null);
+        if (!running)
+        {
+            foreach (var arm in state.Arms)
+            {
+                if (arm.Cells.Count > 0 && Within(clients, arm.Cells[^1], AbyssTables.StartNodeDistance))
+                {
+                    arm.StartedAt = state.Now;
+                    running = true;
+                }
+            }
+            if (!running) return;
+        }
         foreach (var arm in state.Arms)
         {
-            if (arm.StartedAt is not null || !running || !Within(clients, arm.Cells, AbyssTables.ArmNearDistance)) continue;
+            if (arm.StartedAt is not null || !Within(clients, arm.Cells, AbyssTables.ArmNearDistance)) continue;
             arm.StartedAt = state.Now;
         }
     }

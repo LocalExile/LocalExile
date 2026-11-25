@@ -192,6 +192,46 @@ public sealed class AbyssEncounterTests
         }
     }
 
+    [Fact]
+    public async Task Approaching_an_arm_start_node_starts_the_encounter_without_nearby_kills()
+    {
+        AbyssTables.LoadGameData();
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        Game.CombatLifetime = new ModuleLifetime("Game");
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        using var wire = new PartyFollowerTests.Wire();
+        var player = new Player(Flat(1200), 1, 3316637604u) { Instance = new() };
+        try
+        {
+            player.Connection.Session = new("abyss-proximity", wire.Stream, wire.Ciphers);
+            player.Connection.PlayerSent = true;
+            player.PlayerLife = 1000;
+            var encounter = new AbyssEncounter();
+            var rng = new Random(11);
+            var state = encounter.Begin(player, AbyssEncounter.MakePlan(player.Layout, (300, 300), rng)!, 45, rng);
+            double Now() => Game.AreaTime(player);
+
+            player.Walk.Teleport(state.PitCell.X, state.PitCell.Y, Now());
+            await encounter.Advance(player, 0.25);
+            Assert.All(state.Arms, arm => Assert.Null(arm.StartedAt));
+
+            var startNode = state.Arms[0].Cells[^1];
+            player.Walk.Teleport(startNode.X, startNode.Y, Now());
+            await encounter.Advance(player, 0.25);
+
+            Assert.NotNull(state.Arms[0].StartedAt);
+            Assert.True(state.Arms[0].Pieces[^1].State >= AbyssTables.CrackClosing1);
+            Assert.NotEmpty(state.ArmMonsters);
+        }
+        finally
+        {
+            player.Closed = true;
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+        }
+    }
+
     // A flat area where every cell is floor.
     static AreaLayout Flat(int size) => new(0x1234, "MapWorldsReef", size, size, size / 2, size / 2, (_, _) => true, []);
 }
