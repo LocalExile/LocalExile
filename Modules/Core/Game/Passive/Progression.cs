@@ -1255,8 +1255,11 @@ public static partial class Game
             AttackSpeedPct = bonus.AttackSpeedPct + aura.AttackSpeedPct + cat.AttackSpeedPct,
             SpellBlockChance = bonus.SpellBlockChance + (activeWeapon.Shield
                 ? auras.Where(a => a.EffectId == "TempestShield").Select(a => ReservationStat(player, a, Stat.ShieldSpellBlockPct)).DefaultIfEmpty(0).Max() : 0),
-            MovementVelocityPct = bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(player)
-                + FlickerMovementPct(player) + ElusiveMovementPct(player)
+            // "Your Movement Speed is #% of its base value" (The Stampede): that number, whatever else would change it
+            // here. What is applied after this point (a flask's speed, slows) still moves it.
+            MovementVelocityPct = EquipmentInput(Stat.MovementSpeedIsPctOfBase) is int fixedSpeed and > 0 ? fixedSpeed - 100
+                : bonus.MovementVelocityPct + aura.MovementVelocityPct + ShieldChargeMovementPct(player)
+                    + FlickerMovementPct(player) + ElusiveMovementPct(player)
         };
         // Running utility flasks and Mageblood's permanent ones combined before one strongest-per-effect pass: the same
         // effect never counts twice.

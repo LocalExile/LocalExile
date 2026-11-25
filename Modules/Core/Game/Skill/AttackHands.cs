@@ -281,13 +281,25 @@ public static partial class Game
         SupportedCriticalChance(player, skillId, hand, offCritical, 0);
 
     static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
-        long extraIncrease) => (hand, offCritical) switch
+        long extraIncrease) => FixedWeaponCritical(player, skillId, hand) ?? (hand, offCritical) switch
         {
             (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off),
             (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease)
                 + SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off)) / 2.0, MidpointRounding.AwayFromZero),
             _ => SupportedCriticalChanceFor(player, skillId, false, extraIncrease),
         };
+
+    // "This Weapon's Critical Strike Chance is 100%" (Trypanon) and "Critical Strike Chance is #% for Hits with this
+    // Weapon" (Actum): an attack with that hand's weapon has that chance, whatever else would change it. In
+    // hundredths of a percent, as the other chances here are.
+    static int? FixedWeaponCritical(Player player, ushort skillId, AttackHand hand)
+    {
+        if (HandLocalSources(player, hand == AttackHand.Off ? AttackHand.Off : AttackHand.Main) is not { } local) return null;
+        int chance = local.GetValueOrDefault(Stat.LocalWeaponCritChanceIs100) != 0 ? 100 : local.GetValueOrDefault(Stat.LocalWeaponCritChanceIsPct);
+        if (chance <= 0) return null;
+        var gem = SupportedSkill(player, skillId);
+        return SkillsFor(player).IsAttack(gem.Effect) ? chance * 100 : null;
+    }
 
     /// <summary>A supported attack's accuracy with a hand: the off hand's local accuracy in the main hand's place.
     /// Both hands at once use the main hand's (one hit, one evasion roll).</summary>
