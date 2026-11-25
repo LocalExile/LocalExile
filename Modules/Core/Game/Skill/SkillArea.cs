@@ -25,6 +25,7 @@ public static class SkillArea
             : effect is "Earthquake" or "Earthshatter" ? 18
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
+            : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
