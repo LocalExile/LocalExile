@@ -400,7 +400,6 @@ static partial class Game
         ushort skillId = runtime.SkillId;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-        int Stat(uint name) => WinterOrbStat(player, skillId, name);
         (int X, int Y) from;
         List<(uint Id, (int X, int Y) At)> targets;
         double now = ProjectileWorldTime(player);
@@ -417,13 +416,16 @@ static partial class Game
         var anchor = targets[0].At;
         // Counted once per volley through the general projectile path, on the player's sheet laid over the skill's own,
         // so additional projectiles, the count gate and the single-projectile cap apply as they do for other skills.
+        // One SupportedSkill per volley: the count lambda used to call it once per key the general path queries.
+        var own = SupportedSkill(player, skillId).Stats;
+        int Own(uint key) => own.GetValueOrDefault(key);
         var playerStats = CharacterPlayerStats(player);
-        int count = WinterOrbVolleyCount(key => playerStats.GetValueOrDefault(key) + Stat(key));
+        int count = WinterOrbVolleyCount(key => playerStats.GetValueOrDefault(key) + Own(key));
         // The offset stat is in 1/100 m; cells are 1/10 m (GroundSlamWave.CellsPerSecond).
-        int spacing = Math.Max(0, Stat(global::Stat.AdditionalProjectilesFiredWithDistanceOffset) / 10);
+        int spacing = Math.Max(0, Own(global::Stat.AdditionalProjectilesFiredWithDistanceOffset) / 10);
         var landings = WinterOrbLandings(from, anchor, count, spacing);
         // One stat sheet for the whole volley: its shots leave together, so its speed cannot change between them.
-        float cellsPerSecond = WinterOrbProjectileSpeed(player, runtime, playerStats);
+        float cellsPerSecond = WinterOrbProjectileSpeed(player, runtime, playerStats, own);
         foreach (var landing in landings)
         {
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
@@ -462,9 +464,8 @@ static partial class Game
     /// The row's own speed through <see cref="ProjectileSpeed"/>, so projectile speed modifiers move the landing.
     /// Resolved once per volley: the player's stat sheet and the skill's row are the same for every mortar in it.
     /// </summary>
-    static float WinterOrbProjectileSpeed(Player player, WinterOrbRuntime runtime, IReadOnlyDictionary<uint, int> playerStats)
+    static float WinterOrbProjectileSpeed(Player player, WinterOrbRuntime runtime, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int> own)
     {
-        var own = SupportedSkill(player, runtime.SkillId).Stats;
         int Own(uint key) => own.GetValueOrDefault(key);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int units = Skills.ProjectileFor(runtime.Gem.Effect)?.Speed ?? 1500;
