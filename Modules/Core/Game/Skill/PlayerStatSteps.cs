@@ -225,6 +225,10 @@ public static partial class Game
             if (GetIn(stats, Stat.DamagePlusPctPer1PctBlockChance) is int perBlock and not 0)
                 AddTo(stats, Stat.DamagePlusPct,
                     (long)perBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
+            // "+#% to Critical Strike Multiplier per 1% Chance to Block Attack Damage" (Duskdawn, Light of Lunaris).
+            if (GetIn(stats, Stat.CriticalStrikeMultiplierPlusPer1PctBlockChance) is int critPerBlock and not 0)
+                AddTo(stats, Stat.BaseCriticalStrikeMultiplierPlus,
+                    (long)critPerBlock * Math.Clamp(player.Pools.BlockChance, 0, player.Pools.BlockChanceMax));
         });
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.

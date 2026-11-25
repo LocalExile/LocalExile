@@ -82,6 +82,8 @@ public static partial class Game
         // Physical Aegis follows mitigation and totem redirection. Path of Exile's damage order puts an Aegis before
         // Ward; only the Aegis overflow reaches Ward, ES, Mana and Life.
         physical = PhysicalAegisDamage(player, physical, at);
+        // The Fire, Cold, Lightning and Elemental Aegises take their share of the elemental part at the same step.
+        other = TypedAegisDamage(player, other, types, at);
         (physical, other, chaos) = AbsorbTriggeredGuardHit(player, physical, other, chaos, at);
         int total = (int)Math.Min(int.MaxValue, (long)physical + other + chaos);
         int diverted = MinionsTakeOwnerHitLocked(player, total, at, playerStats);

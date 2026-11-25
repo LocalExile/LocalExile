@@ -41,11 +41,12 @@ public static partial class Game
         for (int i = 0; i < EmptySocketStats.Length && !empty; i++) empty = stats.ContainsKey(EmptySocketStats[i].Source);
         if (!own && !empty) return;
         Span<int> emptyByColour = stackalloc int[8];
+        Span<int> byColour = stackalloc int[8];
         for (int a = 0; a < active.Count; a++)
         {
             var item = active[a];
             if (item.Sockets.Count == 0) continue;
-            Span<int> byColour = stackalloc int[8];
+            byColour.Clear();
             for (int s = 0; s < item.Sockets.Count; s++)
             {
                 int colour = (int)item.Sockets[s].Colour;
