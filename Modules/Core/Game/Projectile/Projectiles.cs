@@ -317,6 +317,7 @@ public static partial class Game
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
+            while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
             if (ShaperMemories.TryGetValue(Player, out var memory)) memory.RemoveActor?.Invoke(true);
@@ -901,13 +902,16 @@ public static partial class Game
                 damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
             }
             uint lifeBefore = target.Life;
-            var hit = ApplyMonsterHitLocked(Player, target, damage, rampageSource: null, playerStats: player,
+            var hit = ApplyMonsterHitCoreLocked(Player, target, damage, rampageSource: null, playerStats: player,
                 allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
-                cullPlayer: null, chaosDamage: chaosDamage);
+                cullPlayer: null, chaosDamage: chaosDamage,
+                preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
+            if (!immune && hit.Value.Life > 0 && shot.SomaticApplications is not null)
+                ApplySomaticShell(contact, target, shot, player);
             Player.RecentEvents.RecordCriticalOutcome(at, critical);
             if (ElementalOverloadCritLocked(Player, shot.SourceSkill, null, player, critical) is { } eoBuff)
                 Packet(eoBuff, $"elemental overload on skill 0x{shot.SourceSkill:x4}");

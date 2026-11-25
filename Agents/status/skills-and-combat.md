@@ -232,6 +232,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   anomalies from its linked effect. The target envelope and flight cadence await a client measurement.
 - Scourge Arrow releases its charged shot on button release. Both variants plant pods along the arrows' paths and emit
   finite thorn volleys. Pod placement and bloom timing await a client measurement.
+- Somatic Shell puts an absorbing pool before the enemy's life and energy shield. Depletion produces a separate area
+  hit and a transfer projectile. The second shell expires on the area clock.
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
   The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
   Only the default, Celestial and Tentacles grounds fade in and out.

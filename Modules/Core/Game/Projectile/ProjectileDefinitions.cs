@@ -116,6 +116,7 @@ public static partial class Game
             if (IsArtilleryBallista(id)) return GroundArrow;
             if (IsKineticRain(id) || id == KineticAnomalyEffect) return GroundWandRain;
             if (ScourgeProjectileDefinition(id) is { } scourge) return scourge;
+            if (id == SomaticShellEffect) return SomaticShellProjectile;
             return ProjectileDefinition(id) ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
                 : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row));
         });
