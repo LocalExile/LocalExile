@@ -254,6 +254,7 @@ public static partial class Game
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
         StealMapChargesLocked(player, attacker, source, g, now, random);
+        GainMonsterHitChargesLocked(player.Area, attacker, source, now, random);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
         if (m.Life > 0)

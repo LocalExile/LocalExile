@@ -136,6 +136,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+  The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
 - Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
 - Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the

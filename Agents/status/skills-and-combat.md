@@ -126,6 +126,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
+- Vile Reinvigoration grants Energy Shield regeneration during the recent-kill window (checked offline).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Eternal Youth redirects recharge to Life and reduces regeneration and total Life leech. Immortal Ambition
