@@ -99,6 +99,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   with the supported client's predicted action.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
+  Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
+  and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
