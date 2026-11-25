@@ -4,11 +4,13 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    sealed class TriggeredGuard(int epoch, object? rules)
+    internal sealed class TriggeredGuard(int epoch, object? rules)
     {
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
-        public double Until, ReadyAt, RecoverySeconds, NextPulseAt;
+        public double Until, NextPulseAt;
+        public int CooldownVersion = -1;
+        public ushort[] PublishedGuardSkills = [];
         public int Percent, Remaining, Absorbed, AbsorbedSincePulse, Armour, Reflection;
         public double Physical = 1, Elemental = 1;
         public ushort Buff, Skill;
@@ -17,7 +19,7 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     const string VaalMoltenShellEffect = "VaalMoltenShell";
-    static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
+    internal static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
     static bool TriggerGuardSpell(Player player, SupportedGem gem) =>
         GuardSpellEffect(SkillsFor(player).EffectId(gem.Effect)) && !SkillsFor(player).IsVaal(gem.Effect);
     static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell" or VaalMoltenShellEffect;
@@ -41,8 +43,24 @@ public static partial class Game
         if (guard.Until > 0 && now >= guard.Until) EndTriggeredGuard(player, guard, guard.Until);
         return guard;
     }
-    public static bool TriggerGuardReady(Player player, double now) => CurrentTriggeredGuard(player, now)
-        is not { } guard || now >= guard.ReadyAt && (guard.Until == 0 || guard.Effect == VaalMoltenShellEffect);
+    public static bool TriggerGuardReady(Player player, double now)
+    {
+        var guard = CurrentTriggeredGuard(player, now);
+        if (guard is null) return true;
+        if (guard.Until > 0 && guard.Effect != VaalMoltenShellEffect) return false;
+        if (player.SingleUseCooldowns.GetValueOrDefault(GuardCooldownKey) is not { } state
+            || state.UseVersion != guard.CooldownVersion) return true;
+        state.Refresh(now, state.Rate);
+        return state.Ready;
+    }
+
+    static bool GuardAvailableForTrigger(Player player, double now)
+    {
+        if (!TriggerGuardReady(player, now)) return false;
+        if (player.SingleUseCooldowns.GetValueOrDefault(GuardCooldownKey) is not { } state) return true;
+        state.Refresh(now, state.Rate);
+        return state.Ready;
+    }
 
     // Vaal Molten Shell's native cooldown is separate from the regular guard group. The new buff replaces the old one.
     static bool GuardReadyFor(Player player, string? effect, double now) =>
@@ -52,14 +70,9 @@ public static partial class Game
     {
         guard.Until = guard.NextPulseAt = 0;
         bool regular = guard.Effect != VaalMoltenShellEffect;
-        if (regular)
-        {
-            guard.ReadyAt = now + guard.RecoverySeconds;
-            // The blackout is over: the bar entry becomes the skill's own cooldown and counts down from here.
-            if (guard.Gem is { } ended)
-                SingleUseState(player, ended.Effect, guard.Skill)?.Resume(now,
-                    SkillsFor(player).CooldownMs(ended.Effect, ended.Level));
-        }
+        var cooldown = player.SingleUseCooldowns.GetValueOrDefault(GuardCooldownKey);
+        bool resume = regular && cooldown is not null && cooldown.UseVersion == guard.CooldownVersion;
+        if (resume) cooldown!.Resume(now, cooldown.TotalBaseMilliseconds);
         if (guard.Session is not { } session) return;
         ushort buff = guard.Buff; guard.Buff = 0;
         if (buff != 0) player.Area.Buffs.Clear(player.Id, GuardRow(guard.Effect), player.Id);
@@ -69,7 +82,8 @@ public static partial class Game
         player.Pools = PoolsFor(player, player.Pools.Level);
         // Built now and marked sent, so the stats send's own cooldown refresh does not publish the entry a second time:
         // every repeat restarts the bar's cooldown animation on this client (live 2026-11-18).
-        byte[]? counted = regular && guard.Gem is { } counting ? GuardCooldownEntry(player, guard.Skill, counting.Effect) : null;
+        byte[]? counted = resume
+            ? GuardCooldownBatch(player, guard, cooldown!, Math.Max(now, AreaTime(player)), includeRecovered: true) : null;
         session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Sources));
         // A triggered guard has no instant action entry of its own, so the resumed entry is published here as well.
         if (counted is { Length: > 0 })
@@ -128,15 +142,32 @@ public static partial class Game
     public static byte[]? GuardCooldownEntry(Player player, ushort skill, int effect)
     {
         if (SingleUseState(player, effect, skill) is not { } state) return null;
-        state.Refresh(AreaTime(player), state.Rate);
-        if (!state.Held && state.FullyRecovered) return null;
+        return GuardCooldownPacket(player, state, AreaTime(player), [skill]);
+    }
+
+    static byte[]? GuardCooldownPacket(Player player, SingleUseCooldownState state, double now, ushort[] skills,
+        bool includeRecovered = false)
+    {
+        state.Refresh(now, state.Rate);
+        if (skills.Length == 0 || !includeRecovered && !state.Held && state.FullyRecovered) return null;
         float total = state.TotalBaseMilliseconds / 1000f;
         float remaining = state.Held ? total : (float)(state.RemainingBaseMilliseconds / 1000);
         var entry = InstanceEntities.PlayerSingleUseCooldowns(player.Id,
-            [new SingleUseCooldownUpdate(skill, remaining, total, state.Held ? 0f : (float)state.Rate, state.SpentUses)],
+            skills.Select(skill => new SingleUseCooldownUpdate(skill, remaining, total,
+                state.Held ? 0f : (float)state.Rate, state.SpentUses)).ToArray(),
             canDetonateMines: CanDetonateMines(player));
         state.NativeRefreshed();
         return entry;
+    }
+
+    static ushort[] GuardCooldownSkills(Player player) => [.. GemSkillEffects(player)
+        .Where(gem => CooldownKey(player, gem.Effect, gem.Level) == GuardCooldownKey).Select(gem => gem.Id)];
+
+    static byte[]? GuardCooldownBatch(Player player, TriggeredGuard guard, SingleUseCooldownState state, double now,
+        bool includeRecovered = false)
+    {
+        guard.PublishedGuardSkills = GuardCooldownSkills(player);
+        return GuardCooldownPacket(player, state, now, guard.PublishedGuardSkills, includeRecovered);
     }
 
     /// <summary>A guard's held rate-0 entry built from the skill's own base cooldown, published before its instant
@@ -159,9 +190,14 @@ public static partial class Game
     /// is running.</summary>
     public static byte[]? HeldGuardCooldownRefresh(Player player)
     {
-        if (CurrentTriggeredGuard(player, AreaTime(player)) is not { Until: > 0, Gem: { } gem } guard
-            || guard.Effect == VaalMoltenShellEffect) return null;
-        return GuardCooldownEntry(player, guard.Skill, gem.Effect);
+        double now = AreaTime(player);
+        if (CurrentTriggeredGuard(player, now) is not { } guard
+            || player.SingleUseCooldowns.GetValueOrDefault(GuardCooldownKey) is not { FullyRecovered: false } state
+            || state.UseVersion != guard.CooldownVersion) return null;
+        var skills = GuardCooldownSkills(player);
+        if (!state.Held && guard.PublishedGuardSkills.AsSpan().SequenceEqual(skills)) return null;
+        guard.PublishedGuardSkills = skills;
+        return GuardCooldownPacket(player, state, now, skills);
     }
 
     // "Guard Skills have X% increased Duration" is the same increased-duration sum as skill_effect_duration_+%.
@@ -177,9 +213,30 @@ public static partial class Game
         var gem = SupportedSkill(player, skill);
         string? effect = SkillsFor(player).EffectId(gem.Effect);
         if (!GuardSpellEffect(effect) || !GuardReadyFor(player, effect, now)) return;
+        bool vaal = effect == VaalMoltenShellEffect;
+        SingleUseCooldownState? cooldown = null;
+        var playerStats = CharacterPlayerStats(player);
+        if (!vaal)
+        {
+            var plan = CooldownForSkill(player, skill) ?? new SingleUseCooldown(
+                SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
+                (int)Math.Clamp((long)playerStats.GetValueOrDefault(Stat.VirtualCooldownSpeedPlusPct)
+                    + gem.Stats.GetValueOrDefault(Stat.BaseCooldownSpeedPlusPct)
+                    + playerStats.GetValueOrDefault(Stat.GuardSkillCooldownRecoveryPlusPct), -100, int.MaxValue - 100),
+                SharedGroup: GuardCooldownGroup);
+            cooldown = CooldownStateLocked(player, GuardCooldownKey, plan, now);
+            if (cooldown.Ready)
+            {
+                if (!cooldown.TryUse(now, plan)) return;
+                player.CooldownGroups[GuardCooldownKey] = GuardCooldownGroup;
+                player.CooldownSources[GuardCooldownKey] = skill;
+            }
+            else if (player.CooldownSources.GetValueOrDefault(GuardCooldownKey) != skill) return;
+            cooldown.ConfirmNativeUse(cooldown.UseVersion, skill, synchronizeProgress: true);
+            cooldown.Hold(plan.BaseMilliseconds);
+        }
         if (CurrentTriggeredGuard(player, now) is { Until: > 0 } previous)
             EndTriggeredGuard(player, previous, now);
-        var playerStats = CharacterPlayerStats(player);
         int Own(uint name) => GolemStat(gem.Stats, name);
         int Get(uint name) => Own(name) + GolemStat(playerStats, name);
         var guard = TriggeredGuards.GetValue(player, _ => new(player.ProjectileEpoch, CombatLifetime));
@@ -187,7 +244,7 @@ public static partial class Game
         guard.Effect = effect!;
         guard.Physical = guard.Elemental = 1;
         guard.Percent = guard.Remaining = guard.Absorbed = guard.AbsorbedSincePulse = guard.Armour = guard.Reflection = 0;
-        bool vaal = effect == VaalMoltenShellEffect;
+        if (cooldown is not null) guard.CooldownVersion = cooldown.UseVersion;
         double duration = GuardDuration(Own(Stat.BaseSkillEffectDuration), name => GolemStat(playerStats, name), Own);
         if (guard.Effect == "QuickGuard")
         {
@@ -225,13 +282,6 @@ public static partial class Game
         guard.NextPulseAt = vaal ? now + 1 : 0;
         // It ends at Until (Molten Shell reflects then), whoever reads it first.
         AfterSeconds(player, duration, () => { _ = CurrentTriggeredGuard(player, AreaTime(player)); });
-        if (!vaal)
-        {
-            double recovery = CooldownForSkill(player, skill)?.RecoveryRate
-                ?? Math.Max(0, 1 + ((double)Get(Stat.VirtualCooldownSpeedPlusPct) + Own(Stat.BaseCooldownSpeedPlusPct)
-                    + Get(Stat.GuardSkillCooldownRecoveryPlusPct)) / 100d);
-            guard.RecoverySeconds = recovery > 0 ? SkillsFor(player).CooldownMs(gem.Effect, gem.Level) / 1000d / recovery : double.PositiveInfinity;
-        }
         player.Pools = PoolsFor(player, player.Pools.Level);
         if (MoltenShellGuard(guard.Effect))
             guard.Remaining = (int)Math.Min(Math.Max(0, Own(Stat.MoltenShellMaxDamageAbsorbed)),
@@ -241,15 +291,14 @@ public static partial class Game
         session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Sources));
         PresentTriggeredGuard(player, now);
         Note($"triggered guard {guard.Effect} ({duration:0.###} s)");
-        if (vaal) return;
+        if (cooldown is null) return;
         // The bar entry goes last, after the stats send: a 0x53 rebuild re-creates the slot and resets its entry to the
         // skill's own recovery rate (measured 2026-11-18, a freeze sent before it was lost), so the held entry must be
         // the last cooldown message even if that send rebuilds the bar. Held, the bar shows the skill's own cooldown at a zero
         // recovery rate, as the official client shows a cooldown that does not recover during an effect; it resumes at
         // the character's rate when the buff ends (EndTriggeredGuard), which is when TriggerGuardReady accepts a new one.
-        SingleUseState(player, gem.Effect, skill)?.Hold(SkillsFor(player).CooldownMs(gem.Effect, gem.Level));
         // Built now and marked sent, so the native cooldown refresh does not publish it again.
-        var held = GuardCooldownEntry(player, skill, gem.Effect) ?? [];
+        var held = GuardCooldownBatch(player, guard, cooldown, now) ?? [];
         session.Enqueue(() => Send(player, held,
             $"0x02bc guard cooldown: held for {duration:0.###} s"));
     }

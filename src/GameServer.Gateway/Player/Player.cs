@@ -680,6 +680,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
+    public uint? MaxLifeWithoutParty { get; init; }
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;
@@ -1689,6 +1690,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double LockstepActionScheduledAt;
     public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
+    /// <summary>Where a totem placement's hold ends, 0 for any other hold: until then the client's own Move is not refused.</summary>
+    public double LockstepTotemHoldUntil;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
     public LockstepAttack? LockstepAttack;

@@ -845,6 +845,11 @@ in the non-critical or critical range) and duration are the hit's panel poison r
 captured at the same places as the ignite's: the landed hit already carries the hit's increases and the monster's
 resistance, so it cannot be the base.
 
+Viper Strike of the Mamba's `ViperStrikeAltX` stat set carries both `cannot_poison_poisoned_enemies`
+and `cannot_inflict_additional_poisons`. An active stack from any source blocks a new poison through its
+expiry, while the hit still deals damage. On an eligible hit, the second stat caps the application at one
+poison, even with global or weapon-local additional poisons.
+
 ## 3a. Impale contacts and reflected damage
 
 `ImpaleStats` resolves unconditional general + attack/spell chance, the attacking weapon's local chance, general
@@ -861,7 +866,12 @@ their stored values are summed into one reflected physical hit, remaining hit co
 new chance/target-avoidance roll may add an instance. Nonphysical and zero-damage hits can trigger existing
 instances but cannot create one. There is no independent five-stack cap; modifiers can extend the effective count.
 The state uses the paused connection clock and lazy expiry at the next hit/state observation. Corpses retain their
-instances until expiry/removal; native impale-count/visual publication and corpse consumers are not implemented.
+instances until expiry/removal. Native impale-count and visual publication are still open.
+
+Client stat sets `DoubleStrikeAltX` and `BearTrapAltX` grant the same 100% killing-blow reflection stat.
+The trap's chance and impale effect are general stats on a secondary hit. The model reflects the live stored
+amount once after the contact, including an impale created by that contact. Remaining instances stay on the
+corpse for Call of Steel. The approximate observed radius is 23 cells and skill area modifiers do not scale it.
 
 The reflected total receives the existing target physical reduction and generic damage-taken calculation once.
 It receives no new source modifiers, conversion, critical multiplier, spell-only damage taken or returning-projectile

@@ -13,11 +13,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Flicker Strike: the server teleports the player to the target, with its charge speed and buff; with no monster in
   range the use is refused and costs nothing.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
-- Cooldown bypass: a use during the cooldown spends a charge; a cooldown skill pays its cost when its use is
-  accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
+- Cooldown bypass: the accepted skill use spends the required charge together with its cost before the charge changes.
+  A cooldown skill otherwise pays its cost when accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
-- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
+- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster. Shield attacks use shield-side accuracy.
   Docs: [11](../docs/protocol/11-skills.md) Â§10a and Â§10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
@@ -38,6 +38,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md) Â§2c.
 - Behemoth Steel Willed: attack damage per 450 final armour. Docs: [20](../docs/protocol/20-damage.md) Â§2d.
 - Steel Willed incoming-hit armour. Docs: [Steel Willed armour](../docs/game/steel-willed-armour.md).
+- Lancing/Shattering Steel, Call of Steel impale detonation/shards, and timed Steel Ward projectile block (offline).
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
@@ -65,9 +66,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
+- Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
+- Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).
+
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Linked spells resolve offline. See [linked spells](../docs/protocol/25-gem-supports.md#native-linked-spell-payloads).
+- Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
@@ -87,8 +94,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Divine Blessing (including March of the Legion) pays a one-time cost and grants one temporary Blessing;
   Vaal Haste has a soul-paid temporary aura. Smite has separate melee/lightning hits and a timed on-hit aura.
   Smite impacts and Vaal Haste's speed buff are verified live; complete build and party parity remain partial.
+- Elemental Hit (melee): chooses one element per swing and filters damage after conversion, then hits the area around
+  a successful strike. A pre-existing ailment of the chosen element increases the radius. The selected element agrees
+  with the supported client's predicted action.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
+  Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
+  and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
+- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
+  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -104,7 +118,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
-- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
+- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll. Either Impaling strike
+  can reflect stored physical damage to nearby enemies on a kill.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, mainâ€¦), with that
   weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
@@ -126,15 +141,18 @@ Part of [Status](../Status.md); what to build next in this area is in
   instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
 - Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
+- Vile Reinvigoration grants Energy Shield regeneration during the recent-kill window (checked offline).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid
   from Energy Shield first, hits past it to Life, its Mana share taken from it, 50% less recharge (not checked live).
   Eternal Youth redirects recharge to Life and reduces regeneration and total Life leech. Immortal Ambition
   prevents shield recharge and regeneration and redirects retained Life leech at full Life ([15](../docs/protocol/15-progression.md)).
   Docs: [20](../docs/protocol/20-damage.md).
+- Area skills include their dedicated knockback chance on accepted hits (checked offline).
 - Bow arrow counts from bow and quiver modifiers. Docs: [11](../docs/protocol/11-skills.md) Â§10,
   [RE count inputs](../docs/re/projectiles/count-stat-inputs.md) Â§3.
 - Explosive Arrow adds fuses on terminal contacts. The first fuse times the combined blast, and hitting the fuse cap
   detonates it early.
+- Forbidden Rite and Soul Sacrifice lob chaos explosions and apply their caster-specific backlash (checked offline).
 - Ensnaring Arrow tethers a surviving final target until it leaves the anchor's radius. Its projectile attack
   damage taken modifier does not multiply with each additional tether.
 - Tornado Shot's terminal secondary arrows and Cloudburst's landing volley.
@@ -145,6 +163,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
   more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Double Strike of Momentum gains stages per started pair of swings, including Multistrike repeats. The stage counter,
+  attack cadence and skill panel follow each gain and reset on movement.
+- Glacial Hammer's third strike amplifies Freeze duration from hit damage, and strikes shatter frozen non-unique
+  enemies already below one third life. Shattering guarantees the critical roll of every third consecutive strike.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) Â§2i.
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) Â§9.
@@ -161,18 +183,23 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
-- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball, Vaal Spark and Vaal Discipline. Docs: [27](../docs/protocol/27-vaal-souls.md),
+- Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
+  Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
   landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
+  the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
-- Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
+- Poison hits and spread use increased Poison Duration. Viper Strike of the Mamba applies one poison per hit
+  to a target with no active poisons. Unnatural Strength grants minions conversion and Wither on hit.
 - Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
-- Strike targeting: spirit strikes and the previous location. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
+- Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
+  melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.
 - Passive-triggered skills: Ancestral Commander's Spirit chieftains.
   Docs: [11](../docs/protocol/11-skills.md) Â§10f, [20](../docs/protocol/20-damage.md) Â§2e.
@@ -222,12 +249,21 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Infernal Blow charges detonate on expiry or the sixth charge, and marked corpses explode in a separate radius;
+  Immolation charges the attacker.
+- Pestilent Strike spreads a marked corpse's remaining poison damage as a separate chaos debuff.
+- Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
+  Docs: [11](../docs/protocol/11-skills.md).
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
+- Wild Strike and Extremes resolve contact and follow-ups. See [projectile skills](../docs/game/projectile-skills.md).
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
   The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
+- Kinetic Rain variants land delayed area hits. See [projectile skills](../docs/game/projectile-skills.md).
+- Scourge Arrow variants plant pods and fire thorn volleys. See [projectile skills](../docs/game/projectile-skills.md).
+- Somatic Shell absorbs damage and transfers on depletion. See [projectile skills](../docs/game/projectile-skills.md).
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
   The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
   Only the default, Celestial and Tentacles grounds fade in and out.
@@ -255,6 +291,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   skill-list refresh during the buff (movement, conditional item stats) re-publishes the held entry, since the client's
   skill replacement would otherwise refresh its zero-rate entry: the ring does not sweep or replay on the first press or
   while moving (#1127).
+  A stat-value-only skill refresh (flask, charge, aura, Rage) sends one `0x01b4` per changed stat set, not the whole
+  `0x02bc`; every other case sends the whole list.
+  Blink cooldown refreshes use the same gem copy as the shared debit.
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
@@ -267,6 +306,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   guard refuses the next before its cost. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Phase Run: movement speed and Phasing for its duration, longer per Frenzy Charge consumed; the next skill use
   swaps it for its more melee physical damage (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Bloodscent applies its Rage grant to the weapon that landed the hit (checked offline).
 - Blood Rage: attack speed, physical attack life leech, Frenzy Charge chance on kill and its physical degeneration;
   a kill refreshes it (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Auras, reservation, Pride, heralds and permanent spell buffs. Docs: [11](../docs/protocol/11-skills.md) Â§13.
@@ -278,12 +318,24 @@ Part of [Status](../Status.md); what to build next in this area is in
   Locus Mine keeps close mines armed and aims detonated volleys at the player.
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
+- Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
+- Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
+- Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
+- Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.
+- Cremation variants place finite geysers and resolve their corpse and impact effects.
+- Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
+- Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
+- Cast when Damage Taken releases Arc from the triggering enemy when that enemy is still available.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live), and the active and permanent minion counts (`number_of_active_minions`, `number_of_active_permanent_minions`) count the same roster, a permanent minion being one without a duration.
+  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types, and a placed totem
+  is listed under `TotemMinion` until it dies (not checked live).
+  Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
+  in reach is refused before its cost is paid (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
@@ -297,14 +349,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
+  Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+  A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
+  two totems.
+  A Focused Ballista totem fires only when due with an owner attack it has not spent.
+  Skill bars without a saved attack-in-place mask use each bound skill's default.
+- Searing Bond totems burn enemies along their links, and Searing Bond of Detonation leaves a timed area burn at cap.
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
-- Holy Flame Totem and its Ire variant use their native projectiles.
+- Holy Flame Totem and its Ire variant use their native projectiles. Leaving the area retires totem objects and their
+  ground effects.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.
@@ -314,7 +373,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `virtual_*_for_requirements`), dual-wield snapshot sync, and light radius virtual stats (`virtual_light_radius_+%`,
   `virtual_blind_does_not_affect_light_radius`; new virtuals not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
-- Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) Â§4.
+- Attack speed passives and attack timing.
+  Lockstep: an action during a strike's walk-up or swing starts from the client's cell; cost pays before the 0x1ab.
+  Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Selected spell hit damage panel (#188). Docs: [11](../docs/protocol/11-skills.md) Â§9 and Â§14.
 - Critical strikes. Docs: [11](../docs/protocol/11-skills.md) Â§5.

@@ -40,6 +40,15 @@ public static class PlayerDamageTaken
         (Stat.ChaosHitAndDotDamagePctTakenAsLightning, [X], L),
     ];
 
+    static readonly (uint Stat, DamageType[] From, DamageType To)[] OverTimeShifts =
+    [
+        (Stat.FireDamageOverTimePctTakenAsChaos, [F], X),
+        (Stat.ColdDamageOverTimePctTakenAsChaos, [C], X),
+        (Stat.LightningDamageOverTimePctTakenAsChaos, [L], X),
+        (Stat.ColdDamageOverTimePctTakenAsFire, [C], F),
+        (Stat.LightningDamageOverTimePctTakenAsFire, [L], F),
+    ];
+
     const uint Increased = Stat.BaseDamageTakenPlusPct, ElementalIncreased = Stat.ElementalDamageTakenPlusPct,
         MeleeIncreased = Stat.MeleeDamageTakenPlusPct, SpellIncreased = Stat.BaseSpellDamageTakenPlusPct,
         FlatPhysicalFromAttacks = Stat.PhysicalAttackDamageTakenPlus,
@@ -194,23 +203,25 @@ public static class PlayerDamageTaken
     /// <summary>"X% of Physical Damage from Hits taken as Fire Damage" and the other damage shifts (wiki Damage taken as):
     /// before any mitigation, each type moves each destination's percentage of its original amount at once, so damage
     /// shifts only once, in any direction. The source keeps max(100 - total, 0)%, so a total over 100% raises the damage
-    /// taken (PoB CalcDefence damageShiftTable). The hit_and_dot stats shift hits here; their damage over time share is
-    /// not read. The same packet when no shift applies.</summary>
-    public static DamagePacket Shift(DamagePacket hit, Func<uint, int> get)
+    /// taken (PoB CalcDefence damageShiftTable). The same packet when no shift applies.</summary>
+    public static DamagePacket Shift(DamagePacket hit, Func<uint, int> get) => Shift(hit, get, Shifts);
+
+    public static DamagePacket ShiftOverTime(DamagePacket damage, Func<uint, int> get) => Shift(damage, get, OverTimeShifts);
+
+    static DamagePacket Shift(DamagePacket damage, Func<uint, int> get, (uint Stat, DamageType[] From, DamageType To)[] shifts)
     {
-        var percent = new int[5, 5];   // [from, to], by DamageType
-        bool any = false;
-        foreach (var (stat, from, to) in Shifts)
+        int[,]? percent = null;
+        foreach (var (stat, from, to) in shifts)
         {
             // The negated stat is stored as -10 and shown as "10% of Fire Damage from Hits taken as Physical Damage".
             int value = Stats.Name(stat).EndsWith("_value_negated") ? -get(stat) : get(stat);
             if (value <= 0) continue;
+            percent ??= new int[5, 5]; // [from, to], by DamageType
             foreach (var source in from) percent[(int)source, (int)to] += value;
-            any = true;
         }
-        if (!any) return hit;
+        if (percent is null) return damage;
         var taken = DamagePacket.Empty;
-        foreach (var (type, range) in hit.Components)
+        foreach (var (type, range) in damage.Components)
         {
             int moved = 0;
             for (int to = 0; to < 5; to++)
