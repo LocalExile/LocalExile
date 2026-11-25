@@ -405,13 +405,15 @@ public static partial class Game
     static IReadOnlyDictionary<uint, int> WithManaPoolCost(Player player, SupportedGem skill,
         IReadOnlyDictionary<uint, int> own, int pool)
     {
-        if (pool < 0) return own;
+        int nativePercent = own.GetValueOrDefault(Stat.BaseManaCostPct);
+        if (pool < 0 && nativePercent <= 0) return own;
         int percent = Math.Max(own.GetValueOrDefault(Stat.ManaweaveCostEqualsPctUnreservedMana),
             own.GetValueOrDefault(Stat.FrostmageCostEqualsPctReservedMana));
-        uint native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality);
+        decimal native = ManaCost(Stats, SkillsFor(player), skill.Effect, skill.Level, skill.Quality)
+            + player.Pools.Mana * (decimal)nativePercent / 100m;
         decimal factor = skill.Supports.Aggregate(1m, (value, support) => value * support.CostMultiplier / 100m);
         // The added base cost and the gem's own base are charged by the same support multipliers, with one floor.
-        int cost = (int)Math.Clamp(decimal.Floor((native + pool * (decimal)percent / 100m) * factor), 0, int.MaxValue);
+        int cost = (int)Math.Clamp(decimal.Floor((native + Math.Max(0, pool) * (decimal)percent / 100m) * factor), 0, int.MaxValue);
         return new Dictionary<uint, int>(own) { [Stat.BaseManaCost] = cost, [Stat.ManaCost] = cost };
     }
 
