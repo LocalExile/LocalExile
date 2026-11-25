@@ -226,8 +226,7 @@ Nothing yet.
 ## Tests
 
 The three suites are `tests/GameServer.Core.Tests`, `tests/GameServer.Data.Tests` and `tests/GameServer.Gateway.Tests`.
-The Gateway tests were wiped when the game moved into modules (2026-10-31) and are being rebuilt; rules for new tests:
-AGENTS.md.
+Gateway tests cover the Gateway and its module interactions; rules for new tests: AGENTS.md.
 
 ## Tooling
 
