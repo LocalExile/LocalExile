@@ -125,6 +125,11 @@ public sealed partial class PlayerInventories
         lock (_lock) return _items.TryGetValue(row, out var l) ? [.. l] : [];
     }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _items.Values.Any(row => row.Any(item => match(item.Item)));
+    }
+
     public InventoryItem Add(byte row, byte x, byte y, Item item)
     {
         InventoryItem placed;

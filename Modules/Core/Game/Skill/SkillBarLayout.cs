@@ -19,11 +19,17 @@ public static class SkillBarLayout
 
     internal static string GemBinding(Guid gem, string effect) => $"{GemPrefix}{gem:N}/{effect}";
 
-    internal static string? BoundGemEffect(string entry)
+    internal static string? BoundGemEffect(string entry) => TryGemBinding(entry, out _, out var effect) ? effect : null;
+
+    internal static bool TryGemBinding(string entry, out Guid id, out string effect)
     {
         int separator = GemPrefix.Length + 32;
-        return entry.Length > separator + 1 && entry.StartsWith(GemPrefix, StringComparison.Ordinal)
-            && entry[separator] == '/' ? entry[(separator + 1)..] : null;
+        id = default;
+        effect = "";
+        if (entry.Length <= separator + 1 || !entry.StartsWith(GemPrefix, StringComparison.Ordinal)
+            || entry[separator] != '/' || !Guid.TryParseExact(entry.AsSpan(GemPrefix.Length, 32), "N", out id)) return false;
+        effect = entry[(separator + 1)..];
+        return true;
     }
 
     public static HashSet<string> Unassigned(CharacterSaves.Save? save) =>

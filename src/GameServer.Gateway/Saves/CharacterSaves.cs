@@ -286,6 +286,15 @@ public static class CharacterSaves
         return save with { SkillBar = bar };
     });
 
+    public static void UpdateSkillBar(string character, IReadOnlyList<int> removed, IReadOnlyList<(int Slot, string Entry)> added) =>
+        Update(character, save =>
+        {
+            var bar = save.SkillBar is null ? new Dictionary<int, string>() : new Dictionary<int, string>(save.SkillBar);
+            foreach (int slot in removed) bar.Remove(slot);
+            foreach (var (slot, entry) in added) bar[slot] = entry;
+            return save with { SkillBar = bar };
+        });
+
     public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) =>
         SetSkillBarOption(character, attackInPlace, slot, on, null);
 

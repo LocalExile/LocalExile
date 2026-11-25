@@ -1064,17 +1064,47 @@ public static partial class Game
         if (player.Closed || player.LeavingArea || player.RageRetired || HardcoreProgressBlocked(player)) return false;
         string character = CharacterName(player);
         var save = CharacterSaves.Load(character);
-        var bar = save?.SkillBar ?? [];
-        var unassigned = SkillBarLayout.Unassigned(save);
-        string attack = SkillEffectId(player, SkillCatalog.FirstSkillId)!;
-        var gems = GemSkillEffects(player).Select(g => SkillsFor(player).EffectId(g.Effect)).OfType<string>().ToList();
-        var explicitlyBound = bar.Values.Select(SkillBarLayout.BoundGemEffect).OfType<string>().ToHashSet();
-        var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g) && !explicitlyBound.Contains(g)),
-            entry => entry == attack || entry.StartsWith("Action/") || SkillBarLayout.BoundGemEffect(entry) is not null || gems.Contains(entry));
-        foreach (var (slot, entry) in added) CharacterSaves.SetSkillBar(character, (byte)slot, entry);
-        if (added.Count > 0)
-            Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");
-        return added.Count > 0;
+        bool InInventory(Guid gem) => ItemsOf(player).AnyOwnedItem(item => IsBoundGem(item, gem));
+        if (save?.SkillBar?.Values.Any(entry => SkillBarLayout.TryGemBinding(entry, out Guid gem, out _)
+                && !InInventory(gem)) == true)
+            // Observe cursor, inventory and stash under the same transaction used to transfer between them.
+            return Saves.Atomically(() => Fill(CharacterSaves.Load(character), findDiscarded: true));
+        return Fill(save, findDiscarded: false);
+
+        static bool IsBoundGem(Item item, Guid bound) =>
+            item.SkillBarGemId == bound || item.Sockets.Any(socket => socket.Gem?.SkillBarGemId == bound);
+
+        bool Fill(CharacterSaves.Save? current, bool findDiscarded)
+        {
+            var bar = current?.SkillBar ?? [];
+            var unassigned = SkillBarLayout.Unassigned(current);
+            string attack = SkillEffectId(player, SkillCatalog.FirstSkillId)!;
+            var gems = GemSkillEffects(player).Select(g => SkillsFor(player).EffectId(g.Effect)).OfType<string>().ToList();
+            List<int> discarded = [];
+            if (findDiscarded)
+            {
+                foreach (var (slot, entry) in bar)
+                {
+                    if (!SkillBarLayout.TryGemBinding(entry, out Guid bound, out _)) continue;
+                    bool Matches(Item item) => IsBoundGem(item, bound);
+                    if (InInventory(bound) || PersonalStashOf(player).AnyOwnedItem(Matches)
+                        || !player.Character.Ssf && TradeStashOf(player).AnyOwnedItem(Matches)) continue;
+                    discarded.Add(slot);
+                }
+                if (discarded.Count > 0)
+                {
+                    bar = new(bar);
+                    foreach (int slot in discarded) bar.Remove(slot);
+                }
+            }
+            var explicitlyBound = bar.Values.Select(SkillBarLayout.BoundGemEffect).OfType<string>().ToHashSet();
+            var added = SkillBarLayout.Fill(bar, attack, gems.Where(g => !unassigned.Contains(g) && !explicitlyBound.Contains(g)),
+                entry => entry == attack || entry.StartsWith("Action/") || SkillBarLayout.BoundGemEffect(entry) is not null || gems.Contains(entry));
+            if (added.Count + discarded.Count > 0) CharacterSaves.UpdateSkillBar(character, discarded, added);
+            if (added.Count > 0)
+                Console.WriteLine($"[gateway] {character} skill bar: {string.Join(", ", added.Select(a => $"{a.Entry} on slot {a.Slot}"))}");
+            return added.Count + discarded.Count > 0;
+        }
     }
 
     // The GrantedEffects Id behind a skill id of the player (the default attack or a gem skill), or null.
