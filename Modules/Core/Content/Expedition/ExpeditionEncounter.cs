@@ -140,15 +140,22 @@ public sealed class ExpeditionEncounter : IDisposable
         // own disable stat, which only a stat that forces or adds to the league's chance outweighs.
         if ((S(Stat.MapDisableLeagues) & (1 << LeagueChances.Expedition)) != 0 || S(Stat.MapNukeEverything) != 0
             || S(Stat.AtlasKeystoneNoExtraContent) != 0 || S(Stat.IsBlightedMap) != 0) return null;
-        if (S(Stat.MapDisableExpeditionFromChance) != 0
-            && Math.Max(0, S(Stat.MapExpeditionLeague)) + Math.Max(0, S(Stat.MapExpeditionEncounterChancePlusPct)) == 0) return null;
+        bool guaranteed = S(Stat.MapExpeditionLeague) > 0;
+        if (!guaranteed && S(Stat.MapDisableExpeditionFromChance) != 0
+            && S(Stat.MapExpeditionEncounterChancePlusPct) <= 0) return null;
         // The area's own chance (WorldAreaLeagueChances, the Ruthless column in a hard-mode league). A test's forced chance
         // replaces it only where the area has one: a town, a hideout and a boss arena have a row of zeros and never roll.
         int natural = LeagueChances.Current.ChanceOf(areaId, LeagueChances.Expedition, hardMode).Chance;
         int baseChance = S(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0 || natural <= 0 ? 0 : ForcedChance() ?? natural;
-        long chanceNow = Math.Max(0L, baseChance * Math.Max(0L, 100L + S(Stat.MapLeagueBaseChancePlusPctFinal)) / 100 + S(Stat.MapLeagueContentAdditionalChancePct));
-        int chance = (int)Math.Min(100L, chanceNow);
-        if (chance <= 0 || (chance < 100 && rng.Next(100) >= chance)) return null;
+        if (!guaranteed)
+        {
+            long chance = baseChance * Math.Max(0L, 100L + S(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
+                + S(Stat.MapLeagueContentAdditionalChancePct) + S(Stat.MapExpeditionEncounterAdditionalChancePct);
+            long multiplier = Math.Max(0L, 100L + S(Stat.MapExpeditionEncounterChancePlusPct));
+            // A product of 10000 already guarantees a roll, including for stacked map modifiers.
+            long percent = Math.Clamp(chance, 0L, 10000L) * Math.Min(multiplier, 10000L) / 100;
+            if (percent == 0 || (percent < 100 && rng.Next(100) >= percent)) return null;
+        }
         return [(plugin, ExpeditionTables.PluginState(rng.Next(ExpeditionTables.FactionIds.Length)))];
     }
 

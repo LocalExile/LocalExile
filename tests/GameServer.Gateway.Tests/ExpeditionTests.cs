@@ -58,6 +58,11 @@ public sealed class ExpeditionTests
         var forest = ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapExtraContentHasNoBaseChanceToSpawn, 1),
             (Stat.MapLeagueContentAdditionalChancePct, 100)));
         Assert.NotNull(forest);
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, MapModsOf(
+            (Stat.MapExtraContentHasNoBaseChanceToSpawn, 1), (Stat.MapExpeditionLeague, 1))));
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, MapModsOf(
+            (Stat.MapExtraContentHasNoBaseChanceToSpawn, 1), (Stat.MapExpeditionEncounterAdditionalChancePct, 50),
+            (Stat.MapExpeditionEncounterChancePlusPct, 100))));
         foreach (var (stat, value) in new (uint, int)[] { (Stat.MapDisableLeagues, 1 << LeagueChances.Expedition), (Stat.MapNukeEverything, 1),
                      (Stat.AtlasKeystoneNoExtraContent, 1), (Stat.IsBlightedMap, 1), (Stat.MapDisableExpeditionFromChance, 1) })
             Assert.Null(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapLeagueContentAdditionalChancePct, 100), (stat, value))));
