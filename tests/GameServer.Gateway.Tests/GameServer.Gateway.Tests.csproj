@@ -51,6 +51,8 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
     <!-- Alva's incursions and the temple plan (IncursionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
+    <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>
