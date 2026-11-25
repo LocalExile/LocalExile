@@ -115,6 +115,7 @@ public static partial class Game
             string id = Skills.EffectId(row) ?? "";
             if (IsArtilleryBallista(id)) return GroundArrow;
             if (IsKineticRain(id) || id == KineticAnomalyEffect) return GroundWandRain;
+            if (ScourgeProjectileDefinition(id) is { } scourge) return scourge;
             return ProjectileDefinition(id) ?? (ProjectileDefinitions.RequireExplicitProfiles ? null
                 : CatalogProjectileDefinition(row) ?? WeaponProjectileDefinition(row));
         });

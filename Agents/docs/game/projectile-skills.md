@@ -12,7 +12,7 @@ effect. They fire the held weapon's projectile: Projectiles.dat has skill art by
 `PunctureArrow`, `PowerSiphonProjectile`), matched by name like the other rows (the client's link is not known), else
 `DefaultArrow`/`WandProjectile`. Skills with area, channel, rain, melee, Vaal or Barrage stages require a dedicated recipe.
 Barrage uses one accepted attack with per-arrow admission. Galvanic Arrow and Ensnaring Arrow use their own projectile
-recipes. Scourge Arrow, Snipe, Somatic Shell and Vaal Power Siphon still need their dedicated stages.
+recipes. Snipe, Somatic Shell and Vaal Power Siphon still need their dedicated stages.
 
 ## Implemented behavior
 

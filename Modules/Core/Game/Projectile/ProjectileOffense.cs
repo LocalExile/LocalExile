@@ -108,6 +108,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool HitPacket { get; init; }
     public ushort? ActionSequence { get; init; }
     public IReadOnlyDictionary<uint, int> SkillStats { get; init; } = new Dictionary<uint, int>();
+    internal int ScourgePods { get; init; }
+    internal bool ScourgePodsPerProjectile { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }

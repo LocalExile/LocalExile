@@ -2076,6 +2076,7 @@ public static partial class Game
         if (IsWinterOrb(gem.Effect)) return Task.CompletedTask;
         // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
         if (IsSnipe(gem.Effect)) return Task.CompletedTask;
+        if (IsChannelledScourgeArrow(gem.Effect)) return Task.CompletedTask;
         bool cryExerted;
         cryExerted = ConsumeIntimidatingCryExertLocked(player,
             channelGeneration is null && IntimidatingCryCanExert(player, skillId, gem.Effect));
@@ -2257,7 +2258,8 @@ public static partial class Game
         // while this channel's cast ticks only build the orb's stages.
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
-        bool firstSnipeStage = snipe;
+        bool scourge = IsChannelledScourgeArrow(gem.Effect);
+        bool firstStagePaid = snipe || scourge;
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
@@ -2267,6 +2269,8 @@ public static partial class Game
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
             else if (snipe)
                 await SnipeStart(player, skillId, gem, action, initialAim);
+            else if (scourge)
+                StartScourgeChannel(player, gem, action, generation, channelSequence, initialAim);
             else if (divineIre)
             {
                 divineIreStages = 1;
@@ -2311,11 +2315,11 @@ public static partial class Game
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return; }
                 player.NextChannelHitAt = Math.Max(player.NextChannelHitAt, now - 0.05) + interval;
                 // Payment and admission share the channel's generation check.
-                if (firstSnipeStage)
+                if (firstStagePaid)
                 {
                     // The cast already paid for the first stage.
                     cost = lifeCost = 0;
-                    firstSnipeStage = false;
+                    firstStagePaid = false;
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; }
@@ -2357,6 +2361,11 @@ public static partial class Game
                     await SnipePresentStages(player);
                     continue;
                 }
+                if (scourge)
+                {
+                    GainScourgeStage(player, generation, action);
+                    continue;
+                }
                 if (divineIre && divineIreStages < divineIreMaxStages)
                 {
                     divineIreStages++;
@@ -2379,6 +2388,7 @@ public static partial class Game
             // of its own to remove: the client draws the orb from the stage buff.
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await SnipeRelease(player, generation, action);
+            if (scourge) RetireScourgeChannel(player, generation, action);
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence);
             if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
@@ -2403,6 +2413,7 @@ public static partial class Game
     {
         AimChannelTriggers(player, (x, y));
         SnipeAimedAt(player, (x, y));
+        ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
     }
 
@@ -2476,6 +2487,7 @@ public static partial class Game
     // as part of the channel); the walk gets its usual speed back.
     public static void ChannelReleased(Player player, double at)
     {
+        ReleaseScourgeChannel(player, at);
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
         {
             var (x, y) = player.Walk.Position(at);
@@ -2498,6 +2510,7 @@ public static partial class Game
                 || player.Connection.LockstepClient && player.LockstepSkill.Held && player.LockstepSkill.Skill == skill
                     && player.LockstepSkill.Channel == player.ChannelSkillSequence
                 || IsSnipeChannelling(player, skill)
+                || IsScourgeChannelling(player, skill, generation, action)
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                         || IsDivineIre(player, paid.Effect))
