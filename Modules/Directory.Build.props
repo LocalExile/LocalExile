@@ -40,6 +40,7 @@
     <InternalsVisibleTo Include="cosmetics" />
     <InternalsVisibleTo Include="currencyexchange" />
     <InternalsVisibleTo Include="deepwater" />
+    <InternalsVisibleTo Include="expedition" />
     <InternalsVisibleTo Include="delve" />
     <InternalsVisibleTo Include="delirium" />
     <InternalsVisibleTo Include="harvest" />

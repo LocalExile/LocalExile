@@ -297,8 +297,8 @@ public static partial class Game
                 {
                     var splashAt = strikeMonster.Walk.Position(now);
                     foreach (var (sid, sm) in player.Area.Monsters)
-                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
-                            && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
+                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null
+                            && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius && struck.Add(sid))
                         {
                             targets.Add((sid, sm, false));
                             splashMore[sid] = splash.More;
@@ -313,7 +313,8 @@ public static partial class Game
             }
 
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
-            var local = HandLocalSources(player, hand);
+            var attackSource = HandWeapon(player, hand);
+            var local = attackSource.LocalSources;
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
@@ -322,8 +323,8 @@ public static partial class Game
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand);
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
-            var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
-            var criticalImpale = ImpaleStats.From(playerStats, Stats, true, skillStats, local, critical: true);
+            var impale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource);
+            var criticalImpale = WeaponImpaleSettings(playerStats, Stats, true, skillStats, attackSource, critical: true);
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
@@ -440,7 +441,8 @@ public static partial class Game
                 if (fortifiedThisHit) AfterFortificationGainLocked(player, playerStats);
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
-                    rageGranted = RageOnHitLocked(player, attack: true, melee: true, critical, skillStats, playerStats: playerStats);
+                    rageGranted = RageOnHitWithWeaponLocked(player, attack: true, melee: true, critical,
+                        weapon.ItemClass, skillStats, playerStats: playerStats);
                 CombatRushOnHit(player, skillStats, now);
                 HallowOnMeleeHit(player, m, skillStats, now);
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);

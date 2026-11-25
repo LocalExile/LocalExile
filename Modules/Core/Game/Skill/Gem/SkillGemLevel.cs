@@ -13,6 +13,7 @@ public static class SkillGemLevel
         (Stat.PhysicalSkillGemLevelPlus, "physical"), (Stat.FireSkillGemLevelPlus, "fire"),
         (Stat.ColdSkillGemLevelPlus, "cold"), (Stat.LightningSkillGemLevelPlus, "lightning"),
         (Stat.ChaosSkillGemLevelPlus, "chaos"), (Stat.SpellSkillGemLevelPlus, "spell"),
+        (Stat.MinionSkillGemLevelPlus, "minion"),
     ];
 
     // "All Skill Gems" means active skill gems (PoB keyword grants_active_skill); supports have their own stat.

@@ -5,7 +5,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
     public double RecoveryRate => Math.Max(0, 1 + RecoveryPercent / 100.0);
 
     static readonly uint[] Unsupported = [
-        Stat.BaseAddedCooldownCount, Stat.VirtualAddedCooldownCount, Stat.QuickDodgeAddedCooldownCount,
+        Stat.VirtualAddedCooldownCount, Stat.QuickDodgeAddedCooldownCount,
         Stat.ShockwaveSupportAddedCooldownCount, Stat.SupportDoubleNumberOfCooldownUses,
         Stat.SupportTripleNumberOfCooldownUses, Stat.SkillCooldownTimeOverrideMs, Stat.SkillCooldownIs4Seconds,
         Stat.VirtualCooldownModifierMs, Stat.BaseCooldownSpeedPlusPctFinal,
@@ -21,16 +21,21 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
     {
         int native = skills.CooldownMs(effect, level);
         int ms = ActorScale.Saturate((long)native + additionalMilliseconds);
-        int uses = skills.CooldownUses(effect, level);
+        long uses = skills.CooldownUses(effect, level);
         if (uses <= 0 && native <= 0 && ms > 0) uses = 1;
         // The hidden "Trigger level X Summon Spirit of ..." skills (the Ancestral Spirit options and the Loyalty
         // tattoos) are neither spells, attacks nor warcries, but their shared cooldown is still a plain stored use.
-        bool castable = skills.EffectId(effect) == "Unhinge" || skills.IsSpell(effect) || skills.IsAttack(effect) || skills.IsWarcry(effect)
+        bool warcry = skills.IsWarcry(effect);
+        bool castable = skills.EffectId(effect) == "Unhinge" || skills.IsSpell(effect) || skills.IsAttack(effect) || warcry
             || skills.EffectId(effect)?.StartsWith("TriggerSummonedAncestor", StringComparison.Ordinal) == true;
         if (ms <= 0 || uses <= 0 || skills.CooldownPausesWhileActive(effect) || !castable)
             return null;
         int Get(IReadOnlyDictionary<uint, int> values, uint name) => name is var key ? values.GetValueOrDefault(key) : 0;
         if (Unsupported.Any(name => Get(player, name) != 0 || Get(own, name) != 0)) return null;
+        // Echoes of Creation grants this base count to socketed warcries through an item support.
+        int additionalUses = Get(own, Stat.BaseAddedCooldownCount);
+        if (Get(player, Stat.BaseAddedCooldownCount) != 0 || !warcry && additionalUses != 0) return null;
+        uses += additionalUses;
         // Second Wind adds a stored use only to a non-instant skill. Its recovery penalty still affects instant skills.
         if (!skills.IsInstant(effect)) uses += Math.Max(0, Get(own, Stat.SupportAddedCooldownCountIfNotInstant));
         if (uses is < 1 or > 255) return null;
@@ -38,7 +43,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         long recovery = (long)Get(player, Stat.VirtualCooldownSpeedPlusPct)
             + Get(own, Stat.BaseCooldownSpeedPlusPct) + Get(own, Stat.VirtualCooldownSpeedPlusPct);
         // Warcry recovery is an increase for the Warcry type (PoB ModParser); the client adds it when is_warcry (0x142824b50).
-        if (skills.IsWarcry(effect))
+        if (warcry)
             recovery += (long)Get(player, Stat.WarcryCooldownSpeedPlusPct) + Get(own, Stat.WarcryCooldownSpeedPlusPct);
         if (skills.IsMovement(effect))
             recovery += (long)Get(player, Stat.MovementSkillsCooldownSpeedPlusPct) + Get(own, Stat.MovementSkillsCooldownSpeedPlusPct);
@@ -49,7 +54,7 @@ public readonly record struct SingleUseCooldown(int BaseMilliseconds, int Recove
         if (skills.EffectId(effect) is { } id && id.StartsWith("Summon", StringComparison.Ordinal) && id.Contains("Golem", StringComparison.Ordinal))
             recovery += (long)Get(player, Stat.GolemSkillCooldownRecoveryPlusPct) + Get(own, Stat.GolemSkillCooldownRecoveryPlusPct);
         // Native construction adds 100 in a signed i32. Zero recovery stalls rather than reversing the clock.
-        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), uses);
+        return new(ms, (int)Math.Clamp(recovery, -100, int.MaxValue - 100), (int)uses);
     }
 }
 

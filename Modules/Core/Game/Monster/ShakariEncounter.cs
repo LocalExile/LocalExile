@@ -22,6 +22,22 @@ using static Program;
 public static class ShakariEncounter
 {
     public const string Area = "2_9_4";
+    sealed record GateCheckpoint(InstanceState Instance, (int X, int Y) Position);
+    static readonly RuleTable<Player, GateCheckpoint> GateCheckpoints = new();
+
+    internal static void RememberGateCheckpoint(Player player, AreaTransitionObject gate, (int X, int Y) arrival)
+    {
+        if (player.Layout.Id == Area && gate.TeleportTo is not null && gate.Feature is null
+            && gate.DestinationHash16 == player.Layout.Hash)
+            GateCheckpoints.AddOrUpdate(player, new(player.Instance, arrival));
+    }
+
+    internal static (int X, int Y)? CheckpointOf(Player player) =>
+        player.Layout.Id == Area && GateCheckpoints.TryGetValue(player, out var checkpoint)
+            && ReferenceEquals(checkpoint.Instance, player.Instance)
+            && player.Layout.WalkableFor(checkpoint.Position.X, checkpoint.Position.Y, 1)
+            ? checkpoint.Position : null;
+
     public const string ShakariP1 = "Metadata/Monsters/Shakari/Shakari";                     // [6275]
     public const string ShakariP2 = "Metadata/Monsters/Shakari/Shakari2";                    // [6278]
     public const string Tamulus = "Metadata/Monsters/Scorpion/YellowScorpionLargeBossShakari"; // [6145]
