@@ -1097,6 +1097,17 @@ public static partial class Game
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
+                    if (nearby && !skitter)
+                    {
+                        var ownerStats = PlayerStatValues(player);
+                        if (ownerStats.GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy) is > 0 and var shield
+                            && ownerStats.GetValueOrDefault(Stat.CannotRecoverEnergyShield) == 0
+                            && ownerStats.GetValueOrDefault(Stat.NoEnergyShieldRecovery) == 0)
+                        {
+                            player.EnergyShield.Recover((uint)shield);
+                            TrimLeechLocked(player);
+                        }
+                    }
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
