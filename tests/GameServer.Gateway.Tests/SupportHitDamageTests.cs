@@ -96,20 +96,20 @@ public sealed class SupportHitDamageTests
         {
             var random = new Random(1);
             var hit = DamagePacket.Of(DamageType.Physical, 100, 100);
-            double Dealt(GamblerModifiers gambler) => gambler.RollOutgoingHit(hit, random).MinTotal;
+            double Dealt(HitRollModifiers hitRolls) => hitRolls.RollOutgoingHit(hit, random).MinTotal;
 
-            Assert.Equal(100, Dealt(GamblerModifiers.From(Get())));
-            Assert.Equal(200, Dealt(GamblerModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 100)))));
-            Assert.Equal(300, Dealt(GamblerModifiers.From(
+            Assert.Equal(100, Dealt(HitRollModifiers.From(Get())));
+            Assert.Equal(200, Dealt(HitRollModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 100)))));
+            Assert.Equal(300, Dealt(HitRollModifiers.From(
                 Get((Stat.ChanceToDealDoubleDamagePct, 100), (Stat.BaseChanceToDealTripleDamagePct, 100)))));
-            var spells = GamblerModifiers.From(Get((Stat.SpellChanceToDealDoubleDamagePct, 100)));
+            var spells = HitRollModifiers.From(Get((Stat.SpellChanceToDealDoubleDamagePct, 100)));
             Assert.Equal(100, Dealt(spells));
             Assert.Equal(100, Dealt(spells.ForSkill(Get(), spell: false)));
             Assert.Equal(200, Dealt(spells.ForSkill(Get(), spell: true)));
-            Assert.Equal(200, Dealt(GamblerModifiers.From(Get()).ForSkill(Get((Stat.ChanceToDealDoubleDamagePct, 100)), spell: false)));
+            Assert.Equal(200, Dealt(HitRollModifiers.From(Get()).ForSkill(Get((Stat.ChanceToDealDoubleDamagePct, 100)), spell: false)));
 
             // Half triple and half double: a quarter of the hits are doubled, not half.
-            var both = GamblerModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 50), (Stat.BaseChanceToDealTripleDamagePct, 50)));
+            var both = HitRollModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 50), (Stat.BaseChanceToDealTripleDamagePct, 50)));
             var counts = Enumerable.Range(0, 20000).Select(_ => Dealt(both)).GroupBy(d => d).ToDictionary(g => g.Key, g => g.Count());
             Assert.InRange(counts[300], 9600, 10400);
             Assert.InRange(counts[200], 4700, 5300);
@@ -144,16 +144,16 @@ public sealed class SupportHitDamageTests
         }
 
         // Point Blank ramps from 30% more near to 30% less far.
-        Assert.Equal(1.3, AntiquarianEffects.PointBlank(0));
-        Assert.Equal(1.3, AntiquarianEffects.PointBlank(10));
-        Assert.Equal(1.15, AntiquarianEffects.PointBlank(22.5), 9);
-        Assert.Equal(1, AntiquarianEffects.PointBlank(35), 9);
-        Assert.Equal(.85, AntiquarianEffects.PointBlank(77.5), 9);
-        Assert.Equal(.7, AntiquarianEffects.PointBlank(120));
-        Assert.Equal(.7, AntiquarianEffects.PointBlank(150));
+        Assert.Equal(1.3, WardBreakEffects.PointBlank(0));
+        Assert.Equal(1.3, WardBreakEffects.PointBlank(10));
+        Assert.Equal(1.15, WardBreakEffects.PointBlank(22.5), 9);
+        Assert.Equal(1, WardBreakEffects.PointBlank(35), 9);
+        Assert.Equal(.85, WardBreakEffects.PointBlank(77.5), 9);
+        Assert.Equal(.7, WardBreakEffects.PointBlank(120));
+        Assert.Equal(.7, WardBreakEffects.PointBlank(150));
         // With Far Shot too, the two multiply: 1.3 × 0.8 at the muzzle, 0.7 × 1.6 at full range.
-        Assert.Equal(1.04, AntiquarianEffects.PointBlank(5) * AntiquarianEffects.FarShot(5), 9);
-        Assert.Equal(1.12, AntiquarianEffects.PointBlank(150) * AntiquarianEffects.FarShot(150), 9);
+        Assert.Equal(1.04, WardBreakEffects.PointBlank(5) * WardBreakEffects.FarShot(5), 9);
+        Assert.Equal(1.12, WardBreakEffects.PointBlank(150) * WardBreakEffects.FarShot(150), 9);
 
         // Impact, Close Combat and Shield Crush: "up to X% more Melee Damage, based on proximity", whole up to 15 units,
         // linear to none at 40 (PoB MeleeProximity), each its own multiplier.
