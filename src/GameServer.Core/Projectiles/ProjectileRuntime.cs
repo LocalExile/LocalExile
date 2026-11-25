@@ -99,7 +99,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             void Emit()
             {
                 if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
-                if (use.CanEmit?.Invoke() != false && (point == 0 || world.TraceTerrain(use.Origin, origin) is null))
+                if (use.CanEmit?.Invoke() == false || point != 0 && world.TraceTerrain(use.Origin, origin) is not null) return;
+                if (use.InitialAim?.Invoke(origin) is { } aim && double.IsFinite(aim.X) && double.IsFinite(aim.Y) && aim != origin)
+                    Spawn(projectileUse with { Aim = aim, InitialAim = null }, useId, group, 0, origin, (aim - origin).Unit, index: index);
+                else
                     Spawn(projectileUse, useId, group, 0, origin, direction, index: index);
             }
             if (use.Profile.SequentialDelay > 0 && i > 0) Schedule(Now + i * use.Profile.SequentialDelay, Emit);

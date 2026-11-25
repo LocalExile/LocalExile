@@ -291,7 +291,7 @@ public static partial class Game
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
         DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct],
+        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now),
         DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
         _ => 0,
     };
@@ -418,7 +418,7 @@ public static partial class Game
         {
             DamageType.Physical => (double)m.Effects[Stat.PhysicalDamageTakenPlusPct] + MaimedPhysicalTaken(m, now),
             DamageType.Fire => (double)m.Effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-            DamageType.Cold => m.Effects[Stat.ColdDamageTakenPlusPct],
+            DamageType.Cold => ElementalHitTakenPercent(m.Effects, m, DamageType.Cold, now),
             DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };
@@ -466,7 +466,8 @@ public static partial class Game
     static void RegenerateOneMonsterLocked(uint id, SpawnedMonster m, double seconds, double now, int onHitPct, List<(uint Id, uint Life)> changed)
     {
         double spreadRecovery = SpreadPoisonRecovery(m, now);
-        if (m.Dead || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
+        // Not while EntranceGrace or a non-lethal encounter floor holds it out of the fight: it does not regain life.
+        if (m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
         double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
         if (onHitPct != 0 && seconds > 0)
         {

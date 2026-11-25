@@ -27,8 +27,14 @@ public static partial class Game
             definitions[effect] = SkillProjectileDefinition(effect, galvanicArrow, SkillProjectileParameters(effect, galvanicArrow));
         const string ember = "Metadata/Projectiles/Ember";
         definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
+        foreach (string effect in new[] { "ForbiddenRite", "ForbiddenRiteAltX" })
+            definitions[effect] = SkillProjectileDefinition(effect, ForbiddenRitePrimary,
+                SkillProjectileParameters(effect, ForbiddenRitePrimary));
         RegisterSpectralShieldThrows(definitions);
         RegisterEyeOfWinter(definitions);
+        const string boneLance = "Metadata/Projectiles/BoneLance";
+        foreach (string effect in new[] { "Unearth", "UnearthRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, boneLance, SkillProjectileParameters(effect, boneLance));
         const string creepingFrost = "Metadata/Projectiles/ArcticBreath";
         foreach (string effect in new[] { "CreepingFrost", "CreepingFrostAltX", "CreepingFrostAltY", "CreepingFrostRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, creepingFrost, SkillProjectileParameters(effect, creepingFrost));
@@ -142,6 +148,8 @@ public static partial class Game
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
+                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
+                    return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
@@ -155,6 +163,13 @@ public static partial class Game
                     return use with { Profile = profile };
                 }
                 var shot = (ProjectileOffense)use.Payload!;
+                if (GatewayProjectileSkillProfiles.UnearthEffect(effect))
+                {
+                    int level = Math.Clamp(context.Own(Stat.UnearthBaseCorpseLevel)
+                        + context.Get(Stat.UnearthAdditionalCorpseLevel), 1, 100);
+                    var corpse = new UnearthCorpse((byte)level, context.Get(Stat.DesecrateMaximumNumberOfCorpses));
+                    return use with { Payload = shot with { Unearth = corpse } };
+                }
                 if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
                     && use.Profile.EndArea is { } magma)
                 {

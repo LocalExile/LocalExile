@@ -17,7 +17,7 @@ public static partial class Game
     {
         if (!CurrentGameWork) return;
         if (player.RageRetired || player.PlayerLife == 0) return;
-        var inputs = RageStats.Inputs(name => RageStat(stats, name));
+        var inputs = RageStats.Inputs(player, name => RageStat(stats, name));
         // Stat projections must not advance Rage past an unprocessed projectile contact.
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
@@ -29,6 +29,11 @@ public static partial class Game
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
     public static bool RageOnHitLocked(Player player, bool attack, bool melee, bool critical,
         IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        => RageOnHitWithWeaponLocked(player, attack, melee, critical, null, own, random, playerStats);
+
+    static bool RageOnHitWithWeaponLocked(Player player, bool attack, bool melee, bool critical, string? weaponClass,
+        IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null,
+        string? secondWeaponClass = null)
     {
         if (player.Character.Name is null || player.Closed || player.LeavingArea || player.RageRetired
             || player.Paused || player.PlayerLife == 0) return false;
@@ -36,8 +41,12 @@ public static partial class Game
         int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
+        if (attack && (WeaponTypeDamage.FamilyOf(weaponClass) is "axe" or "sword"
+                || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
+            && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
+            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
-            soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
+            soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }
 
     public static void RageWhenHitLocked(Player player)
@@ -48,7 +57,7 @@ public static partial class Game
         if (player.PlayerLife == 0) { player.Rage.Clear(); player.Rampage.Clear(); WinterOrbRetire(player); SnipeRetire(player); MirageWarriorsRetire(player); player.RetireOwnedCombat(); return; }
         if (player.Character.Name is null) return;
         var stats = CharacterPlayerStats(player);
-        player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(name => RageStat(stats, name)),
+        player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(player, name => RageStat(stats, name)),
             AreaRng(player).Next(100), soulGainPrevention: RageStat(stats, Stat.HasSoulGainPrevention) != 0);
     }
 
@@ -64,7 +73,7 @@ public static partial class Game
         if (player.RageRetired || player.Closed) return;
         var stats = CharacterPlayerStats(player);
         if (player.PlayerLife == 0) player.Rage.Clear();
-        var state = player.Rage.Carry(AreaTime(player), RageStats.Inputs(name => RageStat(stats, name)));
+        var state = player.Rage.Carry(AreaTime(player), RageStats.Inputs(player, name => RageStat(stats, name)));
         player.Retire();
         foreach (var (old, entry) in CarriedRage)
             if (DateTime.UtcNow - entry.At > TimeSpan.FromMinutes(5)) CarriedRage.TryRemove(old, out _);
@@ -95,7 +104,7 @@ public static partial class Game
     {
         if (!CurrentGameWork) return [];
         var stats = CharacterPlayerStats(player);
-        var inputs = RageStats.Inputs(name => RageStat(stats, name));
+        var inputs = RageStats.Inputs(player, name => RageStat(stats, name));
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         bool prevention = RageStat(stats, Stat.HasSoulGainPrevention) != 0;
         // "when you reach Maximum Rage while a Unique Enemy is in your Presence" (Loyalty Tattoo of Akoya).
@@ -176,7 +185,7 @@ public static partial class Game
         RageState.Value? changed = null;
         if (CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired)
         {
-            var value = player.Rage.Read(AreaTime(player), RageStats.Inputs(name => RageStat(stats, name)));
+            var value = player.Rage.Read(AreaTime(player), RageStats.Inputs(player, name => RageStat(stats, name)));
             if (player.SentRage != value) changed = value;
         }
         // An unchanged value goes nowhere near the send gate: RagePresentation rebuilds the player's stats under it, and the

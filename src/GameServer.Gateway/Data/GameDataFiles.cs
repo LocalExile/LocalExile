@@ -95,7 +95,7 @@ public static class GameDataFiles
         ("tables", 4, "Kirac progression, gold refresh prices and native trap identities"),
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
-        ("animation-contacts", 10, "class rig animation indices, spell cancellation events, every contact frame, all named event times, lengths even for clips without a contact keyframe, and single-clip skill actions"),
+        ("animation-contacts", 11, "class rig animation indices, spell cancellation events, every contact frame, all named event times, and single-clip skill actions, including the ShieldBash waves"),
         ("monster-contacts", 8, "monster clip contact frames, effect-specific animation pools, Throw-stage contacts, variety AO slow spans, ACT budgets, explicit clock metadata availability and weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),

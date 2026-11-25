@@ -368,6 +368,27 @@ public static class InstanceEntities
         return ComponentUpdate(entityId, componentIndex, w.ToArray());
     }
 
+    public const ushort SkillStatsUpdateId = 0x1b4;
+
+    /// <summary>
+    /// One skill's stats again (S→C 0x1b4, reader <c>0x141fe5330</c>, Actor case <c>0x14219adf2</c>, 11-skills.md §3.1):
+    /// entity header, u16 skill id, u8 stat-set selector (0 = the skill's own stats, n = its additional stat set n − 1),
+    /// unsigned compact count, then the same (compact key, compact value) pairs the skill record carries. Each pair goes
+    /// through the raw stat setter, so the message can only set a value, never drop a key.
+    /// </summary>
+    public static byte[] SkillStatsUpdate(uint entityId, ushort skill, byte statSet,
+        IReadOnlyList<(uint Stat, int Value)> stats)
+    {
+        var w = new LoginWriter().U16(SkillStatsUpdateId).U32(entityId).U32(0).U16(0).U16(skill).U8(statSet);
+        InstanceProtocol.CompactUInt(w, (uint)stats.Count);
+        foreach (var (stat, value) in stats)
+        {
+            InstanceProtocol.CompactUInt(w, stat);
+            InstanceProtocol.CompactInt(w, value);
+        }
+        return w.ToArray();
+    }
+
     public const ushort BlockageUpdateId = 0x1c6;
 
     /// <summary>
@@ -526,6 +547,13 @@ public static class InstanceEntities
         }
         return [.. packets];
     }
+
+    /// <summary>
+    /// The action an actor runs now (0x2bc to the Actor, flag f0 0x04 → <c>0x142199c20</c>): the client builds it from the
+    /// actor's skill and replaces its current action with it (<see cref="ActorAction"/>). The Actor's index is the type's.
+    /// </summary>
+    public static byte[] ActorCurrentAction(uint entityId, byte actorIndex, ActorAction action) =>
+        ComponentUpdate(entityId, actorIndex, action.Write(new BlobWriter().U8(ActorAction.ActorFlag).U8(0)).ToArray());
 
     /// <summary>Actor 0x0100: incremental minion ownership (0x142199c20). Source zero removes an id;
     /// other entries append, so changing a source/type first requires a removal.</summary>
@@ -998,6 +1026,15 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
     public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
+    /// <summary>The blob's base data entries (key, kind byte, u32 value); none for an ordinary monster. A raised zombie's create
+    /// carries <see cref="OwnerKey"/> (the player's object id), <see cref="SourceKey"/> and <see cref="SelfKey"/> (its own).</summary>
+    public IReadOnlyList<(uint Key, byte Kind, uint Value)> BaseData { get; init => field = Owned.List(value); } = [];
+    /// <summary><see cref="SourceKey"/>: the object it came from (a raised zombie's corpse).</summary>
+    public const uint OwnerKey = 0x9cfcf040, SelfKey = 0x3aac50b3, SourceKey = 0x79c80077;
+
+    /// <summary>The blob's first byte. An official raised zombie carries 0x02 with its base data (the flag wakes it in its create); ordinary monsters 0.</summary>
+    public byte ObjectFlags { get; init; }
+
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
     /// <summary>The NPC component's second byte (+0x21): 0xff when no component must be alive, as on a boss that speaks; 1 on a
@@ -1019,6 +1056,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
 
     /// <summary>Facing in radians (Positioned +0x29c); the create blobs of the Mystic Fetishes carry 5.236, 1.047 and 3.142.</summary>
     public float Rotation { get; init; }
+
+    /// <summary>The action the client creates the monster running (Actor f0 0x04, <see cref="ActorAction"/>), from its first
+    /// frame; null: none. Kept on the instance's record, so a client that joins later is created with it too.</summary>
+    public ActorAction? CurrentAction { get; init; }
 
     /// <summary>The object this monster rides on (0: none), at <see cref="Bone"/>: Animated bit 2, the native attachment
     /// record (0x141e5f300), as <see cref="EffectObject.Parent"/> writes it. The client carries it with the parent.</summary>
@@ -1087,8 +1128,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     {
         if (!CanSerialize(Components, StateMachine is not null, Chain)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
-        w.U8(0);            // object flags
-        w.U8(0);            // base data entry count
+        w.U8(ObjectFlags);            // object flags
+        w.U8((byte)BaseData.Count);            // base data entry count
+        // Each entry: its key (big-endian), a kind byte, count 1, value type 1 (a u32).
+        foreach (var (key, kind, value) in BaseData)
+            w.U8((byte)(key >> 24)).U8((byte)(key >> 16)).U8((byte)(key >> 8)).U8((byte)key).U8(kind).U8(1).U8(1).U32(value);
         foreach (string c in Components)
         {
             switch (c)
@@ -1122,8 +1166,10 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                     w.WStr32("").U16(AnimationSeed).U8(ActorStance);
                     if (Life == 0) w.U8(PlayerObject.DeadPoseAnimation).U8(DeadPoseClip);
                     w.U32(0).U32(0);
-                    if (Skills is { Count: > 0 }) { w.U8(0x40).U8(0); PlayerObject.WriteSkillList(w, Skills); }   // its skills (11-skills.md §3)
-                    else w.U8(0).U8(0);
+                    // Slot 20's flags: 0x40 its skills (11-skills.md §3), read first; 0x04 the action it runs (read after).
+                    w.U8((byte)((Skills is { Count: > 0 } ? 0x40 : 0) | (CurrentAction is null ? 0 : ActorAction.ActorFlag))).U8(0);
+                    if (Skills is { Count: > 0 }) PlayerObject.WriteSkillList(w, Skills);
+                    CurrentAction?.Write(w);
                     break;
                 // 0x1421c8e20: u8 = state (low 7 bits, → +0x120) | bit 7 (+0x122, "transitioning"). States run 1..num_states
                 // (.ot Transitionable num_states, default 2); num_states = fully transitioned (create_transitioned).

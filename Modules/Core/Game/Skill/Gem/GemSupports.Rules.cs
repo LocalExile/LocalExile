@@ -1,3 +1,4 @@
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
@@ -57,7 +58,7 @@ public static partial class Game
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
                 || g.EffectId is SnipeEffect or SpiritBurstEffect or "DoryanisTouch" or ApproachingFlamesEffect
-                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink"
+                    or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
                 || g.EffectId == ShaperMemoryEffect
@@ -271,7 +272,8 @@ public static partial class Game
         List<GemSupports.Candidate> candidates, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IReadOnlySet<uint>? inactive, bool sourceIsGem)
     {
-        int? weaponClass = null;
+        // An empty or inactive main hand attacks with the Unarmed class.
+        int? weaponClass = UnarmedClassRow;
         bool allOneHandMelee = false;
         if (candidates.Exists(c => Supports.Of(c.Effect) is { Weapons.Length: > 0 }))
         {
@@ -617,7 +619,7 @@ public static partial class Game
         SupportedAttackTiming(player, skillId, null, clampToTick: true, proxy: false).Increased;
 
     static (double Seconds, int Increased, double More) SupportedAttackTiming(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick, bool proxy)
+        bool clampToTick, bool proxy, int? doubleStrikeStages = null, bool startingPair = false)
     {
         var stats = new Dictionary<uint, int>(SupportedStats(player, skillId));
         int Get(uint k) => stats.GetValueOrDefault(k);
@@ -657,6 +659,12 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d);
+        if (!proxy && gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) is int stageSpeed and not 0)
+        {
+            int stages = doubleStrikeStages ?? DoubleStrikeStageCount(player, AreaTime(player));
+            int maximum = gem.Stats.GetValueOrDefault(Stat.DoubleStrikeMaxStages);
+            more *= Math.Max(.01, 1 + (double)stageSpeed * Math.Clamp(stages + (startingPair ? 1 : 0), 0, Math.Max(0, maximum)) / 100);
+        }
         int barrageTime = Get(Stat.SupportBarrageAttackTimePlusPctPerProjectileFired);
         if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
         {
@@ -787,6 +795,7 @@ public static partial class Game
         public IReadOnlyDictionary<uint, int> FrozenStats { get; init; } = new Dictionary<uint, int>();
         public int WeaponIncreased { get; init; }
         public HitIncreases WeaponTypedIncreases { get; init; }
+        public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
         public bool Armed { get; init; }
         public bool Claw { get; init; }
         public double ReleaseAilmentMore { get; init; } = 1;
@@ -799,7 +808,7 @@ public static partial class Game
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
-        bool projectile = false, int addedChaos = 0, bool totem = false)
+        bool projectile = false, int addedChaos = 0, bool totem = false, uint? projectileTotemLife = null)
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         bool wildStrike = IsWildStrike(gem.Effect);
@@ -845,6 +854,8 @@ public static partial class Game
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
+        if (stats.GetValueOrDefault(Stat.ElementalHitNoPhysicalChaosDamage) != 0)
+            ApplyElementalHitDamageStats(stats);
         if (totem && Stat.DamagePlusPct is var damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, Stat.TotemDamagePlusPct);
         var placed = PlacedKind(gem);
@@ -904,11 +915,22 @@ public static partial class Game
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
-        var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
+        var spellBase = secondary || attackWeapon is null
+            ? plan.SpellBaseWith(Get) : GameServer.Core.World.DamagePacket.Empty;
+        if (GatewayProjectileSkillProfiles.IsForbiddenRite(skills.EffectId(gem.Effect)))
+        {
+            var (life, shield) = ForbiddenRitePools(player, projectileTotemLife, placed.Trap || placed.Mine);
+            double chaos = (life * (double)Get(Stat.SkillBaseChaosDamagePctMaximumLife)
+                + shield * (double)Get(Stat.SkillBaseChaosDamagePctMaximumEnergyShield)) / 100d;
+            spellBase = spellBase.Add(GameServer.Core.World.DamageType.Chaos, new(chaos, chaos));
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct),
+                Get(Stat.ForbiddenRiteDamagePlusPct));
+        }
+        var raw = secondary ? SecondaryRawHit(player, gem, spellBase, Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
-            : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
             double fire = (long)player.PlayerMaxLife * lifePct / 100d;
@@ -999,6 +1021,7 @@ public static partial class Game
                 : !attack && !secondary && Get(Stat.SpellStaffDamagePlusPct) is int staff and not 0
                     && WeaponTypeDamage.FamilyOf(WeaponFor(player).ItemClass) == "staff" ? staff : 0,
             WeaponTypedIncreases = attackWeapon is null || secondary ? default : WeaponTypeDamage.Of(attackWeapon, Get),
+            WeaponStats = secondary ? null : attackWeapon?.LocalSources,
             Armed = attackWeapon is not null && !secondary && WeaponAttributeDamage.Armed(attackWeapon),
             ReleaseAilmentMore = gem.Stats.ContainsKey(Stat.SupportOverheatAilmentDamagePlusPctFinalPer3FortificationConsumed)
                 ? OverheatAilmentMore(player, skillId) : 1,
@@ -1027,8 +1050,13 @@ public static partial class Game
         if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
+        hit = ApplyRoilingTempest(hit, inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
+
+    static DamagePacket ApplyRoilingTempest(DamagePacket hit, Func<uint, int> get)
+        => get(Stat.KeystoneLightningPurist) == 0 ? hit : hit.Select((type, range) =>
+            type == DamageType.Lightning ? new DamageRange(range.Min * .5, range.Max * 1.25) : range);
 
     static double SupportedHitIntensityMore(SupportedHitInputs inputs)
     {
@@ -1051,7 +1079,8 @@ public static partial class Game
     public static List<(uint Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
         long additionalIncreased = 0)
     {
-        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee);
+        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        { WeaponStats = inputs.WeaponStats };
         return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
     }
 
@@ -1059,7 +1088,8 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var playerStats = CharacterPlayerStats(player);
-        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, MainHandLocalSources(player))
+        var local = UsesShieldAccuracy(SkillsFor(player), gem.Effect) ? null : MainHandLocalSources(player);
+        return AttackAccuracyProfile.From(player.Pools, playerStats, Stats, gem.Stats, local)
             with { Rating = WeaponAccuracyFor(player, null, playerStats, gem.Stats, gem.Effect) };
     }
 
@@ -1177,7 +1207,9 @@ public static partial class Game
         if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
-        return new((int)Math.Floor(manaFlat * factor), (int)Math.Floor(manaPercent * factor),
+        decimal manaFactor = Get(Stat.KeystoneSupremeEgo) != 0
+            && SkillsFor(player).IsAura(gem.Effect, gem.Supports.Select(s => s.Effect.Row)) ? factor * 1.4m : factor;
+        return new((int)Math.Floor(manaFlat * manaFactor), (int)Math.Floor(manaPercent * manaFactor),
             (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor));
     }
 

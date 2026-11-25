@@ -446,7 +446,7 @@ public static partial class Game
     /// <summary>Initial <c>S->C 0x126</c> achievement and league challenge progress messages sent on area entry (<see cref="GameEvents.EnterMessages"/>).</summary>
     public static IReadOnlyList<(string Log, byte[] Bytes)> AchievementEnterMessages(Player player)
     {
-        if (player.Controlled) return [];
+        if (!player.HasClient) return [];
         var catalog = AchievementsCatalog();
         var completed = ReadCompletedItems(player);
         var messages = new List<(string Log, byte[] Bytes)>();
@@ -469,7 +469,7 @@ public static partial class Game
     /// <summary>Sends <c>S->C 0x126</c> achievement progress bitset for <paramref name="setId"/>.</summary>
     public static Task SendAchievementProgress(Player player, byte setId = InstanceAchievements.PermanentAchievementSetId)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea) return Task.CompletedTask;
+        if (!player.HasClient || player.Closed || player.LeavingArea) return Task.CompletedTask;
         var catalog = AchievementsCatalog();
         if (!catalog.Sets.ContainsKey(setId)) return Task.CompletedTask;
         byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(player), setId);
@@ -504,7 +504,7 @@ public static partial class Game
 
     static async Task<bool> AwardAchievementItemCore(Player player, AchievementCatalog catalog, AchievementItemEntry item)
     {
-        if (player.Controlled || HardcoreProgressBlocked(player)) return false;
+        if (!player.EarnsProgress || HardcoreProgressBlocked(player)) return false;
         if (!catalog.AchievementsByRow.TryGetValue(item.AchievementRow, out var parent)) return false;
         if (!ActiveAchievementSets(player).Contains(parent.SetId)) return false;
         if (player.Character.Hardcore && parent.SoftcoreOnly) return false;
@@ -585,7 +585,7 @@ public static partial class Game
     /// <summary>Notifies the client via <c>S->C 0x127</c> that an achievement/challenge item failed (0-based row).</summary>
     public static Task FailAchievementItem(Player player, ushort itemRow)
     {
-        if (player.Controlled || !player.Connection.PlayerSent || player.Closed || player.LeavingArea)
+        if (!player.HasClient || !player.Connection.PlayerSent || player.Closed || player.LeavingArea)
             return Task.CompletedTask;
         return SendAchievementPacket(player, InstanceAchievements.AchievementItemFailed(itemRow),
             $"0x0127 achievement item failed (row {itemRow})");
@@ -596,7 +596,7 @@ public static partial class Game
     /// <summary><see cref="GameEvents.PlayerEntered"/>: awards <c>OpenAndEnterAMap</c> when entering a Map Device map.</summary>
     public static async Task CheckAreaEntryAchievements(Player player)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         if (MapRunOf(player) is not null && MapDevices.IsMapArea(player.Layout.Hash))
             await AwardAchievementItem(player, "OpenAndEnterAMap");
     }
@@ -620,7 +620,7 @@ public static partial class Game
             .Where(p => !ReferenceEquals(p, player))];
         foreach (var recipient in recipients)
         {
-            if (recipient.Controlled || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent || recipient.PlayerLife == 0)
+            if (!recipient.EarnsProgress || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent || recipient.PlayerLife == 0)
                 continue;
             foreach (ushort itemRow in rows)
                 await AwardAchievementItem(recipient, itemRow);
@@ -651,7 +651,7 @@ public static partial class Game
     /// <summary>Called when character quest flags are published (<c>Quests.cs</c>).</summary>
     public static async Task CheckQuestFlagAchievements(Player player, IReadOnlyList<string> flags)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || flags.Count == 0 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || flags.Count == 0 || !AchievementsCatalog().IsLoaded) return;
         foreach (string flag in flags)
         {
             if (QuestFlagAchievementItems.TryGetValue(flag, out var itemId))
@@ -673,7 +673,7 @@ public static partial class Game
     /// <summary>Called when Labyrinth ascendancy points are awarded (<c>Progression.cs</c>).</summary>
     public static async Task CheckAscendancyAwardAchievements(Player player, IEnumerable<string> awards)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         foreach (string award in awards)
         {
             string? itemId = award switch
@@ -691,7 +691,7 @@ public static partial class Game
     /// <summary>Called on level-up (<c>Skills.cs</c>).</summary>
     public static async Task CheckLevelAchievements(Player player, int level)
     {
-        if (player.Controlled || level < 60 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || level < 60 || !AchievementsCatalog().IsLoaded) return;
         bool hc = player.Character.Hardcore;
         if (level >= 60) await AwardAchievementItem(player, hc ? "Level60HC" : "Level60");
         if (level >= 70) await AwardAchievementItem(player, hc ? "Level70HC" : "Level70");
@@ -702,7 +702,7 @@ public static partial class Game
     /// <summary>Called when worn equipment changes (<c>Equipment.cs</c>).</summary>
     public static async Task CheckEquipmentAchievements(Player player, PlayerInventories items)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         var catalog = AchievementsCatalog();
         if (!catalog.IsLoaded) return;
         var itemCatalog = ItemsFor(player);
@@ -772,7 +772,7 @@ public static partial class Game
     /// <summary>Called after passive nodes are allocated (<c>Progression.cs</c>).</summary>
     public static async Task CheckPassiveAchievements(Player player, IReadOnlyList<ushort> allocatedNodes)
     {
-        if (player.Controlled || allocatedNodes.Count == 0 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || allocatedNodes.Count == 0 || !AchievementsCatalog().IsLoaded) return;
         var tree = PassivesFor(player);
         int keystones = 0;
         for (int i = 0; i < allocatedNodes.Count; i++)
@@ -785,7 +785,7 @@ public static partial class Game
     /// <summary>Called when a skill gem levels up (<c>Items.cs</c>).</summary>
     public static async Task CheckGemLevelAchievements(Player player, Item gem, int newLevel)
     {
-        if (player.Controlled || newLevel < 20 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || newLevel < 20 || !AchievementsCatalog().IsLoaded) return;
         await AwardAchievementItem(player, "Level20Gem");
         if (IsVaalSkillGem(ItemsFor(player), gem))
             await AwardAchievementItem(player, "Level20VaalGem");
@@ -799,7 +799,7 @@ public static partial class Game
     /// <summary>Called when an area's living hostile monster count drops from &gt;0 to 0 (<c>MonsterRemaining.cs</c>).</summary>
     public static async Task CheckFullClearAchievements(Player player)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         var catalog = AchievementsCatalog();
         if (!catalog.IsLoaded) return;
         if (MapDevices.IsMapArea(player.Layout.Hash))
@@ -812,7 +812,7 @@ public static partial class Game
     /// <summary>Called after currency crafting succeeds on an item (<c>Items.cs</c>).</summary>
     public static async Task CheckCraftingAchievements(Player player, string currencyId, Item before, Item after)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         if (currencyId == CurrencyEffects.OrbOfChance)
         {
             if (after.Rarity == ItemRarity.Unique)
@@ -841,6 +841,10 @@ public static partial class Game
                 && CurrencyEffects.IsMap(after, targetType)
                 && after.Mods.Count(m => m.Section == ModSection.Explicit) >= 8)
                 await AwardAchievementItem(player, "CorruptMap8Mods");
+            if (ItemsFor(player).ByHash(after.TypeHash)?.Class == "Jewel"
+                && after.Rarity == ItemRarity.Unique
+                && (before.Rarity != ItemRarity.Unique || !before.NameWords.SequenceEqual(after.NameWords)))
+                await AwardAchievementItem(player, "CorruptToCorruptUniqueJewel");
         }
     }
 

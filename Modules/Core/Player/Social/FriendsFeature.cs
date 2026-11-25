@@ -53,7 +53,7 @@ static class FriendsFeature
     static Player? Connected(string name) => Online.TryGetValue(name, out var c) && !c.Closed && !c.LeavingArea ? c : null;
 
     static Player? FindOnline(string name) =>
-        InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+        InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
 

@@ -21,6 +21,8 @@ public static class AuraCatalog
         int CommanderAttackCastSpeedPct = 0, int CommanderElementalResistancePct = 0, int CommanderDamagePct = 0)
     {
         public object? StanceOwner { get; init; }
+        public bool SelfOnly { get; init; }
+        public int MoreEffectPct { get; init; }
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
@@ -535,7 +537,8 @@ public static class AuraCatalog
     {
         int effect = (aura.ExternalEffectPct ?? auraEffectPct + aura.SupportEffectPct) + aura.PerAuraEffectPct;
         int value = Math.Max(0, aura.CommanderAttackCastSpeedPct);
-        return (int)Math.Clamp((long)value * Math.Max(0, 100 + effect) / 100, 0, int.MaxValue);
+        return (int)Math.Clamp((decimal)value * Math.Max(0, 100 + effect)
+            * (100 + aura.MoreEffectPct) / 10_000m, 0, int.MaxValue);
     }
 
     private static int Value(SkillCatalog skills, StatCatalog stats, Aura aura, uint name, int auraEffectPct,
@@ -554,8 +557,10 @@ public static class AuraCatalog
         // PoB ModStore.ScaleAddList truncates these integer defence-aura stats before character-wide scaling.
         // Decimal preserves the exact hundredths from the integer aura-effect percentage.
         if (Family(aura.EffectId) is "Discipline" or "Determination" or "Grace")
-            return (int)Math.Clamp(decimal.Truncate(value * Math.Max(0m, 100m + auraEffectPct) / 100m), int.MinValue, int.MaxValue);
-        return (int)Math.Round(value * Math.Max(0, 100 + auraEffectPct) / 100.0, MidpointRounding.AwayFromZero);
+            return (int)Math.Clamp(decimal.Truncate(value * Math.Max(0m, 100m + auraEffectPct)
+                * (100 + aura.MoreEffectPct) / 10_000m), int.MinValue, int.MaxValue);
+        return (int)Math.Clamp(Math.Round(value * (double)Math.Max(0, 100 + auraEffectPct)
+            * (100 + aura.MoreEffectPct) / 10_000.0, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
     }
 
     static IReadOnlyList<(uint Key, int Value)> EffectStats(Aura aura, SkillCatalog skills) =>

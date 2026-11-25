@@ -46,14 +46,16 @@ public sealed class AscendancyRules(AscendancyCatalog catalog)
             return null;
         }
         var definition = catalog.Find(progress.Selection) ?? throw new AscendancyRuleException(
-            $"Unknown ascendancy {progress.Selection.Family}/{progress.Selection.Id} at revision {progress.Selection.Revision}");
+            progress.Selection.Family != AscendancyFamily.Normal && AscendancyPolicies.Tree(progress.Selection.Family) is null
+                ? $"The {progress.Selection.Family.Name()} ascendancy module is not loaded: {progress.Selection.Id} cannot be checked"
+                : $"Unknown ascendancy {progress.Selection.Family.Name()}/{progress.Selection.Id} at revision {progress.Selection.Revision}");
         if (definition.BaseClass != baseClass) throw new AscendancyRuleException($"{definition.Name} belongs to a different base class");
         var allocated = new HashSet<ushort>();
         foreach (ushort node in progress.Allocated)
         {
             if (!allocated.Add(node)) throw new AscendancyRuleException($"Duplicate ascendancy node {node}");
             if (!definition.Nodes.TryGetValue(node, out var data) || data.IsStart)
-                throw new AscendancyRuleException($"Node {node} does not belong to {definition.Name}'s {definition.Identity.Family} tree");
+                throw new AscendancyRuleException($"Node {node} does not belong to {definition.Name}'s {definition.Identity.Family.Name()} tree");
         }
         int spent = allocated.Sum(n => definition.Nodes[n].PointCost);
         if (spent > points) throw new AscendancyRuleException($"Ascendancy points exceeded: {spent} spent, {points} earned");

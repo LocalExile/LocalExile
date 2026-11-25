@@ -139,7 +139,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
   Town bots are not drawn: since the area replicates its own entities, a bot is not yet one of them (party followers,
-  which are controlled players, are).
+  which are players the server drives, are).
   Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
   Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
   Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,

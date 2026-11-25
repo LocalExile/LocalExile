@@ -298,7 +298,9 @@ public static partial class Game
             if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
-            bool bypassed = false, cooldownReset = false, retainRetaliationUse = false;
+            int? totemPlacements = null;
+            ChargeType? bypass = null;
+            bool cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
@@ -319,24 +321,40 @@ public static partial class Game
                 else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
-                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
-                    if (reserve ? !ChargesOf(player).Spend(charge) : !ChargesOf(player).CanSpend(charge)) return false;
-                    bypassed = true;
+                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge
+                        || !ChargesOf(player).CanSpend(charge)) return false;
+                    bypass = charge;
+                }
+                if (reserve && skillId is ushort totemSkill && IsTotemSkill(player, totemSkill))
+                {
+                    // Each totem uses a stored cooldown, but the placement skill pays once per action.
+                    totemPlacements = bypass is null && !cooldownReset && state.Ready
+                        && TotemLimit(player, totemSkill) >= 2 && WantsTwoTotems(player, totemSkill)
+                        && state.TryUse(now, cooldown) ? 2 : 1;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
-                if (reserve && !bypassed && !cooldownReset)
+                if (reserve && bypass is null && !cooldownReset)
                     sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, cooldown, now, peers);
             }
             // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
             // the use: a later failure (mana spent in between, a cast stopped before its effect) cannot leave the use spent
-            // and unpaid, and an accepted use is never refunded. The check above ran under the same lock, so this succeeds.
+            // and unpaid, and an accepted use is never refunded. A bypass charge is committed with the quoted cost,
+            // since losing the charge may itself change that cost.
             (uint Mana, uint Life)? paid = null;
             if (payer is ushort accepted && (plan is not null || attack is not null))
             {
-                if (!PayMana(player, accepted, out uint mana, out uint life)) return false;
+                if (!PayMana(player, accepted, out uint mana, out uint life, 100, cooldownBypass: bypass)) return false;
                 paid = (mana, life);
             }
+            else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
             if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
+            // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
+            // must not change the attack already admitted by this ticket.
+            int? enduranceCharges = null;
+            if (reserve && plan is not null && skillId is ushort chargeAttack && SkillsFor(player).IsAttack(effect)
+                && Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge is var perCharge
+                && GolemStat(SupportedSkill(player, chargeAttack).Stats, perCharge) != 0)
+                enduranceCharges = EffectiveEnduranceCharges(player);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -346,11 +364,12 @@ public static partial class Game
                 ? ApplyStancePlanLocked(player, receiptSkill, committedPlan, player.ActionCount, player.ProjectileEpoch)
                 : null;
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
-                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance)
+                instant, reserve, bypass is null ? state : null, bypass is null ? state?.UseVersion ?? 0 : 0, stance)
             {
-                SharedUses = sharedUses, Paid = paid, Attack = attack,
+                SharedUses = sharedUses, Paid = paid, Attack = attack, TotemPlacements = totemPlacements,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
+            if (ticket is not null) ticket.EnduranceChargesAfterCost = enduranceCharges;
             return true;
         }
     }
@@ -360,6 +379,12 @@ public static partial class Game
     // and 0x52e2 (base_cooldown_refresh_chance_%) for any skill with a cooldown.
     internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
     internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
+
+    static int EffectiveEnduranceCharges(Player player)
+    {
+        var charges = ChargesOf(player);
+        return charges.Converted(ChargeType.Endurance) ? 0 : charges.Effective(ChargeType.Endurance);
+    }
 
     internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random) =>
         CooldownResetTriggered(player, effect, skillId, random, out _);

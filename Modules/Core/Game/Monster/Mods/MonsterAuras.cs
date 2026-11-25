@@ -170,7 +170,7 @@ public static partial class Game
         for (int i = 0; i < living.Count; i++)
         {
             var (id, m) = living[i];
-            if (!m.Hostile || m.Dead || m.Life == 0) continue;
+            if (!m.Hostile || m.Dead || m.Life == 0 || m.EntranceGrace || m.OnNonLethalZero is not null) continue;
             MonsterAuraFlags flags;
             if (MonsterAuraStates.TryGetValue(m, out var st) && st.Checked)
             {
@@ -204,7 +204,7 @@ public static partial class Game
         for (int i = 0; i < living.Count; i++)
         {
             var (id, m) = living[i];
-            if (!m.Hostile || m.Dead || m.Life == 0) continue;
+            if (!m.Hostile || m.Dead || m.Life == 0 || m.EntranceGrace || m.OnNonLethalZero is not null) continue;
             var received = MonsterAuraFlags.None;
             if (carriers is not null)
             {

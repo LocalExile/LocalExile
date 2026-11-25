@@ -234,6 +234,7 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainInfernalBlowDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                     }
@@ -256,6 +257,7 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainInfernalBlowDeaths();
                     Runtime.AdvanceTo(at);
                 }
                 finally
@@ -289,11 +291,27 @@ public static partial class Game
                 });
         }
 
+        internal void ScheduleContact(long at, Func<bool> valid, Action contact)
+        {
+            if (!Active) return;
+            Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
+            {
+                if (!Active || !valid()) return;
+                try { contact(); }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");
+                }
+            });
+        }
+
         /// <summary>Releases a resolved use at the runtime's current instant. Call in the area's frame.</summary>
         public long ReleaseNow(ProjectileUse use)
         {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
+            if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
+                ReleaseForbiddenRite(seeded, shot, rite);
             SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
@@ -307,12 +325,16 @@ public static partial class Game
 
         public void Invalidate()
         {
+            // Retirement clears the same flight collection the pump advances. Serialize both under the mutation gate.
+            using var mutation = LevelUpdatesFor(Player).Gate.EnterScope();
             if (invalid) return;
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
-            ClearKnifeBlades();
+            ClearProjectileBladeSources();
+            ClearPlacedVolatileOrbs();
+            ClearCremationGeysers();
             ClearEnsnares();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
@@ -330,6 +352,14 @@ public static partial class Game
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.UntrackProjectileObject(visual.Id);
             visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
+        }
+
+        void RetireSkillEffectObject(uint id)
+        {
+            // A transfer already took these IDs for its own removal. A replacement combat generation drains
+            // the remaining owned objects through the normal world-output fence.
+            if (Player.UntrackProjectileObject(id) && !Player.LeavingArea && !Player.Closed)
+                Player.RetiredCombatObjects.Add(id);
         }
 
         public void Enqueue(Func<Task> intent) => Write(intent, keepsWorldGroup: false);
@@ -851,10 +881,13 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats) : default;
+            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats, spider.Local) : default;
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            var steel = shot.LancingSteelHits;
+            if (steel?.Targets.Contains(contact.Target) == true)
+                shot = shot.ScaleDamage(steel.RepeatMultiplier);
             int projectileFreezeChance = 0;
             if (shot.FreezingPulseFalloff)
             {
@@ -868,6 +901,9 @@ public static partial class Game
                 projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
             }
             double chainsMore = Math.Max(0, 1 + (double)shot.RemainingChainDamagePercent * contact.Projectile.ChainsRemaining / 100);
+            if (shot.CompletedChainDamagePercent != 0)
+                chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
+                    * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
             if (ailmentMore != 1)
@@ -882,15 +918,17 @@ public static partial class Game
             double more = contact.Multiplier * (contact.Phase > 0 ? shot.ReturnMultiplier : 1);
             if (ReferenceEquals(shot.BrandedTarget, target))
                 more *= Math.Max(0, 1 + GolemStat(shot.SkillStats, Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
-            if (!shot.Spell && shot.FarShot) more *= AntiquarianEffects.FarShot(contact.Projectile.Distance);
-            if (!shot.Spell && shot.PointBlank) more *= AntiquarianEffects.PointBlank(contact.Projectile.Distance);
+            if (!shot.Spell && shot.FarShot) more *= WardBreakEffects.FarShot(contact.Projectile.Distance);
+            if (!shot.Spell && shot.PointBlank) more *= WardBreakEffects.PointBlank(contact.Projectile.Distance);
+            if (shot.ShatteringSteelAmmoHitBonus > 0)
+                more *= 1 + shot.ShatteringSteelAmmoHitBonus * Math.Clamp((70 - contact.Projectile.Distance) / 60, 0, 1);
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
-            var gambler = GamblerFor(player);
+            var hitRolls = HitRollsFor(player);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
+                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
                     .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
@@ -914,7 +952,7 @@ public static partial class Game
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
             var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
-                resonance.Penetration, gambler.InvertsResistance(random, shot.SkillResistanceInversionChance),
+                resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
                 additionalTakenPct: additionalTaken);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
@@ -932,8 +970,7 @@ public static partial class Game
                 long impaleMultiplier = shot.NoExtraCriticalDamage ? sourceMultiplier
                     : sourceMultiplier + (target.MaxLife > 0 && target.Life >= target.MaxLife ? shot.TargetCritical.FullLife : 0);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, impaleMultiplier) / 100d : 1);
-                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects[Stat.AvoidImpalePct]);
-                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
+                damage = ApplyPlayerImpaleContact(Player, target, damage, physical, at, at, settings, random).Damage;
             }
             uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitCoreLocked(Player, target, damage, rampageSource: null, playerStats: player,
@@ -942,6 +979,7 @@ public static partial class Game
                 cullPlayer: null, chaosDamage: chaosDamage,
                 preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             if (!immune && hit.Value.Life > 0 && shot.SomaticApplications is not null)
@@ -991,7 +1029,8 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
+                    areaHit: contact.IsArea);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
@@ -1004,8 +1043,10 @@ public static partial class Game
             if (!immune && hit.Value.Life > 0 && rolled[DamageType.Physical].Max > 0)
                 BleedOnHitLocked(this, contact.Target.Id, target, shot.Bleed, critical, at,
                     BleedReflected(shot.ActualCaster is null ? player : CharacterPlayerStats(Player)));
-            if (shot.ActualCaster is null) RageOnHitLocked(Player, attack: !shot.Spell, melee: false, critical, shot.SkillStats,
-                contact.Projectile.ReactionRandomSource, player);
+            if (shot.ActualCaster is null)
+                RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
+                    shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,
+                    contact.Projectile.ReactionRandomSource, player);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
@@ -1044,6 +1085,8 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
+                    LandUnearth(corpse, (x, y));
             }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"

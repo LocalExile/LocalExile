@@ -99,8 +99,8 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
 - **Start:** the auras' 3D effects (BuffVisuals EPKs of the `IsSkillBuff` rows do not render, unlike Righteous Fire's);
   enemy aura executors, the other Vaal auras and unsupported conditional effects.
   Vaal auras: allies do not receive them, and no skill bar soul gain prevention countdown is shown.
-  Verify the herald combat matrix, retail Virulence decay, the skill-specific trap/mine payloads beyond Skitterbots'
-  trigger/rearm, and the skill-bar indicator's buff association (0x1c1 bit3) live.
+  Verify the herald combat matrix, retail Virulence decay, remaining skill-specific trap and mine payloads, and the
+  skill-bar indicator's buff association (0x1c1 bit3) live.
 - **Done when:** the standard auras reserve correctly, their effects match PoB, and the character panel and HUD show
   the same reserved and unreserved values.
 

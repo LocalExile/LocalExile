@@ -36,6 +36,8 @@ after the status are the research done before the act was built. What differs fr
 - The membrane into The Belly of the Beast is created from the layout's graph node and gated by `SinEnterBeast`; its seven
   blockers lift with it. SinQuarry, SinCore and Lilly (after the Trinity) are created; the heart portals and the seed of
   corruption are not (the driver teleports to the spirits and the Trinity).
+- In `boss_2.arm`, `MalachaiDepthsReturn` is the hub's `teleport2-%areaname%`, paired with `telepad2` at the
+  Black Core entrance in `core_entrance_1.arm`. The organ portal slots share the hub room.
 
 ## Areas
 

@@ -190,14 +190,14 @@ public sealed class CombatCacheTests
         set.Replace(0, new GameServer.Core.World.ClientPathfinder.Blocker(12, 12, 2));
         Assert.True(set.OverlapsFootprint(12, 12, 1));
 
-        // First-tick AntiquarianPresentation must not swallow active sustained Adrenaline (PositiveInfinity).
+        // First-tick WardBreakPresentation must not swallow active sustained Adrenaline (PositiveInfinity).
         var antiq = new Player(layout, 2, 2) { PlayerLife = 100 };
         antiq.Clock.Stop();
-        antiq.Antiquarian.SustainAdrenaline(0);
-        Assert.Equal(double.PositiveInfinity, antiq.Antiquarian.AdrenalineUntil);
-        Assert.NotNull(Game.AntiquarianPresentation(antiq));
+        antiq.WardBreak.SustainAdrenaline(0);
+        Assert.Equal(double.PositiveInfinity, antiq.WardBreak.AdrenalineUntil);
+        Assert.NotNull(Game.WardBreakPresentation(antiq));
         Assert.Equal(double.PositiveInfinity, antiq.SentAdrenalineUntil);
-        Assert.Null(Game.AntiquarianPresentation(antiq));
+        Assert.Null(Game.WardBreakPresentation(antiq));
 
         // MayExplodeOnKill must recognize every explosion source: HitFireExplosionPercent, captured equipment
         // (cursed corpse, Pride, cursed chaos), and all explosion stats, while returning false when none apply.

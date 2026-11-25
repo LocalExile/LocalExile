@@ -31,7 +31,7 @@ public static partial class Game
             && was.Inputs.Matches(player, currentStats))
         {
             KeepActiveSkills(player);
-            return cached;
+            return GatheringLightningSkillRecords(player, cached, now);
         }
         var inputs = SkillSnapshotInputs.Capture(player, currentStats);
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
@@ -52,7 +52,7 @@ public static partial class Game
             player.PlayerSkillsAt = now;
             KeepActiveSkills(player, build, playerStats);
             PlayerSkillsInputs.AddOrUpdate(player, new(inputs, skills));
-            return skills;
+            return GatheringLightningSkillRecords(player, skills, now);
         }
         finally { build.Active = false; StatsScope.Value = outer; }
     }
@@ -338,7 +338,8 @@ public static partial class Game
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
+        hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
+        return ApplyRoilingTempest(hit, Get).Scale(HitRollsFor(stats).DamageFactor);
     }
 
     public static double AddedEffectiveness(Player player, int effect, int level) => SkillsFor(player).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
@@ -475,8 +476,12 @@ public static partial class Game
                 stats[tornadoMode] = 4;
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
-            if (IsLeapSlam(player, effect))
+            // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
+            bool gatheringLightning = IsGatheringLightning(effect);
+            if (IsLeapSlam(player, effect) || gatheringLightning)
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
+            if (gatheringLightning)
+                stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.
             if (Stat.BaseSkillEffectDuration is var baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
@@ -671,14 +676,21 @@ public static partial class Game
                         stats[Stat.CombinedOffHandAttackSpeedPlusPct] = shieldOffSpeed.IncreasedPct;
                         stats[Stat.CombinedOffHandAttackSpeedPlusPctFinal] = shieldOffSpeed.MorePct;
                     }
-                    foreach (var (field, value) in new[]
+                    int hitChance = accuracy.Chance(Monsters.BaseEvasion(player.Pools.Level) ?? 0, false, false);
+                    int evasiveHitChance = accuracy.Chance(Monsters.BaseEvasiveEvasion(player.Pools.Level) ?? 0, false, false);
+                    stats[Stat.MainHandAccuracyRating] = accuracy.Rating;
+                    stats[Stat.MainHandChanceToHitPct] = hitChance;
+                    stats[Stat.MainHandChanceToHitEvasiveMonstersPct] = evasiveHitChance;
+                    if (shieldWeapon is not null)
                     {
-                        (Stat.MainHandAccuracyRating, accuracy.Rating),
-                        (Stat.MainHandChanceToHitPct, accuracy.Chance(Monsters.BaseEvasion(player.Pools.Level) ?? 0, false, false)),
-                        (Stat.MainHandChanceToHitEvasiveMonstersPct, accuracy.Chance(Monsters.BaseEvasiveEvasion(player.Pools.Level) ?? 0, false, false)),
-                    })
-                        if (field is var key)
-                            stats[key] = value;
+                        // The client rolls the shield attack through its off-hand fields; the panel uses the main-hand rows.
+                        int alwaysHit = accuracy.CannotBeEvaded ? 1 : 0;
+                        stats[Stat.MainHandAlwaysHit] = alwaysHit;
+                        stats[Stat.OffHandAlwaysHit] = alwaysHit;
+                        stats[Stat.OffHandAccuracyRating] = accuracy.Rating;
+                        stats[Stat.OffHandChanceToHitPct] = hitChance;
+                        stats[Stat.OffHandChanceToHitEvasiveMonstersPct] = evasiveHitChance;
+                    }
                     // A dual-wielded attack gem whose weapon restriction the off hand fits swings it too: its own rows,
                     // with the same supports, and the per-use / per-second / attacks-per-second rows combine both hands
                     // (alternating, or both at once for skill_double_hits_when_dual_wielding: AttackHands).
@@ -777,6 +789,8 @@ public static partial class Game
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
+            else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)
+                stats[Stat.RageCost] = ActorScale.Saturate((long)stats.GetValueOrDefault(Stat.RageCost) + rageCost);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }
@@ -1115,6 +1129,7 @@ public static partial class Game
         int characterLevel = snapshot?.Level ?? player.Pools.Level;
         if (SkillsFor(player).PlayerLevelReq(effect, level) is int needs and > 0 && characterLevel < needs)
             return $"{name} at level {level} requires level {needs} (character is {characterLevel})";
+        if (snapshot?.IgnoreAttributeRequirements ?? player.Pools.IgnoreAttributeRequirements) return null;
         // A gem's attributes come from its percentage shares and the level requirement, at the gem's level clamped to its cap
         // (a corrupted level 21 gem keeps level 20's requirement; 0x142476710). The client checks them against
         // virtual_*_for_requirements, which are the attributes unless something overrides them (/set_stat).
@@ -1123,7 +1138,9 @@ public static partial class Game
             (dex, Stat.Dexterity, snapshot?.Dexterity ?? RequirementAttribute(player, Stat.Dexterity, player.Pools.Dexterity)),
             (intel, Stat.Intelligence, snapshot?.Intelligence ?? RequirementAttribute(player, Stat.Intelligence, player.Pools.Intelligence)) })
             if (need > 0 && has < need)
-                return $"{name} at level {level} requires {need} {attr} (character has {has})";
+                return GemRequirementHost(player, gem, snapshot, targetItemId) is { Item: { } host }
+                    && SocketedGemAttributeRequirementsIgnored(ItemsFor(player), host)
+                    ? null : $"{name} at level {level} requires {need} {attr} (character has {has})";
         return null;
     }
 
@@ -1143,12 +1160,17 @@ public static partial class Game
     // The requirements a gem socketed in a worn item adds to that item (the client shows the item red when they are not
     // met): the level its skill needs at the gem's level, and its attribute requirements. Pure catalog data, so the
     // equipment resolver can read it before the pools exist.
-    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct)
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem, int attributePct) =>
+        SocketedGemRequirements(player, gem, attributePct, ignoreAttributes: false);
+
+    public static (int Level, int Str, int Dex, int Int) SocketedGemRequirements(Player player, Item gem,
+        int attributePct, bool ignoreAttributes)
     {
         if (ItemsFor(player).ByHash(gem.TypeHash) is not { } baseType || ItemsFor(player).Gem(baseType) is not { } type) return default;
         int effect = type.Variant(gem.GemVariant).Effect;
         if (effect < 0) return default;
         int level = SkillsFor(player).PlayerLevelReq(effect, ItemsFor(player).GemLevel(gem));
+        if (ignoreAttributes) return (level, 0, 0, 0);
         var (str, dex, intel) = GemAttributeRequirements(player, gem, type, effect, attributePct);
         return (level, str, dex, intel);
     }
@@ -1443,8 +1465,7 @@ public static partial class Game
     {
         if (!string.IsNullOrEmpty(ascendancyId) && Ascendancies is { } catalog)
         {
-            AscendancyFamily? family = Enum.TryParse<AscendancyFamily>(ascendancyFamily, ignoreCase: true, out var parsed)
-                && Enum.IsDefined(parsed) ? parsed : null;
+            AscendancyFamily? family = string.IsNullOrEmpty(ascendancyFamily) ? null : AscendancyFamilies.Named(ascendancyFamily);
             if (catalog.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
                 && (family is null || d.Identity.Family == family)
                 && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)
@@ -1462,7 +1483,7 @@ public static partial class Game
         foreach (var recipient in InGame.Keys.Append(player))
         {
             if (!seen.Add(recipient)
-                || recipient is not { Controlled: false, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
+                || recipient is not { HasClient: true, Closed: false, LeavingArea: false, Connection: { PlayerSent: true, Outbox: { } outbox } }
                 || !ReferenceEquals(recipient.Instance?.Presence, presence)) continue;
             try { await outbox(InstanceChat.ChatLine(text), $"0x0017 level up \"{text}\""); }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -1529,7 +1550,7 @@ public static partial class Game
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired) return;
         RefreshVaalSouls(player);
         RefreshSingleUseCooldowns(player);
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
         foreach (var id in player.Auras.Keys.ToList())
         {
@@ -1585,6 +1606,15 @@ public static partial class Game
             gone = player.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !player.ClientSkillIds.Contains(id)).ToList();
             player.ClientSkillIds = [.. skills.Select(s => s.Id)];
+            // Only stat values changed and nothing else needs the list: the changed skills as 0x1b4 (SkillStatDeltas), the
+            // Vaal soul budgets (not stats) behind them as one small 0x2bc record. Anything else, an unchanged list
+            // included (SendSkills is also how callers resync the client), is the whole list below.
+            if (gone.Count == 0 && SkillStatDeltasAtGate(player, skills, out bool detonate) is { Length: > 0 } deltas)
+            {
+                var souls = VaalSoulRecordAtGate(player);
+                RecordSkillDeltas(player, skills, detonate);
+                return souls is null ? deltas : [.. deltas, souls];
+            }
             RecordPlayerSkills(player, skills);
             return PlayerSkillsBatchesWithVaalSouls(player, skills, gone);
         }, "0x02bc player Actor: current skill stats");

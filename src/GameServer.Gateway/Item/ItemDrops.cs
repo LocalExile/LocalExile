@@ -514,7 +514,7 @@ public sealed class ItemDrops
         return drops;
     }
 
-    public const string DivineVesselId = "Metadata/Items/MapFragments/FragmentPantheonFlask";
+    public const string DivineVesselId = PantheonCatalog.CurrencyDivineVesselId;
     public const int DivineVesselDropLevel = 68;
 
     /// <summary>Retail Divine Vessel drop roll at monster level 68+ (or inside Atlas maps), scaled by monster rarity

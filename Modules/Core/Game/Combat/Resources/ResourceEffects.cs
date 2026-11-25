@@ -141,11 +141,12 @@ public static partial class Game
     {
         if (amount == 0 || player.LeavingArea || player.PlayerLife == 0 || !CurrentGameRules) return;
         player.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(player), amount);
+        SigilManaSpent(player, amount, AreaTime(player));
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state)) return;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
-        if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(Get), Get(Stat.HasSoulGainPrevention) != 0);
+        if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
     }
     public static void SettleFullManaLocked(Player player, double at)
     {
@@ -205,7 +206,7 @@ public static partial class Game
         if (player.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(player).Clear(now); FortificationOf(player).Clear();
-            player.EnergyShield.Empty(); ClearAntiquarianOnDeath(player); return false;
+            player.EnergyShield.Empty(); ClearWardBreakOnDeath(player); return false;
         }
         var state = ResourceEffectsOf(player);
         double recoup = ResourceEffectsCurrent(player, state) ? state.Mana.Take(now) : 0;

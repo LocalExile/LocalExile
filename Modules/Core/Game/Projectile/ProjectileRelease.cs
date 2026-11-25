@@ -84,6 +84,8 @@ public static partial class Game
     public static bool ProjectilePathAvailable(Player player, ushort skillId, int effect)
     {
         if (!TotemPathAvailable(player, skillId, effect)) return false;
+        if (CremationEffect(SkillsFor(player).EffectId(effect)))
+            return PlacedKind(SupportedSkill(player, skillId)) is (false, false);
         if (!UsesProjectileRuntime(effect)) return true;
         try
         {
@@ -387,6 +389,8 @@ public static partial class Game
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
         double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        bool forbiddenRite = GatewayProjectileSkillProfiles.IsForbiddenRite(SkillsFor(player).EffectId(gem.Effect));
+        if (forbiddenRite) speed *= Math.Max(.01, 1 + Get(Stat.ForbiddenRiteProjectileSpeedPlusPct) / 100d);
         if (!double.IsFinite(speed) || speed <= 0)
             throw new InvalidOperationException("Projectile release requires a finite positive speed.");
         var profile = definition.Parameters.Resolve(Get, speed, ArrowsFor(player, gem.Effect));
@@ -431,20 +435,26 @@ public static partial class Game
         var shield = spell ? null : ShieldWeapon(player, skillId);
         var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);
-        var local = spell || shield is not null ? null : HandLocalSources(player, swingHand);
+        var attackSource = spell || shield is not null ? null : HandWeapon(player, swingHand);
+        var local = attackSource?.LocalSources;
         int addedChaos = sacrifice?.AddedChaos() ?? 0;
         string hand = spell ? "spell" : "main_hand";
-        var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
-        var areaHitInputs = SupportedHitInputsFor(player, skillId, area: true, weapon: handWeapon, capturedGem: admittedGem, projectile: true, addedChaos: addedChaos, totem: totem is not null);
+        var hitInputs = SupportedHitInputsFor(player, skillId, area: false, weapon: handWeapon, capturedGem: admittedGem,
+            projectile: true, addedChaos: addedChaos, totem: totem is not null, projectileTotemLife: totem?.MaxLife);
+        var areaHitInputs = SupportedHitInputsFor(player, skillId, area: true, weapon: handWeapon, capturedGem: admittedGem,
+            projectile: true, addedChaos: addedChaos, totem: totem is not null, projectileTotemLife: totem?.MaxLife);
         var ailmentRows = hitInputs is null ? [] : SupportedAilmentRowsFrom(hitInputs, hand);
         long additionalBlindedIncreased = (long)Player(PlayerHitDamage.VsBlindedDamageStat)
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
         bool weaponAttack = !spell && local is not null && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).RequiresShield(gem.Effect);
+        AttackAccuracyProfile? accuracy = spell ? null : SupportedAccuracy(player, skillId, swingHand);
+        int rating = shield is not null && accuracy is { } shieldAccuracy ? shieldAccuracy.Rating
+            : handWeapon is null ? PlayerAccuracy(player, playerStats) : HandAccuracy(player, swingHand, playerStats);
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
-            spell, handWeapon is null ? PlayerAccuracy(player, playerStats) : HandAccuracy(player, swingHand, playerStats),
+            spell, rating,
             SupportedCriticalChanceFor(player, skillId, release: true, weaponCritical: handCritical),
             SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
         {
@@ -466,6 +476,7 @@ public static partial class Game
             FreezingPulseFalloff = SkillsFor(player).EffectId(gem.Effect) is
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
             RemainingChainDamagePercent = Own(Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain),
+            CompletedChainDamagePercent = Own(Stat.SkillDamagePlusPctFinalPerChainFromSkillSpecificStat),
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
                 bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
@@ -475,9 +486,9 @@ public static partial class Game
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
-            ImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local),
-            CriticalImpaleSettings = ImpaleStats.From(playerStats, Stats, !spell, own, local, critical: true),
-            AccuracyProfile = spell ? null : SupportedAccuracy(player, skillId, swingHand), CriticalRoll = criticalRoll,
+            ImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource),
+            CriticalImpaleSettings = WeaponImpaleSettings(playerStats, Stats, !spell, own, attackSource, critical: true),
+            AccuracyProfile = accuracy, CriticalRoll = criticalRoll,
             Leech = HitLeechSources(playerStats, !spell, own, weaponAttack ? local : null), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get(Stat.ImpaleOnHitPctChance),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
@@ -547,6 +558,8 @@ public static partial class Game
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
         shot = shot with { IntimidatingCryExerted = cryExerted };
+        if (forbiddenRite)
+            shot = shot with { ForbiddenRite = CaptureForbiddenRite(player, admittedGem, totem, Get, variation) };
         if (spell && repeat > 0)
         {
             double more = GreaterEchoHitMore(repeat, Own);
