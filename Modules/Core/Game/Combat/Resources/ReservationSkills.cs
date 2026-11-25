@@ -142,7 +142,7 @@ public static partial class Game
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
                 increased + target.AilmentIncrease);
             var ignite = IgniteSettingsFrom(rows, "secondary", TargetStat);
-            var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+            var poison = PoisonSettingsFrom(rows, "secondary", TargetStat);
             if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
             return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
                 : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,

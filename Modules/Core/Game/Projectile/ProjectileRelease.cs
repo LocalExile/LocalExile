@@ -504,7 +504,7 @@ public static partial class Game
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
             Ignite = WithOverheat(player, skillId, NotedIgnite(player, skillId,
                 WithIgniteSpread(ignite, playerStats, own, spell, hand))),
-            Poison = WithOverheat(player, skillId, MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
+            Poison = WithOverheat(player, skillId, PoisonSettingsFrom(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
             Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(player, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
@@ -520,7 +520,7 @@ public static partial class Game
                 spell ? MonsterIgnites.Settings.None
                     : WithOverheat(player, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
                         bow: WeaponProfileFor(player, activeSet: true).Bow, projectileAttack: projectileDamage)),
-                WithOverheat(player, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: projectileDamage && !spell))),
+                WithOverheat(player, skillId, PoisonSettingsFrom(blindedRows, hand, Get, local, projectileAttack: projectileDamage && !spell))),
             MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
             LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,

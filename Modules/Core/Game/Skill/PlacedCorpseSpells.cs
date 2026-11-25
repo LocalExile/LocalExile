@@ -74,7 +74,7 @@ public static partial class Game
             var penetration = Penetration.Of(caster, Stats, false, own);
             var ailmentRows = AilmentPanelStats.Compute(new("secondary", false), packet, conversion, Get);
             var ignite = RepeatAilment(IgniteSettingsFrom(ailmentRows, "secondary", Get), multiplier);
-            var poison = RepeatAilment(MonsterPoisons.Settings.From(ailmentRows, "secondary", Get), multiplier);
+            var poison = RepeatAilment(PoisonSettingsFrom(ailmentRows, "secondary", Get), multiplier);
             var blind = BlindHitInput.Capture(caster, own);
 
             foreach (var (id, monster) in Player.Area.MonstersNear(at, radius).ToArray())

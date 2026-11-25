@@ -628,7 +628,7 @@ public static partial class Game
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
             double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-            var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
+            var poison = PoisonSettingsFrom(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
             int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
             var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
             var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
@@ -667,7 +667,7 @@ public static partial class Game
                 double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
                 bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore,
                     CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-                var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, weaponLocal);
+                var poison = PoisonSettingsFrom(rows, hand, AilmentStat, weaponLocal);
                 int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + poison.WeaponChance
                     + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct);
                 return new(ignite, bleed, poison, chance, AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies),

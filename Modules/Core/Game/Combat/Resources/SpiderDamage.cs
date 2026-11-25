@@ -87,7 +87,7 @@ public static partial class Game
         var rows = AilmentPanelStats.Compute(context, raw, source.Conversion, Get, ailmentIncreased);
         var ignite = WithIgniteSpread(IgniteWithTargetCondition(rows, context, raw, source.Conversion, Get, Get,
             ailmentIncreased), source.Stats, null, context.Spell, hand).ScaleDamage(source.IgniteFactor);
-        var poison = MonsterPoisons.Settings.From(rows, hand, Get, source.Local, projectileAttack: source.Attack && source.Projectile);
+        var poison = PoisonSettingsFrom(rows, hand, Get, source.Local, projectileAttack: source.Attack && source.Projectile);
         poison = poison with { Min = poison.Min * source.PoisonFactor, Max = poison.Max * source.PoisonFactor,
             CriticalMin = poison.CriticalMin * source.PoisonFactor, CriticalMax = poison.CriticalMax * source.PoisonFactor };
         var bleed = source.Attack ? BleedSettings(rows, hand, Get, source.Local, source.Melee, source.Bow,
