@@ -167,7 +167,8 @@ Nothing yet.
   Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
   to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
-  Rejuvenation Totem regenerates life for nearby players and minions. The Vaal version also redirects part of their hit damage into the totem's life.
+  Rejuvenation Totem regenerates life for nearby players and minions; the Vaal version also redirects part of allies'
+  hit damage into the totem's life.
   Offline regressions cover Vaal Heavy Strike contact and knockback, Vaal Arctic Armour mitigation, Blazing Salvo
   impacts and the three Spectral Shield Throw variants.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
