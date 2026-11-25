@@ -58,7 +58,9 @@ public static partial class Game
         // Puncture (bleed_duration_is_skill_duration): its bleed lasts the skill's duration, with the skill duration
         // modifiers (ActiveSkills puncture: "affected by modifiers to skill duration"), then the bleed's own.
         double baseSeconds = get(Stat.BleedDurationIsSkillDuration) != 0 && get(Stat.BaseSkillEffectDuration) > 0
-            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get) : Ailments.BleedDurationSeconds;
+            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get,
+                bow ? SkillDurationModifiers.Kinds.Bow : SkillDurationModifiers.Kinds.None)
+            : Ailments.BleedDurationSeconds;
         double seconds = baseSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
             + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
