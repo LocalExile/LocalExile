@@ -2651,6 +2651,11 @@ on the monsters the client strikes.
   The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
   At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
   active-skill hash and that use as the first entry).
+- Static Strike of Gathering Lightning uses `StaticStrikeNew` with `skill_behaviour_variation` 1. The contact at
+  `0x141b16580` searches from the struck enemy for the first beam target, 35 cells away at most
+  (`0x141b16ad0`). The beam continuation search reaches 50 cells (`0x141c7eb20`). Both ranges scale with
+  chaining range. BuffDefinitions row 2687 carries the count in 0x1c1 bit 2. It has no inline recovery values.
+  The beam limit reads `virtual_number_of_chains_for_beams` from the skill record (`0x14193ef80`).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
   A Strike gem typed Projectile (Frost Blades, Lightning Strike, Wild Strike and their transfigured gems except Frost
