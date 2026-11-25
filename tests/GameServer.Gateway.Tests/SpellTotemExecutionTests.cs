@@ -44,6 +44,7 @@ public sealed class SpellTotemExecutionTests
     [Fact]
     public async Task Native_spell_totem_admits_projectiles_and_raging_spirits_and_rejects_unimplemented_payloads()
     {
+        await VerifyArcTotemChains();
         string path = Path.Combine(Path.GetTempPath(), $"spell-totem-{Guid.NewGuid():N}.db");
         var previous = Program.GameLogicOrNull;
         var previousLifetime = Game.CombatLifetime;
@@ -127,6 +128,111 @@ public sealed class SpellTotemExecutionTests
         }
         finally { player.Closed = true; lifetime.Stop(_ => { }); Game.CombatLifetime = previousLifetime;
             PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path); }
+    }
+
+    static async Task VerifyArcTotemChains()
+    {
+        foreach (string name in new[] { "Arc", "Arc of Oscillating" })
+        {
+            var clock = new ArcTotemClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            using var output = new ImmediateTotemOutput(fixture.Stream.Socket);
+            var player = fixture.Player;
+            player.Connection.Session = new("test", output, fixture.Ciphers);
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.At);
+            ushort source = Assert.Single(fixture.Equip((name, 18), ("Spell Totem Support", 18)));
+            var skill = Game.SupportedSkill(player, source);
+            bool oscillating = name == "Arc of Oscillating";
+            Assert.Equal(oscillating ? "ArcAltY" : "Arc", Game.SkillsFor(player).EffectId(skill.Effect));
+            Assert.True(Game.IsTotemSkill(player, source));
+            Assert.True(Game.TotemPathAvailable(player, source, skill.Effect), $"{name} Spell Totem path was unavailable");
+
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, source, (100, 100), (106, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var totem = Assert.Single(player.Totems.Living(clock.At));
+                Assert.True(Game.SpellTotemCurrent(player, totem));
+
+                const uint firstId = 900, secondId = 901;
+                var first = AddTarget(firstId, totem.At.X + 10);
+                var second = AddTarget(secondId, totem.At.X + 17);
+                var contacts = new List<uint>();
+                using var hit = GameEvents.OutgoingDamage.Add("Game", (owner, _, target, rolled) =>
+                {
+                    if (ReferenceEquals(owner, player)) contacts.Add(target.ObjectId);
+                    return rolled;
+                });
+
+                mana = player.PlayerMana;
+                Release();
+                Assert.InRange(first.Life, 1u, first.MaxLife - 1);
+                Assert.InRange(second.Life, 1u, second.MaxLife - 1);
+                Assert.Equal(mana, player.PlayerMana);
+                Assert.Equal(new[] { firstId, secondId }, contacts.Take(2));
+                if (oscillating)
+                {
+                    int count = 1 + skill.Stats.GetValueOrDefault(Stat.NumberOfChains);
+                    Assert.True(count > 2);
+                    Assert.Equal(Enumerable.Range(0, count).Select(i => i % 2 == 0 ? firstId : secondId), contacts);
+                }
+                Console.WriteLine($"{name} Spell Totem contacts: {string.Join(", ", contacts)}");
+
+                int before = contacts.Count;
+                Game.TickSpellTotemsLocked(player, []);
+                Assert.True(totem.NextCast > clock.At);
+                fixture.Equip(("Ice Nova", 18), ("Spell Totem Support", 18));
+                Assert.False(Game.SpellTotemCurrent(player, totem));
+                clock.At = totem.NextCast;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                Assert.Equal(before, contacts.Count);
+
+                SpawnedMonster AddTarget(uint id, int x)
+                {
+                    var target = new SpawnedMonster("Arc totem target", new(x, totem.At.Y, 0), 0, 0, 100000)
+                    { ObjectId = id, NoRewards = true };
+                    player.Area.Monsters[id] = target;
+                    player.Area.Grid.Set(new(id), (x, totem.At.Y));
+                    return target;
+                }
+
+                void Release()
+                {
+                    Game.TickSpellTotemsLocked(player, []);
+                    Assert.True(totem.NextCast > clock.At);
+                    clock.At = totem.NextCast;
+                    fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                }
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+    }
+
+    // Keep placement on the test's stepped clock while still writing the ordinary loopback packets.
+    sealed class ImmediateTotemOutput(Socket socket) : NetworkStream(socket)
+    {
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Write(buffer.Span);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    sealed class ArcTotemClock : IPlayerUpdateSchedule
+    {
+        public double At;
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 
     static async Task VerifySummonTotems()
