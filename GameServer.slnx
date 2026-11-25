@@ -21,6 +21,7 @@
     <Project Path="Modules/Core/Content/Delirium/Delirium.csproj" />
     <Project Path="Modules/Core/Content/Harvest/Harvest.csproj" />
     <Project Path="Modules/Core/Content/Heist/Heist.csproj" />
+    <Project Path="Modules/Core/Content/Incursion/Incursion.csproj" />
     <Project Path="Modules/Core/Content/HeistCache/HeistCache.csproj" />
     <Project Path="Modules/Core/World/HideoutEditing/HideoutEditing.csproj" />
     <Project Path="Modules/Core/Player/Chat/Chat.csproj" />

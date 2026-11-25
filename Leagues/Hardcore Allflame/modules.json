@@ -8,6 +8,7 @@
     "Core/Content/Delirium",
     "Core/Content/Harvest",
     "Core/Content/Heist",
+    "Core/Content/Incursion",
     "Core/Content/HeistCache",
     "Core/Game",
     "Core/Item/Bench",
