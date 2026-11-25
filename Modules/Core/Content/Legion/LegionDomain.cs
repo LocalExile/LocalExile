@@ -259,7 +259,8 @@ static class LegionDomain
             Level = areaLevel,
             UsesAtlas = false,
         };
-        request.Opening = new MapDevice.Opening(mapArea, mods, request.Slots[emblemIndices[0]].BaseRow);
+        request.Opening = new MapDevice.Opening(mapArea, mods, request.Slots[emblemIndices[0]].BaseRow)
+            { PortalVariation = MapDevices.RecipePortalVariation(domainArea.Row) };
         request.ConsumeSlots = emblemIndices;
         request.Reason = "";
         request.ReturnToSource = true;

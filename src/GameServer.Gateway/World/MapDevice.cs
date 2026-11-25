@@ -119,6 +119,9 @@ public sealed class MapDevice
             .Select(r => _worldAreas[r.WorldArea]!.Hash16)];
     }
 
+    /// <summary>The portal variation (0x8f Index) of the recipe that opens the WorldAreas row; 0 when it has none.</summary>
+    public ushort RecipePortalVariation(int worldArea) => _runs.PortalVariationOfArea(worldArea);
+
     /// <summary>Maps.dat: each map's BaseItemTypes row, by its HASH32 (<paramref name="hashOfRow"/>), to its regular area.
     /// Empty when the tables are missing.</summary>
     public static MapDevice Load(string folder, Func<int, uint?> hashOfRow, ItemCatalog? catalog = null)
@@ -450,7 +453,12 @@ public sealed class MapDevice
 
     /// <summary>Opens a map with the requested number of portal places, up to the device's capacity.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
-        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount, ushort portalVariation = 0)
+        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount) =>
+        Activate(character, area, mods, itemRow, returnTo, entrance, bossOption, pantheonSoul, portalCount, 0);
+
+    /// <summary>As above, with the portal variation the run's portals are drawn with (0: the owner's cosmetic).</summary>
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
+        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount, ushort portalVariation)
     {
         lock (Open)
         {

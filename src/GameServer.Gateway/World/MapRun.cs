@@ -109,10 +109,16 @@ public sealed class MapRunCatalog
     public sealed record Fragment(int Family, int Limit, int MinAreaLevel, IReadOnlyList<int> ModRows);
 
     public sealed record Recipe(string Id, IReadOnlyList<int> Items, bool AnyOne, int WorldArea, int AreaLevel,
-        IReadOnlyList<int> ModRows, ushort PortalVariation = 0);
+        IReadOnlyList<int> ModRows)
+    {
+        /// <summary>MapDeviceRecipes.MicrotransactionPortalVariation as the 0x8f Index; 0 none. An init property so the
+        /// constructor and Deconstruct mods compiled against stay as they were.</summary>
+        public ushort PortalVariation { get; init; }
+    }
 
     readonly Dictionary<int, Fragment> _fragments;
     readonly List<Recipe> _recipes;
+    readonly Dictionary<int, ushort> _portalByArea = [];
     readonly Dictionary<int, (int Scale, IReadOnlyList<uint> Stats)> _qualityTypes;
     readonly int? _defaultQualityType;
 
@@ -121,6 +127,8 @@ public sealed class MapRunCatalog
     {
         _fragments = new(fragments);
         _recipes = [.. recipes];
+        foreach (var r in _recipes)
+            if (r.PortalVariation != 0) _portalByArea.TryAdd(r.WorldArea, r.PortalVariation);
         _qualityTypes = qualityTypes is null ? [] : new(qualityTypes);
         _defaultQualityType = _qualityTypes
             .Where(kv => kv.Value.Stats.Any(s => Program.Stats.Name(s).Contains("item_drop_quantity", StringComparison.OrdinalIgnoreCase)))
@@ -158,11 +166,14 @@ public sealed class MapRunCatalog
                 int[] recipeMods = [.. row.Ints("Mods")];
                 recipes.Add(new(row.Text("Id") ?? "", items, anyOne,
                     area, (row.IntOrNull("AreaLevel") ?? 0),
-                    recipeMods, PortalVariationOf(row.IntOrNull("MicrotransactionPortalVariation"))));
+                    recipeMods) { PortalVariation = PortalVariationOf(row.IntOrNull("MicrotransactionPortalVariation")) });
             }
         }
         return new MapRunCatalog(fragments, recipes, LoadQualityTypes(folder));
     }
+
+    /// <summary>The portal variation (0x8f Index) of the recipe that opens this WorldAreas row; 0 when it has none.</summary>
+    public ushort PortalVariationOfArea(int worldArea) => _portalByArea.GetValueOrDefault(worldArea);
 
     // MicrotransactionPortalVariation is a row of MicrotransactionPortalVariations; 0x8f names that row by its Index.
     static ushort PortalVariationOf(int? row) =>
