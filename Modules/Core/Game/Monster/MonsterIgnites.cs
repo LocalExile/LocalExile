@@ -263,6 +263,12 @@ public static partial class Game
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
             HerEmbraceOnIgniteLocked(player, now);
+            // "Recover # Life when you Ignite an Enemy" (Ngamahu's Sign, Xoph's Nurture).
+            // and "Recover #% of Life when you Ignite an Enemy" (Razor of the Seventh Sun).
+            var igniter = CharacterPlayerStats(player);
+            int onIgnite = igniter.GetValueOrDefault(Stat.RecoverXLifeOnEnemyIgnited),
+                onIgnitePct = igniter.GetValueOrDefault(Stat.RecoverPctMaximumLifeOnEnemyIgnited);
+            if (onIgnite > 0 || onIgnitePct > 0) RecoverByRuleLocked(player, "life", false, Math.Max(0, onIgnite), Math.Max(0, onIgnitePct));
             GainFromAttackAilmentLocked(player, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);

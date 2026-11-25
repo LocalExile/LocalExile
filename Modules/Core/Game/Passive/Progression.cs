@@ -857,6 +857,12 @@ public static partial class Game
         AbyssJewels.Count(active, catalog, Stats, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
+        // "Increases and Reductions to Cast Speed apply to Attack Speed" (Wilma's Requital): the cast speed in this
+        // source sum, at the line's share, counted as attack speed too. Cast speed added after this point (a buff's)
+        // is not carried over.
+        if (sources.GetValueOrDefault(Stat.UniqueHelmetCastSpeedPlusPctAppliesToAttackSpeedAtPctOfOriginalValue) is int castShare and not 0
+            && sources.GetValueOrDefault(Stat.BaseCastSpeedPlusPct) is int castSpeed and not 0)
+            GolemAdd(sources, Stat.AttackSpeedPlusPct, ActorScale.Saturate((long)castSpeed * castShare / 100));
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));

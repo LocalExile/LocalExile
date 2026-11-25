@@ -3170,6 +3170,9 @@ public static partial class Game
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile, by: m,
             stats: stats, byId: id, attack: attackHit);
+        // "Recover # Life when you Suppress Spell Damage" (Elevore).
+        if (suppressed && stats.GetValueOrDefault(Stat.RecoverXLifeOnSuppressingSpell) is int onSuppress and > 0)
+            RecoverByRuleLocked(player, "life", false, onSuppress, 0);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki

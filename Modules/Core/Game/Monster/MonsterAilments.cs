@@ -385,12 +385,17 @@ public static partial class Game
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
             criticalProjectileKnockback = false;
-        KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
+        bool knockedBack = KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
             attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat,
             // Kineticism: "Attack Projectiles always inflict Bleeding and Maim, and Knock Back Enemies".
             guaranteed: criticalProjectileKnockback
                 || projectileDamage && !spell && playerStats.GetValueOrDefault(Stat.KeystoneBarbedTips) != 0,
             area: areaHit);
+        // "#% chance to gain a Power Charge if you Knock an Enemy Back with Melee Damage" (Hegemony's Era).
+        if (knockedBack && playerHit && !spell && !projectileDamage
+            && playerStats.GetValueOrDefault(Stat.UniqueAddPowerChargeOnMeleeKnockbackPct) is int onKnockback and > 0
+            && random.Next(100) < onKnockback)
+            GainFromAttackAilmentLocked(player, true, ChargeType.Power, Stat.UniqueAddPowerChargeOnMeleeKnockbackPct);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
