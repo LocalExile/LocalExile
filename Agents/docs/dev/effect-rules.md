@@ -315,6 +315,12 @@ every so many points of strength, dexterity or intelligence. `AttributeOffenceSo
 list, with complete groups of the final attribute, while the rules are on. A stat that belongs to its item (Stats
 `IsLocal`) never reaches that sum, so a row for one does nothing.
 
+## Item-local stats
+
+`fx_item_local` (`stat`, `slot`, `counts_as`, `scale`) is the way for a stat that belongs to its item to reach the
+character: while the item is worn and active in `slot` (`any`, `left_ring`, `right_ring`), the stat counts as
+`counts_as`. `ApplyItemLocalRows` adds the rows to the source sum while the rules are on.
+
 ## Aliases and `remove`
 
 `fx_aliases` holds stats that are another stat under a second id, with no condition (`stat`, `counts_as`, `scale`).

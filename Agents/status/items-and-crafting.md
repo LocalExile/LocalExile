@@ -196,6 +196,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Fire, Cold, Lightning and Elemental Aegis (Invictus Solaris, Vix Lunaris, Perepiteia, Magna Eclipsis): the shield
   takes its types' share of a hit's elemental damage and is restored after its delay, with the client's own buffs,
   as Physical Aegis does. Not carried across an area change. Offline tests only so far.
+- Lines that belong to a ring's slot or to the ring itself, from the `fx_item_local` table while the effect rules are
+  on: Shavronne's Revelation's six left and right ring slot lines and Woespike's impale duration. Offline tests only.
 - Keystones from items and cluster jewels: Inner Conviction (3% more Spell Damage per Power Charge, Power Charges
   instead of Frenzy Charges) and Kineticism (attack projectiles always bleed, maim and knock back; projectiles cannot
   pierce, fork or chain). Prospero's Protection's doubled shield armour; Maligaro's Virtuosity's 300% multiplier on

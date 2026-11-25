@@ -850,6 +850,7 @@ public static partial class Game
         sourcesKey = sourcesKey with { Flags = conditionFlags };
         ApplyMinionSocketConversions(active, catalog, sources);
         ApplySocketCountStats(active, catalog, sources);
+        ApplyItemLocalRows(equipment, inactive, catalog.Mods, sources);
         // Clamp only this outgoing integer view; the authoritative attribute inputs remain wide beside it.
         foreach (var (name, value) in rawAttributes)
             sources[name] = AttributeModifiers.Signed(value);

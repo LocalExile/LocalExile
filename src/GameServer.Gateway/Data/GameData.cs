@@ -52,6 +52,9 @@ public static class GameData
     /// <summary>Stats that give another stat per so many points of an attribute (fx_per_attribute).</summary>
     public static IReadOnlyList<GameDataStore.FxPerAttributeRow> FxPerAttribute => Volatile.Read(ref _fxPerAttribute);
     static IReadOnlyList<GameDataStore.FxPerAttributeRow> _fxPerAttribute = [];
+    /// <summary>The fx_item_local rows: item-local stats that count as a character stat while worn in a slot.</summary>
+    public static IReadOnlyList<GameDataStore.FxItemLocalRow> FxItemLocal => Volatile.Read(ref _fxItemLocal);
+    static IReadOnlyList<GameDataStore.FxItemLocalRow> _fxItemLocal = [];
     /// <summary>What an actor of another kind reads for a stat a bundle gives it (fx_reads_as).</summary>
     public static IReadOnlyList<GameDataStore.FxReadsAsRow> FxReadsAs => Volatile.Read(ref _fxReadsAs);
     static IReadOnlyList<GameDataStore.FxReadsAsRow> _fxReadsAs = [];
@@ -129,6 +132,7 @@ public static class GameData
         Volatile.Write(ref _fxSkillStats, store.LoadFxSkillStats());
         Volatile.Write(ref _fxAliases, store.LoadFxAliases());
         Volatile.Write(ref _fxPerAttribute, store.LoadFxPerAttribute());
+        Volatile.Write(ref _fxItemLocal, store.LoadFxItemLocal());
         Volatile.Write(ref _fxAreaPlayerStats, store.LoadFxAreaPlayerRows());
         StatConditions.LoadTable(fxModifiers);
         ChargeEffects.LoadTable(fxPerRows);

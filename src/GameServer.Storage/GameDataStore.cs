@@ -192,6 +192,25 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_item_local row: a stat that belongs to its item (Stats.dat IsLocal) and counts as a character
+    /// stat while the item is worn in <paramref name="Slot"/> (any, left_ring, right_ring).</summary>
+    public sealed record FxItemLocalRow(string Stat, string Slot, string CountsAs, double Scale);
+
+    /// <summary>The enabled fx_item_local rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxItemLocalRow> LoadFxItemLocal()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_item_local'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, slot, counts_as, scale FROM fx_item_local WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxItemLocalRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetDouble(3)));
+            return result;
+        }
+    }
+
     /// <summary>One fx_aliases row: a stat that is also another stat, with no condition.</summary>
     public sealed record FxAliasRow(string Stat, string CountsAs, double Scale);
 
