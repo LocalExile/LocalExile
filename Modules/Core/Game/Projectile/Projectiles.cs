@@ -289,6 +289,20 @@ public static partial class Game
                 });
         }
 
+        internal void ScheduleContact(long at, Func<bool> valid, Action contact)
+        {
+            if (!Active) return;
+            Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
+            {
+                if (!Active || !valid()) return;
+                try { contact(); }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");
+                }
+            });
+        }
+
         /// <summary>Releases a resolved use at the runtime's current instant. Call in the area's frame.</summary>
         public long ReleaseNow(ProjectileUse use)
         {

@@ -7,70 +7,165 @@ static partial class Game
 {
     internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
 
-    // Strike projectiles release at the contact keyframe of each swing in the same paid use.
+    readonly record struct ExtraProjectileStrike(uint? Target, (int X, int Y) From, (int X, int Y) Aim);
+    readonly record struct ProjectileStrikeContact(uint Target, (int X, int Y) At, ProjectileActorKey? Excluded, int StopRange);
+
+    // The client's strike action chooses the spirit targets as the swing starts. It processes the main
+    // and extra contacts together, then releases a volley from each branch of the attack.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
         CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
     {
         var session = ProjectilesFor(player);
         session.Advance();
-        double acceptedAt = swingAt ?? ProjectileWorldTime(player);
+        double now = ProjectileWorldTime(player);
+        double acceptedAt = swingAt ?? now;
         double duration = SupportedAttackSeconds(player, skillId, sequence);
         double contact = GemAttackContactDelay(player, gem.Effect, duration, out _, out _);
         int repeats = MeleeAttackRepeats(player, skillId);
         int action = player.ActionCount;
-        var stats = SupportedSkill(player, skillId).Stats;
+        var skill = SupportedSkill(player, skillId);
         bool frostBlades = IsFrostBlades(gem.Effect);
-        double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
-        bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
+        double ruthless = RuthlessBlowMore(player, skillId, skill.Stats.GetValueOrDefault);
+        List<ExtraProjectileStrike>? extras = null;
+        using (ProjectileMutation(player, advance: false))
+        {
+            var (spirits, echo, _) = StrikeExtrasLocked(player, skillId, gem.Effect, skill.Stats, from, aim, sequence, targetId, now,
+                groundTarget: () => LightningStrikeTarget(player, from, aim, 0, now,
+                    frostBlades ? FrostBladesReach(player, skill.Stats) : 0));
+            if (spirits.Count > 0 || echo is not null)
+            {
+                extras = new(spirits.Count + 1);
+                foreach (uint id in spirits)
+                    if (player.Area.Monsters.TryGetValue(id, out var monster))
+                    {
+                        var at = monster.Walk.Position(now);
+                        var towards = (ProjectileSession.Vector(at) - ProjectileSession.Vector(from)).Unit;
+                        // 0x141c9d7c0 places the copy eight cells behind its target, with per-axis rounding.
+                        var origin = (at.X - (int)Math.Floor(towards.X * 8 + .5), at.Y - (int)Math.Floor(towards.Y * 8 + .5));
+                        extras.Add(new(id, origin, at));
+                    }
+                if (echo is { } previous) extras.Add(new(null, previous.Player, previous.Centre));
+            }
+        }
+
+        bool Valid() => player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
             && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
         for (int repeat = 0; repeat <= repeats; repeat++)
         {
             int index = repeat;
-            session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
+            session.ScheduleContact(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || player.ActionCount == action), () =>
-                frostBlades
-                    ? ReleaseFrostBlades(player, session, skillId, gem, from, aim, targetId,
-                        criticalRoll, sequence, index, cryExerted, ruthless)
-                    : ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
-                        criticalRoll, sequence, index, cryExerted, ruthless));
+                    ReleaseProjectileStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
+                        index, cryExerted, ruthless, frostBlades, extras));
         }
         return Task.CompletedTask;
     }
 
-    internal static ProjectileUse ReleaseLightningStrike(Player player, ProjectileSession session, ushort skillId,
+    static void ReleaseProjectileStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence, int repeat = 0,
-        bool cryExerted = false, double? ruthlessMore = null)
+        (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
+        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
-        uint primary = LightningStrikeTarget(player, from, aim, targetId, now);
-        bool hit = false;
-        ProjectileActorKey? excluded = null;
-        double more = MeleeRepeatDamageMore(player, skillId, repeat);
-        if (primary != 0 && player.Area.Monsters.TryGetValue(primary, out var monster))
+        var stats = SupportedSkill(player, skillId).Stats;
+        int extraReach = frostBlades ? FrostBladesReach(player, stats) : 0;
+        int reach = WeaponFor(player).Range + extraReach;
+        ProjectileStrikeContact Contact(uint id, ExtraProjectileStrike? strike = null) => id != 0 && player.Area.Monsters.TryGetValue(id, out var monster)
+            && monster is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false }
+            && (strike is not { } extra || ExtraStrikeCanReach(player, monster, extra, now, reach))
+            ? new(id, monster.Walk.Position(now), session.ActorKey(id, monster), monster.StopRange) : default;
+        var primary = Contact(LightningStrikeTarget(player, from, aim, targetId, now, extraReach));
+        List<uint>? additionalTargets = null;
+        ProjectileStrikeContact[]? additionalContacts = null;
+        if (extras is { Count: > 0 })
         {
-            excluded = session.ActorKey(primary, monster);
-            var at = monster.Walk.Position(now);
-            // Immediate means the scheduler already waited for contact. Selection is one strike, not the
-            // generic area approximation, and its success is known before presentation can await network IO.
-            var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, at,
-                immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary,
-                radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
-                singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session, cryExerted: cryExerted, repeat: repeat);
-            if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled Lightning Strike contact must not yield.");
+            additionalTargets = new(extras.Count);
+            additionalContacts = new ProjectileStrikeContact[extras.Count];
+            for (int i = 0; i < extras.Count; i++)
+            {
+                var extra = extras[i];
+                var selected = Contact(extra.Target ?? LightningStrikeTarget(player, extra.From, extra.Aim, 0, now, extraReach), extra);
+                if (selected.Target == 0 || selected.Target == primary.Target || additionalTargets.Contains(selected.Target))
+                    continue;
+                additionalTargets.Add(selected.Target);
+                additionalContacts[i] = selected;
+            }
+        }
+
+        double more = MeleeRepeatDamageMore(player, skillId, repeat);
+        bool primaryHit = false;
+        var extraHits = additionalTargets is { Count: > 0 } ? new HashSet<uint>() : null;
+        if (primary.Target != 0 || extraHits is not null)
+        {
+            var melee = AreaSkillHitForUse(ruthlessMore, player, skillId, gem, from, primary.Target != 0 ? primary.At : aim,
+                immediate: true, sequence: sequence, criticalRoll: criticalRoll, targetId: primary.Target,
+                radiusOverride: reach + primary.StopRange, damageMore: more,
+                singleStrikeTarget: primary.Target, onHit: target =>
+                {
+                    if (target == primary.Target) primaryHit = true;
+                    else extraHits?.Add(target);
+                }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets);
+            if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled projectile strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
-        var use = ClientDrawnVolley(player, session, skillId, gem,
-            CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted), sequence, 0);
+
+        if (frostBlades && !primaryHit && extraHits is not { Count: > 0 }) return;
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted);
+        if (frostBlades)
+        {
+            if (primaryHit) session.ReleaseNow(FrostBladesVolley(player, use, stats, now, from, aim, primary, more));
+            if (additionalContacts is null || extraHits is null) return;
+            for (int i = 0; i < additionalContacts.Length; i++)
+            {
+                var selected = additionalContacts[i];
+                if (extraHits.Contains(selected.Target))
+                    session.ReleaseNow(FrostBladesVolley(player, use, stats, now, extras![i].From, extras[i].Aim, selected, more));
+            }
+            return;
+        }
+
+        session.ReleaseNow(LightningStrikeVolley(player, session, skillId, gem, use, sequence, primary, primaryHit, more));
+        if (extras is null || additionalContacts is null) return;
+        for (int i = 0; i < extras.Count; i++)
+        {
+            var extra = extras[i];
+            var selected = additionalContacts[i];
+            var start = ProjectileSession.Vector(extra.From);
+            var target = ProjectileSession.Vector(extra.Aim);
+            var ray = target - start;
+            // Keep the outward aim of the copy rather than firing its volley from the player.
+            var origin = start + ray.Unit * Math.Min(3, ray.Length / 2);
+            var volley = use with { Origin = origin, Aim = target };
+            session.ReleaseNow(LightningStrikeVolley(player, session, skillId, gem, volley, sequence, selected,
+                extraHits?.Contains(selected.Target) == true, more));
+        }
+    }
+
+    static bool ExtraStrikeCanReach(Player player, SpawnedMonster monster, ExtraProjectileStrike extra, double now, int reach)
+    {
+        var at = monster.Walk.Position(now);
+        if (!SwingInReach(player, monster, extra.From, at, reach + 2)) return false;
+        var origin = ProjectileSession.Vector(extra.From);
+        var intended = ProjectileSession.Vector(extra.Aim) - origin;
+        var current = ProjectileSession.Vector(at) - origin;
+        // The extra strike keeps its facing during the windup (0x141ca2d90's 60 degree half angle).
+        return intended.Length == 0 || current.Dot(intended.Unit) >= current.Length * .5;
+    }
+
+    static ProjectileUse LightningStrikeVolley(Player player, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        ProjectileUse use, ushort sequence, ProjectileStrikeContact contact, bool hit, double more)
+    {
+        use = ClientDrawnVolley(player, session, skillId, gem, use, sequence, 0);
         var shot = (ProjectileOffense)use.Payload!;
         return use with
         {
             Payload = shot with
             {
-                ExcludedTarget = excluded,
-                // The native skill makes the bolts unavoidable when its melee contact hit.
+                // The exclusion travels with this volley. A different strike's bolts may hit this enemy.
+                ExcludedTarget = contact.Excluded,
                 AccuracyProfile = hit && shot.AccuracyProfile is { } accuracy ? accuracy with { CannotBeEvaded = true } : shot.AccuracyProfile,
                 Hit = shot.Hit.Scale(more),
                 Ignite = RepeatAilment(shot.Ignite, more),
