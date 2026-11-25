@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
@@ -32,6 +33,95 @@ public sealed class MercenaryTests
         var (row, payload) = InstanceRulesets.ReadAction(Convert.FromHexString("02CA" + "A1" + "08" + "0101010000000000"));
         Assert.Equal(0xa1, row);
         Assert.Equal(MercenaryWire.DuelChoice, payload);
+    }
+
+    // A mercenary fights with the skills its MercenaryBuilds row lists (MercenarySkills' GrantedEffect, or the EncounterGrantedEffect
+    // where there is one), not with its variety's default attack, which for most of the varieties is the effect it leaves by.
+    [Fact]
+    public void A_mercenary_fights_with_the_skills_of_its_build_and_never_leaves_by_portal()
+    {
+        MercenaryModule.LoadData();
+        const byte level = 70;
+        InGame(player =>
+        {
+            var catalog = Game.SkillsFor(player);
+            foreach (var kind in MercenaryTables.Eligible())
+            {
+                var variety = Game.Monsters.Find(kind.Path)!;
+                int portal = (variety.GrantedEffects ?? []).FirstOrDefault(e => catalog.EffectId(e) == "EASMercenaryPortalOut", -1);
+                if (portal < 0) continue;
+                foreach (var build in MercenaryTables.BuildsOf(kind.Row))
+                {
+                    var listed = ListedEffects(build.Row, level);
+                    var kit = BossKits.KitFromEffects(player, variety, level,
+                        MercenaryTables.SkillsOf(build, level, new Random(1)));
+                    if (kit.Count == 0) continue;
+                    // Only skills the build lists, none of the variety's own, and the way out is nowhere in the kit.
+                    Assert.All(kit, entry => Assert.Contains(entry.Effect, listed));
+                    Assert.DoesNotContain(kit, entry => entry.Effect == portal);
+                    Assert.DoesNotContain(kit, entry => (variety.GrantedEffects ?? []).Contains(entry.Effect));
+                    Assert.Equal(Enumerable.Range(0, kit.Count).Select(i => (ushort)(0x4000 + i)), kit.Select(entry => entry.Attack.SkillId));
+                    return;
+                }
+            }
+            Assert.Fail("no mercenary build of a variety that leaves by portal has a skill the AI can play");
+        });
+    }
+
+    // MercenarySkills' RequiredLevel gates a skill: a mercenary below it does not have it, one that reaches it does.
+    [Fact]
+    public void A_skill_that_needs_a_higher_level_than_the_mercenary_is_left_out()
+    {
+        MercenaryModule.LoadData();
+        var skills = ClientTables.Table("MercenarySkills");
+        foreach (var build in MercenaryTables.Builds)
+            foreach (int row in ClientTables.Table("MercenaryBuilds").First(r => r.Index == build.Row).Ints("Skills1"))
+            {
+                var skill = skills.First(r => r.Index == row);
+                int required = skill.IntOrNull("RequiredLevel") ?? 0;
+                int effect = EffectOf(skill);
+                if (required <= 1 || effect < 0) continue;
+                Assert.DoesNotContain(effect, MercenaryTables.SkillsOf(build, required - 1, new Random(1)));
+                Assert.Contains(effect, MercenaryTables.SkillsOf(build, required, new Random(1)));
+                return;
+            }
+        Assert.Fail("no build lists a skill above level 1 in Skills1");
+    }
+
+    static int EffectOf(ClientRow skill) =>
+        skill.IntOrNull("EncounterGrantedEffect") is int encounter and >= 0 ? encounter : skill.IntOrNull("GrantedEffect") ?? -1;
+
+    // Every effect the client rows list for the build (Skills1, Skills2 and Skills3) at the level: what its kit can hold.
+    static HashSet<int> ListedEffects(int buildRow, int level)
+    {
+        var build = ClientTables.Table("MercenaryBuilds").First(r => r.Index == buildRow);
+        var skills = ClientTables.Table("MercenarySkills");
+        HashSet<int> effects = [];
+        foreach (int row in build.Ints("Skills1").Concat(build.Ints("Skills2")).Concat(build.Ints("Skills3")))
+        {
+            var skill = skills.First(r => r.Index == row);
+            if ((skill.IntOrNull("RequiredLevel") ?? 0) <= level) effects.Add(EffectOf(skill));
+        }
+        return effects;
+    }
+
+    static void InGame(Action<Player> body)
+    {
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = lifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+            body(new Player(new(1, "kit", 100, 100, 10, 10, null, []), 1, 1));
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            if (previousLogic is not null) Program.SetGameLogic(previousLogic);
+        }
     }
 
     // One mercenary of a new map instance, from the roll to the hire: placed once for the instance, given to a player who enters
@@ -97,6 +187,11 @@ public sealed class MercenaryTests
             Assert.True(opponent.Hostile);
             Assert.False(opponent.Scripted);
             Assert.Equal(MercenaryWire.DuelStates, opponent.States!.SharedStates);
+            // It fights with the skills its build lists, and never leaves by the portal its variety's default attack may be.
+            Assert.NotEmpty(opponent.Kit);
+            var listed = ListedEffects(duel.Build, duel.Level);
+            Assert.All(opponent.Kit, entry => Assert.Contains(entry.Effect, listed));
+            Assert.DoesNotContain(opponent.Kit, entry => Game.SkillsFor(owner.Player).EffectId(entry.Effect) == "EASMercenaryPortalOut");
 
             // Its death leaves the hired mercenary, in the hired states and its own team.
             opponent.Dead = true;

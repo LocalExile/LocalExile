@@ -16,8 +16,18 @@ public static class MercenaryTables
     /// <summary>One MercenaryBuilds row: the build a mercenary carries, its name, and the HASH16 the create names it by.</summary>
     public sealed record Build(int Row, string Id, int ClassRow, string Name, ushort Hash16, bool Infamous);
 
+    /// <summary>One MercenarySkills row: the effect the skill is, the one it is in the encounter where the row names one, and
+    /// the level a mercenary must reach to use it.</summary>
+    public sealed record SkillRow(int GrantedEffect, int EncounterGrantedEffect, int RequiredLevel);
+
+    /// <summary>What a MercenaryBuilds row lists as its skills (MercenarySkills rows): all of Skills1, <c>Skills2Count</c> of
+    /// Skills2 and <c>Skills3Count</c> of Skills3.</summary>
+    sealed record BuildSkills(int[] Skills1, int[] Skills2, int Skills2Count, int[] Skills3, int Skills3Count);
+
     static IReadOnlyList<Class> ClassesData = [];
     static IReadOnlyList<Build> BuildsData = [];
+    static IReadOnlyDictionary<int, SkillRow> SkillRowsData = new Dictionary<int, SkillRow>();
+    static IReadOnlyDictionary<int, BuildSkills> BuildSkillsData = new Dictionary<int, BuildSkills>();
 
     /// <summary>The Rulesets rows of MercenaryEncounterRules (161) and MercenaryAreaRules (162), looked up by Id: a copy without
     /// the client rows then lists neither instead of a wrong row.</summary>
@@ -32,6 +42,7 @@ public static class MercenaryTables
     {
         ClassesData = LoadClasses();
         BuildsData = LoadBuilds();
+        (SkillRowsData, BuildSkillsData) = LoadSkills();
         EncounterRulesRow = RulesetRow("MercenaryEncounterRules");
         AreaRulesRow = RulesetRow("MercenaryAreaRules");
     }
@@ -66,6 +77,39 @@ public static class MercenaryTables
         return (kind, builds[rng.Next(builds.Count)]);
     }
 
+    /// <summary>The GrantedEffects rows a mercenary of this build fights with: its whole Skills1, Skills2Count rows drawn from
+    /// Skills2 and Skills3Count from Skills3 (uniformly: the table has no weights), each only when the mercenary's level
+    /// reaches the skill's RequiredLevel. A row that names an EncounterGrantedEffect gives that one while
+    /// <paramref name="encounter"/> (the duel) and its GrantedEffect otherwise. The draw comes from
+    /// <paramref name="rng"/>, so the same seed gives the same mercenary the same skills.</summary>
+    public static IReadOnlyList<int> SkillsOf(Build build, int level, Random rng, bool encounter = true)
+    {
+        if (!BuildSkillsData.TryGetValue(build.Row, out var listed)) return [];
+        List<int> effects = [];
+        void Add(int row)
+        {
+            if (!SkillRowsData.TryGetValue(row, out var skill) || skill.RequiredLevel > level) return;
+            int effect = encounter && skill.EncounterGrantedEffect >= 0 ? skill.EncounterGrantedEffect : skill.GrantedEffect;
+            if (effect >= 0 && !effects.Contains(effect)) effects.Add(effect);
+        }
+        foreach (int row in listed.Skills1) Add(row);
+        foreach (int row in Draw(listed.Skills2, listed.Skills2Count, rng)) Add(row);
+        foreach (int row in Draw(listed.Skills3, listed.Skills3Count, rng)) Add(row);
+        return effects;
+
+        static IEnumerable<int> Draw(int[] rows, int count, Random rng)
+        {
+            if (count <= 0 || rows.Length == 0) return [];
+            var pool = (int[])rows.Clone();
+            for (int i = pool.Length - 1; i > 0; i--)
+            {
+                int j = rng.Next(i + 1);
+                (pool[i], pool[j]) = (pool[j], pool[i]);
+            }
+            return pool.Take(Math.Min(count, pool.Length));
+        }
+    }
+
     public static Class? ClassOf(int row) => Classes.FirstOrDefault(c => c.Row == row);
 
     public static Build? BuildOf(int row) => Builds.FirstOrDefault(b => b.Row == row);
@@ -86,6 +130,19 @@ public static class MercenaryTables
                 r.TextOrNull("HouseName") ?? "", attribute, Supported(hostile)));
         }
         return rows;
+    }
+
+    static (Dictionary<int, SkillRow>, Dictionary<int, BuildSkills>) LoadSkills()
+    {
+        Dictionary<int, SkillRow> skills = [];
+        foreach (var r in ClientTables.TableOrEmpty("MercenarySkills"))
+            skills[r.Index] = new SkillRow(r.IntOrNull("GrantedEffect") ?? -1, r.IntOrNull("EncounterGrantedEffect") ?? -1,
+                r.IntOrNull("RequiredLevel") ?? 0);
+        Dictionary<int, BuildSkills> builds = [];
+        foreach (var r in ClientTables.TableOrEmpty("MercenaryBuilds"))
+            builds[r.Index] = new BuildSkills(r.Ints("Skills1"), r.Ints("Skills2"), r.IntOrNull("Skills2Count") ?? 0,
+                r.Ints("Skills3"), r.IntOrNull("Skills3Count") ?? 0);
+        return (skills, builds);
     }
 
     static List<Build> LoadBuilds()
