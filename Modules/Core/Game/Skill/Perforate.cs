@@ -20,14 +20,14 @@ public static partial class Game
 
     static void SchedulePerforateCountExpiryLocked(Player player)
     {
-        if (!GemSkillEffects(player).Any(gem => SkillsFor(player).EffectId(gem.Effect) == "PerforateAltX")
-            || player.RecentEvents.LastWindow(StatConditions.ChangedStance) is not { } changed) return;
+        if (player.RecentEvents.LastWindow(StatConditions.ChangedStance) is not { } changed) return;
 
         var session = ProjectilesFor(player);
         long end = ProjectileRuntime.Time(changed.Until) + 1;
         session.Runtime.Schedule(Math.Max(end, session.Runtime.Now), () =>
         {
-            if (!session.Active || player.RecentEvents.LastWindow(StatConditions.ChangedStance) != changed) return;
+            if (!session.Active || player.RecentEvents.LastWindow(StatConditions.ChangedStance) != changed
+                || !GemSkillEffects(player).Any(gem => SkillsFor(player).EffectId(gem.Effect) == "PerforateAltX")) return;
             player.PlayerSkillsCache = null;
             ActiveSkillSets.Remove(player);
             if (!PublishByFrame(player, PlayerStatChange.Panel)) PresentStats(player);
