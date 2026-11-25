@@ -5,13 +5,17 @@ public static partial class Game
     // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
     // persistent entities into one area hit merely because their extracted stat set contains damage.
     static bool TriggerAreaSpell(Player player, SupportedGem gem) =>
-        SkillsFor(player).EffectId(gem.Effect) == "IceNova" || IsAbsolutionHitSpell(player, gem.Effect);
+        SkillsFor(player).EffectId(gem.Effect) is "IceNova" or "IceNovaAltY"
+        || IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect)) || IsAbsolutionHitSpell(player, gem.Effect);
+
+    static bool TriggerChaosDebuff(string? effect) => IsBaneEffect(effect) || IsContagionEffect(effect);
 
     static bool TriggerBrandSpell(Player player, int effect) => IsBrandSkill(player, effect)
         && BrandFamilyOf(SkillsFor(player).EffectId(effect)) is not BrandFamily.Trigger;
 
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
+        if (TriggerChaosDebuff(SkillsFor(player).EffectId(gem.Effect))) return true;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
@@ -63,8 +67,8 @@ public static partial class Game
     }
 
     static bool PlacedUtilityPayload(string? effect) =>
-        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" or "Contagion" or "ContagionAltX" or "ContagionAltY"
-        || CurseCatalog.All.ContainsKey(effect ?? "");
+        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering"
+        || IsContagionEffect(effect) || CurseCatalog.All.ContainsKey(effect ?? "");
 
     public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
         (int X, int Y) aim, Func<bool> current)
@@ -73,7 +77,7 @@ public static partial class Game
         var skill = GemSkillEffects(player).FirstOrDefault(g => g.Id == id);
         if (skill.Name is null || !current()) return;
         string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
-        if (MinionUtility(effect) || CurseCatalog.All.ContainsKey(effect))
+        if (MinionUtility(effect) || CurseCatalog.All.ContainsKey(effect) || TriggerChaosDebuff(effect))
         {
             using (ProjectileMutation(player, advance: false))
             {
@@ -120,7 +124,9 @@ public static partial class Game
                         ApplyCurseLocked(player, monster, id, now, false, gem, playerStats, 0, 1, fromPlacement);
             }
         }
-        else if (fromPlacement && ContagionCast(player, id, gem.Effect) is { } contagion)
+        else if (!fromPlacement && IsBaneEffect(effect))
+            BaneContactLocked(player, id, gem, aim, 1, ProjectileWorldTime(player));
+        else if (ContagionCast(player, id, gem.Effect) is { } contagion)
             ApplyContagionLocked(player, aim, contagion with { SpreadAo = ContagionSkinAo(player, gemObject) });
     }
 }
