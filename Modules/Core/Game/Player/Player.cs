@@ -1677,12 +1677,15 @@ public static partial class Game
                 await GameEvents.RunResurrected(player);
                 return;
             }
-            // The checkpoint: the area's waypoint once activated, else where the player entered the area, as in the real game
-            // before any checkpoint is activated. Checkpoint objects and boss arenas (revive at the arena's door) are not done.
+            // The Oasis's local gates set a checkpoint at their arrival. Otherwise use the activated waypoint or the
+            // entry point. Both keep the same instance and its encounter progression.
             bool activated;
             lock (player.Character.Waypoints)
                 activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
-            var (x, y) = player.Layout.Checkpoint(activated);
+            var gateCheckpoint = !inTown ? ShakariEncounter.CheckpointOf(player) : null;
+            var (x, y) = gateCheckpoint ?? player.Layout.Checkpoint(activated);
+            string checkpointReason = gateCheckpoint is not null ? "the last Oasis gate"
+                : activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point";
             // Hide the death screen and start the continuous blackout in one write while still dead, then revive and
             // teleport behind black right before FadeFromBlack starts so FadeController+0x24 never hits 0 mid-fade.
             await SendResurrectFade(player, (x, y));
@@ -1705,7 +1708,7 @@ public static partial class Game
             await SendWorldRecord(player, player.Id, InstanceEntities.StatsUpdate(player.Id, [(Stat.IsDead, 0)]),
                 "0x01b3 player is_dead = 0");
             await SendWorldRecord(player, player.Id, InstanceProtocol.Teleport(player.Id, x, y),
-                $"0x01b7 player to the checkpoint ({x}, {y}): {(activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point")}");
+                $"0x01b7 player to the checkpoint ({x}, {y}): {checkpointReason}");
             await GameEvents.RunResurrected(player);
         }
         finally { Volatile.Write(ref player.Resurrecting, 0); }
