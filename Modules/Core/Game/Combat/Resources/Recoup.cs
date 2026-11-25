@@ -42,4 +42,15 @@ public static partial class Game
         int Get(uint key) => stats.GetValueOrDefault(key);
         player.LifeRecoup.Add(now, LifeRecoupOf(Get, taken), LifeRecoupSeconds(Get));
     }
+
+    static void RecoupTotemHitLocked(Player owner, uint taken, double now, IReadOnlyDictionary<uint, int>? stats = null)
+    {
+        if (taken == 0 || owner.PlayerLife == 0 || owner.LeavingArea) return;
+        stats ??= PlayerStatValues(owner);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int percent = Get(Stat.RecoupPctOfDamageTakenByYourTotemsAsLife);
+        if (percent <= 0 || LifeRecovery.NonLeechBlocked(Get)) return;
+        double amount = taken * (double)percent / 100 * Math.Max(0, 1 + Get(Stat.LifeRecoveryRatePlusPct) / 100d);
+        owner.LifeRecoup.Add(now, amount, LifeRecoupSeconds(Get));
+    }
 }

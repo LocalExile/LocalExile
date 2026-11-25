@@ -190,7 +190,9 @@ public static partial class Game
         var resisted = variety is null ? rolled : rolled.Select((type, range) =>
             range.Scale(1 - DamageModel.Capped(Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100.0));
         long damage = Math.Max(0, (long)Math.Round(resisted.AverageTotal * .2));
-        totem.Life = (uint)Math.Max(0, (long)totem.Life - damage);
+        uint before = totem.Life;
+        totem.Life = (uint)Math.Max(0, before - damage);
+        RecoupTotemHitLocked(player, before - totem.Life, clock);
         if (totem.Life == 0)
         {
             totem.DiedAt = clock;
