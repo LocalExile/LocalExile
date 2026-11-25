@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class SkillAdmissionCostTests
 {
     [Fact]
-    public void Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
+    public async Task Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
     {
         using var f = new Fixture();
         var player = f.Player;
@@ -170,6 +170,77 @@ public sealed class SkillAdmissionCostTests
         Assert.Equal((uint)heavyBase, paidMana);
         Assert.Equal(0u, paidLife);
         Assert.Equal(900u, player.PlayerLife);
+        await MarkPassivesReducePaidMana();
+    }
+
+    static async Task MarkPassivesReducePaidMana()
+    {
+        var results = new List<(int Efficiency, uint[] Paid, uint[] Wire)>();
+        foreach (var (node, efficiency) in new[] { (0, 0), (7659, 20), (53574, 10) })
+        {
+            var clock = new MarkClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.Use(new(1, "mark-cost", 350, 350, 100, 100, (_, _) => true, []) { Sight = (_, _) => 2 });
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            player.ProjectileRuntimeState = fixture.Session;
+            if (node != 0) player.Character.Passives.Add((ushort)node);
+            const uint markEfficiency = Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills;
+            Assert.Equal(efficiency, Game.CharacterPlayerStats(player).GetValueOrDefault(markEfficiency));
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player)) values[Stat.ManaCostPlusPct] = 500;
+                return values;
+            });
+            fixture.Equip(("Poacher's Mark", 1), ("Vulnerability", 1), ("Fireball", 1));
+            var effects = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+            const uint targetId = 200;
+            var target = new SpawnedMonster("mark cost target", new(109, 100, 0), 0, 0, 100000)
+                { ObjectId = targetId, NoRewards = true };
+            player.Area.Monsters[targetId] = target;
+            player.Area.Grid.Set(new(targetId), (109, 100));
+            var paid = new List<uint>();
+            var wire = new List<uint>();
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                foreach (string name in new[] { "Poacher's Mark", "Vulnerability", "Fireball" })
+                {
+                    ushort id = effects[name].Id;
+                    wire.Add((uint)Game.PlayerSkills(player).Single(skill => skill.Id == id).Stats!
+                        .First(stat => stat.Key == Stat.ManaCost).Value);
+                    player.PlayerMana = 1000;
+                    Assert.True(await Game.CastGemSkill(player, id, (100, 100), (109, 100), targetId));
+                    paid.Add(1000 - player.PlayerMana);
+                    if (name == "Poacher's Mark")
+                        Assert.Contains(target.Curses.All.Values, curse => curse.Effect == "PoachersMark");
+                    await clock.Wait(1000, CancellationToken.None);
+                }
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+            Console.WriteLine($"Mark cost node {node} ({efficiency}%): paid [{string.Join(", ", paid)}], wire [{string.Join(", ", wire)}]");
+            results.Add((efficiency, [.. paid], [.. wire]));
+        }
+        var baseline = results[0].Paid;
+        Assert.All(results, result =>
+        {
+            uint expected = (uint)decimal.Round(baseline[0] * 100m / (100 + result.Efficiency), 0, MidpointRounding.AwayFromZero);
+            Assert.Equal(new[] { expected, baseline[1], baseline[2] }, result.Paid);
+            Assert.Equal(result.Paid, result.Wire);
+        });
+    }
+
+    sealed class MarkClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
