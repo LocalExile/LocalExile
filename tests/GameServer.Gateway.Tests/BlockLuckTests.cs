@@ -120,4 +120,23 @@ public sealed class BlockLuckTests
             StatConditions.State.Holds, recentBlocked, Exists, out var targets);
         Assert.Equal(["base_block_luck"], targets);
     }
+
+    [Fact]
+    public void Aegis_Aurora_recovers_energy_shield_from_armour_on_block()
+    {
+        var player = new Player(new(1, "aegisblock", 1000, 1000, 100, 100, null, []), 1, 1)
+        {
+            PlayerLife = 3000,
+            Pools = new(80, 3000, 1000, 2000, 0, Armour: 15_000),
+        };
+        player.EnergyShield.SetMaximum(2000, refill: false);
+        var stats = new Dictionary<uint, int>
+        {
+            [Stat.EnergyShieldPctGainedOnBlock] = 5,
+            [Stat.EnergyShieldPctOfArmourRatingGainedOnBlock] = 2,
+        };
+        var (_, _, es) = Game.BlockRecovery(player, stats);
+        // 5% of 2000 ES (100) + 2% of 15000 Armour (300) = 400 ES recovered on block.
+        Assert.Equal(400u, es);
+    }
 }

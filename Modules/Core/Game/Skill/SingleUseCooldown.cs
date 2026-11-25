@@ -16,6 +16,7 @@ public sealed record CooldownUseTicket(int Effect, int ActionToken, int Projecti
     public (uint Mana, uint Life)? Paid { get; init; }
     /// <summary>The attack window reserved with this use, before movement or the native action echo.</summary>
     public (ushort Skill, double At, double Seconds)? Attack { get; init; }
+    internal int? EnduranceChargesAfterCost { get; set; }
     public bool Current(Player player)
     {
         return player.ProjectileActive(ProjectileEpoch) && player.PlayerLife > 0
