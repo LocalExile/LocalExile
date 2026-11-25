@@ -173,6 +173,7 @@ public static partial class Game
             {
                 if (!PlayerActionCurrent(player, action)) return;
                 player.Walk.Teleport(tx, ty, ProjectileWorldTime(player));
+                ShakariEncounter.RememberGateCheckpoint(player, transition, (tx, ty));
             }
             await SendTransitionFade(player, (tx, ty), $"the gate 0x{use.TargetId:x}");
             if (await SendWorldRecord(player, player.Id, () => InstanceProtocol.Teleport(player.Id, tx, ty),

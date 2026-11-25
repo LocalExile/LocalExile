@@ -108,6 +108,9 @@ public static partial class Game
     {
         if (player.Closed || player.LeavingArea || player.Paused) return;
         var worn = AllWornGrantedSkillsOf(player);
+        var corpseWalk = worn.FirstOrDefault(grant => grant.EffectId == "CorpseWalk");
+        if (corpseWalk.Host != 0 || CorpseWalks.TryGetValue(player, out _))
+            await TickCorpseWalk(player, corpseWalk, now);
         bool maySummonVoid = worn.Any(grant => TriggeredItemMinion(grant) == ItemVoidSpawn);
         bool maySummonSpectral = worn.Any(grant => TriggeredItemMinion(grant) == ItemSpectralSpirit);
         if (!maySummonVoid && !maySummonSpectral && !VoidSpawnTimers.TryGetValue(player, out _)) return;

@@ -3098,8 +3098,8 @@ public static partial class Game
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);
         long lifeBefore = player.PlayerLife;
-        int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
-            ailmentTaken);
+        int lifeDamage = DamagePlayerHitFrom(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage,
+            now, stats, ailmentTaken, attacker: id);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
         if (!blocked)
         {
