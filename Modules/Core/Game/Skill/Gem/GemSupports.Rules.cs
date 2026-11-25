@@ -1011,7 +1011,7 @@ public static partial class Game
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
 
-    static DamagePacket ApplyRoilingTempest(DamagePacket hit, Func<uint, int> get)
+    internal static DamagePacket ApplyRoilingTempest(DamagePacket hit, Func<uint, int> get)
         => get(Stat.KeystoneLightningPurist) == 0 ? hit : hit.Select((type, range) =>
             type == DamageType.Lightning ? new DamageRange(range.Min * .5, range.Max * 1.25) : range);
 

@@ -338,7 +338,8 @@ public static partial class Game
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get).Scale(GamblerFor(stats).DamageFactor);
+        hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
+        return ApplyRoilingTempest(hit, Get).Scale(GamblerFor(stats).DamageFactor);
     }
 
     public static double AddedEffectiveness(Player player, int effect, int level) => SkillsFor(player).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
