@@ -79,6 +79,19 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Ritual
+
+CoreLeagues 20 is rolled by the module at `AreaPopulated`, in maps only, with the client's own roll over the instance's
+area stats (`ExtraTerrainFeatures.LeagueCount`; `map_area_contains_rituals` forces it). A map that rolls it gets three to
+four altars by level (four with `map_ritual_encounter_count_is_four`), each with a rune and its guard packs, on encounter
+spots kept apart. The altars are the instance's: every client sees and drives the same ones, and one who enters later is
+given them again. Nothing is sent until a player comes within 250 cells of an altar; it then shows, spawns its guards, and
+ties the hostile monsters that stand in its circle while it is inactive (a look twice a second, only while a shown altar
+is inactive). Each tied monster's death leaves a BloodPool and credits the altar; an altar whose tied monsters are all dead
+is ready (S->C 0x165). Clicking a ready altar starts the ritual: the credited monsters come back in waves, each kill adds
+tribute, and the favour window (0x166) opens when the last wave dies. Buying and deferring favours are not built. A kept
+instance generated again remakes the shown altars and drops the ties to monsters of the old area.
+
 ## Mercenaries (CoreLeagues row 28)
 
 A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in

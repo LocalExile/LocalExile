@@ -42,6 +42,9 @@ public sealed class RitualEncounter
     /// <summary>The seconds between two looks at the area's monsters for ones that stand in an inactive altar's circle.</summary>
     const double ScanSeconds = 0.5;
 
+    /// <summary>The seconds between two tests of whether a player came near a hidden altar.</summary>
+    const double RevealSeconds = 0.25;
+
     public sealed class Altar
     {
         public required (int X, int Y) Cell;
@@ -100,6 +103,7 @@ public sealed class RitualEncounter
         public int TributePct;
         public double Now;
         public double ScanAt;
+        public double RevealAt;
         public Run? Run;
         public List<Revived> Revived = [];
         /// <summary>The tied monsters: their altar and what comes back when it starts.</summary>
@@ -288,6 +292,13 @@ public sealed class RitualEncounter
             foreach (uint pool in altar.Pools.Concat(altar.Faded.Select(f => f.Pool)))
                 await CreatePool(player, altar, pool, altar.Cell);
         }
+        // The old area's monsters are not dead: they leave the altars' ties, so none credits an altar.
+        foreach (var (id, (k, _, _)) in state.Tie.Where(t => !MonsterShown(player, t.Key)).ToList())
+        {
+            state.Tie.Remove(id);
+            state.Altars[k].Tied.Remove(id);
+            state.Altars[k].Dead.Remove(id);
+        }
         if (state.Run is { } run)
         {
             foreach (uint id in run.Alive.Keys.Where(id => !MonsterShown(player, id)).ToList()) run.Alive.Remove(id);
@@ -304,7 +315,7 @@ public sealed class RitualEncounter
     /// and a running ritual steps.</summary>
     public async Task Advance(Player runner, double seconds)
     {
-        if (Of(runner) is not { Done: false, Altars.Count: > 0 } state || !IsMonsterRunner(runner) || !Current(runner)) return;
+        if (runner.Paused || Of(runner) is not { Done: false, Altars.Count: > 0 } state || !IsMonsterRunner(runner) || !Current(runner)) return;
         if (!await state.Gate.WaitAsync(0)) return;
         try
         {
@@ -312,10 +323,14 @@ public sealed class RitualEncounter
             await Sync(runner, state);
             state.Now += Math.Max(0, seconds);
             double now = AreaTime(runner);
-            var here = Clients(runner).Select(c => c.Walk.Position(AreaTime(c))).DefaultIfEmpty(runner.Walk.Position(now)).ToList();
-            for (int k = 0; k < state.Altars.Count; k++)
-                if (!state.Altars[k].Shown && here.Any(p => Distance(p, state.Altars[k].Cell) <= RitualTables.RevealDistance))
-                    await Reveal(runner, state, k);
+            if (state.Now >= state.RevealAt && state.Altars.Any(a => !a.Shown))
+            {
+                state.RevealAt = state.Now + RevealSeconds;
+                var here = Clients(runner).Select(c => c.Walk.Position(AreaTime(c))).DefaultIfEmpty(runner.Walk.Position(now)).ToList();
+                for (int k = 0; k < state.Altars.Count; k++)
+                    if (!state.Altars[k].Shown && here.Any(p => Distance(p, state.Altars[k].Cell) <= RitualTables.RevealDistance))
+                        await Reveal(runner, state, k);
+            }
             await Deaths(runner, state);
             for (int k = 0; k < state.Altars.Count; k++)
                 if (state.Altars[k].State == Inactive && state.Altars[k].Shown) await CheckReady(runner, state, k);
@@ -400,12 +415,13 @@ public sealed class RitualEncounter
 
     /// <summary>Ties the monsters seen for the first time inside an inactive altar's circle (the nearest altar), and credits
     /// a tied monster's death to its altar: a BloodPool in the circle and the light's scale. Only while an altar is still
-    /// inactive does it look at the area's monsters, twice a second.</summary>
+    /// inactive does it look at the area's monsters, twice a second; a hidden altar ties nothing (its monsters are the ones
+    /// around it once a player has come near).</summary>
     async Task Deaths(Player player, State state)
     {
         var died = new List<(int Altar, string Path, MonsterRarity Rarity)>();
         int radius = RitualTables.RadiusCells;
-        if (state.Now >= state.ScanAt && state.Altars.Any(a => a.State == Inactive))
+        if (state.Now >= state.ScanAt && state.Altars.Any(a => a.State == Inactive && a.Shown))
         {
             state.ScanAt = state.Now + ScanSeconds;
             double now = AreaTime(player);
@@ -420,7 +436,7 @@ public sealed class RitualEncounter
                 double bestDistance = double.MaxValue;
                 for (int k = 0; k < state.Altars.Count; k++)
                 {
-                    if (state.Altars[k].State != Inactive) continue;
+                    if (state.Altars[k].State != Inactive || !state.Altars[k].Shown) continue;
                     double d = Distance(cell, state.Altars[k].Cell);
                     if (d <= radius && d < bestDistance) (best, bestDistance) = (k, d);
                 }

@@ -113,6 +113,8 @@ public class RitualTests
             Assert.All(state.Altars, a => Assert.True(a.Cell.X >= 0 && a.Cell.Y >= 0 && a.Cell.X < layout.GridW && a.Cell.Y < layout.GridH));
             Assert.Single(state.Altars.Select(a => a.Rune.Row).Distinct());
 
+            // The instance's clock runs: a paused instance does not step.
+            player.Clock.Start();
             // The player stands beside the first altar: it shows with its guards tied to it.
             var altar = state.Altars[0];
             altar.Cell = layout.Near((layout.SpawnX + 10, layout.SpawnY));
