@@ -276,10 +276,19 @@ public sealed class MinionSupportExecutionTests
         f.Player.Area.Monsters[950] = plain;
         Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 950, plain, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
         uint baseDmg = 1_000_000u - plain.Life;
+        Assert.False(plain.HasCurses);
 
-        // Chilled + Low Life + Cursed (8% penetration mastery) boosts damage well beyond plain target.
+        // Expired curses do not grant cursed-enemy penetration.
         cursedPen = 8;
         f.Player.MarkStatsDirty(StatInput.Items);
+        var expired = Target(1_000_000, 1_000_000);
+        expired.Curses.All[(1u, "Frostbite")] = new(1u, "Frostbite", 1, 1, 1, 0d, 0d, false, false, new Dictionary<uint, int>());
+        f.Player.Area.Monsters[953] = expired;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 953, expired, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint expiredDmg = 1_000_000u - expired.Life;
+        Assert.InRange(expiredDmg, (uint)(baseDmg * 0.9), (uint)(baseDmg * 1.1));
+
+        // Chilled + Low Life + Cursed (8% penetration mastery) boosts damage well beyond plain target.
         var scaled = Target(1_000_000, 400_000);
         scaled.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 4.0, 0d, _ => 0, _ => 0, stated: 15);
         scaled.Curses.All[(1u, "Frostbite")] = new(1u, "Frostbite", 1, 1, 1, 0d, 10d, false, false, new Dictionary<uint, int>());

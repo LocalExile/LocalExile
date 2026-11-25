@@ -916,7 +916,7 @@ public static partial class Game
                 DamageTypes.IsElemental(component.Type) && component.Range.Max > 0)
             && RandomRolls.Chance(inversionChance, 100, random);
         var penetration = profile?.Penetration ?? default;
-        if (target.Curses.All.Count > 0
+        if (target.HasCurses && target.Curses.HasActive(now)
             && GolemStat(g.Player, Stat.MinionsPenetrateElementalResistancesPctVsCursedEnemies) is int cursedPen and not 0)
             penetration = new(penetration.Fire + cursedPen, penetration.Cold + cursedPen, penetration.Lightning + cursedPen,
                 penetration.Chaos, penetration.ColdVsChilled);
