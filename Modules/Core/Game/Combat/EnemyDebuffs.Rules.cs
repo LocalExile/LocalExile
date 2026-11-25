@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -98,6 +99,7 @@ public static partial class Game
             foreach (var target in steps.NearbyChills.Values) RemoveNearbyChill(player, target);
             steps.NearbyChills.Clear();
         }
+        double now = AreaTime(player);
         foreach (var m in player.Area.Monsters.Values) Forget(m);
         foreach (var m in player.Area.DormantMonsters.Values) Forget(m);
 
@@ -109,6 +111,7 @@ public static partial class Game
                 ClearPlayerTauntLocked(player.Area, m.ObjectId, m, player.Id);
                 m.PresentationChanged?.Invoke();
             }
+            if (SetNearbyFireExposure(m, player.Id, 0)) PresentFireExposureLocked(player.Area, m.ObjectId, m, now);
         }
     }
 
@@ -176,11 +179,66 @@ public static partial class Game
     // rows, a curse aura's by its skill.
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
     const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
-
-    const uint NearbyChillZone = 0x10004;
+    const uint NearbyChillZone = 0x10004, NearbyFireExposureZone = 0x10005;
     static ulong NearbyChillSource(Player player) => 1UL << 63 | player.Id;
     static void RemoveNearbyChill(Player player, SpawnedMonster target) =>
         target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, NearbyChillSource(player));
+
+    sealed class NearbyFireExposures
+    {
+        public readonly Dictionary<uint, int> BySource = [];
+        public int Strongest;
+    }
+    static readonly RuleTable<SpawnedMonster, NearbyFireExposures> NearbyFireExposuresOf = new();
+
+    static int NearbyFireExposureOn(SpawnedMonster target) =>
+        NearbyFireExposuresOf.TryGetValue(target, out var exposure) ? exposure.Strongest : 0;
+
+    static bool SetNearbyFireExposure(SpawnedMonster target, uint source, int value)
+    {
+        if (!NearbyFireExposuresOf.TryGetValue(target, out var exposure))
+        {
+            if (value == 0) return false;
+            exposure = NearbyFireExposuresOf.GetOrCreateValue(target);
+        }
+        int previous = exposure.BySource.GetValueOrDefault(source);
+        if (previous == value) return false;
+        if (value == 0) exposure.BySource.Remove(source);
+        else exposure.BySource[source] = value;
+        if (exposure.BySource.Count == 0) NearbyFireExposuresOf.Remove(target);
+        else if (value < exposure.Strongest) exposure.Strongest = value;
+        else if (previous == exposure.Strongest) exposure.Strongest = exposure.BySource.Values.Min();
+        return true;
+    }
+
+    static void PresentFireExposureLocked(GameArea area, uint id, SpawnedMonster target, double now, int[]? counts = null)
+    {
+        ushort row = ExposureBuffRows[0];
+        bool living = !target.Dead && target.Life > 0 && target.Hostile;
+        bool immune = target.Effects[Stat.ImmuneToExposure] != 0;
+        if (!living) NearbyFireExposuresOf.Remove(target);
+        if (!living || target.ExposureUntil[0] <= now)
+        {
+            target.ExposureUntil[0] = double.NegativeInfinity;
+            EndExposureLocked(target, DamageType.Fire);
+        }
+        double until = immune ? double.NegativeInfinity : NearbyFireExposureOn(target) < 0
+            ? double.PositiveInfinity : target.ExposureUntil[0];
+        bool shown = target.ExposureBuff[0] != 0;
+        if (shown && target.ExposureShownUntil[0] == until) return;
+        if (until <= now)
+        {
+            if (!shown) return;
+            area.Buffs.Clear(id, row);
+            target.ExposureBuff[0] = 0;
+            if (counts is not null) counts[1]++;
+            return;
+        }
+        target.ExposureBuff[0] = 1;
+        target.ExposureShownUntil[0] = until;
+        area.Buffs.Set(id, new(row, U68: double.IsFinite(until) ? Buff.Seconds(until - now) : null));
+        if (counts is not null) counts[0]++;
+    }
 
     // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his capped lightning resistance
     // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 60 cells (6 metres) is the retail
@@ -193,7 +251,7 @@ public static partial class Game
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
         int FleshRadius, int FleshPhysical, int? LightningEquals, int PerAilmentType, CurseAura[] Curses,
         IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
-        IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int Hash);
+        IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int FireExposure, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
         DebuffSteps steps)
@@ -209,6 +267,11 @@ public static partial class Game
         bool alive = player.PlayerLife > 0;
         bool nearbyChill = alive && (playerStats.GetValueOrDefault(Stat.NearbyEnemiesAreChilled) != 0
             || playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesAreChilled) != 0);
+        bool masterOfFire = playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesHaveFireExposure) != 0;
+        bool heraldry = playerStats.GetValueOrDefault(Stat.NearbyEnemiesHaveFireExposureWhileYouAreAffectedByHeraldOfAsh) != 0
+            && AffectedByAura(player, "HeraldOfAsh");
+        int nearbyFireExposure = alive && (masterOfFire || heraldry)
+            ? InflictedExposure(playerStats.GetValueOrDefault, DamageType.Fire, DefaultExposure) : 0;
         var here = player.Walk.Position(now);
         // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp is kept
         // per monster.
@@ -257,6 +320,7 @@ public static partial class Game
                 .. lightningEquals is not null ? [(DoryaniZone, DoryaniAuraRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. blindRadius is int blindAt and > 0 ? [(BlindZone, blindAt, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. aegisReach > 0 ? [(AegisBlindZone, aegisReach, here)] : Array.Empty<(uint, int, (int, int))>(),
+                .. nearbyFireExposure < 0 ? [(NearbyFireExposureZone, 30, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. cursing ? curses.Select(c => (CurseZone + c.Aura.SkillId, c.Radius, here)) : Array.Empty<(uint, int, (int, int))>()],
             new(ReachesHostileMonsters(player, body: false), new EntityId(player.Id), id => MonsterDebuffsChanged(player, id.Value)));
         // Yoke of Suffering: each wearer keeps their own value on a shared monster (PerAilmentTypeTaken).
@@ -269,6 +333,7 @@ public static partial class Game
             foreach (var s in a.Stats) hash.Add(s);
         }
         hash.Add(nearbyChill);
+        hash.Add(nearbyFireExposure);
         if (nearbyChill)
         {
             hash.Add(playerStats.GetValueOrDefault(Stat.VirtualChillEffectPlusPct));
@@ -282,7 +347,8 @@ public static partial class Game
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
             perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
-            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, nearbyChill ? playerStats : null, hash.ToHashCode());
+            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities,
+            nearbyChill ? playerStats : null, nearbyFireExposure, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -350,6 +416,7 @@ public static partial class Game
                 else steps.NearbyChills.Remove(id);
             }
         }
+        SetNearbyFireExposure(m, player.Id, living && scope.FireExposure < 0 && In(NearbyFireExposureZone) ? scope.FireExposure : 0);
         // One timed debuff: its buff shown for the time left, shown again when that changes, taken off when it ends or
         // the monster or the player dies. Whether it is on.
         bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values, double rate = 1)
@@ -366,7 +433,8 @@ public static partial class Game
             {
                 shown = until;
                 buff = 1;
-                player.Area.Buffs.Set(id, new(row, player.Id, Values: values, U68: Buff.Seconds((until - now) * rate)));
+                player.Area.Buffs.Set(id, new(row, player.Id, Values: values,
+                    U68: double.IsFinite(until) ? Buff.Seconds((until - now) * rate) : null));
                 counts[0]++;
             }
             return on;
@@ -381,9 +449,17 @@ public static partial class Game
             m.HinderedUntil = m.TotemHinderedUntil = double.NegativeInfinity;
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
         StepDebilitateLocked(player, id, m, now);
-        for (int i = 0; i < ExposureTypes.Length; i++)
-            if (!Timed(ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null))
+        PresentFireExposureLocked(player.Area, id, m, now, counts);
+        for (int i = 1; i < ExposureTypes.Length; i++)
+        {
+            if (!living || m.ExposureUntil[i] <= now)
+            {
+                m.ExposureUntil[i] = double.NegativeInfinity;
                 EndExposureLocked(m, ExposureTypes[i]);
+            }
+            double until = m.ExposureUntil[i];
+            Timed(ref until, ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null);
+        }
         // Its Withered stacks: one buff with their count and the time the last one has left, shown
         // again when either changes; off when none runs or it or the player dies.
         if (m.Withered.Count > 0)

@@ -304,10 +304,10 @@ public static partial class Game
     /// without a time.</summary>
     public static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
     {
-        int strongest = type == DamageType.Fire ? PyroclastExposure(m, now) : 0;
+        int strongest = type == DamageType.Fire ? Math.Min(PyroclastExposure(m, now), NearbyFireExposureOn(m)) : 0;
         foreach (var ((t, magnitude), until) in m.Exposures)
             if (t == type && until > now) strongest = Math.Min(strongest, magnitude);
-        return strongest;
+        return strongest != 0 && m.Effects[Stat.ImmuneToExposure] != 0 ? 0 : strongest;
     }
 
     // Its Exposure of this type ended (EnemyDebuffsTick: it ran out, or it or the player died).
