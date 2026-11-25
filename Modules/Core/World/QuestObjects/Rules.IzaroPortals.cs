@@ -172,7 +172,7 @@ static partial class QuestobjectsRules
             double at = AreaTime(player);
             var from = m.Walk.Position(at);
             m.Walk.Order(to.X, to.Y, at);
-            m.BusyUntil = m.Walk.ArrivesAt;
+            (m.BusyUntil, m.ScriptHeld) = (m.Walk.ArrivesAt, false);
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, to.X, to.Y, IzaroFights.MoveSkill, player.NextActionSequence(), player.MonsterOrderFlags);
         });
     }

@@ -68,7 +68,7 @@ static partial class QuestobjectsRules
         double seconds, Func<bool> here)
     {
         if (LieutenantDead(player, l)) return;
-        (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace) = (AreaTime(player) + seconds, true, false);
+        (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace, l.Monster.ScriptHeld) = (AreaTime(player) + seconds, true, false, false);
         _ = IzaroSkills.Run(player, l.Id, l.Monster, here);
     }
 

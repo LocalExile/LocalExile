@@ -76,7 +76,7 @@ static partial class QuestobjectsRules
         ushort buff;
         if (GargoyleDead(player, g)) return;
         g.Buff = buff = player.NextBuff++;
-        (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace) = (AreaTime(player) + seconds, true, false);
+        (g.Monster.BusyUntil, g.Monster.Aggro, g.Monster.EntranceGrace, g.Monster.ScriptHeld) = (AreaTime(player) + seconds, true, false, false);
         (g.Monster.EncounterStats, g.Monster.StunImmuneUntil) = (null, double.NegativeInfinity);
         UpdateIzaroStats(arena);
         player.Area.Buffs.Set(arena.Izaro, new(g.Effect.Buff, g.Id));

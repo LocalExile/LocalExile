@@ -654,7 +654,7 @@ static partial class QuestobjectsRules
                     if (!gone && !near && !hit) continue;
                     waiting.Remove(w);
                     if (gone) continue;
-                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
+                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro, woken.ScriptHeld) = (now + Emerges.Seconds(w.Monster) + 0.3, true, false);
                     if (Emerges.SkillId is ushort emerge)
                         await Send(player, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, player.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");

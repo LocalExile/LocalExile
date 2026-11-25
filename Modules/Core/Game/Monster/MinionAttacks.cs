@@ -31,7 +31,7 @@ public static partial class Game
         double nearest = double.MaxValue;
         foreach (var (targetId, t) in player.Area.Monsters)
         {
-            if (targetId == id || !MinionMayTarget(player, targetId, t)) continue;
+            if (targetId == id || !MinionMayTarget(t)) continue;
             var to = t.Walk.Position(now);
             double d = Dist(to, at);
             bool prey = stats is not null && IsPrey(player, stats, targetId, t, now);

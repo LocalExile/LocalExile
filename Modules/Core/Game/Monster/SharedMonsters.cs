@@ -235,9 +235,9 @@ public static partial class Game
     /// <summary>Whether a minion may pick this monster as its target: a living hostile one that can be damaged, is awake and
     /// is not held by a script. BusyUntil is not asked, so a monster lurking until it rises (hitting it makes it rise) or
     /// winding up a skill is a target; one a script holds forever (ScriptHeld while BusyUntil is infinite) is not.</summary>
-    public static bool MinionMayTarget(Player player, uint id, SpawnedMonster m) =>
+    public static bool MinionMayTarget(SpawnedMonster m) =>
         m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-        && m.Effects[Stat.BaseCannotBeDamaged] == 0 && !MonsterAsleep(player, id)
+        && m.Effects[Stat.BaseCannotBeDamaged] == 0
         && !(m.ScriptHeld && double.IsPositiveInfinity(m.BusyUntil));
 
     // What the area has shown every client once: bosses' life bars and scene objects (by object id).

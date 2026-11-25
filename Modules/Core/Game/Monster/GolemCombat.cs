@@ -185,7 +185,7 @@ public static partial class Game
         }
         double aggroRange = aggressive ? Math.Max(m.AggroRange, AggressiveMinionMinimumRange) : m.AggroRange;
         double ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, aggroRange) : 100;
-        var target = player.Area.Monsters.Where(p => MinionMayTarget(player, p.Key, p.Value)
+        var target = player.Area.Monsters.Where(p => MinionMayTarget(p.Value)
                 && (g.Definition.Kind != "HolyArmament" || IsHolyArmamentTarget(player, g, p.Key, p.Value)))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
             .Where(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
@@ -402,7 +402,7 @@ public static partial class Game
         SpawnedMonster? best = null;
         foreach (var (id, monster) in player.Area.Monsters)
         {
-            if (!MinionMayTarget(player, id, monster)) continue;
+            if (!MinionMayTarget(monster)) continue;
             var at = monster.Walk.Position(now);
             if (Dist(at, owner) > 100) continue;
             bool uncovered = !SkitterAuraCovers(g, monster, ailment, now);

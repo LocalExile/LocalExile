@@ -291,7 +291,7 @@ static partial class QuestobjectsRules
             await Send(player, [.. LiftState(player, lift, elevator, IzaroFights.Raised),
                 .. InstanceEntities.TransitionableUpdate(izaro, transitionable, IzaroFights.Fighting)], $"0x02bc Izaro 0x{izaro:x} fights");
             global::Game.SetStats(player, izaro, [(Stat.HideMiniLifeBar, 0)]);
-            (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown) = (AreaTime(player), true, false, true);
+            (boss.BusyUntil, boss.Aggro, boss.EntranceGrace, boss.BossBarShown, boss.ScriptHeld) = (AreaTime(player), true, false, true, false);
             BossBars(player).Add(izaro);
             await ShowBossLifeBar(izaro, boss, player);
             await StartIzaroMechanics(player, mechanics, izaro, boss, Here);
