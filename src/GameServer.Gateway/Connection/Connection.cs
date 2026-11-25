@@ -39,6 +39,7 @@ public sealed partial class Connection(Player player)
     public bool PlayerObjectCreated;
     public readonly HashSet<int> StashTabsSent = [];
     public readonly HashSet<int> GuildStashTabsSent = [];
+    public readonly HashSet<int> TradeStashTabsSent = [];
     // The area transitions created on this instance's client (ids), and those a script showed before their quest flag
     // (Game.TransitionShown).
     public HashSet<uint> ShownTransitions = [];

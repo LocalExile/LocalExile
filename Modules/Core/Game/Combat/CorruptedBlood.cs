@@ -127,7 +127,9 @@ public static partial class Game
         else if (damage > 0)
             damage *= player.ElementalAilments.DamageTakenFactor(now, 0) * letheFactor;
         int whole = IncomingResourceDefences.TakenOverTime(damage, Get, ref state.Carry,
-            IncomingResourceDefences.LessTakenPct(player.Pools, Get), typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct),
+            IncomingResourceDefences.LessTakenPct(player.Pools, Get),
+            typedIncreasedPct: Get(Stat.PhysicalDamageTakenPlusPct)
+                + (player.Walk.Moving(now) ? Get(Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) : 0),
             reductionPct: ChargeEffects.Reduction(Get).Physical, finalTakenPct: Get(IncomingResourceDefences.UnhingedSaneDamageFinal));
         if (state.Stacks.Count == 0 && now >= state.ProtectedUntil) Blood.Remove(player);
         return IncomingResourceDefences.DamageOverTime(player.EnergyShield, whole, Get(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);

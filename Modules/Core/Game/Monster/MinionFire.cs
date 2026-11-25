@@ -48,7 +48,7 @@ public static partial class Game
         if (coefficient <= 0 || elapsed <= 0 || taken <= 0) return 0;
         var state = InfernalLegionSelfBurns.GetOrCreateValue(minion);
         double total = state.Carry + minion.Monster.MaxLife * (coefficient / 6000d) * elapsed * taken
-            * Math.Max(0, 1 + GolemStat(minion.Own, Stat.SupportMinionDefensiveStanceMinionDamageTakenPlusPctFinal) / 100d);
+            * GolemMeatShieldDamageFactor(minion);
         int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
         state.Carry = total - Math.Floor(total);
         return damage;
@@ -139,7 +139,8 @@ public static partial class Game
         {
             if (!target.Hostile || target.Dead || target.Life == 0 || target.Invulnerable || target.Asleep
                 || Dist(target.Walk.Position(now), at) > radius + LivingCollision.Size(target)) continue;
-            var mitigated = DamageModel.Mitigate(damagePacket, type => MonsterHitResistance(target, type, default, now));
+            var mitigated = MitigateMonsterHit(target, damagePacket, now,
+                cannotPenetrateOrIgnore: monster.Mods.Effects[Stat.CannotPenetrateOrIgnoreElementalResistances]);
             int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
             if (damage > 0) CommitMinionFireDamage(player, id, target, damage, at, now, "Minion Instability", minion);
         }
@@ -149,12 +150,13 @@ public static partial class Game
     static void CommitMinionFireDamage(Player player, uint id, SpawnedMonster target, int damage,
         (int X, int Y) at, double now, string effect, GolemState.Golem minion)
     {
-        if (ApplyMonsterHitLocked(player, target, damage, allyAt: at) is not { } hit) return;
+        var cull = MinionIgniteKillRule(PlayerStatValues(player), target, now);
+        if (ApplyMonsterHitLocked(player, target, damage, allyAt: at, cull: cull) is not { } hit) return;
         if (hit.StageStarts)
         {
             CommitBossStage(player, id, target, now);
             hit = hit with { StageStarts = false };
         }
-        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own);
+        CommitMinionHitLocked(player, id, target, hit, damage, now, effect, source: minion.Monster, skill: minion.Own, fighter: minion);
     }
 }

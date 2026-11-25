@@ -184,7 +184,7 @@ public static partial class Game
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    public static async Task UseQuestItem(Player player, PlayerInventories items,
+    public static async Task<bool> UseQuestItem(Player player, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
@@ -192,14 +192,15 @@ public static partial class Game
         try
         {
             PlayerInventories.Consumption? taken;
-            if (HardcoreProgressBlocked(player)) return;
+            if (HardcoreProgressBlocked(player)) return false;
             taken = QuestItems.Use(items, CharacterName(player), row, item.Id, flags);
-            if (taken is null) return;
+            if (taken is null) return false;
             uint inventoryId = PlayerInventories.InventoryId(row);
             await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventoryId}: {type.Name} used ({flags.Use})");
             await SetQuestFlagsHeld(player, [flags.Use!]);
             if (flags.Grant is { } grant) await SetQuestFlagsHeld(player, [grant], on: false);
+            return true;
         }
         finally { player.Character.QuestGate.Release(); }
     }
@@ -472,7 +473,7 @@ public static partial class Game
         if (!QuestsOf(player).Exists(rule.ObjectType, f => ClientHasQuestFlag(player, f))) return;
         uint id = player.TakeObjectId();
         lock (player.QuestObjects) player.QuestObjects[id] = (rule, at, info);
-        if (info.Blocking) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
+        if (info.Blocking && !QuestObjectTransitioned(player, rule)) player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
         await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(rule.ObjectType), QuestObjectBlob(player, rule, at, info)),
             $"0x02bb quest object 0x{id:x} {rule.ObjectType} at ({at.X}, {at.Y}), {(QuestObjectTransitioned(player, rule) ? "transitioned" : "untransitioned")}" +
             (rule.TransitionedBy is { } f ? $" (flag {f})" : ""), wake: true, awaitBirth: false);
@@ -594,6 +595,11 @@ public static partial class Game
         foreach (var (id, rule, at, info) in objects)
         {
             bool done = QuestObjectTransitioned(player, rule);
+            if (info.Blocking)
+            {
+                if (done) player.RemoveBlocker(id);
+                else player.SetObjectBlocker(id, at.X, at.Y, info.Size, info.ActorOrChest);
+            }
             if (done && QuestObjectTypes.OpensInPlace(rule.ObjectType) && QuestObject.TransitionableIndex(info.Components) is int opening and >= 0)
             {
                 await SendWorldRecord(player, id, InstanceEntities.TransitionableUpdate(id, (byte)opening, (byte)info.States),

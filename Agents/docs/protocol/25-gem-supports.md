@@ -53,7 +53,9 @@ take `support_lifetap_damage_+%_final_while_buffed` and flasks recover 20% incre
 same Life cost.
 The Blood Magic keystone (the passive tree node or an item's `keystone_blood_magic`, for example Malachai's Awakening)
 converts every skill's whole Mana cost to Life the same way, without Lifetap's multiplier, counter or buff; a skill is
-refused when its Life cost is not below current Life. Mana reservation is unchanged.
+refused when its Life cost is not below current Life. It also removes all Mana (maximum 0, like `no_mana` and
+`base_no_mana`), gives 10% more maximum Life and moves every skill's Mana reservation to Life. Only the reminder text
+(`ReminderTextKeystoneBloodMagic`) states these: the node and the item mods carry just `keystone_blood_magic`.
 Overheat Support consumes all of the player's Fortification once per use, at the start of the use (before its hit or
 any projectile it releases), and stores per skill `(1 + per_3 * floor(consumed / 3) / 100)` as more Ailment damage for
 that use's ailments. It is an exceptional gem: `support_overheat_ailment_damage_+%_final_per_3_fortification_consumed`

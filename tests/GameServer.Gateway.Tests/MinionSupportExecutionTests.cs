@@ -44,6 +44,27 @@ public sealed class MinionSupportExecutionTests
     }
 
     [Fact]
+    public void Living_lightning_resolves_its_own_chain_and_duration_supports()
+    {
+        using var f = new TriggeredSummonTests.Fixture();
+        f.Equip(("Shock Nova", 1), ("Living Lightning Support", 1),
+            ("Chain Support", 1), ("More Duration Support", 1));
+        ushort skill = Game.GemSkillEffects(f.Player).Single(g => Program.Skills.EffectId(g.Effect) == "ShockNova").Id;
+        var source = Game.SupportedSkill(f.Player, skill);
+        Assert.Contains(source.Supports, support => support.Effect.Id == "SupportLivingLightning");
+        Assert.DoesNotContain(source.Supports, support => support.Effect.Id == "SupportChain");
+        Assert.Contains(source.LivingLightningSupports, support => support.Effect.Id == "SupportChain");
+        Assert.Contains(source.LivingLightningSupports, support => support.Effect.Id == "SupportMoreDuration");
+
+        var sourceStats = new Dictionary<uint, int>(source.Stats) { [Stat.SpellDamagePlusPct] = 777 };
+        var lightning = Game.LivingLightningGem(f.Player, source with { Stats = sourceStats });
+        Assert.False(lightning.Stats.ContainsKey(Stat.SpellDamagePlusPct));
+        Assert.True(lightning.Stats.GetValueOrDefault(Stat.NumberOfChains) > 3);
+        Assert.True(SkillDurationModifiers.Seconds(lightning.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+            _ => 0, lightning.Stats.GetValueOrDefault) > 5);
+    }
+
+    [Fact]
     public async Task Multistrike_repeats_after_recovery_and_ruthless_counts_uses_per_minion()
     {
         using var f = new AnimatedAdmissionTests.Fixture();
@@ -62,7 +83,7 @@ public sealed class MinionSupportExecutionTests
             double Poison(GolemState.Ability hit)
             {
                 var target = new SpawnedMonster("poison target", new(105, 100, 0), 100, 3, 100000) { Hostile = true };
-                Invoke("MinionAilmentsLocked", f.Player, fighter, hit, 998u, target, false, time.Time);
+                Invoke("MinionAilmentsLocked", f.Player, fighter, hit, fighter.Own, 998u, target, false, time.Time, 1d, false, 0);
                 return target.Poisons.TotalDps(time.Time);
             }
             double originalPoison = Poison(ability);
@@ -122,5 +143,103 @@ public sealed class MinionSupportExecutionTests
         Assert.Equal(9940u, f.Player.Area.Monsters[998].Life);
         Assert.Equal(10000u, f.Player.Area.Monsters[997].Life);
         Assert.Equal(10000u, f.Player.Area.Monsters[996].Life);
+    }
+
+    [Fact]
+    public async Task Spell_echo_repeats_spectre_spell_and_launches_spiral_nova_with_returning_projectiles()
+    {
+        bool wall = true;
+        using var f = new AnimatedAdmissionTests.Fixture(new AreaLayout(1, "defiler-spiral-test", 200, 200, 100, 100, null, [])
+        {
+            Sight = (x, _) => wall && x == 110 ? 0 : 1,
+        });
+        var time = new Clock();
+        var before = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, time);
+        try
+        {
+            var items = Game.ItemsOf(f.Player);
+            foreach (var p in items.Items(PlayerInventories.Weapon1)) items.Remove(PlayerInventories.Weapon1, p.Id);
+            Item Gem(string name)
+            {
+                var type = Program.Items.FindGem(name)!.Value;
+                return ItemCatalog.Create(type.Type) with
+                {
+                    GemVariant = type.Variant.Index,
+                    GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(20)
+                };
+            }
+            var names = new[] { "Raise Spectre", "Spell Echo Support", "Returning Projectiles Support" };
+            items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Gnarled Branch")!) with
+            {
+                Sockets = names.Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(),
+                Links = [(byte)names.Length]
+            });
+            ushort source = Game.GemSkillEffects(f.Player).Single().Id;
+            var defilerVariety = Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantMapBossStandalone_AtlasUber")!;
+            uint id = await Game.SummonFighter(f.Player, source,
+                Game.SummonData.Find("RaiseSpectre")!, (100, 100), restoredVariety: defilerVariety.Id);
+            var fighter = f.Player.Summons.Fighters[id];
+            fighter.Monster.Walk.Teleport(100, 100, 0);
+            Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+            fighter.Abilities = Game.GolemAbilities(f.Player, defilerVariety, 84, fighter, Game.CharacterPlayerStats(f.Player));
+            var spell = Assert.Single(fighter.Abilities, a => a.Id == "RevenantBossSpellProjectile");
+            Assert.Equal(9, spell.Projectile!.Count);
+            Assert.Equal(50, spell.Projectile.SpiralAngle);
+            Assert.Equal(750, spell.Projectile.SpiralTimeMs);
+            Assert.Equal(1, Game.SkillsFor(f.Player).MonsterProjectile(spell.Effect)!.Count);
+            var enemy = new SpawnedMonster("target", new(120, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+            f.Player.Area.Monsters[999] = enemy;
+
+            var session = Game.ProjectilesFor(f.Player);
+            fighter.Abilities = [spell];
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Null(fighter.Pending);
+            wall = false;
+            Game.GolemStepLocked(f.Player, fighter, time.Time);
+            Assert.Equal(spell.Id, fighter.Pending?.Ability.Id);
+            for (int repeat = 0; repeat < 2; repeat++)
+            {
+                Invoke("GolemActionRecords", f.Player, new PlayerMinions.Output([], null, fighter.Id, fighter.Monster,
+                    PlayerMinions.OutputKind.GolemAction, Action: fighter.Monster.ActionGeneration));
+                var pending = fighter.Pending!;
+                Assert.Equal(repeat, pending.RepeatIndex);
+                time.Time = pending.At;
+                Game.GolemStepLocked(f.Player, fighter, time.Time);
+                using (Game.ProjectileMutation(f.Player, advance: false))
+                {
+                    var shots = new Dictionary<long, long>();
+                    for (int step = 1; step <= 100; step++)
+                    {
+                        session.AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time + step * 0.01));
+                        foreach (var shot in session.Runtime.Projectiles.Where(p => p.CreatedAt >= GameServer.Core.Projectiles.ProjectileRuntime.Time(time.Time)))
+                        {
+                            if (shots.Count == 0)
+                                Assert.Equal(-20, Math.Atan2(shot.Direction.Y, shot.Direction.X) * 180 / Math.PI, 5);
+                            Assert.True(shot.Profile.Returns);
+                            shots.TryAdd(shot.Id, shot.CreatedAt);
+                        }
+                    }
+                    Assert.Equal(9, shots.Count);
+                    double sweep = .750 * spell.Attack.Seconds / (Game.SkillsFor(f.Player).CastTimeMs(spell.Effect) / 1000d);
+                    long span = GameServer.Core.Projectiles.ProjectileRuntime.Time(sweep);
+                    Assert.InRange(shots.Values.Max() - shots.Values.Min(), span - 1, span + 1);
+                    Assert.Equal(9, shots.Values.Distinct().Count());
+                }
+                if (repeat == 0)
+                {
+                    Assert.NotNull(fighter.Repeat);
+                    time.Time = Math.Max(time.Time + 1.0, fighter.Monster.BusyUntil);
+                    Game.GolemStepLocked(f.Player, fighter, time.Time);
+                    Assert.NotNull(fighter.Pending);
+                }
+                else
+                {
+                    Assert.Null(fighter.Repeat);
+                }
+            }
+            Assert.True(enemy.Life < 1_000_000u);
+        }
+        finally { Game.AreaUpdateContext.Value = before; }
     }
 }

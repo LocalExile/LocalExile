@@ -12,8 +12,9 @@ public static partial class Game
         var at = ControlledFollowerPoint(player, leader, arrival: true);
         player.Walk.Teleport(at.X, at.Y, AreaTime(player));
         player.PeerType = InstanceEntities.ObjectTypeHash(SkillsFor(player).ClassFor(player.Character.ClassRow).ObjectType);
-        player.PeerTemplate = PlayerForCreation(player) with { GridX = at.X, GridY = at.Y };
-        player.ClientSkillIds = [.. player.PeerTemplate.Skills!.Select(s => s.Id)];
+        var raw = PlayerForCreation(player);
+        player.ClientSkillIds = [.. raw.Skills!.Select(s => s.Id)];
+        player.PeerTemplate = raw.FitSkillList().Fitted with { GridX = at.X, GridY = at.Y };
         player.Connection.PlayerSent = player.Connection.PlayerObjectCreated = true;
         Program.InGame[player] = 0;
         global::HotReload.Register(player);
@@ -89,7 +90,10 @@ public static partial class Game
     static double ControlledInPlaceReach(Player player, ushort skill, int effect)
     {
         if (SkillsFor(player).ActionHash(effect) == GroundSlamWave.Action)
-            return GroundSlamWave.Length(SkillRadius(player, SupportedSkill(player, skill).Stats, spell: false, effect));
+        {
+            var stats = SupportedSkill(player, skill).Stats;
+            return GroundSlamWave.Length(SkillRadius(player, stats, spell: false, effect), stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus));
+        }
         if (SkillsFor(player).IsMelee(effect)) return WeaponFor(player).Range;
         if (SkillsFor(player).IsSelfTargeted(effect))
             return SkillRadius(player, SupportedSkill(player, skill).Stats, SkillsFor(player).IsSpell(effect), effect);

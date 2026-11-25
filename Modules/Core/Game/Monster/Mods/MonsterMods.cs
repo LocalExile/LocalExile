@@ -126,13 +126,15 @@ public static partial class Game
         int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
         int baseCrit = e.CriticalChanceWith(basePermyriad);
         int chance = baseCrit + additionalCritical;
-        critical = !cannotCrit && chance > 0 && random.Next(10_000) < chance;
+        critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
+            && random.Next(10_000) < chance;
         int extraMult = critical
             ? Math.Max(0, (MonsterModEffects.CriticalMultiplier - 100) + e[Stat.BaseCriticalStrikeMultiplierPlus] + (extraCriticalMultiplier?.Invoke() ?? 0))
             : 0;
         int selfReduction = critical ? Math.Clamp(selfCriticalReduction?.Invoke() ?? 0, 0, 100) : 0;
         double factor = critical ? (100 + extraMult * (100 - selfReduction) / 100.0) / 100.0 : 1;
         factor *= MonsterFrenzyDamageFactor(m);
+        if (now < m.DebilitatedUntil) factor *= 1 + DebilitateDamagePct / 100d;
         factor *= Math.Max(0, 1 + e[m.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
             ? Stat.EnfeebleDamagePlusPctVsRareOrUniqueFinal : Stat.EnfeebleDamagePlusPctFinal] / 100.0);
         int executioner = e.ExecutionerPct(playerLife, playerMaxLife);
@@ -162,6 +164,21 @@ public static partial class Game
         Penetration.PerType pen, double now = double.NaN)
     {
         var resistance = HitMitigation.Resistance(Monsters, m.Variety, m.Level, type);
+        // Doryani's Prototype ("Nearby Enemies have Lightning Resistance equal to yours"): while a wearer keeps his own
+        // resistance on the monster (EnemyDebuffsTick's zone), the whole composed value is replaced with it — negative
+        // and zero included — and only the cap and penetration still apply. Zero-alloc when no source values are set;
+        // multiple wearers deterministically take the lowest resistance.
+        if (type == DamageType.Lightning && m.HasSourceValues)
+        {
+            int? lowest = null;
+            foreach (var (_, encoded) in m.SourceValues(LightningResistEqualsYours))
+            {
+                int v = encoded - DoryaniResistOffset;
+                if (lowest is null || v < lowest.Value) lowest = v;
+            }
+            if (lowest is int ownResist)
+                return resistance with { Value = ownResist, Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) };
+        }
         return resistance with { Value = resistance.Value + m.Effects.Resistance(type) + MonsterExposure(m, type, now)
                 + ScorchedResistance(m, type, now)
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
@@ -172,8 +189,7 @@ public static partial class Game
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.
     public static int MonsterTakesRolled(SpawnedMonster m, DamagePacket rolled, bool spell, Penetration.PerType pen = default,
         double now = double.NaN, Random? random = null)
-        => MonsterTakesMitigated(m, DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, pen, now)),
-            spell, now, random: random);
+        => MonsterTakesMitigated(m, MitigateMonsterHit(m, rolled, now, pen), spell, now, random: random);
 
     /// <summary>
     /// The damage a resisted hit of the player deals to a monster: the physical part less its physical damage reduction,
@@ -207,10 +223,10 @@ public static partial class Game
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
         double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double chaosFactor = m.Withered.Count == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
-        double withered = m.Withered.Count == 0 ? 0
-            : mitigated[DamageType.Chaos].Min * (chaosFactor - factor);
+        double chaosDamage = mitigated[DamageType.Chaos].Min;
+        double witheredPct = chaosDamage > 0 ? WitheredTaken(m, now) : 0;
+        double withered = witheredPct == 0 ? 0 : chaosDamage * (MonsterDamageTaken(m, spell, now,
+            elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct + witheredPct) - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
@@ -251,9 +267,11 @@ public static partial class Game
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
         double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double chaosFactor = m.Withered.Count == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: true, increasedPct: additionalTakenPct);
-        double withered = m.Withered.Count == 0 ? 0 : rawChaos * (chaosFactor - factor);
+        double witheredPct = WitheredTaken(m, now);
+        double chaosFactor = witheredPct == 0 ? factor
+            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
+                increasedPct: additionalTakenPct + witheredPct);
+        double withered = rawChaos * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
         double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
             : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
@@ -293,6 +311,9 @@ public static partial class Game
     public static int SelfCriticalReduction(Player player)
     {
         var stats = CharacterPlayerStats(player);
+        if (stats.GetValueOrDefault(Stat.SelfTakeNoExtraDamageFromCriticalStrikesIfHaveBeenCritRecently) != 0
+            && AreaTime(player) - player.LastCritTakenAt <= RecentEvents.WindowSeconds)
+            return 100;
         return SelfCriticalReduction(name => name is var key ? stats.GetValueOrDefault(key) : 0);
     }
 
@@ -331,13 +352,33 @@ public static partial class Game
     public static MonsterHit? HitUnlessBlockedLocked(Player player, SpawnedMonster m, int damage) =>
         damage is Blocked or Evaded ? null : ApplyMonsterHitLocked(player, m, damage);
 
+    internal readonly record struct TargetCriticalBonuses(long FullLife, long Unique, long Taunted)
+    {
+        public static TargetCriticalBonuses From(IReadOnlyDictionary<uint, int>? player, IReadOnlyDictionary<uint, int>? own)
+        {
+            long Sum(uint key) => (long)(player?.GetValueOrDefault(key) ?? 0) + (own?.GetValueOrDefault(key) ?? 0);
+            return new(Sum(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus),
+                Sum(Stat.CriticalStrikeMultiplierPlusVsUniqueEnemies), Sum(Stat.CriticalStrikeMultiplierPlusVsTauntedEnemies));
+        }
+    }
+
     /// <summary>The critical strike multiplier against this monster after reductions to the bonus above 100%.</summary>
     public static int CriticalMultiplierOn(SpawnedMonster m, int multiplier,
-        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false)
+        IReadOnlyDictionary<uint, int>? player = null, IReadOnlyDictionary<uint, int>? own = null, bool noExtra = false) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), double.PositiveInfinity,
+            noExtra || player is not null && CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, double at,
+        IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int>? own = null) =>
+        CriticalMultiplierOn(m, multiplier, TargetCriticalBonuses.From(player, own), at, CriticalHitsDealNoExtraDamage(player, own));
+
+    static int CriticalMultiplierOn(SpawnedMonster m, int multiplier, TargetCriticalBonuses bonuses, double at, bool noExtra)
     {
-        if (noExtra || m.Effects.NoExtraCriticalDamage || player is not null && CriticalHitsDealNoExtraDamage(player, own))
-            return 100;
+        if (noExtra || m.Effects.NoExtraCriticalDamage) return 100;
         long ordinary = (long)multiplier + m.Curses[Stat.EnemyAdditionalCriticalStrikeMultiplierAgainstSelf];
+        if (m.MaxLife > 0 && m.Life >= m.MaxLife) ordinary += bonuses.FullLife;
+        if (m.Rarity == MonsterRarity.Unique) ordinary += bonuses.Unique;
+        if (m.TauntedUntil > at) ordinary += bonuses.Taunted;
         if (ordinary > 100)
         {
             int reduction = Math.Clamp(m.Effects[Stat.BaseSelfCriticalStrikeMultiplierMinusPct], 0, 100);
@@ -345,6 +386,13 @@ public static partial class Game
         }
         return CriticalHitMultiplier(ordinary, noExtra: false);
     }
+
+    // For an impale's source multiplier.
+    static int FullLifeCriticalMultiplier(SpawnedMonster m, IReadOnlyDictionary<uint, int> player,
+        IReadOnlyDictionary<uint, int>? own) => m.MaxLife > 0 && m.Life >= m.MaxLife
+        ? ActorScale.Saturate((long)player.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus)
+            + (own?.GetValueOrDefault(Stat.CriticalStrikeMultiplierVsEnemiesOnFullLifePlus) ?? 0))
+        : 0;
 
     static int CriticalMultiplierWithWeapon(int multiplier, SpawnedMonster target, IReadOnlyDictionary<uint, int>? local)
     {
@@ -425,6 +473,7 @@ public static partial class Game
             double recently = Math.Max(0, Math.Min(now, m.PlayerHitAt + RecentlySeconds) - Math.Max(now - seconds, m.PlayerHitAt));
             perSecond *= 1 - recently / seconds * (1 - Math.Max(0, 1 + onHitPct / 100.0));
         }
+        if (perSecond > 0 && seconds > 0) perSecond *= FrostBombRegenerationFactor(m, now - seconds, now);
         if (perSecond <= 0 && spreadRecovery <= 0) return;
         double total = m.Regen + Math.Max(0, perSecond) * seconds + spreadRecovery;
         uint whole = (uint)Math.Truncate(total);

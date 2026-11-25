@@ -309,8 +309,12 @@ public static partial class Game
 
     // A supported gem's chance against a Blinded target (its attack or spell base, the pooled and own increases).
     public static int? SupportedCriticalChanceVsBlinded(Player player, ushort skillId, bool release, int? weaponCritical = null) =>
+        SupportedCriticalChanceVsBlinded(player, skillId, release, weaponCritical, 0);
+
+    static int? SupportedCriticalChanceVsBlinded(Player player, ushort skillId, bool release,
+        int? weaponCritical, long extraIncrease) =>
         player.Pools.VsBlindedCriticalPct is not 0 and var extra
-            ? SupportedCriticalChanceFor(player, skillId, release, extra, weaponCritical) : null;
+            ? SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical) : null;
 
     // A passive-granted spell's chances against a target on the player's grounds, from its own chance function.
     public static GroundCritical SpellCriticalChanceVsGround(Player player, Func<long, int> with) =>
@@ -321,7 +325,11 @@ public static partial class Game
 
     // A supported gem's chances against a target on the player's grounds (GroundCritical).
     public static GroundCritical SupportedCriticalChanceVsGround(Player player, ushort skillId, bool release, int? weaponCritical = null) =>
-        GroundCriticalWith(player, extra => SupportedCriticalChanceFor(player, skillId, release, extra, weaponCritical),
+        SupportedCriticalChanceVsGround(player, skillId, release, weaponCritical, 0);
+
+    static GroundCritical SupportedCriticalChanceVsGround(Player player, ushort skillId, bool release,
+        int? weaponCritical, long extraIncrease) =>
+        GroundCriticalWith(player, extra => SupportedCriticalChanceFor(player, skillId, release, extra + extraIncrease, weaponCritical),
             player.Pools.VsBlindedCriticalPct);
 
     // damage_taken_+%_from_blinded_enemies (PoB DamageTaken INC, "from Blinded Enemies") for a Blinded monster's hits, where

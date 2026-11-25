@@ -29,124 +29,280 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed class CausticCloud(uint id, Visual visual, ProjectileVector centre, int radius, long end, double dps)
+        sealed record DamageGround(ProjectileSession Source, ProjectileVector Centre, double Radius, long Start, long End,
+            DamageType Type, double Dps, Visual? Visual, uint ChillSource, IReadOnlyDictionary<uint, int>? ChillStats)
         {
-            public readonly uint Id = id;
-            public readonly Visual Visual = visual;
-            public readonly ProjectileVector Centre = centre;
-            public readonly int Radius = radius;
-            public readonly long End = end;
-            public readonly double Dps = dps;
+            public readonly HashSet<SpawnedMonster> Chilled = [];
+            public ProjectileVector CurrentCentre = Centre;
+            public GroundMovement? Movement { get; init; }
         }
 
-        readonly List<CausticCloud> causticClouds = [];
-        readonly ConditionalWeakTable<SpawnedMonster, PodDamage> causticRemainders = new();
-        bool causticTickScheduled;
-        long causticPreviousTick;
+        sealed class GroundDamageCarry { public double Fire, Cold, Chaos; }
 
-        void ClearCausticClouds()
+        sealed class AreaDamageGrounds
         {
-            foreach (var cloud in causticClouds)
+            public readonly List<DamageGround> Grounds = [];
+            public readonly ConditionalWeakTable<SpawnedMonster, GroundDamageCarry> Remainders = new();
+            public long Previous, Next;
+        }
+
+        static readonly RuleTable<GameArea, AreaDamageGrounds> DamageGroundsByArea = new();
+        static readonly long DamageGroundInterval = ProjectileRuntime.QuantaPerSecond / 10;
+        GameArea? damageGroundArea;
+        bool groundFallbackScheduled;
+
+        void ClearDamageGrounds()
+        {
+            if (damageGroundArea is not { } area) return;
+            damageGroundArea = null;
+            groundFallbackScheduled = false;
+            if (area.Driven && !area.Owned) area.Defer(RemoveDamageGrounds);
+            else RemoveDamageGrounds(area);
+        }
+
+        void RemoveDamageGrounds(GameArea area)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state)) return;
+            for (int i = state.Grounds.Count - 1; i >= 0; i--)
             {
-                cloud.Visual.Ended = true;
-                Player.ProjectileObjects.Remove(cloud.Id);
+                var ground = state.Grounds[i];
+                if (!ReferenceEquals(ground.Source, this)) continue;
+                state.Grounds.RemoveAt(i);
+                RemoveDamageGround(area, ground);
             }
-            causticClouds.Clear();
-            causticTickScheduled = false;
+            if (state.Grounds.Count == 0) state.Remainders.Clear();
         }
 
-        internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec)
+        static void RemoveDamageGround(GameArea area, DamageGround ground)
         {
-            if (spec.Radius <= 0 || spec.Duration <= 0 || spec.Dps <= 0) return;
-            var kind = GroundKindOf("CausticCloud", spec.ArtVariation);
-            if (kind is null || kind.Art.Length == 0) return;
-            int x = (int)Math.Round(centre.X), y = (int)Math.Round(centre.Y);
-            uint id = Player.TakeObjectId();
-            var visual = new Visual(id, default);
-            Player.ProjectileObjects.Add(id);
-            float scale = kind.ArtRadius > 0 ? (float)(spec.Radius * WorldPerCell / kind.ArtRadius) : 1;
-            var ground = new GroundEffectObject(x, y, kind.ArtRow, kind.Art, (float)spec.Duration) { Scale = scale, Team = 0 };
-            Create(id, () =>
+            foreach (var monster in ground.Chilled)
+                monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+            if (ground.Visual is not { } visual) return;
+            visual.Ended = true;
+            ground.Source.Player.UntrackProjectileObject(visual.Id);
+            if (!visual.Created) return;
+            byte[] endGround = InstanceEntities.GroundEffectUpdate(visual.Id, 0, 0f);
+            if (area.Driven)
             {
-                if (visual.Ended) return null;
-                visual.Created = true;
-                return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(GroundEffectObject.TypePath), ground.Blob());
-            }, wake: true);
-            long now = Runtime.Now;
-            long end = now + Math.Max(1, ProjectileRuntime.Time(spec.Duration));
-            causticClouds.Add(new(id, visual, centre, spec.Radius, end, spec.Dps));
-            if (!causticTickScheduled)
-            {
-                causticTickScheduled = true;
-                causticPreviousTick = now;
-                Runtime.Schedule(Math.Min(end, now + ProjectileRuntime.QuantaPerSecond / 10), TickCausticClouds);
+                area.Delta.Add(visual.Id, endGround);
+                area.Delta.RemoveSharedObject(visual.Id, InstanceProtocol.RemoveObject(visual.Id));
             }
+            else ground.Source.WorldRecords(visual.Id, () => [endGround, InstanceProtocol.RemoveObject(visual.Id)], remove: true);
         }
 
-        void TickCausticClouds()
-        {
-            causticTickScheduled = false;
-            if (causticClouds.Count == 0) return;
-            long now = Runtime.Now;
-            double at = now / (double)ProjectileRuntime.QuantaPerSecond;
-            double seconds = (now - causticPreviousTick) / (double)ProjectileRuntime.QuantaPerSecond;
-            causticPreviousTick = now;
+        internal void PlaceCausticCloud(ProjectileVector centre, ProjectileOffense.CausticCloudSpec spec) =>
+            PlaceDamageGround(centre, spec.Radius, spec.Duration, DamageType.Chaos, spec.Dps, Runtime.Now, spec.ArtVariation);
 
-            // Remove expired clouds first.
-            for (int i = causticClouds.Count - 1; i >= 0; i--)
+        internal void PlaceDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
+            double dps, long start, int artVariation = 0, IReadOnlyDictionary<uint, int>? chillStats = null)
+        {
+            if (radius <= 0 || seconds <= 0 || dps <= 0 && chillStats is null) return;
+            Visual? visual = null;
+            var kind = GroundKindOf(type switch
             {
-                var cloud = causticClouds[i];
-                if (now < cloud.End) continue;
-                causticClouds.RemoveAt(i);
-                cloud.Visual.Ended = true;
-                WorldRecords(cloud.Id, () =>
+                DamageType.Fire => "Fire",
+                DamageType.Cold => "Maelstorm",
+                _ => "CausticCloud",
+            }, artVariation);
+            if (kind is { Art.Length: > 0 })
+            {
+                uint id = Player.TakeObjectId();
+                visual = new Visual(id, default);
+                Player.TrackProjectileObject(id);
+                float scale = kind.ArtCells > 0 ? (float)(radius / kind.ArtCells) : 1;
+                var ground = new GroundEffectObject((int)Math.Round(centre.X), (int)Math.Round(centre.Y),
+                    kind.ArtRow, kind.Art, (float)seconds) { Scale = scale, Team = 0 };
+                Create(id, () =>
                 {
-                    Player.ProjectileObjects.Remove(cloud.Id);
-                    return cloud.Visual.Created ? [InstanceProtocol.RemoveObject(cloud.Id)] : null;
-                }, remove: true);
+                    if (visual.Ended) return null;
+                    visual.Created = true;
+                    return InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(GroundEffectObject.TypePath), ground.Blob());
+                }, wake: true);
             }
+            AddDamageGround(centre, radius, seconds, type, dps, start, visual, chillStats);
+        }
 
-            if (causticClouds.Count == 0) return;
-
-            // Caustic Ground does not stack: each enemy takes damage only from the strongest cloud it stands in.
-            if (seconds > 0)
+        void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
+            double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null,
+            GroundMovement? movement = null)
+        {
+            var area = Player.Area;
+            var state = DamageGroundsByArea.GetOrCreateValue(area);
+            damageGroundArea = area;
+            start = Math.Max(start, Math.Max(Runtime.Now, state.Grounds.Count == 0 ? 0 : state.Previous));
+            long end = start + Math.Max(1, ProjectileRuntime.Time(seconds));
+            uint chillSource = chillStats is null ? 0 : visual?.Id ?? Player.TakeObjectId();
+            if (state.Grounds.Count == 0)
             {
-                foreach (var (id, monster) in Player.Area.Monsters.ToArray())
+                state.Previous = start;
+                state.Next = start + DamageGroundInterval;
+            }
+            if (movement is { Limit: > 0 })
+            {
+                var matching = state.Grounds.Where(g => ReferenceEquals(g.Source, this)
+                    && g.Movement?.Effect == movement.Effect).ToArray();
+                foreach (var oldest in matching.Take(matching.Length - movement.Limit + 1))
                 {
-                    if (!monster.Hostile || monster.Dead || monster.Life <= 0) continue;
-                    var pos = Vector(monster.Walk.Position(at));
-                    double bestDps = 0;
-                    for (int i = 0; i < causticClouds.Count; i++)
+                    state.Grounds.Remove(oldest);
+                    RemoveDamageGround(area, oldest);
+                }
+            }
+            state.Grounds.Add(new(this, centre, radius, start, end, type, dps, visual, chillSource, chillStats)
+                { Movement = movement });
+            state.Next = Math.Min(state.Next, end);
+            if (AreaRunsGame(Player) || groundFallbackScheduled) return;
+            groundFallbackScheduled = true;
+            Runtime.Schedule(Math.Max(Runtime.Now + 1, state.Next), TickFallbackDamageGrounds);
+        }
+
+        void TickFallbackDamageGrounds()
+        {
+            if (damageGroundArea is not { } area || !DamageGroundsByArea.TryGetValue(area, out var state)
+                || AreaRunsGame(Player))
+            {
+                groundFallbackScheduled = false;
+                return;
+            }
+            AdvanceDamageGrounds(area, Runtime.Now);
+            groundFallbackScheduled = state.Grounds.Any(ground => ReferenceEquals(ground.Source, this));
+            if (groundFallbackScheduled) Runtime.Schedule(Math.Max(Runtime.Now + 1, state.Next), TickFallbackDamageGrounds);
+        }
+
+        internal static void AdvanceAreaDamageGrounds(GameArea area) => AdvanceDamageGrounds(area, ProjectileRuntime.Time(area.Time));
+
+        static void AdvanceDamageGrounds(GameArea area, long now)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state) || state.Grounds.Count == 0 || now < state.Next) return;
+            long previous = state.Previous;
+            var boundaries = new SortedSet<long> { now };
+            foreach (var ground in state.Grounds)
+            {
+                if (previous < ground.Start && ground.Start < now) boundaries.Add(ground.Start);
+                if (previous < ground.End && ground.End < now) boundaries.Add(ground.End);
+            }
+            foreach (long through in boundaries)
+            {
+                if (through > previous) ApplyDamageGrounds(area, state, previous, through);
+                previous = through;
+            }
+            state.Previous = now;
+            state.Next = now + DamageGroundInterval;
+            for (int i = state.Grounds.Count - 1; i >= 0; i--)
+            {
+                var ground = state.Grounds[i];
+                if (now < ground.End && ground.Source.Active)
+                {
+                    state.Next = Math.Min(state.Next, ground.End);
+                    continue;
+                }
+                state.Grounds.RemoveAt(i);
+                RemoveDamageGround(area, ground);
+            }
+            if (state.Grounds.Count == 0) state.Remainders.Clear();
+        }
+
+        sealed class GroundExposure(SpawnedMonster monster)
+        {
+            public readonly SpawnedMonster Monster = monster;
+            public DamageGround? Fire, Cold, Chaos;
+
+            public void Consider(DamageGround ground)
+            {
+                switch (ground.Type)
+                {
+                    case DamageType.Fire:
+                        if (ground.Dps > (Fire?.Dps ?? 0)) Fire = ground;
+                        break;
+                    case DamageType.Cold:
+                        if (ground.Dps > (Cold?.Dps ?? 0)) Cold = ground;
+                        break;
+                    case DamageType.Chaos:
+                        if (ground.Dps > (Chaos?.Dps ?? 0)) Chaos = ground;
+                        break;
+                }
+            }
+        }
+
+        static bool DamageGroundTarget(SpawnedMonster monster) =>
+            monster is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+            && monster.Effects[Stat.BaseCannotBeDamaged] == 0;
+
+        static void ApplyDamageGrounds(GameArea area, AreaDamageGrounds state, long from, long to)
+        {
+            double at = to / (double)ProjectileRuntime.QuantaPerSecond;
+            double seconds = (to - from) / (double)ProjectileRuntime.QuantaPerSecond;
+            var exposures = new SortedDictionary<uint, GroundExposure>();
+            foreach (var ground in state.Grounds)
+            {
+                if (!ground.Source.Active || from < ground.Start || from >= ground.End) continue;
+                if (ground.Movement is not null) MoveColdGround(area, ground, at, seconds);
+                double chillLeft = Math.Min(.2, (ground.End - to) / (double)ProjectileRuntime.QuantaPerSecond);
+                bool Covers(SpawnedMonster monster) => DamageGroundTarget(monster)
+                    && (Vector(monster.Walk.Position(at)) - ground.CurrentCentre).Length <= ground.Radius;
+                if (ground.ChillStats is not null)
+                    ground.Chilled.RemoveWhere(monster =>
                     {
-                        var cloud = causticClouds[i];
-                        if (cloud.Dps > bestDps && (pos - cloud.Centre).Length <= cloud.Radius)
-                            bestDps = cloud.Dps;
-                    }
-                    if (bestDps <= 0) continue;
-                    var carry = causticRemainders.GetValue(monster, _ => new PodDamage());
-                    double total = carry.Fraction + seconds * bestDps * MonsterDotTaken(monster, DamageType.Chaos, at);
-                    int damage = (int)Math.Clamp(Math.Floor(total), 0, int.MaxValue);
-                    carry.Fraction = total - Math.Floor(total);
-                    if (damage == 0) continue;
-                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(Player.Area, monster, damage, chaos: true, AreaTime(Player));
-                    var (life, stage) = lifeDamage > 0 ? TakeOwnerDamageLocked(Player, monster, lifeDamage) : (monster.Life, false);
-                    monster.Life = life;
-                    monster.Aggro = life > 0;
-                    if (stage) CommitProjectileBossStage(this, id, monster, now);
-                    if (life == 0)
+                        if (chillLeft > 0 && Covers(monster)) return false;
+                        monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource);
+                        return true;
+                    });
+                foreach (var (id, monster) in area.MonstersNear((ground.CurrentCentre.X, ground.CurrentCentre.Y), ground.Radius))
+                {
+                    if (!Covers(monster)) continue;
+                    if (ground.ChillStats is { } chill && chillLeft > 0)
                     {
-                        SetStats(Player, id, [(Stat.HideMiniLifeBar, 1)]);
-                        monster.Dead = true;
-                        CleanupDeadMonsterLocked(Player.Area, id, monster);
-                        monster.LastHitBy = Player;
-                        CollectVaalSoulAtDeathLocked(Player, monster);
-                        Enqueue(() => DotKilled(Player, id, monster));
+                        monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, chillLeft, at,
+                            key => chill.GetValueOrDefault(key), key => monster.Effects[key],
+                            chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride) is > 0 and var magnitude
+                                ? magnitude : null);
+                        ground.Chilled.Add(monster);
                     }
+                    if (ground.Dps <= 0) continue;
+                    if (!exposures.TryGetValue(id, out var exposure)) exposures.Add(id, exposure = new(monster));
+                    exposure.Consider(ground);
                 }
             }
 
-            causticTickScheduled = true;
-            Runtime.Schedule(now + ProjectileRuntime.QuantaPerSecond / 10, TickCausticClouds);
+            foreach (var (id, exposure) in exposures)
+            {
+                var monster = exposure.Monster;
+                var carry = state.Remainders.GetOrCreateValue(monster);
+                int Accrue(DamageGround? ground, ref double fraction)
+                {
+                    if (ground is null) return 0;
+                    double total = fraction + seconds * ground.Dps * MonsterDotTaken(monster, ground.Type, at);
+                    double whole = Math.Floor(total);
+                    fraction = total - whole;
+                    return (int)Math.Clamp(whole, 0, int.MaxValue);
+                }
+                int fire = Accrue(exposure.Fire, ref carry.Fire);
+                int cold = Accrue(exposure.Cold, ref carry.Cold);
+                int chaos = Accrue(exposure.Chaos, ref carry.Chaos);
+                int damage = ActorScale.Saturate((long)fire + cold + chaos);
+                if (damage == 0) continue;
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(area, monster, damage, chaos, at);
+                if (lifeDamage <= 0) continue;
+                var source = (fire >= cold && fire >= chaos ? exposure.Fire : cold >= chaos ? exposure.Cold : exposure.Chaos)!.Source;
+                var player = source.Player;
+                var (life, stage) = TakeOwnerDamageLocked(player, monster, lifeDamage);
+                monster.Life = life;
+                monster.Aggro = life > 0;
+                if (stage) CommitProjectileBossStage(source, id, monster, to);
+                if (life == 0)
+                {
+                    SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
+                    if (DotDeathKind(monster, life) is var deathKind && deathKind != InstanceProtocol.DeathKindNormal)
+                        source.World(id, InstanceProtocol.LifeUpdate(id, life, u2c: deathKind,
+                            orderKey: player.Connection.LockstepClient ? uint.MaxValue : 0u));
+                    monster.Dead = true;
+                    monster.LastHitBy = player;
+                    CleanupDeadMonsterLocked(area, id, monster);
+                    CollectVaalSoulAtDeathLocked(player, monster);
+                    source.Enqueue(() => DotKilled(player, id, monster));
+                }
+                else if (!player.Connection.LockstepClient)
+                    source.World(id, InstanceProtocol.LifeUpdate(id, life));
+            }
         }
     }
 }

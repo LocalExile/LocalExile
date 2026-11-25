@@ -21,6 +21,7 @@ public sealed class MonsterElementalAilments
         // The player who caused it, by their PeerId (Program.ActingPlayer when it landed); 0 when no player did. A spread
         // copy keeps its source's.
         public uint Source { get; init; }
+        internal ulong? AuraSource { get; init; }
         public double Duration { get; init; }
     }
     readonly List<Effect> effects = [];
@@ -69,6 +70,15 @@ public sealed class MonsterElementalAilments
     // The AI asks every living monster each tick, and most have no ailment: that case allocates nothing.
     public double Magnitude(Kind kind, double now) =>
         effects.Count == 0 && spread.Count == 0 ? 0 : Active(kind, now).Select(e => e.Magnitude).DefaultIfEmpty().Max();
+
+    /// <summary>Removes the selected active ailment, including weaker sources under the strongest one.</summary>
+    public bool RemoveActive(Kind kind, double now)
+    {
+        if (Magnitude(kind, now) <= 0) return false;
+        effects.RemoveAll(e => e.Kind == kind && e.From <= now);
+        spread.Remove(kind);
+        return true;
+    }
 
     /// <summary>Whether it was frozen when it died: a shattered one was, though its freeze is gone.</summary>
     public bool FrozenAtDeath(double now) => Shattered || Magnitude(Kind.Freeze, now) > 0;
@@ -280,7 +290,14 @@ public sealed class MonsterElementalAilments
     /// ailments.</summary>
     public static bool CannotInflict(string ailment, Func<uint, int> attacker) =>
         attacker(Stat.CannotInflictStatusAilments) != 0 || attacker(Stat.NeverIgniteChillFreezeShock) != 0
-        || attacker(Stat.Of($"never_{ailment}")) != 0
+        || attacker(ailment switch
+        {
+            "ignite" => Stat.NeverIgnite,
+            "chill" => Stat.NeverChill,
+            "freeze" => Stat.NeverFreeze,
+            "shock" => Stat.NeverShock,
+            _ => Stat.Of($"never_{ailment}"),
+        }) != 0
         || ailment is "chill" or "freeze" && attacker(Stat.NeverFreezeOrChill) != 0
         || HandedProhibitions(ailment, attacker);
 
@@ -342,6 +359,15 @@ public sealed class MonsterElementalAilments
         double area = 1, int? stated = null) =>
         Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
             { Spread = SpreadRadius(kind, attacker, area) }, attacker, target);
+
+    public void ApplyAura(Kind kind, ulong source, double seconds, double now, Func<uint, int> attacker, Func<uint, int> target,
+        int? stated = null)
+    {
+        if (Apply(new(kind, now, now + seconds, BaseWithoutDamage(kind, attacker, target, stated))
+            { AuraSource = source }, attacker, target) is null) RemoveAura(kind, source);
+    }
+
+    public void RemoveAura(Kind kind, ulong source) => effects.RemoveAll(e => e.Kind == kind && e.AuraSource == source);
 
     // Chill and shock without damage: 10% and 15% base unless the source states its own (wiki Chill and Shock), through
     // the effect modifiers, up to the cap.
@@ -416,7 +442,8 @@ public sealed class MonsterElementalAilments
             Source = effect.Source != 0 ? effect.Source : Program.ActingPlayer.Value?.Id ?? 0 };
         // A weaker one of the same sort that also ends sooner can never be the strongest again.
         effects.RemoveAll(e => e.Until <= now || e.Kind == kind && e.Magnitude <= effect.Magnitude && e.Until <= effect.Until
-            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread));
+            && (e.MoreTaken, e.LessDealt, e.Spread) == (effect.MoreTaken, effect.LessDealt, effect.Spread)
+            && e.AuraSource == effect.AuraSource);
         effects.Add(effect);
         Interlocked.Increment(ref anyAdded);
         if (effect.Spread > 0) Interlocked.Increment(ref spreadsAdded);

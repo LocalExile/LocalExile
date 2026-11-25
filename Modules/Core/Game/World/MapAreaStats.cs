@@ -109,15 +109,44 @@ public static partial class Game
         if (request.Map is not { } map) return ComposeMapAreaStats(null, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
         // Not an Atlas map: the mods' own stats, without the atlas, the tier block, its hidden life or the preset.
         if (!map.Atlas) return ComposeMapAreaStats(map.Mods, 0, new Dictionary<uint, int>(), new HashSet<string>(), -1, deepwater);
+        var (atlas, families, preset) = LoadMapAtlas(request.League, map.Owner);
+        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption);
+    }
+
+    /// <summary>InstanceEvents.AreaDisplayStats: only the map's own modifiers (explicit mods scaled by Atlas modifier
+    /// effect, implicits, and fragments/scarabs), excluding raw Atlas passive tree stats and internal tier flags.</summary>
+    public static IReadOnlyDictionary<uint, int>? MapAreaDisplayStats(AreaStatsRequest request)
+    {
+        if (request.Map is not { } map) return new Dictionary<uint, int>();
+        var atlas = map.Atlas ? LoadMapAtlas(request.League, map.Owner).Atlas : new Dictionary<uint, int>();
+        return ComposeMapDisplayStats(map.Mods, atlas);
+    }
+
+    static (Dictionary<uint, int> Atlas, HashSet<string> Families, int Preset) LoadMapAtlas(string? league, string owner)
+    {
         // The atlas: the active preset's nodes (HardMode vectors in a HardMode league), composed by the tree's rules.
-        var presets = CharacterSaves.Load(map.Owner)?.AtlasPassivePresets ?? [];
-        int preset = AtlasActivePreset(map.Owner, presets);
-        var catalog = ServerLeagues.Resolve(null, request.League, LeagueCatalog.Startup).HardMode
+        var presets = CharacterSaves.Load(owner)?.AtlasPassivePresets ?? [];
+        int preset = AtlasActivePreset(owner, presets);
+        var catalog = ServerLeagues.Resolve(null, league, LeagueCatalog.Startup).HardMode
             ? HardModeAtlasPassives : AtlasPassiveNodes;
         var nodes = preset >= 0 ? presets[preset].Distinct().Select(id => catalog.Find(id)).OfType<AtlasPassives.Node>().ToList() : [];
         var families = nodes.Select(global::AtlasStats.Family).Where(f => f.Length > 0).ToHashSet(StringComparer.Ordinal);
-        var atlas = global::AtlasStats.Compose(nodes);
-        return ComposeMapAreaStats(map.Mods, map.Area.Tier, atlas, families, preset, deepwater, map.BossOption);
+        return (global::AtlasStats.Compose(nodes), families, preset);
+    }
+
+    public static Dictionary<uint, int> ComposeMapDisplayStats(MapMods? mods, IReadOnlyDictionary<uint, int> atlas)
+    {
+        var stats = new Dictionary<uint, int>();
+        if (mods is null) return stats;
+        void Add(uint key, int value) => stats[key] = stats.GetValueOrDefault(key) + value;
+        int effect = global::AtlasStats.ModEffect(atlas, mods.MapRarity == ItemRarity.Unique, mods.ExplicitMods.Count, mods.FragmentCount);
+        foreach (var mod in mods.ExplicitMods)
+            foreach (var (id, value) in mod) if (value != 0) Add(id, (int)Math.Clamp((long)value * (100L + effect) / 100, int.MinValue, int.MaxValue));
+        foreach (var (id, value) in mods.Implicit) if (value != 0) Add(id, value);
+        foreach (var (id, value) in mods.Fragments) if (value != 0) Add(id, value);
+        if (mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0)
+            foreach (var (id, value) in mods.Stats) if (value != 0) Add(id, value);
+        return stats;
     }
 
     public static Dictionary<uint, int> ComposeMapAreaStats(MapMods? mods, int tier, IReadOnlyDictionary<uint, int> atlas,

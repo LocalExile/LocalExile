@@ -65,19 +65,21 @@ public static class ItemModStats
     {
         // Influence thresholds count the full active equipment set supplied by the caller.
         var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        var influencedPool = subject.InfluencedEquipment ?? equipment;
         foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists, game))
             {
                 if (local || !InfluencedItemConditions.Read(Program.Stats.Name(value.Id), out string target, out var influence, out int required))
                     yield return value;
-                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                else if (influencedPool.Count(equipped => (equipped.Influences & influence) != 0) >= required)
                     foreach (uint stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
             }
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
     /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
-    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
+    /// they never scale each other. Implicits and enchants follow the module's ModifierValueRule (their own
+    /// magnitude stats); the other lists are unchanged.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
     public static IEnumerable<(uint Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
