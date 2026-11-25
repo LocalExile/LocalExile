@@ -64,6 +64,8 @@ public static class HitReaction
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
             Game.ChargesOf(owner).Enqueue(new ChargeEvent.Stun(hit.Melee, own));
+            if (m.Effects[Stat.EnemyGrantXRageOnStun] is > 0 and var rage)
+                Game.RageOnMarkedStunLocked(owner, rage, now);
         }
         // "Melee Hits which Stun have X% chance to Fortify" (wiki Fortification): a stun from a melee hit that did not
         // already Fortify it rolls the chance once and grants the hit's damage-based stacks. A stun during a running
@@ -76,7 +78,8 @@ public static class HitReaction
                 Game.AfterFortificationGainLocked(fortifier);
         }
         double seconds = Seconds(hit, m);
-        if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
+        int doubleChance = ActorScale.Saturate((long)hit.DoubleDurationChance + m.Effects[Stat.EnemyChanceToDoubleStunDurationPctVsSelf]);
+        if (RandomRolls.Chance(doubleChance, 100, random)) seconds *= 2;
         hit.OnStunDuration?.Invoke(seconds);
         double nextUntil = now + seconds;
         // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,

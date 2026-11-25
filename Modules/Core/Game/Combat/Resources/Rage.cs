@@ -49,6 +49,14 @@ public static partial class Game
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }
 
+    internal static void RageOnMarkedStunLocked(Player player, int rage, double now)
+    {
+        if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
+        var stats = CharacterPlayerStats(player);
+        int Get(uint name) => RageStat(stats, name);
+        player.Rage.Gain(rage, now, RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
+    }
+
     public static void RageWhenHitLocked(Player player)
     {
         if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused) return;
