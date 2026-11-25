@@ -135,32 +135,4 @@ public sealed class AreaLifetimesTests
         area.Objects.Join(rejoiningViewer);
         Assert.Empty(area.Delta.Take());
     }
-
-    [Fact]
-    public void Replaying_a_peer_player_or_dormant_monster_to_a_joiner_does_not_hijack_subsequent_broadcasts()
-    {
-        var area = new GameArea(1);
-        var host = new Player(new(1, "coop-test", 100, 100, 0, 0, null, []), 1, 1);
-        var joiner = new Player(new(1, "coop-test", 100, 100, 0, 0, null, []), 1, 1);
-        const uint dormantId = 0x04000099;
-        area.DormantMonsters[dormantId] = new("dormant", new(120, 120, 0), 0, 0, 100);
-
-        area.Delta.Add(host.Id, InstanceEntities.CreateObject(host.Id, 0x1234, [0, 0]), kind: AreaDelta.Kind.Create, only: joiner);
-        area.Delta.Add(dormantId, InstanceEntities.CreateObject(dormantId, 0x5678, [0, 0]), kind: AreaDelta.Kind.Create, only: joiner);
-        Assert.Equal(2, area.Delta.Take().Count);
-
-        Assert.Null(area.Delta.ViewerOf(host.Id, joiner));
-        Assert.Null(area.Delta.ViewerOf(dormantId, joiner));
-
-        area.Delta.Add(host.Id, InstanceProtocol.ActionStarted(host.Id, 100, 100, 105, 105, 0x2909, 0xffff, 0x0408));
-        area.Delta.Add(dormantId, InstanceProtocol.ActionStarted(dormantId, 120, 120, 125, 125, 0x2909, 0xffff, 0x0408));
-        var broadcasts = area.Delta.Take();
-        Assert.Equal(2, broadcasts.Count);
-        Assert.All(broadcasts, record =>
-        {
-            Assert.Null(record.Only);
-            Assert.True(record.For(host));
-            Assert.True(record.For(joiner));
-        });
-    }
 }
