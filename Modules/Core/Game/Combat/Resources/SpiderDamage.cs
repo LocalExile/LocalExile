@@ -34,6 +34,8 @@ public static partial class Game
         {
             Armed = inputs.Armed, Claw = inputs.Claw, OffHand = offHand, HitIntensityMore = SupportedHitIntensityMore(inputs),
             ReleaseAilmentMore = inputs.ReleaseAilmentMore,
+            ProjectileAttackHitIncrease = inputs.Attack && inputs.Projectile
+                ? (long)inputs.Get(Stat.ProjectileDamagePlusPct) - inputs.FrozenStats.GetValueOrDefault(Stat.ProjectileDamagePlusPct) : 0,
         };
     }
 
@@ -52,7 +54,11 @@ public static partial class Game
             claw: attack && source.Claw, contact: contact);
         long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
-        int HitStat(uint name) => TargetHitStat(name, Get(name), contact);
+        int HitStat(uint name)
+        {
+            int value = TargetHitStat(name, Get(name), contact);
+            return name == Stat.ProjectileDamagePlusPct ? ActorScale.Saturate(value + source.ProjectileAttackHitIncrease) : value;
+        }
         var hitGet = WeaponAttributeDamage.Read(source.Armed ?? (attack && WeaponAttributeDamage.Armed(
             Get(source.OffHand ? Stat.OffHandWeaponType : Stat.MainHandWeaponType))), HitStat);
         var hit = PlayerHitDamage.Resolve(raw, hitGet, source.Conversion, spell: !source.Attack && !source.Secondary,
