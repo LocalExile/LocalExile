@@ -5,7 +5,11 @@ public static class ImpaleStats
         or Stat.VirtualTotalOffHandImpaleOnHitPctChance or Stat.VirtualTotalSpellImpaleOnHitPctChance;
 
     public readonly record struct Settings(int Chance, int EffectPercent = 0,
-        int Hits = ImpaleState.HitsPerStack, double Duration = ImpaleState.BaseDuration);
+        int Hits = ImpaleState.HitsPerStack, double Duration = ImpaleState.BaseDuration)
+    {
+        public int Applications { get; init; } = 1;
+        public double ReapplicationDelay { get; init; }
+    }
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
         IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? weaponLocal = null,

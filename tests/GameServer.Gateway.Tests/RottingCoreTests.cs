@@ -74,8 +74,14 @@ public sealed class RottingCoreTests
                 Assert.True(c.Layout.WalkableFor(landing.X, landing.Y, 1));
             }
             var exit = Assert.Single(c.Layout.AreaTransitions, p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn").Transition;
-            Assert.Equal(AreaTransitionCatalog.HashOf("2_9_10_1"), exit.DestinationHash16);
-            Assert.Null(exit.TeleportTo);
+            Assert.Equal(layout.Hash, exit.DestinationHash16);
+            Assert.Equal(1, exit.Kind);
+            Assert.Null(exit.Label);
+            var coreEntry = Assert.Single(c.Layout.AreaTransitions, p => p.Transition.Label == 1058717380u &&
+                p.Transition.Model?.EndsWith("/BellyGroundhole_area_transition.ao", StringComparison.Ordinal) == true).Transition;
+            Assert.Equal((coreEntry.GridX, coreEntry.GridY), exit.TeleportTo);
+            var landingBack = Game.GateArrival(c.Layout, exit);
+            Assert.True(layout.WalkableFor(landingBack.X, landingBack.Y, 1));
             Assert.Null(DepravedTrinity.Destination(c, exit));
             var before = c.Layout;
             DepravedTrinity.ConfigureRoutes(c);
