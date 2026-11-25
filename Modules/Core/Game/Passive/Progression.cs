@@ -2124,7 +2124,7 @@ public static partial class Game
                 freeReset: HasPassiveFreeReset(player)),
             $"0x0033 passive skill tree: level {player.Pools.Level}, {points} skill point(s) ({clientExtra} extra), " +
             $"{refundPoints} refund point(s), {nodes.Count} allocated, {cluster} cluster, {unspent} unspent; " +
-            $"ascendancy {player.Character.MainAscendancy.Selection?.Family}/{player.Character.MainAscendancy.Selection?.Id}, {player.Character.MainAscendancy.EarnedPoints} earned, {player.Character.MainAscendancy.Allocated.Count} nodes" +
+            $"ascendancy {player.Character.MainAscendancy.Selection?.Family.Name()}/{player.Character.MainAscendancy.Selection?.Id}, {player.Character.MainAscendancy.EarnedPoints} earned, {player.Character.MainAscendancy.Allocated.Count} nodes" +
             (descendancyPoints > 0 ? $" + {descendancyPoints} descendancy points (row {player.Character.DescendancyRow})" : ""));
     }
 
@@ -2138,6 +2138,10 @@ public static partial class Game
     public static byte PackedClass(Player player)
     {
         byte baseClass = (byte)SkillsFor(player).ClassFor(player.Character.ClassRow).IntegerId;
+        // A choice of a family whose module is away for a moment (a reload) has no definition: the base class, as
+        // ClassDisplayName shows it.
+        if (player.Character.MainAscendancy.Selection is { } selection && Ascendancies.Find(selection) is null)
+            return CharacterClassByte.Encode(baseClass, 0);
         byte number = Game.AscendancyRules.Validate(baseClass, player.Character.MainAscendancy)?.ClassNo ?? 0;
         return CharacterClassByte.Encode(baseClass, number);
     }
