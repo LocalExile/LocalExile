@@ -177,6 +177,17 @@ public static partial class Game
         Stat.BaseLifeLeechFromAttackDamagePermyriadVsChilledEnemies, Stat.ManaLeechFromAttackDamagePermyriadVsPoisonedEnemies,
     ];
 
+    // A critical strike's own leech lines: "#% of Damage Leeched as Life on Critical Strike" (The Harvest) and
+    // "Cannot Leech Life from Critical Strikes" (Kondo's Pride). At the character's own hit only.
+    static LeechSources WithCriticalLeech(LeechSources sources, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (stats.GetValueOrDefault(Stat.CannotLeechLifeFromCriticalStrikes) != 0) return sources with { Life = DamagePacket.Empty };
+        int onCrit = stats.GetValueOrDefault(Stat.LifeLeechPermyriadOnCrit);
+        if (onCrit == 0) return sources;
+        var every = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty, (p, type) => p.Add(DamagePacket.Of(type, onCrit, onCrit)));
+        return sources with { Life = sources.Life.Add(every) };
+    }
+
     static LeechSources WithStateLeech(Player player, SpawnedMonster target, LeechSources sources)
     {
         var stats = CharacterPlayerStats(player);

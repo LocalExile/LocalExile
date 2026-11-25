@@ -55,7 +55,7 @@ public static partial class Game
 
     // Single uniques' "increased Damage against Frozen / Ignited / Shocked / Hindered Enemies" and "with Hits and
     // Ailments against Bleeding / Chilled / Cursed Enemies".
-    static bool HasStateDamage(Func<uint, int> get) => get(Stat.DamagePlusPctVsFrozenEnemies) != 0
+    static bool HasStateDamage(Func<uint, int> get) => get(Stat.DamagePlusPctVsFrozenEnemies) != 0 || get(Stat.FrozenMonstersTakeIncreasedDamage) != 0
         || get(Stat.DamagePlusPctVsIgnitedEnemies) != 0 || get(Stat.DamageVsShockedEnemiesPlusPct) != 0
         || get(Stat.DamagePlusPctVsHinderedEnemies) != 0 || get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies) != 0
         || get(Stat.HitAndAilmentDamagePlusPctVsChilledEnemies) != 0 || get(Stat.HitAndAilmentDamagePlusPctVsCursedEnemies) != 0;
@@ -95,6 +95,8 @@ public static partial class Game
         if (HasStateDamage(Get))
         {
             int frozen = Get(Stat.DamagePlusPctVsFrozenEnemies);
+            // "Enemies Frozen by you take 20% increased Damage" (Replica Windripper): a flag; the 20 is the line's own.
+            if (Get(Stat.FrozenMonstersTakeIncreasedDamage) != 0) frozen += 20;
             if (frozen != 0 && target.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, at) > 0) hit += frozen;
             int ignited = Get(Stat.DamagePlusPctVsIgnitedEnemies);
             if (ignited != 0 && AilmentOn(target, AilmentType.Ignite, at)) hit += ignited;

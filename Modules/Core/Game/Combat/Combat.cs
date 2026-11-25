@@ -3182,10 +3182,14 @@ public static partial class Game
                         SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
                         SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
                     // Read an existing bleed before this attack can inflict its own.
-                    if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
+                    // "increased Critical Strike Chance against Chilled Enemies" (Cospri's Malice) joins the same sum.
+                    long chilledCrit = playerStats.GetValueOrDefault(global::Stat.GlobalCriticalStrikeChancePlusPctVsChilledEnemies) is int vsChilled and not 0
+                        && AilmentOn(m, AilmentType.Chill, ProjectileWorldTime(player)) ? vsChilled : 0;
+                    if (chilledCrit != 0 || !spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
                     {
-                        long bleedingCrit = (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
-                            + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
+                        long bleedingCrit = chilledCrit + (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player))
+                            ? (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
+                                + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies) : 0);
                         if (bleedingCrit != 0)
                             criticalChance = CriticalChanceOn(player, id,
                                 SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
@@ -3220,7 +3224,7 @@ public static partial class Game
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage);
-                    LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
+                    LeechOnHitTargetLocked(player, m, taken, damage, critical ? WithCriticalLeech(leech!, playerStats) : leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
                         critical ? criticalImpale : impale, more).Damage;

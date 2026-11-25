@@ -186,7 +186,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   a state (Shocked, Cursed, Frozen, Bleeding, Maimed, Chilled, Poisoned, Ignited); "at least # Strength / Dexterity /
   Intelligence" thresholds; Rain of Arrows and Toxic Rain on bow attack (Lioneye's Paws), each as one hit around the
   aim; poison chance against Cursed enemies and for attacks at maximum Frenzy Charges; critical strike multiplier
-  per 1% block chance; The Tactician's threshold. Offline tests only so far.
+  per 1% block chance; The Tactician's threshold; at the character's own hit, critical strike chance against Chilled
+  enemies, life leech on critical strike and "Cannot Leech Life from Critical Strikes"; Replica Windripper's 20%
+  against Frozen enemies. Offline tests only so far.
 - Fire, Cold, Lightning and Elemental Aegis (Invictus Solaris, Vix Lunaris, Perepiteia, Magna Eclipsis): the shield
   takes its types' share of a hit's elemental damage and is restored after its delay, with the client's own buffs,
   as Physical Aegis does. Not carried across an area change. Offline tests only so far.
