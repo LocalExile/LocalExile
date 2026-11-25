@@ -68,6 +68,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
+- Linked critical strikes, melee kills and channel ticks admit the transfigured Ice Nova, Shock Nova, Arc, Crackling Lance,
+  Glacial Cascade, Flame Surge, Hexblast, Lightning Conduit, Storm Call, Contagion, Vortex, Bane, Firestorm, dagger Blade
+  Blast and Manabond spells through their own hit, debuff or timed-area rules. Manabond pays its percentage Mana cost.
+  These paths are checked offline. Directional beam and wave geometry and the single meteor's first landing time use
+  local estimates pending client measurements.
+- The Mark Mastery's blind area follows the player's living marked enemy and retires when the mark ends. Its radius
+  uses the server's nearby blind radius pending a client measurement.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
