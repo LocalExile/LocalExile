@@ -172,13 +172,10 @@ public static partial class Game
         if (g.Definition.Kind == "Carrion" && g.Definition.Special && m.Life < m.MaxLife &&
             g.Abilities.FirstOrDefault(a => a.Effect == 10801) is { } consume && GolemReady(g, consume, now))
         {
-            var corpse = player.Area.MonstersNear(here, 15).FirstOrDefault(p => p.Value.Hostile && p.Value.Dead && !p.Value.CorpseConsumed
-                && !IsSpectreCorpse(p.Value)
+            var corpse = player.Area.MonstersNear(here, 15).FirstOrDefault(p => ScavengingCorpse(p.Value)
                 && Dist(here, p.Value.Walk.Position(now)) <= 15);
             if (corpse.Value is not null)
             {
-                corpse.Value.CorpseConsumed = true;
-                g.CorpseEmpowered = true; m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife / 5);
                 GolemReserveLocked(player, g, consume, corpse.Key, corpse.Value, corpse.Value.Walk.Position(now), now);
                 return;
             }
@@ -301,6 +298,9 @@ public static partial class Game
         double readyAt = charges.TryPeek(out _) ? Math.Max(now, charges.Last()) : now;
         charges.Enqueue(readyAt + ability.Cooldown);
     }
+
+    static bool ScavengingCorpse(SpawnedMonster corpse) => corpse.Hostile && !corpse.Ailments.Shattered
+        && !IsSpectreCorpse(corpse) && IsCorpse(corpse);
 
     static void GolemReserveLocked(Player player, GolemState.Golem g, GolemState.Ability ability, uint target,
         SpawnedMonster? victim, (int X, int Y) aim, double now)
@@ -657,7 +657,20 @@ public static partial class Game
         }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(player, g, a, now);
         if (ActivateNativeMinionAuraLocked(player, g, a, now)) return;
-        if (a.Effect == 10801) { player.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }
+        if (a.Effect == 10801)
+        {
+            if (action.Victim is { } corpse && ReferenceEquals(corpse, player.Area.Monsters.GetValueOrDefault(action.Target))
+                && ScavengingCorpse(corpse) && Dist(at, corpse.Walk.Position(now)) <= 15)
+            {
+                corpse.CorpseConsumed = true;
+                g.CorpseEmpowered = true;
+                g.Monster.Life = (uint)Math.Min(g.Monster.MaxLife, (long)g.Monster.Life + g.Monster.MaxLife / 5);
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(action.Target), "golem consumed corpse",
+                    WorldId: action.Target, RemovesObject: true));
+                player.Minions.OutputQueue.Add(new([], "golem recovers from consumed corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+            }
+            return;
+        }
         if (a.Effect is 4336 or 4337)
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(player, g, now,
