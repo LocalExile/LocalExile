@@ -1277,7 +1277,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
-    public readonly AntiquarianCombatState Antiquarian = new();
+    public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>

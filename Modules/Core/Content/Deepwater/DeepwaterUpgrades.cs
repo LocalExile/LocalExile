@@ -56,7 +56,7 @@ public static class DeepwaterUpgrades
 
     /// <summary><c>BuffDefinitions#1090</c> (<c>adrenaline</c>) granted for 10 s on final lantern placement once
     /// upgrade row 4 (<c>LQF 1833</c>) is unlocked.</summary>
-    public const ushort AdrenalineBuff = AntiquarianEffects.AdrenalineDefinition;
+    public const ushort AdrenalineBuff = WardBreakEffects.AdrenalineDefinition;
     public const int DefaultFinalLanternAdrenalineMs = 10_000;
 
     // BaseItemTypes#5426..5430: the 5 ship upgrade quest items (2x2).
@@ -341,7 +341,7 @@ public static class DeepwaterUpgrades
         {
             if (member.Closed || member.LeavingArea || member.PlayerLife == 0) continue;
             double now = AreaTime(member);
-            if (member.Antiquarian.Adrenaline(now)) continue;
+            if (member.WardBreak.Adrenaline(now)) continue;
 
             var state = AdrenalineHolders.GetValue(member, _ => new AdrenalineState());
             bool alreadyActive;
@@ -379,7 +379,7 @@ public static class DeepwaterUpgrades
         }
     }
 
-    /// <summary><c>GameEvents.PlayerStatSources</c>: merges <see cref="AntiquarianEffects.AdrenalineStats"/> while
+    /// <summary><c>GameEvents.PlayerStatSources</c>: merges <see cref="WardBreakEffects.AdrenalineStats"/> while
     /// final-lantern Adrenaline is active (0-alloc O(1) counter check when inactive).</summary>
     public static Dictionary<uint, int> PlayerStats(Player player, Dictionary<uint, int> sources)
     {
@@ -389,9 +389,9 @@ public static class DeepwaterUpgrades
         lock (state) active = state.BuffId != 0 && now < state.Until;
         if (!active || player.PlayerLife == 0) return sources;
 
-        if (player.Antiquarian.Adrenaline(now)) return sources;
+        if (player.WardBreak.Adrenaline(now)) return sources;
 
-        foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
+        foreach (var (key, value) in WardBreakEffects.AdrenalineStats)
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
         return sources;
     }

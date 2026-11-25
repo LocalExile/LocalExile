@@ -885,7 +885,7 @@ public static partial class Game
             CarryFortification(player, r.Ticket);
             CarryRampage(player, r.Ticket);
             CarryResourceEffects(player, r.Ticket);
-            CarryAntiquarian(player, r.Ticket);
+            CarryWardBreak(player, r.Ticket);
             CarryRage(player, r.Ticket);
             CarryVaalSouls(player, r.Ticket);
             player.Retire();

@@ -91,7 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPlacedSkillsData();
         Rules.LoadTotemsRulesData();
         // Flasks.
-        global::AntiquarianEffects.LoadAntiquarianEffectsData();
+        global::WardBreakEffects.LoadWardBreakEffectsData();
         Rules.LoadFlaskGroundsData();
         // Monsters.
         global::BossKits.LoadBossKitsData();

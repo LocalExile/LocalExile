@@ -339,7 +339,7 @@ public static partial class Game
             additional: WeaponTypeDamage.Of(weapon, Get));
         if (melee) hit = WithVaalWarchiefBuff(hit, Get);
         hit = MaximumAttackDamage.Apply(RageStats.ApplyAttack(hit, Get), Get);
-        return ApplyRoilingTempest(hit, Get).Scale(GamblerFor(stats).DamageFactor);
+        return ApplyRoilingTempest(hit, Get).Scale(HitRollsFor(stats).DamageFactor);
     }
 
     public static double AddedEffectiveness(Player player, int effect, int level) => SkillsFor(player).DamageEffectiveness(effect, level) is int value and > 0 ? value / 10000.0 : 1;
@@ -1518,7 +1518,7 @@ public static partial class Game
         if (!CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired) return;
         RefreshVaalSouls(player);
         RefreshSingleUseCooldowns(player);
-        EnsureAntiquarianPools(player);
+        EnsureWardBreakPools(player);
         EnsureOwnAuraPools(player);
         foreach (var id in player.Auras.Keys.ToList())
         {
