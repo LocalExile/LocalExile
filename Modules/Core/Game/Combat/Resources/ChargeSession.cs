@@ -209,7 +209,9 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         var (before, left) = State.Lose(type, count, limits[(int)type]);
         limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
         // The loss triggers run at the next step, which finds the count lower than it left it (Settle).
-        return before - left;
+        int spent = before - left;
+        if (spent > 0) Woken?.Invoke();
+        return spent;
     }
 
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)

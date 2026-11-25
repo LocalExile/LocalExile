@@ -28,13 +28,17 @@ public sealed class RecentEvents
         if (!amounts.TryGetValue(key, out var entries)) amounts[key] = entries = [];
         entries.RemoveAll(e => !Recent(e.At, now, WindowSeconds));
         entries.Add((now, amount));
-        Changed?.Invoke();
+        AmountChanged?.Invoke(key);
     }
 
-    /// <summary>What happened changed: an event that had not happened recently did, an amount was counted, or all
-    /// were forgotten. (An event repeated within its window changes nothing a condition reads until it ages out, which
+    /// <summary>What happened changed: an event that had not happened recently did, or all were forgotten. (An event
+    /// repeated within its window changes nothing a boolean condition reads until it ages out, which
     /// <see cref="NextExpiry"/> tells.)</summary>
     public Action? Changed;
+
+    /// <summary>A counted recent amount increased for the given key; consumers only dirty cached stats that actually
+    /// read that key's count.</summary>
+    public Action<string>? AmountChanged;
 
     public long Amount(string key, double now)
     {

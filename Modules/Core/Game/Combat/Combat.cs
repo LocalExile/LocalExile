@@ -3198,28 +3198,31 @@ public static partial class Game
                     }
                     rolled = WithOverexertion(rolled, skillStats, cryExerted == true);
                     // The shared roll meets each target's current chance: a source can change between targets.
-                    int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand, offCritical),
-                        SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
-                        SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
-                    // Read an existing bleed before this attack can inflict its own.
-                    if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
-                    {
-                        long bleedingCrit = (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
-                            + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
-                        if (bleedingCrit != 0)
-                            criticalChance = CriticalChanceOn(player, id,
-                                SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
-                                SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
-                                SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
-                    }
-                    critical = RollCriticalStrike(player, criticalChance, skillStats,
-                            attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
-                        && linkedSource && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     if (!linkedSource && aftershock is { } source)
                     {
                         int capturedChance = CriticalChanceOn(player, id, source.CriticalChance, source.CriticalVsBlind, source.CriticalVsGround);
                         critical = RollCriticalStrike(player, capturedChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                             && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
+                    }
+                    else
+                    {
+                        int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand, offCritical),
+                            SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
+                            SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
+                        // Read an existing bleed before this attack can inflict its own.
+                        if (!spell && m.Bleeds.IgnitedAt(ProjectileWorldTime(player)))
+                        {
+                            long bleedingCrit = (long)Stat(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies)
+                                + playerStats.GetValueOrDefault(global::Stat.CriticalStrikeChancePlusPctVsBleedingEnemies);
+                            if (bleedingCrit != 0)
+                                criticalChance = CriticalChanceOn(player, id,
+                                    SupportedCriticalChance(player, skillId, hand, offCritical, bleedingCrit),
+                                    SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
+                                    SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
+                        }
+                        critical = RollCriticalStrike(player, criticalChance, skillStats,
+                                attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
+                            && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
                     double at = ProjectileWorldTime(player);

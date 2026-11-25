@@ -33,6 +33,7 @@ public static class SkillArea
                 or "WintertideBrand" or "WintertideBrandAltX" or "WintertideBrandAltY" ? 22
             : effect == "Brandsurge" ? 26
             : effect == "EarthquakeAltX" ? 18
+            : effect == "TectonicSlamAltX" ? 15
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
     static readonly uint[] MoreArea =

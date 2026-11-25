@@ -372,6 +372,13 @@ public static partial class Game
         // themselves (StatsChangeIn, StatsChangeAt).
         void On(PlayerStatStep[] steps, Action<Action> wire) => wire(() => { foreach (var s in steps) MarkPlayerStats(player, s); });
         On([PlayerStatStep.Sources], a => player.RecentEvents.Changed = a);
+        player.RecentEvents.AmountChanged = key =>
+        {
+            if (key == StatConditions.UsedSkill && MapSkillActionSpeedPerUse(player) != 0)
+                MarkPlayerStats(player, PlayerStatStep.TailCritical);
+            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true)
+                MarkPlayerStats(player, PlayerStatStep.Sources);
+        };
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);
         // A soul eaten at the cap changes no stat, but its beam is shown.
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => player.SoulEater.Changed = () => { a(); PresentStats(player); });
