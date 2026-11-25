@@ -62,6 +62,8 @@ public static class GameDataFiles
         ("item_types", "items, quest items' Quest flags"),
         ("area_transition_areas", "area transitions of fixed layouts"),
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
+        // hideouts v4: the collision radii of the Decorations panel's map device variants too, and the device models' own
+        // portal places (hideout_portal_spawns) and the MapDevices row a model picks (hideout_device_variations).
         ("hideout_layouts", "hideouts and native stationary model collision radii"),
         ("animation_rigs", "class spell contacts, rig animation indices, the default attack's stance clips with their contact and lock_cancelling keyframes, ACT-selected ordinary wand release timing, the bow/wand release points and every contact frame of a clip"),
         ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),

@@ -1591,6 +1591,9 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   started the held entry counting again at the recovery rate (Frida: `[3,3,0]` → `[3,3,1]` → counting, live 2026-11-19).
   `SendSkills` re-publishes the held rate-0 entry behind the list (`HeldGuardCooldownRefresh`), so the bar stays frozen
   through stat refreshes; a zero-rate refresh replaces the entry without restarting its animation (#1127).
+  The regular guard group follows the cooldown of the guard that was used. While its buff is active, all equipped
+  peers receive the same full, zero-rate entry. When the buff ends, their entries resume at the source's recovery rate.
+  Manual and triggered guards use this group state. Vaal Molten Shell keeps its own cooldown.
   The cooldown-only Actor 0x40 trailer above fixes that without replacing a skill or consuming another use.
   `0x14219e694..0x14219e7eb` reads its entries; `0x14219e900..0x14219e948` replaces the matching cooldown's vector.
   `InstanceEntities.PlayerSingleUseCooldowns` sends remaining/total **base** seconds, recovery rate, flags `0xffffffff`.
@@ -1900,8 +1903,10 @@ no source shows whether the two add.
 **Ground Slam's wave** (`SkillArea.GroundSlamWave`): the skills whose ActionTypes action is `DistanceScaledGroundSlam`
 (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale, PlaytestSlam) hit a sector from the
 player whose front advances to the skill's reach; each monster is hit as the front reaches it, and the rest of the
-sweep is dropped on death, area change or a closed connection. Vaal Ground Slam is a different action (a 40-cell radial
-blast). The gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
+sweep is dropped on death, area change or a closed connection.
+Vaal Ground Slam's `VaalDistanceScaledGroundSlam` has a 39-cell base radius and a 0.375-second radial wave.
+The 3.29.3c action begins at contact (0x141be7740) and advances its front by elapsed time over that duration (0x141be7b30).
+The regular gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
 `ExileGroundSlam` row, which no GemEffects row grants. No player stat set or 3.29 Mod holds the four `ground_slam_*`
 shape stats, so the wave uses estimates to calibrate live: 60 cells long at the generic 12-cell radius, shifted by the
 skill's own radius; half angle 30 deg (half `ground_slam_cone_angle_override`'s cone), grown by `ground_slam_angle_+%`;
@@ -2090,6 +2095,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   The 3.29.3c client creates its three bolts locally: a server create duplicates them.
   A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
   The native flights have different durations; their per-projectile speed variation is not yet mirrored.
+  Lightning Strike of Arcing (`LightningStrikeAltX`) uses the same action and one bolt at base. The melee target is
+  excluded from its bolt, and a successful melee hit makes the bolt unable to miss. Its stats give the bolt 50% less
+  hit and ailment damage and 10% more per chain already made, so the first projectile contact has no chain bonus.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a
@@ -2759,9 +2767,9 @@ monster AI, loot, experience and the instance save read only `Monsters`, so none
   The player tick sends its Life (0x1b1, 0 at death) and removes it (0x2bd) a second after.
   An area change starts a new connection without totems.
 - Rejuvenation Totem: its aura (BuffDefinitions 172 `totem_aura_life_regen`, base radius 10 with aura and spell area)
-  gives the living player within the radius the skill's `base_life_regeneration_rate_per_minute` and the row's other
-  stats the skill holds, scaled by the player's aura effect.
-  The strongest covering totem counts; the player gets buff 172 (0x1c1, source the player) and his stats while it does.
+  gives the owner and nearby allied players and minions the skill's `base_life_regeneration_rate_per_minute`,
+  scaled by the caster's aura effect. Each recipient uses the strongest covering totem.
+  The player gets buff 172 (0x1c1, source the player) while covered by the ordinary aura. The Vaal aura uses row 2201.
 - Damage taken from the nearest totem: `damage_removed_from_your_nearest_totem_before_life_or_es_%` (Forest of
   Ancestors, Kaom's Leadership) moves that share of each part of a monster or `/hit` hit, after mitigation and before
   Ward, Energy Shield and Life, to the nearest living totem's Life, capped by its Life (PoB `reducePoolsByDamage`).
@@ -2782,8 +2790,13 @@ transfer and module retirement stop pending releases.
 Siege/Shrapnel Ballista's native `TotemSnipe`/`TotemShotgun` actions bypass the generic projectile lookup;
 their projectile rows are `CrossbowSnipeProjectile`/`CrossbowShotgunProjectile`, with skins 2373/8203.
 Ranged placement is 0.5 s since 3.28, despite older Totem references listing 0.35 s; `base_totem_range` is targeting range.
-Unimplemented payloads, including Artillery's mortar sequence and Focused Ballista's owner-attack gate, are refused
-before action/cost admission. Enemy targeting of totems, placement range and the aura buff's totem source remain open.
+Unimplemented payloads, including Artillery's mortar sequence, are refused before action/cost admission.
+Focused Ballista (`ranged_attack_totem_only_attacks_when_owner_attacks`, Stats row 14486, granted by
+`SupportFocusedBallista`) gates when its totem fires, not what it fires at: each attack the owner has had admitted
+(the default attack, or an attack gem, on a monster or the ground; not a triggered skill, a totem placement or a
+refused use) arms the totem for one volley at the target an ordinary ballista picks, still no faster than its attack
+time, and two attacks within one cooldown buy one volley. Death, revival and leaving the area clear the owner's count.
+Enemy targeting of totems, placement range and the aura buff's totem source remain open.
 
 Dedicated totem skills (ActiveSkillType `SummonsTotem`; `SkillTotemId` is on every row) carry the spell totems'
 proxy `0x4000` plus their radius and `skill_is_non_pathing`; with the gem's own `is_totem` the client plays no action. Shockwave Totem is a `Nova`: it casts while a hostile is
@@ -2800,6 +2813,15 @@ A zero source removes the id; other entries append, so a changed entry needs rem
 The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
 `MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
 `MinionType` row 78 is the Holy Armament. Its body's native `HolyStrikeMinionAttack` reads the main-hand weapon copy.
+An official owned minion's create (`0x2bb`) has object flag `0x02` (it wakes itself, no `0x1a9` follows) and base data
+entries owner `0x9cfcf040`, [corpse's object id `0x79c80077` when raised from one], self `0x3aac50b3`, each
+`key, kind, 1, 1, u32` (kinds 0, 0, 1). Compared against the official creates, byte for byte, this layout is exact for
+MinionType 7 (zombie, 18 of 18), 39 (Herald of Agony spiders, 44 of 44), 20, 34, 18 and 4; the server writes it for the
+zombie, Herald of Agony, raging spirit, animated guardian and Vaal Domination families. It is not what the official
+servers send for corpse-raised spectres (MinionType 0: owner, corpse, then key `0x6c5687de` kind 0 with a type 10 value,
+and no self entry; not yet written), MinionType 19, owner-only objects (mines, traps, pets, MinionType 1) or mercenaries,
+so those keep the plain create and the separate wake. Any raised corpse is removed (`0x2bd`) once, in the same frame,
+unless it was created as a corpse.
 
 `ItemisedCorpse` maps the inventory base to its body. The placed corpse carries `is_spectre_corpse`, which the
 client's Life predicate checks alongside the consuming skill context. `SpectreOverrides` maps ordinary corpse
@@ -3007,6 +3029,9 @@ that cancels the end animation preserves the arrival hit. A queued follow-up pre
 (integer, `(100 + range) * 75 / 100`) along the aim; the Gateway clamps its walk the same way. The setup also adds
 `shield_charge_extra_distance` past the aim, and uses 14 cells instead while its +0x2d0 is below +0x2d4 (not read).
 
+`ShieldCrushAltX` uses a separate fire range. Its level 20 stat set gives 389-583 base off-hand fire damage
+and 16-24 added fire damage per 15 armour on the equipped shield.
+
 **Damage.** A shield skill (Shield Charge, Shield Crush) swings the shield, which has no weapon damage: its base is the
 gem's `off_hand_local_minimum/maximum_added_physical_damage` plus its added damage per 15 of the shield's own
 (local) armour and evasion rating, at the gem's `AttackTime` (`ShieldWeapon`); hits and the Offence tab use it, the tab
@@ -3014,6 +3039,11 @@ at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%
 is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
 the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
 base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Accuracy.** Shield Waves and Shield Charge carry the selected-hand byte at `+0x311`. Spectral Shield Throw
+sets `+0x518` in `0x141b720e0` and reads it at contact in `0x141b723e0`. Its selector in `0x141b725a0`
+returns 0 when `0x1419e7570` finds only the off hand eligible. The hit roll reads off-hand accuracy and
+cannot-evade fields `0x125` and `0x2b1` for this selector.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
