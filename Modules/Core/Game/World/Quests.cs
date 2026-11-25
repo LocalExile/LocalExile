@@ -106,7 +106,7 @@ public static partial class Game
     public static async Task PublishQuestFlags(Player player, QuestFlagCommit change, bool on = true)
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: quest flag {flag} {(on ? "set" : "cleared")}");
-        if (!player.Connection.PlayerSent) return;
+        if (player.Closed || !player.Connection.PlayerSent) return;
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
@@ -269,7 +269,7 @@ public static partial class Game
     // The area transitions whose shown state changed (a quest flag, an NPC script): created on the client or removed.
     public static async Task UpdateShownTransitions(Player player, string why)
     {
-        if (!player.Connection.PlayerSent) return;
+        if (player.Closed || !player.Connection.PlayerSent) return;
         // Whether each should stand now (outside the lock: it reads the flags), then, under one lock, the ones whose state
         // the client has differently, recorded as sent: of two updates at once only one creates or removes an exit.
         var want = player.Layout.AreaTransitions.Select(t => (t.Id, t.Transition, Shown: TransitionShown(player, t.Id, t.Transition))).ToList();
