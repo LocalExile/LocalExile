@@ -30,7 +30,7 @@ public static partial class Game
     {
         string? itemClass = weapon?.ItemClass;
         var local = weapon?.LocalSources;
-        bool twoHanded = itemClass is "Bow" or "FishingRod" || IsTwoHandMeleeClass(itemClass);
+        bool twoHanded = WeaponTypeDamage.TwoHanded(itemClass) || itemClass == "FishingRod";
         bool axeOrSword = WeaponTypeDamage.FamilyOf(itemClass) is "axe" or "sword" || WeaponIdentity.AllOneHandMelee(local);
         return ImpaleStats.From(stats, catalog, attack, own, local, critical, twoHanded, axeOrSword);
     }
