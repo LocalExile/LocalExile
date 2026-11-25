@@ -269,7 +269,12 @@ public static partial class Game
     /// for C→S 0x0213 template import. Refuses if any Item Display Case in this area holds a stored item.</summary>
     public static bool ReplaceAccountHideoutLayout(Player player, string area,
         IReadOnlyDictionary<string, HideoutPlacement> placements,
-        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow) => Saves.Atomically(() =>
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow) =>
+        ReplaceAccountHideoutLayout(player, area, placements, decorations, musicRow, null);
+
+    public static bool ReplaceAccountHideoutLayout(Player player, string area,
+        IReadOnlyDictionary<string, HideoutPlacement> placements,
+        IReadOnlyList<SavedHideoutDecoration> decorations, ushort? musicRow, SavedHideoutDecoration? device) => Saves.Atomically(() =>
     {
         if (player.Character.Account is null || HideoutHasStoredDisplayCaseItems(player, area)) return false;
         if (decorations.Count > MaxHideoutDecorations) return false;
@@ -293,7 +298,10 @@ public static partial class Game
                 if (row == InstanceHideoutEditing.DefaultMusicRow) nextMusic.Remove(area);
                 else nextMusic[area] = row;
             }
-            return p with { Placements = nextPlacements, Decorations = nextDecorations, Music = nextMusic };
+            var devices = p.MapDevices;
+            if (device is not null)
+                devices = new Dictionary<string, SavedHideoutDecoration>(devices ?? []) { [area] = device };
+            return p with { Placements = nextPlacements, Decorations = nextDecorations, Music = nextMusic, MapDevices = devices };
         });
         return true;
     });

@@ -89,7 +89,8 @@ public static class HideoutCatalog
 
     /// <summary>The doodad of a hideout's template the server creates besides the waypoint and stash: the map device
     /// (21-hideouts.md §2), or the variant the owner placed instead.</summary>
-    public static bool IsPlaced(Doodad d) => d.Type is { } type && IsMapDevice(type);
+    public static bool IsPlaced(Doodad d) => d.Type is { } type && IsMapDevice(type)
+        && !d.Name.StartsWith("deco:", StringComparison.Ordinal);
 
     /// <summary>A map device type: the templates' own (…MappingDevice) and the Decorations panel's variants, which replace it.</summary>
     public static bool IsMapDevice(string type) => type.EndsWith("MappingDevice", StringComparison.Ordinal)

@@ -337,6 +337,25 @@ public class ItemsStashHideoutBatchTests : IDisposable
         Assert.True(Game.SetAccountDisplayCaseItem(stdPlayer, home.AreaId, caseDeco.Key, null));
         Assert.True(Game.RemoveAccountHideoutDecoration(stdPlayer, home.AreaId, caseDeco.Key));
 
+        // Export immediately after changing a device in the editor, while the entry-time scene still has the template.
+        using (var wire = new CaptureWire())
+        {
+            stdPlayer.Connection.Session = new("hideout-export", wire.Stream, wire.ServerCiphers);
+            stdPlayer.Commands = Program.Commands(stdPlayer);
+            stdPlayer.CurrentHideoutScene = Game.HideoutFurniture(stdPlayer);
+            const uint atzoatl = 3802575025;
+            var variant = new Game.SavedHideoutDecoration(Game.MapDeviceKey, atzoatl, 230, 285, 0.5f);
+            Assert.True(Game.ReplaceAccountHideoutLayout(stdPlayer, home.AreaId,
+                new Dictionary<string, HideoutPlacement> { [Game.MapDeviceKey] = new(230, 285, 0.5f) }, [], null, variant));
+            stdPlayer.Furniture = null;
+            await Game.SaveHideoutLayout(stdPlayer);
+            byte[] bytes = wire.FinishAndDecrypt();
+            var exported = InstanceHideoutEditing.ReadLayout(bytes.AsSpan(0, InstanceHideoutEditing.LayoutLength(bytes)!.Value));
+            var device = Assert.Single(exported.Doodads, d => d.Hash == atzoatl);
+            Assert.Equal((230, 285), ((int)device.X, (int)device.Y));
+            Assert.DoesNotContain(exported.Doodads, d => d.Hash == stdPlayer.CurrentHideoutScene!.Device.Hash);
+        }
+
         // 750 custom decoration cap per hideout.
         for (int i = 0; i < Game.MaxHideoutDecorations; i++)
             Assert.True(Game.AddAccountHideoutDecoration(stdPlayer, home.AreaId, new($"deco:{i}", 0x1234, 25, 25, 0f)));
