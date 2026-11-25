@@ -68,14 +68,21 @@ public class ArrowRainAndMirageTests
     }
 
     [Fact]
-    public async Task Pierce_retains_the_equipped_projectile_attack_bonus_after_first_contact()
+    public async Task Completed_projectile_interactions_preserve_equipped_damage()
     {
-        const int increase = 10;
+        await VerifyProjectileDamage("Chain Support", "V2IncreasedProjectileDamageForEachChainCorrupted",
+            Stat.ProjectileDamagePlusPctPerChain, 25, chains: true, withGloves: false);
+        await VerifyProjectileDamage("Pierce Support", "V2IncreasedProjectileDamageForEachPierceCorrupted",
+            Stat.ProjectileDamagePlusPctPerPiercedEnemy, 10, chains: false, withGloves: true);
+    }
+
+    static async Task VerifyProjectileDamage(string support, string corruption, uint stat, int increase, bool chains, bool withGloves)
+    {
         var plain = await Fire(false, 100);
         var modified = await Fire(true, 100);
         var referenceOne = await Fire(false, 100 + increase);
         var referenceTwo = await Fire(false, 100 + 2 * increase);
-        Console.WriteLine($"Pierce (hit, one-second ignite): {string.Join(", ", plain)} -> {string.Join(", ", modified)}");
+        Console.WriteLine($"{support} (hit, one-second ignite): {string.Join(", ", plain)} -> {string.Join(", ", modified)}");
         Assert.All(plain[..3], damage => { Assert.True(damage.Hit > 0); Assert.True(damage.Ignite > 0); });
         Assert.Equal((0u, 0), plain[3]);
         Assert.Equal((0u, 0), modified[3]);
@@ -84,12 +91,15 @@ public class ArrowRainAndMirageTests
         Assert.True(referenceTwo[2].Hit > referenceOne[2].Hit && referenceTwo[2].Ignite > referenceOne[2].Ignite);
         Assert.Equal(referenceOne[1], modified[1]);
         Assert.Equal(referenceTwo[2], modified[2]);
-        var ordinary = await Fire(true, 100, ordinaryAttack: true);
-        var ordinaryReference = await Fire(false, 100 + increase, ordinaryAttack: true);
-        Assert.True(ordinary[0].Hit > 0);
-        Assert.True(ordinary[2].Hit > ordinary[1].Hit);
-        Assert.Equal((0u, 0), ordinary[3]);
-        Assert.Equal(ordinaryReference[1], ordinary[1]);
+        if (!chains)
+        {
+            var ordinary = await Fire(true, 100, ordinaryAttack: true);
+            var ordinaryReference = await Fire(false, 100 + increase, ordinaryAttack: true);
+            Assert.True(ordinary[0].Hit > 0);
+            Assert.True(ordinary[2].Hit > ordinary[1].Hit);
+            Assert.Equal((0u, 0), ordinary[3]);
+            Assert.Equal(ordinaryReference[1], ordinary[1]);
+        }
 
         async Task<(uint Hit, int Ignite)[]> Fire(bool equipped, int damageIncrease, bool ordinaryAttack = false)
         {
@@ -99,11 +109,14 @@ public class ArrowRainAndMirageTests
             player.ProjectileRuntimeState = fixture.Session;
             player.Walk.Teleport(100, 100, clock.At);
             var items = Game.ItemsOf(player);
-            var gloveType = Assert.Single(Program.Items.All, item => item.Id == "Metadata/Items/Armours/Gloves/GlovesAtlasDex");
-            var implicitMod = Program.Items.Mods.ById("ProjectileAttackDamageImplicitGloves1")!;
-            items.Add(PlayerInventories.Gloves, 0, 0, ItemCatalog.Create(gloveType) with
-            { Mods = [new(ModSection.Implicit, implicitMod.Hash, [18])] });
-            Assert.Equal(18, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.ProjectileAttackDamagePlusPct));
+            if (withGloves)
+            {
+                var gloveType = Assert.Single(Program.Items.All, item => item.Id == "Metadata/Items/Armours/Gloves/GlovesAtlasDex");
+                var implicitMod = Program.Items.Mods.ById("ProjectileAttackDamageImplicitGloves1")!;
+                items.Add(PlayerInventories.Gloves, 0, 0, ItemCatalog.Create(gloveType) with
+                { Mods = [new(ModSection.Implicit, implicitMod.Hash, [18])] });
+                Assert.Equal(18, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.ProjectileAttackDamagePlusPct));
+            }
             uint host = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
             items.Change(PlayerInventories.Weapon1, host, _ => ItemCatalog.Create(Program.Items.Find("Crude Bow")!));
             var bow = Game.WeaponFor(player);
@@ -114,11 +127,11 @@ public class ArrowRainAndMirageTests
             });
             var quiver = ItemCatalog.Create(Assert.Single(Program.Items.All, item => item.Id == "Metadata/Items/Quivers/Quiver1"))
                 with { Mods = [] };
-            var native = Program.Items.Mods.ById("V2IncreasedProjectileDamageForEachPierceCorrupted")!;
+            var native = Program.Items.Mods.ById(corruption)!;
             items.Add(PlayerInventories.Offhand1, 0, 0, equipped
                 ? quiver with { Mods = [new ItemMod(ModSection.Implicit, native.Hash, [increase])] }
                 : quiver);
-            ushort skill = Assert.Single(fixture.Equip(("Burning Arrow", 18), ("Faster Attacks Support", 18), ("Pierce Support", 1)));
+            ushort skill = Assert.Single(fixture.Equip(("Burning Arrow", 18), ("Faster Attacks Support", 18), (support, 1)));
             using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
             {
                 if (!ReferenceEquals(owner, player)) return values;
@@ -128,15 +141,16 @@ public class ArrowRainAndMirageTests
                 if (ordinaryAttack) values[Stat.ProjectileNumberOfTargetsToPierce] = 2;
                 return values;
             });
-            Assert.Equal(equipped ? increase : 0, Game.FinalPlayerStats(player).Where(row => row.Item1 == Stat.ProjectileDamagePlusPctPerPiercedEnemy).Sum(row => row.Item2));
+            Assert.Equal(equipped ? increase : 0, Game.FinalPlayerStats(player).Where(row => row.Item1 == stat).Sum(row => row.Item2));
             var gem = Assert.Single(Game.GemSkillEffects(player));
             var shot = ordinaryAttack
                 ? Game.CaptureOrdinaryRangedProjectile(player, fixture.Session, (160, 100), OrdinaryRangedAttack.Arrow, 2, new(0), null)
                 : Game.CaptureGemProjectile(player, fixture.Session, skill, gem, (160, 100), new(0));
             var profile = shot.Profile;
-            Assert.Equal((0, 2), (profile.Chain, profile.Pierce));
+            Assert.Equal(chains ? (2, 0) : (0, 2), (profile.Chain, profile.Pierce));
 
-            (int X, int Y)[] points = [(110, 100), (123, 100), (137, 100), (152, 100)];
+            (int X, int Y)[] points = chains ? [(110, 100), (121, 106), (135, 112), (146, 122)] :
+                [(110, 100), (123, 100), (137, 100), (152, 100)];
             var targets = new List<SpawnedMonster>();
             foreach (var point in points)
             {
