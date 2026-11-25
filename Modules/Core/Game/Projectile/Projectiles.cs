@@ -308,6 +308,8 @@ public static partial class Game
         {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
+            if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
+                ReleaseForbiddenRite(seeded, shot, rite);
             SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
@@ -321,12 +323,16 @@ public static partial class Game
 
         public void Invalidate()
         {
+            // Retirement clears the same flight collection the pump advances. Serialize both under the mutation gate.
+            using var mutation = LevelUpdatesFor(Player).Gate.EnterScope();
             if (invalid) return;
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
-            ClearKnifeBlades();
+            ClearProjectileBladeSources();
+            ClearPlacedVolatileOrbs();
+            ClearCremationGeysers();
             ClearEnsnares();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
@@ -344,6 +350,14 @@ public static partial class Game
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.UntrackProjectileObject(visual.Id);
             visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
+        }
+
+        void RetireSkillEffectObject(uint id)
+        {
+            // A transfer already took these IDs for its own removal. A replacement combat generation drains
+            // the remaining owned objects through the normal world-output fence.
+            if (Player.UntrackProjectileObject(id) && !Player.LeavingArea && !Player.Closed)
+                Player.RetiredCombatObjects.Add(id);
         }
 
         public void Enqueue(Func<Task> intent) => Write(intent, keepsWorldGroup: false);
@@ -1069,6 +1083,8 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
+                    LandUnearth(corpse, (x, y));
             }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"

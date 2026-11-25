@@ -1603,7 +1603,8 @@ public static partial class Game
         if (gem.Name is not null && IsTotemSkill(player, skillId) && TotemVariety(player, gem.Effect) is { } totem)
         {
             _ = PlaceTotem(player, skillId, gem.Effect, gem.Level, totem,
-                TotemPlacementPoint(player, skillId, from, to), TotemPlacementCurrent);
+                TotemPlacementPoint(player, skillId, from, to), TotemPlacementCurrent,
+                cooldownUse?.TotemPlacements ?? TotemsPerUse(player, skillId));
             return true;
         }
         if (gem.Name is not null && UseWarcryInstance(player, skillId, gem.Effect)) return true;
@@ -2120,7 +2121,8 @@ public static partial class Game
         var supported = SupportedSkill(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
-        if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect))
+        if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect)
+            && !CremationEffect(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleGemProjectile(player, skillId, gem, to,
                 actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount, recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted, seals, reoccurrenceMore);
@@ -2174,9 +2176,10 @@ public static partial class Game
         bool wintryBlast = SkillsFor(player).EffectId(gem.Effect) == "FrostblinkAltX";
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
         bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
+        var timedAreaCast = TimedAreaSpellEffect(SkillsFor(player).EffectId(gem.Effect)) ? CastMs(player, gem.Effect, skillId) : null;
         var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
             ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
-        bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
+        bool CanReleaseTimedSpell() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
         double sealGap = seals == 0 ? 0 : (CastMs(player, gem.Effect, skillId) ?? 0) / 10000d;
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
@@ -2184,12 +2187,22 @@ public static partial class Game
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
             double more = reoccurrence ? reoccurrenceMore : 1;
+            if (timedAreaCast is int timedAreaWindup)
+            {
+                double windup = sealDelay + timedAreaWindup / 1000d
+                    * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
+                var session = ProjectilesFor(player);
+                session.ScheduleTimedAreaSpell(gem, to, targetId, windup, sequence, CanReleaseTimedSpell, criticalRoll, sacrifice, more, repeat);
+                foreach (var area in cascadeAreas)
+                    session.ScheduleTimedAreaSpell(gem, area, 0, windup, sequence, CanReleaseTimedSpell, criticalRoll, sacrifice, more, repeat);
+                continue;
+            }
             if (firestorm is { } storm)
             {
                 double windup = sealDelay + storm.Cast / 1000d
                     * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
                 foreach (var area in cascadeAreas.Prepend(to))
-                    storm.Session.ScheduleFirestorm(gem, area, windup, CanReleaseStorm, sacrifice, criticalRoll, repeat, more);
+                    storm.Session.ScheduleFirestorm(gem, area, windup, CanReleaseTimedSpell, sacrifice, criticalRoll, repeat, more);
                 continue;
             }
             if (stormCall)
@@ -2641,13 +2654,13 @@ public static partial class Game
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
         int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
-        IReadOnlyList<uint>? additionalStrikeTargets = null) =>
+        int extraCriticalIncrease = 0, IReadOnlyList<uint>? additionalStrikeTargets = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget,
-            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback,
-            offHandWeapon, additionalStrikeTargets: additionalStrikeTargets);
+            extraCriticalIncrease, targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct,
+            removeStunAndKnockback, offHandWeapon, additionalStrikeTargets: additionalStrikeTargets);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2656,7 +2669,8 @@ public static partial class Game
         uint targetId, int repeat, int? radiusOverride, ISet<uint>? once, double repeatDelay,
         double radiusMore, SacrificeUse? sacrifice, double? swingAt, Func<bool>? triggeredCurrent, DischargeUse? discharge,
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
-        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null,
+        uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer,
+        SpawnedMonster? brandedTarget = null, int extraCriticalIncrease = 0,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
         int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
         EarthquakeAftershock? aftershock = null, IReadOnlyList<uint>? additionalStrikeTargets = null)
@@ -3334,7 +3348,10 @@ public static partial class Game
                     }
                     else
                     {
-                        int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand, offCritical),
+                        int useCriticalChance = extraCriticalIncrease == 0
+                            ? SupportedCriticalChance(player, skillId, hand, offCritical)
+                            : SupportedCriticalChanceFor(player, skillId, release: false, extraIncrease: extraCriticalIncrease);
+                        int criticalChance = CriticalChanceOn(player, id, useCriticalChance,
                             SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical),
                             SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical));
                         // Read an existing bleed before this attack can inflict its own.
