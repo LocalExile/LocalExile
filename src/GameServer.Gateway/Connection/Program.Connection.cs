@@ -12,18 +12,6 @@ public partial class Program
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     public static string CharacterName(Player player) => string.IsNullOrEmpty(player.Character.Name) ? "Exile" : player.Character.Name;
 
-    /// <summary>Whether <paramref name="player"/> owns the hideout instance they are in (same character or same account).</summary>
-    public static bool OwnsHideoutInstance(Player player)
-    {
-        if (HideoutCatalog.ByArea(player.Layout.Hash) is null) return false;
-        if (player.InstanceOwner is null || string.Equals(player.InstanceOwner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (player.Character.Account is null || !Saves.IsOpen) return false;
-        var store = new SqliteAccountStore(Saves.Db);
-        return store.FindCharacter(player.InstanceOwner) is { } owner
-            && string.Equals(store.GetAccount(owner.AccountId)?.Name, player.Character.Account, StringComparison.OrdinalIgnoreCase);
-    }
-
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
@@ -274,7 +262,6 @@ public partial class Program
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
-                    HideoutPermissions: OwnsHideoutInstance(player),
                     ReturnAreaHash: player.ReturnAreaHash,
                     DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +

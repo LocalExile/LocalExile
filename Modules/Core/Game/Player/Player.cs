@@ -251,6 +251,7 @@ public static partial class Game
         player.ChannelMovement = default;
         EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
+        ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
@@ -1654,6 +1655,7 @@ public static partial class Game
             {
                 await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
+                ClearOwnerAttacks(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
                 await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");
@@ -1864,8 +1866,9 @@ public static partial class Game
             var tabs = PersonalStashOf(player).Records((int)StashSelectAffinity);
             var tradeTabs = player.Character.Ssf ? null : TradeStashOf(player).Records(null);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(player)).WeaponSet == 1;
-            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms",
-                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs)));
+            bool ownHideout = OwnHideout(player);
+            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms{(ownHideout ? ", own hideout" : "")}",
+                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs, ownHideout)));
             messages.AddRange(GameEvents.RunEnterMessages(player));
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and

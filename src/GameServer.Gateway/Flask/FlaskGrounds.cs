@@ -32,7 +32,7 @@ public static class FlaskGrounds
     /// 200%).</summary>
     public const uint ConsecratedAreaStat = Stat.LocalFlaskAreaOfConsecratedGroundPlusPct;
 
-    /// <summary>Increased critical strike chance against enemies on the player's consecrated ground (Bottled Faith during
+    /// <summary>Increased critical strike chance against enemies on consecrated ground (Bottled Faith during
     /// its effect: Game.CriticalChanceOn).</summary>
     public const uint VsConsecratedCriticalStat = Stat.CriticalStrikeChancePlusPctVsEnemiesOnConsecratedGround;
 

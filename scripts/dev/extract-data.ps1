@@ -51,7 +51,7 @@ $manifest = @(
                 'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
        UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
-       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 3; Needs = @('tables', 'object-types')
+       Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 4; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
     @{ Name = 'animation-contacts'; Outputs = @('data\animation-contacts.json'); Runner = 'python'
        Args = @('scripts/re/anim_contacts.py'); Version = 10; Needs = @('tables')

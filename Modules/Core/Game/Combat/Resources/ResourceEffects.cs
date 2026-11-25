@@ -155,7 +155,21 @@ public static partial class Game
     }
     static void RecordUsedSkillLocked(Player player, double now)
     {
-        player.RecentEvents.Record(StatConditions.UsedSkill, now);
+        if (MapSkillActionSpeedPerUse(player) != 0)
+        {
+            player.RecentEvents.RecordAmount(StatConditions.UsedSkill, now);
+            if (!player.Connection.LockstepClient || !player.Frames.Running)
+            {
+                player.ApplyMovementSpeedAt(now);
+                if (player.Frames is { Running: true, Area: { } area })
+                    AfterSeconds(player, RecentEvents.WindowSeconds, () =>
+                    {
+                        if (!player.LeavingArea && ReferenceEquals(player.Frames.Area, area))
+                            player.ApplyMovementSpeedAt(AreaTime(player));
+                    });
+            }
+        }
+        else player.RecentEvents.Record(StatConditions.UsedSkill, now);
         var raw = StatSourceValues(player);
         ApplySiphoningSkillUseLocked(player, now, raw);
         int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);

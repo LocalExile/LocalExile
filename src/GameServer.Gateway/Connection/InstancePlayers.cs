@@ -105,7 +105,10 @@ public static class InstanceEvents
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyList<(ushort Plugin, byte[] State)>?>> TerrainPluginStates = new();
 
     /// <summary>The league's answers to <see cref="TerrainPluginStates"/>, the last per plugin, a failing answer counting as
-    /// none. The generator must support every state used by the client.</summary>
+    /// none. Only a state the server's generator supports is kept: the area's own plugin when its generation is ported
+    /// and the ordinary Mirror's default state (LevelGenerator.SupportsPluginState), or another plugin whose extra
+    /// terrain feature row is ported (LevelGenerator.LeaguePluginFeature). The client would build any other plugin's
+    /// part of the level and the server could not.</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)> ComposeTerrainPluginStates(LeagueRuntime league, AreaStatsRequest request)
     {
         var states = new Dictionary<ushort, byte[]>();
@@ -126,11 +129,13 @@ public static class InstanceEvents
         }
         var own = AreaTerrainPlugins.Of(request.Area);
         foreach (var plugin in states.Keys.ToList())
-            if (!GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(plugin, states[plugin], own?.Id, own?.Name))
-            {
-                Console.WriteLine($"[gateway] unsupported terrain plugin {plugin} state of 0x{request.Area:x4} dropped");
-                states.Remove(plugin);
-            }
+        {
+            if (GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(plugin, states[plugin], own?.Id, own?.Name)) continue;
+            if ((own is not { } o || o.Id != plugin)
+                && GameServer.Data.Terrain.Generation.LevelGenerator.LeaguePluginFeature(AreaTerrainPlugins.NameOf(plugin), states[plugin]) is not null) continue;
+            Console.WriteLine($"[gateway] unsupported terrain plugin {plugin} state of 0x{request.Area:x4} dropped");
+            states.Remove(plugin);
+        }
         return [.. states.Select(p => (p.Key, p.Value))];
     }
 
