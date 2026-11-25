@@ -833,6 +833,16 @@ public static partial class Game
             stats.GetValueOrDefault(Stat.AdditiveMinionDamageModifiersApplyToYouAt150PctValue) != 0 ? 150
             : stats.GetValueOrDefault(Stat.MinionDamageIncreasesAndReductionsAlsoAffectsYou) != 0 ? 100 : 0);
 
+    /// <summary>The additive minion-damage total a transfer reads: the plain increased/reduced minion damage plus the
+    /// per-5-Dex input at complete groups (the same floor the minion-side reader uses).</summary>
+    internal static long AdditiveMinionDamage(IReadOnlyDictionary<uint, int> stats, int dexterity)
+    {
+        long damage = stats.GetValueOrDefault(Stat.MinionDamagePlusPct);
+        int perFive = stats.GetValueOrDefault(Stat.MinionDamagePlusPctPer5Dex);
+        if (perFive != 0) damage += (long)perFive * (Math.Max(0, dexterity) / 5);
+        return damage;
+    }
+
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
         bool projectile = false, int addedChaos = 0, bool totem = false, uint? projectileTotemLife = null)
@@ -874,9 +884,12 @@ public static partial class Game
                     || effect.StartsWith("DominatingBlow", StringComparison.Ordinal)) ? 150 : 0);
         if (skillMinionShare > 0)
         {
-            // Only the strongest transfer applies. The character snapshot already carries the global share.
-            long increased = (long)stats.GetValueOrDefault(Stat.MinionDamagePlusPct) * Math.Max(globalMinionShare, skillMinionShare) / 100
-                - (long)caster.GetValueOrDefault(Stat.MinionDamagePlusPct) * globalMinionShare / 100;
+            // Only the strongest transfer applies. The character snapshot already carries the global share, including
+            // the per-5-Dex input, so subtract the same complete additive total here.
+            int dexterity = stats.GetValueOrDefault(Stat.Dexterity);
+            int casterDexterity = caster.GetValueOrDefault(Stat.Dexterity);
+            long increased = AdditiveMinionDamage(stats, dexterity) * Math.Max(globalMinionShare, skillMinionShare) / 100
+                - AdditiveMinionDamage(caster, casterDexterity) * globalMinionShare / 100;
             stats[Stat.DamagePlusPct] = ActorScale.Saturate(stats.GetValueOrDefault(Stat.DamagePlusPct) + increased);
         }
         if (skills.IsVaal(gem.Effect) && stats.GetValueOrDefault(Stat.VaalSkillDamagePlusPct) is int vaalDamage and not 0)
