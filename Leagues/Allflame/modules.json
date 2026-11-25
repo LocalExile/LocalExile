@@ -15,6 +15,7 @@
     "Core/Content/Heist",
     "Core/Content/Incursion",
     "Core/Content/HeistCache",
+    "Core/Content/Legion",
     "Core/Game",
     "Core/Item/Bench",
     "Core/Item/Cosmetics",
