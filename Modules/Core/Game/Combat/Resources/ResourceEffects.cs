@@ -147,6 +147,10 @@ public static partial class Game
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
         if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
+        var (frenzy, power) = state.Mana.SpentForCharges(amount, Get(Stat.GainXFrenzyChargesAfterSpending200Mana),
+            Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana));
+        if (frenzy > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, frenzy, "mana spent"));
+        if (power > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, power, "mana spent"));
     }
     public static void SettleFullManaLocked(Player player, double at)
     {
