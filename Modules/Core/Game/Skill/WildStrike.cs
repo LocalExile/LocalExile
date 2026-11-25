@@ -28,40 +28,45 @@ public static partial class Game
 
         var at = monster.Walk.Position(now);
         var excluded = session.ActorKey(primary, monster);
-        bool hit = false;
+        var contacts = new List<(ProjectileActorKey Actor, (int X, int Y) At)>();
         double more = MeleeRepeatDamageMore(player, skillId, repeat);
         var contact = AreaSkillHitForUse(ruthless, player, skillId, gem, from, at,
             immediate: true, sequence: sequence, criticalRoll: critical, targetId: primary,
             radiusOverride: WeaponFor(player).Range + monster.StopRange, damageMore: more,
-            singleStrikeTarget: primary, onHit: _ => hit = true, scheduledSession: session,
+            singleStrikeTarget: primary, onHit: NoteContact, scheduledSession: session,
             cryExerted: cryExerted, repeat: repeat);
         if (!contact.IsCompleted) throw new InvalidOperationException("Scheduled Wild Strike contact must not yield.");
         contact.GetAwaiter().GetResult();
-        if (!hit) return null;
+        if (contacts.Count == 0) return null;
 
-        bool cold = element == DamageType.Cold;
-        var origin = ProjectileSession.Vector(at);
-        var direction = (origin - ProjectileSession.Vector(from)).Unit;
         source = WildStrikeDamageSource(source, element.Value, followup: true);
         var use = CaptureGemProjectile(player, session, skillId, gem, aim, critical, sequence, cryExerted: cryExerted,
             from: at, capturedSkill: source);
-        var shot = ((ProjectileOffense)use.Payload!).ScaleDamage(more) with
+        var shot = ((ProjectileOffense)use.Payload!).ScaleDamage(more) with { ClientPredicted = true, AreaVisual = null };
+        foreach (var strike in contacts)
         {
-            ExcludedTarget = excluded, ClientPredicted = true, AreaVisual = null
-        };
-        use = use with { Origin = origin, Aim = origin + direction * use.Profile.Range, Payload = shot };
-        if (cold) return use;
-
-        if (element == DamageType.Fire)
-        {
-            var stats = source.Stats;
-            // The fire radius uses the common strike area until the client explosion extent is measured.
-            int radius = SkillRadius(player, 24, stats, spell: false, gem.Effect, playerStats);
-            radius = (int)Math.Round(radius * SkillArea.RadiusMultiplier(stats.GetValueOrDefault(Stat.WildStrikeRadiusPlusPct)));
-            session.Runtime.Impact(use, origin, new("WildStrikeFire", radius));
+            var origin = ProjectileSession.Vector(strike.At);
+            var direction = (origin - ProjectileSession.Vector(from)).Unit;
+            var followup = use with { Origin = origin, Aim = origin + direction * use.Profile.Range,
+                Payload = shot with { ExcludedTarget = strike.Actor } };
+            if (element == DamageType.Cold) session.ReleaseNow(followup);
+            else if (element == DamageType.Fire)
+            {
+                // The fire radius uses the common strike area until the client explosion extent is measured.
+                int radius = SkillRadius(player, 24, source.Stats, spell: false, gem.Effect, playerStats);
+                radius = (int)Math.Round(radius * SkillArea.RadiusMultiplier(source.Stats.GetValueOrDefault(Stat.WildStrikeRadiusPlusPct)));
+                session.Runtime.Impact(followup, origin, new("WildStrikeFire", radius));
+            }
+            else ReleaseWildStrikeArc(session, followup, strike.Actor, source.Stats.GetValueOrDefault(Stat.AdditionalBeamOnlyChains));
         }
-        else ReleaseWildStrikeArc(session, use, excluded);
         return null;
+
+        void NoteContact(uint id)
+        {
+            if (id == primary) contacts.Add((excluded, at));
+            else if (player.Area.Monsters.TryGetValue(id, out var target))
+                contacts.Add((session.ActorKey(id, target), target.Walk.Position(now)));
+        }
     }
 
     static SupportedGem WildStrikeDamageSource(SupportedGem source, DamageType element, bool followup)
@@ -93,13 +98,13 @@ public static partial class Game
         return element;
     }
 
-    static void ReleaseWildStrikeArc(ProjectileSession session, ProjectileUse use, ProjectileActorKey primary)
+    static void ReleaseWildStrikeArc(ProjectileSession session, ProjectileUse use, ProjectileActorKey primary, int beamChains)
     {
         const double chainRange = 45;
         var seen = new HashSet<ProjectileActorKey> { primary };
         var centre = use.Origin;
         long now = session.Runtime.Now;
-        int chains = Math.Clamp(use.Profile.Chain, 0, 256);
+        int chains = (int)Math.Clamp((long)use.Profile.Chain + beamChains, 0, 256);
         for (int i = 0; i <= chains; i++)
         {
             var target = session.ActorsNear(centre, chainRange, now)

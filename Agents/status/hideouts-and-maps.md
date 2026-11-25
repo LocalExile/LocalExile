@@ -199,11 +199,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   travelling and repeat_fight states).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
-  Early, middle and late flask-drain affixes are eligible in their native wave ranges. An accepted monster hit can
-  remove a charge from one equipped flask with charges (checked offline).
-- Equalising removes Life, Mana and Energy Shield after eligible rare and unique monster hits, including the available
-  pools of their minion victims. The legacy nearby-ally modifier checks eligible instance members at monster contact,
-  with a local radius estimate. Both paths are checked offline.
   Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
   HUD check pending), and waves pay all counted rewards at wave end
   ([protocol](../docs/protocol/21-hideouts.md#selected-encounter-inputs-simulacrum)).
@@ -211,6 +206,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
+- Simulacrum's flask drain and map hit effects work offline. See [map hits](../docs/game/maps.md#monster-hit-modifiers).
 
 - **Waypoint arrival.** Hideout entry uses the exact saved waypoint cell for spawn and movement origin,
   including login and returns from other areas.

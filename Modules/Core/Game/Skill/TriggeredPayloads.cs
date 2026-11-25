@@ -51,7 +51,7 @@ public static partial class Game
         {
             var use = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
             var critical = CaptureSkillCriticalRoll(player, id);
-            return () => session.ScheduleFirestorm(skill, aim, 0, current, use, critical, brandedTarget: brandedTarget);
+            return () => session.ScheduleFirestorm(skill, aim, 0, current, use, critical, brandedTarget: brandedTarget, triggered: true);
         }
         if (UsesProjectileRuntime(gem.Effect))
         {

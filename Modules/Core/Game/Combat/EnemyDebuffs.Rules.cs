@@ -81,6 +81,29 @@ public static partial class Game
         public readonly Dictionary<uint, double> Wakes = [];
     }
     static readonly Store<Player, DebuffSteps> DebuffStepsOf = new();
+    static readonly RuleTable<GameArea, Dictionary<uint, uint>> MarkTargets = new();
+
+    static void TrackMarkTarget(Player caster, SpawnedMonster marked) =>
+        MarkTargets.GetOrCreateValue(caster.Area)[caster.Id] = marked.ObjectId;
+
+    static SpawnedMonster? ActiveMarkTarget(Player player, double now)
+    {
+        var area = player.Area;
+        var targets = MarkTargets.GetOrCreateValue(area);
+        if (!targets.TryGetValue(player.Id, out uint id))
+        {
+            // Recover marks already in the area after a module reload.
+            foreach (var (key, m) in area.Monsters)
+                if (m.HasCurses && m.Curses.HasMark(player.Id, now))
+                {
+                    id = key;
+                    break;
+                }
+            targets[player.Id] = id;
+        }
+        return area.Monsters.GetValueOrDefault(id) is { Hostile: true, Dead: false, Life: > 0, HasCurses: true } marked
+            && marked.Curses.HasMark(player.Id, now) ? marked : null;
+    }
 
     /// <summary>Something about the monster's debuffs changed (a debuff put on it, a zone entered or left, its death): it
     /// is stepped with the player's next nearby presentation.</summary>
@@ -383,19 +406,15 @@ public static partial class Game
             foreach (var target in ZoneMembers(player, player.Id, ZoneKind.CursedCorpses, corpse))
                 if (player.Area.Monsters.GetValueOrDefault(target.Value) is { } enemy && enemy.Effects[Stat.CannotBeBlinded] == 0)
                     blindedByAura.Add(target.Value);
-        if (markBlind)
+        if (markBlind && ActiveMarkTarget(player, now) is { } marked)
         {
             // The native mastery exposes the predicate only. Use the existing nearby blind reach for its moving centre.
             const int radius = 35;
-            foreach (var (id, marked) in player.Area.Monsters)
-                if (marked is { Hostile: true, Dead: false, Life: > 0 } && marked.Curses.HasMark(player.Id, now))
-                {
-                    var centre = marked.Walk.Position(now);
-                    foreach (var target in player.Area.MonstersNear(centre, radius))
-                        if (target.Key != id && target.Value is { Hostile: true, Dead: false, Life: > 0, OwnerId: null } enemy
-                            && enemy.Effects[Stat.CannotBeBlinded] == 0 && Dist(centre, enemy.Walk.Position(now)) <= radius)
-                            blindedByAura.Add(target.Key);
-                }
+            var centre = marked.Walk.Position(now);
+            foreach (var (id, enemy) in player.Area.MonstersNear(centre, radius))
+                if (id != marked.ObjectId && enemy is { Hostile: true, Dead: false, Life: > 0, OwnerId: null }
+                    && enemy.Effects[Stat.CannotBeBlinded] == 0 && Dist(centre, enemy.Walk.Position(now)) <= radius)
+                    blindedByAura.Add(id);
         }
         foreach (var (id, _, blinded) in player.BlindAura.Reconcile(blindedByAura, player.Area.Monsters.ContainsKey, () => 1))
         {

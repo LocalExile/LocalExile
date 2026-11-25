@@ -2669,7 +2669,8 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
-        if (IsWildStrike(gem.Effect) && WildStrikeElements.TryGetValue(player, out var choices)
+        bool wildStrike = IsWildStrike(gem.Effect);
+        if (wildStrike && WildStrikeElements.TryGetValue(player, out var choices)
             && choices.TryGetValue(gem.Effect, out var strikeElement))
         {
             admittedGem = WildStrikeDamageSource(admittedGem, strikeElement, followup: false);
@@ -2751,6 +2752,8 @@ public static partial class Game
         int waveCloseDamage = wave ? Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal) : 0;
         double waveHalfAngle = wave ? GroundSlamWave.HalfAngle(Stat) : 0;
         (double X, double Y) waveDir = wave ? GroundSlamWave.Direction(from, to) : (0, 0);
+        var cascadePush = spell && SkillsFor(player).EffectId(gem.Effect) == "GlacialCascade"
+            ? GroundSlamWave.Direction(from, to) : default;
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
@@ -2784,7 +2787,8 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
+        if (!spell && channelGeneration is null && (singleStrikeTarget is null || wildStrike)
+            && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
             using (ProjectileMutation(player, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(player));
@@ -3320,7 +3324,8 @@ public static partial class Game
                         AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
-                            hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
+                            hitOrigin: cascadePush == default ? (IsLeapSlam(player, gem.Effect) ? centre : null)
+                                : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),
                             attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)));
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
                             m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
@@ -3382,7 +3387,7 @@ public static partial class Game
                     }
                 }
                 if (applied is not { } hit) continue;
-                onHit?.Invoke(id);
+                if (!wildStrike || !splashMore.ContainsKey(id)) onHit?.Invoke(id);
                 if (scheduledSession is { } scheduled)
                 {
                     using (ProjectileMutation(player, advance: false))

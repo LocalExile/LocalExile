@@ -125,15 +125,41 @@ public static partial class Game
             {
                 var orb = orbs[i];
                 bool active = canTrigger && now < orb.Until;
-                bool hit = active && ActorsNear(orb.At, orb.Radius, now).Any(actor =>
-                    actor.Team != orb.Use.Team && actor.Key != orb.Use.Owner
-                    && (actor.Position(now) - orb.At).Length <= orb.Radius);
+                bool hit = active && HasKineticAnomalyTarget(orb, now);
                 if (active && !hit) { i++; continue; }
                 orbs.RemoveAt(i);
                 orb.Remove();
                 if (hit) Runtime.Impact(orb.Use, orb.At, new(KineticAnomalyEffect, orb.Radius));
             }
             if (orbs.Count > 0) Runtime.Schedule(now + ProjectileRuntime.TickQuanta, CheckKineticAnomalies);
+        }
+
+        bool HasKineticAnomalyTarget(KineticAnomaly orb, long now)
+        {
+            var area = Player.Area;
+            double at = now / (double)ProjectileRuntime.QuantaPerSecond;
+            var centre = orb.At;
+            int radius = orb.Radius;
+            if (area.Driven)
+            {
+                nearActorIds.Clear();
+                area.Grid.Near(((int)Math.Round(centre.X), (int)Math.Round(centre.Y)),
+                    radius + GameArea.WalkSlack + 1, nearActorIds);
+                foreach (var id in nearActorIds)
+                    if (area.Monsters.TryGetValue(id.Value, out var monster) && CanSetOff(monster)) return true;
+            }
+            else
+                foreach (var (_, monster) in area.SyncLivingMonsters())
+                    if (CanSetOff(monster)) return true;
+            return false;
+
+            bool CanSetOff(SpawnedMonster monster)
+            {
+                if (monster is not { Hostile: true, Dead: false, Life: > 0, WorldHidden: false }
+                    || ArenaHazards.Untargetable(Player, monster)) return false;
+                var delta = Vector(monster.Walk.Position(at)) - centre;
+                return delta.Dot(delta) <= (double)radius * radius;
+            }
         }
     }
 }

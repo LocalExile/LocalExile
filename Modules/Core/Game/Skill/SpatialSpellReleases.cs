@@ -13,6 +13,10 @@ public static partial class Game
                 .FirstOrDefault(s => s.Item1 == Stat.BaseSpellRepeatCount).Item2, 0, 8)
             : 0;
 
+    // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
+    static (int X, int Y) CascadeKnockbackOrigin((int X, int Y) target, (double X, double Y) direction) =>
+        (target.X - (int)Math.Round(100 * direction.X), target.Y - (int)Math.Round(100 * direction.Y));
+
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
         static DamagePacket? DaggerDamage(SkillCatalog.Unarmed? weapon) =>

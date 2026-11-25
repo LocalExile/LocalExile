@@ -7,7 +7,11 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        sealed class FirestormRun { public bool Replaced; }
+        sealed class FirestormRun
+        {
+            public bool Replaced;
+            public Action? RemoveArt;
+        }
         readonly List<FirestormRun> firestorms = [];
         const int FirestormSpreadRadius = 25;
         // Meteors has no periodic interval in its data; use the base storm's first landing delay.
@@ -18,7 +22,8 @@ public static partial class Game
 
         internal void ScheduleFirestorm((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice, SkillCriticalRoll? critical,
-            int repeat = 0, double damageMore = 1, SpawnedMonster? brandedTarget = null, PlacedAreaHit? placedHit = null)
+            int repeat = 0, double damageMore = 1, SpawnedMonster? brandedTarget = null, PlacedAreaHit? placedHit = null,
+            bool triggered = false)
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
@@ -31,6 +36,7 @@ public static partial class Game
                 int Caster(uint key) => playerStats.GetValueOrDefault(key);
                 int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
                 string? effect = SkillsFor(Player).EffectId(gem.Effect);
+                bool emitArt = triggered || placedHit is not null;
                 if (effect == "FirestormAltX")
                 {
                     Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(FirestormSingleMeteorDelay), () =>
@@ -52,25 +58,26 @@ public static partial class Game
                 while (firestorms.Count >= limit)
                 {
                     firestorms[0].Replaced = true;
+                    firestorms[0].RemoveArt?.Invoke();
                     firestorms.RemoveAt(0);
                 }
                 firestorms.Add(run);
                 long end = Runtime.Now + ProjectileRuntime.Time(duration);
                 long spacing = Math.Max(1, ProjectileRuntime.Time(interval));
-                if (placedHit is not null)
-                    Effect(aim.X, aim.Y, FirestormStormArt, ProjectileRuntime.Time(duration), spread);
+                if (emitArt)
+                    Effect(aim.X, aim.Y, FirestormStormArt, ProjectileRuntime.Time(duration), spread,
+                        captureRemoval: remove => run.RemoveArt = remove);
                 ScheduleImpact(Runtime.Now + spacing, large: effect == "Firestorm");
                 Runtime.Schedule(end, () => firestorms.Remove(run));
 
                 bool CanImpact() => Active && Player.PlayerLife > 0 && sacrifice.Current && (placedHit is null || current());
                 void ImpactAt((int X, int Y) at, int hitRadius, double impactMore, bool large)
                 {
-                    if (placedHit is { } proxy)
-                    {
+                    if (emitArt)
                         Effect(at.X, at.Y, large ? FirestormImpactArt : FirestormSmallImpactArt,
                             ProjectileRuntime.Time(.4), hitRadius);
+                    if (placedHit is { } proxy)
                         proxy.Apply(Player, at, hitRadius, ProjectileWorldTime(Player), impactMore);
-                    }
                     else Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, repeat: repeat,
                         damageMore: impactMore, radiusOverride: hitRadius, criticalRoll: critical, sacrifice: sacrifice,
                         triggeredCurrent: CanImpact, brandedTarget: brandedTarget));
