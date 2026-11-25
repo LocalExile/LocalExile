@@ -54,7 +54,7 @@ public static class DamageModel
     public static int CriticalDamage(int damage, int multiplier)
     {
         if (damage <= 0) return 0;
-        return (int)Math.Max(0, Math.Round(damage * Math.Max(0, multiplier) / 100.0));
+        return (int)Math.Min(int.MaxValue, Math.Round(damage * (double)Math.Max(0, multiplier) / 100));
     }
 
     /// <summary>Whether a Spell Suppression roll succeeds; <paramref name="roll"/> is 0..99. Lucky and unlucky roll
