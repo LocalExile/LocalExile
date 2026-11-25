@@ -2,9 +2,9 @@ using GameServer.Modding;
 
 namespace GameServer.Modules.Legion;
 
-/// <summary>The Legion encounter: the Timeless Monolith and its timer, the two armies in stasis around it, their break-out by the
-/// player's hits and the release when the timer ends. Loads the Legion client tables (<see cref="LegionData"/>) and registers the
-/// monolith (<see cref="LegionMonolith"/>); the army is planned in LegionArmy and spawned in LegionStasis.</summary>
+/// <summary>The Legion encounter: the Timeless Monolith, Legion Scarabs &amp; Atlas passives (including Timeless Conflict),
+/// and the Domain of Timeless Conflict (2–5 Timeless/Unrelenting Emblems). Loads the Legion client tables (<see cref="LegionData"/>)
+/// and registers both map monoliths (<see cref="LegionMonolith"/>) and the Domain (<see cref="LegionDomain"/>).</summary>
 public sealed class LegionModule : IModule
 {
     /// <summary>Loads this module's static game data eagerly (called on module load and by Gateway test setup).</summary>
@@ -12,6 +12,7 @@ public sealed class LegionModule : IModule
     {
         LegionData.Reload();
         LegionMonolith.LoadData();
+        LegionDomain.LoadData();
     }
 
     /// <inheritdoc/>
@@ -19,9 +20,10 @@ public sealed class LegionModule : IModule
     {
         LoadData();
         var data = LegionData.Current;
-        module.Lifetime.Own(new Cleanup(() => { LegionMonolith.UnloadData(); LegionData.Unload(); }));
+        module.Lifetime.Own(new Cleanup(() => { LegionDomain.UnloadData(); LegionMonolith.UnloadData(); LegionData.Unload(); }));
         LegionMonolith.Register(module);
-        module.Log($"{data.Factions.Count} factions, {data.Ranks.Count} ranks, {data.MonsterVarieties.Count} monster varieties, {data.MonsterCounts.Count} monster counts, {data.ChestTypes.Count} chest types, {data.ChestCounts.Count} chest counts, {data.Balances.Count} balance rows");
+        LegionDomain.Register(module);
+        module.Log($"{data.Factions.Count} factions, {data.Ranks.Count} ranks, {data.MonsterVarieties.Count} monster varieties, {data.MonsterCounts.Count} monster counts, {data.ChestTypes.Count} chest types, {data.ChestCounts.Count} chest counts, {data.Balances.Count} balance rows, {data.DomainAreas.Count} Domain areas, {data.EmblemsByRow.Count} emblems");
     }
 
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
