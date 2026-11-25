@@ -50,7 +50,7 @@ public class NightDump extends GhidraScript {
         step("exports.tsv", this::exports);
         step("vtables.tsv", this::vtables);
         step("vtables-unnamed.tsv", this::unnamedVtables);
-        step("types.h", w -> new DataTypeWriter(currentProgram.getDataTypeManager(), w).write(currentProgram.getDataTypeManager(), monitor));
+        step("types.h", w -> new DataTypeWriter(currentProgram.getDataTypeManager(), w).write(currentProgram.getDataTypeManager().getRootCategory(), monitor));
         step("undecompiled.tsv", this::coverage);
         disasm();
         if (allOk) new FileWriter(new File(out, "dump.done")).close();
