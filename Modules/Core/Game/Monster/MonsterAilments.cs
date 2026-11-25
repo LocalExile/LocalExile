@@ -446,11 +446,13 @@ public static partial class Game
         long ailmentThreshold = thresholdScale > 0 && m.Variety is not null
             ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
             : m.MaxLife;
-        var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
+        // "Critical Strikes do not inherently inflict non-Damaging Ailments" (Painseeker).
+        bool inherent = critical && Player(Stat.CriticalStrikesDoNotAlwaysApplyNonDamagingAilments) == 0;
+        var added = m.Ailments.Inflict(taken, inherent, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
             AilmentArea(Player, Skill, spell), coldTakenFromChill: Player(Stat.KeystoneColdPurist) != 0,
             freezeDamageMultiplier: Math.Max(0, 1 + glacialFreezeMore / 100.0));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
-        var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
+        var alternate = AlternateAilmentsOnHitLocked(m, taken, inherent, now, Attacker, random);
         foreach (var effect in added)
         {
             InflictedLocked(player, m, effect);

@@ -16,7 +16,9 @@ public static partial class Game
         : (int)Math.Clamp(ordinary, int.MinValue, int.MaxValue);
 
     public static int CriticalHitMultiplier(long ordinary, IReadOnlyDictionary<uint, int> player,
-        IReadOnlyDictionary<uint, int>? own = null) => CriticalHitMultiplier(
+        IReadOnlyDictionary<uint, int>? own = null) =>
+        // "Critical Strikes deal no Damage" (Shade of Solaris).
+        player.GetValueOrDefault(Stat.CriticalStrikesDealNoDamage) != 0 ? 0 : CriticalHitMultiplier(
             // "Your Critical Strike Multiplier is 300%" (Maligaro's Virtuosity): the total, whatever else adds to it.
             player.GetValueOrDefault(Stat.CriticalStrikeMultiplierIs300) != 0 ? 300 : ordinary,
             CriticalHitsDealNoExtraDamage(player, own));
