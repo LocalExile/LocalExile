@@ -192,6 +192,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Fire, Cold, Lightning and Elemental Aegis (Invictus Solaris, Vix Lunaris, Perepiteia, Magna Eclipsis): the shield
   takes its types' share of a hit's elemental damage and is restored after its delay, with the client's own buffs,
   as Physical Aegis does. Not carried across an area change. Offline tests only so far.
+- Keystones from items and cluster jewels: Inner Conviction (3% more Spell Damage per Power Charge, Power Charges
+  instead of Frenzy Charges) and Kineticism (attack projectiles always bleed, maim and knock back; projectiles cannot
+  pierce, fork or chain). Prospero's Protection's doubled shield armour; Maligaro's Virtuosity's 300% multiplier on
+  hits. Not seen in the client yet.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

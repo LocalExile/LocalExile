@@ -496,7 +496,7 @@ public static partial class Game
                     : WithOverheat(player, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
                         bow: WeaponProfileFor(player, activeSet: true).Bow, projectileAttack: true)),
                 WithOverheat(player, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: !spell))),
-            MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
+            MaimChance = spell ? 0 : Get(Stat.KeystoneBarbedTips) != 0 ? 100 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
             LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             WeaponClass = spell ? null : (handWeapon ?? WeaponFor(player)).ItemClass ?? "",

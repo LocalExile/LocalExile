@@ -381,7 +381,10 @@ public static partial class Game
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
-            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback);
+            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat,
+            // Kineticism: "Attack Projectiles always inflict Bleeding and Maim, and Knock Back Enemies".
+            guaranteed: criticalProjectileKnockback
+                || projectileDamage && !spell && playerStats.GetValueOrDefault(Stat.KeystoneBarbedTips) != 0);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);

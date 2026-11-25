@@ -47,7 +47,8 @@ public static partial class Game
         // The fixed chances are 1 on their mods: "25% chance to cause Bleeding on Hit" is local_chance_to_bleed_on_hit_25%.
         long projectile = projectileAttack
             ? get(Stat.ProjectileAttacksChanceToBleedOnHitPctIfYouHaveBeastMinion) : 0;
-        long chance = get(Stat.GlobalBleedOnHit) != 0 || Local(Stat.LocalBleedOnHit) != 0 ? 100
+        long chance = get(Stat.GlobalBleedOnHit) != 0 || Local(Stat.LocalBleedOnHit) != 0
+            || projectileAttack && get(Stat.KeystoneBarbedTips) != 0 ? 100   // Kineticism
             : (long)get(Stat.BleedOnHitWithAttacksPct) + Local(Stat.LocalChanceToBleedOnHitPct)
                 + 25L * Local(Stat.LocalChanceToBleedOnHit25Pct) + 50L * Local(Stat.LocalChanceToBleedOnHit50Pct)
                 + (melee ? get(Stat.BleedOnMeleeAttackChancePct) : 0) + (bow ? get(Stat.BleedOnBowAttackChancePct) : 0)

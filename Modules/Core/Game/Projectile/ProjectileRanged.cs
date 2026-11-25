@@ -114,7 +114,7 @@ public static partial class Game
                     projectileAttack: true),
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
-            MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
+            MaimChance = Get(Stat.KeystoneBarbedTips) != 0 ? 100 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             LocalStunThresholdReduction = sourceWeapon.LocalSources?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,

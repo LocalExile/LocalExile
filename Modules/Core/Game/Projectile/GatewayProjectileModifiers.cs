@@ -44,6 +44,8 @@ public static class GatewayProjectileModifiers
         bool forksApplyToZigZags = get(Stat.KineticBoltForksApplyToZigZags) != 0;
         int theoreticalForks = Math.Max(get(Stat.TheoreticalNumberOfForks), forkCount);
         int zigZags = Math.Max(0, get(Stat.KineticWandBaseNumberOfZigZags) + (forksApplyToZigZags ? theoreticalForks : 0));
+        // Kineticism: "Projectiles cannot Pierce, Fork or Chain".
+        bool kineticism = get(Stat.KeystoneBarbedTips) != 0;
         var modifiers = new ProjectileModifiers
         {
             ExtraProjectiles = extra, Pierce = pierce,
@@ -53,11 +55,11 @@ public static class GatewayProjectileModifiers
             Split = Math.Max(splitTargets, get(Stat.IntermediaryProjectileNumberOfTargetsToSplitTo)),
             Returns = get(Stat.ProjectilesReturn) != 0 || attack && get(Stat.AttackProjectilesReturn) != 0
                 || get(Stat.ProjectileReturnPctChance) >= 100,
-            CannotPierce = get(Stat.CannotPierce) != 0 || get(Stat.VirtualProjectilesCannotPierce) != 0
+            CannotPierce = kineticism || get(Stat.CannotPierce) != 0 || get(Stat.VirtualProjectilesCannotPierce) != 0
                 || !attack && get(Stat.ProjectilesFromSpellsCannotPierce) != 0,
-            CannotFork = forksApplyToZigZags || get(Stat.VirtualProjectilesCannotFork) != 0
+            CannotFork = kineticism || forksApplyToZigZags || get(Stat.VirtualProjectilesCannotFork) != 0
                 || !attack && get(Stat.ProjectilesFromSpellsCannotFork) != 0,
-            CannotChain = get(Stat.VirtualProjectilesCannotChain) != 0 || !attack && get(Stat.ProjectilesFromSpellsCannotChain) != 0,
+            CannotChain = kineticism || get(Stat.VirtualProjectilesCannotChain) != 0 || !attack && get(Stat.ProjectilesFromSpellsCannotChain) != 0,
             CannotSplit = get(Stat.ProjectilesCannotSplit) != 0,
             CannotReturn = get(Stat.SkillProjectilesCannotReturn) != 0
         };
