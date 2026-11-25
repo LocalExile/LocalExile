@@ -821,7 +821,8 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
-            if (shot.LancingSteelHits is { } steel && !steel.Targets.Add(contact.Target))
+            var steel = shot.LancingSteelHits;
+            if (steel?.Targets.Contains(contact.Target) == true)
                 shot = shot.ScaleDamage(steel.RepeatMultiplier);
             int projectileFreezeChance = 0;
             if (shot.FreezingPulseFalloff)
@@ -910,6 +911,7 @@ public static partial class Game
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
             Player.RecentEvents.RecordCriticalOutcome(at, critical);

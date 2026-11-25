@@ -142,6 +142,8 @@ public static partial class Game
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
+                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
+                    return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
@@ -154,12 +156,7 @@ public static partial class Game
                     };
                     return use with { Profile = profile };
                 }
-                use = PrepareSteelRelease(context, use, effect);
                 var shot = (ProjectileOffense)use.Payload!;
-                if (effect is "LancingSteel" or "LancingSteelAltX"
-                    && context.Own(Stat.LancingSteelDamagePlusPctFinalAfterFirstHitOnTarget) is not 0 and var repeatPct)
-                    return use with { Payload = shot with
-                        { LancingSteelHits = new(Math.Max(0, 1 + repeatPct / 100d)) } };
                 if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
                     && use.Profile.EndArea is { } magma)
                 {

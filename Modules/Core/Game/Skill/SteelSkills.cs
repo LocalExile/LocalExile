@@ -67,7 +67,6 @@ public static partial class Game
         int collection = SkillArea.Radius(SteelCollectionRadius, AreaStat, spell: false);
         int blast = SkillArea.Radius(SteelReflectionRadius, BlastStat, spell: false);
 
-
         var enemies = player.Area.Monsters.Values.Where(m => m.Hostile && m.OwnerId is null && !m.WorldHidden)
             .Select(m => (Monster: m, Position: m.Walk.Position(now)))
             .Where(m => Dist(m.Position, center) <= collection + blast).ToArray();
@@ -106,7 +105,7 @@ public static partial class Game
 
     static ProjectileUse PrepareSteelRelease(ProjectileReleaseContext context, ProjectileUse use, string effect)
     {
-        if (effect is not ("LancingSteel" or "ShatteringSteelAltX")) return use;
+
         var player = context.Player;
         int cost = context.Own(Stat.SteelAmmoConsumedPerUse), spent = 0;
         var shot = (ProjectileOffense)use.Payload!;
@@ -119,6 +118,9 @@ public static partial class Game
             if (effect == "ShatteringSteelAltX" && spent == cost) AddSteelWard(context, state);
         }
         var profile = use.Profile;
+        if (effect is "LancingSteel" or "LancingSteelAltX"
+            && context.Own(Stat.LancingSteelDamagePlusPctFinalAfterFirstHitOnTarget) is not 0 and var repeatPct)
+            shot = shot with { LancingSteelHits = new(Math.Max(0, 1 + repeatPct / 100d)) };
         if (effect == "LancingSteel" && spent > 0)
         {
             long bonus = context.Own(Stat.NumberOfProjectilesToFirePlusPctFinalPerSteelAmmoConsumed) * (long)spent;
