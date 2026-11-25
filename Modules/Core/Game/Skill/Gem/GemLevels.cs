@@ -35,6 +35,9 @@ public static partial class Game
                 if (skills.FamilyStatRaises(stat, type.Row, variant)) bonus += RawGemStat(player, stat);
             foreach (var (stat, tag) in SkillGemLevel.TaggedActiveLevelStats)
                 if (skills.GemHasTag(type.Row, variant, tag)) bonus += RawGemStat(player, stat);
+            foreach (var (stat, tag, and) in SkillGemLevel.TwoTagActiveLevelStats)
+                if (RawGemStat(player, stat) is int both and not 0 && skills.GemHasTag(type.Row, variant, tag)
+                    && skills.GemHasTag(type.Row, variant, and)) bonus += both;
             if (AttributeStat(info.Colour) is { } attribute) bonus += RawGemStat(player, attribute);
         }
         return (int)Math.Clamp(bonus, 1, int.MaxValue);

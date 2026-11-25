@@ -29,6 +29,10 @@ public static class StatConditions
     /// do not count.</summary>
     public const string CelestialBossInPresence = "_while_celestial_boss_in_presence";
 
+    /// <summary>The same for a "while a Unique Enemy is in your Presence" mod: published from
+    /// <c>Game.UniqueInPresenceLocked</c>. Absent from a subject, the mod counts as before.</summary>
+    public const string UniqueEnemyInPresence = "_while_unique_enemy_in_presence";
+
 
     /// <summary>What the server can say about a stat's condition.</summary>
     public enum State

@@ -171,6 +171,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   "... to Hinder Enemies on Hit with Spells" run from it, and minions' attacks Overwhelm. A minion's hit rolls Chill, Freeze and Shock from its cold and lightning
   damage on the minion's own chances, and "Minion Critical Strikes do not deal extra Damage" counts. Offline tests
   only so far.
+- An Eldritch implicit "while a Unique Enemy is in your Presence" counts only while a unique enemy is within the
+  presence radius, as the Pinnacle Boss ones do. "+# to Level of all Fire / Cold / Lightning / Chaos / Physical Spell
+  Skill Gems" raise gems with both tags, and "... all Minion / Melee / Totem / Aura Skill Gems" theirs. Offline tests
+  only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

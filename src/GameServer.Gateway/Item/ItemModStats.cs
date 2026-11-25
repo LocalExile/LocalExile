@@ -113,6 +113,8 @@ public static class ItemModStats
                 // not answer presence leaves the mod as before. Local sums are not gated: Local() caches per item
                 // and takes no subject.
                 if (!local && RequiresCelestialPresence(row, mod) && !CelestialBossInPresence(subject)) continue;
+                // The same gate for "while a Unique Enemy is in your Presence" (Stats 15801, 1,362 Mods rows).
+                if (!local && RequiresUniquePresence(row, mod) && !UniqueEnemyInPresence(subject)) continue;
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local
                         || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Name))
@@ -187,6 +189,19 @@ public static class ItemModStats
             if (row.Stats[s].Id == RequiresCelestialBossPresence && mod.Values[s] != 0) return true;
         return false;
     }
+
+    const uint RequiresUniqueMonsterPresence = Stat.LocalInfluenceModRequiresUniqueMonsterPresence;
+
+    static bool RequiresUniquePresence(ModCatalog.Mod row, ItemMod mod)
+    {
+        for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+            if (row.Stats[s].Id == RequiresUniqueMonsterPresence && mod.Values[s] != 0) return true;
+        return false;
+    }
+
+    /// <summary>Whether the subject says a Unique Enemy is in presence; true when the subject does not answer it.</summary>
+    static bool UniqueEnemyInPresence(StatConditions.Subject subject) =>
+        subject.Flags is null || !subject.Flags.TryGetValue(StatConditions.UniqueEnemyInPresence, out bool present) || present;
 
     /// <summary>Whether the subject says a Pinnacle Boss is in presence; true when the subject does not answer it.</summary>
     static bool CelestialBossInPresence(StatConditions.Subject subject) =>
