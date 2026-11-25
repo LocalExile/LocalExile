@@ -81,5 +81,33 @@ static class ConditionalOperatorCoreCases
         Assert.Empty(events.Amounts(14));
         Assert.Empty(events.Snapshot(14));
         Assert.Null(events.NextExpiry(14));
+
+        const int count = 256;
+        long amountAtNotification = 0;
+        events.Changed = () => amountAtNotification = events.Amount(StatConditions.KilledEnemy, 20);
+        events.RecordAmount(StatConditions.KilledEnemy, 20);
+        Assert.Equal(1, amountAtNotification);
+
+        Parallel.Invoke(
+            () =>
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    events.Record($"used_test_skill_{i}", 20, seconds: 8);
+                    events.RecordAmount(StatConditions.KilledEnemy, 20);
+                }
+            },
+            () =>
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    _ = events.Snapshot(20);
+                    _ = events.NextExpiry(20);
+                    _ = events.Amounts(20);
+                }
+            });
+        Assert.Equal(count + 1, events.Snapshot(20).Count);
+        Assert.Equal(count + 1, events.Amount(StatConditions.KilledEnemy, 20));
+        Assert.Equal(24, events.NextExpiry(20));
     }
 }
