@@ -486,7 +486,11 @@ public static partial class Game
         }
         finally
         {
-            if (!active && !player.Closed && !player.LeavingArea && player.Totems.PendingPlacements.Remove(pendingId))
+            bool removePending = false;
+            if (!active && !player.Closed && !player.LeavingArea)
+                using (ProjectileMutation(player, advance: false))
+                    removePending = player.Totems.PendingPlacements.Remove(pendingId);
+            if (removePending)
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
     }
@@ -664,50 +668,70 @@ public static partial class Game
 
     internal static void EndAreaTotems(Player player)
     {
-        var totems = player.Totems;
-        if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
-        var area = player.Area;
-        if (area.Driven && !area.Owned)
+        GameArea area;
+        var retired = new List<uint>();
+        MinionOwnershipChange[] rosterChanges;
+        bool canDetonateMines = false;
+        using (ProjectileMutation(player, advance: false))
         {
-            area.Defer(_ => EndAreaTotems(player));
-            return;
-        }
-
-        using var mutation = ProjectileMutation(player, advance: false);
-        double now = AreaTime(player);
-        totems.KillAll(now);
-        foreach (uint pending in totems.PendingPlacements)
-            Retire(pending);
-        foreach (var totem in totems.All)
-        {
-            player.RemoveBlocker(totem.Id);
-            TotemChannels.Remove(totem);
-            if (SearingBondSources.TryGetValue(totem, out var source))
+            var totems = player.Totems;
+            if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
+            area = player.Area;
+            double now = AreaTime(player);
+            totems.KillAll(now);
+            foreach (uint pending in totems.PendingPlacements)
+                retired.Add(pending);
+            foreach (var totem in totems.All)
             {
-                foreach (uint beam in source.Beams.Values) Retire(beam);
-                SearingBondSources.Remove(totem);
+                player.RemoveBlocker(totem.Id);
+                TotemChannels.Remove(totem);
+                if (SearingBondSources.TryGetValue(totem, out var source))
+                {
+                    foreach (uint beam in source.Beams.Values) retired.Add(beam);
+                    SearingBondSources.Remove(totem);
+                }
+                retired.Add(totem.Id);
             }
-            Retire(totem.Id);
+            rosterChanges = player.Closed
+                ? []
+                : totems.All.Where(t => !t.RosterRemovalSent)
+                    .Select(t => new MinionOwnershipChange(t.Id, 0, TotemMinionType)).ToArray();
+            if (rosterChanges.Length > 0) canDetonateMines = CanDetonateMines(player);
+            totems.Clear();
+            foreach (var ground in player.FlaskGrounds.Expire(now))
+                if (ground.Object is uint groundObject) retired.Add(groundObject);
         }
-        if (area.Owned && !player.Closed)
-        {
-            var changes = totems.All.Where(t => !t.RosterRemovalSent)
-                .Select(t => new MinionOwnershipChange(t.Id, 0, TotemMinionType)).ToArray();
-            if (changes.Length > 0)
-                area.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, changes,
-                    CanDetonateMines(player)), only: player);
-        }
-        totems.Clear();
-        foreach (var ground in player.FlaskGrounds.Expire(now))
-            if (ground.Object is uint groundObject) Retire(groundObject);
 
-        void Retire(uint id)
+        static byte[] RemoveBytes(uint id)
         {
             var remove = InstanceProtocol.RemoveObject(id);
             BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
-            if (area.Owned) area.Delta.RemoveSharedObject(id, remove, $"0x02bd area exit removes totem object 0x{id:x}");
-            else area.Objects.RecordDirect(id, remove, AreaDelta.Kind.Remove, player);
+            return remove;
         }
+
+        if (area.Owned)
+        {
+            foreach (uint id in retired)
+                area.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes totem object 0x{id:x}");
+            if (rosterChanges.Length > 0 && !player.Closed)
+                area.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, rosterChanges,
+                    canDetonateMines), only: player);
+            return;
+        }
+
+        // Purge AreaObjectRecords immediately (thread-safe) so returning/joining players never see ghost totems even if
+        // this was the last player in the area and the frame driver stops before any deferred callback runs.
+        foreach (uint id in retired)
+            area.Objects.RecordDirect(id, RemoveBytes(id), AreaDelta.Kind.Remove, player);
+        if (area.Driven)
+            area.Defer(a =>
+            {
+                foreach (uint id in retired)
+                    a.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes totem object 0x{id:x}");
+                if (rosterChanges.Length > 0 && !player.Closed && ReferenceEquals(player.Area, a))
+                    a.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, rosterChanges,
+                        canDetonateMines), only: player);
+            });
     }
 
     static void SyncReceivedTotemAuraLocked(Player player, double now, WorldRecordBuilder bytes)
