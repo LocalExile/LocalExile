@@ -163,6 +163,8 @@ public static class PanelStats
         new(Stat.Ascendance, [Stat.BaseAscendance]),
         new(Stat.SkillAreaOfEffectPlusPct, [Stat.BaseSkillAreaOfEffectPlusPct]),
         new(Stat.VirtualCurseEffectPlusPct, [Stat.CurseEffectPlusPct]),
+        // GGG publishes the curse effect on the player beside its base stat, as the same sum.
+        new(Stat.VirtualCurseEffectOnSelfPlusPct, [Stat.CurseEffectOnSelfPlusPct]),
         new(Stat.VirtualFlaskDurationPlusPct, GlobalFlaskDurationSources),
         .. Leech("life"), .. Leech("mana"), .. Leech("energy_shield"),
         new(Stat.LifeGainedOnSpellHit, [Stat.BaseLifeGainedOnSpellHit]),
