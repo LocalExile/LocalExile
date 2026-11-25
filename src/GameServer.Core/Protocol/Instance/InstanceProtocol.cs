@@ -530,6 +530,9 @@ public static class InstanceProtocol
 
     public const ushort DeathScreenId = 0x55, ResurrectId = 0x54;
 
+    // Mods compiled against 0.6.0-beta bind to this one-argument signature.
+    public static byte[] DeathScreen(byte flags) => DeathScreen(flags, 0);
+
     /// <summary>
     /// S→C 0x55 (instance group, class 0x1435e68a8, read 0x1421a6190, dispatcher case 0x14 → listeners at +0xf78): the
     /// death screen. u8 flags: bit0, bit1 = hide, bit2, bit3, bit4; unless hidden: u32 BE (+0x18), a u8 when that u32 is
@@ -539,7 +542,7 @@ public static class InstanceProtocol
     /// flag is set); its right button "Resurrect at Checkpoint" with bit2 (without bit0); a third "Spectate" (PvP).
     /// Live 2026-10-17: 0x04 showed only "Resurrect at Checkpoint".
     /// </summary>
-    public static byte[] DeathScreen(byte flags, ushort deaths = 0)
+    public static byte[] DeathScreen(byte flags, ushort deaths)
     {
         var w = new LoginWriter().U16(DeathScreenId).U8(flags);
         if ((flags & 2) == 0) w.U32(0).U16(deaths);

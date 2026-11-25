@@ -87,6 +87,10 @@ public static class InstanceChat
     /// multi-language server broadcast (<c>WStr text</c>; prefix with <c>"*"</c> for all client locales).</summary>
     public static byte[] ServerBroadcast(string text) => new LoginWriter().U16(ServerBroadcastId).WStr(text).ToArray();
 
+    // Mods compiled before guild tags were supported call the four-argument method.
+    public static byte[] ChatLine(string text, string sender, ushort flags, IReadOnlyList<ChatLineItem>? items) =>
+        ChatLine(text, sender, flags, items, guildTag: "");
+
     /// <summary>S→C 0x17 (class 0x1435e6908, read 0x140e0afb0; dispatcher case 2 → listeners at instance +0xb78 → chat
     /// panel 0x14017a270 / 0x14017a670): one line in the chat panel. wstr sender (its first character picks the channel),
     /// wstr text, wstr guild tag, u16 flags (bit 8 sends it to +0xd78 instead, bit 3 adds a field), u8, u8, 8 bytes, u8,
