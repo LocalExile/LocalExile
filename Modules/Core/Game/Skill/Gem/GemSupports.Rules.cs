@@ -1117,6 +1117,13 @@ public static partial class Game
         var gem = SupportedSkill(player, skillId);
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (!hitPlan.CanHit) return 0;
+        // "This Weapon's Critical Strike Chance is 100%" (Trypanon) and "Critical Strike Chance is #% for Hits with this
+        // Weapon" (Actum): an attack with that hand's weapon has that chance, whatever else would change it. Here, so
+        // the swing, a projectile's release and the character panel all read the same number. weaponCritical is only
+        // given for the off hand.
+        if (SkillsFor(player).IsAttack(gem.Effect)
+            && FixedWeaponCriticalChance(player, weaponCritical is null ? AttackHand.Main : AttackHand.Off) is int fixedChance and > 0)
+            return fixedChance;
         // Inspiration: "Supported Skills have (6-11)% increased Critical Strike Chance per Inspiration Charge".
         if (player.SupportGems.InspirationCharges > 0
             && Stat.CriticalStrikeChancePlusPctPerRighteousCharge is var chargeCrit)
