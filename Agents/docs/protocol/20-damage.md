@@ -845,6 +845,11 @@ in the non-critical or critical range) and duration are the hit's panel poison r
 captured at the same places as the ignite's: the landed hit already carries the hit's increases and the monster's
 resistance, so it cannot be the base.
 
+Viper Strike of the Mamba's `ViperStrikeAltX` stat set carries both `cannot_poison_poisoned_enemies`
+and `cannot_inflict_additional_poisons`. An active stack from any source blocks a new poison through its
+expiry, while the hit still deals damage. On an eligible hit, the second stat caps the application at one
+poison, even with global or weapon-local additional poisons.
+
 ## 3a. Impale contacts and reflected damage
 
 `ImpaleStats` resolves unconditional general + attack/spell chance, the attacking weapon's local chance, general

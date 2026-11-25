@@ -1772,6 +1772,14 @@ Its hammers deal no damage: the client draws them, but the server has no hammerf
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
+**Shield Crush** (ActionTypes `ShieldWaves`, 0x0ee3) uses `ShieldBash` (Animation row 134, selected at
+`0x141c1e730`). Each of its rig's three `wave` events calls `0x141c1e760` (event 0xe510). The cone offsets
+are +30°, 0°, and −30° (`0x141c1ef20`), with the outer two reversed for class ID 5 (Templar). Each cone
+has a 30° half-angle and an origin eight cells behind the player, with an eight-cell inner radius.
+The base radius is 29 cells. `0x141c1ee20` doubles the centre's area before the centre-specific modifier
+(`shield_crush_helmet_enchantment_aoe_+%_final`) and radius scaling; the third wave excludes targets
+selected by the first. `animation_skill_clips` records the ACT stance's clip for the timing.
+
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
 when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
 (live 2026-10-23). A resync follows at the end of the action ([07](07-latency-visibility-movement.md) §5).
@@ -2665,6 +2673,11 @@ on the monsters the client strikes.
   The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
   At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
   active-skill hash and that use as the first entry).
+- Static Strike of Gathering Lightning uses `StaticStrikeNew` with `skill_behaviour_variation` 1. The contact at
+  `0x141b16580` searches from the struck enemy for the first beam target, 35 cells away at most
+  (`0x141b16ad0`). The beam continuation search reaches 50 cells (`0x141c7eb20`). Both ranges scale with
+  chaining range. BuffDefinitions row 2687 carries the count in 0x1c1 bit 2. It has no inline recovery values.
+  The beam limit reads `virtual_number_of_chains_for_beams` from the skill record (`0x14193ef80`).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
   Frost Blades and Lightning Strike use the same target selection at their scheduled melee contact. The client's
@@ -3133,6 +3146,13 @@ failed I/O, allocation limits, actual official values and every skill's successf
   middle button, then the rest. Automatic placement skips manually cleared slots and skills removed from the bar. Slots the
   player set stay as they are, and a cleared left button stays cleared. Live 2026-10-20: a new Templar got the sword on
   the left button and Holy Strike on the right.
+
+### Boneshatter
+
+ActionTypes `TraumaStrike` (0x0b52, action constructor `0x141278480`) reads
+`current_trauma` (0x38a8) in `0x141301df0` to choose impact particles at the 5- and 10-stack thresholds.
+BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The native pulse asset is
+`Metadata/Effects/Spells/trauma_strike/shockwave.ao`.
 
 ## 12. Buffs and Righteous Fire
 

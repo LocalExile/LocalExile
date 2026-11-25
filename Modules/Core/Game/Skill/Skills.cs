@@ -31,7 +31,7 @@ public static partial class Game
             && was.Inputs.Matches(player, currentStats))
         {
             KeepActiveSkills(player);
-            return cached;
+            return GatheringLightningSkillRecords(player, cached, now);
         }
         var inputs = SkillSnapshotInputs.Capture(player, currentStats);
         // One build reads one snapshot of the character's stats, final stats and supported gems: every gem's cast time,
@@ -52,7 +52,7 @@ public static partial class Game
             player.PlayerSkillsAt = now;
             KeepActiveSkills(player, build, playerStats);
             PlayerSkillsInputs.AddOrUpdate(player, new(inputs, skills));
-            return skills;
+            return GatheringLightningSkillRecords(player, skills, now);
         }
         finally { build.Active = false; StatsScope.Value = outer; }
     }
@@ -476,8 +476,12 @@ public static partial class Game
                 stats[tornadoMode] = 4;
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
-            if (IsLeapSlam(player, effect))
+            // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
+            bool gatheringLightning = IsGatheringLightning(effect);
+            if (IsLeapSlam(player, effect) || gatheringLightning)
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
+            if (gatheringLightning)
+                stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
             // (0x141b3860a) and without it died on their first tick, so none was drawn.
             if (Stat.BaseSkillEffectDuration is var baseDurationKey && own.GetValueOrDefault(baseDurationKey) > 0
