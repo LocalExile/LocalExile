@@ -423,6 +423,7 @@ public static partial class Game
                 else if (GolemStat(owner, Stat.SummonSkeletonsNumAdditionalWarriorSkeletons) is int extra and not 0)
                     count = Math.Min(Math.Max(1, ActorScale.Add(Stat.NumberOfMeleeSkeletonsToSummon, count, extra)), SummonLimit(player, definition, gem));
             }
+            bool released = false;
             for (int i = 0; i < count && current(); i++)
             {
                 if (definition.Family == "Reaper" && definition.Id != "SummonReaperAltX")
@@ -450,12 +451,14 @@ public static partial class Game
                     }
                     if (!await CommitTravelLanding(player, landing,
                             () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone)))) return false;
+                    released = true;
                 }
-                else await SummonFighterCore(player, source, definition, aim, target,
-                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse);
+                else if (await SummonFighterCore(player, source, definition, aim, target,
+                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse) != 0)
+                    released = true;
             }
-            SaveSummons(player);
-            return true;
+            if (released) SaveSummons(player);
+            return released;
         });
 
     public static Task<uint> SummonFighter(Player player,

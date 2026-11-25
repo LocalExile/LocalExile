@@ -11,6 +11,7 @@ static partial class Game
         double interval = Math.Max(.001, (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
         double due = AreaTime(player) + (triggered ? 0 : interval);
         var lifetime = CombatLifetime;
+        bool released = false;
         for (int releaseIndex = 0; releaseIndex <= repeats + seals; releaseIndex++)
         {
             while (true)
@@ -21,7 +22,8 @@ static partial class Game
                 if (!player.Paused && AreaTime(player) >= due) break;
                 await AreaWait(PlayerUpdateRole.Minions, 25);
             }
-            if (!await release()) return false;
+            if (!await release()) return released;
+            released = true;
             due += releaseIndex < seals ? interval * .1 : interval;
         }
         return true;
