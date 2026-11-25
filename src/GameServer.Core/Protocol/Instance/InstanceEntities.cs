@@ -1037,11 +1037,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// only vtable 0x1435ab790 (Solaris and Lunaris, The Harbour Bridge) have a bare `ret` slot 17, so they read nothing;
     /// InteractionAction (Kraityn, Alira and Oak, Act 2's bandit lords) reads a u8 of flags (0x141e218a0), as on an NPC;
     /// TriggerableBlockage (Oshabi's Root Wall) is the one component registration whatever the object, read by
-    /// LimitedLifespan's primary vtable 0x1435b2e28 has a bare `ret` slot 17, so it reads nothing:
-    /// the 3.29 Breach wave varieties carry it, and without this entry they are unsupported.
-    /// 0x141e47880 as <see cref="QuestObject"/> writes it.</summary>
+    /// 0x141e47880 as <see cref="QuestObject"/> writes it. BlightTower's only vtable (0x1435b5728) has a bare `ret` slot 17
+    /// (Agents/docs/re/components.md), so it reads nothing.</summary>
+    // LimitedLifespan (0x1435b2e28) also reads no bytes at creation.
     static readonly HashSet<string> Extras = ["Transitionable", "MinimapIcon", "Preload", "Functions", "PlayerClass", "StateMachine", "DiesAfterTime",
-        "NPC", "InteractionAction", "Timer", "LimitedLifespan", "TriggerableBlockage"];
+        "NPC", "InteractionAction", "Timer", "TriggerableBlockage", "BlightTower", "LimitedLifespan"];
 
     /// <summary>The registered type path of a variety at a level (1..100), after S→C 0x20 has registered it:
     /// "&lt;variety Id&gt;@&lt;level&gt;" (0x141ec8df0; the Monster type parses the number after the last '@').</summary>
@@ -1117,7 +1117,7 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
                 // unblocked: its own body is what stands in the way.
                 case "TriggerableBlockage": w.U8(0); break;
                 // ControlZone (slot 17 at 0x1400f1180: ret 0 in 3.29.3c) and BaseEvents, Pathfinding, Monster, Preload,
-                // Functions, PlayerClass, DiesAfterTime, Timer, LimitedLifespan: no data.
+                // Functions, PlayerClass, DiesAfterTime, Timer, LimitedLifespan, BlightTower: no data.
             }
         }
         w.U8(0);            // tasks
