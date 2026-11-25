@@ -167,6 +167,7 @@ public static partial class Game
 
         int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
             attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
+        if (attack) bleedChance = ActorScale.Saturate((long)bleedChance + victim[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
         double bleedDamage = physical * .10
             * Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0)
             * Math.Max(0, 1 + effects[Stat.MonsterBleedingDamagePlusPctFinal] / 100.0);
