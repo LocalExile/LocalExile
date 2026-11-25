@@ -122,7 +122,7 @@ public static partial class Game
                     sources.GainOnHit.Mana + target.Curses[Stat.ManaGrantedWhenHitByAttacks], sources.GainOnHit.EnergyShield) };
         }
         double now = ProjectileWorldTime(player);
-        if (sources.LifeLeechVsBleeding is > 0 and var leechVsBleeding && target.Bleeds.Until > now)
+        if (sources.LifeLeechVsBleeding is > 0 and var leechVsBleeding && target.Bleeds.IgnitedAt(now))
             sources = sources with { Life = sources.Life.Add(DamagePacket.Empty.Select((_, _) => new(leechVsBleeding, leechVsBleeding))) };
         var amounts = sources.Amounts(taken, directDamage);
         // Called before the hit's damage is applied, so the target's Life is what the hit has to overkill.
