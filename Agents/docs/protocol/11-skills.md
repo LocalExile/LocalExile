@@ -4397,6 +4397,10 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
 - **Flame Dash segment (`S→C 0x2c8`)**: `InstanceClientActionUpdate` (`0x141fe54d0`, Actor dispatch `0x14219be04`)
   carries `(u16 actionTypeHash, u16 skillId, u16 actionSequence, u8 detachId, blob16)`. Flame Dash's slot `+0x300`
   reader (`0x141478930` → `0x1414786c0` → `0x142196f20`) takes 20 LE bytes `(i32 x1, i32 y1, i32 x2, i32 y2, f32 duration)`.
+- **Volcanic Fissure continuation (`S→C 0x2c8`)**: the first path starts at contact in the client. The continuation
+  addresses the detached `VolcanicSlam` action (`0x5eea`, detach ID 2). Its reader `0x141bf05a0` takes a byte count,
+  that many `(f32 x, f32 y)` world-unit points and an `f32` total world-unit length, all LE. At least two points
+  start a new leg, and a count of zero by itself finishes the action.
 - **Component updates (`S→C 0x2bc`)**: Shrine slot 20 (`0x1415e49f0`, index `7`) reads the creation layout
   (`0x141e3e0c0`, bit 7 claimed flag + `Shrines.dat` row) plus `u32 LE` taker object id; `GroundEffect` slot 20
   (`0x141e1ea90` → `0x141e1ead0`, index `2`) reads `(u8 state, f32 LE remainingSeconds)` (`<= 0` triggers `EndEffect`);

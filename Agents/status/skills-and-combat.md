@@ -190,6 +190,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
   radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
   melee swings keep their hit over a queued Move.
+- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius.
+  Volcanic Fissure hits along its path and launches landing projectiles at the end. Snaking hits along each leg and erupts,
+  seeking a reachable target outside the previous eruption's hit set. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.

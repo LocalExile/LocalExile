@@ -2892,7 +2892,8 @@ public static partial class Game
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
-            : katabasisStrike || infernalBlast is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+            : katabasisStrike || contactTargets is not null || infernalBlast is not null
+                || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || vaalSlam || SkillsFor(player).EffectId(gem.Effect) == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -3003,6 +3004,14 @@ public static partial class Game
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
             // Queued mana output may outlast movement: resolve a channel at its current position.
             if (channelGeneration is not null) centre = player.Walk.Position(now);
+            if (retainedAttack is null && strikeIndex == 0 && effectId == "VolcanicFissureAltX" && areaAction is { } fissureAction)
+            {
+                var source = CaptureAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
+                    damageMore, damageMore, "fissure");
+                ScheduleSnakingFissureLocked(player, skillId, gem, source, from, to, now, fissureAction,
+                    sequence, repeat, radiusMore * chargeRadius, criticalRoll, ruthless, cryExerted == true);
+                return;
+            }
             if (retainedAttack is null && strikeIndex == 0 && Stat(global::Stat.IsPlayerEarthquake) != 0)
                 ScheduleEarthquakeAftershockLocked(player, skillId, gem, admittedGem, centre, sequence, hand, weapon,
                     offCritical, criticalRoll, now, radiusMore, damageMore, ruthless, cryExerted == true);
