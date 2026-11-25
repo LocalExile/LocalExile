@@ -618,7 +618,8 @@ public static partial class Game
     }
 
     // The totems as the client should see them, from the totems' timer and after a placement: expired ones die, their Life
-    // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
+    // (0x1b1), the dead ones' roster removal (0x2bc) and body removal (0x2bd), and the aura buff on the player (0x1c1 from
+    // the totem, 0x1c2) with his stats.
     public static byte[]? TotemPresentation(Player player) => TotemRecords(player, new(player, null)) is { } batch
         ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
 
@@ -641,9 +642,13 @@ public static partial class Game
                 player.RemoveBlocker(t.Id);
                 StopTotemChannel(t, bytes);
                 TotemChannels.Remove(t);
-                // Source 0 takes it off the roster. Repeated each frame until the body goes, so a dropped batch is repaired.
-                bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(t.Id, 0, TotemMinionType)],
-                    CanDetonateMines(player)));
+                // Source 0 takes it off the roster; once, in the batch that carries its death.
+                if (!t.RosterRemovalSent)
+                {
+                    t.RosterRemovalSent = true;
+                    bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(t.Id, 0, TotemMinionType)],
+                        CanDetonateMines(player)));
+                }
             }
             player.Area.Life.Set(t.Id, AreaLife.LifePool, t.DiedAt is null ? t.Life : 0);
         }

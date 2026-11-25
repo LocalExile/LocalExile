@@ -236,17 +236,25 @@ public sealed class TotemTests
         var variety = Game.TotemVariety(conn, source.Effect);
         Assert.NotNull(variety);
         uint id = Assert.IsType<uint>(await Game.CreateTotem(conn, source.Id, source.Effect, source.Level, variety, (110, 100)));
+        // A second one past the limit replaces the first: its removal rides in the batch that lists the successor.
+        uint next = Assert.IsType<uint>(await Game.CreateTotem(conn, source.Id, source.Effect, source.Level, variety, (130, 100)));
+        Assert.NotNull(conn.Totems.All.Single(t => t.Id == id).DiedAt);
+        byte[] Roster(uint who, ushort skill) =>
+            InstanceEntities.PlayerMinionsChange(conn.Id, [new(who, skill, 5)], Game.CanDetonateMines(conn));
+        bool Has(byte[] haystack, byte[] needle) => haystack.AsSpan().IndexOf(needle) >= 0;
 
-        // Source 0 is the same entry taking it off the roster; the removal rides with the death, before the body goes.
+        // Source 0 is the same entry taking it off the roster; it is written once, with the death.
         conn.Totems.KillAll(Game.AreaTime(conn));
         byte[]? death = Game.TotemPresentation(conn);
         Assert.NotNull(death);
-        byte[] removal = InstanceEntities.PlayerMinionsChange(conn.Id, [new(id, 0, 5)], Game.CanDetonateMines(conn));
-        Assert.True(death.AsSpan().IndexOf(removal) >= 0, "the death carries no roster removal");
+        Assert.True(Has(death, Roster(next, 0)), "the death carries no roster removal");
+        Assert.False(Has(death, Roster(id, 0)), "the replaced totem's removal was sent again");
+        byte[]? again = Game.TotemPresentation(conn);
+        Assert.False(again is not null && Has(again, Roster(next, 0)), "the removal was sent every frame");
 
         byte[] sent = wire.FinishAndDecrypt();
-        byte[] listing = InstanceEntities.PlayerMinionsChange(conn.Id, [new(id, source.Id, 5)], Game.CanDetonateMines(conn));
-        Assert.True(sent.AsSpan().IndexOf(listing) >= 0, "the placement never listed the totem");
+        Assert.True(Has(sent, Roster(id, source.Id)) && Has(sent, Roster(next, source.Id)), "a placement never listed its totem");
+        Assert.True(Has(sent, Roster(id, 0)), "the replaced totem stayed listed");
     }
 
     sealed class Wire : IDisposable
