@@ -165,14 +165,16 @@ public static partial class Game
                     centre = next;
                     return true;
                 }
-                if (!TryRedirect()) return false;
+                if (!TryRedirect(distance)) return false;
             }
         }
 
-        (int X, int Y) Offset((int X, int Y) from, int cells) => (from.X + (int)Math.Floor(direction.X * cells + .5),
-            from.Y + (int)Math.Floor(direction.Y * cells + .5));
+        (int X, int Y) Offset((int X, int Y) from, int cells) => Offset(from, direction, cells);
 
-        bool TryRedirect()
+        static (int X, int Y) Offset((int X, int Y) from, (double X, double Y) heading, int cells) =>
+            (from.X + (int)Math.Floor(heading.X * cells + .5), from.Y + (int)Math.Floor(heading.Y * cells + .5));
+
+        bool TryRedirect(int stepDistance = 0)
         {
             if (redirects <= 0) return false;
             double now = ProjectileWorldTime(player);
@@ -185,6 +187,8 @@ public static partial class Game
                 var at = monster.Walk.Position(now);
                 if (at == centre || !ClientPathfinder.InReach(centre, at, 0, RedirectRange, 0, terrain, precision: 1)
                     || filter?.Invoke(id, at) == false) continue;
+                if (stepDistance > 0 && ClientPathfinder.LineBelow(centre,
+                        Offset(centre, GroundSlamWave.Direction(centre, at), stepDistance), terrain, 1)) continue;
                 if (rng.Next(++eligible) == 0) target = at;
             }
             if (target is not { } heading) return false;

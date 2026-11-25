@@ -3200,8 +3200,14 @@ public static partial class Game
                 if (victim == targets.Count)
                 {
                     if (sunder is null) break;
-                    await SettleSweep();
-                    if (!await sunder.AppendContacts(targets)) break;
+                    var savedScope = StatsScope.Value;
+                    try
+                    {
+                        StatsScope.Value = null;
+                        await SettleSweep();
+                        if (!await sunder.AppendContacts(targets)) break;
+                    }
+                    finally { StatsScope.Value = savedScope; }
                 }
                 if (hexblast && victim > 0 && !hexblastExpanded) break;
                 var (id, m) = targets[victim];
