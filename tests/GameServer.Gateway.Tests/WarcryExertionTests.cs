@@ -1,5 +1,6 @@
 using GameServer.Core;
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -7,8 +8,9 @@ namespace GameServer.Gateway.Tests;
 public sealed class WarcryExertionTests
 {
     [Fact]
-    public void War_bringer_doubles_the_native_count_and_each_eligible_attack_spends_one()
+    public async Task War_bringer_doubles_the_native_count_and_each_eligible_attack_spends_one()
     {
+        await MutewindPennantGrantsOnslaughtAtPaidWarcryRelease();
         using var f = new TriggeredSummonTests.Fixture();
         var player = f.Player;
         var native = IntimidatingCryStats();
@@ -24,6 +26,66 @@ public sealed class WarcryExertionTests
             Assert.Equal(remaining, Game.IntimidatingCryExerts(player));
         }
         Assert.False(Game.ConsumeIntimidatingCryExertLocked(player, eligible: true));
+    }
+
+    static async Task MutewindPennantGrantsOnslaughtAtPaidWarcryRelease()
+    {
+        var shield = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Mutewind Pennant", new Random(17)));
+        uint hash = Program.Items.Mods.ById("OnslaughtOnUsingWarcryUnique__1")!.Hash;
+        Assert.Equal(4000, Assert.Single(Assert.Single(shield.Mods, mod => mod.Hash == hash).Values));
+        var control = shield with { Mods = [.. shield.Mods.Where(mod => mod.Hash != hash)] };
+        var plain = await Warcry(control);
+        var active = await Warcry(shield);
+        Console.WriteLine($"Intimidating Cry Onslaught seconds: {plain} -> {active}");
+        Assert.Equal(0, plain);
+        Assert.Equal(4, active, 6);
+
+        async Task<double> Warcry(Item equipped)
+        {
+            var clock = new AttackClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.At);
+            var items = Game.ItemsOf(player);
+            uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, main, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            items.Add(PlayerInventories.Offhand1, 0, 0, equipped);
+            ushort cry = Assert.Single(fixture.Equip(("Intimidating Cry", 1)));
+            var released = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Observe()
+            {
+                if (player.RecentEvents.Happened(StatConditions.UsedWarcry, clock.At)) released.TrySetResult();
+            }
+            player.RecentEvents.Changed += Observe;
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                Assert.False(Game.KillOnslaughtOf(player).Applied);
+                uint mana = player.PlayerMana;
+                int effect = Game.SupportedSkill(player, cry).Effect;
+                Assert.True(Game.TryBeginSkillCooldownUse(player, cry, effect, Game.CooldownForSkill(player, cry),
+                    instant: false, () => { }, out var cooldown));
+                Assert.True(await Game.CastGemSkill(player, cry, (100, 100), (100, 100), cooldownUse: cooldown));
+                Assert.True(player.PlayerMana < mana);
+                await released.Task.WaitAsync(TimeSpan.FromSeconds(10));
+                using (Game.ProjectileMutation(player, advance: false))
+                {
+                    Assert.Equal(2, Game.IntimidatingCryExerts(player));
+                    double seconds = Math.Max(0, Game.KillOnslaughtOf(player).Until - Game.ProjectileWorldTime(player));
+                    clock.At += 4.1;
+                    Game.KillOnslaughtPresentation(player);
+                    Assert.False(Game.KillOnslaughtOf(player).Applied);
+                    return seconds;
+                }
+            }
+            finally
+            {
+                player.RecentEvents.Changed -= Observe;
+                Game.AreaUpdateContext.Value = previous;
+            }
+        }
     }
 
     [Theory]

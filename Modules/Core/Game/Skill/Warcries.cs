@@ -326,19 +326,25 @@ public static partial class Game
                     UpdateWarcryStats(player);
                 }
             }
-            if (stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0)
+            bool givesAlliesOnslaught = stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0;
+            const double nearbyOnslaught = 4;
+            double personalOnslaught = Math.Max(givesAlliesOnslaught ? nearbyOnslaught : 0,
+                stats.GetValueOrDefault(Stat.GainOnslaughtMsOnUsingAWarcry) / 1000d);
+            if (personalOnslaught > 0 && KillOnslaughtOf(player).Gain(now, personalOnslaught)
+                && Marked(player, PlayerStatStep.Onslaught))
+                (onslaught ??= []).Add(player);
+            if (givesAlliesOnslaught)
             {
-                const double duration = 4;
                 foreach (var owner in (player.Instance?.PlayersExcept(player.Id) ?? []).Prepend(player))
                 {
                     if (owner.Closed || owner.LeavingArea || owner.PlayerLife == 0) continue;
-                    if ((ReferenceEquals(owner, player) || Dist(owner.Walk.Position(now), at) <= radius)
-                        && KillOnslaughtOf(owner).Gain(now, duration) && Marked(owner, PlayerStatStep.Onslaught))
+                    if (!ReferenceEquals(owner, player) && Dist(owner.Walk.Position(now), at) <= radius
+                        && KillOnslaughtOf(owner).Gain(now, nearbyOnslaught) && Marked(owner, PlayerStatStep.Onslaught))
                         (onslaught ??= []).Add(owner);
                     foreach (var fighter in owner.Summons.Fighters.Values)
                         if (!fighter.Monster.Hostile && !fighter.Monster.Dead && fighter.Monster.Life > 0
                             && Dist(fighter.Monster.Walk.Position(now), at) <= radius && GolemCurrent(owner, fighter))
-                            GainMinionOnslaughtLocked(owner, fighter, now, duration);
+                            GainMinionOnslaughtLocked(owner, fighter, now, nearbyOnslaught);
                 }
             }
         }
