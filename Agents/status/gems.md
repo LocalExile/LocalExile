@@ -86,6 +86,8 @@ Nothing yet.
   A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
+  Tinkerskin recovers Energy Shield when an enemy triggers a trap. Slavedriver's Hand moves eligible trap Mana costs
+  to Life for both native and supported traps, with matching skill packet costs.
   Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.

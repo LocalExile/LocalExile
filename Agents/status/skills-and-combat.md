@@ -49,7 +49,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Movement speed and action speed. Docs: [07](../docs/protocol/07-latency-visibility-movement.md) Â§3.
 - Block and Spell Block. Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Endurance, Frenzy, Power, converted and Blood Charges, including Reap's life cost and mixed-target hits. Docs: [11](../docs/protocol/11-skills.md) Â§15.
+- Endurance, Frenzy, Power, converted and Blood Charges, including Reap's life cost and mixed-target hits.
+  Sublime Vision raises the relevant maximum under its matching aura. Ancient Skull reads the resolved Power Charge maximum. Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) Â§14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) Â§5b.
@@ -58,7 +59,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Discipline. Docs: [11](../docs/protocol/11-skills.md) Â§13,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
 - Buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Warcry admission restriction (#297). Docs: [11](../docs/protocol/11-skills.md) Â§10b.
+- Warcry admission restriction (#297). Mutewind Pennant grants four seconds of personal Onslaught on release. Docs: [11](../docs/protocol/11-skills.md) Â§10b.
 - Own-aura restriction (#304). Docs: [11](../docs/protocol/11-skills.md) Â§10c.
 - Spell skills deal no damage (#293). Docs: [20](../docs/protocol/20-damage.md) Â§2g.
 - Spells are released at the cast animation's contact keyframe. Docs: [11](../docs/protocol/11-skills.md) Â§9.
@@ -123,7 +124,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, mainâ€¦), with that
   weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
-  swings, and `skill_double_hits_when_dual_wielding` skills hit with both at once. Not checked live.
+  swings, and `skill_double_hits_when_dual_wielding` skills hit with both at once. Weapon-local Maim follows the
+  participating weapons for melee and projectile attacks. Not checked live.
   Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Holy Sweep's hammers hit, with the client's draws: Hammerfalls' waves fall where the client draws them and follow
   attack speed; Holy Sweep's hammers fall on the server's landed hits, all at contact, where the client uses its own
@@ -205,7 +207,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10f, [20](../docs/protocol/20-damage.md) Â§2e.
 - Player minions: Conviction novas, Multistrike, Ruthless and Melee Splash. Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Infernal Legion causes self-burn and burning damage nearby, and Minion Instability explodes a living minion at Low Life.
-- Life Recoup. Docs: [20](../docs/protocol/20-damage.md) Â§5.
+- Life Recoup, including actual Life lost by owned totems. Docs: [20](../docs/protocol/20-damage.md) Â§5.
 - Master Toxicist, Call to Arms, chaos pair resistances, chaos Energy Shield opt-out; Mana Recoup before Ward.
 - Ancestral Commander defences. Docs: [Ancestral Commander](../docs/game/ancestral-commander.md),
   [20](../docs/protocol/20-damage.md) Â§4.
@@ -217,7 +219,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Watcher's Eye modifiers for Pride combat, elemental and critical penetration, Grace blind, Haste debuff expiry,
   and Clarity mana recovery apply while the matching aura is active. The legacy Zealotry modifiers apply to
-  owned Consecrated Ground and grant Arcane Surge when creating it.
+  owned Consecrated Ground and grant Arcane Surge when creating it. The linger modifier is captured when the
+  ground is created. It expires relative to leaving or ground expiry, and clears on death.
 - Flesh and Stone and Blood and Sand. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Passive-granted skills and Summon Elemental Relic.
   Docs: [11](../docs/protocol/11-skills.md) §13, [Paladin](../docs/game/paladin.md).
@@ -352,7 +355,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
   Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
-- Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
+- Totems: Rejuvenation, Arc and Arc of Oscillating, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
   A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
