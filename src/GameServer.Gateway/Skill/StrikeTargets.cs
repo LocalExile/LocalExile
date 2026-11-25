@@ -72,12 +72,17 @@ public static class StrikeTargets
         /// within 5 cells of where it stands now (the client skips a location whose squared distance is under 25,
         /// <c>0x141ca9940</c>).</summary>
         public (int X, int Y)? Use(ushort skill, (int X, int Y) player, (int X, int Y) centre)
+            => UseWithOrigin(skill, player, centre)?.Centre;
+
+        /// <summary>Records a use and retains the original facing of the previous strike.</summary>
+        public ((int X, int Y) Player, (int X, int Y) Centre)? UseWithOrigin(ushort skill,
+            (int X, int Y) player, (int X, int Y) centre)
         {
             bool had = last.TryGetValue(skill, out var previous);
             last[skill] = (player, centre);
             if (!had) return null;
             long dx = previous.Player.X - player.X, dy = previous.Player.Y - player.Y;
-            return dx * dx + dy * dy < 25 ? null : previous.Centre;
+            return dx * dx + dy * dy < 25 ? null : previous;
         }
 
         /// <summary>The skill's <c>skill_location_memory</c> buff instance, or a new one (true) to send.</summary>

@@ -11,6 +11,7 @@ public static partial class Game
     public readonly record struct Cull(int Threshold, int RecoverLifePct, int NormalMagicThreshold = 0, bool CannotKill = false)
     {
         public bool AgainstBleedingWithWeapon { get; init; }
+        internal bool ShatterFrozen { get; init; }
 
         public Cull WithWeapon(IReadOnlyDictionary<uint, int>? local) => local is null ? this
             : this with { AgainstBleedingWithWeapon = local.GetValueOrDefault(Stat.LocalCullingStrikeVsBleedingEnemies) != 0 };
@@ -77,7 +78,17 @@ public static partial class Game
             threshold = 0;
         }
         uint beforeHit = m.Life;
+        bool shatter = cull.ShatterFrozen && !cull.CannotKill && m.Rarity != MonsterRarity.Unique
+            && beforeHit * 3L < m.MaxLife
+            && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, ProjectileWorldTime(player)) > 0;
         var hit = TakeOwnerDamageLocked(player, m, damage, rampageSource, playerStats);
+        // Glacial Hammer's shatter has its own condition and leaves no overkill damage or cull recovery.
+        if (shatter && hit.Life > 0 && !hit.StageStarts && !m.StageRunning)
+        {
+            m.Overkill = 0;
+            m.Life = hit.Life;
+            return TakeOwnerDamageLocked(player, m, (int)Math.Min(int.MaxValue, hit.Life), rampageSource, playerStats);
+        }
         // The direct hit's excess feeds overkill effects; a subsequent cull contributes no overkill.
         m.Overkill = beforeHit > 0 && hit.Life == 0
             ? (int)Math.Clamp((long)damage - beforeHit, 0, int.MaxValue) : 0;

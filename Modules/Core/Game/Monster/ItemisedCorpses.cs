@@ -12,7 +12,7 @@ public static partial class Game
         ItemisedCorpses = (rows, new(rows.Values));
     }
 
-    static readonly MonsterModSet ItemisedCorpseStats = MonsterModSet.None with
+    static readonly MonsterModSet SpectralCorpseStats = MonsterModSet.None with
         { Effects = new(new Dictionary<uint, int> { [Stat.IsSpectreCorpse] = 1 }) };
 
     internal static bool IsSpectreCorpse(SpawnedMonster monster) => monster.Mods.Effects[Stat.IsSpectreCorpse] != 0;
@@ -44,7 +44,7 @@ public static partial class Game
         }
 
         byte level = (byte)Math.Clamp(Packs.For(player.Layout.Id)?.AreaLevel ?? Math.Max(1, (int)item.Item.ItemLevel), 1, 100);
-        uint id = await PlaceItemisedCorpse(player, variety, at, level, ItemisedCorpseStats, Current, TakeItem);
+        uint id = await PlaceItemisedCorpse(player, variety, at, level, SpectralCorpseStats, Current, TakeItem);
         if (id == 0 || consumed is not { } taken) return true;
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), [item.Id],
             taken.Left is { } left ? [left] : []), $"0x00bf {type.Name} used to place corpse 0x{id:x}");

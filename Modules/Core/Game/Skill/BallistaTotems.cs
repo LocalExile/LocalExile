@@ -10,8 +10,7 @@ public static partial class Game
     public static bool BallistaPathAvailable(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);
-        if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) == 0 || !BallistaEffect(player, gem.Effect)
-            || GolemStat(gem.Stats, Stat.RangedAttackTotemOnlyAttacksWhenOwnerAttacks) != 0) return false;
+        if (GolemStat(gem.Stats, Stat.IsRangedAttackTotem) == 0 || !BallistaEffect(player, gem.Effect)) return false;
         var hand = WeaponProfileFor(player, activeSet: true);
         return (hand.Bow || WeaponFor(player).WieldingWand) && WeaponRestricted(player, gem.Effect) is null;
     }
@@ -30,6 +29,8 @@ public static partial class Game
         long limit = (long)BaseTotemsAllowed + GolemStat(stats, Stat.NumberOfAdditionalTotemsAllowed)
             + Math.Max(0, GolemStat(own, Stat.BaseNumberOfTotemsAllowed));
         if (GolemStat(stats, Stat.KeystoneAncestralBond) != 0) limit++;
+        if (GolemStat(own, Stat.NumberOfAdditionalTotemsAllowedPerMaximumPowerCharge) is int perPower and not 0)
+            limit += (long)perPower * OwnerMaximumPowerCharges(stats);
         if (SkillsFor(player).IsAttack(effect)) limit += GolemStat(stats, Stat.AttackSkillsAdditionalTotemsAllowed);
         if (GolemStat(own, Stat.IsRangedAttackTotem) != 0)
             limit += GolemStat(stats, Stat.AttackSkillsAdditionalBallistaTotemsAllowed);

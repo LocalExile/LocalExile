@@ -2,21 +2,33 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void ApplySelfHitLocked(Player player, DamagePacket hit, double now)
+    static void ApplySelfHitLocked(Player player, DamagePacket hit, double now, bool reflectedPhysical = false)
     {
         var stats = PlayerStatValues(player);
         int Get(uint stat) => stats.GetValueOrDefault(stat);
         if (player.Immune || Get(Stat.BaseCannotBeDamaged) != 0) return;
+        if (reflectedPhysical && (Get(Stat.CannotTakeReflectedPhysicalDamage) != 0
+            || Get(Stat.VirtualCannotTakeReflectedPhysicalDamage) != 0
+            || Get(Stat.MapPlayersCannotTakeReflectedDamage) != 0
+            || (MapModsOf(player)?.Get(Stat.MapPlayersCannotTakeReflectedDamage) ?? 0) != 0))
+            return;
         using var defenceTime = FortificationOf(player).Capture(now);
         var shifted = PlayerDamageTaken.Shift(hit, Get);
         var immune = PlayerImmunities(player, stats);
         bool usesArmour = shifted.Components.Any(c => !immune.Contains(c.Type)
             && PlayerHitMitigation.ArmourPercent(player.Pools, c.Type, Get) > 0);
         var armour = IncomingArmourLocked(player, usesArmour, player.RecentEnemyHits.Count(now), stats);
+        int reflectedTaken = reflectedPhysical ? ActorScale.Saturate((long)Get(Stat.ReflectDamageTakenPlusPct)
+            + Get(Stat.PhysicalReflectDamageTakenPlusPct) + Get(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)
+            + Get(Stat.PhysicalReflectDamageTakenAndMinionPhysicalReflectDamageTakenPlusPct)) : 0;
         var taken = shifted.Select((type, range) =>
         {
-            int damage = immune.Contains(type) ? 0 : MitigateTakenWithArmour(player, type, (int)range.Min,
-                Resistance(player, type), MaxResistance(player, type), armour.EffectiveArmour, stats, attack: false);
+            int resisted = type == DamageType.Physical ? (int)range.Min
+                : DamageModel.Mitigate((int)range.Min, Resistance(player, type), MaxResistance(player, type));
+            int damage = immune.Contains(type) ? 0 : FortificationDamageTaken(player,
+                TakenAfterResistance(player, type, resisted, armour.EffectiveArmour, stats,
+                    attack: false, ranged: false, spell: false, additionalIncreased: reflectedTaken));
+
             return new(damage, damage);
         });
         RecoupHitLocked(player, taken, now, stats);
@@ -49,7 +61,11 @@ public static partial class Game
     // Accepted, mitigated hit components: Ward once, typed ES, then defensive Mana (PlayerDamageTaken). types: the hit's
     // damage by type (only its proportions count).
     public static int DamagePlayerHitTyped(Player player, int physical, int other, int chaos, double at,
-        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types)
+        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types) =>
+        DamagePlayerHitFrom(player, physical, other, chaos, at, playerStats, types, attacker: 0);
+
+    static int DamagePlayerHitFrom(Player player, int physical, int other, int chaos, double at,
+        IReadOnlyDictionary<uint, int> playerStats, GameServer.Core.World.DamagePacket types, uint attacker)
     {
         if (player.Immune) return 0;
         // "You cannot be Damaged or Killed": base_cannot_be_damaged (BuffDefinitions 261 shrine_godmode, the Divine
@@ -94,11 +110,13 @@ public static partial class Game
             chaos = (int)keptTotal - keptNonChaos;
         }
         recoupable -= diverted;
-        RecordDamageTakenTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at);
+        RecordIncomingHitTriggers(player, (int)Math.Min(int.MaxValue, (long)physical + other + chaos), at, stunned: false, attacker: attacker);
         (physical, other, chaos) = AbsorbPlayerWard(player, physical, other, chaos, at, playerStats);
         CrabPhysicalHitLocked(player, physical, at, playerStats);
-        bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
-        int bypass = Get(IncomingResourceDefences.BypassStat);
+        bool divineFlesh = Get(Stat.KeystoneDivineFlesh) != 0;
+        bool protectsMana = !divineFlesh
+            && (Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0);
+        int bypass = divineFlesh ? 100 : Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
@@ -106,7 +124,8 @@ public static partial class Game
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
         // Chaos bypasses Energy Shield by default; "Chaos Damage taken does not bypass Energy Shield" and its conditional
         // forms opt out of that, which only Energy Shield that still protects Life can honour.
-        int chaosLife = player.EnergyShield.Damage(chaos, protectsMana || ChaosDamageBypassesEnergyShield(player, playerStats), at);
+        int chaosLife = divineFlesh ? chaos
+            : player.EnergyShield.Damage(chaos, protectsMana || ChaosDamageBypassesEnergyShield(player, playerStats), at);
         var manaTypes = RemainingManaDamageTypes(types, physicalLife, otherLife);
         int manaPool = protectsMana ? (int)Math.Min(int.MaxValue, (long)player.PlayerMana + player.EnergyShield.Current) : (int)player.PlayerMana;
         int fromMana = PlayerDamageTaken.FromMana(nonChaosLife, chaosLife, manaTypes, manaPool, Get);
@@ -130,7 +149,7 @@ public static partial class Game
         if (chaosDamage <= 0) return 0;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
-        bool bypass = ChaosDamageBypassesEnergyShield(player, playerStats);
+        bool bypass = Get(Stat.KeystoneDivineFlesh) != 0 || ChaosDamageBypassesEnergyShield(player, playerStats);
         int remaining = IncomingResourceDefences.DamageOverTime(player.EnergyShield, chaosDamage,
             (protectsMana || bypass) ? 100 : 0, at, ref player.ChaosDotBypassCarry);
         if (remaining <= 0) return 0;
@@ -194,7 +213,14 @@ public static partial class Game
         int total = (int)Math.Min(int.MaxValue, (long)nonChaos + chaos);
         player.Ward.Advance(now);
         bool wasBroken = player.Ward.Broken;
-        int remaining = player.Ward.Damage(total, now, Get);
+        int WardStat(uint key)
+        {
+            int value = Get(key);
+            if (key != Stat.WardDoesNotBreak || value != 0) return value;
+            long chance = Get(Stat.WardPctChanceToNotBreak) + (Get(Stat.KeystoneMedvedsExchange) != 0 ? 60L : 0);
+            return chance > 0 && RandomRolls.Chance((int)Math.Min(100, chance), 100, player.IncomingHitRandom) ? 1 : 0;
+        }
+        int remaining = player.Ward.Damage(total, now, WardStat);
         int absorbed = total - remaining;
         // Ordered absorption keeps chaos bypassing ES. The supported shared Ward bypass is applied per component.
         int bypass = Math.Clamp(Get(Stat.BaseDamageBypassWardPct), 0, 100);

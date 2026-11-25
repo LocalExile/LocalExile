@@ -395,8 +395,12 @@ public static partial class MonsterSkills
             // position mid-Dash, the jump at the order 17).
             if (isDash) m.Walk.Slide(target.X, target.Y, seconds, startedAt);
             else if (use.Shape == MonsterSkillShape.Travel) m.Walk.Teleport(target.X, target.Y, startedAt);
+            uint? targetObject = use.Shape == MonsterSkillShape.Curse ? player.Id : null;
+            // FireShield reads the target's Life component at contact even when the caster shields itself.
+            if (use.Shape == MonsterSkillShape.Self && a.Effect is int effect && SkillCatalog.ActionTypeId(effect) == "FireShield")
+                targetObject = id;
             return InstanceProtocol.ActionStarted(id, from.X, from.Y, target.X, target.Y, a.SkillId, seq, player.MonsterOrderFlags,
-                targetObjectId: use.Shape == MonsterSkillShape.Curse ? player.Id : null);
+                targetObjectId: targetObject);
         }, $"0x01ab monster 0x{id:x} ({m.Label}) uses {use.Shape} skill 0x{a.SkillId:x4}, {seconds:0.00} s")) return;
         if (!await WaitMonsterActionTime(player, id, m, action, startedAt + seconds * (StanceContact(player, m, a, seq) ?? .6))) return;
         switch (use.Shape)

@@ -184,7 +184,7 @@ public static class Act9To10Encounters
 
     internal static async Task<(int Generation, MonsterAttack Attack)?> CastAction(Player runner, uint bossId, SpawnedMonster boss,
         int[] effects, int effect, (int X, int Y) aim, double now, DamageType fallbackElement, double fallbackScale, double radius,
-        string tag, bool? forceSpell = null, double extraRecovery = 0.25)
+        string tag, bool? forceSpell = null, double extraRecovery = 0.25, uint? targetObjectId = null)
     {
         var atk = BuildAttack(runner, boss, effects, effect, fallbackElement, fallbackScale, radius, forceSpell);
         var pos = boss.Walk.Position(now);
@@ -194,7 +194,8 @@ public static class Act9To10Encounters
         boss.BusyUntil = now + Math.Max(0.6, atk.Seconds) + extraRecovery;
         ushort slot = SkillSlot(effects, effect);
         bool sent = await SendMonsterAction(runner, bossId, boss, generation,
-            () => [.. InstanceProtocol.ActionStarted(bossId, pos.X, pos.Y, aim.X, aim.Y, slot, runner.NextActionSequence(), 0x0408),
+            () => [.. InstanceProtocol.ActionStarted(bossId, pos.X, pos.Y, aim.X, aim.Y, slot, runner.NextActionSequence(), 0x0408,
+                       targetObjectId: targetObjectId),
                    .. InstanceProtocol.ActionEnded(bossId)],
             $"[{tag}] {SkillsFor(runner).EffectId(effect)}");
         return sent ? (generation, atk) : null;

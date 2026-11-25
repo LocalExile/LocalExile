@@ -2,6 +2,7 @@ public static partial class Game
 {
     // Placement and expiry update the area list. Contacts only inspect owners with a live source.
     static readonly RuleTable<GameArea, Player[]> RejuvenationCasters = new();
+    static readonly RuleTable<GameArea, Player[]> RejuvenationRedirectCasters = new();
     static readonly RuleTable<Player, AuraPotency> RejuvenationPotencies = new();
 
     sealed record AuraPotency(int Percent);
@@ -9,7 +10,8 @@ public static partial class Game
     static (Player Owner, TotemState.Totem Totem)? RejuvenationTotemAt(Player recipient, (int X, int Y) at,
         bool preferRegeneration = false)
     {
-        if (recipient.Frames.Area is not { } area || !RejuvenationCasters.TryGetValue(area, out var casters)) return null;
+        var sources = preferRegeneration ? RejuvenationCasters : RejuvenationRedirectCasters;
+        if (recipient.Frames.Area is not { } area || !sources.TryGetValue(area, out var casters)) return null;
         (Player Owner, TotemState.Totem Totem)? source = null;
         double strongest = double.NegativeInfinity;
         double distance = double.PositiveInfinity;
@@ -20,7 +22,8 @@ public static partial class Game
             double now = AreaTime(owner);
             foreach (var totem in owner.Totems.All)
             {
-                if (totem.Aura is not { HitRedirectPercent: > 0 } aura || !totem.Alive(now)) continue;
+                if (totem.Aura is not { } aura || !totem.Alive(now)
+                    || !preferRegeneration && aura.HitRedirectPercent <= 0) continue;
                 double reach = Dist(totem.At, at);
                 if (reach > aura.Radius) continue;
                 double strength = preferRegeneration ? LifeRegenerationRate(owner, aura) : RejuvenationRedirectPct(owner, aura);
@@ -40,25 +43,27 @@ public static partial class Game
     static void SyncRejuvenationAllyZones(Player owner, double now, bool leaving = false)
     {
         if (owner.Frames.Area is not { } area) return;
-        var casters = RejuvenationCasters.TryGetValue(area, out var known) ? known : [];
-        bool registered = Array.IndexOf(casters, owner) >= 0;
         List<TotemState.Totem>? live = null;
+        bool redirectsHits = false;
         if (!leaving)
         {
             foreach (var t in owner.Totems.All)
-                if (t.Aura is { HitRedirectPercent: > 0 } && t.Alive(now))
+                if (t.Aura is { } aura && t.Alive(now))
+                {
                     (live ??= []).Add(t);
+                    redirectsHits |= aura.HitRedirectPercent > 0;
+                }
         }
+        // Ordinary totems share regeneration. Keep them out of the per-hit redirect lookup.
+        bool registrationChanged = SetRejuvenationCaster(RejuvenationCasters, area, owner, live is not null);
+        SetRejuvenationCaster(RejuvenationRedirectCasters, area, owner, redirectsHits);
         if (live is null)
         {
-            if (!registered) return;
-            if (casters.Length == 1) RejuvenationCasters.Remove(area);
-            else RejuvenationCasters.AddOrUpdate(area, casters.Where(p => !ReferenceEquals(p, owner)).ToArray());
+            if (!registrationChanged) return;
             RejuvenationPotencies.Remove(owner);
         }
         else
         {
-            if (!registered) RejuvenationCasters.AddOrUpdate(area, [.. casters, owner]);
             int potency = owner.Pools.AuraEffectPct;
             if (!RejuvenationPotencies.TryGetValue(owner, out var previous) || potency != previous.Percent)
             {
@@ -80,6 +85,16 @@ public static partial class Game
             MarkPlayerStats(ally, PlayerStatStep.TotemAura);
             PresentNearby(ally);
         }
+    }
+
+    static bool SetRejuvenationCaster(RuleTable<GameArea, Player[]> sources, GameArea area, Player owner, bool active)
+    {
+        var casters = sources.TryGetValue(area, out var known) ? known : [];
+        if ((Array.IndexOf(casters, owner) >= 0) == active) return false;
+        if (active) sources.AddOrUpdate(area, [.. casters, owner]);
+        else if (casters.Length == 1) sources.Remove(area);
+        else sources.AddOrUpdate(area, casters.Where(p => !ReferenceEquals(p, owner)).ToArray());
+        return true;
     }
 
     static Task SendReceivedTotemAura(Player player)
