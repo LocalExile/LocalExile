@@ -2661,10 +2661,12 @@ public static partial class Game
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
         double chargeAttackMore = 1, chargeRadius = 1;
         int perChargeDamage = Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge);
-        int perChargeArea = Stat(global::Stat.ActiveSkillAreaOfEffectPlusPctFinalPerEnduranceCharge);
+        // Normal Tectonic Slam resolves its per-Endurance-Charge area in CommitTectonicSlamLocked before spending on every 3rd slam.
+        int perChargeArea = SkillsFor(player).EffectId(gem.Effect) == "TectonicSlam" ? 0
+            : Stat(global::Stat.ActiveSkillAreaOfEffectPlusPctFinalPerEnduranceCharge);
         if (!spell && (perChargeDamage != 0 || perChargeArea != 0))
         {
-            int charges = cooldownUse?.EnduranceChargesAfterCost ?? ChargesOf(player).Effective(ChargeType.Endurance);
+            int charges = cooldownUse?.EnduranceChargesAfterCost ?? EffectiveEnduranceCharges(player);
             chargeAttackMore = Math.Max(0, 1 + perChargeDamage * (double)charges / 100);
             chargeRadius = SkillArea.RadiusMultiplier(ActorScale.Saturate((long)perChargeArea * charges));
         }

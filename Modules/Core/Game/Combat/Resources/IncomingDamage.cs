@@ -7,6 +7,11 @@ public static partial class Game
         var stats = PlayerStatValues(player);
         int Get(uint stat) => stats.GetValueOrDefault(stat);
         if (player.Immune || Get(Stat.BaseCannotBeDamaged) != 0) return;
+        if (reflectedPhysical && (Get(Stat.CannotTakeReflectedPhysicalDamage) != 0
+            || Get(Stat.VirtualCannotTakeReflectedPhysicalDamage) != 0
+            || Get(Stat.MapPlayersCannotTakeReflectedDamage) != 0
+            || (MapModsOf(player)?.Get(Stat.MapPlayersCannotTakeReflectedDamage) ?? 0) != 0))
+            return;
         using var defenceTime = FortificationOf(player).Capture(now);
         var shifted = PlayerDamageTaken.Shift(hit, Get);
         var immune = PlayerImmunities(player, stats);

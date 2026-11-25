@@ -332,7 +332,7 @@ public static partial class Game
             if (reserve && plan is not null && skillId is ushort chargeAttack && SkillsFor(player).IsAttack(effect)
                 && Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge is var perCharge
                 && GolemStat(SupportedSkill(player, chargeAttack).Stats, perCharge) != 0)
-                enduranceCharges = ChargesOf(player).Effective(ChargeType.Endurance);
+                enduranceCharges = EffectiveEnduranceCharges(player);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -357,6 +357,12 @@ public static partial class Game
     // and 0x52e2 (base_cooldown_refresh_chance_%) for any skill with a cooldown.
     internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
     internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
+
+    static int EffectiveEnduranceCharges(Player player)
+    {
+        var charges = ChargesOf(player);
+        return charges.Converted(ChargeType.Endurance) ? 0 : charges.Effective(ChargeType.Endurance);
+    }
 
     internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random) =>
         CooldownResetTriggered(player, effect, skillId, random, out _);

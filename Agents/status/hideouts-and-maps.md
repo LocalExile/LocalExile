@@ -133,8 +133,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
 - Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
-- Tier 17 Marked for Death follows player-owned rare and unique kills. The impale affix applies on monster attacks and
-  detonates the remaining physical damage around a player on the fifth impale.
+- Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
 - Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.

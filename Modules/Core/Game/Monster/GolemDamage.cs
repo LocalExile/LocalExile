@@ -170,6 +170,9 @@ public static partial class Game
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
+        if (reflectedPhysical && (effects[Stat.CannotTakeReflectedPhysicalDamage] != 0
+            || effects[Stat.VirtualCannotTakeReflectedPhysicalDamage] != 0))
+            return false;
         int reflectedTaken = reflectedPhysical ? ActorScale.Saturate((long)effects[Stat.PhysicalReflectDamageTakenPlusPct]
             + effects[Stat.ReflectDamageTakenPlusPct] + Player(Stat.MinionsReflectedDamageTakenPlusPct)
             + Player(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)

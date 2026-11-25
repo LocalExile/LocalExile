@@ -148,6 +148,8 @@ public static class AilmentPanelStats
         (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
             ? WeaponTypeDamage.Ailment(get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType), get)
             : (0, default);
+        if (attack && context.WeaponStats?.GetValueOrDefault(Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct) is not (null or 0) and int localElemental)
+            weaponExtra = weaponExtra with { Elemental = ActorScale.Saturate((long)weaponExtra.Elemental + localElemental) };
         common += weaponAny;
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();

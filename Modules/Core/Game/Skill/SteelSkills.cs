@@ -179,8 +179,17 @@ public static partial class Game
         var session = context.Session;
         int block = context.Own(Stat.AdditionalBlockChanceAgainstProjectilesPctPerSteelCharge);
         double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration), context.PlayerStat, context.Own);
-        if (block <= 0 || duration <= 0 || state.Wards.Count >= SteelWardLimit) return;
-        long expires = session.Runtime.Now + ProjectileRuntime.Time(duration);
+        if (block <= 0 || duration <= 0) return;
+        long now = session.Runtime.Now;
+        state.Wards.RemoveAll(ward => ward.Expires <= now);
+        if (state.Wards.Count >= SteelWardLimit)
+        {
+            int oldest = 0;
+            for (int i = 1; i < state.Wards.Count; i++)
+                if (state.Wards[i].Expires < state.Wards[oldest].Expires) oldest = i;
+            state.Wards.RemoveAt(oldest);
+        }
+        long expires = now + ProjectileRuntime.Time(duration);
         state.Wards.Add((expires, block));
         PresentSteelWard(player, state);
         void Expire()
@@ -212,8 +221,12 @@ public static partial class Game
             return;
         }
         int total = ActorScale.Saturate(state.Wards.Sum(ward => (long)ward.Block));
+        long nowTicks = player.ProjectileRuntime is { Active: true } runtime ? runtime.Runtime.Now : ProjectileRuntime.Time(AreaTime(player));
+        long maxExpires = state.Wards.Max(ward => ward.Expires);
+        double remaining = (maxExpires - nowTicks) / (double)ProjectileRuntime.QuantaPerSecond;
         area.SetStatBuff(new EntityId(player.Id), state, new Dictionary<uint, int> { [Stat.AdditionalBlockChanceAgainstProjectilesPct] = total });
-        area.Buffs.Set(player.Id, new(SteelWardBuff, player.Id, Values: [(uint)total], Stacks: (ushort)stacks));
+        area.Buffs.Set(player.Id, new(SteelWardBuff, player.Id, Values: [(uint)total],
+            U68: remaining > 0 ? Buff.Seconds(remaining) : null, Stacks: (ushort)stacks));
     }
 
     static void ClearSteelWardOnDeath(Player player)
