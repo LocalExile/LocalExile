@@ -126,6 +126,7 @@ public static partial class Game
                     projectileAttack: true)),
             MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
+            OffHandWeapon = hand == AttackHand.Off,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             LocalStunThresholdReduction = sourceWeapon.LocalSources?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,

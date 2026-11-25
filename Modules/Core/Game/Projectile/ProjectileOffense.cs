@@ -65,6 +65,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal int CompletedChainDamagePercent { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (HitRollModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
+    internal bool OffHandWeapon { get; init; }
     public string? WeaponClass { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;

@@ -532,7 +532,7 @@ public static partial class Game
                 var poison = ScaleSnipePoison(SupportedPoison(player, skillId, false, playerStats, null, 0, capturedInputs), factor);
                 var accuracy = SupportedAccuracy(player, skillId, AttackHand.Main);
                 var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
-                var ailmentStats = WithWeaponMaim(skillStats, local);
+                var ailmentStats = WithWeaponAilmentStats(skillStats, local);
                 var resMods = HitResistMods(playerStats, skillStats);
                 int critMult = SupportedCriticalMultiplier(player, skillId);
                 var impale = WeaponImpaleSettings(playerStats, Stats, attack: true, skillStats, weapon);

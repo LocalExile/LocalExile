@@ -315,7 +315,7 @@ public static partial class Game
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             var attackSource = HandWeapon(player, hand);
             var local = attackSource.LocalSources;
-            var ailmentStats = WithWeaponMaim(skillStats, local);
+            var ailmentStats = WithWeaponAilmentStats(skillStats, local, offHand: hand == AttackHand.Off);
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);

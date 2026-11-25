@@ -50,18 +50,20 @@ public static partial class Game
     public static double BlindSeconds(Func<uint, int> get) =>
         HitDebuffSeconds * Math.Max(0, 1 + get(Stat.BlindDurationPlusPct) / 100.0);
 
-    static IReadOnlyDictionary<uint, int>? WithWeaponMaim(IReadOnlyDictionary<uint, int>? skill,
-        IReadOnlyDictionary<uint, int>? weapon, IReadOnlyDictionary<uint, int>? otherMaimWeapon = null)
+    static IReadOnlyDictionary<uint, int>? WithWeaponAilmentStats(IReadOnlyDictionary<uint, int>? skill,
+        IReadOnlyDictionary<uint, int>? weapon, bool offHand = false, IReadOnlyDictionary<uint, int>? otherWeapon = null)
     {
-        if (weapon is null && otherMaimWeapon is null) return skill;
+        if (weapon is null && otherWeapon is null) return skill;
         int guaranteed = (weapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0)
-            | (otherMaimWeapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0);
+            | (otherWeapon?.GetValueOrDefault(Stat.LocalMaimOnHit) ?? 0);
         int chance = ActorScale.Saturate((long)(weapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0)
-            + (otherMaimWeapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0));
-        if (guaranteed == 0 && chance == 0) return skill;
+            + (otherWeapon?.GetValueOrDefault(Stat.LocalMaimOnHitPct) ?? 0));
+        int chillMs = (offHand ? weapon : otherWeapon)?.GetValueOrDefault(Stat.LocalChillOnHitMsIfInOffHand) ?? 0;
+        if (guaranteed == 0 && chance == 0 && chillMs <= 0) return skill;
         Dictionary<uint, int> hit = skill is null ? new() : new(skill);
-        hit[Stat.LocalMaimOnHit] = guaranteed;
-        hit[Stat.LocalMaimOnHitPct] = chance;
+        if (guaranteed != 0) hit[Stat.LocalMaimOnHit] = guaranteed;
+        if (chance != 0) hit[Stat.LocalMaimOnHitPct] = chance;
+        if (chillMs > 0) hit[Stat.LocalChillOnHitMsIfInOffHand] = chillMs;
         return hit;
     }
 

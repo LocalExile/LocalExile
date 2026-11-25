@@ -459,6 +459,7 @@ public static partial class Game
             SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            OffHandWeapon = swingHand == AttackHand.Off,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
             SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,
             ProjectileAttack = projectileDamage && !spell && SkillsFor(player).IsProjectile(gem.Effect),
