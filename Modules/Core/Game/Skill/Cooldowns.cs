@@ -346,7 +346,7 @@ public static partial class Game
                 SharedUses = sharedUses, Paid = paid, Attack = attack,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
-            accepted.EnduranceChargesAfterCost = enduranceCharges;
+            if (ticket is not null) ticket.EnduranceChargesAfterCost = enduranceCharges;
             return true;
         }
     }
