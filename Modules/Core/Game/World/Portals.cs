@@ -244,6 +244,7 @@ public static partial class Game
 
     static ushort MapPortalVariation(MapDevice.OpenMap run, int index)
     {
+        if (run.PortalVariation != 0) return run.PortalVariation;   // the recipe's own portal (MapDeviceRecipes)
         byte mode = CharacterSaves.Cosmetics(run.Owner).GetValueOrDefault(InstanceMicrotransactions.PortalSlot) is
             { Record: 0, Option: 1 or 2 } choice ? choice.Option : (byte)0;
         if (mode == 0 || Cosmetics.Portals.Count == 0) return CharacterSaves.PortalCosmetic(run.Owner);

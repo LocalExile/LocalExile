@@ -34,13 +34,14 @@ static class PortalsFeature
         ushort destination = origin?.Area ?? hideout!.AreaHash16;
         var (x, y) = player.Layout.Near((player.Layout.SpawnX, player.Layout.SpawnY));
         uint id = player.TakeObjectId();
-        await global::Game.ListStandingPortal(player, id, destination, "the return portal");
+        ushort? variation = global::Game.MapRunOf(player) is { PortalVariation: not 0 } run ? run.PortalVariation : null;
+        await global::Game.ListStandingPortal(player, id, destination, "the return portal", variation: variation);
         await global::Game.SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
             new MapPortalObject(x, y, -1, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
                 $"0x02bb create the return portal 0x{id:x} at ({x}, {y})", wake: true, awaitBirth: false);
         player.ReturnPortal = (id, x, y);
         player.ReturnPortalTo = 0;
-        global::Game.ListPortal(player, id, destination, "the return portal", MapPortalEntryMs);
+        global::Game.ListPortal(player, id, destination, "the return portal", MapPortalEntryMs, variation: variation);
     }
 
     // A click on a map portal (C→S 0x24): walk there, then the portal is used up and the player goes into the open map, a new
@@ -243,7 +244,7 @@ static class PortalsFeature
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
             campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
-            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount);
+            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount, portalVariation: opening.PortalVariation);
         if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         else if (!ClientHasQuestFlag(player, "MapDeviceActive"))

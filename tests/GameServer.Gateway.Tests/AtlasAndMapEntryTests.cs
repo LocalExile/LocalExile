@@ -77,6 +77,9 @@ public sealed class AtlasAndMapEntryTests
             var simRun = MapDevice.Run.Of(owner, simOpen);
             Assert.False(simRun.Atlas);
             Assert.Equal((byte)0, simRun.BossOption);
+            Assert.Equal((ushort)0, simRun.PortalVariation); // no recipe variation: the owner's cosmetic stays
+            var recipeRun = MapDevice.Run.Of(owner, MapDevice.Activate(owner, nonAtlasArea, MapMods.None, 0, null, null, 0, null, 6, portalVariation: 87));
+            Assert.Equal((ushort)87, recipeRun.PortalVariation); // a recipe's variation reaches the run
 
             // BossOption eligibility gating: requires UsesAtlas, non-Unique, tier >= minTier (T1 Maven, T9+ Eater/Exarch), and unlock flag.
             var rareMods = new MapMods(new Dictionary<uint, int>()) { MapRarity = ItemRarity.Rare };

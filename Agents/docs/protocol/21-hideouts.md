@@ -276,6 +276,7 @@ it survives a relog. `/cosmetic off` puts it back to 0, the base effect, and cle
 name, or the whole of it picks one, and a piece several effects share is answered with the list of them and their numbers
 (`CosmeticCatalog.Matches`) instead of the first being applied — the client's chat prompt completes nothing, so the list
 is the completion ([10](10-chat-and-commands.md) §4).
+A map device recipe with a `MapDeviceRecipes.MicrotransactionPortalVariation` (a `MicrotransactionPortalVariations` row; 0x8f takes that row's Index, e.g. the Domain recipes' 86 is wire 87, the Legion portal) draws its run's portals with it in every entry, whoever the owner is; other runs keep the owner's cosmetic.
 That the client swaps the effect on a re-sent 0x008f is what the dev command tests; a portal whose variation the client
 cannot resolve is expected to fall back to the default. Seen live 2026-10-21: the swap works — variation 6 draws the
 Black Hole effect on all six Beach portals, in place of the base visual and with no second object. **The orientation is

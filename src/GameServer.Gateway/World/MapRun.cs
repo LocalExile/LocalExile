@@ -109,7 +109,7 @@ public sealed class MapRunCatalog
     public sealed record Fragment(int Family, int Limit, int MinAreaLevel, IReadOnlyList<int> ModRows);
 
     public sealed record Recipe(string Id, IReadOnlyList<int> Items, bool AnyOne, int WorldArea, int AreaLevel,
-        IReadOnlyList<int> ModRows);
+        IReadOnlyList<int> ModRows, ushort PortalVariation = 0);
 
     readonly Dictionary<int, Fragment> _fragments;
     readonly List<Recipe> _recipes;
@@ -158,11 +158,16 @@ public sealed class MapRunCatalog
                 int[] recipeMods = [.. row.Ints("Mods")];
                 recipes.Add(new(row.Text("Id") ?? "", items, anyOne,
                     area, (row.IntOrNull("AreaLevel") ?? 0),
-                    recipeMods));
+                    recipeMods, PortalVariationOf(row.IntOrNull("MicrotransactionPortalVariation"))));
             }
         }
         return new MapRunCatalog(fragments, recipes, LoadQualityTypes(folder));
     }
+
+    // MicrotransactionPortalVariation is a row of MicrotransactionPortalVariations; 0x8f names that row by its Index.
+    static ushort PortalVariationOf(int? row) =>
+        row is int r && ClientTables.TableOrNull("MicrotransactionPortalVariations")?.Row(r) is { } v
+            && v.IntOrNull("Index") is int index and > 0 and <= ushort.MaxValue ? (ushort)index : (ushort)0;
 
     static Dictionary<int, (int Scale, IReadOnlyList<uint> Stats)> LoadQualityTypes(string folder)
     {
