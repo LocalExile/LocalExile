@@ -6,6 +6,7 @@ using DamagePacket = GameServer.Core.World.DamagePacket;
 using DamageOverTime = GameServer.Core.World.DamageOverTime;
 using DamageType = GameServer.Core.World.DamageType;
 using DamageTypes = GameServer.Core.World.DamageTypes;
+using HitResistances = GameServer.Core.World.HitResistances;
 
 public static partial class Game
 {
@@ -184,6 +185,54 @@ public static partial class Game
                 + (type == DamageType.Physical ? 0 : m.SpiderWebs.Resistance(now)),
             Maximum = m.Effects.MaximumResistance(type), Penetration = pen.Of(type) + (type == DamageType.Cold
                 && m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0 ? pen.ColdVsChilled : 0) };
+    }
+
+    readonly record struct ElementalHitResistanceSample(DamageModel.ResistanceValue Fire, DamageModel.ResistanceValue Cold,
+        DamageModel.ResistanceValue Lightning, (DamageType Type, DamageModel.ResistanceValue Value)? Lowest = null)
+    {
+        public DamageModel.ResistanceValue Of(DamageType type) => type switch
+        {
+            DamageType.Fire => Fire,
+            DamageType.Cold => Cold,
+            _ => Lightning,
+        };
+    }
+
+    static ElementalHitResistanceSample? ReadElementalHitResistances(
+        SpawnedMonster target, DamagePacket packet, double now, Penetration.PerType pen,
+        HitResistances.Strike strike, HitResistances.Mods mods)
+    {
+        if (!mods.ElementalUsesLowestResistance || packet[DamageType.Fire].IsZero && packet[DamageType.Cold].IsZero
+            && packet[DamageType.Lightning].IsZero) return null;
+
+        var sample = new ElementalHitResistanceSample(MonsterHitResistance(target, DamageType.Fire, pen, now),
+            MonsterHitResistance(target, DamageType.Cold, pen, now), MonsterHitResistance(target, DamageType.Lightning, pen, now));
+        (DamageType, DamageModel.ResistanceValue)? result = null;
+        int lowest = int.MaxValue;
+        foreach (var type in DamageTypes.ConversionOrder)
+        {
+            if (!DamageTypes.IsElemental(type) || HitResistances.Ignores(type, strike, mods)) continue;
+            var value = sample.Of(type);
+            int capped = DamageModel.Capped(value.Value, value.Maximum);
+            if (capped >= lowest) continue;
+            result = (type, value);
+            lowest = capped;
+        }
+        return sample with { Lowest = result };
+    }
+
+    static (DamageType Type, DamageModel.ResistanceValue Value) ElementalHitResistance(SpawnedMonster target,
+        DamageType type, Penetration.PerType pen, double now, HitResistances.Strike strike, HitResistances.Mods mods,
+        ElementalHitResistanceSample? elemental)
+    {
+        if (elemental is not { } sample || !DamageTypes.IsElemental(type))
+            return (type, MonsterHitResistance(target, type, pen, now));
+        var value = sample.Of(type);
+        // Select from capped resistances before the hit's penetration, which then follows the selected resistance type.
+        if (sample.Lowest is { } candidate && !HitResistances.Ignores(type, strike, mods)
+            && DamageModel.Capped(candidate.Value.Value, candidate.Value.Maximum) < DamageModel.Capped(value.Value, value.Maximum))
+            return candidate;
+        return (type, value);
     }
 
     // Already rolled: no extra RNG or per-component rounding, including ordinary bow contact snapshots.

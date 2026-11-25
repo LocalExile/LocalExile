@@ -253,7 +253,8 @@ public static partial class Game
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
                 var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
-                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)));
+                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)),
+                    elementalUsesLowestResistance: Player(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
                 if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
                 if (hit.StageStarts)

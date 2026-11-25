@@ -3973,11 +3973,12 @@ public static partial class Game
         var described = new List<string>();
         mods = ImpurityHitMods(m, now, mods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: attack);
+        var elemental = ReadElementalHitResistances(m, rolled, now, pen, strike, mods);
         var mitigated = rolled.Select((type, range) =>
         {
-            var resistanceType = type;
-            var value = MonsterHitResistance(m, type, pen, now);
-            if (type == DamageType.Chaos && range.Max > 0
+            if (range.IsZero) return range;
+            var (resistanceType, value) = ElementalHitResistance(m, type, pen, now, strike, mods, elemental);
+            if (type == DamageType.Chaos
                 && mods.ChaosSelection != HitResistances.ResistanceSelection.Default)
             {
                 bool highest = mods.ChaosSelection == HitResistances.ResistanceSelection.Highest;
@@ -3993,7 +3994,7 @@ public static partial class Game
                     value = candidate;
                 }
             }
-            if (range.Max > 0 && HitResistances.Describe(resistanceType, value, strike, mods) is { } note) described.Add(note);
+            if (HitResistances.Describe(resistanceType, value, strike, mods) is { } note) described.Add(note);
             double effective = HitResistances.FinalValue(resistanceType, value, strike, mods, invertElemental);
             return range.Scale(Math.Max(0, 1 - effective / 100));
         });
@@ -4019,6 +4020,7 @@ public static partial class Game
             IgnoreChaos: Has(Stat.VirtualHitsIgnoreEnemyChaosResistance),
             IgnorePhysicalReductionChance: Value(Stat.HitsIgnoreEnemyMonsterPhysicalDamageReductionPctChance))
         {
+            ElementalUsesLowestResistance = Has(Stat.ElementalDamageResistedByLowestElementalResistance),
             ChaosSelection = Has(Stat.ChaosDamageResistedByHighestResistance) ? HitResistances.ResistanceSelection.Highest
                 : Has(Stat.ChaosDamageResistedByLowestResistance) ? HitResistances.ResistanceSelection.Lowest
                 : HitResistances.ResistanceSelection.Default,

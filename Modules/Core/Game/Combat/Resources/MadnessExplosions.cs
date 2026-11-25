@@ -101,8 +101,13 @@ public static partial class Game
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
                     bool invert = hitRolls.InvertsResistance(player.Madness.Random);
                     var defenses = ImpurityHitMods(target, now, resistanceMods);
-                    var mitigated = rolled.Select((type, range) => range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(
-                        type, MonsterHitResistance(target, type, penetration, now), strike, defenses, invert) / 100)));
+                    var elemental = ReadElementalHitResistances(target, rolled, now, penetration, strike, defenses);
+                    var mitigated = rolled.Select((type, range) =>
+                    {
+                        if (range.IsZero) return range;
+                        var (resistanceType, value) = ElementalHitResistance(target, type, penetration, now, strike, defenses, elemental);
+                        return range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(resistanceType, value, strike, defenses, invert) / 100));
+                    });
                     int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),

@@ -914,7 +914,8 @@ public static partial class Game
             {
                 mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                     Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
-                        GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
+                        GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)),
+                    elementalUsesLowestResistance: playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
                 critical = Critical(id);
             }
