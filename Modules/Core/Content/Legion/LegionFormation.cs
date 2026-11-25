@@ -13,8 +13,13 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 sealed class LegionFormation
 {
-    /// <summary>The factions that stand in straight rows and columns (LegionFactions Id).</summary>
-    static bool IsOrderly(string id) => id is "EternalEmpire" or "Templar";
+    /// <summary>Orderly factions (Eternal Empire, Templar: LegionFactions.__col3 == 0.95) stand in straight rows and columns;
+    /// looser factions (Vaal/Maraketh/Faridun 0.65, Karui 0.50) stand in scattered groups.</summary>
+    static bool IsOrderly(LegionArmy.FactionPlan plan)
+    {
+        var faction = LegionData.Current.Factions.FirstOrDefault(f => f.Row == plan.Faction || f.Id == plan.Id);
+        return faction is not null ? faction.Orderliness >= 0.9 : plan.Id is "EternalEmpire" or "Templar";
+    }
 
     /// <summary>The gap between the two armies' front edges, in spacings: each front stands half of it from the contact line (tune after live check).</summary>
     const double FrontGapSpacings = 1.5;
@@ -65,7 +70,7 @@ sealed class LegionFormation
     public LegionFormation(Player player, Random rng, int cx, int cy, double axis, int army, LegionArmy.FactionPlan plan, Func<int, int> bodyOf)
     {
         _player = player; _rng = rng; _cx = cx; _cy = cy;
-        _orderly = IsOrderly(plan.Id);
+        _orderly = IsOrderly(plan);
         double side = army == 0 ? 1 : -1;
         _ux = Math.Cos(axis) * side; _uy = Math.Sin(axis) * side;
         _vx = -_uy; _vy = _ux;

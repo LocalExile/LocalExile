@@ -54,8 +54,21 @@ static class LegionArmy
     /// <summary>LegionRewardTypeVisuals rows that are never rolled: 11 is Essences again (the same icon and symbol as row 10), 17 is Incubators (no longer drop in 3.29).</summary>
     static readonly int[] ExcludedRewardRows = [11, 17];
 
-    /// <summary>The reward rows that can be rolled, equal weights: every LegionRewardTypeVisuals row but <see cref="ExcludedRewardRows"/>.</summary>
-    static int[] RewardPool(LegionData data) => [.. data.RewardTypes.Where(r => !ExcludedRewardRows.Contains(r.Row)).Select(r => r.Row)];
+    /// <summary>Minimum area level for endgame/league reward symbols so campaign monoliths (e.g. The Climb L7) do not
+    /// roll symbols whose pools have no drops yet (Maps/Scarabs L68+, Fragments L36+, league pools L30+).</summary>
+    static int RewardMinLevel(int row) => row switch
+    {
+        3 or 13 => 68,       // Maps, Scarabs (maps only)
+        12 => 36,            // Fragments (Sacrifice at Dawn/Noon/Dusk start at L36)
+        7 or 8 or 9 or 14 => 30, // Abyss, Harbinger, Breach, Fossils
+        _ => 1,
+    };
+
+    /// <summary>The reward rows that can be rolled at <paramref name="level"/>: every LegionRewardTypeVisuals row except
+    /// <see cref="ExcludedRewardRows"/> and endgame symbols above the area's level.</summary>
+    static int[] RewardPool(LegionData data, int level) => [.. data.RewardTypes
+        .Where(r => !ExcludedRewardRows.Contains(r.Row) && level >= RewardMinLevel(r.Row))
+        .Select(r => r.Row)];
 
     /// <summary>n different reward rows from the pool (fewer when the pool is smaller).</summary>
     static int[] RollRewards(int[] pool, int n, Random rng)
@@ -161,11 +174,17 @@ static class LegionArmy
                     && data.Ranks[v.RankKey].Col0 == tier && MinLevelOf(data, data.Ranks[v.RankKey].BalanceKey) <= MaxLevel).ToList();
                 if (n <= 0 || varieties.Count == 0) continue;
                 var per = new int[varieties.Count];
-                for (int i = 0; i < n; i++) per[rng.Next(per.Length)]++;
+                int totalWeight = varieties.Sum(v => Math.Max(1, v.SpawnWeight));
+                for (int i = 0; i < n; i++)
+                {
+                    int roll = rng.Next(totalWeight), k = 0;
+                    while (k < varieties.Count - 1 && (roll -= Math.Max(1, varieties[k].SpawnWeight)) >= 0) k++;
+                    per[k]++;
+                }
                 for (int i = 0; i < per.Length; i++)
                     if (per[i] > 0) squads.Add(new Squad(tier, varieties[i].Monster, per[i], count.Col4, count.Col5, Rarities: RollRarities(rows[count.RankKey], tier, per[i], rng)));
             }
-        var pool = RewardPool(data);
+        var pool = RewardPool(data, level);
         for (int i = 0; i < squads.Count; i++)
             if (squads[i].Tier == 2 && pool.Length > 0)   // the general has none: its drops come from its own rolls
                 squads[i] = squads[i] with { Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ => rng.Next(100) < sergeantChance ? RollRewards(pool, 1, rng) : [])] };

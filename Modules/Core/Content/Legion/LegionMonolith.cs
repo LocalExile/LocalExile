@@ -111,6 +111,7 @@ static partial class LegionMonolith
     static Encounter[] AllOf(IModuleContext module, Player player)
     {
         if (player.Instance is not { } instance) return [];
+        LegionStasis.RestoreFighters(player);
         if (Encounters.TryGetValue(instance, out var existing)) return existing;
         if (!instance.ContentState.TryGetValue(SaveKey, out string? text) || string.IsNullOrWhiteSpace(text)) return [];
         Saved[]? saved = text.AsSpan().TrimStart().StartsWith("[")
@@ -344,6 +345,13 @@ static partial class LegionMonolith
         await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1, shattered=2");
         foreach (var member in Members(player)) await SendRules(member, LegionRules.End(e.Id), "0x02c9 LegionRules mode 5 (finished)");
         if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
+        // Second radial shockwave at release (00:00 / early end), matching real PoE visuals.
+        if (InArea(player, e.Id))
+        {
+            uint releasePulse = player.TakeObjectId();
+            await ShowPulse(player, e, releasePulse);
+            global::Game.SendAfter(player, PulseSeconds + 0.5, () => LegionOutput.Remove(player, releasePulse));
+        }
         module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
         await ReleaseArmy(module, player, e, reason);
     }
@@ -403,7 +411,7 @@ static partial class LegionMonolith
             lock (e) reveal = e.Phase == Phase.Running;
             if (reveal) await RevealMembers(module, player, e, [m], keep: false);
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct); }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct, e.Rotation); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
         lock (e) { phase = e.Phase; Keep(player, e); }
@@ -462,6 +470,9 @@ static partial class LegionMonolith
         // Spawn clickable Chest objects for broken-out War Chests / War Hoards only now, after removing their stasis shells.
         foreach (var (chest, cx, cy) in brokenChests)
             await SpawnBox(module, player, e, chest, cx, cy);
+        // Snapshot current viewers before forgetting fleeing generals so a player joining during FleeSeconds is never sent
+        // a removal for an object id it never received a create for.
+        var fleeViewers = flee.Count > 0 ? Members(player).ToList() : null;
         foreach (var g in flee)
         {
             if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
@@ -477,13 +488,22 @@ static partial class LegionMonolith
             // The server forgets it now (no leak if the timer below is dropped, and it gives no rewards); only the client's removal waits.
             if (player.Area.Monsters.Remove(g.Id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }
             player.Instance.World.MonsterOrigins.TryRemove(g.Id, out _);
+            player.Area.Buffs.Removed(g.Id);
+            player.Area.Stats.Removed(g.Id);
+            player.Area.Life.Removed(g.Id);
         }
-        // One area timer: it fires if the player who ended the encounter left, and takes the players there then.
-        if (flee.Count > 0)
-            global::Game.SendAfter(player, FleeSeconds, () => LegionOutput.ToArea(player, async p =>
+        if (flee.Count > 0 && fleeViewers is { Count: > 0 })
+            global::Game.SendAfter(player, FleeSeconds, async () =>
             {
-                foreach (var g in flee) await global::Game.SendWorldRemoval(p, g.Id);
-            }));
+                foreach (var viewer in fleeViewers)
+                {
+                    if (viewer.Closed || viewer.LeavingArea || !ReferenceEquals(viewer.Instance, player.Instance)) continue;
+                    await LegionOutput.ToOne(viewer, async () =>
+                    {
+                        foreach (var g in flee) await global::Game.SendWorldRemoval(viewer, g.Id);
+                    });
+                }
+            });
         string general = flee.Count > 0 ? "fled" : generalFought ? "fought" : "none";
         module.Log($"army released ({reason}): {brokenCount} of {army.Length} broken out ({woken} woken, {brokenChests.Count} chests), general {general}");
         await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");

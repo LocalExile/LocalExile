@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text.Json;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
@@ -19,9 +20,9 @@ static class LegionStasis
 {
     /// <summary>A spawned army member: its object id, the army (index into the plan's factions), the rank tier (0 normal,
     /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), whether it broke out, the
-    /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2) and its reward types
-    /// (LegionRewardTypeVisuals rows; null or empty: none).</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null);
+    /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2), its reward types
+    /// (LegionRewardTypeVisuals rows; null or empty: none), and its formation facing angle.</summary>
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null);
 
     /// <summary>The LegionBreakout action: ActionTypes HASH16 (the 0x2c8 header's action type) and its skill id, the type's HASH16 &amp; 0x3fff (R11 section 0).</summary>
     const ushort ActionType = 0xd8fe, ActionSkill = 0x18fe;
@@ -39,19 +40,51 @@ static class LegionStasis
     public sealed record Fighter(int[] Rewards, string FactionId, int Tier);
 
     /// <summary>The members that woke and fight, by the new monster's id, per AREA (ids restart in every area instance; the table goes with its area).
-    /// LegionRewards takes an entry when its monster dies.</summary>
+    /// Also persisted in Instance.ContentState["LegionFighters"] so module hot-reloads keep sergeant/general rewards intact.</summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter>> FightersByArea = new();
     static volatile bool anyFighter;
+    const string FightersSaveKey = "LegionFighters";
+    static readonly JsonSerializerOptions Json = new();
 
     /// <summary>True once any fighter was registered (the drops' cheap first test); false after the module's cleanup.</summary>
     public static bool AnyFighter => anyFighter;
 
     public static void ClearFighters() { FightersByArea.Clear(); anyFighter = false; }
 
+    static void PersistFighters(Player player, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter> fighters)
+    {
+        if (player.Instance is not { } instance) return;
+        var snapshot = fighters.ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (snapshot.Count == 0) instance.ContentState.Remove(FightersSaveKey);
+        else instance.ContentState[FightersSaveKey] = JsonSerializer.Serialize(snapshot, Json);
+    }
+
+    /// <summary>Restores woken fighters persisted across a module reload for this instance.</summary>
+    public static void RestoreFighters(Player player)
+    {
+        if (player.Instance is not { } instance || FightersByArea.TryGetValue(player.Area, out _)) return;
+        if (!instance.ContentState.TryGetValue(FightersSaveKey, out string? text) || string.IsNullOrWhiteSpace(text)) return;
+        var saved = JsonSerializer.Deserialize<Dictionary<uint, Fighter>>(text, Json);
+        if (saved is not { Count: > 0 }) return;
+        var map = FightersByArea.GetOrCreateValue(player.Area);
+        foreach (var (id, fighter) in saved)
+            if (player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead) map[id] = fighter;
+        if (map.Count > 0) anyFighter = true;
+    }
+
     public static Fighter? FighterOf(Player player, uint id, bool remove)
     {
-        if (!FightersByArea.TryGetValue(player.Area, out var fighters)) return null;
-        if (remove) return fighters.TryRemove(id, out var taken) ? taken : null;
+        if (!FightersByArea.TryGetValue(player.Area, out var fighters))
+        {
+            RestoreFighters(player);
+            if (!FightersByArea.TryGetValue(player.Area, out fighters)) return null;
+        }
+        if (remove)
+        {
+            if (!fighters.TryRemove(id, out var taken)) return null;
+            PersistFighters(player, fighters);
+            return taken;
+        }
         return fighters.TryGetValue(id, out var found) ? found : null;
     }
 
@@ -103,12 +136,16 @@ static class LegionStasis
             : new Dictionary<uint, int> { [Stat.CannotBeKnockedBack] = 1, [Stat.BaseDamageTakenPlusPct] = damageTakenPct };
 
     /// <summary>Spawns both armies of the plan hidden (action state 0); each member is handed to <paramref name="keep"/> (false: the timer ended, it is removed and spawning stops),
-    /// then to <paramref name="standing"/> (outside the encounter's lock, for a reveal when the shatter has already passed).</summary>
-    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0)
+    /// then to <paramref name="standing"/> (outside the encounter's lock, for a reveal when the shatter has already passed).
+    /// When a general is planned and <paramref name="monolithRotation"/> is finite, the axis aligns the general's army with the monolith's forward direction so spawn_lightning points toward it.</summary>
+    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0, float monolithRotation = float.NaN)
     {
         var rng = global::Game.AreaRng(player);
         var frozenStats = FrozenStats(frozenDamageTakenPct);
-        double axis = rng.NextDouble() * Math.PI * 2;
+        int generalArmy = Array.FindIndex(plan.Factions, f => f.Squads.Any(s => s.Tier == 3));
+        double axis = generalArmy >= 0 && float.IsFinite(monolithRotation)
+            ? monolithRotation + (generalArmy == 0 ? -Math.PI / 2 : Math.PI / 2)
+            : rng.NextDouble() * Math.PI * 2;
         // The formations (LegionFormation.cs): the block of each army from its member count and its bodies' size.
         var formations = plan.Factions.Select((f, i) => new LegionFormation(player, rng, cx, cy, axis, i, f,
             row => Monsters.Find(row.ToString()) is { } v ? v.ObjectSize : 3)).ToArray();
@@ -126,13 +163,14 @@ static class LegionStasis
             // bulk: no wait for the client's birth per monster (a frame each, 5-8 s for 150-250). The action is in its create (hidden from the first frame).
             ushort sequence = NextSequence();
             var action = BreakoutAction(player, variety, row, sequence, Hidden, 100);
+            float facing = formations[faction].Facing;
             uint id = await SpawnMonster(player, variety, areaLevel, rarity, at.X, at.Y,
-                friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false, rotation: formations[faction].Facing,
+                friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false, rotation: facing,
                 currentAction: action, noBodyUntilReleased: true, extraStats: RewardStats(rewards, true),
                 placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id), frozenStats);
-            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null);
+            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null, Facing: facing);
             if (!keep(member)) { stopped = true; await Remove(player, [member]); return; }
             await standing(member);
             counts[faction]++;
@@ -167,22 +205,23 @@ static class LegionStasis
             : catalog.MeleeClock(variety.Id, sequence) is { } clock ? (int)clock.Index : 0;
     }
 
-    /// <summary>The paused props a soldier is created with (GUESS, R10 section 2): LegionMonsterVarieties.MiscAnimatedKey rows (an arrow rain, a
-    /// ballista ball), each frozen at a time inside its clip, from col10..col11 in ms. A monster gets props with col5 percent chance, 1 to col6 of
-    /// them, each a random one of the row's MiscAnimated. The client creates them at the monster with a random rotation, so no position is sent.
-    /// The prop's clip is 0 (its own .ao has one) at speed 1: the action holds the speed at 0 until the break-out ramp.</summary>
+    /// <summary>The paused props a soldier is created with (R10 section 2): LegionMonsterVarieties.MiscAnimatedKey rows (an arrow rain, a
+    /// ballista ball), each frozen at a time inside its clip from col10..col11 in ms. A monster gets props with col5 percent chance;
+    /// col15 gives the prop count per MiscAnimatedKey entry (col6 is the variety spawn weight, not prop count). The client creates them at
+    /// the monster with a random rotation, so no position is sent.</summary>
     static int At(int[]? values, int i) => values is not { Length: > 0 } ? 0 : values[Math.Min(i, values.Length - 1)];
 
     static List<(int Row, AnimationControllerState Animation)> PropsOf(int monsterRow, Random rng)
     {
         var props = new List<(int, AnimationControllerState)>();
         if (LegionData.Current.MonsterVarieties.FirstOrDefault(v => v.Monster == monsterRow) is not { MiscAnimated.Length: > 0 } row
-            || row.PropCount <= 0 || rng.Next(100) >= row.PropChance) return props;
-        int n = rng.Next(1, row.PropCount + 1);
+            || row.PropChance <= 0 || rng.Next(100) >= row.PropChance) return props;
+        int pick = rng.Next(row.MiscAnimated.Length);
+        int n = Math.Max(0, At(row.PropCounts, pick));
+        if (n == 0) return props;
+        int from = At(row.PropFromMs, pick), to = At(row.PropToMs, pick);
         for (int i = 0; i < n; i++)
         {
-            int pick = rng.Next(row.MiscAnimated.Length);   // the time range is the one at the same index as the prop, else the first
-            int from = At(row.PropFromMs, pick), to = At(row.PropToMs, pick);
             int ms = to > from ? rng.Next(from, to + 1) : from;
             props.Add((row.MiscAnimated[pick], new AnimationControllerState(0) { Time = ms / 1000f }));
         }
@@ -277,26 +316,29 @@ static class LegionStasis
     }
 
     /// <summary>The end of the stasis for a member that broke out. The frozen monster was spawned scripted (no AI, no kit, cannot be
-    /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity and cell, with its own
-    /// kit, AI and rewards, already <c>breakout</c> 1 and <c>activated</c> 1. LIVE CHECK: whether the swap is visible.
+    /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity, cell and formation facing,
+    /// shaped with <c>breakout=1</c> and <c>activated=1</c> right in its 0x02bb create so no crystal flickers and no post-spawn state update is needed.
     /// Returns false when the new monster could not be made (the frozen one is then left standing).</summary>
     public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null)
     {
         var variety = monster.Variety;
         if (variety is null) return false;
         var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
+        float rotation = member.Facing is float f && float.IsFinite(f) ? f : (float)Math.Atan2(cx - x, -(cy - y));
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
-            rotation: (float)Math.Atan2(cx - x, -(cy - y)),   // faces the monolith, as the spawn faces the enemy
-            extraStats: RewardStats(member.Rewards, false));   // the icon, shown
-        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return false;   // the frozen one stays: the caller removes it
+            rotation: rotation,
+            extraStats: RewardStats(member.Rewards, false),   // the icon, shown
+            shape: o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("breakout", 1).Set("activated", 1) });
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out _)) return false;   // the frozen one stays: the caller removes it
         await Remove(player, [member]);
-        await SetState(player, id, woken, "breakout", "activated");
         if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
         if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
         {
-            FightersByArea.GetOrCreateValue(player.Area)[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier);   // for the drops (LegionRewards)
+            var map = FightersByArea.GetOrCreateValue(player.Area);
+            map[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier);   // for the drops (LegionRewards)
             anyFighter = true;
+            PersistFighters(player, map);
         }
         return true;
     }
@@ -309,12 +351,25 @@ static class LegionStasis
             if (player.Area.Monsters.Remove(member.Id, out var m))
             {
                 m.Dead = true; m.Life = 0; m.ActionGeneration++;
+                m.OnNonLethalZero = null;
                 player.Instance.World.MonsterOrigins.TryRemove(member.Id, out _);
                 ids.Add(member.Id);
             }
         var members = LegionOutput.Members(player).ToList();
-        foreach (uint id in ids)
-            _ = LegionOutput.ToArea(members, p => global::Game.SendWorldRemoval(p, id));   // not awaited: ~200 sends must not hold the tick
+        if (members.Count == 0)
+        {
+            foreach (uint id in ids)
+            {
+                player.Area.Buffs.Removed(id);
+                player.Area.Stats.Removed(id);
+                player.Area.Life.Removed(id);
+            }
+        }
+        else
+        {
+            foreach (uint id in ids)
+                _ = LegionOutput.ToArea(members, p => global::Game.SendWorldRemoval(p, id));   // not awaited: ~200 sends must not hold the tick
+        }
         return ids.Count;
     }
 }

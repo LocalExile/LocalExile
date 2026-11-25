@@ -35,12 +35,17 @@ static class LegionOutput
     }
 
     /// <summary>Removes an area object from every client. When no client got the removal (nobody was in the area), the area
-    /// forgets the object itself, or it would give it to every player who enters later.</summary>
+    /// forgets the object and its component state itself, or it would give them to every player who enters later.</summary>
     public static async Task Remove(Player player, uint id)
     {
         bool sent = await ToArea(player, p => global::Game.SendWorldRemoval(p, id));
         if (!sent || player.Area.Objects.Has(id))
+        {
             player.Area.Objects.RecordDirect(id, InstanceProtocol.RemoveObject(id), AreaDelta.Kind.Remove, player);
+            player.Area.Buffs.Removed(id);
+            player.Area.Stats.Removed(id);
+            player.Area.Life.Removed(id);
+        }
     }
 
     /// <summary>Calls <paramref name="send"/> for <paramref name="player"/> alone (one who just entered): Program.ViewOf keeps

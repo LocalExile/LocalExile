@@ -41,7 +41,16 @@ static partial class LegionMonolith
             if (running) { e.Pulse = pulse; e.PulseScale = scale; Keep(player, e); }   // together: a joiner gets the pulse with its scale
         }
         if (!running) return;
-        if (InArea(player, e.Id)) await ShowPulse(player, e, pulse);
+        if (InArea(player, e.Id))
+        {
+            await ShowPulse(player, e, pulse);
+            // Remove the shatter pulse once its clip finishes so late joiners mid-encounter do not replay the shatter wave.
+            global::Game.SendAfter(player, PulseSeconds + 0.5, async () =>
+            {
+                lock (e) { if (e.Pulse == pulse) { e.Pulse = 0; Keep(player, e); } }
+                if (InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
+            });
+        }
         if (distances.Count == 0) return;
         double ring = PulseRadiusCells * scale;
         var steps = distances.GroupBy(d => Math.Min(RevealSteps - 1, (int)(d.Distance / ring * RevealSteps))).OrderBy(g => g.Key).ToList();

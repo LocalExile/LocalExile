@@ -9,15 +9,15 @@ namespace GameServer.Modules.Legion;
 /// </summary>
 public sealed class LegionData
 {
-    /// <summary>A LegionFactions row: the schema-named columns only; col3, col4, col12 and col13 are not read.</summary>
-    public sealed record Faction(int Row, string Id, int SpawnWeight, int BalanceKey, int StatsKey, int BuffVisualsKey, int[] MiscAnimated);
+    /// <summary>A LegionFactions row: schema columns plus col3 formation orderliness (0.95 orderly grid, 0.65/0.50 loose).</summary>
+    public sealed record Faction(int Row, string Id, int SpawnWeight, int BalanceKey, int StatsKey, int BuffVisualsKey, int[] MiscAnimated, double Orderliness = 0.5);
 
-    /// <summary>A LegionRanks row; col0-col4 and col6-col8 meaning unknown, the balance key is named by the schema.</summary>
+    /// <summary>A LegionRanks row; col0 is tier (0..3), col1..col4 rarity weights, col7 general/hoard chance, col8 alert value (phase 4).</summary>
     public sealed record Rank(int Row, int Col0, int Col1, int Col2, int Col3, int Col4, int BalanceKey, int Col6, int Col7, int Col8);
 
-    /// <summary>A LegionMonsterVarieties row; col3 meaning unknown. The prop columns are a GUESS (R10 section 2): PropChance col5 (percent per monster), PropCount col6
-    /// (1-2), PropFromMs and PropToMs col10 and col11 (lists, one entry per MiscAnimatedKey row: the clip time range in ms at which a paused prop stands).</summary>
-    public sealed record MonsterVariety(int Row, int Monster, int Faction, int RankKey, int Col3, int[] MiscAnimated, int PropChance = 0, int PropCount = 0, int[]? PropFromMs = null, int[]? PropToMs = null);
+    /// <summary>A LegionMonsterVarieties row; col3 meaning unknown, col5 prop chance (%), col6 variety spawn weight,
+    /// col10/col11 prop clip time range (ms), col15 prop count per MiscAnimatedKey entry.</summary>
+    public sealed record MonsterVariety(int Row, int Monster, int Faction, int RankKey, int Col3, int[] MiscAnimated, int PropChance = 0, int SpawnWeight = 1, int[]? PropFromMs = null, int[]? PropToMs = null, int[]? PropCounts = null);
 
     /// <summary>A LegionMonsterCounts row; cols 2-7 meaning unknown.</summary>
     public sealed record MonsterCount(int Row, int Faction, int RankKey, int Col2, int Col3, int Col4, int Col5, int Col6, int Col7);
@@ -67,14 +67,16 @@ public sealed class LegionData
         string[] animated = ["MiscAnimatedKey1", "MiscAnimatedKey2", "MiscAnimatedKey3", "MiscAnimatedKey4", "MiscAnimatedKey5"];
         Factions = [.. ClientTables.TableOrEmpty("LegionFactions").Select(r => new Faction(r.Index, r.Text("Id") ?? "", r.Int("SpawnWeight"),
             r.IntOrNull("LegionBalancePerLevelKey") ?? -1, r.IntOrNull("StatsKey") ?? -1, r.IntOrNull("BuffVisualsKey") ?? -1,
-            [.. animated.Select(c => r.IntOrNull(c) ?? -1)]))];
+            [.. animated.Select(c => r.IntOrNull(c) ?? -1)], r.RealOrNull("__col3") ?? 0.5))];
         Ranks = [.. ClientTables.TableOrEmpty("LegionRanks").Select(r => new Rank(r.Index, r.Int("__col0"), r.Int("__col1"), r.Int("__col2"),
             r.Int("__col3"), r.Int("__col4"), r.IntOrNull("LegionBalancePerLevelKey") ?? -1, r.Int("__col6"), r.Int("__col7"), r.Int("__col8")))];
         MonsterVarieties = [.. ClientTables.TableOrEmpty("LegionMonsterVarieties").Select(r =>
         {
             int rank = r.IntOrNull("LegionRanksKey") ?? -1;
+            int weight = Tolerant(r, "__col6").FirstOrDefault();
             return new MonsterVariety(r.Index, r.IntOrNull("MonsterVarietiesKey") ?? -1, r.IntOrNull("LegionFactionsKey") ?? -1, rank,
-                r.Int("__col3"), r.Ints("MiscAnimatedKey"), Tolerant(r, "__col5").FirstOrDefault(), Tolerant(r, "__col6").FirstOrDefault(), Tolerant(r, "__col10"), Tolerant(r, "__col11"));
+                r.Int("__col3"), r.Ints("MiscAnimatedKey"), Tolerant(r, "__col5").FirstOrDefault(), weight > 0 ? weight : 1,
+                Tolerant(r, "__col10"), Tolerant(r, "__col11"), Tolerant(r, "__col15"));
         })];
         MonsterCounts = [.. ClientTables.TableOrEmpty("LegionMonsterCounts").Select(r => new MonsterCount(r.Index,
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("__col2"), r.Int("__col3"), r.Int("__col4"),
