@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
@@ -439,6 +440,7 @@ public static partial class Game
                     bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
                         emerge, player.NextActionSequence(), 0x0800, objectId));
                 if (finishPlacement is null) Activate(objectId, bytes);
+                else player.Totems.PendingPlacements.Add(objectId);
                 created ??= objectId;
             }
             if (finishPlacement is null)
@@ -470,6 +472,7 @@ public static partial class Game
                         place = clear;
                         bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
                     }
+                    if (!player.Totems.PendingPlacements.Remove(pendingId)) return null;
                     Activate(pendingId, bytes);
                     DetonateSearingBondsLocked(player, playerStats, limit, SharedOrdinaryLimit(), bytes);
                     TotemRecords(player, bytes);
@@ -483,7 +486,7 @@ public static partial class Game
         }
         finally
         {
-            if (!active && !player.Closed && !player.LeavingArea)
+            if (!active && !player.Closed && !player.LeavingArea && player.Totems.PendingPlacements.Remove(pendingId))
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
     }
@@ -657,6 +660,54 @@ public static partial class Game
         SyncReceivedTotemAuraLocked(player, now, bytes);
         SyncVaalWarchiefBuff(player, now, bytes);
         return bytes.Count == 0 ? null : bytes.Build();
+    }
+
+    internal static void EndAreaTotems(Player player)
+    {
+        var totems = player.Totems;
+        if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
+        var area = player.Area;
+        if (area.Driven && !area.Owned)
+        {
+            area.Defer(_ => EndAreaTotems(player));
+            return;
+        }
+
+        using var mutation = ProjectileMutation(player, advance: false);
+        double now = AreaTime(player);
+        totems.KillAll(now);
+        foreach (uint pending in totems.PendingPlacements)
+            Retire(pending);
+        foreach (var totem in totems.All)
+        {
+            player.RemoveBlocker(totem.Id);
+            TotemChannels.Remove(totem);
+            if (SearingBondSources.TryGetValue(totem, out var source))
+            {
+                foreach (uint beam in source.Beams.Values) Retire(beam);
+                SearingBondSources.Remove(totem);
+            }
+            Retire(totem.Id);
+        }
+        if (area.Owned && !player.Closed)
+        {
+            var changes = totems.All.Where(t => !t.RosterRemovalSent)
+                .Select(t => new MinionOwnershipChange(t.Id, 0, TotemMinionType)).ToArray();
+            if (changes.Length > 0)
+                area.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, changes,
+                    CanDetonateMines(player)), only: player);
+        }
+        totems.Clear();
+        foreach (var ground in player.FlaskGrounds.Expire(now))
+            if (ground.Object is uint groundObject) Retire(groundObject);
+
+        void Retire(uint id)
+        {
+            var remove = InstanceProtocol.RemoveObject(id);
+            BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+            if (area.Owned) area.Delta.RemoveSharedObject(id, remove, $"0x02bd area exit removes totem object 0x{id:x}");
+            else area.Objects.RecordDirect(id, remove, AreaDelta.Kind.Remove, player);
+        }
     }
 
     static void SyncReceivedTotemAuraLocked(Player player, double now, WorldRecordBuilder bytes)

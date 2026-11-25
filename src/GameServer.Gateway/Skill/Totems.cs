@@ -105,7 +105,13 @@ public sealed class TotemState
     public Action? Changed;
 
     public IReadOnlyList<Totem> All => _totems;
+    public HashSet<uint> PendingPlacements { get; } = [];
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
+    public void Clear()
+    {
+        _totems.Clear();
+        PendingPlacements.Clear();
+    }
 
     public static int SharedLimit(int limit, int? ordinaryLimit, int bonusSlots, IEnumerable<Totem> living)
     {
