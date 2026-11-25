@@ -114,10 +114,12 @@ public static class SkillArea
     public const uint Increase = Stat.SkillAreaOfEffectPlusPct;
 
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
-    public static int Radius(int baseRadius, Func<uint, int> get, bool spell)
+    public static int Radius(int baseRadius, Func<uint, int> get, bool spell) => Radius(baseRadius, get, spell, 1);
+
+    internal static int Radius(int baseRadius, Func<uint, int> get, bool spell, double areaMore)
     {
         int radius = baseRadius + get(Stat.ActiveSkillBaseRadiusPlus);
-        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell))) / 100;
+        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore)) / 100;
         scaled *= Math.Max(0, 1 + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }

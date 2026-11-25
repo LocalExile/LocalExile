@@ -1,4 +1,5 @@
 using System.Net.Sockets;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using WalkEstimator = GameServer.Core.World.WalkEstimator;
@@ -2618,7 +2619,8 @@ public static partial class Game
         int strikeIndex, double? firstContactAt, double? ruthlessMore, ISet<uint>? priorTargets, int scaledBlastChaos,
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false)
+        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
+        ShieldCrushUse? shieldUse = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -2628,7 +2630,8 @@ public static partial class Game
         // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
         // swing), and a real interruption (death, area change, pause, freeze, stun recovery) still ends this one.
         bool holdsItsSwing = repeat == 0 && !spell && !immediate && channelGeneration is null && SkillsFor(player).IsMelee(gem.Effect);
-        bool preservesSwing = repeat == 0 && strikeIndex > 0 && !spell && channelGeneration is null && SkillsFor(player).IsMelee(gem.Effect);
+        bool preservesSwing = repeat == 0 && (strikeIndex > 0 || shieldUse is not null)
+            && !spell && channelGeneration is null && SkillsFor(player).IsMelee(gem.Effect);
         int interruption = player.ActionInterruptionGeneration;
         bool TokenCurrent() => holdsItsSwing || preservesSwing
             ? PlayerStateAllowsAction(player)
@@ -2706,14 +2709,30 @@ public static partial class Game
         bool divineBlast = SkillsFor(player).EffectId(gem.Effect) is "DivineBlast" or "DivineBlastAltX";
         double phaseDamageMore = divineBlast && immediate && scheduledSession is not null
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d) : 1;
-        int radius = (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
+        ushort? areaAction = SkillsFor(player).ActionHash(gem.Effect);
+        if (shieldUse is null && !spell && areaAction == ShieldCrushWaves.Action)
+        {
+            var shieldStats = SkillAreaStats(player, areaStats, gem.Effect);
+            var waves = ShieldCrushWaves.At(from, to, key => shieldStats.GetValueOrDefault(key), radiusMore);
+            var actor = SkillsFor(player).ClassFor(player.Character.ClassRow);
+            string ao = Environment.GetEnvironmentVariable("Game_PLAYER_AO") ?? actor.AnimatedObject;
+            var animation = Animations.ActAnimationEvents(ao, AnimationWeaponProfileFor(player), "ShieldBash", "wave");
+            double attackSeconds = SupportedAttackSeconds(player, skillId, hand);
+            double start = swingAt ?? AreaTime(player);
+            shieldUse = new(waves, reversed: actor.IntegerId == (int)CharacterClass.Templar, start + repeatDelay, attackSeconds, animation);
+            contactFraction = shieldUse.Fraction(contactFraction);
+            contactClip = shieldUse.Clip ?? contactClip;
+            delay = AttackTiming.ContactDelay(attackSeconds, contactFraction, 0) + repeatDelay;
+        }
+        var shieldWaves = shieldUse?.Waves;
+        int radius = shieldWaves?.CentreRadius ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
             : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
         // the Vaal blast keeps its radial hit.
-        bool wave = !immediate && !spell && SkillsFor(player).ActionHash(gem.Effect) == GroundSlamWave.Action;
+        bool wave = !immediate && !spell && areaAction == GroundSlamWave.Action;
         bool fissure = !immediate && IsVolcanicFissure(gem.Effect);
         double waveLength = wave ? GroundSlamWave.Length(radius, skillStats.GetValueOrDefault(global::Stat.ActiveSkillBaseRadiusPlus)) : 0;
         int waveCloseDamage = wave ? Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal) : 0;
@@ -2722,7 +2741,8 @@ public static partial class Game
         // A wave starts where the player stands and only takes its direction from the aim; a melee skill aimed far away
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
-        var centre = IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+        var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
+            : IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || SkillsFor(player).EffectId(gem.Effect) is "VaalGroundSlam" or "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -2752,7 +2772,8 @@ public static partial class Game
         List<uint> spirit = [];
         (int X, int Y)? echo = null;
         byte[]? memoryBuff = null;
-        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0 && hammer is null && !IsSmite(gem.Effect))
+        if (!spell && channelGeneration is null && singleStrikeTarget is null && strikeIndex == 0
+            && shieldUse is null && hammer is null && !IsSmite(gem.Effect))
             using (ProjectileMutation(player, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skillStats, from, centre, sequence,
                     targetId, ProjectileWorldTime(player));
@@ -2828,11 +2849,13 @@ public static partial class Game
                     ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && e.Distance <= reachLimit
+                    && (shieldWaves is not null || e.Distance <= reachLimit)
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
-            var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
+            var candidates = centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt);
+            var found = shieldUse is null ? candidates.ToList() : candidates.Where(target =>
+                shieldUse.Includes(target.Key, target.At, LivingCollision.Size(target.Value))).ToList();
             if (hexblast)
             {
                 var primary = targetId != 0 ? found.Find(entry => entry.Key == targetId)
@@ -2891,8 +2914,8 @@ public static partial class Game
         }
         // One simultaneous sweep, independent of notification latency. A holy hammer's hits are melee area hits that can
         // grant Fortification (the wiki's Holy Sweep of Hammerfalls); Rage stays with its sweep.
-        bool fortificationGranted = false;
-        bool rageGranted = hammer is not null; // Only a positive gain takes this sweep's latch.
+        bool fortificationGranted = shieldUse?.FortificationGranted == true;
+        bool rageGranted = hammer is not null || shieldUse?.RageGranted == true; // Only a positive gain takes this sweep's latch.
         // The enemies this sweep struck and where, for Holy Sweep's hammers (RunHolyHammers).
         var hammerTargets = new List<(uint Id, (int X, int Y) At)>();
         double bloodMore = BloodChargeDamageMore(player, Stat);
@@ -3383,7 +3406,10 @@ public static partial class Game
         string shape = wave
             ? $"in a wave {waveLength:0.#} cells long from ({from.X}, {from.Y}) toward ({waveDir.X:0.##}, {waveDir.Y:0.##}), "
                 + $"half angle {waveHalfAngle:0.#} deg at {GroundSlamWave.CellsPerSecond:0.#} cells/s"
-            : $"within {radius} cells of ({centre.X}, {centre.Y})";
+            : shieldUse is { } shieldWave
+                ? $"in shield wave {shieldWave.Phase + 1} from ({centre.X}, {centre.Y}), "
+                    + $"side radius {shieldWave.Waves.SideRadius}, centre radius {shieldWave.Waves.CentreRadius}"
+                : $"within {radius} cells of ({centre.X}, {centre.Y})";
         string contact = holdsItsSwing
             ? $", contact {contactFraction:0.###} of the attack ({(contactClip is null ? "the attack1 fallback" : contactClip)})"
             : "";
@@ -3409,24 +3435,39 @@ public static partial class Game
                 else await SendBloodCharges(player, $"{gem.Name}: {landed} hit, {deaths.Count} killed");
             }
         }
-        if (strikeIndex == 0 && strikes > 1)
+        bool nextWave = shieldUse?.TryAdvance() == true;
+        if (nextWave || shieldUse is null && strikeIndex == 0 && strikes > 1)
         {
-            (double gap, bool keyframe) = GemAttackStrikeGap(player, contactClip);
-            double next = contactAt + gap * SupportedAttackSeconds(player, skillId, hand);
-            await AreaDelay(player, Math.Max(0, next - AreaTime(player)));
+            double next;
+            if (nextWave)
+            {
+                shieldUse!.FortificationGranted = fortificationGranted;
+                shieldUse.RageGranted = rageGranted;
+                next = shieldUse.DueAt;
+            }
+            else
+            {
+                (double gap, bool keyframe) = GemAttackStrikeGap(player, contactClip);
+                next = contactAt + gap * SupportedAttackSeconds(player, skillId, hand);
+                if (!keyframe) contactClip = null;
+            }
+            double wait = next - AreaTime(player);
+            if (!nextWave || wait > 0) await AreaDelay(player, Math.Max(0, wait));
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;
-            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: strike 2 at {next:0.000} "
-                + $"({(keyframe ? contactClip : "modelled half-attack gap")})");
+            if (!nextWave)
+                Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: strike 2 at {next:0.000} "
+                    + $"({contactClip ?? "modelled half-attack gap"})");
             await AreaSkillHitStrike(player, skillId, gem, from, to, immediate: true,
                 sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, melee: melee, damageMore: damageMore,
                 excludeMonster: excludeMonster, criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId,
                 repeat: repeat, radiusOverride: radiusOverride, once: null, repeatDelay: repeatDelay, radiusMore: radiusMore,
                 sacrifice: sacrifice, swingAt: null, triggeredCurrent: triggeredCurrent, discharge: discharge,
-                strikeIndex: 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit, scaledBlastChaos: scaledBlastChaos,
+                strikeIndex: nextWave ? 0 : 1, firstContactAt: next, ruthlessMore: ruthlessMore, priorTargets: alreadyHit, scaledBlastChaos: scaledBlastChaos,
                 singleStrikeTarget: singleStrikeTarget, onHit: onHit, scheduledSession: scheduledSession, cryExerted: cryExerted, prepaidRawExtra: prepaidRawExtra, baseChaos: baseChaos, hammer: hammer, brandedTarget: brandedTarget,
                 targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction, extraStunDurationPct: extraStunDurationPct,
-                extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback, offHandWeapon: offHandWeapon);
+                extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback,
+                offHandWeapon: offHandWeapon, shieldUse: shieldUse);
         }
     }
 

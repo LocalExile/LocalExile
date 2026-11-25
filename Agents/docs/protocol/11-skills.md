@@ -1763,6 +1763,14 @@ Its hammers deal no damage: the client draws them, but the server has no hammerf
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
 
+**Shield Crush** (ActionTypes `ShieldWaves`, 0x0ee3) uses `ShieldBash` (Animation row 134, selected at
+`0x141c1e730`). Each of its rig's three `wave` events calls `0x141c1e760` (event 0xe510). The cone offsets
+are +30°, 0°, and −30° (`0x141c1ef20`), with the outer two reversed for class ID 5 (Templar). Each cone
+has a 30° half-angle and an origin eight cells behind the player, with an eight-cell inner radius.
+The base radius is 29 cells. `0x141c1ee20` doubles the centre's area before the centre-specific modifier
+(`shield_crush_helmet_enchantment_aoe_+%_final`) and radius scaling; the third wave excludes targets
+selected by the first. `animation_skill_clips` records the ACT stance's clip for the timing.
+
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
 when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
 (live 2026-10-23). A resync follows at the end of the action ([07](07-latency-visibility-movement.md) §5).
