@@ -146,7 +146,7 @@ public static partial class Game
         int action = 0;
         ushort sequence = 0, ended = 0;
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
-        bool skill = false;
+        bool skill = false, moveFromClient = false;
         int skillActionBefore = 0;
         double skillBusyBefore = 0, skillBusySet = 0, skillStartedBefore = 0, skillScheduledBefore = 0;
         double at;
@@ -265,6 +265,7 @@ public static partial class Game
                 else if (moveFree && !pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
+                    moveFromClient = StrikeRunning(player, frameStart);
                     EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
@@ -317,7 +318,7 @@ public static partial class Game
                         if (!PlayerActionCurrent(player, action)) return null;
                         double gateAt = player.Connection.LockstepFrame?.Start ?? frameStart;
                         StepWalkers(player, gateAt);
-                        if (PlaceLockstepPlayerMove(player, target, gateAt) is not { } placed) return null;
+                        if (PlaceLockstepPlayerMove(player, target, gateAt, moveFromClient) is not { } placed) return null;
                         from = placed;
                         moved = true;
                         return LockstepActionStart(player, from, target, sequence);
@@ -328,6 +329,26 @@ public static partial class Game
         }
     }
 
+    // The estimate runs ahead of the client -- a round trip and the client's two frames (LockstepClientCell) -- and an
+    // action's 0x1ab puts the client on its cell pair at any distance, so a pair taken from the estimate moves him. So
+    // an attack (on a monster or on the ground) always starts from the cell the client stands on. A Move does so only
+    // while a strike's walk-up or the busy time of the last action (LockstepBusyUntil: a swing, a cast, a pickup, a
+    // hit's recovery) still runs (in a live move -> strike -> move chain the walk started at the strike's walk-up goal
+    // while the client stood elsewhere); after a plain walk it is left on the estimate: the client keeps its own cell
+    // through a walk (it takes a Move only from 3 cells away).
+    public static bool StrikeRunning(Player player, double at) =>
+        player.LockstepAttack is { Open: true } || at < player.LockstepBusyUntil;
+
+    // Puts the server's copy of the player on the client's cell (LockstepClientCell) before an action is placed from it,
+    // and returns that cell. A correction of the estimate, not a displacement: it is not counted as a teleport
+    // (PlayerWalk.Place), so Intensity and Momentum keep their stacks. Under conn.Monsters.
+    public static (int X, int Y) PlaceEstimateOnClient(Player player, double at)
+    {
+        var client = LockstepClientCell(player, at);
+        if (client != player.Walk.Position(at)) player.Walk.Place(client.X, client.Y, at);
+        return client;
+    }
+
     // A player Move due at `at`: placed and its start cell returned when the client takes it (LockstepTakesMove). The
     // client admits a Move by vtable slot +0x130 (0x141949a20): dx*dx + dy*dy >= 9 from the walker's own cell, which
     // 0x141e94900 runs before it ends the current action and before 0x141e95080 sets the pair. A refused Move is
@@ -336,10 +357,13 @@ public static partial class Game
     // cells untouched, 127 of them with a from cell other than the client's; every farther one searched). So none is
     // sent and nothing is spent, the estimate's walk goes on as the client's does, and a held cursor stays due
     // (LockstepHold: it is offered again once the walk stops short of it).
-    public static (int X, int Y)? PlaceLockstepPlayerMove(Player player, (int X, int Y) target, double at)
+    public static (int X, int Y)? PlaceLockstepPlayerMove(Player player, (int X, int Y) target, double at, bool fromClient = false)
     {
-        var here = player.Walk.Position(at);
-        return LockstepTakesMove(here, target) ? player.Walk.Order(target.X, target.Y, at) : null;
+        fromClient |= StrikeRunning(player, at);
+        var here = fromClient ? LockstepClientCell(player, at) : player.Walk.Position(at);
+        if (!LockstepTakesMove(here, target)) return null;
+        if (fromClient) PlaceEstimateOnClient(player, at);
+        return player.Walk.Order(target.X, target.Y, at);
     }
 
     static readonly double LockstepHoldLookaheadSeconds = FrameMs / 1000.0 + 0.005;
@@ -432,13 +456,15 @@ public static partial class Game
     // in the frame of an order's apply). Null, and the attack failed, when another action replaced it. Under conn.Monsters.
     public static byte[]? LockstepAttackAtGate(Player player, LockstepAttack attack, InstanceTransfer.UseSkillOnObject use)
     {
-        if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action))
+        if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action)
+            || !LockstepSkillCanStart(player, use.SkillId))
         {
             attack.Fails();
             return null;
         }
         double at = player.Connection.LockstepFrame?.Start ?? ProjectileWorldTime(player);
         StepWalkers(player, at);
+        PlaceEstimateOnClient(player, at);
         var (here, aim) = PlaceLockstepAttack(player, attack, at);
         string walkUp = attack.Open ? $"walks up to ({player.Walk.Destination.X}, {player.Walk.Destination.Y})"
             : attack.Decided.Result is null ? "no path" : "swings at once";
@@ -542,13 +568,17 @@ public static partial class Game
             {
                 using (ProjectileMutation(player, phase: "send"))
                 {
-                    if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action))
+                    // A use whose cost can no longer be paid sends nothing (no walk-up, no 0x1ab): the frame pass
+                    // checked it before starting the skill, but the send waits for the wire's turn, so check again here.
+                    if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action)
+                        || !LockstepSkillCanStart(player, skill))
                     {
                         attack.Fails();
                         return null;
                     }
                     double at = player.Connection.LockstepFrame?.Start ?? ProjectileWorldTime(player);
                     StepWalkers(player, at);
+                    PlaceEstimateOnClient(player, at);
                     var placed = PlaceLockstepAttack(player, attack, at);
                     return InstanceProtocol.ActionStarted(player.Id, placed.Here.X, placed.Here.Y, aim.X, aim.Y,
                         skill, sequence, flags);
