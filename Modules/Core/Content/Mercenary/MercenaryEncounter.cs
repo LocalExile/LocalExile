@@ -143,8 +143,9 @@ public sealed partial class MercenaryModule
     void Register(Player player, Run run)
     {
         if (run.Body == 0 || run.Stage is not (Stage.Met or Stage.Talk) || MercenaryTables.ClassOf(run.Class) is not { } kind
-            || Npcs.Find(kind.Path) is not { } npc || npc.Id != kind.Path) return;
-        lock (player.Npcs) player.Npcs.TryAdd(run.Body, new SpawnedNpc(npc, run.X, run.Y));
+            || Npcs.Find(kind.Path) is not { } npc || npc.Id != kind.Path || Monsters.Find(kind.Path) is not { } variety) return;
+        lock (player.Npcs) player.Npcs.TryAdd(run.Body, new SpawnedNpc(npc, run.X, run.Y)
+            { MonsterBodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127) });
     }
 
     /// <summary>A player enters an instance that has a mercenary: they are given its rulesets and can talk to it. The monster itself
