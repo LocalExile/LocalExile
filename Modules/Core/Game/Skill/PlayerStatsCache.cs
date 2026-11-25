@@ -283,6 +283,7 @@ public static partial class Game
         frame.Clock = clock;
         var graph = frame.Graph ??= PlayerStatGraph(player, frame);
         CheckMomentumPresentation(player, clock);
+        RefreshDoubleStrikeMomentum(player, clock);
         if (!ReferenceEquals(frame.Area, player.Frames.Area))
         {
             if (frame.Area is not null) PlayerStatBuffsChanged(player);

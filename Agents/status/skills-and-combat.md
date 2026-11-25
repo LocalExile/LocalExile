@@ -148,6 +148,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
   more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Double Strike of Momentum gains stages per started pair of swings, including Multistrike repeats. The stage counter,
+  attack cadence and skill panel follow each gain and reset on movement.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) Â§2i.
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) Â§9.

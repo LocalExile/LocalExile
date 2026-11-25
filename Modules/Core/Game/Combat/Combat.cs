@@ -86,7 +86,7 @@ public static partial class Game
         seconds = skillId != 0
             ? (ShieldWeapon(player, skillId) is { } shieldWeapon
                 ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
-                : SupportedAttackSeconds(player, skillId, sequence))
+                : StartingAttackSeconds(player, skillId, sequence))
             : SkillAttackSeconds(player, effect, level);
         double now = LockstepScheduledAt(player, AreaTime(player));
         return AttackTiming.Ready(now, player.NextAttackAt, seconds);
@@ -1376,6 +1376,7 @@ public static partial class Game
         if (cooldownUse?.Attack is { } admittedAttack
             && (admittedAttack.Skill != skillId || cooldownUse.Effect != gem.Effect)) return false;
         double? reservedNextAttackAt = null;
+        DoubleStrikePairs? doubleStrikePairs = null;
         // A trapped or mined attack is a throw: it neither waits for the weapon's attack time nor reserves it.
         if (vaalUse is null && cooldownUse?.Attack is null && gem.Name is not null
             && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
@@ -1383,7 +1384,7 @@ public static partial class Game
         {
             double duration = ShieldWeapon(player, skillId) is { } shieldWeapon
                 ? SupportedOffHandAttackSeconds(player, skillId, shieldWeapon)
-                : SupportedAttackSeconds(player, skillId, sequence);
+                : StartingAttackSeconds(player, skillId, sequence);
             double now = swingAt ?? AreaTime(player), next;
             bool ready;
             next = player.NextAttackAt;
@@ -1478,7 +1479,12 @@ public static partial class Game
                     // Reserve the whole paid use before cost publication can yield to another held input.
                     if (placedAdmission is null && !IsTotemSkill(player, skillId) && SkillsFor(player).IsAttack(gem.Effect)
                         && !SkillsFor(player).IsChannelled(gem.Effect) && !shieldCharge)
-                        ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
+                    {
+                        if (reservedNextAttackAt is double previous && SkillsFor(player).EffectId(gem.Effect) == "DoubleStrikeAltY")
+                            doubleStrikePairs = BeginDoubleStrikeUse(player, skillId, paymentGem, swingAt ?? AreaTime(player), previous);
+                        if (doubleStrikePairs is null)
+                            ReserveMeleeRepeats(player, skillId, SupportedAttackSeconds(player, skillId, sequence));
+                    }
                 }
                 if (paid && cost > 0 && placedAdmission is null)
                     RecordPaidBowAttackLocked(player, skillId, paymentGem, cost, to);
@@ -1645,7 +1651,8 @@ public static partial class Game
         else
             await LaunchProjectileForUse(player, onShieldChargeReady, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
-                swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt);
+                swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt,
+                doubleStrikePairs: doubleStrikePairs);
         return CompleteSupportedUse(true);
     }
 
@@ -2054,7 +2061,8 @@ public static partial class Game
     static Task LaunchProjectileForUse(Player player, Action<Action>? onShieldChargeReady,
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
-        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null)
+        int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null,
+        DoubleStrikePairs? doubleStrikePairs = null)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -2176,6 +2184,33 @@ public static partial class Game
         var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
             ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
         bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
+        if (doubleStrikePairs is { } pairs) return PlayDoubleStrikePairs(pairs);
+
+        async Task PlayDoubleStrikePairs(DoubleStrikePairs use)
+        {
+            double pairAt = use.Start;
+            for (int pair = 0; pair < use.Durations.Length; pair++)
+            {
+                double duration = use.Durations[pair];
+                if (pair > 0)
+                {
+                    await AreaDelay(player, Math.Max(0, pairAt - AreaTime(player)));
+                    await WhilePaused(player);
+                    if (!CanReleaseStorm() || player.ActionInterruptionGeneration != recoveryGeneration
+                        || !PlayerStateAllowsAction(player)) break;
+                    if (CurrentPlayerSkillSourceLocked(player, skillId) is not { Active: true } source
+                        || source.Effect != gem.Effect || source.Gem != gem.Gem) break;
+                    BeginDoubleStrikePair(player, use.Maximum, AreaTime(player));
+                }
+                jobs.Add(AreaSkillHitForUse(repeatRuthless, player, skillId, gem, from, to,
+                    sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
+                    targetId: targetId, repeat: pair, swingAt: pairAt, sacrifice: sacrifice, cryExerted: cryExerted,
+                    damageMore: MeleeRepeatDamageMore(player, skillId, pair), strikeSeconds: duration));
+                pairAt += duration;
+            }
+            await Task.WhenAll(jobs);
+        }
+
         double sealGap = seals == 0 ? 0 : (CastMs(player, gem.Effect, skillId) ?? 0) / 10000d;
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
@@ -2639,12 +2674,14 @@ public static partial class Game
         DischargeUse? discharge = null, int scaledBlastChaos = 0, uint? singleStrikeTarget = null, Action<uint>? onHit = null,
         ProjectileSession? scheduledSession = null, bool? cryExerted = null, long addedChaos = 0, long baseChaos = 0, HolySweepHammers.Settings? hammer = null, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
-        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false) =>
+        int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
+        double? strikeSeconds = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget,
-            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback, offHandWeapon);
+            targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct, removeStunAndKnockback, offHandWeapon,
+            strikeSeconds: strikeSeconds);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2656,7 +2693,7 @@ public static partial class Game
         uint? singleStrikeTarget, Action<uint>? onHit, ProjectileSession? scheduledSession, bool? cryExerted, long prepaidRawExtra, long baseChaos, HolySweepHammers.Settings? hammer, SpawnedMonster? brandedTarget = null,
         Func<uint, (int X, int Y), bool>? targetFilter = null, int extraStunThresholdReduction = 0, int extraStunDurationPct = 0,
         int extraKnockbackDistancePct = 0, bool removeStunAndKnockback = false, bool offHandWeapon = false,
-        EarthquakeAftershock? aftershock = null)
+        EarthquakeAftershock? aftershock = null, double? strikeSeconds = null)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -2746,7 +2783,8 @@ public static partial class Game
         double contactFraction = 0;
         delay = aftershock is not null ? 0 : spell
             ? castDuration.Value / 1000.0 * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject)) + repeatDelay
-            : GemAttackContactDelay(player, gem.Effect, SupportedAttackSeconds(player, skillId, hand), out contactClip, out contactFraction)
+            : GemAttackContactDelay(player, gem.Effect, strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand),
+                out contactClip, out contactFraction)
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
         // Greater Spell Echo: each repeat of the spell has more increased area than the one before.
@@ -3510,7 +3548,7 @@ public static partial class Game
         if (strikeIndex == 0 && strikes > 1)
         {
             (double gap, bool keyframe) = GemAttackStrikeGap(player, contactClip);
-            double next = contactAt + gap * SupportedAttackSeconds(player, skillId, hand);
+            double next = contactAt + gap * (strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand));
             await AreaDelay(player, Math.Max(0, next - AreaTime(player)));
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;

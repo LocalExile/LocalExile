@@ -197,14 +197,22 @@ public static partial class Game
     /// <summary>A supported attack's time with a hand. Both hands at once: the average of the two weapons' times
     /// (Path of Building's harmonic mean of the two speeds), or the off hand's alone with
     /// <c>dual_strike_off_hand_weapon_determines_attack_time</c>, then <c>viper_strike_dual_wield_attack_speed_+%_final</c>.</summary>
-    public static double SupportedAttackSeconds(Player player, ushort skillId, AttackHand hand)
+    public static double SupportedAttackSeconds(Player player, ushort skillId, AttackHand hand) =>
+        AttackSecondsForHand(player, skillId, hand, startingPair: false);
+
+    static double StartingAttackSeconds(Player player, ushort skillId, ushort sequence) =>
+        AttackSecondsForHand(player, skillId, AttackHandFor(player, skillId, sequence), startingPair: true);
+
+    static double AttackSecondsForHand(Player player, ushort skillId, AttackHand hand, bool startingPair)
     {
-        if (hand == AttackHand.Main || OffhandWeaponFor(player) is not { } off) return SupportedAttackSeconds(player, skillId);
-        double offSeconds = SupportedOffHandAttackSeconds(player, skillId, off);
+        double Seconds(SkillCatalog.Unarmed? weapon) =>
+            SupportedAttackTiming(player, skillId, weapon, clampToTick: true, proxy: false, startingPair: startingPair).Seconds;
+        if (hand == AttackHand.Main || OffhandWeaponFor(player) is not { } off) return Seconds(null);
+        double offSeconds = Seconds(off);
         if (hand == AttackHand.Off) return offSeconds;
         int Own(string name) => Stats.Key(name) is uint key ? SupportedSkill(player, skillId).Stats.GetValueOrDefault(key) : 0;
         double seconds = Own("dual_strike_off_hand_weapon_determines_attack_time") != 0 ? offSeconds
-            : (SupportedAttackSeconds(player, skillId) + offSeconds) / 2;
+            : (Seconds(null) + offSeconds) / 2;
         return Math.Max(TickSeconds, seconds / Math.Max(.01, 1 + Own("viper_strike_dual_wield_attack_speed_+%_final") / 100.0));
     }
 
