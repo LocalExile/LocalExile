@@ -167,8 +167,8 @@ The primary 3.29.3b writers establish two additional complete client-message len
 
 | Message | Bytes including opcode | Primary writer | Fields after the u16 opcode |
 |---|---|---|---|
-| C?S 0x020a | 3 | `0x140e27920` | one byte |
-| C?S 0x0059 | 16 | `0x141f99e90` | 4, 2, 2, 4, 1 and 1 bytes, unconditionally |
+| C→S 0x020a | 3 | `0x140e27920` | one byte |
+| C→S 0x0059 | 16 | `0x141f99e90` | 4, 2, 2, 4, 1 and 1 bytes, unconditionally |
 
 The 0x020a send site is `0x140d3d029..0x140d3d05b`, with vtable `0x14346cd80`.
 The 0x0059 sender is `0x1421669d0`, with vtable `0x1435ca8b0`.
