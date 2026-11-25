@@ -138,6 +138,7 @@ public static class ShakariEncounter
         readonly HashSet<uint> boundBosses = [];
         readonly HashSet<uint> canyonAdds = [];
         readonly HashSet<uint> p2WaveAdds = [];
+        readonly HashSet<uint> previousP2WaveAdds = [];
         readonly Dictionary<Player, ArenaHazards.Exposure> groundExposures = [];
         readonly object quicksandHolder = new();
         readonly object sandstormHolder = new();
@@ -473,6 +474,7 @@ public static class ShakariEncounter
             if (addsAlive && now < p2BurrowEndsAt) return;
 
             p2Burrowed = false;
+            previousP2WaveAdds.UnionWith(p2WaveAdds);
             p2WaveAdds.Clear();
             var emergeSpot = RingSpot(runner, target.Walk.Position(now), AreaRng(runner).NextDouble() * Math.Tau, 10);
             await TeleportBoss(runner, bossId, boss, emergeSpot, now);
@@ -616,7 +618,8 @@ public static class ShakariEncounter
                 SetInvulnerable(runner, p2BossId, b2, false, CannotBeDamagedBuff);
                 if (b2.WorldHidden) await SetWorldHidden(runner, p2BossId, b2, false);
             }
-            await RetireMonsters(runner, canyonAdds.Concat(p2WaveAdds));
+            await RetireMonsters(runner, canyonAdds.Concat(previousP2WaveAdds).Concat(p2WaveAdds));
+            previousP2WaveAdds.Clear();
             canyonAdds.Clear();
             p2WaveAdds.Clear();
             foreach (var p in ActivePlayers(runner))
