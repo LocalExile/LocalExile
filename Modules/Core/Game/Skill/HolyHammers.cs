@@ -71,8 +71,13 @@ public static partial class Game
             if (!Active()) return false;
             double time = ProjectileWorldTime(player);
             var candidates = player.Area.MonstersNear(at, radius)
-                .Where(pair => pair.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false }
-                    && Dist(at, pair.Value.Walk.Position(time)) <= radius + LivingCollision.Size(pair.Value))
+                .Where(pair => pair.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false })
+                .Where(pair =>
+                {
+                    var target = pair.Value.Walk.Position(time);
+                    return Dist(at, target) <= radius + LivingCollision.Size(pair.Value)
+                        && !ClientPathfinder.LineBelow(target, at, Trace, 1);
+                })
                 .Select(pair => pair.Key).ToArray();
             if (candidates.Length == 0) return false;
             bool landed = false;

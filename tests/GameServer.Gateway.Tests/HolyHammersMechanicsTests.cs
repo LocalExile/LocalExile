@@ -43,6 +43,16 @@ public sealed class HolyHammersMechanicsTests
             Assert.Equal(emptyBranch.MaxLife, emptyBranch.Life);
         }
 
+        using (var walled = new Trial("Holy Hammers", charges: 0, sight: (_, y) => y == 105 ? 0 : 2))
+        {
+            var first = walled.Target(901, (85, 100));
+            var shielded = walled.Target(902, (85, 110));
+            Assert.True(await walled.Cast());
+            walled.Advance(.80);
+            Assert.True(first.Life < first.MaxLife);
+            Assert.Equal(shielded.MaxLife, shielded.Life);
+        }
+
         using (var spiral = new Trial("Holy Hammers of Spirals", charges: 3, minimum: 1))
         {
             var neutral = spiral.Target(901, (48, 70));
@@ -72,10 +82,11 @@ public sealed class HolyHammersMechanicsTests
         Player Player => fixture.Player;
         internal int Charges => charges.Effective(ChargeType.Power);
 
-        internal Trial(string gem, int charges, int minimum = 0)
+        internal Trial(string gem, int charges, int minimum = 0, Func<int, int, int>? sight = null)
         {
             fixture = new(clock);
-            Player.Use(new(1, "holy-hammers-test", 240, 240, Origin.X, Origin.Y, (_, _) => true, []) { Sight = (_, _) => 2 });
+            Player.Use(new(1, "holy-hammers-test", 240, 240, Origin.X, Origin.Y, (_, _) => true, [])
+                { Sight = sight ?? ((_, _) => 2) });
             Player.Walk.Teleport(Origin.X, Origin.Y, clock.At);
             Player.Connection.LockstepClient = false;
             Player.Connection.PlayerObjectCreated = true;
