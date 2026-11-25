@@ -154,17 +154,23 @@ public sealed class NpcConversationTests
         player.Npcs[id] = npc;
         player.Character.LeagueQuestFlags.UnionWith(AtlasFeature.UnlockLeagueFlags);
         var heard = new List<int>();
+        var shortcuts = new List<string>();
         using var leagueFlags = GameEvents.NpcUsesLeagueFlags.Add("Game", (_, who) => who == kirac);
         using var automatic = GameEvents.NpcQuestConversation.Add("Game", AtlasFeature.KiracStarterConversation);
         using var options = GameEvents.NpcOption.Add("Game", async option =>
         {
+            if (option.Category is "BuyItems" or "SellItems" or "RespecAtlasPassivePointsForGold")
+            {
+                shortcuts.Add(option.Category);
+                return true;
+            }
             heard.Add(option.Row);
             if (option.RewardOffer is int offer) return await Game.OfferNpcReward(player, offer);
             player.InNpcTalk = option.HasText;
             return option.HasText;
         });
 
-        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+        Assert.Null(await AtlasFeature.KiracStarterConversation(player, id, npc));
         player.Character.QuestFlags.Add(Quests.EndGameAvailable);
         await Game.OnUseObject(player, new InstanceTransfer.UseSkillOnObject(id, 0x266, 1, 0x0408),
             player.Clock.Elapsed.TotalSeconds);
@@ -173,6 +179,11 @@ public sealed class NpcConversationTests
         Assert.Equal([2257], heard);
         Assert.Contains(1035, player.Character.LeagueQuestFlags);
         Assert.Null(player.NpcRewardOffer);
+        foreach (ushort modifier in new[] { InstanceTransfer.CtrlFlag, InstanceTransfer.AltFlag,
+                     (ushort)(InstanceTransfer.CtrlFlag | InstanceTransfer.AltFlag) })
+            await Game.OnUseObject(player, new InstanceTransfer.UseSkillOnObject(id, 0x266, 1, (ushort)(0x0408 | modifier)),
+                player.Clock.Elapsed.TotalSeconds);
+        Assert.Equal(["BuyItems", "SellItems", "RespecAtlasPassivePointsForGold"], shortcuts);
         await Game.ChooseNpcOption(player, 43);
         Assert.Null(player.NpcRewardOffer);
         await Game.ChooseNpcOption(player, 4);
@@ -182,10 +193,10 @@ public sealed class NpcConversationTests
         Assert.Equal(70, player.NpcRewardOffer);
         Assert.Equal("Metadata/Items/Maps/MapKeyTier1", Program.Items.ByHash(Assert.Single(player.NpcRewardItems.Values).TypeHash)!.Id);
         player.Character.LeagueQuestFlags.Add(216);
-        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+        Assert.Null(await AtlasFeature.KiracStarterConversation(player, id, npc));
         player.Character.LeagueQuestFlags.Remove(216);
         player.Character.LeagueQuestFlags.Add(1037);
-        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+        Assert.Null(await AtlasFeature.KiracStarterConversation(player, id, npc));
     }
 
     static async Task VerifyLillyGemIntroduction()

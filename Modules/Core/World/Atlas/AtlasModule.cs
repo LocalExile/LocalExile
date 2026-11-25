@@ -262,14 +262,14 @@ public static class AtlasFeature
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    internal static async Task<bool> KiracStarterConversation(Player player, uint id, SpawnedNpc npc)
+    internal static async Task<bool?> KiracStarterConversation(Player player, uint id, SpawnedNpc npc)
     {
         const int tookStarterMap = 216, enteredMap = 1037;
         const int introductionOption = 3;
         var flags = player.Character.LeagueQuestFlags;
         if (player.Layout.Id != "2_11_endgame_town" || npc.Npc.Id != "Metadata/NPC/Epilogue/Kirac"
             || !player.Character.HasQuestFlag(Quests.EndGameAvailable)
-            || flags.Contains(tookStarterMap) || flags.Contains(enteredMap)) return false;
+            || flags.Contains(tookStarterMap) || flags.Contains(enteredMap)) return null;
 
         // NPCTalk 2257 has a start flag but is categorized as Gossip. The next rows, 2258 and 2297,
         // have the manual-start sentinel. Leave their choices visible before the pre-granted Atlas
@@ -280,8 +280,7 @@ public static class AtlasFeature
             await global::Game.ExecuteQuestConversation(player, id, npc, introduction);
             if (player.InNpcTalk) return true;
         }
-        await Send(player, InstanceNpcs.Talk(id), $"0x0084 npc 0x{id:x}: Kirac's first Atlas options");
-        return true;
+        return false;
     }
 
     // Kirac's rows (NPCs.dat 410, also the hideout Kirac's) mark their conversation heard with league quest flags

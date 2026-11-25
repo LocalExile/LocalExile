@@ -176,7 +176,7 @@ public static partial class Game
         SpawnedNpc? npc;
         lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(id);
         if (npc is null || player.TalkingTo != id) return false;
-        if (await GameEvents.AnyNpcQuestConversation(player, id, npc)) return true;
+        if (await GameEvents.ResolveNpcQuestConversation(player, id, npc) is bool handled) return handled;
         var flags = Quests.Names(PlayerQuestFlags(player));
         NpcCatalog.Talk? next;
         if (GameEvents.UsesNpcLeagueFlags(player, npc.Npc))
