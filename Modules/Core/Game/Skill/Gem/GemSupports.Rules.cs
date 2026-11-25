@@ -619,7 +619,7 @@ public static partial class Game
         SupportedAttackTiming(player, skillId, null, clampToTick: true, proxy: false).Increased;
 
     static (double Seconds, int Increased, double More) SupportedAttackTiming(Player player, ushort skillId, SkillCatalog.Unarmed? offHand,
-        bool clampToTick, bool proxy)
+        bool clampToTick, bool proxy, int? doubleStrikeStages = null, bool startingPair = false)
     {
         var stats = new Dictionary<uint, int>(SupportedStats(player, skillId));
         int Get(uint k) => stats.GetValueOrDefault(k);
@@ -659,6 +659,12 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d);
+        if (!proxy && gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) is int stageSpeed and not 0)
+        {
+            int stages = doubleStrikeStages ?? DoubleStrikeStageCount(player, AreaTime(player));
+            int maximum = gem.Stats.GetValueOrDefault(Stat.DoubleStrikeMaxStages);
+            more *= Math.Max(.01, 1 + (double)stageSpeed * Math.Clamp(stages + (startingPair ? 1 : 0), 0, Math.Max(0, maximum)) / 100);
+        }
         int barrageTime = Get(Stat.SupportBarrageAttackTimePlusPctPerProjectileFired);
         if (barrageTime > 0 && ResolveProjectilePanelParameters(gem.Effect) is { } projectileParameters)
         {
