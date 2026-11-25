@@ -27,6 +27,31 @@ public static class AttributeOffenceSources
         (Stat.PhysicalDamageOverTimePer10DexterityPlusPct, Stat.PhysicalDamageOverTimePlusPct, 1, 10),
     ];
 
+    // The table's rows (fx_per_attribute), worked out once for each load of the game data; they count only while the
+    // effect rules are on.
+    sealed record Table(object Rows, (uint Input, uint Output, int Attribute, int Group, double Scale)[] Rules);
+    static Table _table = new(new object(), []);
+
+    static (uint Input, uint Output, int Attribute, int Group, double Scale)[] FromTable()
+    {
+        var rows = GameData.FxPerAttribute;
+        var cached = Volatile.Read(ref _table);
+        if (ReferenceEquals(cached.Rows, rows)) return cached.Rules;
+        var rules = new List<(uint, uint, int, int, double)>();
+        int unknown = 0;
+        foreach (var row in rows)
+        {
+            int attribute = row.Attribute switch { "strength" => 0, "dexterity" => 1, "intelligence" => 2, _ => -1 };
+            if (attribute >= 0 && row.Every > 0 && Program.Stats.Key(row.Stat) is uint input && Program.Stats.Key(row.CountsAs) is uint output)
+                rules.Add((input, output, attribute, row.Every, row.Scale));
+            else unknown++;
+        }
+        if (rows.Count > 0)
+            Console.WriteLine($"[rules] {rules.Count} per-attribute stat(s) from the fx tables" + (unknown > 0 ? $"; {unknown} left out" : ""));
+        Volatile.Write(ref _table, cached = new(rows, [.. rules]));
+        return cached.Rules;
+    }
+
     // Apply once to a fresh qualified source sum, before pools, skill snapshots and panels consume it.
     public static void Apply(Dictionary<uint, int> sources, StatCatalog stats,
         int strength, int dexterity, int intelligence)
@@ -37,6 +62,11 @@ public static class AttributeOffenceSources
             if (input is var coefficient && sources.TryGetValue(coefficient, out int value)
                 && value != 0 && output is var target)
                 added[target] = added.GetValueOrDefault(target) + (long)value * (attributes[attribute] / group);
+        if (StatConditions.UseTable)
+            foreach (var (input, output, attribute, group, scale) in FromTable())
+                if (sources.TryGetValue(input, out int value) && value != 0)
+                    added[output] = added.GetValueOrDefault(output)
+                        + (long)Math.Round(value * scale * (attributes[attribute] / group), MidpointRounding.AwayFromZero);
         foreach (var (key, value) in added)
             sources[key] = (int)Math.Clamp((long)sources.GetValueOrDefault(key) + value, int.MinValue, int.MaxValue);
     }

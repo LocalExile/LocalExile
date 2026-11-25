@@ -310,9 +310,11 @@ public static class ItemModStats
         int all = Percent(Stat.LocalAttributeRequirementsPlusPct);
         int Scale(int value, int percent) => (int)Math.Floor(value * (100L + all + percent) / 100.0);
         var (str, dex, intel) = items.Requirements(type);
-        return (Scale(str, Percent(Stat.LocalStrengthRequirementPlusPct)),
-            Scale(dex, Percent(Stat.LocalDexterityRequirementPlusPct)),
-            Scale(intel, Percent(Stat.LocalIntelligenceRequirementPlusPct)));
+        // "+# Strength Requirement" (Mjölner's +300, Cospri's Malice): a flat amount on top, never below none.
+        int Flat(int value, uint id) => Math.Max(0, value + Percent(id));
+        return (Flat(Scale(str, Percent(Stat.LocalStrengthRequirementPlusPct)), Stat.LocalStrengthRequirementPlus),
+            Flat(Scale(dex, Percent(Stat.LocalDexterityRequirementPlusPct)), Stat.LocalDexterityRequirementPlus),
+            Flat(Scale(intel, Percent(Stat.LocalIntelligenceRequirementPlusPct)), Stat.LocalIntelligenceRequirementPlus));
     }
 
     /// <summary>A worn item with what it needs: strength, dexterity, intelligence and character level.</summary>

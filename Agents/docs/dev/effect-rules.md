@@ -308,6 +308,13 @@ and at a plain owned minion's attack (`MinionHitTargetLocked`); explosions and o
 `"who": "minion"`: `"any"` is the character and its totems, traps and mines, whose hits use the character's stats.
 The rule's numbers still come from the player's stats (the `minion_...` line is the player's).
 
+## Per attribute
+
+`fx_per_attribute` (`stat`, `counts_as`, `attribute`, `every`, `scale`) holds stats that give another stat once for
+every so many points of strength, dexterity or intelligence. `AttributeOffenceSources.Apply` adds them after its own
+list, with complete groups of the final attribute, while the rules are on. A stat that belongs to its item (Stats
+`IsLocal`) never reaches that sum, so a row for one does nothing.
+
 ## Aliases and `remove`
 
 `fx_aliases` holds stats that are another stat under a second id, with no condition (`stat`, `counts_as`, `scale`).

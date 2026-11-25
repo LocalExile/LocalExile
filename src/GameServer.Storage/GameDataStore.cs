@@ -174,6 +174,24 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    /// <summary>One fx_per_attribute row: a stat that gives another stat once for every so many points of an attribute.</summary>
+    public sealed record FxPerAttributeRow(string Stat, string CountsAs, string Attribute, int Every, double Scale);
+
+    /// <summary>The enabled fx_per_attribute rows. Empty when the table is not there (an older world.db in a test).</summary>
+    public IReadOnlyList<FxPerAttributeRow> LoadFxPerAttribute()
+    {
+        lock (_gate)
+        {
+            using (var exists = Command("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_per_attribute'"))
+                if (exists.ExecuteScalar() is null) return [];
+            using var command = Command("SELECT stat, counts_as, attribute, every, scale FROM fx_per_attribute WHERE enabled = 1 ORDER BY stat, ord");
+            using var reader = command.ExecuteReader();
+            var result = new List<FxPerAttributeRow>();
+            while (reader.Read()) result.Add(new(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetInt32(3), reader.GetDouble(4)));
+            return result;
+        }
+    }
+
     /// <summary>One fx_aliases row: a stat that is also another stat, with no condition.</summary>
     public sealed record FxAliasRow(string Stat, string CountsAs, double Scale);
 

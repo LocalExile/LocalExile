@@ -50,7 +50,15 @@ public static partial class Game
         || get(Stat.ColdHitDamagePlusPctVsShockedEnemies) != 0 || get(Stat.LightningHitDamagePlusPctVsChilledEnemies) != 0
         || get(Stat.DamagePlusPctAgainstEnemiesMarkedByYou) != 0
         || get(Stat.LeechMasteryHitDamagePlusPctFinalVsLeechImmune) != 0
-        || get(Stat.PassiveMasteryHitAilmentDamagePlusPctFinalVsEnemiesWith5PlusPoisons) != 0;
+        || get(Stat.PassiveMasteryHitAilmentDamagePlusPctFinalVsEnemiesWith5PlusPoisons) != 0
+        || HasStateDamage(get);
+
+    // Single uniques' "increased Damage against Frozen / Ignited / Shocked / Hindered Enemies" and "with Hits and
+    // Ailments against Bleeding / Chilled / Cursed Enemies".
+    static bool HasStateDamage(Func<uint, int> get) => get(Stat.DamagePlusPctVsFrozenEnemies) != 0
+        || get(Stat.DamagePlusPctVsIgnitedEnemies) != 0 || get(Stat.DamageVsShockedEnemiesPlusPct) != 0
+        || get(Stat.DamagePlusPctVsHinderedEnemies) != 0 || get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies) != 0
+        || get(Stat.HitAndAilmentDamagePlusPctVsChilledEnemies) != 0 || get(Stat.HitAndAilmentDamagePlusPctVsCursedEnemies) != 0;
 
     internal readonly record struct TargetContact(long HitIncrease, long AilmentIncrease, int ColdHitIncrease,
         int LightningHitIncrease, int OpportunisticMore, int PoisonMore, int LeechImmuneMore)
@@ -84,6 +92,23 @@ public static partial class Game
         if (poison != 0 && target.Poisons.Stacks(at) < 5) poison = 0;
         int leechImmune = Get(Stat.LeechMasteryHitDamagePlusPctFinalVsLeechImmune);
         if (leechImmune != 0 && target.Effects[Stat.CannotHaveLifeLeechedFrom] == 0) leechImmune = 0;
+        if (HasStateDamage(Get))
+        {
+            int frozen = Get(Stat.DamagePlusPctVsFrozenEnemies);
+            if (frozen != 0 && target.Ailments.Magnitude(MonsterElementalAilments.Kind.Freeze, at) > 0) hit += frozen;
+            int ignited = Get(Stat.DamagePlusPctVsIgnitedEnemies);
+            if (ignited != 0 && AilmentOn(target, AilmentType.Ignite, at)) hit += ignited;
+            int shocked = Get(Stat.DamageVsShockedEnemiesPlusPct);
+            if (shocked != 0 && AilmentOn(target, AilmentType.Shock, at)) hit += shocked;
+            int hindered = Get(Stat.DamagePlusPctVsHinderedEnemies);
+            if (hindered != 0 && (target.HinderedUntil > at || target.TotemHinderedUntil > at)) hit += hindered;
+            int bleeding = Get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies);
+            if (bleeding != 0 && AilmentOn(target, AilmentType.Bleed, at)) ailment += bleeding;
+            int chilledBoth = Get(Stat.HitAndAilmentDamagePlusPctVsChilledEnemies);
+            if (chilledBoth != 0 && AilmentOn(target, AilmentType.Chill, at)) ailment += chilledBoth;
+            int cursed = Get(Stat.HitAndAilmentDamagePlusPctVsCursedEnemies);
+            if (cursed != 0 && target.Curses.All.Count > 0) ailment += cursed;
+        }
         return new(hit + ailment, ailment, coldHit, lightningHit, opportunistic, poison, leechImmune);
     }
 
