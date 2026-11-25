@@ -119,6 +119,20 @@ public static partial class Game
         return (Math.Clamp(Get(Stat.GlobalChanceToBlindOnHitPct), 0, 100), Get(Stat.BlindEffectPlusPct),
             4 * Math.Max(0d, 1 + Get(Stat.BlindDurationPlusPct) / 100d));
     }
+
+    static void BlindOnElementalSkillUseLocked(Player player, int effect, double now, IReadOnlyDictionary<uint, int> sources)
+    {
+        int chance = sources.GetValueOrDefault(Stat.ElementalSkillChanceToBlindNearbyEnemiesPct);
+        if (chance <= 0) return;
+        var skills = SkillsFor(player);
+        if (!(skills.HasType(effect, "Fire") || skills.HasType(effect, "Cold") || skills.HasType(effect, "Lightning"))
+            || !RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        const int radius = 30;
+        var at = player.Walk.Position(now);
+        var input = (100, sources.GetValueOrDefault(Stat.BlindEffectPlusPct), BlindSeconds(sources.GetValueOrDefault));
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+            if (Dist(enemy.Walk.Position(now), at) <= radius) InflictMonsterBlind(player, id, enemy, now, input);
+    }
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
         => InflictMonsterBlind(player, id, target, at, input.Chance, input.Effect, input.Seconds, random);
