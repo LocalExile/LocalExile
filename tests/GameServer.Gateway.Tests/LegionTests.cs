@@ -56,6 +56,25 @@ public sealed class LegionTests
         // S→C 0x2c8: big-endian object header, action type, skill id, sequence, u8 sub-id, u16 length, the payload as is.
         Assert.Equal((byte[])[0x02, 0xc8, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0xd8, 0xfe, 0x18, 0xfe, 0x00, 0x07, 0x00, 0x00, 0x05, 2, 100, 0, 0, 0],
             InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
+        // Non-lethal life floor in TakeDamageLocked: lowers life normally, stops at 1 and invokes callback once without killing.
+        var frozen = new SpawnedMonster("frozen", new(100, 100, 0), 40, 4, 100);
+        int floorHits = 0;
+        frozen.OnNonLethalZero = target =>
+        {
+            floorHits++;
+            target.OnNonLethalZero = null;
+            target.EntranceGrace = true;
+        };
+        Assert.Equal((60u, false), Game.TakeDamageLocked(frozen, 40));
+        frozen.Life = 60;
+        Assert.Equal(0, floorHits);
+        Assert.Equal((1u, false), Game.TakeDamageLocked(frozen, 200));
+        Assert.Equal(1u, frozen.Life);
+        Assert.False(frozen.Dead);
+        Assert.Equal(1, floorHits);
+        Assert.True(frozen.EntranceGrace);
+        Assert.Equal((1u, false), Game.TakeDamageLocked(frozen, 50));
+        Assert.Equal(1, floorHits);
         }
     }
 
@@ -88,21 +107,52 @@ public sealed class LegionTests
                     Assert.NotNull(chest.Rewards);
                     Assert.DoesNotContain(chest.Rewards, row => row is 11 or 17);
                     Assert.Equal(chest.Rewards.Length, chest.Rewards.Distinct().Count());
-                    if (chest.WarHoard) { hoards++; Assert.InRange(chest.Rewards.Length, 2, 3); }
-                    else Assert.Single(chest.Rewards);
+                    Assert.True(chest.HardmodeChest >= 0);
+                    if (chest.WarHoard) { hoards++; Assert.InRange(chest.Rewards.Length, 2, 3); Assert.Equal((35, 100), (chest.FromPct, chest.ToPct)); }
+                    else { Assert.Single(chest.Rewards); Assert.Equal((20, 70), (chest.FromPct, chest.ToPct)); }
                 }
             }
         }
         Assert.True(sergeants > 0 && rewarded > 0 && chests > 0 && hoards > 0, "the seeds must include a War Hoard");
         Assert.True(rewarded < sergeants, "a sergeant carries a reward with a chance, not always");
+        // Table columns: faction orderliness (__col3), variety spawn weights (__col6), prop counts (__col15), HardmodeChest.
+        Assert.True(data.Factions.First(f => f.Id == "EternalEmpire").Orderliness >= 0.9);
+        Assert.True(data.Factions.First(f => f.Id == "Karui").Orderliness < 0.9);
+        Assert.Contains(data.MonsterVarieties, v => v.SpawnWeight > 1);
+        Assert.All(data.MonsterVarieties.Where(v => v.MiscAnimated.Length > 0), v => Assert.NotEmpty(v.PropCounts!));
+        // Low-level campaign monoliths never roll endgame/league symbols whose pools are empty at that level.
+        for (int seed = 1; seed <= 40; seed++)
+        {
+            var climb = LegionArmy.Plan(data, 7, "1_1_6", stats, new Random(seed));
+            foreach (var f in climb.Factions)
+            {
+                foreach (var q in f.Squads)
+                    if (q.Rewards is { } qr)
+                        foreach (var rs in qr) Assert.DoesNotContain(rs, row => row is 3 or 7 or 8 or 9 or 12 or 13 or 14);
+                foreach (var c in f.Chests)
+                    Assert.DoesNotContain(c.Rewards!, row => row is 3 or 7 or 8 or 9 or 12 or 13 or 14);
+            }
+        }
         var catalog = Program.Items;
         foreach (int row in LegionRewards.RewardRows)
             if (LegionRewards.Pool(catalog, row, 100) is { } pool) Assert.NotEmpty(pool);
         var harbinger = LegionRewards.Pool(catalog, 8, 100)!;
         var mirror = Assert.Single(harbinger, t => t.Id.EndsWith("/CurrencyDuplicateShard", StringComparison.Ordinal));
         Assert.All(harbinger.Where(t => t != mirror), t => Assert.True(LegionRewards.HarbingerWeight(t) > LegionRewards.HarbingerWeight(mirror)));
-        Assert.DoesNotContain(LegionRewards.Pool(catalog, 10, 100)!, t => t.Id.Contains("Hysteria1") || t.Id.Contains("Delirium1") || t.Id.Contains("Affliction"));
-        Assert.All(LegionRewards.Pool(catalog, 9, 100)!, t => Assert.DoesNotContain("Breachstone", t.Name));
         Assert.Contains(harbinger, t => t.Id.EndsWith("/CurrencyUpgradeMapTier", StringComparison.Ordinal));
+        Assert.Contains(harbinger, t => t.Id.EndsWith("/CurrencyUpgradeMapTierShard", StringComparison.Ordinal));
+        Assert.DoesNotContain(harbinger, t => t.Id.Contains("CurrencyHarbingerBlessing", StringComparison.Ordinal));
+        var essences100 = LegionRewards.Pool(catalog, 10, 100)!;
+        Assert.DoesNotContain(essences100, t => t.Name.StartsWith("Deafening ", StringComparison.Ordinal) || t.Id.Contains("Hysteria1") || t.Id.Contains("Delirium1") || t.Id.Contains("Affliction"));
+        Assert.Contains(essences100, t => t.Name.StartsWith("Shrieking ", StringComparison.Ordinal));
+        Assert.DoesNotContain(LegionRewards.Pool(catalog, 10, 50)!, t => t.Name.StartsWith("Shrieking ", StringComparison.Ordinal));
+        Assert.All(LegionRewards.Pool(catalog, 9, 100)!, t => Assert.DoesNotContain("Breachstone", t.Name));
+        var fragments = LegionRewards.Pool(catalog, 12, 100)!;
+        Assert.Contains(fragments, t => t.Id.EndsWith("/CurrencyVaalFragment1_2", StringComparison.Ordinal));
+        Assert.Contains(fragments, t => t.Id.EndsWith("/CurrencyShaperFragment1", StringComparison.Ordinal));
+        Assert.DoesNotContain(fragments, t => t.Id.Contains("Complete", StringComparison.Ordinal) || t.Id.Contains("Uber", StringComparison.Ordinal) || t.Id.Contains("Quest", StringComparison.Ordinal) || t.Name.Contains("[DNT", StringComparison.Ordinal));
+        var abyss = LegionRewards.Pool(catalog, 7, 100)!;
+        Assert.Contains(abyss, t => t.Id.EndsWith("/BeltAbyss", StringComparison.Ordinal));
+        Assert.DoesNotContain(abyss, t => t.Id.EndsWith("/JewelAbyssConglomerate", StringComparison.Ordinal));
     }
 }
