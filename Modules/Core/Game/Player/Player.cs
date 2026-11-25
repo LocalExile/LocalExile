@@ -1205,6 +1205,7 @@ public static partial class Game
                     FortificationOf(player).Clear();
                     leech.Clear(now);
                     player.LifeRecoup.Clear();
+                    ShieldRecoup.Remove(player);
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
@@ -1278,6 +1279,7 @@ public static partial class Game
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
+                    AdvanceShieldRecoupLocked(player, now, RecoveryStat, mapRecovery);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
@@ -1403,6 +1405,7 @@ public static partial class Game
         player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
+        if (ShieldRecoup.TryGetValue(player, out var recoup)) recoup.Take(now);
         DiscardResourceLoadingRecovery(player, now);
     }
 
