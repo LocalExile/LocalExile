@@ -242,4 +242,62 @@ public sealed class MinionSupportExecutionTests
         }
         finally { Game.AreaUpdateContext.Value = before; }
     }
+
+    [Fact]
+    public async Task Minion_hypothermia_low_life_cursed_penetration_and_accuracy_mastery_apply()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        int cursedPen = 0, accMastery = 0;
+        using var hook = GameEvents.PlayerStatSources.Add("Game", (p, s) =>
+        {
+            if (!ReferenceEquals(p, f.Player)) return s;
+            if (cursedPen != 0) s[Stat.MinionsPenetrateElementalResistancesPctVsCursedEnemies] = cursedPen;
+            if (accMastery != 0) s[Stat.MinionsAccuracyIsEqualToYours] = accMastery;
+            return s;
+        });
+
+        var fighter = await Skeleton(f, "Hypothermia Support", "Behead Support");
+        fighter.Gear[Stat.BasePhysicalDamagePctToConvertToCold] = 100;
+        fighter.Gear[Stat.GlobalMinimumAddedColdDamage] = fighter.Gear[Stat.GlobalMaximumAddedColdDamage] = 40_000;
+        fighter.Gear[Stat.AccuracyRating] = 1_000_000;
+        fighter.InputHash = 0;
+        Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+        var ability = fighter.Abilities.First(a => !a.Attack.Spell);
+        uint noCrit = Program.Stats.Key("self_take_no_extra_damage_from_critical_strikes")!.Value;
+
+        SpawnedMonster Target(uint maxLife, uint life)
+        {
+            var m = new SpawnedMonster("target", new(105, 100, 0), 100, 3, maxLife) { Hostile = true, Life = life };
+            m.Mods = m.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.BaseColdDamageResistancePct] = 75, [noCrit] = 1 }) };
+            return m;
+        }
+
+        var plain = Target(1_000_000, 1_000_000);
+        f.Player.Area.Monsters[950] = plain;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 950, plain, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint baseDmg = 1_000_000u - plain.Life;
+
+        // Chilled + Low Life + Cursed (8% penetration mastery) boosts damage well beyond plain target.
+        cursedPen = 8;
+        f.Player.MarkStatsDirty(StatInput.Items);
+        var scaled = Target(1_000_000, 400_000);
+        scaled.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill, 4.0, 0d, _ => 0, _ => 0, stated: 15);
+        scaled.Curses.All[(1u, "Frostbite")] = new(1u, "Frostbite", 1, 1, 1, 0d, 10d, false, false, new Dictionary<uint, int>());
+        f.Player.Area.Monsters[951] = scaled;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 951, scaled, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        uint scaledDmg = 400_000u - scaled.Life;
+        Assert.True(scaledDmg > baseDmg * 1.5, $"Expected Hypothermia + Low Life + Cursed Pen scaling ({scaledDmg} vs base {baseDmg})");
+
+        // Accuracy mastery ("Minions have Accuracy equal to yours"): uses player Pools.Accuracy.
+        accMastery = 1;
+        f.Player.Pools = f.Player.Pools with { Accuracy = 1_000_000 };
+        f.Player.MarkStatsDirty(StatInput.Items);
+        Invoke("RefreshGolemLocked", f.Player, fighter, Game.CharacterPlayerStats(f.Player), (double?)0d);
+        fighter.Monster.Mods = fighter.Monster.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.AccuracyRating] = 1 }) };
+        var evasive = new SpawnedMonster("evasive", new(105, 100, 0), 100, 3, 1_000_000) { Hostile = true };
+        evasive.Mods = evasive.Mods with { Effects = new(new Dictionary<uint, int> { [Stat.EvasionRating] = 100_000, [noCrit] = 1 }) };
+        f.Player.Area.Monsters[952] = evasive;
+        Invoke("GolemAbilityContactLocked", f.Player, fighter, new GolemState.Action(ability, 952, evasive, (105, 100), 0, fighter.Monster.ActionGeneration), 0d);
+        Assert.True(evasive.Life < 1_000_000u);
+    }
 }
