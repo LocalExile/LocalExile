@@ -103,7 +103,11 @@ public static class ItemModStats
                 // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
                 // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
-                if (row.Stats.Any(IsOthersAura)) continue;
+                // Where the mod's own aura template says who it reaches, that decides for the character's sum: "You and
+                // nearby Allies ..." stays with the wearer, "Nearby Allies ..." does not (Dying Breath, Kingmaker). The
+                // display-stat marker decides for the rest, and for an item's local sum as before.
+                if (!local && row.AuraForSelf is bool self) { if (!self) continue; }
+                else if (row.Stats.Any(IsOthersAura)) continue;
                 long percent = EffectPercent(mod, row, effect);
                 // Eldritch "while a Pinnacle Boss is in your Presence": a mod carrying the condition stat only
                 // reaches the character while a Pinnacle Boss is in presence. The condition stat itself is local,

@@ -644,6 +644,7 @@ public static partial class Game
             * Final(Stat.SuppressingFireDebuffCastSpeedPlusPctFinal) * Final(Stat.SupportMulticastCastSpeedPlusPctFinal)
             * Final(Stat.EchoingShrineCastSpeedPlusPctFinal) * Final(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal)
             * Final(Stat.WeaponTreeCastSpeedPlusPctFinalInMainHand) * Final(Stat.WeaponTreeCastSpeedPlusPctFinalInOffHand)
+            * Final(Stat.WeaponTreeCastSpeedPlusPctFinal)
             * Final(Stat.CoveredInSpidersAttackAndCastSpeedPlusPctFinal)
             * (totem ? 1 : Final(Stat.SupportSpellTotemCastSpeedPlusPctFinal)) * (totem ? 1 : Final(Stat.SupportCrabTotemCastSpeedPlusPctFinal))
             * Factor(Math.Min(200, get(Stat.CastSpeedPlusPctFinalPerFrostboltDestroyedRecently) * get(Stat.NumberOfFrostboltsDestroyedRecently)))

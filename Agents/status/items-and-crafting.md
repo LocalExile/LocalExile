@@ -175,6 +175,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   presence radius, as the Pinnacle Boss ones do. "+# to Level of all Fire / Cold / Lightning / Chaos / Physical Spell
   Skill Gems" raise gems with both tags, and "... all Minion / Melee / Totem / Aura Skill Gems" theirs. Offline tests
   only so far.
+- A mod that is an aura stays with its wearer only when its aura template says it reaches the wearer: "Nearby
+  Allies ..." lines (Dying Breath, Kingmaker) no longer count for the wearer, and "You and nearby Allies ..." lines
+  no longer go missing. Defences "from Equipped Helmet and Gloves / Helmet and Boots / Gloves and Boots" and the
+  weapon tree's "more Cast Speed" count. Offline tests only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

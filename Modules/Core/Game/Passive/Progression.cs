@@ -1103,6 +1103,13 @@ public static partial class Game
         var glovesBoots = slots.Where(d => d.Row is PlayerInventories.Gloves or PlayerInventories.Boots)
             .Aggregate((Armour: 0m, Evasion: 0m), (sum, d) => (sum.Armour + d.Defence.Armour, sum.Evasion + d.Defence.Evasion));
         int EquipmentStat(uint key) => sources.GetValueOrDefault(key);
+        decimal SlotSum(byte one, byte two, Func<(decimal Armour, decimal Evasion, int EnergyShield, decimal Ward), decimal> of)
+        {
+            decimal sum = 0;
+            foreach (var d in slots)
+                if (d.Row == one || d.Row == two) sum += of(d.Defence);
+            return sum;
+        }
         var converted = ConvertEquipmentEnergyShield(player, EquipmentStat, gear.EnergyShield);
         bonus = bonus with
         {
@@ -1118,6 +1125,13 @@ public static partial class Game
             BodyEnergyShield = converted.EnergyShield == 0 ? 0 : body.EnergyShield,
             HelmetEnergyShield = converted.EnergyShield == 0 ? 0 : helmet.EnergyShield,
             GlovesBootsArmour = glovesBoots.Armour, GlovesBootsEvasion = glovesBoots.Evasion,
+            SlotArmourBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Gloves, d => d.Armour)
+                * EquipmentStat(Stat.ArmourFromHelmetAndGlovesPlusPct) / 100m,
+            SlotEvasionBonus = SlotSum(PlayerInventories.Helmet, PlayerInventories.Boots, d => d.Evasion)
+                * EquipmentStat(Stat.EvasionRatingFromHelmetAndBootsPlusPct) / 100m,
+            SlotEnergyShieldBonus = converted.EnergyShield == 0 ? 0
+                : SlotSum(PlayerInventories.Gloves, PlayerInventories.Boots, d => d.EnergyShield)
+                    * EquipmentStat(Stat.EnergyShieldFromGlovesAndBootsPlusPct) / 100m,
         };
         bonus = WithSlotMasteries(player, bonus, shieldDefence.EnergyShield, EquipmentStat);
         List<AuraCatalog.Aura> auras;

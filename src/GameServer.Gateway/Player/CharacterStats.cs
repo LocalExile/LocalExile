@@ -124,6 +124,9 @@ public static class CharacterStats
         // The helmet's local ES and the gloves' and boots' local armour and evasion, for the masteries' slot increases.
         int HelmetEnergyShield = 0, int HelmetEnergyShieldPct = 0,
         decimal GlovesBootsArmour = 0, decimal GlovesBootsEvasion = 0, int GlovesBootsArmourPct = 0,
+        // "X% increased Armour from Equipped Helmet and Gloves" and its evasion and energy shield kin, already worked
+        // out as the slots' own value times the percent: an increase of one slot is that much more of the slot's value.
+        decimal SlotArmourBonus = 0, decimal SlotEvasionBonus = 0, decimal SlotEnergyShieldBonus = 0,
         // Final "more" multiplier on maximum Life (combined multiplicatively across sources, after increases).
         decimal LifeMorePct = 0,
         int SpellSuppressionWhileFullEnergyShield = 0,
@@ -266,7 +269,7 @@ public static class CharacterStats
         int Rating(decimal value) => (int)Math.Clamp(Math.Round(value, MidpointRounding.AwayFromZero), 0m, int.MaxValue);
         decimal armourValue = More(More(Increased(b.Armour, b.ShieldArmour, b.BodyArmour, armourPct,
             (long)b.ShieldArmourPct + b.SharedShieldDefencesPct, b.BodyArmourPct, bodyAsArmour: true,
-            b.GlovesBootsArmour, b.GlovesBootsArmourPct), b.ArmourMorePct), b.ExtraDefenceMorePct);
+            b.GlovesBootsArmour, b.GlovesBootsArmourPct) + b.SlotArmourBonus, b.ArmourMorePct), b.ExtraDefenceMorePct);
         // These item coefficients use complete groups of final production attributes. They join ordinary INC,
         // before slot increases/MORE; Iron Reflexes retains this item term while excluding inherent Dexterity.
         long ordinaryEvasionPct = (long)b.EvasionPct + b.ColdOvercapEvasionPct
@@ -275,7 +278,7 @@ public static class CharacterStats
         int evasionPct = (int)Math.Clamp(totalEvasionPct, int.MinValue, int.MaxValue);
         decimal evasionBase = BaseEvasion + b.Evasion;
         decimal evasionValue = More(More(Increased(evasionBase, b.ShieldEvasion, b.BodyEvasion, totalEvasionPct,
-            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct), b.EvasionMorePct), b.ExtraDefenceMorePct);
+            (long)b.ShieldEvasionPct + b.SharedShieldDefencesPct, b.BodyEvasionPct) + b.SlotEvasionBonus, b.EvasionMorePct), b.ExtraDefenceMorePct);
         // "Increased evasion while moving" joins the same increased bucket while the condition holds (PoB Condition Moving).
         // shortcut: Iron Reflexes' converted armour does not get it; upgrade when armour reads a moving condition.
         int? evasionWhileMoving = b.EvasionWhileMovingPct == 0 || b.IronReflexes ? null
@@ -312,7 +315,7 @@ public static class CharacterStats
         int energyShieldPct = (int)Math.Clamp(totalEnergyShieldPct, int.MinValue, int.MaxValue);
         uint energyShield = b.NoEnergyShield ? 0u : (uint)Rating(Increased(b.EnergyShield, b.ShieldEnergyShield, b.BodyEnergyShield,
             totalEnergyShieldPct, (long)b.ShieldEnergyShieldPct + b.SharedShieldDefencesPct, b.BodyEnergyShieldPct,
-            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct));
+            slot: b.HelmetEnergyShield, slotIncrease: b.HelmetEnergyShieldPct) + b.SlotEnergyShieldBonus);
         int Max(int bonus) => Math.Min(DamageModel.MaxResistCap, DamageModel.DefaultMaxResistance + bonus);
         int maxBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxBlockChance + b.BlockChanceMax);
         int maxSpellBlock = Math.Min(DamageModel.BlockChanceCap, DamageModel.DefaultMaxSpellBlockChance + b.SpellBlockChanceMax);
