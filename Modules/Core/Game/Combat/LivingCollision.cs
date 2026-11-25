@@ -131,7 +131,7 @@ public static partial class Game
         if (!player.Connection.PlayerSent || player.Closed || player.LeavingArea || player.Instance is null) return;
         player.Instance.AddPlayer(player);
         // The auras shared with allies (readers skip a dead or in-town giver); their zones follow the player.
-        player.SharedAuras = [.. player.Auras.Values.Where(a => SharedPlayerAura(a.EffectId)).Select(a => new SharedAura(a,
+        player.SharedAuras = [.. player.Auras.Values.Where(a => !a.SelfOnly && SharedPlayerAura(a.EffectId)).Select(a => new SharedAura(a,
                 AuraRadius.Of(a, player.Pools.AuraAreaPct, SkillsFor(player), Stats),
                 player.Pools.AuraEffectPct + a.SupportEffectPct)).Concat(SharedAvianAuras(player))];
         player.Fortification = OwnFortificationShareLocked(player, AreaTime(player));

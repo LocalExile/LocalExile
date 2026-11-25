@@ -66,6 +66,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
+- Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
+- Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).
+
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
 - Hex Master and Defiled Forces govern curse duration and ailment refresh. Firestorm schedules timed hits.
@@ -230,6 +234,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Pestilent Strike spreads a marked corpse's remaining poison damage as a separate chaos debuff.
 - Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
   Docs: [11](../docs/protocol/11-skills.md).
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and

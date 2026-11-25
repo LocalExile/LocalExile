@@ -78,7 +78,7 @@ public static partial class Game
         bool linkedOnly = player.Auras.Count > 0 && NonCurseAurasOnlyReachLinks(player);
         bool linked = linkedOnly && minion.Monster is not null && ActiveMinionLink(player, minion, AreaTime(player)) is not null;
         var own = player.PlayerLife == 0 || InTown(player) ? [] : player.Auras.Values
-            .Where(a => SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
+            .Where(a => !a.SelfOnly && SharedPlayerAura(a.EffectId) && (linkedOnly ? linked : Reaches(player.Id, a.SkillId)))
             .Select(a => a with { AffectsSelf = true, ExternalEffectPct = player.Pools.AuraEffectPct + a.SupportEffectPct });
         var directAvian = SharedAvianAuras(player).Where(a => Reaches(player.Id, a.Aura.SkillId)).Select(a => a.Aura);
         var auras = own.Concat(directAvian).Concat(player.Instance.PlayersExcept(player.Id).Where(p => p.PlayerLife > 0)
@@ -158,6 +158,7 @@ public static partial class Game
         }
         var fortAlly = MinionAllyFortificationLocked(player, minion, at, auraTime);
         Add(Stat.BaseCriticalStrikeMultiplierPlus, fortAlly.KingmakerCritMulti);
+        AddMinionSigilLightning(player, at, auraTime, values);
         return values;
     }
 }

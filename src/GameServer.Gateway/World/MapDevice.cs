@@ -436,7 +436,12 @@ public sealed class MapDevice
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
-        Origin? entrance = null, byte bossOption = 0, PantheonCatalog.Soul? pantheonSoul = null)
+        Origin? entrance = null, byte bossOption = 0, PantheonCatalog.Soul? pantheonSoul = null) =>
+        Activate(character, area, mods, itemRow, returnTo, entrance, bossOption, pantheonSoul, PortalCount);
+
+    /// <summary>Opens a map with the requested number of portal places, up to the device's capacity.</summary>
+    public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo,
+        Origin? entrance, byte bossOption, PantheonCatalog.Soul? pantheonSoul, int portalCount)
     {
         lock (Open)
         {
@@ -444,7 +449,8 @@ public sealed class MapDevice
                 foreach (var other in Open.Where(p => (p.Value.Entrance ?? p.Value.ReturnTo) is { } at
                     && at.Area == origin.Area && at.Instance == origin.Instance).ToArray())
                     Open.TryRemove(other);
-            return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
+            return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, Math.Clamp(portalCount, 1, PortalCount))],
+                mods ?? MapMods.None, itemRow)
                 { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul };
         }
     }

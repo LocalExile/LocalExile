@@ -131,10 +131,19 @@ public sealed class LeechSession
                 || get(Stat.TotalRecoveryPerMinuteFromLifeLeechIsDoubled) != 0)) total *= 2;
             double recovery = Math.Max(0, 1 + get(Stat.Of($"{resource.Pool}_recovery_rate_+%")) / 100.0);
             if (resource.Pool is "life" or "energy_shield") recovery *= PanelStats.MapRecoveryMultiplier(get);
-            if (resource.Pool == "life" && !recoverLife || resource.Pool == "energy_shield" && !recoverEnergyShield) recovery = 0;
+            if (resource.Pool == "life" && (!recoverLife || get(Stat.KeystoneStrengthOfBlood) != 0)
+                || resource.Pool == "energy_shield" && !recoverEnergyShield) recovery = 0;
             state.Configure(now, new(total, resource.MaximumPerSecond, recovery));
             if (resource.CannotLeech) state.Clear(now);
         }
+    }
+
+    /// <summary>Strength of Blood uses the maximum leech rate while a Life Leech instance is active.</summary>
+    public int StrengthOfBloodReduction(double now)
+    {
+        if (limits is null || !Life.Active(now)) return 0;
+        // 3% per second is 18,000 permyriad per minute in the native leech-limit units.
+        return (int)Math.Clamp(2 * decimal.Truncate(limits.Resources[0].RatePermyriadPerMinute / 18_000), 0, int.MaxValue);
     }
 
     public (double Life, double Mana, double EnergyShield) Hit(double now,

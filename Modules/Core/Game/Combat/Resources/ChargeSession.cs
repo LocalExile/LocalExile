@@ -102,6 +102,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
         }
         foreach (var p in ChargeGains.Periodics) Record(p.Stat);
         foreach (uint name in ChargeTriggers.Observed) Record(name);
+        Record(Stat.KeystoneQuietMight);
         observed = seen;
     }
 
@@ -217,6 +218,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     void ApplyEvent(ChargeEvent e, double now, Func<uint, int> stats, Func<WeaponProfile> weapon, Random rng, List<string> log)
     {
         SettleDegeneration(now);
+        observed[Stat.KeystoneQuietMight] = stats(Stat.KeystoneQuietMight);
         if (e is ChargeEvent.WhenHit) { LastHitAt = now; Degeneration.HitUntil = now + RecentlySeconds; }
         if (e is ChargeEvent.Hit { Critical: true }) Degeneration.CritUntil = now + RecentlySeconds;
         if (e is ChargeEvent.Set set)
@@ -309,6 +311,8 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
 
     void Apply(ChargeGains.Gain gain, double now, Random rng, List<string> log)
     {
+        if (gain is { Type: ChargeType.Frenzy, Count: > 0 } && Observed(Stat.KeystoneQuietMight) != 0)
+            gain = gain with { Type = ChargeType.Power };
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {

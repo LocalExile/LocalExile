@@ -1939,7 +1939,7 @@ public static partial class Game
                 SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                 ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency, IsHerald: IsHeraldAura(effectId),
                 ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
-            aura = WithCasterAuraStamps(aura, CharacterStatSources(player).Stats);
+            aura = WithCasterAuraStamps(player, aura, CharacterStatSources(player).Stats);
             bool blessing = IsBlessingAura(aura);
             bool eternal = EternalBlessingAura(aura);
             var proposedAuras = player.Auras.Values.Where(a => (!blessing || !IsBlessingAura(a))
@@ -2770,7 +2770,9 @@ public static partial class Game
         var areaStats = skillStats;
         if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0)
             areaStats = new Dictionary<uint, int>(skillStats) { [SkillArea.BaseIncreased] = skillStats.GetValueOrDefault(SkillArea.BaseIncreased) + perRepeat * repeat };
-        bool divineBlast = SkillsFor(player).EffectId(gem.Effect) is "DivineBlast" or "DivineBlastAltX";
+        var effectId = SkillsFor(player).EffectId(gem.Effect);
+        bool divineBlast = effectId is "DivineBlast" or "DivineBlastAltX";
+        bool pestilentStrike = IsPestilentStrike(effectId);
         double phaseDamageMore = divineBlast && immediate && scheduledSession is not null
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d) : 1;
         int radius = (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
@@ -2923,6 +2925,16 @@ public static partial class Game
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
             var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
+            if (pestilentStrike && singleStrikeTarget is null)
+            {
+                int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
+                var origin = player.Walk.Position(now);
+                var primary = found.Where(entry => (targetId == 0 || entry.Key == targetId)
+                        && !entry.Value.WorldHidden && SwingInReach(player, entry.Value, origin, entry.At, strikeReach))
+                    .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).FirstOrDefault();
+                found.Clear();
+                if (primary.Value is not null) found.Add(primary);
+            }
             if (hexblast)
             {
                 var primary = targetId != 0 ? found.Find(entry => entry.Key == targetId)
@@ -3073,7 +3085,7 @@ public static partial class Game
                             tinctureKill = TinctureKillBonusFor(player, playerStats, hand);
                             weaponContactSource = SkeletonWeaponContactSource(player, hand, local);
                         }
-                        bool? hitArea = boneshatter?.Pulse ?? (IsSmite(gem.Effect) ? singleStrikeTarget is null : (bool?)null);
+                        bool? hitArea = boneshatter?.Pulse ?? (pestilentStrike ? false : IsSmite(gem.Effect) ? singleStrikeTarget is null : (bool?)null);
                         if (SupportedHitInputsFor(player, skillId, weapon: sourceWeapon, charges: discharge?.Charges, capturedGem: admittedGem, area: hitArea)
                             is not { } capturedInputs) break;
                         var bothOff = shield is null && hand == AttackHand.Both ? OffhandWeaponFor(player) : null;
@@ -3392,6 +3404,8 @@ public static partial class Game
                             is { } eoBuff)
                             ProjectilesFor(player).Packet(eoBuff, $"elemental overload on skill 0x{skillId:x4}");
                         landed++;
+                        if (pestilentStrike && !splashMore.ContainsKey(id))
+                            MarkPestilentStrike(player, id, m, gem.Effect, skillStats, playerStats, at);
                         if (hammer is null) hammerTargets.Add((id, m.Walk.Position(at)));
                         // Item Quantity Support: the kill's loot rolls read the supported skill's share.
                         if (global::Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
@@ -4329,6 +4343,7 @@ public static partial class Game
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
         StopCorpseBlocking(player, id, m);
         DetonateExplosiveFusesOnDeath(m);
+        SpreadPestilentStrike(player, id, m, ProjectileWorldTime(player));
         if (SpreadContagion(player, id, m) is { } contagion)
             await ShowContagionSpread(player, contagion.At, contagion.Radius, contagion.Ao);
         double now = AreaTime(player);
