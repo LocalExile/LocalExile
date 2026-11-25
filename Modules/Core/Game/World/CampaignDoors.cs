@@ -203,7 +203,9 @@ public static class CampaignDoors
         if (opened)
         {
             player.RemoveBlocker(door.Id);
-            if (player.DoorBarriers.Remove(door.Id)) player.UpdateBarrier();
+            bool removed = player.DoorBarriers.Remove(door.Id);
+            removed |= player.SightDoorBarriers.Remove(door.Id);
+            if (removed) player.UpdateBarrier();
             return;
         }
         player.SetBlocker(door.Id, door.X, door.Y, def.Size);
@@ -211,6 +213,10 @@ public static class CampaignDoors
         if (barrier.Count > 0)
         {
             player.DoorBarriers[door.Id] = barrier;
+            if (!string.IsNullOrEmpty(door.Model) && ServerLevels.HasModelHull(door.Model))
+                player.SightDoorBarriers[door.Id] = ServerLevels.ModelSightCells(door.Model, door.X, door.Y, door.Rotation);
+            else
+                player.SightDoorBarriers.Remove(door.Id);
             player.UpdateBarrier();
         }
     }

@@ -1261,17 +1261,41 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Optional per-door sight/projectile layer overrides (layer 1: proj_tri/proj_circle only). Doors absent from this
+    // map default to blocking both walking and sight; walk-only grates register an empty set so blink/dash can cross.
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> SightDoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
     // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
-    public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
+    volatile IReadOnlySet<(int X, int Y)> barrier = new HashSet<(int X, int Y)>();
+    volatile IReadOnlySet<(int X, int Y)>? sightBarrier;
+    public IReadOnlySet<(int X, int Y)> Barrier
+    {
+        get => barrier;
+        set { barrier = value; sightBarrier = null; }
+    }
+    /// <summary>Cells quest walls and solid doors close on the sight/travel layer (layer 1): omits walk-only doors such
+    /// as prison grates while keeping quest walls and projectile-blocking doors enforced.</summary>
+    public IReadOnlySet<(int X, int Y)> SightBarrier => sightBarrier ?? barrier;
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call in the area's frame).</summary>
-    public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+    /// <summary>Recomputes <see cref="Barrier"/> and <see cref="SightBarrier"/> from the standing quest walls and
+    /// closed doors; the player's walk estimate reads it on its next order (call in the area's frame).</summary>
+    public void UpdateBarrier()
+    {
+        var walk = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+        barrier = walk;
+        if (SightDoorBarriers.Count == 0)
+        {
+            sightBarrier = null;
+            return;
+        }
+        var sight = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells));
+        foreach (var (id, cells) in DoorBarriers)
+            sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
+        sightBarrier = sight;
+    }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).

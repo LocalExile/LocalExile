@@ -78,9 +78,11 @@ public static class InstantLocationSkill
             stat(Stat.SkillMaximumTravelDistancePlusPct), allowTerrainFallback: false, out to);
     }
 
-    /// <summary>Resolves an IceDash landing from <paramref name="from"/> toward <paramref name="aim"/> using the
-    /// native 32/42-cell clamp, quest barrier check, monster blocker slide, and optional terrain fallback along the
-    /// aim line (used by Frostblink of Wintry Blast to match 0x141c00cd0 / 0x141c04830).</summary>
+    /// <summary>Resolves an IceDash landing from <paramref name="from"/> toward <paramref name="aim"/> matching
+    /// 3.29.3c <c>0x141c00cd0</c> / <c>0x141c006d0</c> / <c>0x141c04830</c> / <c>0x141c00440</c>: 32/42-cell clamp,
+    /// layer-1 sight and solid-barrier line validation (crossing walk-only doors like prison grates while refusing
+    /// solid walls), forward fallback before solid walls when direct travel fails, monster blocker slide, and the
+    /// native minimum displacement threshold (<c>dx² + dy² >= 25</c>).</summary>
     public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
         int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to)
     {
@@ -92,8 +94,11 @@ public static class InstantLocationSkill
         int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
         if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct) is not { } endpoint) return false;
         var blockers = player.Blockers;
+        var walkBarrier = player.Barrier;
+        var sightBarrier = player.SightBarrier;
+        var sight = player.Layout.Sight;
         bool Allowed(int x, int y) => x >= 0 && y >= 0 && x < player.Layout.GridW && y < player.Layout.GridH
-            && walkable(x, y) && !player.Barrier.Contains((x, y));
+            && walkable(x, y) && !walkBarrier.Contains((x, y));
         bool Blocked(int x, int y)
         {
             for (int i = 0; i < blockers.Count; i++)
@@ -104,27 +109,44 @@ public static class InstantLocationSkill
             }
             return false;
         }
-        bool ClearLine((int X, int Y) target)
+        bool ClearSightLine((int X, int Y) target)
         {
+            // 0x141c006d0 -> 0x141d8c6d0(..., 1) -> 0x141d98830: every cell along the line must have layer-1 sight >= 1
+            // and no solid/quest sight barrier. Walk-only doors (prison grates) remain passable.
             foreach (var cell in ClientPathfinder.Line(from, target))
             {
-                // Quest gates remain enforced; ordinary terrain between two clear endpoints is not a walking route.
-                if (player.Barrier.Contains(cell)) return false;
+                if (sightBarrier.Contains(cell)) return false;
+                if (sight is not null && sight(cell.X, cell.Y) < 1) return false;
             }
             return true;
         }
-        if (!Allowed(from.X, from.Y)) return false;
-        if (!Allowed(endpoint.X, endpoint.Y))
+        // 0x141c00440 (IceDashClient::CanExecute): requires dx² + dy² > 24 (>= 5 cells) or the client rejects 0x01ce.
+        bool FarEnough((int X, int Y) target)
         {
-            if (!allowTerrainFallback) return false;
+            long dx = (long)target.X - from.X, dy = (long)target.Y - from.Y;
+            return dx * dx + dy * dy >= 25;
+        }
+        if (!Allowed(from.X, from.Y)) return false;
+        bool directAllowed = Allowed(endpoint.X, endpoint.Y);
+        bool directClear = directAllowed && ClearSightLine(endpoint);
+        if (!directClear)
+        {
+            // Without a sight map, ordinary Frostblink keeps fail-closed behavior on unwalkable direct endpoints;
+            // when a sight map is present (real areas) or terrain fallback is requested (FrostblinkAltX), run the
+            // native forward trace (0x141c04830) so casting at a wall stops cleanly in front of it instead of blinking
+            // through or desyncing.
+            if (!allowTerrainFallback && sight is null) return false;
             (int X, int Y)? terrain = null;
-            foreach (var cell in ClientPathfinder.Line(endpoint, from))
+            foreach (var cell in ClientPathfinder.Line(from, endpoint))
             {
-                if (cell == from) break;
-                if (Allowed(cell.X, cell.Y) && ClearLine(cell)) { terrain = cell; break; }
+                if (cell == from) continue;
+                if (!Allowed(cell.X, cell.Y) || sightBarrier.Contains(cell)) break;
+                if (sight is not null && sight(cell.X, cell.Y) < 2) continue;
+                if (!Blocked(cell.X, cell.Y)) terrain = cell;
             }
-            if (terrain is not { } valid) return false;
-            endpoint = valid;
+            if (terrain is not { } valid || !FarEnough(valid)) return false;
+            to = valid;
+            return true;
         }
         if (Blocked(endpoint.X, endpoint.Y))
         {
@@ -149,10 +171,10 @@ public static class InstantLocationSkill
                     {
                         if (Math.Max(Math.Abs(dx), Math.Abs(dy)) != r) continue;
                         int cx = endpoint.X + dx, cy = endpoint.Y + dy;
-                        if (!Allowed(cx, cy) || Blocked(cx, cy)) continue;
+                        if (!Allowed(cx, cy) || Blocked(cx, cy) || !FarEnough((cx, cy))) continue;
                         long distSq = (long)dx * dx + (long)dy * dy;
                         if (distSq >= bestDistSq) continue;
-                        if (!ClearLine((cx, cy))) continue;
+                        if (!ClearSightLine((cx, cy))) continue;
                         bestDistSq = distSq;
                         fallback = (cx, cy);
                     }
@@ -162,7 +184,7 @@ public static class InstantLocationSkill
             to = clear;
             return true;
         }
-        if (!ClearLine(endpoint)) return false;
+        if (!FarEnough(endpoint)) return false;
         to = endpoint;
         return true;
     }

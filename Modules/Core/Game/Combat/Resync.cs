@@ -82,7 +82,8 @@ public static partial class Game
             const uint distanceStat = Stat.SkillTravelDistancePlusPct;
             int travel = GolemStat(CharacterPlayerStats(player), distanceStat);
             if (skill != 0) travel += GolemStat(SupportedSkill(player, skill).Stats, distanceStat);
-            return DashLanding(player.Layout, player.Barrier, from, aim, travel, (flags & 1) != 0);
+            return DashLanding(player.Layout, player.Barrier, from, aim, travel, (flags & 1) != 0,
+                sightBarriers: player.SightBarrier);
         }
         if (id?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
         {
@@ -108,9 +109,11 @@ public static partial class Game
     // standing room at the end and along the line, and one more of clearance for the fallback: Ainsley Varrich's
     // stopped 4-5 cells short of the size-1 landing at both ends of an open line (sync trace 2026-11-17).
     public static (int X, int Y) DashLanding(AreaLayout layout, IReadOnlySet<(int X, int Y)> barriers,
-        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size = 1)
+        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size = 1,
+        IReadOnlySet<(int X, int Y)>? sightBarriers = null)
     {
         size = Math.Max(1, size);
+        sightBarriers ??= barriers;
         if (from == aim) return from;
         float dx = (float)aim.X - from.X, dy = (float)aim.Y - from.Y;
         long distance = Math.Max(0L, 30L * (100L + travelPercent) / 100);
@@ -136,7 +139,7 @@ public static partial class Game
         foreach (var cell in ClientPathfinder.Line(from, end))
         {
             int clearance = sight(cell.X, cell.Y);
-            if (clearance < size || barriers.Contains(cell)) return last;
+            if (clearance < size || sightBarriers.Contains(cell)) return last;
             fallback &= clearance >= size + 1;
             if (fallback && floor(cell.X, cell.Y)) last = cell;
             if (!fallback && !direct) break;

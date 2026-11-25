@@ -143,6 +143,54 @@ public sealed class CooldownAdmissionTests
     }
 
     [Fact]
+    public void Frostblink_crosses_walk_only_doors_but_stops_at_solid_walls_and_sight_doors()
+    {
+        using var f = new Fixture();
+        var c = f.Player;
+        c.Connection.PlayerSent = true;
+        // Open floor with a walk-only prison grate door at x=120 (blocks Barrier, clears SightBarrier).
+        var openLayout = new AreaLayout(1, "prison-door", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        {
+            Sight = (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 ? (byte)5 : (byte)0
+        };
+        c.Use(openLayout);
+        var doorCells = new HashSet<(int X, int Y)> { (120, 100), (120, 99), (120, 101) };
+        c.DoorBarriers[1] = doorCells;
+        c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+        c.UpdateBarrier();
+        Assert.Contains((120, 100), c.Barrier);
+        Assert.DoesNotContain((120, 100), c.SightBarrier);
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
+        Assert.Equal((140, 100), to);
+        // Dash crosses the walk-only door too when SightBarrier is supplied.
+        Assert.Equal((130, 100), Game.DashLanding(openLayout, c.Barrier, (100, 100), (140, 100), 0, false,
+            sightBarriers: c.SightBarrier));
+        // A solid door with projectile-blocking cells (SightDoorBarriers non-empty) blocks travel and falls back before it.
+        c.SightDoorBarriers[1] = doorCells;
+        c.UpdateBarrier();
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeDoor));
+        Assert.Equal((119, 100), beforeDoor);
+
+        // Static solid wall at x=118..122 (Sight=0, Walkable=false; ring x=117 has Sight=1): never crosses the wall.
+        c.DoorBarriers.Clear();
+        c.SightDoorBarriers.Clear();
+        c.UpdateBarrier();
+        var wallLayout = new AreaLayout(2, "prison-wall", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && (x < 118 || x > 122), [])
+        {
+            Sight = (x, y) => x >= 118 && x <= 122 ? (byte)0 : (x == 117 || x == 123 ? (byte)1 : (byte)5)
+        };
+        c.Use(wallLayout);
+        // Far from wall: falls back to the last safe cell with Sight >= 2 in front of the wall (x=116).
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeWall));
+        Assert.Equal((116, 100), beforeWall);
+        // Standing close to the wall (< 5 cells to x=116): rejected to match client CanExecute (dx^2 + dy^2 >= 25).
+        c.Walk.Teleport(114, 100, Game.ProjectileWorldTime(c));
+        Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (150, 100), false, _ => 0, out _, out _));
+    }
+
+    [Fact]
     public async Task Frostblink_slides_around_monster_blockers_and_queues_cooldown_refresh_in_area_frame()
     {
         using var f = new Fixture();
