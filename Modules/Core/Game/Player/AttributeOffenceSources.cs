@@ -27,6 +27,14 @@ public static class AttributeOffenceSources
         (Stat.PhysicalDamageOverTimePer10DexterityPlusPct, Stat.PhysicalDamageOverTimePlusPct, 1, 10),
     ];
 
+    static readonly (uint Input, uint Output, int Attribute, int Needed)[] Thresholds =
+    [
+        (Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Dex, Stat.NumberOfAdditionalMinesToPlace, 1, 800),
+        (Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Int, Stat.NumberOfAdditionalMinesToPlace, 2, 800),
+        (Stat.PoisonDamagePlusPctWithOver300Dexterity, Stat.BasePoisonDamagePlusPct, 1, 300),
+        (Stat.ResistAllElementsPctWith200OrMoreStrength, Stat.BaseResistAllElementsPct, 0, 200),
+    ];
+
     // The table's rows (fx_per_attribute), worked out once for each load of the game data; they count only while the
     // effect rules are on.
     sealed record Table(object Rows, (uint Input, uint Output, int Attribute, int Group, double Scale)[] Rules);
@@ -62,6 +70,16 @@ public static class AttributeOffenceSources
             if (input is var coefficient && sources.TryGetValue(coefficient, out int value)
                 && value != 0 && output is var target)
                 added[target] = added.GetValueOrDefault(target) + (long)value * (attributes[attribute] / group);
+        // Single uniques' lines with an attribute threshold: Curtain Call's additional mine at 800 Dexterity and at 800
+        // Intelligence (the stat ids still say 500), "increased Damage with Poison if you have at least 300 Dexterity",
+        // "to all Elemental Resistances while you have at least 200 Strength".
+        foreach (var (input, output, attribute, needed) in Thresholds)
+            if (attributes[attribute] >= needed && sources.TryGetValue(input, out int value) && value != 0)
+                added[output] = added.GetValueOrDefault(output) + value;
+        // The Iron Fortress and Iron Heart: Strength's damage bonus is 3% increased Melee Physical Damage per 10
+        // Strength instead of 2%, so one more percent per 10.
+        if (sources.GetValueOrDefault(Stat.StrengthDamageBonusGrantsMeleePhysicalDamagePlus3PctPer10StrengthInstead) != 0)
+            added[Stat.MeleePhysicalDamagePlusPct] = added.GetValueOrDefault(Stat.MeleePhysicalDamagePlusPct) + attributes[0] / 10;
         if (StatConditions.UseTable)
             foreach (var (input, output, attribute, group, scale) in FromTable())
                 if (sources.TryGetValue(input, out int value) && value != 0)

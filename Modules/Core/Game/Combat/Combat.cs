@@ -758,6 +758,11 @@ public static partial class Game
         var modifiers = TargetModifiers(Get, lowLife, target.MaimedUntil > at,
             weapon.Melee && Get(Stat.MeleeDamagePlusPctAtCloseRange) != 0 && InCloseRange(player, target, at),
             claw: lowLife && WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw"), contact: contact);
+        // "increased Attack / Melee Damage against Bleeding Enemies" (Goredrill, Haemophilia, Gorebreaker).
+        if ((Get(Stat.AttackDamageVsBleedingEnemiesPlusPct) != 0 || Get(Stat.MeleeDamageVsBleedingEnemiesPlusPct) != 0)
+            && target.Bleeds.IgnitedAt(at))
+            additionalIncreased += Get(Stat.AttackDamageVsBleedingEnemiesPlusPct)
+                + (weapon.Melee ? Get(Stat.MeleeDamageVsBleedingEnemiesPlusPct) : 0);
         playerStats = TypedTargetDamageStats(playerStats, target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), lowLife);
         playerStats = WithElementalOverload(player, SkillCatalog.FirstSkillId, playerStats);
         int rating = accuracy ?? PlayerAccuracy(player, playerStats);

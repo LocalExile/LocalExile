@@ -181,7 +181,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   weapon tree's "more Cast Speed" count. Offline tests only so far.
 - Single uniques' lines: "+# Strength / Dexterity / Intelligence Requirement" on the item; increased damage against
   Frozen, Ignited, Shocked or Hindered enemies and with hits and ailments against Bleeding, Chilled or Cursed ones;
-  23 "per # Strength / Dexterity / Intelligence" lines from the table. Offline tests only so far.
+  23 "per # Strength / Dexterity / Intelligence" lines from the table; 14 "per Red / Green / Blue / White Socket"
+  lines and The Untouched Soul's "per Empty Socket" ones; leech, added damage and attack damage against enemies in
+  a state (Shocked, Cursed, Frozen, Bleeding, Maimed, Chilled, Poisoned, Ignited); "at least # Strength / Dexterity /
+  Intelligence" thresholds; Rain of Arrows and Toxic Rain on bow attack (Lioneye's Paws), each as one hit around the
+  aim. Offline tests only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

@@ -45,6 +45,42 @@ public static partial class Game
     static double ControlledBlazeIgniteFactor(int per, int cap, int recentIgnites) =>
         per <= 0 ? 1 : 1 + Math.Min((long)per * recentIgnites, cap > 0 ? cap : long.MaxValue) / 100d;
 
+    // Single uniques' added damage against an enemy in a state, from the character's own stats: cold against Chilled
+    // (Tasalio's Sign), physical against Bleeding (The Crimson Storm), lightning against Ignited (Stormfire), chaos
+    // for each Curse on the enemy (Doedre's Scorn), and for attacks chaos against enemies with 5 or more Poisons (The
+    // Wasp Nest). Added where the burning-enemy fire is: after the roll, so the hit's increases do not scale it.
+    static readonly uint[] StateAddedDamageStats =
+    [
+        Stat.MaximumAddedColdDamageVsChilledEnemies, Stat.MaximumAddedPhysicalDamageVsBleedingEnemies,
+        Stat.GlobalMaximumAddedLightningDamageVsIgnitedEnemies, Stat.MaximumAddedChaosDamagePerCurseOnEnemy,
+        Stat.MaximumAddedChaosDamageVsEnemiesWith5PlusPoisons,
+    ];
+
+    static DamagePacket WithStateAddedDamage(Player player, bool attack, SpawnedMonster target, DamagePacket packet, double now)
+    {
+        var stats = CharacterPlayerStats(player);
+        bool any = false;
+        for (int i = 0; i < StateAddedDamageStats.Length && !any; i++) any = stats.GetValueOrDefault(StateAddedDamageStats[i]) != 0;
+        if (!any) return packet;
+        void Add(DamageType type, uint minimum, uint maximum, int times = 1)
+        {
+            int min = stats.GetValueOrDefault(minimum), max = stats.GetValueOrDefault(maximum);
+            if (times <= 0 || min <= 0 && max <= 0) return;
+            double roll = (min + AreaRng(player).NextDouble() * (Math.Max(min, max) - min)) * times;
+            packet = packet.Add(type, new(roll, roll));
+        }
+        if (target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0)
+            Add(DamageType.Cold, Stat.MinimumAddedColdDamageVsChilledEnemies, Stat.MaximumAddedColdDamageVsChilledEnemies);
+        if (target.Bleeds.IgnitedAt(now))
+            Add(DamageType.Physical, Stat.MinimumAddedPhysicalDamageVsBleedingEnemies, Stat.MaximumAddedPhysicalDamageVsBleedingEnemies);
+        if (target.Ignites.IgnitedAt(now))
+            Add(DamageType.Lightning, Stat.GlobalMinimumAddedLightningDamageVsIgnitedEnemies, Stat.GlobalMaximumAddedLightningDamageVsIgnitedEnemies);
+        Add(DamageType.Chaos, Stat.MinimumAddedChaosDamagePerCurseOnEnemy, Stat.MaximumAddedChaosDamagePerCurseOnEnemy, target.Curses.All.Count);
+        if (attack && target.Poisons.Stacks(now) >= 5)
+            Add(DamageType.Chaos, Stat.MinimumAddedChaosDamageVsEnemiesWith5PlusPoisons, Stat.MaximumAddedChaosDamageVsEnemiesWith5PlusPoisons);
+        return packet;
+    }
+
     // Call in the area's frame, after the per-target outgoing damage hooks.
     public static DamagePacket WithConditionalSupportDamageLocked(Player player, IReadOnlyDictionary<uint, int>? skill,
         bool attack, SpawnedMonster target, DamagePacket rolled, double now)
@@ -73,6 +109,7 @@ public static partial class Game
             double roll = min + AreaRng(player).NextDouble() * (Math.Max(min, max) - min);
             packet = packet.Add(DamageType.Fire, new(roll, roll));
         }
+        packet = WithStateAddedDamage(player, attack, target, packet, now);
         // Bloodthirst: "gain X% of Maximum Life as added Physical Damage with Weapons while on Low Life".
         if (player.PlayerLife < player.PlayerMaxLife * 0.35)
         {
