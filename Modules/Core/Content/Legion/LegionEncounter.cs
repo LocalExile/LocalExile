@@ -69,6 +69,7 @@ public sealed class LegionEncounter
         public List<ushort> Environment { get; set; } = [];
         [JsonIgnore] internal SemaphoreSlim Gate { get; } = new(1, 1);
         [JsonIgnore] internal bool Dirty { get; set; }
+        [JsonIgnore] internal double NextRevealTest { get; set; }
     }
 
     readonly ConditionalWeakTable<InstanceState, State> _states = new();
@@ -120,7 +121,7 @@ public sealed class LegionEncounter
         AreaInfo info;
         try { info = AreaInfo.Load(GamePack.Default.TryRead, player.Layout.Id, AreaLevel(player)); }
         catch (Exception e) when (e is ArgumentException or IOException or KeyNotFoundException) { return false; }
-        var stats = player.Instance.KeptAreaStats?.ToDictionary(s => (int)s.Key, s => s.Value) ?? [];
+        var stats = (player.Instance.KeptAreaStats ?? AreaLeagueStats(player)).ToDictionary(s => (int)s.Key, s => s.Value);
         return ExtraTerrainFeatures.LeagueCount(info with { Stats = stats }, new LevelRandom(unchecked((uint)area.Seed ^ (uint)RollSalt), false),
             LeagueChances.Legion) > 0;
     }
@@ -429,7 +430,11 @@ public sealed class LegionEncounter
         switch (state.Stage)
         {
             case Stage.Hidden:
-                if (Members(runner).Any(m => double.Hypot(m.Walk.Position(AreaTime(m)).X - state.X, m.Walk.Position(AreaTime(m)).Y - state.Y) <= LegionTables.Reveal))
+                // Hidden is most of a map's life: test the players' distance a few times a second, not every frame.
+                if (now < state.NextRevealTest) break;
+                state.NextRevealTest = now + 0.25;
+                if (Members(runner).Any(m => m.Walk.Position(AreaTime(m)) is var at
+                        && double.Hypot(at.X - state.X, at.Y - state.Y) <= LegionTables.Reveal))
                     await Reveal(runner, state);
                 break;
             case Stage.Charging:

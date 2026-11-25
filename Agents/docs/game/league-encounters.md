@@ -76,6 +76,9 @@ Transitionable 3, and drops 4 items (its row's `chest_item_quantity_+%` is 300).
 The encounter belongs to the instance; the area's object records give a late joiner the pieces. Walking on a crack did not
 start an arm; kills of monsters created 62 to 85 cells from a piece did, one created 91 away did not.
 
+**Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
+Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
+
 ## Legion
 
 CoreLeagues 15 (`+0x2c`, 8% in every map area and 0 elsewhere) is rolled by the level generator for the terrain (`ExtraTerrainFeatures`
@@ -87,9 +90,6 @@ whoever enters) and stepped by the connection that runs the instance's monsters.
 by Id: the rows moved between builds). The army is created when any player comes within 400 cells, as monsters held at 1% life
 (`LifePhaseGate`) with their StateMachine's `present`, `breakout`, `activated` and `owning_initiator` set. A second monolith
 (the Village's count) and the map stats that weight the factions are not built.
-
-**Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
-Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
 ## Mercenaries (CoreLeagues row 28)
 

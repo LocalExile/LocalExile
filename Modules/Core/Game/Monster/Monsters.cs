@@ -322,6 +322,21 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
+    // Keep the signature used by mods built before startStates was added.
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name, bool friendly, bool log, uint? damagedLife,
+        MonsterModSet? mods, bool alone, bool? unrisen, float rotation,
+        IReadOnlyList<(uint Key, int Value)>? extraStats, Action<uint, SpawnedMonster>? owned, Func<bool>? ownedCurrent,
+        IReadOnlyList<GrantedSkill>? ownedSkills, uint? ownedMaximumLife, uint ownedMaximumEnergyShield, uint ownedEnergyShield,
+        MonsterModSet? extraMods, bool scripted, IReadOnlyList<VisibleItem>? ownedLooks, IReadOnlyList<MonsterKitSkill>? extraKit,
+        Func<bool>? ownedAdmission, bool ownedInitialDeath, MonsterPlacement placement, int? lifePercent, MonsterMovement? movement,
+        (uint Parent, string Bone, byte Kind, byte Flags)? attachTo, bool instanceOwned, bool bulk, bool nonBlocking,
+        Func<MonsterObject, MonsterObject>? shape) =>
+        SpawnMonster(player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen, rotation,
+            extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield, ownedEnergyShield,
+            extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement, lifePercent,
+            movement, attachTo, instanceOwned, bulk, nonBlocking, shape, startStates: null);
+
     // The area's type set is shared. Every existing viewer needs the registration before
     // an ordinary spawn or a restored summon publishes a create using that type.
     static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level,
