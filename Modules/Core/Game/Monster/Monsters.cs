@@ -2357,6 +2357,17 @@ public static partial class Game
             (lifeCap - player.PlayerLife) * (double)pct / 100.0, ref leech.LifeInstantCarry, minimum: 1);
     }
 
+    static void GainManaBeforeEnemyHitLocked(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        int pct = stats.GetValueOrDefault(Stat.MissingUnreservedManaPctGainedAsManaBeforeHit);
+        if (pct <= 0 || player.PlayerLife == 0 || stats.GetValueOrDefault(Stat.NoManaRecovery) != 0) return;
+        uint cap = (uint)UnreservedMana(player);
+        if (player.PlayerMana >= cap) return;
+        var leech = LeechOf(player);
+        player.PlayerMana = RecoveryPool.Advance(player.PlayerMana, cap,
+            (cap - player.PlayerMana) * (double)pct / 100, ref leech.ManaInstantCarry);
+    }
+
     // The sequence a predictive swing's 0x1ab carries: the walk-up takes the monster's next sequence, and so does
     // an in-place action. Until now the in-place one kept the 0xffff placeholder, leaving the client with no current
     // action for the matching 0x1af (one access violation in StartChannelling from reusing 0xffff, recorded in
@@ -2997,6 +3008,8 @@ public static partial class Game
             return null;
         }
         GainLifeBeforeEnemyHitLocked(player, stats);
+        uint manaBefore = player.PlayerMana;
+        GainManaBeforeEnemyHitLocked(player, stats);
         // Roll the whole monster-mod packet (the Gambler's incoming luck included), then mitigate each component
         // with this hit's one armour decision.
         var hitRolls = HitRollsFor(stats);
@@ -3134,7 +3147,6 @@ public static partial class Game
             physicalDamage = (int)((long)physicalDamage * kept / damage);
             damage = kept;
         }
-        uint manaBefore = player.PlayerMana;
         if (blocked) RecoverOnBlockLocked(player, stats, now, attackHit);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
