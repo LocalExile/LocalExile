@@ -20,6 +20,40 @@ public sealed class RaisedMinionCastTests
     }
 
     [Fact]
+    public async Task A_raise_with_no_corpse_in_reach_is_refused_unpaid_and_one_with_a_corpse_is_paid()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        var source = Assert.Single(f.Equip(("Raise Zombie", 20)));
+        var frames = new CastFrames { Time = player.Clock.Elapsed.TotalSeconds + 1 };
+        player.PlayerUpdatesState = new PlayerUpdatesState(f.Lifetime, frames);
+        uint mana = player.PlayerMana;
+
+        // No corpse: nothing is raised, nothing is paid and the minions' output queue stays empty.
+        Assert.False(await Game.CastGemSkill(player, source, (100, 100), (100, 100)));
+        Assert.Equal(mana, player.PlayerMana);
+        Assert.Empty(player.Summons.Fighters);
+        Assert.Empty(player.Minions.OutputQueue);
+
+        // A corpse in reach: the same cast is paid and raises it.
+        const uint corpseId = 0x800abcd;
+        var corpse = new SpawnedMonster("corpse", new(100, 100, 0), 0, 0, 1000)
+            { Dead = true, Life = 0, Hostile = true, Variety = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!, Level = 70, ObjectId = corpseId };
+        player.Area.Monsters[corpseId] = corpse;
+        Assert.True(await Game.CastGemSkill(player, source, (100, 100), (100, 100), corpseId));
+        Assert.Single(player.Summons.Fighters);
+        Assert.True(corpse.CorpseConsumed);
+        Assert.True(player.PlayerMana < mana);
+    }
+
+    sealed class CastFrames : IPlayerUpdateSchedule
+    {
+        public double Time;
+        public double Now(Player player) => Time;
+        public Task Wait(int milliseconds, CancellationToken stopping) { Time += milliseconds / 1000.0; return Task.CompletedTask; }
+    }
+
+    [Fact]
     public async Task A_raised_zombie_is_created_with_its_corpse_named_and_the_corpse_is_removed_once()
     {
         using var f = new MinionUtilityTests.Fixture();

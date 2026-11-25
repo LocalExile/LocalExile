@@ -360,13 +360,35 @@ public static partial class Game
         definition.Corpse && (definition.Family != "Zombie" || GolemStat(playerStats, Stat.RaiseZombieDoesNotUseCorpses) == 0);
 
     static SpawnedMonster? SummonCorpse(Player player, (int X, int Y) aim, uint target, double radius = 15,
-        bool cannotUseSpectreCorpses = false)
+        bool cannotUseSpectreCorpses = false, SpawnedMonster? preferred = null)
     {
         bool Allowed(SpawnedMonster m) => m.Hostile && m.Dead && !m.CorpseConsumed && !m.Ailments.Shattered
             && CorpseTypeAllowsUse(m, minionSkill: true, cannotUseSpectreCorpses) && m.Rarity != MonsterRarity.Unique;
+        // The corpse the cast was planned on, while it is still present and usable; otherwise the lookup runs as it always did.
+        if (preferred is not null && Allowed(preferred)
+            && (preferred.ObjectId != 0
+                ? player.Area.Monsters.TryGetValue(preferred.ObjectId, out var live) && ReferenceEquals(live, preferred)
+                : player.Area.Monsters.Values.Any(m => ReferenceEquals(m, preferred))))
+            return preferred;
         if (target != 0 && player.Area.Monsters.GetValueOrDefault(target) is { } selected && Allowed(selected)) return selected;
         return player.Area.Monsters.Values.Where(Allowed).Where(m => Dist(m.Walk.Position(AreaTime(player)), aim) <= radius)
             .MinBy(m => Dist(m.Walk.Position(AreaTime(player)), aim));
+    }
+
+    // A raise that needs a corpse (Raise Zombie, Raise Spectre) with none in reach is refused when the cast is planned,
+    // before any cost is paid. It asks what SummonFighterCore asks, so the two cannot disagree.
+    // False when the raise is refused. The corpse it found is handed on to the release, which prefers it.
+    static bool TryPlanSummonCorpse(Player player, ushort skillId, int effect, (int X, int Y) aim, uint target,
+        out SpawnedMonster? corpse)
+    {
+        corpse = null;
+        if (SummonData.Find(SkillsFor(player).EffectId(effect)) is not { Corpse: true } definition
+            || IsTotemSkill(player, skillId)) return true;
+        using var scope = new PlayerStatScope(player, fresh: true);
+        var gem = SupportedSkill(player, skillId);
+        if (!SummonNeedsCorpse(definition, new Dictionary<uint, int>(CharacterPlayerStats(player)))) return true;
+        corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
+        return corpse is not null;
     }
 
     // The living actor uses the raised body's row, including the old saves that recorded the ordinary monster's row.
@@ -388,7 +410,7 @@ public static partial class Game
 
     internal static Task<bool> CastSummon(Player player,
         ushort source, SummonCatalog.Definition definition, (int X, int Y) aim, uint target, int recovery, Func<bool> current,
-        bool triggered = false, bool playerConsumesCorpse = true) =>
+        bool triggered = false, bool playerConsumesCorpse = true, SpawnedMonster? plannedCorpse = null) =>
         RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
             var gem = SupportedSkill(player, source);
@@ -430,7 +452,7 @@ public static partial class Game
                             () => current() && (clone == 0 || player.Summons.Fighters.ContainsKey(clone)))) return false;
                 }
                 else await SummonFighterCore(player, source, definition, aim, target,
-                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse);
+                    current: current, triggered: triggered, playerConsumesCorpse: playerConsumesCorpse, plannedCorpse: plannedCorpse);
             }
             SaveSummons(player);
             return true;
@@ -454,7 +476,7 @@ public static partial class Game
         GolemState.Golem? replacingOld = null, bool triggered = false, SpawnedMonster? consumedCorpse = null, bool playerConsumesCorpse = true, MonsterModSet? inheritedMods = null,
         MonsterRarity rarity = MonsterRarity.Normal, IReadOnlyDictionary<uint, int>? retainedStats = null,
         AnimatedSource? preparedEquipment = null, GolemState.Golem? reformingSpectre = null,
-        SpectreChildSummon? spectreChild = null, bool arrival = false)
+        SpectreChildSummon? spectreChild = null, bool arrival = false, SpawnedMonster? plannedCorpse = null)
     {
         if (replacingOld is null)
         {
@@ -522,7 +544,8 @@ public static partial class Game
         string path = restoredVariety ?? definition.Variety;
         if (restoredVariety is null && SummonNeedsCorpse(definition, playerStats))
         {
-            corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0);
+            corpse = SummonCorpse(player, aim, target, cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0,
+                preferred: plannedCorpse);
             if (corpse is null) return 0;
             if (definition.Family == "Spectre") corpseVariety = corpse.Variety;
             aim = corpse.Walk.Position(AreaTime(player));

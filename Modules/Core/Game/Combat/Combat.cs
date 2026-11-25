@@ -1289,6 +1289,16 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: {refused}");
             return false;
         }
+        // A placed cast (trap, mine) looks for its corpse at the trigger point, and a cost paid when the cooldown use was
+        // accepted is already spent: both keep the release's own check.
+        SpawnedMonster? plannedCorpse = null;
+        if (gem.Name is not null && placedAdmission is null && cooldownUse?.Paid is null
+            && !TryPlanSummonCorpse(player, skillId, gem.Effect, to, targetId, out plannedCorpse))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: no corpse in reach");
+            await SendPlayerMana(player, $"0x01b1 player mana {player.PlayerMana} (no corpse, nothing paid)");
+            return false;
+        }
         if (IsSummonBeastialCompanionEffect(SkillsFor(player).EffectId(gem.Effect)))
         {
             beastCompanion = SupportedSkill(player, skillId);
@@ -1598,7 +1608,8 @@ public static partial class Game
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } summon)
-            return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, Current);
+            return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, Current,
+                plannedCorpse: plannedCorpse);
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == "Desecrate")
             return CompleteSupportedUse(await Desecrate(player, skillId, to, Current));
         if (gem.Name is not null && IsTotemSkill(player, skillId) && TotemVariety(player, gem.Effect) is { } totem)
