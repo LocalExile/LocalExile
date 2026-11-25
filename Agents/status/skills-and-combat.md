@@ -53,7 +53,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) Â§14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) Â§5b.
-- Life and Mana regeneration, and Zealot's Oath. Docs: [20](../docs/protocol/20-damage.md) Â§5.
+- Life and Mana regeneration, and Zealot's Oath; a plain Life regeneration step is left to the client's own prediction. Docs: [20](../docs/protocol/20-damage.md) Â§5.
 - Determination and Grace. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Discipline. Docs: [11](../docs/protocol/11-skills.md) Â§13,
   [20](../docs/protocol/20-damage.md), "Player energy shield".

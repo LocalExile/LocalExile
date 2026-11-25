@@ -15,17 +15,34 @@ public sealed class AreaLife(GameArea area)
     public static Func<Player, uint>? ReservedMana;
 
     readonly ConcurrentDictionary<uint, byte> monsters = new();
-    readonly ConcurrentDictionary<Player, bool> players = new(ReferenceEqualityComparer.Instance);
+    // A marked player's pools to write: Force writes even an unchanged value, LifeMark that its life may have changed.
+    const byte Force = 1, LifeMark = 2;
+    readonly ConcurrentDictionary<Player, byte> players = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<(uint Id, byte Pool), (uint Current, uint Reserved)> written = [];
     readonly ConcurrentDictionary<(uint Id, byte Pool), (uint Current, uint Reserved)> set = new();
 
     internal void Changed(uint monster) => monsters.TryAdd(monster, 0);
 
-    public void Changed(Player player) => players.TryAdd(player, false);
+    public void Changed(Player player) => players.AddOrUpdate(player, LifeMark, static (_, marks) => (byte)(marks | LifeMark));
+
+    /// <summary>The player's mana or energy shield may have changed (their life did not).</summary>
+    public void ChangedPool(Player player) => players.TryAdd(player, 0);
+
+    /// <summary>Whether something marked the player's life since the last frame's end.</summary>
+    public bool LifeChanged(Player player) => players.TryGetValue(player, out byte marks) && (marks & LifeMark) != 0;
+
+    /// <summary>The life steps since the last <see cref="LifeChanged"/> check were ones the client predicts itself (its life
+    /// recovery rate): their marks go, and the life is written the next time anything else changes it, whatever it was
+    /// when the area last wrote it.</summary>
+    public void LifePredicted(Player player)
+    {
+        player.LifeAheadOfWire = true;
+        players.AddOrUpdate(player, 0, static (_, marks) => (byte)(marks & ~LifeMark));
+    }
 
     /// <summary>The client changed its own pools ahead of the server (a cost it paid, Eldritch Battery): the frame's end
     /// writes them even when the server's values have not changed.</summary>
-    public void Resend(Player player) => players[player] = true;
+    public void Resend(Player player) => players.AddOrUpdate(player, Force, static (_, marks) => (byte)(marks | Force));
 
     /// <summary>A pool the area keeps outside its monsters and players (a totem's life, a golem's energy shield).</summary>
     public void Set(uint id, byte pool, uint current, uint reserved = 0) => set[(id, pool)] = (current, reserved);
@@ -50,9 +67,15 @@ public sealed class AreaLife(GameArea area)
             if (set.TryRemove(key, out var value)) Write(key.Id, key.Pool, value.Current, value.Reserved, false);
         foreach (var player in players.Keys)
         {
-            players.TryRemove(player, out bool force);
+            players.TryRemove(player, out byte marks);
             if (player.Closed || !ReferenceEquals(player.Frames.Area, area) || !player.Connection.PlayerSent) continue;
-            Write(player.Id, LifePool, player.PlayerLife, player.PlayerReservedLife, force);
+            bool force = (marks & Force) != 0;
+            if (force || (marks & LifeMark) != 0)
+            {
+                // Life regeneration the client predicted was never written: what was written may equal the value now.
+                Write(player.Id, LifePool, player.PlayerLife, player.PlayerReservedLife, force || player.LifeAheadOfWire);
+                player.LifeAheadOfWire = false;
+            }
             Write(player.Id, ManaPool, player.PlayerMana, ReservedMana?.Invoke(player) ?? 0, force);
             if (player.EnergyShield.Maximum > 0 || written.ContainsKey((player.Id, EnergyShieldPool)))
                 Write(player.Id, EnergyShieldPool, player.EnergyShield.Current, 0, force);

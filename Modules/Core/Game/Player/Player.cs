@@ -1130,6 +1130,9 @@ public static partial class Game
             double now;
             int? ailmentDeathEpoch = null;
             bool pbDeath = false, pbRateChanged = false, pbRateBlocked = false;
+            // What moved Life this step: a source or a loss the client does not predict, new rates, and whether anything else
+            // already marked the life this frame (a hit before the step).
+            bool lifeUnpredicted = false, lifeLost = false, ratesRead = false, lifeMarkedBefore = false;
             List<uint>? deactivatedTinctures = null;
             using (ProjectileMutation(player))
             {
@@ -1159,7 +1162,7 @@ public static partial class Game
                 // Righteous Fire started or ended, not every step.
                 if (rates.Stale || rf != cachedRf)
                 {
-                    rates.Stale = false;
+                    rates.Stale = false; ratesRead = true;
                     recoveryStats = CharacterPlayerStatsCore(player, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))), player.Pools.Mana) / 60;
@@ -1184,7 +1187,7 @@ public static partial class Game
                 double life, mana;
                 (life, mana, ended) = AdvanceFlaskRecovery(player, last, now);
                 last = now;
-                lifeBefore = player.PlayerLife;
+                lifeBefore = player.PlayerLife; lifeMarkedBefore = player.Frames.Area?.Life.LifeChanged(player) ?? true;
                 manaBefore = player.PlayerMana;
                 manaCap = (uint)UnreservedMana(player);
                 var leech = LeechOf(player);
@@ -1286,6 +1289,10 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    // Only the base regeneration rate is known to the client; every other source reaches it by the update.
+                    lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
+                        || periodicLife > 0 || fortificationLife > 0 || antiquarianLife > 0 || enduringCryLife > 0
+                        || unhingedHitLife > 0 || preventedLife > 0;
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
@@ -1310,6 +1317,8 @@ public static partial class Game
                     // same death gates as trap degeneration.
                     double pbLoss = player.PetrifiedBlood.Take(now);
                     if (InGracePeriod(player)) pbLoss = 0;
+                    lifeLost = lifeBurn > 0 || lifeTrap > 0 || tinctureLifeDrain > 0 || pbLoss > 0
+                        || player.BladefallTrarthus is { PaysLife: true, Ended: false };
                     if (pbLoss > 0 && lifeAfter > 0 && !HardcoreProgressBlocked(player))
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player,
@@ -1349,6 +1358,11 @@ public static partial class Game
                     }
                 }
             }
+            // The client predicts a plain regeneration step from its life recovery rate: no update for it, until a
+            // source it cannot know, a loss, new rates, Petrified Blood's blocked rate, or the cap.
+            if (!dead && !lifeMarkedBefore && !lifeUnpredicted && !lifeLost && !ratesRead && !pbRateChanged
+                && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter < LifeCap(player))
+                player.Frames.Area?.Life.LifePredicted(player);
             if (pbRateChanged && !dead)
             {
                 await SendPetrifiedBloodRecoveryRate(player, pbRateBlocked);
