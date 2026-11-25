@@ -468,7 +468,15 @@ public static partial class Game
         // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
         id = !friendly || instanceOwned ? player.Instance.World.NewMonsterId() : player.TakeObjectId();
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        if (placement == MonsterPlacement.Proposed && bodySize >= 0)
+        // Kitava's immobile body stands in the pit. Its model and model-space contact tracks share the room point.
+        var kitava = friendly ? null : player.Layout.Id switch
+        {
+            KitavaActTen.Area when KitavaActTen.IsBody(variety) => KitavaActTen.FixedAnchor(player),
+            KitavaActFive.Area when KitavaActFive.IsBody(variety) => KitavaActFive.FixedAnchor(player),
+            _ => null,
+        };
+        if (kitava is { }) (x, y, rotation) = (kitava.X, kitava.Y, kitava.Angle);
+        else if (placement == MonsterPlacement.Proposed && bodySize >= 0)
         {
             bool Floor(int cx, int cy) => player.Layout.WalkableFor(cx, cy, bodySize) && !player.Barrier.Contains((cx, cy));
             if (CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor,
