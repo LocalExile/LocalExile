@@ -4,9 +4,10 @@ namespace GameServer.Data.Terrain.Generation;
 /// trials, the discoverable hideout …) the area gets. The rolls draw from the level RNG, so they shift everything after
 /// them. Every test reads the area stats the server sent in 0x1d (<see cref="AreaInfo.Stat"/>, 0 without them): with
 /// no stats the rolls are those of a plain campaign area; the server's loads carry the 3.29 league stat (22838)
-/// on every area, map mods and atlas passives, which this port follows in the client's order. Not ported here: the
-/// plugins' own feature rows (world +0xe0 plugins with byte +10 — Expedition, Ultimatum, Mercenary: the server's plugin
-/// state), the generation params' feature list (+0x70), and the layout after a Betrayal fort's row (its late pass).</summary>
+/// on every area, map mods and atlas passives, which this port follows in the client's order. The plugins' own feature
+/// rows (world +0xe0 plugins with byte +10, from the server's plugin states) are ported for Expedition only; not ported
+/// here: Ultimatum's and Mercenary's, the generation params' feature list (+0x70), and the layout after a Betrayal fort's
+/// row (its late pass).</summary>
 public static class ExtraTerrainFeatures
 {
     public sealed record Feature(string Name, int Count);
@@ -17,7 +18,9 @@ public static class ExtraTerrainFeatures
     /// <summary>The discoverable hideout roll (generator +0xb), which the hideout nodes use.</summary>
     public const string DiscoverableHideout = "(discoverable hideout)";
 
-    public static List<Feature> Roll(AreaInfo area, LevelRandom rng)
+    /// <param name="pluginRows">The rows the listed terrain plugins push for their states
+    /// (<see cref="LevelGenerator.LeaguePluginFeature"/>), in the order 0x1d lists them.</param>
+    public static List<Feature> Roll(AreaInfo area, LevelRandom rng, IReadOnlyList<string>? pluginRows = null)
     {
         var features = new List<Feature>();
         if (area.IsTown || area.RandomnessDisabled || area.AreaType == 0x13 || area.Hash16 == 0x8f53) return features;
@@ -27,8 +30,9 @@ public static class ExtraTerrainFeatures
 
         // is_blighted_map (10498): seven Blight encounters and nothing else.
         if (Stat(10498) != 0) { features.Add(new("BlightEncounter", 7)); return features; }
-        // (the terrain plugins with byte +10 go here: world +0xe0's plugins, from 0x1d's TerrainPluginState. Each
-        // registers its encounter row; the server sends no plugin state yet, so none is rolled.)
+        // The terrain plugins with byte +10 (world +0xe0's plugins, from 0x1d's TerrainPluginState): each registers its
+        // encounter row, with no draw. Only the plugins whose row is ported get a state (LevelGenerator.LeaguePluginFeature).
+        foreach (string row in pluginRows ?? []) features.Add(new(row, 1));
         // (the generation params' +0x70 feature list goes here)
         // map_spawn_envoy (15661): 2 = the Tangle, 3 = the Cleansing Fire quest room.
         switch (Stat(15661))
