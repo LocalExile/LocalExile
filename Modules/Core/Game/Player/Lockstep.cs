@@ -146,7 +146,7 @@ public static partial class Game
         int action = 0;
         ushort sequence = 0, ended = 0;
         (ushort Sequence, (int X, int Y) Aim)? channelAim = null;
-        bool skill = false;
+        bool skill = false, moveFromClient = false;
         int skillActionBefore = 0;
         double skillBusyBefore = 0, skillBusySet = 0, skillStartedBefore = 0, skillScheduledBefore = 0;
         double at;
@@ -265,6 +265,7 @@ public static partial class Game
                 else if (moveFree && !pinned && LockstepMoveDue(player, frameStart) is { } due)
                 {
                     target = due;
+                    moveFromClient = StrikeRunning(player, frameStart);
                     EndShieldChargeIfInterrupted(player);
                     CancelMeleeRepeats(player, at);
                     action = Interlocked.Increment(ref player.ActionCount);
@@ -317,7 +318,7 @@ public static partial class Game
                         if (!PlayerActionCurrent(player, action)) return null;
                         double gateAt = player.Connection.LockstepFrame?.Start ?? frameStart;
                         StepWalkers(player, gateAt);
-                        if (PlaceLockstepPlayerMove(player, target, gateAt) is not { } placed) return null;
+                        if (PlaceLockstepPlayerMove(player, target, gateAt, moveFromClient) is not { } placed) return null;
                         from = placed;
                         moved = true;
                         return LockstepActionStart(player, from, target, sequence);
@@ -356,9 +357,9 @@ public static partial class Game
     // cells untouched, 127 of them with a from cell other than the client's; every farther one searched). So none is
     // sent and nothing is spent, the estimate's walk goes on as the client's does, and a held cursor stays due
     // (LockstepHold: it is offered again once the walk stops short of it).
-    public static (int X, int Y)? PlaceLockstepPlayerMove(Player player, (int X, int Y) target, double at)
+    public static (int X, int Y)? PlaceLockstepPlayerMove(Player player, (int X, int Y) target, double at, bool fromClient = false)
     {
-        bool fromClient = StrikeRunning(player, at);
+        fromClient |= StrikeRunning(player, at);
         var here = fromClient ? LockstepClientCell(player, at) : player.Walk.Position(at);
         if (!LockstepTakesMove(here, target)) return null;
         if (fromClient) PlaceEstimateOnClient(player, at);
@@ -455,7 +456,8 @@ public static partial class Game
     // in the frame of an order's apply). Null, and the attack failed, when another action replaced it. Under conn.Monsters.
     public static byte[]? LockstepAttackAtGate(Player player, LockstepAttack attack, InstanceTransfer.UseSkillOnObject use)
     {
-        if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action))
+        if (player.LockstepAttack != attack || !PlayerActionCurrent(player, attack.Action)
+            || !LockstepSkillCanStart(player, use.SkillId))
         {
             attack.Fails();
             return null;
