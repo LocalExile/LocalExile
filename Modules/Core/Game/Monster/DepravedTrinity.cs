@@ -309,9 +309,14 @@ public static class DepravedTrinity
                     await SendWorldRemoval(c, id, "[Rotting Core] encounter creature retired");
             }
         }
-        var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
-        if (p.Value is null) return;
-        var f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        // Take the fight by its remembered boss id; scan for the boss only when there is no fight yet.
+        if (!Fights.TryGetValue(c.Instance, out var f))
+        {
+            var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
+            if (p.Value is null) return;
+            f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        }
+        if (f is null) return;
         await f.Gate.WaitAsync();
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
