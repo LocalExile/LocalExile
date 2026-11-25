@@ -14,6 +14,14 @@ namespace GameServer.Modules.M_questobjects;
 /// Trials of Ascendancy.</summary>
 public sealed class QuestObjectsModule : IModule
 {
+    static readonly string[] LegacyClarissaFlags =
+    [
+        "a3q1-QuestRewardTaken", "a3q1-Congratulated", "a3q2-DeliveredItem", "a3q2-Congratulated",
+        "a3q2-QuestRewardSeen", "ClarissaChatTolman", "ClarissaChatTolmanItem",
+        "a3q11-HaveSewerKeys", "a3q11-UsedSewerKeys", "a3q3-DiallaIntroduced",
+        "a3q5-UsedTalc", "a3q9-KilledPiety", "a3q10-KilledDominus",
+    ];
+
     /// <summary>Every act of this assembly (each class deriving <see cref="Quests.Act"/>, one per file in Acts/), in order.</summary>
     internal static IReadOnlyList<Quests.Act> Acts() =>
         [.. typeof(QuestObjectsModule).Assembly.GetTypes()
@@ -24,7 +32,9 @@ public sealed class QuestObjectsModule : IModule
     public void Load(IModuleContext module)
     {
         GameEvents.NpcUsesLeagueFlags.Add(module.Manifest.Id, (_, npc) => npc.Id is
-            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/League/Delve/DelveMinerHub"
+            "Metadata/NPC/Missions/Hideout/Helena" or "Metadata/NPC/Epilogue/Helena"
+            or "Metadata/NPC/Epilogue/Kirac" or "Metadata/NPC/Epilogue/KiracHideout"
+            or "Metadata/NPC/League/Delve/DelveMinerHub"
             or "Metadata/NPC/League/Bestiary/EinharMenagerie");
         var acts = Acts();
         // The tables run for the leagues that list this module (Quests.For): they are registered under its id.
@@ -52,6 +62,11 @@ public sealed class QuestObjectsModule : IModule
                 if (player.Layout.Id == Act2Areas.ForestEncampment && ClientHasQuestFlag(player, "HelenaIntroduced")
                     && !ClientHasQuestFlag(player, "a2q6-HelenaInTown"))
                     await SetQuestFlags(player, ["a2q6-HelenaInTown"]);
+                // Existing saves that entered Sarn Encampment or progressed past a3q1 before ClarissaTown was gated on
+                // a3q1-RescuedGirl still need her present in town so they cannot soft-lock on Sewer Keys or Tolman.
+                if (player.Layout.Id == Act3Areas.SarnEncampment && !ClientHasQuestFlag(player, "a3q1-RescuedGirl")
+                    && LegacyClarissaFlags.Any(f => ClientHasQuestFlag(player, f)))
+                    await SetQuestFlags(player, ["a3q1-RescuedGirl"]);
                 // The quest engine: quest items synced, entered flags, quest chests and objects, room NPCs, blockers.
                 await StartQuestArea(player);
                 await SpawnLoreObjects(player);

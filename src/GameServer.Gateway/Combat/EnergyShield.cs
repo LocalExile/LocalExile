@@ -37,6 +37,16 @@ public sealed class EnergyShield
         interruptedAt = Math.Max(interruptedAt, now);
         StopRecharge();
     }
+    /// <summary>Start the recharge timer at an accepted use or block.</summary>
+    public void StartRecharge(double now, Func<uint, int> get)
+    {
+        if (!double.IsFinite(now) || Current >= Maximum || Recharging || RechargePerMinute(Maximum, get) <= 0
+            || get(Stat.CannotRecoverEnergyShield) != 0 || get(Stat.NoEnergyShieldRecovery) != 0) return;
+        interruptedAt = double.NegativeInfinity;
+        rechargeStartedAt = now;
+        Recharging = true;
+    }
+
     public int Damage(int amount, bool bypass, double now)
     {
         if (amount <= 0) return 0;
@@ -143,7 +153,7 @@ public sealed class EnergyShield
         if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
         if (to <= from) return;
         if (Current >= Maximum) { StopRecharge(); return; }
-        double start = interruptedAt + Delay(get);
+        double start = Recharging ? rechargeStartedAt : interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);
         if (to >= start && recharge > 0)
         {

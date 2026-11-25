@@ -20,6 +20,14 @@ public static partial class Game
     public static bool IsBlasphemySupport(string effect) => effect is "SupportBlasphemy"
         or "SupportAwakenedBlasphemy" or "SupportEldritchBlasphemy" or "SupportBlasphemyPlus";
 
+    // Whether the skill's reservation is taken from Life: its own gem, a support or player stat, or Blood Magic.
+    static bool ReservesLifeInstead(Player player, SupportedGem gem, bool curse, Func<uint, int> get) =>
+        SkillsFor(player).LifeReservation(gem.Effect, gem.Level)
+        || get(Stat.KeystoneBloodMagic) != 0
+        || get(Stat.BaseSkillReserveLifeInsteadOfMana) != 0 || get(Stat.SkillReserveLifeInsteadOfMana) != 0
+        || curse && get(Stat.CurseAuraSkillsReserveLife) != 0
+        || Supports.Of(gem.Effect)?.Types.Contains(35) == true && get(Stat.SkillsThatThrowMinesReserveLife) != 0;
+
     public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);
@@ -28,10 +36,7 @@ public static partial class Game
         int Get(uint n) => Own(n) + (n is var key
             ? playerStats.GetValueOrDefault(key) : 0);
         bool curse = gem.Supports.Any(s => IsBlasphemySupport(s.Effect.Id));
-        bool life = SkillsFor(player).LifeReservation(gem.Effect, gem.Level)
-            || Get(Stat.BaseSkillReserveLifeInsteadOfMana) != 0 || Get(Stat.SkillReserveLifeInsteadOfMana) != 0
-            || curse && Get(Stat.CurseAuraSkillsReserveLife) != 0
-            || Supports.Of(gem.Effect)?.Types.Contains(35) == true && Get(Stat.SkillsThatThrowMinesReserveLife) != 0;
+        bool life = ReservesLifeInstead(player, gem, curse, Get);
         string resource = life ? "life" : "mana";
         // Global efficiency is already in Pools. Add skill-local/support and family modifiers only.
         int efficiency = Own(Stat.BaseReservationEfficiencyPlusPct) + Own(Stat.ReservationEfficiencyPlusPct)
@@ -47,6 +52,9 @@ public static partial class Game
                     - 2 * Get(Stat.HeraldSkillsManaReservationEfficiencyMinus2PctPer1);
             if (curse) efficiency += Get(Stat.CurseAuraSkillsManaReservationEfficiencyPlusPct)
                 - 2 * Get(Stat.CurseAuraSkillsManaReservationEfficiencyMinus2PctPer1);
+            int mineEfficiency = Get(Stat.ManaReservationEfficiencyPlusPctForSkillsThatThrowMines);
+            if (mineEfficiency != 0 && PlacedKind(gem).Mine)
+                efficiency = ActorScale.Saturate((long)efficiency + mineEfficiency);
         }
         if (!life && AuraCatalog.IsStance(effect)) efficiency += Get(Stat.StanceSkillsManaReservationEfficiencyPlusPct);
         if (curse) efficiency += Get(Stat.CurseAuraSkillsReservationEfficiencyPlusPct);
@@ -65,13 +73,16 @@ public static partial class Game
             : 0;
         var lifeReservation = LifeReservation.Of(player.Pools, player.QualifiedItemLifeReservationPercent,
             player.Auras.Values, proposedLife);
-        return (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + mana + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false) <= player.Pools.Mana
-            && (long)lifeReservation.Required + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true) < player.Pools.Life;
+        return (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + mana
+                + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false) + CooldownTriggerReservation(player, life: false) <= player.Pools.Mana
+            && (long)lifeReservation.Required + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true)
+                + CooldownTriggerReservation(player, life: true) < player.Pools.Life;
     }
 
     public static int AdditionalLifeReservation(Player player) => (int)Math.Clamp(
         (long)PetrifiedBlood.RequiredLife(player.Pools, player.PetrifiedBlood)
-        + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true),
+        + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true)
+        + CooldownTriggerReservation(player, life: true),
         0, int.MaxValue);
 
     public static void ClampReservedResources(Player player)

@@ -44,6 +44,7 @@ public sealed class GameArea(ulong seed)
     public readonly HashSet<uint> ActiveIgniteMonsters = [];
     public readonly HashSet<uint> ActiveBleedMonsters = [];
     public readonly HashSet<uint> ActivePoisonMonsters = [];
+    public readonly HashSet<uint> ActiveDecayMonsters = [];
     public readonly HashSet<uint> ActiveHeraldBurnMonsters = [];
     public readonly HashSet<uint> ActiveAilmentMonsters = [];
     public readonly HashSet<uint> SlowedAttackers = [];
@@ -53,7 +54,7 @@ public sealed class GameArea(ulong seed)
     public bool HasRampageBlinds;
 
     public bool HasActiveDots =>
-        ActiveIgniteMonsters.Count > 0 || ActiveBleedMonsters.Count > 0 || ActivePoisonMonsters.Count > 0
+        ActiveIgniteMonsters.Count > 0 || ActiveBleedMonsters.Count > 0 || ActivePoisonMonsters.Count > 0 || ActiveDecayMonsters.Count > 0
         || MonsterContagion.AnyApplied || MonsterEssenceDrain.AnyApplied;
 
     // Order-preserving living-monster cache so 30 Hz movement, collision, blocker, and regen loops do not scan

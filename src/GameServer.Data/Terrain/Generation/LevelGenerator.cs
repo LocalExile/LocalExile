@@ -134,13 +134,18 @@ public static class LevelGenerator
         _ => null,
     };
 
+    // The ordinary Mirror uses the default Affliction terrain variant and leaves the underlying tiles unchanged.
+    public static bool SupportsPluginState(ushort id, ReadOnlySpan<byte> state, ushort? areaPlugin, string? areaPluginName) =>
+        id == 0x0871 ? state is [0] : id == areaPlugin && PortsPlugin(areaPluginName);
+
     /// <summary>Generates the area. Pass <paramref name="rng"/> (seeded, with the area's randomness flag) to keep its draw
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.
     /// <paramref name="pluginStates"/>: the terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c> →
     /// bytes). The client creates a plugin per state, then the area's own with an empty state (<c>0x141eca930</c>): the
-    /// area's own plugin, when ported, builds its part from its state; another listed plugin adds its extra terrain feature
-    /// row (<see cref="LeaguePluginFeature"/>).</summary>
+    /// area's own plugin, when ported, builds its part from its state, and the ordinary Mirror's default state is kept
+    /// (<see cref="SupportsPluginState"/>); another listed plugin adds its extra terrain feature row
+    /// (<see cref="LeaguePluginFeature"/>).</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
         List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
         byte[]? delveTerrain = null, IReadOnlyDictionary<ushort, byte[]>? pluginStates = null)
@@ -148,7 +153,7 @@ public static class LevelGenerator
         var pluginRows = new List<string>();
         foreach (var (id, state) in pluginStates ?? new Dictionary<ushort, byte[]>())
         {
-            if (id == area.TerrainPlugin && PortsPlugin(area.TerrainPluginId)) continue;
+            if (SupportsPluginState(id, state, area.TerrainPlugin, area.TerrainPluginId)) continue;
             if (id != area.TerrainPlugin && LeaguePluginFeature(area.PluginName?.Invoke(id), state) is { } row) { pluginRows.Add(row); continue; }
             throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
         }

@@ -109,9 +109,32 @@ public sealed class StrongboxTests
             uint orb = stash.Inventory(0).Items.Single(i => i.Item.TypeHash == vaal.Hash).Id;
             Assert.Equal(5, stash.CountOf(vaal.Hash));
 
+            var crafting = catalog.Find(box["Rarity"]!.GetValue<byte>() == 0
+                ? CurrencyEffects.OrbOfTransmutation : CurrencyEffects.OrbOfScouring)!;
+            var repeat = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.UseItemTypeOnObjectId)
+                .U32(crafting.Hash).U32(id).U32(0).U32(0).ToArray();
+            int premium = stash.Records(null).First(t => t.Type == 1).Index;
+            Assert.NotNull(stash.Place(premium, 0, 0, new(stash.NewItemId(), 0, 0, ItemCatalog.Create(crafting)),
+                i => new(1, 1, crafting.Class, crafting.MaxStack), out _));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(1, stash.CountOf(crafting.Hash)); // stash closed
+            owner.Player.StashOpen = true;
+            Assert.True(stash.SetPublic(premium, true));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(1, stash.CountOf(crafting.Hash)); // listed for trade
+            Assert.True(stash.SetPublic(premium, false));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(0, stash.CountOf(crafting.Hash));
+
             Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
             Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
             Assert.Equal(4, stash.CountOf(vaal.Hash));
+
+            // Another player tops up the same stack while the strongbox handler waits for the area.
+            var last = stash.Shrink(0, orb, 3)!;
+            stash.AddStacked(0, item, Game.ShapeOf, out _);
+            Assert.NotNull(stash.PayOne(0, last));
+            Assert.Equal(5, stash.CountOf(vaal.Hash));
         }
         finally
         {
@@ -120,6 +143,24 @@ public sealed class StrongboxTests
             Program.SetGameLogic(previousLogic!);
             TestEnvironment.ReleaseOwnSaves();
         }
+    }
+
+    // A box's rarity follows the mix recorded in the official game (11 normal, 9 magic, 9 rare of 29), and its items drop
+    // one frame after its last daemon is gone, the plain summoning daemon living 45 frames.
+    [Fact]
+    public void Rarity_mix_and_drop_time_follow_the_recordings()
+    {
+        var rng = new Random(11);
+        var counts = new int[3];
+        for (int i = 0; i < 20000; i++) counts[StrongboxMods.RollRarity(MapMods.None, rng)]++;
+        Assert.InRange(counts[2] / 200.0, 29, 33);
+        Assert.InRange(counts[1] / 200.0, 29, 33);
+        Assert.InRange(counts[0] / 200.0, 36, 40);
+        const string plain = "Metadata/Monsters/Daemon/ChestDaemonSummonNormal", explode = "Metadata/Monsters/Daemon/ChestDaemonExplode";
+        Assert.Equal(46, MapStrongboxes.DropFrames([plain]));
+        Assert.Equal(60, MapStrongboxes.DropFrames([plain, explode]));
+        Assert.Equal(46, MapStrongboxes.DropFrames(["Metadata/Monsters/Daemon/NotRecorded"]));
+        Assert.Equal(46, MapStrongboxes.DropFrames([]));
     }
 
     // The closed glow and the open effect a box plays come from the Chests row's ChestEffects row, one model per

@@ -63,9 +63,15 @@ u8                      +0x29   (bool)
 `AddInventory(id, slot)` = `00C0 00 <id BE> <kind> <row> <w> <h> 00 00 00 00`. The Gateway sends ids 1..117, one per
 row, after 0x2bb and before 0x21. Live: all 117 registered, and no lookup returned null afterwards.
 
-The other inventory messages: 0xc1 (case 0x36, `0x141d65d90` → `0x141d65a40`, removes an inventory and notifies its listeners; used for stash tabs), 0xc2 (case 0x37,
-`0x141d65da0`), 0xc3 (case 0x38, `0x14217a930`: walks inventories for socketed skill gems, "Sockets"/"SkillGem"),
+The other inventory messages: 0xc1 (case 0x36, `0x141d65d90` → `0x141d65a40`, removes an inventory and notifies its listeners; used for stash tabs),
+**0xc2** (9 bytes, case 0x37, read `0x1421aa500` → `0x141d65da0`: `u8 manager`, `u32 BE inventoryId`, `u8 notWritable` `+0x160`,
+`u8 skipScans` `+0x161`; emitted for read-only views such as row 114 collection, remove-only row 84 backpack, and bench balance),
+**0xc3** (6 bytes, case 0x38, read `0x140911270` → `0x14217a930`: `u32 BE experience` share distributed across socketed skill gems; [19](19-gems.md) §1),
 0xc4 (case 0x39, a list of 4-byte entries (u8 at +0, u16 at +2) → `0x14217ae70` each), 0xc6 (case 0x3a, type 0xb lookup).
+
+Heist NPC equipment quick-moves (kind `0x22`, rows `45..53`, 7 × 2 grid with columns Tool 0, Weapon 2, Utility 4, Reward 6):
+- **C→S 0xfd** (9 bytes, writer `0x141fa0230`, sender `0x14216ecb0`): `u32 BE itemId`, `u8 fromExpanded`, `u8 slot` (`0..8`), `u8 intoTarget` (`1` into rogue, `0` out).
+- **C→S 0x2d** (8 bytes, writer `0x141f96c30`, senders `0x142165e90` / `0x142165ee0`): controller sibling `u8 slot` (`0..8`), `u32 BE itemId`, `u8 outOfTarget` (`0` into rogue, `1` out — opposite polarity to `0xfd`).
 
 ## 3. Inventories.dat (3.29.3b, `Data/Inventories.datc64`, 117 rows × 43 bytes)
 

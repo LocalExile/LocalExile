@@ -5,6 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
+- Eldritch pinnacle-presence implicits on player equipment apply within 80 cells of a living hostile pinnacle boss.
 - Ground items belong to the area instance and stay across logouts, disconnects and crashes; drops play native audio.
   Docs: [13](../docs/protocol/13-items.md) §5.
 - Life and mana flasks: recovery over time, flask mods, queueing, full-pool refusal and the drinking sound.
@@ -27,16 +28,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Sacred Orb rerolls of the shared defence base. Docs: [13](../docs/protocol/13-items.md), "Sacred Orb".
 - Special defence overrides and ES-to-Life conversion. Docs: [13](../docs/protocol/13-items.md) §2,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
-- Gold: per account and league, dropped by monsters and picked up by itself. Gold and ground stacks share the saved pickup transaction.
+- Gold: per account and league, level/rarity-scaled monster drops picked up automatically in one saved transaction.
   Docs: [04](../docs/protocol/04-player-entity.md) §6.
-- Loot: currency (34 enabled core orbs from world.db of 36 rows, the 12 beyond the original 24 with estimated weights; Engineer's and Harbinger's Orbs disabled as no longer usable in the client), gems, flasks, equipment and uniques by weight, equipment drops at area level (+1 magic monster, +2 rare or unique), one-socket base implicits on ordinary jewellery and quivers, ordinary equipment socket counts bounded by class and item level, cards and scarabs in maps, stacked drops.
+- Loot: retail currency weights (34 enabled core orbs), gems, flasks, equipment, uniques, campaign and map divination
+  cards by area tag, scarabs, stacked drops, and class/ilvl-bounded socket counts and one-socket implicits.
   Docs: [15](../docs/protocol/15-progression.md) §3, [drop data](../docs/dev/drop-data-schema.md).
 
 ## Partly working
 
+- Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
 - Map flask penalties apply to utility and recovery flask effects and to awarded charges.
+- Alchemist's Genius: flask use rolls grant (10% effect, 20% charges, 4 s from ReminderText 189), rescaling flasks.
 
 - Native skin-transfer bind/reclaim preserves complete donors across character and stash saves. Optional item-stat
   sources exclude socket/skill hosts; 3.29.3c picker binding and protocol reclaim pass, with the shift-click gesture
@@ -48,7 +52,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - NPC divination card exchange supports all 456 active 3.29.3d card definitions and keeps the 14 client-disabled
   cards, including all Grand Spectrum bases and corruption implicits; local weights are not official probabilities.
   Docs: [17](../docs/protocol/17-npcs.md).
-- Heist enchantment magnitudes apply through Core Game. Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
+- Heist enchantment magnitudes and implicit-modifier magnitudes apply through Core Game.
+  Current native tooltip comparison is pending ([13 §2c](../docs/protocol/13-items.md)).
 - Optional backpack mods can enable the native 20 slots; pickup stacks span both carried grids and quest rewards can enter the enabled backpack. Stored items remain removable after disabling the mod.
 
 - Character-build imports validate native items, trees, tattoo targets and limits, preserving secondary ascendancy and module-owned progress. Runtime golem sessions are cleared.
@@ -56,8 +61,12 @@ Part of [Status](../Status.md); what to build next in this area is in
 - On-kill explosions and Eater of Worlds attribute damage reduction.
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
+- Influenced item mods (Shaper, Elder, conquerors) apply, curses on hit and ground immunities included.
+  Not checked live: ground immunities, bleeding removal on warcry.
+  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, triggered marks, damage against ailing enemies,
+  damage over time with attacks and the weapon-local ailment stats.
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
-- Utility-flask orbs: Enkindling/Instilling enchantments and incoming Bleed/Poison triggers.
+- Utility-flask orbs: Enkindling/Instilling enchantments, incoming Bleed/Poison triggers, and automatic use of full utility flasks.
   Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb".
 - Tinctures (#564): flask-belt placement, drops, toggle activation/deactivation, Mana Burn / Weeping Wounds drain, live effect scaling, shared cooldown, weapon-scoped stats, unique tincture effects (except Grasping Vines), Nature's Concoction / Colloidal Mixture, and unequip/death/session cleanup; awaiting real-client verification.
 - Sacred Orb rerolls: fresh checks of the merged branch, and Ward's character calculations.
@@ -117,7 +126,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - **Instilling Orb.** Docs: [13](../docs/protocol/13-items.md), "Enkindling Orb and Instilling Orb",
   [evidence](../docs/re/instilling-coe.md).
 - **Currency results look right in the client** for every implemented currency's main use; Vaal on jewels is outside
-  the local rule.
+  the local rule. Currency cannot be used out of a public stash tab; currency other than quality and flask enchants is
+  refused on a worn item ("Item is currently equipped."), and on mirrored or corrupted targets with the client's
+  reason ("Item is mirrored.", "Target is corrupted.").
 - **Glassblower's Bauble** (level-scaled quality not checked live).
   Docs: [13](../docs/protocol/13-items.md), "Glassblower's Bauble".
 - **Catalysts and Tainted Catalyst** (not checked live): apply jewellery quality (+5/+2/+1 up to 20%, switching replaces
@@ -125,7 +136,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md).
 - **Fracturing Orb** (verified live). Docs: [13](../docs/protocol/13-items.md), "Fracturing Orb",
   [the game rules](../docs/re/fracturing-mirror-mechanics.md).
-- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps. Docs: [13](../docs/protocol/13-items.md).
+- Mirror of Kalandra copies non-unique equipment, flasks and T1–16 maps, from non-public stash tabs and onto stash
+  tabs too. Docs: [13](../docs/protocol/13-items.md).
 - **Hinekora's Lock** (server rules verified live). Docs: [13](../docs/protocol/13-items.md), "Hinekora's Lock",
   [evidence](../docs/re/hinekora-lock.md).
 - **Orb of Fusing** (verified live). Docs: [13](../docs/protocol/13-items.md), "Orb of Fusing".
@@ -133,6 +145,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Currency metamod protection".
 - Repeat currency use by type on passives (`C→S 0x78`) and world objects (`C→S 0x79`) routes to Tattoo/Scouring,
   Strongbox and Essence handlers (offline verified; live client check pending).
+- Divine Vessels capture Pantheon souls in matching Atlas maps into the Map Device and unlock upgrades at Sin
+  (not checked live).
+  Docs: [pantheon](../docs/game/campaign/pantheon.md).
 
 ## Not working yet
 

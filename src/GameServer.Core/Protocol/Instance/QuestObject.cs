@@ -27,6 +27,7 @@ namespace GameServer.Core.Protocol.Instance;
 public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Components, float Rotation = 0, float? Height = null,
     string? Model = null, byte TransitionState = 1, bool Opened = false, bool Blocked = false, ushort Team = 0)
 {
+    public bool Awake { get; init; }
     public IReadOnlyList<string> Components { get; init => field = Owned.List(value); } = Owned.List(Components);
     /// <summary>The Chest component's other flag bits (bit 0 is <see cref="Opened"/>): bit 1 makes the client play the
     /// object's warning sound, its own stat checks deciding (a strongbox's <c>chest_play_warning_sound</c>).</summary>
@@ -78,7 +79,7 @@ public sealed record QuestObject(int GridX, int GridY, IReadOnlyList<string> Com
     {
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
-        w.U8(0);            // object flags
+        w.U8(Awake ? (byte)2 : (byte)0);
         int variables = EntityVariables.Count + IntVariables.Count + FloatVariables.Count + Variables.Count;
         if (variables > byte.MaxValue) throw new ArgumentException("too many script variables");
         w.U8((byte)variables);

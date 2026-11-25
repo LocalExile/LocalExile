@@ -86,7 +86,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   physical reduction, block, evasion, critical strikes and regeneration act on the server (each checked live); the
   instance keeps them.
   Only the 37 mods the server can honour roll; the other 74 are listed in [14](../docs/protocol/14-monster-packs.md)
-  §5.
+  §5. Monster species mods, ES/armour/evasion/accuracy/crit/ailment thresholds, pack aggro and leash also apply.
   Code: `MonsterMods.cs`, `Modules/Core/Game/Monster/Mods/MonsterMods.cs`, `MagicProperties.cs`.
   Docs: [14](../docs/protocol/14-monster-packs.md) §5.
 - Monster decisions use 50 ms of elapsed game time, with no catch-up burst after pauses or slow steps.
@@ -114,7 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary monster spells use level-scaled `GrantedEffectStatSets` elemental/chaos base damage, native cast-speed
   modifiers and cooldowns, and on-screen reach capped by `spell_maximum_action_distance_+%`.
   `MinimumAttackDistance` is not read yet.
-  A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
+  A monster notices at its MinAgroRange and gives up past its MaxAgroRange (twice the aggro range for a row
+  without a MinAgroRange); a give-up ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
   Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
@@ -225,9 +226,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
   have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
-  `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
-  and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified.
+  `EmptyAction`s), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
+  and secondary `GA*` `GeometryAttack` leap payloads (`GANavaliGoatmanLeapDamage`) stay out of boss kits and default
+  attacks (verified live on The Faun), and the attack a boss had before is still its first, unchanged. Checked against
+  the tables and in `BossKitsTests`; **not yet played against the real client**: which of the remaining list a client
+  animates, and how the bosses' official AI weights compare, are unverified.
   Boss kits also cover teleports, movement moves, family summons, barrages, geyser hazards and second-form transitions.
   Code: `BossKits`, `BossMoves`, `BossSummons`, `BossForms`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
@@ -236,6 +239,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
+- Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
+  Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI
+  (not all verified live).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 
@@ -357,23 +363,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   74 monster mods need systems the server lacks (auras on allies, monster skills, ailments on the player …) and do
   not roll;
   Drowned ignore their ground types; how near the player must come before an emerge monster rises is our choice;
-  a boss's stages exist for Hillock only (`BossFights.cs`; other bosses with `BossHealthBar` get the bar, and a
-  campaign boss with no controller plays its kit, but no act boss changes phase mid-fight); monsters respawn on every
-  entry;
-  a new (area, seed) needs a `-Walkmaps` visit for its unique boss ([14](../docs/protocol/14-monster-packs.md) §4).
-  the boss life bar and boss stages exist for Hillock only (`BossFights.cs`;
-  other bosses with `BossHealthBar` get the bar too); monsters respawn on every entry;
   a layout that gives an area no boss room point stands its unique boss at the walk map's deepest cell from the
   entrance, so a new (area, seed) has its boss; the room points themselves are still what `-Walkmaps` captures
   ([14](../docs/protocol/14-monster-packs.md) §4).
-  Act 2's bandit lords (Kraityn, Alira, Oak) are created hostile without their help-or-kill dialogue
-  ([17](../docs/protocol/17-npcs.md)).
   Not placed: Marceus the Defaced (a tile's statue spawner), The Solaris Temple Level 2's three Banners (a room the
   layouts never place) and Thistlesage (no room names his pack) ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form is created where its act forms one: the quest's second-form rule spawns it on the boss's death
-  (Merveil's twisted form, Abberath2, Shakari2, Malachai's second form; `Act1.cs`, `Act4.cs`, `Act6.cs`, `Act9.cs`).
-  Marceus the Defaced (a tile's statue spawner) and Thistlesage (no room names his pack) have no boss room point of
-  their own: the deepest-cell fallback above is where they stand, not at the statue or the pack room
-  ([14](../docs/protocol/14-monster-packs.md) §3).
-  A boss's later form (Abberath2, Shakari2, Malachai's second form) is left to a fight or quest
-  that does not create it yet.

@@ -8,10 +8,9 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SkillQuickWinsTests
 {
-    // A bow/wand attack gem with no projectile row of its own fires the held weapon's (its own art by weapon where the
-    // data has it); a Barrage volley still has no recipe and stays refused before its cost.
+    // Bow and wand attacks can use the held weapon's projectile, with skill-specific art where the data provides it.
     [Fact]
-    public void Weapon_projectile_gems_fire_the_held_weapons_projectile_and_barrage_stays_refused()
+    public void Weapon_projectile_gems_fire_the_held_weapons_projectile_and_barrage_is_available()
     {
         foreach (var (weapon, expected) in new[] { ("Crude Bow", "Metadata/Projectiles/FrenzyArrow"),
             ("Driftwood Wand", "Metadata/Projectiles/FrenzyWand") })
@@ -23,8 +22,9 @@ public sealed class SkillQuickWinsTests
             Assert.Equal(expected, use.Profile.Id);
             Assert.False(Assert.IsType<ProjectileOffense>(use.Payload).ClientPredicted);
             var barrage = f.Gem("Barrage");
-            Assert.Null(Game.ResolveProjectileDefinition(barrage.Effect));
-            Assert.False(Game.ProjectilePathAvailable(f.Conn, barrage.Id, barrage.Effect));
+            Assert.NotNull(Game.ResolveProjectileDefinition(barrage.Effect));
+            Assert.True(Game.ProjectilePathAvailable(f.Conn, barrage.Id, barrage.Effect));
+            Assert.True(Game.SupportedSkill(f.Conn, barrage.Id).RequirementsMet);
         }
     }
 

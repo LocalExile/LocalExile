@@ -9,6 +9,13 @@ Nothing yet.
 
 ## Partly working
 
+- Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
+- Icicle Mine variants release their radial or aimed volleys and scale with the detonation chain. Pyroclast
+  variants apply armed mine Fire Exposure, then release a nova and mortars. The Icicle critical aura is open.
+- Trap and mine payloads support Arc chains, Contagion, corpse Offerings, Hexes and Marks, damage brands,
+  Storm Call, Firestorm, Frost Bomb and Vortex. Offline checks exercise the paid placement and timed effects.
+- Eye of Winter variants emit their travel and final shards. Creeping Frost and its Floes variant release
+  chilling ground that follows enemies. The timings and ground motion were checked offline.
 - Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
   Deterministic support rewards are disabled; eligible active gems use Siosa's Uncarved Gemstone exchange.
   Gem XP receives the configured Ruthless multiplier.
@@ -66,14 +73,17 @@ Nothing yet.
 - **Linked support gems.** Native compatibility, link groups, duplicate families and skill-bar support records
   are implemented; Cyclone with Increased Area of Effect was read successfully by the real client.
   Ordinary hit, area, speed, critical, cost and reservation calculations use linked support stats.
-  Barrage's attack-time penalty uses resolved projectile quantity; sequential release and native validation remain open.
+  Barrage and Barrage of Volley Fire release ordered projectiles for direct attacks and Ballista Totem Support.
+  Offline coverage checks the individual contacts and cancellation between shots.
   Overcharge, Bloodthirst and four more supports scale hits by their more damage ([20](../docs/protocol/20-damage.md)).
   Nightblade grants Elusive on a supported attack's critical strike. Its supported attacks gain base critical chance
   during Elusive, and Nightblade's own Elusive adds a critical multiplier that decays with the buff.
   The trap, mine and totem supports' own more or less damage scales the supported hit. Traps and mines take their
   scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
   curse, mark, link and retaliation speed bonuses.
+  Retaliation hits apply their damage, stun and ailment duration modifiers.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
   Flight and arming times and the native multi-throw patterns remain open.
@@ -152,8 +162,14 @@ Nothing yet.
   one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
-  transfigured and Trarthan gems grant their own skill; Vaal gems grant their Vaal skill and base skill.
-  Vaal soul collection/native budget payloads are implemented, pending native acceptance.
+  Transfigured and Trarthan gems grant their own skill.
+  Vaal gems grant their Vaal skill and base skill.
+  Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
+  Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
+  to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
+  Vaal Rejuvenation Totem regenerates life and redirects part of nearby allies' hit damage into the totem's life.
+  Offline regressions cover Vaal Heavy Strike contact and knockback, Vaal Arctic Armour mitigation, Blazing Salvo
+  impacts and the three Spectral Shield Throw variants.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
   The variant is sent in the SkillGem data and saved.
   Item serialization also derives the native variant flag for standalone and socketed gems, preserving level-lock

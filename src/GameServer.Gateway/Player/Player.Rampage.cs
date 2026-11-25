@@ -2,6 +2,8 @@ public sealed partial class Player
 {
     public RampageSession Rampage { get; } = new();
     public SoulEaterState SoulEater { get; } = new();
+    /// <summary>Alchemist's Genius on this player: the buff a flask use grants, while it runs.</summary>
+    public AlchemistsGeniusState AlchemistsGenius { get; } = new();
     // "Gain Physical Damage Immunity for X seconds on Rampage" and "Phasing for X seconds on Rampage" thresholds.
     public double PhysicalImmunityUntil;
     public double PhasingUntil;
@@ -88,11 +90,18 @@ public sealed partial class Player
         SoulEater.SentStacks = 0;
         SoulEater.Souls.Clear();
         SoulEater.Clear();
+        if (AlchemistsGenius.Active)
+        {
+            AlchemistsGenius.Clear();
+            MarkStatsDirty(StatInput.FlaskEffects);
+        }
     }
 
-    public void ApplyMovementSpeedAt(double at) => ApplyMovementSpeedAt(at, forceRelay: false);
+    public void ApplyMovementSpeedAt(double at) => ApplyMovementSpeedAt(at, forceRelay: false, movementPctOverride: null);
 
-    public void ApplyMovementSpeedAt(double at, bool forceRelay)
+    public void ApplyMovementSpeedAt(double at, bool forceRelay) => ApplyMovementSpeedAt(at, forceRelay, movementPctOverride: null);
+
+    public void ApplyMovementSpeedAt(double at, bool forceRelay, int? movementPctOverride)
     {
         double extra = Program.GameLogicOrNull?.MovementSpeedMultiplier(this) ?? 1;
         double channel = ChannelMovement.Skill != 0 && ChannelMovement.Skill == ChannelSkill
@@ -103,7 +112,7 @@ public sealed partial class Player
         // change; AreaStats.Written relays and updates the speed on the exact frame the 0x1b3 reaches the client.
         if (Connection.LockstepClient && Connection.LockstepFrame is not null && Frames.Running && Area.Stats.HasWritten(Id))
         {
-            int movementPct = Area.Stats.WrittenValue(Id, Stat.MovementVelocityPlusPct);
+            int movementPct = movementPctOverride ?? Area.Stats.WrittenValue(Id, Stat.MovementVelocityPlusPct);
             int actionPct = Area.Stats.WrittenValue(Id, Stat.VirtualActionSpeedPlusPct);
             int cap = Area.Stats.WrittenValue(Id, Stat.MovementVelocityCap);
             float moveFactor = 1f + Math.Max(-100, movementPct) / 100f;
@@ -123,8 +132,11 @@ public sealed partial class Player
             Walk.SetSpeed(resolved, at);
             return;
         }
-        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + Pools.MovementVelocityPct
-            + Rampage.Current.MovementPercent) / 100.0 * (Program.GameLogicOrNull?.PlayerActionFactor(this)
+        long fallbackMovementPct = movementPctOverride is int overridePct
+            ? overridePct
+            : (long)Pools.MovementVelocityPct + Rampage.Current.MovementPercent;
+        Walk.SetSpeed(Math.Max(1, Program.WalkSpeed * (100L + fallbackMovementPct) / 100.0
+            * (Program.GameLogicOrNull?.PlayerActionFactor(this)
                 ?? ElementalAilments.ActionFactor(at)) * extra * channel), at);
     }
 }

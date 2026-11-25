@@ -13,7 +13,9 @@ public sealed partial class PlayerInventories
     public const byte MainInventory = 0, BodyArmour = 1, Weapon1 = 2, Offhand1 = 3, Helmet = 4, Amulet = 5,
         Ring1 = 6, Ring2 = 7, Gloves = 8, Boots = 9, Belt = 10, Flask = 11, MapDevice = 13, Weapon2 = 14,
         Offhand2 = 15, CraftingBench = 16, PassiveJewels = 23, AtlasUpgrades = 39, HarvestCrafting = 43,
-        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, Cursor = InstanceInventories.CursorRow;
+        HeistNpcEquipmentFirst = 45, HeistNpcEquipmentCount = 9,
+        ExpandedInventory = 84, MavenInvitations = 86, MemoryLineMaps = 94, Ring3 = 102, DeepwaterCollection = 114,
+        Cursor = InstanceInventories.CursorRow;
 
     private static readonly ConcurrentDictionary<string, PlayerInventories> ByCharacter = new(StringComparer.OrdinalIgnoreCase);
 
@@ -128,6 +130,7 @@ public sealed partial class PlayerInventories
         InventoryItem placed;
         lock (_lock)
         {
+            if (row == Cursor) _heldFrom = null;
             placed = new InventoryItem(_nextItemId++, x, y, item);
             (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(placed);
         }
@@ -138,9 +141,31 @@ public sealed partial class PlayerInventories
     /// <summary>Puts an item (keeping its id) at a cell.</summary>
     public InventoryItem Put(byte row, InventoryItem item)
     {
-        lock (_lock) (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(item);
+        lock (_lock)
+        {
+            if (row == Cursor) _heldFrom = null;
+            (_items.TryGetValue(row, out var l) ? l : _items[row] = []).Add(item);
+        }
         Persist();
         return item;
+    }
+
+    /// <summary>Sets or clears an item's price note (e.g. C→S 0x1a1 with Flag=1 pricing a held cursor item before
+    /// placement into an async-trade tab). Returns the updated item or null if not found.</summary>
+    public InventoryItem? SetItemNote(byte row, uint itemId, string? note)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        InventoryItem updated;
+        lock (_lock)
+        {
+            if (!_items.TryGetValue(row, out var list)) return null;
+            int at = list.FindIndex(i => i.Id == itemId);
+            if (at < 0) return null;
+            updated = list[at] = list[at] with { Item = list[at].Item with { Note = normalized } };
+        }
+        Persist();
+        return updated;
     }
 
     /// <summary>What an item needs for placement: its grid size, ItemClasses Id, how many share a cell (1: no stack),
@@ -155,9 +180,9 @@ public sealed partial class PlayerInventories
     /// <summary>The held item went to <see cref="Row"/> as <see cref="Placed"/>; <see cref="Displaced"/> (the one it was
     /// dropped on) is now held. <see cref="Merged"/>: the held stack went onto a stack of its type instead, which is
     /// <see cref="Placed"/> now (same id, larger); <see cref="Rest"/> is what is still held (same id as <see cref="Held"/>),
-    /// or null.</summary>
+    /// or null. <see cref="FromRow"/> is the inventory row the held item came from, if picked up from one.</summary>
     public sealed record Placement(byte Row, InventoryItem Placed, InventoryItem Held, InventoryItem? Displaced,
-        bool Merged = false, InventoryItem? Rest = null);
+        bool Merged = false, InventoryItem? Rest = null, byte? FromRow = null);
 
     /// <summary>
     /// Puts the item held on the cursor into inventory <paramref name="row"/> at (x, y). Equipment and other single-item
@@ -175,9 +200,22 @@ public sealed partial class PlayerInventories
         return result;
     }
 
-    // Vendor preflight uses the same placement checks without putting an unpaid item on the cursor.
-    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf) =>
-        PlaceCore(row, x, y, shapeOf, out _, incoming: new InventoryItem(0, 0, 0, item), preview: true);
+    // Vendor and quest-reward preflight uses the same placement checks without putting an unpaid item on the cursor.
+    public Placement? PreviewPurchase(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf,
+        bool expandedAllowed = false, bool allowDisplace = true) =>
+        PlaceCore(row, x, y, shapeOf, out _, expandedAllowed: expandedAllowed, incoming: new InventoryItem(0, 0, 0, item),
+            preview: true, allowDisplace: allowDisplace);
+
+    /// <summary>Places a newly acquired item (quest reward or vendor purchase) directly at (<paramref name="x"/>, <paramref name="y"/>)
+    /// in <paramref name="row"/> using the same placement, stack-merge and single-item swap rules as <see cref="Place"/>.</summary>
+    public Placement? PlaceIncoming(byte row, int x, int y, Item item, Func<Item, Shape?> shapeOf, out string why,
+        bool expandedAllowed = false, bool allowDisplace = true)
+    {
+        var result = PlaceCore(row, x, y, shapeOf, out why, expandedAllowed: expandedAllowed,
+            incoming: new InventoryItem(0, 0, 0, item), allowDisplace: allowDisplace);
+        if (result is not null) Persist();
+        return result;
+    }
 
     /// <summary>The single item that placing the held item at (<paramref name="x"/>, <paramref name="y"/>) in
     /// <paramref name="row"/> would swap out onto the cursor, or null when nothing (or more than one item) is in the way,
@@ -203,7 +241,7 @@ public sealed partial class PlayerInventories
     }
 
     Placement? PlaceCore(byte row, int x, int y, Func<Item, Shape?> shapeOf, out string why, bool one = false, bool expandedAllowed = false,
-        InventoryItem? incoming = null, bool preview = false)
+        InventoryItem? incoming = null, bool preview = false, bool allowDisplace = true)
     {
         lock (_lock)
         {
@@ -240,7 +278,11 @@ public sealed partial class PlayerInventories
             }
             if (inTheWay.Count > 1) { why = $"{inTheWay.Count} items in the way"; return null; }
             if (inTheWay.Any(i => _offered.ContainsKey(i.Id))) { why = "an item offered for sale is in the way"; return null; }
-            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault());
+            bool canMerge = inTheWay is [var mergeTarget] && mergeTarget.Item.TypeHash == held.Item.TypeHash
+                && shape.MaxStack > 1 && mergeTarget.Item.StackSize < shape.MaxStack;
+            if (!allowDisplace && inTheWay.Count > 0 && !canMerge) { why = "cell is occupied"; return null; }
+            byte? fromRow = incoming is null ? _heldFrom?.Row : null;
+            if (preview) return new(row, held with { X = (byte)x, Y = (byte)y }, held, inTheWay.FirstOrDefault(), FromRow: fromRow);
             var items = ItemsIn(row);
             int amount = one ? 1 : held.Item.StackSize;
             if (inTheWay is [var under] && under.Item.TypeHash == held.Item.TypeHash && shape.MaxStack > 1 && under.Item.StackSize < shape.MaxStack)
@@ -249,9 +291,17 @@ public sealed partial class PlayerInventories
                 var filled = Completed(under with { Item = under.Item with { StackSize = (ushort)(under.Item.StackSize + moved) } }, shape);
                 items[items.IndexOf(under)] = filled;
                 InventoryItem? rest = null;
-                if (moved < held.Item.StackSize) cursor[0] = rest = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) } };
-                else cursor.RemoveAt(0);
-                return new(row, filled, held, null, Merged: true, rest);
+                if (moved < held.Item.StackSize)
+                {
+                    if (incoming is null) cursor[0] = rest = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) } };
+                    else { rest = new InventoryItem(_nextItemId++, 0, 0, held.Item with { StackSize = (ushort)(held.Item.StackSize - moved) }); cursor.Add(rest); _heldFrom = null; }
+                }
+                else
+                {
+                    if (incoming is null) cursor.RemoveAt(0);
+                    _heldFrom = null;
+                }
+                return new(row, filled, held, null, Merged: true, rest, fromRow);
             }
             if (amount < held.Item.StackSize)
             {
@@ -260,19 +310,21 @@ public sealed partial class PlayerInventories
                 var single = new InventoryItem(_nextItemId++, (byte)x, (byte)y, held.Item with { StackSize = (ushort)amount });
                 items.Add(single);
                 var left = cursor[0] = held with { Item = held.Item with { StackSize = (ushort)(held.Item.StackSize - amount) } };
-                return new(row, single, held, null, Rest: left);
+                return new(row, single, held, null, Rest: left, FromRow: fromRow);
             }
-            cursor.RemoveAt(0);
+            if (incoming is null) cursor.RemoveAt(0);
             InventoryItem? displaced = null;
             if (inTheWay.Count == 1)
             {
                 items.Remove(inTheWay[0]);
                 displaced = inTheWay[0] with { X = 0, Y = 0 };
                 cursor.Add(displaced);
+                _heldFrom = (row, inTheWay[0].X, inTheWay[0].Y);
             }
-            var placed = held with { X = (byte)x, Y = (byte)y };
+            else _heldFrom = null;
+            var placed = incoming is null ? held with { X = (byte)x, Y = (byte)y } : new InventoryItem(_nextItemId++, (byte)x, (byte)y, held.Item);
             items.Add(placed);
-            return new(row, placed, held, displaced);
+            return new(row, placed, held, displaced, FromRow: fromRow);
         }
     }
 
@@ -348,14 +400,32 @@ public sealed partial class PlayerInventories
         return result;
     }
 
-    (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? SocketCore(byte row, uint itemId, int socket,
+    /// <summary>Checks whether <paramref name="incoming"/> can be socketed directly into <paramref name="itemId"/>'s
+    /// <paramref name="socket"/> without mutating state (for <c>C→S 0x0089</c> buy/reward direct socketing).</summary>
+    public (InventoryItem Item, InventoryItem? Displaced)? PreviewSocketItem(byte row, uint itemId, int socket, Item incoming,
+        Func<Item, Shape?> shapeOf, out string why) =>
+        SocketCore(row, itemId, socket, shapeOf, () => 0, out why, incoming, preview: true) is { } r ? (r.Item, r.HeldNow) : null;
+
+    /// <summary>Sockets a newly acquired item (quest reward or vendor gem) directly into <paramref name="itemId"/>'s
+    /// <paramref name="socket"/>; any gem already in that socket moves onto the empty cursor.</summary>
+    public (InventoryItem Item, InventoryItem? Displaced)? SocketItem(byte row, uint itemId, int socket, Item incoming,
         Func<Item, Shape?> shapeOf, Func<uint> newId, out string why)
+    {
+        var result = SocketCore(row, itemId, socket, shapeOf, newId, out why, incoming);
+        if (result is not null) Persist();
+        return result is { } r ? (r.Item, r.HeldNow) : null;
+    }
+
+    (InventoryItem Item, InventoryItem HeldBefore, InventoryItem? HeldNow)? SocketCore(byte row, uint itemId, int socket,
+        Func<Item, Shape?> shapeOf, Func<uint> newId, out string why, Item? incoming = null, bool preview = false)
     {
         lock (_lock)
         {
             why = "";
-            if (!_items.TryGetValue(Cursor, out var cursor) || cursor.Count == 0) { why = "nothing held"; return null; }
-            var held = cursor[0];
+            var cursor = ItemsIn(Cursor);
+            if (incoming is null && cursor.Count == 0) { why = "nothing held"; return null; }
+            if (incoming is not null && cursor.Count != 0) { why = "something is held"; return null; }
+            var held = incoming is null ? cursor[0] : new InventoryItem(0, 0, 0, incoming);
             var heldShape = shapeOf(held.Item);
             var heldClass = heldShape?.Class;
             var items = ItemsIn(row);
@@ -386,7 +456,8 @@ public sealed partial class PlayerInventories
                 return null;
             }
             var old = sockets[socket].Gem;
-            bool splitStack = colour == SocketColour.Delve && held.Item.StackSize > 1;
+            if (preview) return (item, held, old is null ? null : new InventoryItem(0, 0, 0, old));
+            bool splitStack = incoming is null && colour == SocketColour.Delve && held.Item.StackSize > 1;
             sockets[socket] = sockets[socket] with { Gem = splitStack ? held.Item with { StackSize = 1 } : held.Item };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
@@ -398,7 +469,8 @@ public sealed partial class PlayerInventories
             }
             else
             {
-                cursor.RemoveAt(0);
+                if (incoming is null) cursor.RemoveAt(0);
+                _heldFrom = null;
                 now = old is null ? null : new InventoryItem(newId(), 0, 0, old);
                 if (now is not null) cursor.Add(now);
             }
@@ -432,6 +504,7 @@ public sealed partial class PlayerInventories
             sockets[socket] = sockets[socket] with { Gem = null };
             items[at] = item with { Item = item.Item with { Sockets = sockets } };
             _gemSourceLifetimes.RetireSocket(item.Id, socket);
+            _heldFrom = null;
             var held = new InventoryItem(newId(), 0, 0, gem);
             cursor.Add(held);
             return (items[at], held);
@@ -729,6 +802,7 @@ public sealed partial class PlayerInventories
             var stack = items[at];
             if (amount < 1 || amount >= stack.Item.StackSize) { why = $"cannot split {amount} off a stack of {stack.Item.StackSize}"; return null; }
             items[at] = stack with { Item = stack.Item with { StackSize = (ushort)(stack.Item.StackSize - amount) } };
+            _heldFrom = (row, stack.X, stack.Y);
             var held = new InventoryItem(_nextItemId++, 0, 0, stack.Item with { StackSize = (ushort)amount });
             cursor.Add(held);
             return (items[at], held);
@@ -949,6 +1023,7 @@ public sealed partial class PlayerInventories
             if (!_items.TryGetValue(row, out var l) || l.FindIndex(i => i.Id == itemId) is var at && at < 0) return null;
             var it = l[at];
             l.RemoveAt(at);
+            if (row == Cursor) _heldFrom = null;
             return it;
         }
     }
@@ -1153,6 +1228,7 @@ public sealed partial class PlayerInventories
                     : FreeCellIn(MainInventory, main, shape.Width, shape.Height, shapeOf);
                 if (cell is not { } at) return null;
                 ItemsIn(Cursor).Remove(it);
+                _heldFrom = null;
                 it = it with { X = at.X, Y = at.Y };
                 main.Add(it);
                 (row, moved) = (MainInventory, true);

@@ -125,10 +125,15 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
+- Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
+- Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
 - Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
-- Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
+- Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
+- Channel and Waterways use walkable arrival and portal anchors on generated layouts.
 
 - Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
   `Maps` tier that names it, on the tier-1 key or a MapWorlds base (#1092); checked offline.
@@ -195,8 +200,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
 
-- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client, wave
-  combat and the reward display not yet. Starting a wave destroys every item on the ground, as the client warns.
+- Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
+  Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
+  HUD check pending), and waves pay all counted rewards at wave end
+  ([protocol](../docs/protocol/21-hideouts.md#selected-encounter-inputs-simulacrum)).
+  Arenas hide their waypoint, use measured spots, clear hostile leftovers and keep Lunacy's Watch off its ship.
+  Starting a wave destroys every item on the ground, as the client warns.
   Its arenas use their encounter rules independently of the owner's Atlas preset.
   Scheduled bosses spawn before a scaled wave can award its rewards.
 
@@ -436,8 +445,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hideouts: adding/removing decorative trees/tents and changing decoration appearance are not implemented.
   Personal template selection, saved home login and functional furniture placement are implemented
   ([21](../docs/protocol/21-hideouts.md)).
-- Map device: a map without a walk-map capture puts the player at an arbitrary cell (Beach is captured);
-  such a map now gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
+- Without a generated layout or walk-map capture, a map can place the player at an arbitrary cell.
+  Such a map gets a random seed instead of seed 1, which is the seed captures are dumped at — pinning it there handed
   the client a layout it could not build and it exited (`MapWorldsColosseum`: "no suitable room found … cage_turn");
   the arena gates land next to their pair, not on the telepads;
   the portals look like player portals; the open map is lost on a Gateway restart

@@ -65,19 +65,21 @@ public static class ItemModStats
     {
         // Influence thresholds count the full active equipment set supplied by the caller.
         var equipment = items as IReadOnlyCollection<Item> ?? items.ToArray();
+        var influencedPool = subject.InfluencedEquipment ?? equipment;
         foreach (var item in equipment)
             foreach (var value in Values(item, mods, local, subject, statExists, game))
             {
                 if (local || !InfluencedItemConditions.Read(Program.Stats.Name(value.Id), out string target, out var influence, out int required))
                     yield return value;
-                else if (equipment.Count(equipped => (equipped.Influences & influence) != 0) >= required)
+                else if (influencedPool.Count(equipped => (equipped.Influences & influence) != 0) >= required)
                     foreach (uint stat in InfluencedItemConditions.Targets(target)) yield return (stat, value.Value);
             }
     }
 
     /// <summary>One item's stats by Stats.dat Id, local or global. An explicit modifier's values include the
     /// item's own increased effect for its list (all, prefix or suffix); the effect stats themselves stay raw, so
-    /// they never scale each other. Implicits, enchants and the other lists are unchanged.
+    /// they never scale each other. Implicits and enchants follow the module's ModifierValueRule (their own
+    /// magnitude stats); the other lists are unchanged.
     /// <para>A stat whose id carries a condition only counts while that condition holds (issue #504); with no
     /// <paramref name="subject"/> every condition is unmodelled and no stat changes.</para></summary>
     public static IEnumerable<(uint Id, int Value)> Values(Item item, ModCatalog mods, bool local = false,
@@ -103,6 +105,14 @@ public static class ItemModStats
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
                 if (row.Stats.Any(IsOthersAura)) continue;
                 long percent = EffectPercent(mod, row, effect);
+                // Eldritch "while a Pinnacle Boss is in your Presence": a mod carrying the condition stat only
+                // reaches the character while a Pinnacle Boss is in presence. The condition stat itself is local,
+                // so it never reaches this global sum; the gate is on the mod, decided here — the one place every
+                // global effect stat of the mod passes through. Its predicate is the client's PinnacleAtlasBoss
+                // marker mod on the monster's variety (Game.CelestialBossInPresenceLocked). A subject that does
+                // not answer presence leaves the mod as before. Local sums are not gated: Local() caches per item
+                // and takes no subject.
+                if (!local && RequiresCelestialPresence(row, mod) && !CelestialBossInPresence(subject)) continue;
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local
                         || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Name))
@@ -155,6 +165,21 @@ public static class ItemModStats
             || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
     static bool IsEffectStat(uint id) => id is ExplicitEffect or PrefixEffect or SuffixEffect;
+
+    /// <summary>The Eldritch condition stat (Stats 15802, IsLocal): a mod carrying it with a nonzero value only
+    /// applies while a Pinnacle Boss is in the wearer's presence (1,362 Mods rows, value 1).</summary>
+    const uint RequiresCelestialBossPresence = Stat.LocalInfluenceModRequiresCelestialBossPresence;
+
+    static bool RequiresCelestialPresence(ModCatalog.Mod row, ItemMod mod)
+    {
+        for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+            if (row.Stats[s].Id == RequiresCelestialBossPresence && mod.Values[s] != 0) return true;
+        return false;
+    }
+
+    /// <summary>Whether the subject says a Pinnacle Boss is in presence; true when the subject does not answer it.</summary>
+    static bool CelestialBossInPresence(StatConditions.Subject subject) =>
+        subject.Flags is null || !subject.Flags.TryGetValue(StatConditions.CelestialBossInPresence, out bool present) || present;
 
     /// <summary>The game's increased-effect multiplication on one integer value, rounded down like the Adorned's
     /// jewel effect (Items.AdornedJewel).</summary>

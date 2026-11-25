@@ -18,8 +18,8 @@ public static partial class Game
         if (TownNpcs.Of(player.Layout.Hash) is not null)
         {
             foreach (var p in NpcCatalog.In(player.Layout.Hash, player.Seed))
-                if (QuestsOf(player).ManagesNpc(area, p.Id) && Npcs.Place(p) is { Supported: true } npc)
-                    found.Add(new(npc, p.X, p.Y, p.Rotation, area, p.Id, null, roomState: false));
+                if ((QuestsOf(player).ManagesNpc(area, p.Id) || p.ShownBy is not null || p.GoneWith is not null) && Npcs.Place(p) is { Supported: true } npc)
+                    found.Add(new(npc, p.X, p.Y, p.Rotation, area, p.Id, null, roomState: false, p.ShownBy, p.GoneWith));
             return found;
         }
         foreach (string type in QuestsOf(player).PlacedNpcTypes(area))
