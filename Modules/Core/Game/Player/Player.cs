@@ -345,10 +345,13 @@ public static partial class Game
     // The player's pools go out through the Life component at the frame's end (AreaLife), with their reserved amounts.
     // An explicit send is for a client that changed its own pools ahead of the server (a cost it paid and was given back,
     // Eldritch Battery): they are written even unchanged. The aura records an aura change brings go with it.
-    public static async Task SendPlayerMana(Player player,
-        string? log = null, bool lifeToo = true)
+    public static Task SendPlayerMana(Player player,
+        string? log = null) => SendPlayerMana(player, log, lifeToo: true);
+
+    // lifeToo false: the recovery step resends only what it changed (mana); the client predicted no Life write for its
+    // regeneration. A separate overload, so the two-argument signature mods call stays as it was.
+    public static async Task SendPlayerMana(Player player, string? log, bool lifeToo)
     {
-        // The recovery step resends only what it changed (mana): the client predicted no Life write for its regeneration.
         if (lifeToo) player.Frames.Area?.Life.Resend(player); else player.Frames.Area?.Life.ResendPools(player);
         Note(log);
         if (!player.Closed && !player.LeavingArea && !player.RageRetired)
