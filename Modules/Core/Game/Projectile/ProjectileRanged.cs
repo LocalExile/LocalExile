@@ -87,6 +87,8 @@ public static partial class Game
         var ailmentRows = AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
             : AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get, additionalBlindedIncreased);
+        int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
+        int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
@@ -94,7 +96,10 @@ public static partial class Game
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
-            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
+            DamageIncreasePerChain = damagePerChain,
+            DamageIncreasePerPierce = damagePerPierce,
+            Spider = damagePerChain == 0 && damagePerPierce == 0
+                && !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
                 && !HasContactDamage(Get) && !HasLocalTargetDamage(sourceWeapon.LocalSources)
                 && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
