@@ -15,7 +15,7 @@ public static class KingsmarchPort
     const string PortsFile = "data/tables/VillageShippingPorts.json";
     const string ExportsFile = "data/tables/VillageExports.json";
     const string FailuresFile = "data/tables/VillageShippingFailures.json";
-    const string ResourcesFile = "data/tables/VillageResources.json";
+    const string ConstantsFile = "data/tables/VillageSharedConstants.json";
     const string DataFile = "data/kingsmarch-port.json";
 
     /// <summary>What a trip has to be worth before a port takes it. The tables' <c>ExpectedShipmentValue</c> is 150, but a
@@ -27,15 +27,21 @@ public static class KingsmarchPort
     /// currency whose exact table is not in the client's data files, so the skeleton keeps one number and says so.</summary>
     const double BarterMultiplier = 1.4;
 
+    /// <summary>The bounds the client's own port panel puts on a shipment's value, read from
+    /// <c>VillageSharedConstants.json</c> at load. The numbers here are that table's 3.29.3c values and are kept only for a
+    /// table that cannot be read.</summary>
+    static int _minShipmentValue = 50000;
+    static int _maxShipmentValue = 50000000;
+
     static readonly Regex Markup = new("<[^>]*>|[{}\"]", RegexOptions.Compiled);
 
     static readonly object _lock = new();
     static readonly List<Port> _ports = [];
     static readonly List<Loss> _losses = [];
     static readonly Dictionary<string, int> _values = new(StringComparer.OrdinalIgnoreCase);
-    // The row a resource has in VillageResources.json: the failure table names resources by that row, not by id.
-    static readonly Dictionary<string, int> _rows = new(StringComparer.OrdinalIgnoreCase);
-    // The row a resource has in VillageExports.json: the wire's cargo array has one u32 per row of that table.
+    // The row a resource has in VillageExports.json: the wire's cargo array has one u32 per row of that table, and
+    // VillageShippingFailures' Resource column indexes that same table — not VillageResources, whose row 15 is the
+    // iron bar while export row 15 is the Thaumaturgic Dust.
     static readonly Dictionary<string, int> _export = new(StringComparer.OrdinalIgnoreCase);
     static readonly Dictionary<string, SavedPort> _saved = [];
     static bool _loaded;
@@ -43,9 +49,9 @@ public static class KingsmarchPort
     sealed record Port(string Id, string Name, int Distance, double Risk);
 
     /// <summary>One way a shipment can go wrong, straight out of <c>VillageShippingFailures.json</c>:
-    /// <c>Rows</c> = the resources it can hit (empty = the whole cargo), <c>Lost</c>/<c>Bonus</c> = percent of the cargo and
-    /// of the return, <c>Delay</c> = percent of the travel time, <c>Crew</c> = crew members that do not come home,
-    /// <c>Weight</c> = how often it happens relative to the rest.</summary>
+    /// <c>Rows</c> = the <c>VillageExports.json</c> rows it can hit (empty = the whole cargo), <c>Lost</c>/<c>Bonus</c> =
+    /// percent of the cargo and of the return, <c>Delay</c> = percent of the travel time, <c>Crew</c> = crew members that
+    /// do not come home, <c>Weight</c> = how often it happens relative to the rest.</summary>
     sealed record Loss(string Id, string Text, int[] Rows, int Lost, int Bonus, int Delay, int Crew, int Weight);
 
     /// <summary>A ship on its way: what it carries, where to and when it is due back.</summary>
@@ -139,20 +145,19 @@ public static class KingsmarchPort
             }
             try
             {
-                using var resources = JsonDocument.Parse(File.ReadAllBytes(ResourcesFile));
-                int row = 0;
-                foreach (var entry in resources.RootElement.EnumerateArray())
+                using var constants = JsonDocument.Parse(File.ReadAllBytes(ConstantsFile));
+                foreach (var row in constants.RootElement.EnumerateArray())
                 {
-                    string id = entry.ValueKind == JsonValueKind.Object
-                        ? entry.TryGetProperty("Id", out var idField) ? idField.GetString() ?? "" : ""
-                        : entry.GetString() ?? "";
-                    if (id.Length > 0) _rows[id] = row;
-                    row++;
+                    string id = row.GetProperty("Id").GetString() ?? "";
+                    int value = row.GetProperty("Value").GetInt32();
+                    if (id == "MinShipmentValue") _minShipmentValue = value;
+                    else if (id == "MaxShipmentValue") _maxShipmentValue = value;
                 }
             }
-            catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException)
+            catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException)
             {
-                Console.WriteLine($"[gateway] {ResourcesFile}: {ex.Message}");
+                // The two fields already hold that table's 3.29.3c numbers, so an unreadable table keeps the client's bounds.
+                Console.WriteLine($"[gateway] {ConstantsFile}: {ex.Message}");
             }
             try
             {
@@ -319,15 +324,25 @@ public static class KingsmarchPort
     /// <summary>How many of the town's workers a shipment ties up: a small cargo needs one, a rich one a full complement.</summary>
     static int CrewRequired(int value) => Math.Clamp((int)Math.Ceiling(value / (double)MinCargoValue), 1, 5);
 
+    /// <summary>The value a <see cref="Ship"/> carries: the cargo's value held inside the client's own shipment bounds
+    /// (<c>VillageSharedConstants.json</c>). The ceiling is that table's <c>MaxShipmentValue</c>; the floor is the lower of
+    /// its <c>MinShipmentValue</c> and the town's own <see cref="MinCargoValue"/>, because this town deliberately takes a
+    /// cargo the client's minimum would not, and clamping such a cargo up would inflate the barter it pays.</summary>
+    static int ShipmentValue(int value) => Math.Clamp(value, Math.Min(_minShipmentValue, MinCargoValue), _maxShipmentValue);
+
     /// <summary>A fixed number in [0,1) per shipment and purpose: the same trip always resolves the same way, so the player
     /// cannot re-roll a bad outcome by reloading the area.</summary>
     static double Die(Ship ship, double salt) => Math.Abs(Math.Sin(ship.Sent * salt + ship.Value * 78.233 + ship.Crew * 3.7)) % 1.0;
 
-    /// <summary>The failure this shipment suffers: a weighted pick among the rows that can hit its cargo.</summary>
+    /// <summary>The failure this shipment suffers: a weighted pick among the rows that can hit its cargo. A row's
+    /// <c>Resource</c> column holds <c>VillageExports.json</c> row indices, the same index the cargo array carries, so a
+    /// cargo key is matched through <c>_export</c> and never through a VillageResources row: export row 15 is the dust,
+    /// while VillageResources row 15 is the iron bar. A store name the exports table does not know matches no such row, so
+    /// it can only be hit by a failure that takes the whole cargo.</summary>
     static Loss? Pick(Ship ship)
     {
         var fits = _losses.Where(l => l.Rows.Length == 0
-            || ship.Cargo.Keys.Any(c => _rows.TryGetValue(c, out int row) && l.Rows.Contains(row))).ToList();
+            || ship.Cargo.Keys.Any(c => _export.TryGetValue(c, out int row) && l.Rows.Contains(row))).ToList();
         if (fits.Count == 0) return null;
         int total = fits.Sum(l => l.Weight);
         double roll = Die(ship, 11.17) * total;
@@ -448,7 +463,7 @@ public static class KingsmarchPort
         double clock = Environment.TickCount64 / 1000.0;
         var ship = new Ship
         {
-            Port = port.Id, Value = each * taken, Crew = crew, Sent = clock, Returns = clock + Travel(port),
+            Port = port.Id, Value = ShipmentValue(each * taken), Crew = crew, Sent = clock, Returns = clock + Travel(port),
             Cargo = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [crop] = taken },
         };
         lock (_lock)
@@ -624,6 +639,7 @@ public static class KingsmarchPort
         }
         if (value <= 0) return "the town has none of that cargo";
         if (value < MinCargoValue) return $"that cargo is worth {value}; a port wants at least {MinCargoValue}";
+        value = ShipmentValue(value);
         crew = CrewRequired(value);
         var harbour = Harbour(player.Character ?? "");
         lock (_lock) if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
