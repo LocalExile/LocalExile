@@ -192,8 +192,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
-- Abyss: pit, crack arms, wave, reward chest per instance, not live-checked. [Docs](../docs/game/league-encounters.md)
-- Mercenaries: a map area may hold one to talk to, duel and hire; not yet seen with the client.
+- Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
+- Mercenaries: a map area may hold one to talk to, duel and hire.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
