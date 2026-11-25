@@ -1383,7 +1383,9 @@ public static partial class Game
         double blockIncrease = bonus.BlockChanceInc + (double)(map?.Get(Stat.MapPlayersBlockChancePlusPct) ?? 0);
         double blockFactor = Math.Max(0, 1 + blockIncrease / 100) * (1 + bonus.BlockChanceMore / 100.0);
         int totalAttack = (int)Math.Round(Math.Max(0, rawAttack) * blockFactor);
-        int totalSpell = (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
+        // "Cannot Block Spell Damage" (Iron Heart).
+        int totalSpell = EquipmentInput(Stat.CannotBlockSpells) != 0 ? 0
+            : (int)Math.Round(Math.Max(0, pools.SpellBlockChance) * blockFactor);
         pools = pools with
         {
             BlockChanceBase = shieldBlock,

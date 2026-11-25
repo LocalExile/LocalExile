@@ -10,6 +10,8 @@ public static partial class Game
         (Stat.GainOnslaughtWhileOnLowLife, "_while_on_low_life"),
         (Stat.GainOnslaughtWhileNotOnLowMana, "_while_not_on_low_mana"),
         (Stat.GainOnslaughtWhileYouHaveFortify, "_while_you_have_fortify"),
+        // "Onslaught" as a line of its own (Thrillsteel): no condition.
+        (Stat.BaseShouldHaveOnslaughtFromStat, ""),
     ];
 
     static IReadOnlyDictionary<string, bool> RequalifyChargeOnslaught(Player player,
@@ -17,7 +19,7 @@ public static partial class Game
     {
         int Get(uint key) => sources.GetValueOrDefault(key);
         bool source = CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
-            && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && captured.GetValueOrDefault(row.Condition));
+            && SourceOnslaughtPredicates.Any(row => Get(row.Stat) != 0 && (row.Condition.Length == 0 || captured.GetValueOrDefault(row.Condition)));
         bool onslaught = source || captured.GetValueOrDefault("independent_onslaught");
         return WithFlags(captured, ("source_onslaught", source), ("_while_have_onslaught", onslaught), ("_while_onslaught_is_active", onslaught));
     }

@@ -120,7 +120,9 @@ public static partial class Game
             && (Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0);
         int bypass = divineFlesh ? 100 : Get(IncomingResourceDefences.BypassStat);
         int physicalLife = protectsMana ? player.EnergyShield.Damage(physical, true, at)
-            : IncomingResourceDefences.Damage(player.EnergyShield, physical, bypass, at);
+            // "Physical Damage taken bypasses Energy Shield" (The Fourth Vow): that share of the physical part.
+            : IncomingResourceDefences.Damage(player.EnergyShield, physical,
+                Math.Clamp(bypass + Get(Stat.PctPhysicalDamageBypassesEnergyShield), 0, 100), at);
         int otherLife = protectsMana ? player.EnergyShield.Damage(other, true, at)
             : IncomingResourceDefences.Damage(player.EnergyShield, other, bypass, at);
         int nonChaosLife = (int)Math.Min(int.MaxValue, (long)physicalLife + otherLife);
