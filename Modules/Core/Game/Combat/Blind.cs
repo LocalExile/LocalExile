@@ -16,13 +16,26 @@ public readonly record struct BlindHitInput(long GlobalChance, long AttackChance
     }
     public static BlindHitInput Capture(Func<uint, int> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
-        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get));
+        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
     public static BlindHitInput Capture(Func<uint, long> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
         get(Stat.PctChanceToBlindOnCriticalStrike), Saturate(get(Stat.BlindEffectPlusPct)),
-        Game.BlindSeconds(name => Saturate(get(name))));
-    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
-        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+        Game.BlindSeconds(name => Saturate(get(name))))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
+    public long GlobalVsBleedingChance { get; init; }
+    public long AttackVsBleedingChance { get; init; }
+    public int Chance(bool spell, bool critical) => Chance(spell, critical, bleeding: false);
+
+    public int Chance(bool spell, bool critical, bool bleeding) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0)
+        + (bleeding ? GlobalVsBleedingChance + (spell ? 0 : AttackVsBleedingChance) : 0), 0, 100);
 }
 
 public static partial class Game
@@ -138,7 +151,9 @@ public static partial class Game
         => InflictMonsterBlind(player, id, target, at, input.Chance, input.Effect, input.Seconds, random);
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         BlindHitInput input, bool spell, bool critical, Random? random = null)
-        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
+        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical,
+                (input.GlobalVsBleedingChance > 0 || !spell && input.AttackVsBleedingChance > 0) && target.Bleeds.IgnitedAt(at)),
+            input.Effect, input.Seconds, random);
     static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at, int chance,
         int effect, double seconds, Random? random)
     {
