@@ -52,20 +52,48 @@ Use the copy on `main`, not the pull request's own.
 
 | Label | Means |
 |---|---|
-| `needs-author` | waits on its author: a conflict with `main`, requested changes or a failing check |
 | `BLOCKED` | waits on another pull request, named in a comment |
-| `protected-files` | changes a path in `.github/CODEOWNERS`, so it needs that path's owner |
+| `protected-files` | changes a path in `.github/CODEOWNERS`, so it needs that path's owner (managed automatically by `.github/workflows/pr-hygiene.yml`) |
 
 A maintainer who starts on a pull request or an issue assigns themselves; one with no assignee is free.
 
-Nothing sets or clears a label by itself. `scripts/dev/pr_queue.py` (Git 2.41 or newer) reads every open pull request
-and lists the labels to add and the ones nothing was found for, without changing anything:
+`pr_queue.py` (`scripts/dev/pr_queue.py`, Git 2.41 or newer) reads every open pull request and lists the `BLOCKED` and
+`protected-files` labels to add and the ones nothing was found for, along with conflicts with `main`, requested changes,
+and failing checks, without changing anything:
 
-- A conflict counts when the merge into `main` fails locally. One that GitHub shows only in the lists
-  ("Merging lists" below) needs no label.
-- A pull request that contains another open one's head commit is stacked on it. A conflict in the same files as the
-  one below gets `BLOCKED` alone.
-- A person may have set `needs-author` or `BLOCKED` for a reason Git does not show, so look before taking one off.
+- A conflict counts when the merge into `main` fails locally and is reported in the queue output. One that GitHub shows
+  only in the lists ("Merging lists" below) needs no action.
+- A pull request that contains another open one's head commit is stacked on it and gets `BLOCKED`.
+- A person may have set `BLOCKED` for a reason Git does not show, so look before taking it off.
+
+## PR hygiene
+
+`.github/workflows/pr-hygiene.yml` runs `.github/scripts/check-pr.py` on pull requests:
+
+- Checks that the title follows Conventional Commits (`feat:`, `fix:`, `docs:`, ...).
+- Checks that `## What changes` and `## Layer` from `.github/pull_request_template.md` are filled in (and warns when
+  `## Checks` is missing or unfilled).
+- Adds or removes the `protected-files` label automatically when a pull request touches or stops touching paths in
+  `.github/CODEOWNERS`.
+- Posts an advisory warning on micro-PRs or pure documentation-churn PRs that could be batched into a single pull
+  request.
+
+## Stale PRs and issues
+
+`.github/workflows/stale.yml` marks inactive threads with `stale` and closes them if there is no follow-up:
+
+- Pull requests: marked `stale` after 14 days without activity, closed after 7 more days.
+- Issues: marked `stale` after 45 days without activity, closed after 14 more days.
+
+## Fast-close policy
+
+Maintainers may close a pull request immediately with a short canned reason when it falls into one of these cases:
+
+- **Unbatched micro-cleanup or doc wording**: "Closing as unbatched micro-cleanup/doc wording; please batch small
+  changes into one pull request."
+- **Missing verification evidence**: "Closing for missing verification evidence; reopen once client, log, campaign, or
+  RE verification is included."
+- **Author cannot explain the diff**: "Closing because the diff is not explained by the author."
 
 ## Merging lists
 
