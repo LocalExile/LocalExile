@@ -16,7 +16,7 @@ public static partial class Game
         if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
         var state = player.Antiquarian;
         double now = AreaTime(player);
-        bool timedAdrenaline = sources.GetValueOrDefault(AntiquarianEffects.AdrenalineSource) > 0
+        bool timedAdrenaline = sources.GetValueOrDefault(TimedAdrenalineSource(player)) > 0
             && now < state.TimedAdrenalineUntil && StatsChangeInAnd(state.TimedAdrenalineUntil - now);
         if (player.PlayerLife > 0 && (timedAdrenaline || flameTouched && state.SustainedAdrenaline))
             foreach (var (key, value) in AntiquarianEffects.AdrenalineStats)
@@ -24,11 +24,14 @@ public static partial class Game
         return sources;
     }
 
+    static uint TimedAdrenalineSource(Player player) => player.Antiquarian.TimedAdrenalineSource is > 0 and var source
+        ? source : AntiquarianEffects.AdrenalineSource;
+
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
     static void ObserveAntiquarian(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        player.Antiquarian.Observe(AreaTime(player), Get(AntiquarianEffects.AdrenalineSource) > 0,
+        player.Antiquarian.Observe(AreaTime(player), Get(TimedAdrenalineSource(player)) > 0,
             Get(AntiquarianEffects.StunRecoverySource) > 0, player.PlayerLife > 0 && !player.RageRetired);
     }
 

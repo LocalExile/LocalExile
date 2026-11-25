@@ -123,6 +123,12 @@ public static partial class Game
         player.PlayerMana -= plan.Mana;
         player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);
+        uint adrenaline = Stat.AdrenalineOnVaalSkillUseDurationMs;
+        if (player.Antiquarian.GrantAdrenaline(now, stats.GetValueOrDefault(adrenaline), adrenaline))
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+        }
         if (plan.Life > 0 || plan.Mana > 0)
             ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
         uint sacrificed = SacrificeItemLifeLocked(player, plan.Effect, stats);
