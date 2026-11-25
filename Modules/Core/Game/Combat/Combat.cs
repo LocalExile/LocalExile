@@ -654,6 +654,7 @@ public static partial class Game
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
                 CaptureUnhingedHitKillLocked(player, m, playerHit: true);
                 CaptureEquippedHitExplosionLocked(m, playerStats);
+                CaptureAttackKillExplosionLocked(m, playerStats);
                 if (stageStarts)
                 {
                     CommitBossStage(player, targetId, m, ProjectileWorldTime(player));
@@ -3620,7 +3621,11 @@ public static partial class Game
                         }
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
-                        if (applied.Value.Life == 0) DevourOnKill(player, m, skillStats);
+                        if (applied.Value.Life == 0)
+                        {
+                            DevourOnKill(player, m, skillStats);
+                            if (!spell && SkillsFor(player).IsAttack(gem.Effect)) CaptureAttackKillExplosionLocked(m, playerStats);
+                        }
                         AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),

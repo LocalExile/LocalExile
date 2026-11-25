@@ -83,6 +83,16 @@ public static partial class Game
             target.HitFireExplosionPercent = percent;
     }
 
+    sealed record AttackKillExplosion(int Chance);
+    static readonly RuleTable<SpawnedMonster, AttackKillExplosion> AttackKillExplosions = new();
+
+    static void CaptureAttackKillExplosionLocked(SpawnedMonster victim, IReadOnlyDictionary<uint, int> stats)
+    {
+        if (victim.Life == 0 && victim.Hostile
+            && stats.GetValueOrDefault(Stat.EnemiesExplodeOnDeathByAttackFor10PctLifeAsPhysicalDamage) is > 0 and var chance)
+            AttackKillExplosions.AddOrUpdate(victim, new(chance));
+    }
+
     // Oriath's End is secondary damage: global/elemental/area modifiers and conversion apply, but attack/spell
     // modifiers and their added damage do not. Keep the older physical/chaos explosion policy separate.
     internal static DamagePacket OriathExplosionPacket(uint maximumLife, DamageType element,
@@ -135,7 +145,8 @@ public static partial class Game
     internal static bool MayExplodeOnKill(Player player, SpawnedMonster? corpse = null,
         KillEquipmentSnapshot? equipment = null, IReadOnlyDictionary<uint, int>? stats = null)
     {
-        if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }) return true;
+        if (corpse is { HitFireExplosionPercent: > 0 } || equipment is { Any: true }
+            || corpse is not null && AttackKillExplosions.TryGetValue(corpse, out _)) return true;
         stats ??= PlayerStatValues(player);
         if (stats.GetValueOrDefault(Stat.EnemiesExplodeForPctLifeAsPhysicalDamage) > 0
             || stats.GetValueOrDefault(Stat.BleedingEnemiesExplodeForPctLifeAsPhysicalDamage) > 0
@@ -165,6 +176,11 @@ public static partial class Game
         var captured = equipment ?? CaptureKillEquipment(player, corpse, at, AreaTime(player), playerStats);
         long percent = (long)generic + (bleeding ? bleedingPercent : 0) + captured.CursedCorpsePhysicalPct;
         long physicalChance = (long)Get(Stat.ExplodeEnemiesFor10PctLifeAsPhysicalOnKillChancePct) + captured.PrideChance;
+        if (AttackKillExplosions.TryGetValue(corpse, out var attack))
+        {
+            physicalChance += attack.Chance;
+            AttackKillExplosions.Remove(corpse);
+        }
         if (physicalChance > 0 && AreaRng(player).Next(100) < physicalChance) percent += 10;
         // The same quarter-life chaos explosion can come from a general or a cursed-enemy source.
         long chaosChance = (long)Get(Stat.ExplodeEnemiesFor25PctLifeAsChaosOnKillChancePct) + captured.CursedVictimChaosChance;

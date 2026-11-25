@@ -1032,6 +1032,10 @@ public static partial class Game
                 SacredWispsOnHit(shot);
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
+            if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
+                && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage
+                && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect)))
+                CaptureAttackKillExplosionLocked(target, player);
             if (!immune)
             {
                 var emitterTotem = shot.FromTotem
