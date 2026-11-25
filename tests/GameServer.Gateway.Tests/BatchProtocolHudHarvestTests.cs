@@ -1,12 +1,16 @@
 using System.Buffers.Binary;
+using System.Net;
+using System.Net.Sockets;
 using System.Text;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Modding;
 using GameServer.Modules.Harvest;
 using GameServer.Modules.M_questobjects;
 using GameServer.Modules.Social;
 using GameServer.Storage;
+using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
@@ -623,5 +627,116 @@ public sealed class BatchProtocolHudHarvestTests
         {
             Game.ResetAchievementCache();
         }
+    }
+
+    [Fact]
+    public async Task Horticrafting_station_opens_after_hideout_reentry_guest_entry_and_module_reload()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var hideout = HideoutCatalog.Default!;
+        var layout = new AreaLayout(hideout.AreaHash16, hideout.AreaId, 713, 713, 356, 356,
+            (x, y) => x >= 0 && x < 713 && y >= 0 && y < 713, []);
+        var league = new LeagueRuntime(new League("harvest-station-test", "Standard", false, false),
+            new HashSet<string>(["Game", "Harvest"]));
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer1 = new TcpClient();
+        var accept1 = listener.AcceptTcpClientAsync();
+        await writer1.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader1 = await accept1;
+        var drain1 = reader1.GetStream().CopyToAsync(Stream.Null);
+        using var writer2 = new TcpClient();
+        var accept2 = listener.AcceptTcpClientAsync();
+        await writer2.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader2 = await accept2;
+        var decrypt2 = new ConnectionCiphers(new byte[64], true);
+        static async Task<byte[]> ReadAvailable(TcpClient client, ConnectionCiphers decrypt)
+        {
+            for (int i = 0; i < 20 && client.Available == 0; i++) await Task.Delay(5);
+            if (client.Available == 0) return [];
+            var buf = new byte[client.Available];
+            int n = client.GetStream().Read(buf, 0, buf.Length);
+            decrypt.Receive.Process(buf.AsSpan(0, n));
+            return buf[..n];
+        }
+        using var module = new HarvestModule();
+        using var context = new HarvestModuleTestContext();
+        try
+        {
+            module.Load(context);
+            var instance = new InstanceState();
+            var first = new Player(layout, 1, 1)
+            {
+                Instance = instance,
+                PlayerLife = 1000,
+                LeagueModule = league,
+                Character = { Name = fixture.Player.Character.Name, Account = "HarvestOwner", League = "Standard" },
+                Connection =
+                {
+                    PlayerSent = true,
+                    Session = new("test", writer1.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                },
+            };
+            first.Clock.Start();
+            await Game.SpawnTownStash(first);
+
+            var station = Assert.Single(first.HideoutEditor.All(), e => e.Entry.Key == "harvest");
+            var returning = new Player(layout, 1, 1)
+            {
+                Instance = instance,
+                PlayerLife = 1000,
+                LeagueModule = league,
+                Character = { Name = fixture.Player.Character.Name, Account = "HarvestGuest", League = "Standard" },
+                Connection =
+                {
+                    PlayerSent = true,
+                    Session = new("test", writer2.GetStream(), new ConnectionCiphers(new byte[64], false)),
+                },
+            };
+            returning.Clock.Start();
+            await Game.EnterAreaFixtures(returning);
+            await ReadAvailable(reader2, decrypt2);
+
+            returning.Walk.Teleport(station.Entry.Position.X, station.Entry.Position.Y, Game.AreaTime(returning));
+            Assert.True(await GameEvents.AnyObjectUse(returning,
+                new InstanceTransfer.UseSkillOnObject(station.Id, 0x0266, 1, 0), Game.AreaTime(returning)));
+            Assert.Equal("harvest", returning.ModuleWindow);
+            byte[] wire1 = await ReadAvailable(reader2, decrypt2);
+            Assert.True(wire1.AsSpan().IndexOf(InstanceWaypoints.OpenUi(InstanceWaypoints.HorticraftingUi)) >= 0);
+
+            // Simulate hot-reload of HarvestModule while the player is already in the hideout (HideoutReady does not re-run).
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+            using var reloaded = new HarvestModule();
+            using var reloadedContext = new HarvestModuleTestContext();
+            reloaded.Load(reloadedContext);
+            returning.ModuleWindow = null;
+
+            Assert.True(await GameEvents.AnyObjectUse(returning,
+                new InstanceTransfer.UseSkillOnObject(station.Id, 0x0266, 2, 0), Game.AreaTime(returning)));
+            Assert.Equal("harvest", returning.ModuleWindow);
+            byte[] wire2 = await ReadAvailable(reader2, decrypt2);
+            Assert.True(wire2.AsSpan().IndexOf(InstanceWaypoints.OpenUi(InstanceWaypoints.HorticraftingUi)) >= 0);
+        }
+        finally
+        {
+            writer1.Dispose();
+            writer2.Dispose();
+            await drain1;
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
+    sealed class HarvestModuleTestContext : IModuleContext, IDisposable
+    {
+        readonly ModuleLifetime lifetime = new("Harvest");
+        public ModManifest Manifest => new("Harvest", "1.0.0", ModKind.Feature, ["Game"], "harvest.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public void Log(string message) { }
+        public T Settings<T>() => throw new NotSupportedException();
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Dispose() => lifetime.Stop(e => throw e);
     }
 }
