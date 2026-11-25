@@ -155,6 +155,10 @@ public static partial class Game
                     return use with { Profile = profile };
                 }
                 var shot = (ProjectileOffense)use.Payload!;
+                if (effect is "LancingSteel" or "LancingSteelAltX"
+                    && context.Own(Stat.LancingSteelDamagePlusPctFinalAfterFirstHitOnTarget) is not 0 and var repeatPct)
+                    return use with { Payload = shot with
+                        { LancingSteelHits = new(Math.Max(0, 1 + repeatPct / 100d)) } };
                 if (effect is "RollingMagma" or "RollingMagmaAltX" or "RollingMagmaAltY" or "RollingMagmaRoyale"
                     && use.Profile.EndArea is { } magma)
                 {

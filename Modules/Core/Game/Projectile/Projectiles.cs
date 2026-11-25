@@ -821,6 +821,8 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
+            if (shot.LancingSteelHits is { } steel && !steel.Targets.Add(contact.Target))
+                shot = shot.ScaleDamage(steel.RepeatMultiplier);
             int projectileFreezeChance = 0;
             if (shot.FreezingPulseFalloff)
             {
