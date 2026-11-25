@@ -1434,18 +1434,26 @@ public static partial class Game
         {
             if (!Current()) return false;
             bool accepted;
-            if (StanceCatalog.IsSource(SkillsFor(player).EffectId(gem.Effect)))
+            bool loseMana = true;
+            string? effectId = SkillsFor(player).EffectId(gem.Effect);
+            if (StanceCatalog.IsSource(effectId))
             {
                 if (cooldownUse?.Stance is not { } stanceUse) return false;
                 accepted = await PublishStanceUse(player, stanceUse, gem.Name);
             }
-            else if (SkillsFor(player).EffectId(gem.Effect) == PetrifiedBlood.EffectId)
+            else if (effectId == PetrifiedBlood.EffectId)
+            {
+                loseMana = !player.PetrifiedBlood.Active;
                 accepted = await TogglePetrifiedBlood(player, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(player, skillId).Level, SupportedSkill(player, skillId).Quality);
+            }
             else
+            {
+                loseMana = effectId == "TemporalRift" || !player.Auras.ContainsKey(skillId);
                 accepted = await ToggleAura(player, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(player, skillId).Level, SupportedSkill(player, skillId).Quality);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            }
+            if (accepted) RecordAcceptedGemUseAt(player, gem.Effect, to, AreaTime(player), loseMana);
             return accepted;
         }
         (int X, int Y) dashFrom = default, dashTo = default;
@@ -1677,9 +1685,9 @@ public static partial class Game
     static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
         RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
 
-    internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
+    internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt, bool loseMana = true)
     {
-        RecordUsedSkillLocked(player, acceptedAt, effect);
+        RecordUsedSkillLocked(player, acceptedAt, effect, loseMana);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
