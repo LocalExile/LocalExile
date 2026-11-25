@@ -9,7 +9,7 @@ public static class CriticalChanceFinal
     public const uint Unhinged = Stat.CriticalStrikeChancePlusPctFinalWhileUnhinged;
     static readonly uint[] Sources = [ControlledDestruction, Stat.SupportMultipleProjectilesCriticalStrikeChancePlusPctFinal,
         Stat.UniqueCriticalStrikeChancePlusPctFinal, Stat.ActiveSkillCriticalStrikeChancePlusPctFinal,
-        Unhinged];
+        Unhinged, Stat.CriticalStrikeChancePlusPctFinalWhileAffectedByPrecision];
 
     public static bool IsInput(uint name) => Sources.Contains(name);
 
