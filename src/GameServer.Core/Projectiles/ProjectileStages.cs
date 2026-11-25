@@ -68,13 +68,20 @@ public sealed partial class ProjectileRuntime
             foreach (var (delay, count) in waves)
                 Schedule(Now + delay, () =>
                 {
-                    parent.ChildEmission = 0;
+                    ResetChildEmission(parent);
                     EmitChildren(parent, recipe with { Child = recipe.Child with { Count = count } }, excluded);
                 });
             return;
         }
-        if (recipe.Delay > 0) Schedule(Now + recipe.Delay, () => { parent.ChildEmission = 0; EmitChildren(parent, recipe, excluded); });
-        else { parent.ChildEmission = 0; EmitChildren(parent, recipe, excluded); }
+        if (recipe.Delay > 0) Schedule(Now + recipe.Delay, () => { ResetChildEmission(parent); EmitChildren(parent, recipe, excluded); });
+        else { ResetChildEmission(parent); EmitChildren(parent, recipe, excluded); }
+    }
+
+    // Dropping a child emission group takes it out of the active set just as a removal does.
+    void ResetChildEmission(ProjectileEntity parent)
+    {
+        if (parent.ChildEmission != 0) removals++;
+        parent.ChildEmission = 0;
     }
 
     void EmitChildren(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded = null)
@@ -179,7 +186,7 @@ public sealed partial class ProjectileRuntime
                 Schedule(at, () =>
                 {
                     try { ResolveArea(context, recipe, centre, victim, areaId); }
-                    finally { pendingAreas.Remove(areaId); }
+                    finally { if (pendingAreas.Remove(areaId)) removals++; }
                 });
             }
         }
@@ -203,7 +210,7 @@ public sealed partial class ProjectileRuntime
             last = Now;
             if (clock.Retired)
             {
-                pendingAreas.Remove(groupId);
+                if (pendingAreas.Remove(groupId)) removals++;
                 return;
             }
             if (index is int k) ResolveArea(context, recipe, centres[k].Centre, victim, centres[k].Id);

@@ -60,4 +60,29 @@ public class ProjectileContactRegressionTests
         Assert.Empty(runtime.Projectiles);
     }
 
+    [Fact]
+    public void Hit_ledger_is_pruned_only_after_a_flight_is_removed_and_never_repeats_a_hit()
+    {
+        var world = new Arena(); world.Target(2, 5); // The piercing flight hits this target and keeps going.
+        var runtime = new ProjectileRuntime(world);
+        var ledgerField = typeof(ProjectileRuntime).GetField("ledger", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var ledger = (ProjectileHitLedger)ledgerField.GetValue(runtime)!;
+        runtime.Release(Use(Basic with { Pierce = 5, Speed = 10, Range = 50 }));
+        runtime.AdvanceTo(ProjectileRuntime.QuantaPerSecond);
+        int hitsSoFar = world.Hits.Count;
+        Assert.Single(world.Hits, h => h.Target.Id == 2); Assert.Equal(1, hitsSoFar);
+        int tracked = ledger.Count;
+        Assert.True(tracked > 0);
+        // A key whose group no flight owns: the old per-advance prune dropped it on the next advance.
+        ledger.TryHit(987654321, 0, "synthetic", new(1), 0, 0, new());
+        Assert.Equal(tracked + 1, ledger.Count);
+        for (long t = 31; t <= 100; t++) runtime.AdvanceTo(t * ProjectileRuntime.TickQuanta);
+        Assert.Single(runtime.Projectiles);
+        Assert.Equal(tracked + 1, ledger.Count); // No removal yet, so nothing was pruned.
+        Assert.Equal(hitsSoFar, world.Hits.Count); // The same flight never hits the same target again.
+        runtime.AdvanceTo(10 * ProjectileRuntime.QuantaPerSecond);
+        Assert.Empty(runtime.Projectiles);
+        Assert.Equal(0, ledger.Count); // The flight's entries and the stale one go once the flight is removed.
+        Assert.Equal(hitsSoFar, world.Hits.Count);
+    }
 }

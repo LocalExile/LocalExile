@@ -12,6 +12,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly HashSet<long> pendingEmissions = [];
     readonly HashSet<long> activeGroups = [];
     long sequence, commandSequence, terrainEpoch;
+    // Counts every moment a hit-ledger group (flight, emission, child emission or delayed area) can leave the active set.
+    // The ledger is pruned only when this moved, because an unchanged active set cannot have made any key stale.
+    long removals, prunedAt;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
     public static long Time(double seconds) => checked((long)Math.Round(seconds * QuantaPerSecond));
@@ -98,7 +101,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             int index = i;
             void Emit()
             {
-                if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
+                if (sharedSeries && index == count - 1 && pendingEmissions.Remove(emission)) removals++;
                 if (use.CanEmit?.Invoke() == false || point != 0 && world.TraceTerrain(use.Origin, origin) is not null) return;
                 if (use.InitialAim?.Invoke(origin) is { } aim && double.IsFinite(aim.X) && double.IsFinite(aim.Y) && aim != origin)
                     Spawn(projectileUse with { Aim = aim, InitialAim = null }, useId, group, 0, origin, (aim - origin).Unit, index: index);
@@ -238,8 +241,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             spareSearch = search;
         }
         // Detached delayed areas still need the triggering flight's phase-specific admission history.
-        if (ledger.Count > 0)
+        if (ledger.Count > 0 && removals != prunedAt)
         {
+            prunedAt = removals;
             activeGroups.Clear();
             foreach (var p in projectiles.Values)
             {
@@ -657,7 +661,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             Publish(ProjectileEventKind.Redirect, p);
             return;
         }
-        projectiles.Remove(p.Id);
+        if (projectiles.Remove(p.Id)) removals++;
         world.Publish(new(ProjectileEventKind.End, p, Now, p.Position, reason) { HitTarget = hitTarget });
     }
 
@@ -719,7 +723,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
             End(p, ProjectileEndReason.Teardown, allowReturn: false);
         foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
-            pendingAreas.Remove(pair.Key);
+            if (pendingAreas.Remove(pair.Key)) removals++;
     }
 
     public void Clear()
@@ -727,6 +731,6 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         contactEpoch++;
         terrainEpoch++;
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
-        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
+        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); prunedAt = removals; Interactions.Clear();
     }
 }
