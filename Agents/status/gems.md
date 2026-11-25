@@ -95,6 +95,7 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
+  Crystalfall accepts a compatible Slam with an unarmed main hand, including while holding a shield.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
