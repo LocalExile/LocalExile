@@ -54,7 +54,10 @@ public class SkillBarOptionTests
         Assert.NotSame(items, Game.ItemsOf(reentered));
         AssertSelectedLevel(reentered);
         var reenteredItems = Game.ItemsOf(reentered);
-        Assert.NotNull(reenteredItems.Unsocket(PlayerInventories.Weapon1, host.Id, 1, reenteredItems.NewItemId, out _));
+        var sockets = reenteredItems.Items(PlayerInventories.Weapon1).Single().Item.Sockets;
+        int boundSocket = Assert.Single(Enumerable.Range(0, sockets.Count),
+            index => sockets[index].Gem?.SkillBarGemId == boundGem.SkillBarGemId);
+        Assert.NotNull(reenteredItems.Unsocket(PlayerInventories.Weapon1, host.Id, boundSocket, reenteredItems.NewItemId, out _));
         Assert.NotNull(reenteredItems.Remove(PlayerInventories.Cursor, Assert.Single(reenteredItems.Items(PlayerInventories.Cursor)).Id));
         Assert.True(Game.FillSkillBar(reentered));
         var filled = CharacterSaves.Load(character)!.SkillBar!;
