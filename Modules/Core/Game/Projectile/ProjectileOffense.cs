@@ -63,6 +63,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal bool FreezingPulseFalloff { get; init; }
     internal int RemainingChainDamagePercent { get; init; }
     internal int CompletedChainDamagePercent { get; init; }
+    internal int DamageIncreasePerChain { get; init; }
+    internal int DamageIncreasePerPierce { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     internal bool OffHandWeapon { get; init; }
