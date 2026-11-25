@@ -532,6 +532,7 @@ public static partial class Game
                 var poison = ScaleSnipePoison(SupportedPoison(player, skillId, false, playerStats, null, 0, capturedInputs), factor);
                 var accuracy = SupportedAccuracy(player, skillId, AttackHand.Main);
                 var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
+                var ailmentStats = WithWeaponMaim(skillStats, local);
                 var resMods = HitResistMods(playerStats, skillStats);
                 int critMult = SupportedCriticalMultiplier(player, skillId);
                 var impale = WeaponImpaleSettings(playerStats, Stats, attack: true, skillStats, weapon);
@@ -619,7 +620,7 @@ public static partial class Game
                     }
                     if (!m.Invulnerable)
                     {
-                        AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
+                        AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
                             AreaRng(player), poison: poison, sourceSkill: skillId);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
                             && IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) is { } ign)
