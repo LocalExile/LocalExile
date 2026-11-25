@@ -97,7 +97,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   the map device can be clicked and opens its window (S→C 0x7b kind 5);
   maps go into its slots (dragged, or Ctrl + clicked: C→S 0x00e4 in and 0x00e5 out, live 2026-11-15), Activate
   (C→S 0x00d8) checks them (maps and map fragments only, one map), consumes them and
-  opens six portals (MultiplexPortal + S→C 0x008f) into one instance of the map's area, each used once (the one taken
+  opens up to six portals into one shared instance, subject to the map's portal limit (the one taken
   stays gone); a click on a run whose instance has expired (six minutes after its last player left) closes the run and
   its remaining portals and says so in chat, instead of spending a portal on a transfer that cannot arrive (2026-11-18);
   guests share that portal pool, map rules and return destination, and see the owner's saved furniture.
@@ -140,6 +140,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
 - Channel and Waterways use walkable arrival and portal anchors on generated layouts.
+- Nightmare map flask uses schedule meteors in the map instance.
 
 - Legendary maps: a unique map opens its own area (`UniqueMaps.WorldAreasKey`, by its name word) at the level of the
   `Maps` tier that names it, on the tier-1 key or a MapWorlds base (#1092); checked offline.

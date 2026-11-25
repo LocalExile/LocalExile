@@ -1895,8 +1895,10 @@ no source shows whether the two add.
 **Ground Slam's wave** (`SkillArea.GroundSlamWave`): the skills whose ActionTypes action is `DistanceScaledGroundSlam`
 (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale, PlaytestSlam) hit a sector from the
 player whose front advances to the skill's reach; each monster is hit as the front reaches it, and the rest of the
-sweep is dropped on death, area change or a closed connection. Vaal Ground Slam is a different action (a 40-cell radial
-blast). The gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
+sweep is dropped on death, area change or a closed connection.
+Vaal Ground Slam's `VaalDistanceScaledGroundSlam` has a 39-cell base radius and a 0.375-second radial wave.
+The 3.29.3c action begins at contact (0x141be7740) and advances its front by elapsed time over that duration (0x141be7b30).
+The regular gem resolves to GrantedEffects `GroundSlam`; the +40% final radius and 4 melee repeats belong to the old
 `ExileGroundSlam` row, which no GemEffects row grants. No player stat set or 3.29 Mod holds the four `ground_slam_*`
 shape stats, so the wave uses estimates to calibrate live: 60 cells long at the generic 12-cell radius, shifted by the
 skill's own radius; half angle 30 deg (half `ground_slam_cone_angle_override`'s cone), grown by `ground_slam_angle_+%`;
@@ -2803,6 +2805,15 @@ A zero source removes the id; other entries append, so a changed entry needs rem
 The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
 `MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
 `MinionType` row 78 is the Holy Armament. Its body's native `HolyStrikeMinionAttack` reads the main-hand weapon copy.
+An official owned minion's create (`0x2bb`) has object flag `0x02` (it wakes itself, no `0x1a9` follows) and base data
+entries owner `0x9cfcf040`, [corpse's object id `0x79c80077` when raised from one], self `0x3aac50b3`, each
+`key, kind, 1, 1, u32` (kinds 0, 0, 1). Compared against the official creates, byte for byte, this layout is exact for
+MinionType 7 (zombie, 18 of 18), 39 (Herald of Agony spiders, 44 of 44), 20, 34, 18 and 4; the server writes it for the
+zombie, Herald of Agony, raging spirit, animated guardian and Vaal Domination families. It is not what the official
+servers send for corpse-raised spectres (MinionType 0: owner, corpse, then key `0x6c5687de` kind 0 with a type 10 value,
+and no self entry; not yet written), MinionType 19, owner-only objects (mines, traps, pets, MinionType 1) or mercenaries,
+so those keep the plain create and the separate wake. Any raised corpse is removed (`0x2bd`) once, in the same frame,
+unless it was created as a corpse.
 
 `ItemisedCorpse` maps the inventory base to its body. The placed corpse carries `is_spectre_corpse`, which the
 client's Life predicate checks alongside the consuming skill context. `SpectreOverrides` maps ordinary corpse
@@ -3020,6 +3031,11 @@ at the off hand's speed. Shield Charge's description of `shield_charge_damage_+%
 is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales each hit linearly by the distance from
 the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
 base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
+
+**Accuracy.** Shield Waves and Shield Charge carry the selected-hand byte at `+0x311`. Spectral Shield Throw
+sets `+0x518` in `0x141b720e0` and reads it at contact in `0x141b723e0`. Its selector in `0x141b725a0`
+returns 0 when `0x1419e7570` finds only the off hand eligible. The hit roll reads off-hand accuracy and
+cannot-evade fields `0x125` and `0x2b1` for this selector.
 
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 

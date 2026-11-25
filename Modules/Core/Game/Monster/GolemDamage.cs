@@ -166,7 +166,8 @@ public static partial class Game
         var rolled = reflectedPhysical ? attack.Damage
             : MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out critical,
             now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
-            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now));
+            .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now)
+                * SigilEnemyDamageFactor(player, source, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
@@ -261,6 +262,8 @@ public static partial class Game
                 interceptedCarry = share % 100;
                 value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
             }
+            if (source.Hostile && value > 0 && HasFrostShieldZones(player))
+                value = AbsorbFrostShield(player, m.Walk.Position(now), source.Walk.Position(now), value, now);
             damage += g.ShieldPool.Damage(value, isChaos && !chaosNoBypass, now);
         }
 

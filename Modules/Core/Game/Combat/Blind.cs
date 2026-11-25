@@ -38,7 +38,11 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         var value = state.PlayerBlind.Read(now, player.PlayerLife == 0);
         if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(player));
-        return value.Less > 0 && BlindImmune(player, playerStats) ? state.PlayerBlind.Read(now, true) : value;
+        var stats = playerStats ?? StatSourceValues(player);
+        bool selfBlinded = player.PlayerLife > 0 && stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0;
+        if ((value.Less > 0 || selfBlinded) && BlindImmune(player, stats))
+            return state.PlayerBlind.Read(now, true);
+        return selfBlinded && value.Less < 20 ? (20, double.PositiveInfinity) : value;
     }
     public static int PlayerBlindAccuracy(Player player, int rating, IReadOnlyDictionary<uint, int>? playerStats = null) =>
         TimedBlind.Apply(rating, PlayerBlindValue(player, playerStats).Less);

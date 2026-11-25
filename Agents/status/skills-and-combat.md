@@ -17,7 +17,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   A cooldown skill otherwise pays its cost when accepted. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Fortification from melee hits. Docs: [Fortification](../docs/game/fortification.md).
 - Vigilant Strike consumes its direct 8-second melee-hit Fortify grant and refreshes the displayed Fortification timer on a later grant through the shared path; cooldown bypass and fresh supported-client icon/timer behavior are verified live.
-- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster.
+- Shield skills beside a one-handed weapon (`is_dual_wielding`), and Shield Charge's path hits, arrival bash and forward wave. The charge passes through Actors and Chests and stops on solid scenery or its targeted monster. Shield attacks use shield-side accuracy.
   Docs: [11](../docs/protocol/11-skills.md) Â§10a and Â§10k, [13](../docs/protocol/13-items.md).
 - Antiquarian's nodes. Docs: [Antiquarian](../docs/game/antiquarian.md).
 - Conditional critical policy (#242): signed clamp, luck, unarmed multiplier and one roll per gem use.
@@ -65,6 +65,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Pride on enemies. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 
 ## Partly working
+
+- Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
+- Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
+- Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).
 
 - Cursed and ignited kill effects use the accepted hit and corpse state. Retained hexes support Asenath's corpse effects.
   Witchbane grants its timed immunity on player kills, and minion curse explosions use the killing minion's damage.
@@ -167,7 +171,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
-- Vaal souls (#308), Vaal Ground Slam, Vaal Fireball, Vaal Spark and Vaal Discipline (recharge protection for allies).
+- Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
@@ -229,6 +233,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Pestilent Strike spreads a marked corpse's remaining poison damage as a separate chaos debuff.
 - Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
   Docs: [11](../docs/protocol/11-skills.md).
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
@@ -307,6 +312,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
   HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
+  Owned minions are created as the official servers send them; a raise removes its corpse (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
@@ -323,6 +329,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
+  two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.
+  A lockstep non-spell totem placement's hold takes the client's own Move, as GGG's servers do.
   two totems.
   A Focused Ballista totem fires only when due with an owner attack it has not spent.
   Skill bars without a saved attack-in-place mask use each bound skill's default.
@@ -340,7 +348,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   `virtual_*_for_requirements`), dual-wield snapshot sync, and light radius virtual stats (`virtual_light_radius_+%`,
   `virtual_blind_does_not_affect_light_radius`; new virtuals not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§4, Â§8, Â§14.
-- Attack speed passives and attack timing. Docs: [11](../docs/protocol/11-skills.md) Â§4.
+- Attack speed passives and attack timing.
+  Lockstep: an action during a strike's walk-up or swing starts from the client's cell; cost pays before the 0x1ab.
+  Docs: [11](../docs/protocol/11-skills.md) Â§4.
 - Spell cast timing (#192). Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Selected spell hit damage panel (#188). Docs: [11](../docs/protocol/11-skills.md) Â§9 and Â§14.
 - Critical strikes. Docs: [11](../docs/protocol/11-skills.md) Â§5.
