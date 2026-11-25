@@ -346,9 +346,10 @@ public static partial class Game
     // An explicit send is for a client that changed its own pools ahead of the server (a cost it paid and was given back,
     // Eldritch Battery): they are written even unchanged. The aura records an aura change brings go with it.
     public static async Task SendPlayerMana(Player player,
-        string? log = null)
+        string? log = null, bool lifeToo = true)
     {
-        player.Frames.Area?.Life.Resend(player);
+        // The recovery step resends only what it changed (mana): the client predicted no Life write for its regeneration.
+        if (lifeToo) player.Frames.Area?.Life.Resend(player); else player.Frames.Area?.Life.ResendPools(player);
         Note(log);
         if (!player.Closed && !player.LeavingArea && !player.RageRetired)
             await SendWorldRecords(player, player.Id, () => WithOwnAuraRecords(player, () => []), null);
@@ -1133,6 +1134,9 @@ public static partial class Game
             // What moved Life this step: a source or a loss the client does not predict, new rates, and whether anything else
             // already marked the life this frame (a hit before the step).
             bool lifeUnpredicted = false, lifeLost = false, ratesRead = false, lifeMarkedBefore = false;
+            // Life as the regeneration left it; what the rest of the step does to Life (ailments and the like) is a loss or
+            // a source the client does not predict, so a different Life at the end of the step is sent.
+            uint lifeCommitted = 0;
             List<uint>? deactivatedTinctures = null;
             using (ProjectileMutation(player))
             {
@@ -1326,6 +1330,7 @@ public static partial class Game
                         if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
+                    lifeCommitted = player.PlayerLife;
                     bool survived = CompleteResourceRecoveryLocked(player, recoveryFrom, now, recoveryStats,
                         mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(player, seconds) - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
                     lifeAfter = player.PlayerLife;
@@ -1361,7 +1366,8 @@ public static partial class Game
             // The client predicts a plain regeneration step from its life recovery rate: no update for it, until a
             // source it cannot know, a loss, new rates, Petrified Blood's blocked rate, or the cap.
             if (!dead && !lifeMarkedBefore && !lifeUnpredicted && !lifeLost && !ratesRead && !pbRateChanged
-                && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter < LifeCap(player))
+                && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter == lifeCommitted && player.PlayerLife == lifeCommitted
+                && lifeAfter < LifeCap(player))
                 player.Frames.Area?.Life.LifePredicted(player);
             if (pbRateChanged && !dead)
             {
@@ -1395,7 +1401,7 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(player, updates)) return;
             if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) Note(null);
             if (!PlayerUpdatesCurrent(player, updates)) return;
-            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(player, null);
+            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(player, null, lifeToo: false);
             if (!PlayerUpdatesCurrent(player, updates)) return;
             bool lifeFull = lifeAfter == LifeCap(player), manaFull = manaAfter == manaCap;
             if (!PlayerUpdatesCurrent(player, updates)) return;

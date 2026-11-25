@@ -16,7 +16,7 @@ public sealed class AreaLife(GameArea area)
 
     readonly ConcurrentDictionary<uint, byte> monsters = new();
     // A marked player's pools to write: Force writes even an unchanged value, LifeMark that its life may have changed.
-    const byte Force = 1, LifeMark = 2;
+    const byte Force = 1, LifeMark = 2, PoolsForce = 4;
     readonly ConcurrentDictionary<Player, byte> players = new(ReferenceEqualityComparer.Instance);
     readonly Dictionary<(uint Id, byte Pool), (uint Current, uint Reserved)> written = [];
     readonly ConcurrentDictionary<(uint Id, byte Pool), (uint Current, uint Reserved)> set = new();
@@ -24,6 +24,9 @@ public sealed class AreaLife(GameArea area)
     internal void Changed(uint monster) => monsters.TryAdd(monster, 0);
 
     public void Changed(Player player) => players.AddOrUpdate(player, LifeMark, static (_, marks) => (byte)(marks | LifeMark));
+
+    /// <summary>The client changed its mana or energy shield ahead of the server: they are written even unchanged, Life not.</summary>
+    public void ResendPools(Player player) => players.AddOrUpdate(player, PoolsForce, static (_, marks) => (byte)(marks | PoolsForce));
 
     /// <summary>The player's mana or energy shield may have changed (their life did not).</summary>
     public void ChangedPool(Player player) => players.TryAdd(player, 0);
@@ -68,17 +71,19 @@ public sealed class AreaLife(GameArea area)
         foreach (var player in players.Keys)
         {
             players.TryRemove(player, out byte marks);
+            // A player not written now (closed, elsewhere, not sent yet) keeps LifeAheadOfWire: nothing was written, so the
+            // last written value is still behind and the next write must not be skipped as unchanged.
             if (player.Closed || !ReferenceEquals(player.Frames.Area, area) || !player.Connection.PlayerSent) continue;
-            bool force = (marks & Force) != 0;
+            bool force = (marks & Force) != 0, poolsForce = force || (marks & PoolsForce) != 0;
             if (force || (marks & LifeMark) != 0)
             {
                 // Life regeneration the client predicted was never written: what was written may equal the value now.
                 Write(player.Id, LifePool, player.PlayerLife, player.PlayerReservedLife, force || player.LifeAheadOfWire);
                 player.LifeAheadOfWire = false;
             }
-            Write(player.Id, ManaPool, player.PlayerMana, ReservedMana?.Invoke(player) ?? 0, force);
+            Write(player.Id, ManaPool, player.PlayerMana, ReservedMana?.Invoke(player) ?? 0, poolsForce);
             if (player.EnergyShield.Maximum > 0 || written.ContainsKey((player.Id, EnergyShieldPool)))
-                Write(player.Id, EnergyShieldPool, player.EnergyShield.Current, 0, force);
+                Write(player.Id, EnergyShieldPool, player.EnergyShield.Current, 0, poolsForce);
         }
     }
 

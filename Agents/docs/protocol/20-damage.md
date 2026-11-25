@@ -1003,15 +1003,21 @@ mechanics remain open; source IDs, support lifecycle and parsed contact tests ar
 
 ## 5. Continuous resource updates (2026-10-24)
 
-The client Life handler for S→C 0x1b1 stores the current whole pool value; merely sending the
-regeneration stat does not make the visible life value advance between these updates. The former
-250 ms player tick therefore made /god recovery jump by roughly one quarter of maximum life.
+The client Life handler for S→C 0x1b1 stores the current whole pool value. Between updates the client's own Life
+tick advances life from `life_recovery_per_minute` once the server sends it (live check 2026-10-25 in
+[recovery-timing](../re/recovery-timing.md); without the rate no tick moved a pool between corrections). The former
+250 ms player tick made /god recovery jump by roughly one quarter of maximum life. How often the official server
+writes Life while a pool regenerates is not established: no official trace was taken.
 
 `StartResourceRecovery` now combines life/mana regeneration, flask recovery and the player's nonlethal
 Righteous Fire burn in one 16 ms loop. Each step integrates the actual elapsed `Player.Clock`
 time, including scheduler delays; the clock stops during pause. `RecoveryPool` retains fractional
 points, discards overflow at a full pool and negative carry at RF's one-life floor, and never revives
-dead life. Only changed whole values generate 0x1b1. The unreserved mana cap is unchanged.
+dead life. Only changed whole values generate 0x1b1, and a step whose only Life source is that base regeneration generates
+none (`AreaLife.LifePredicted`): the client predicts it. Life is written for any other source (leech, flasks, Recoup,
+Fortification, Enduring Cry and the like), for a loss in the step (burn, trap, Petrified Blood, an ailment), when the
+rates were re-read, while Petrified Blood's recovery rate is blocked, and on reaching the maximum. A mana-only
+resend does not carry Life. The unreserved mana cap is unchanged.
 Stat aggregation is refreshed at the old 250 ms cadence, with
 an additional refresh when RF changes, instead of rebuilding the panel about 60 times a second.
 While the player walks, `life_regeneration_rate_per_minute_%_while_moving` and `mana_regeneration_rate_+%_while_moving`
