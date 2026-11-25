@@ -77,6 +77,11 @@ public static class UtilityFlasks
         (Stat.LocalFlaskMovementSpeedPlusPctWhileHealing, Stat.BaseMovementVelocityPlusPct, 1, false),
         (Stat.LocalFlaskResistancesPlusPctWhileHealing, Stat.BaseResistAllElementsPct, 1, false),
         (Stat.LocalFlaskCriticalStrikeChancePlusPctDuringFlaskEffect, Stat.CriticalStrikeChancePlusPct, 1, false),
+        // "during effect" cast and attack speed suffixes: the same family as the movement-speed row above
+        // (BuffDefinitions flask_bonus_cast_speed 1386 and flask_bonus_attack_speed 1385 grant
+        // base_cast_speed_+% and attack_speed_+%).
+        (Stat.LocalFlaskCastSpeedPlusPctWhileHealing, Stat.BaseCastSpeedPlusPct, 1, false),
+        (Stat.LocalFlaskAttackSpeedPlusPctWhileHealing, Stat.AttackSpeedPlusPct, 1, false),
         (Stat.LocalFlaskWardPlusPctDuringEffect, Stat.WardPlusPct, 1, false),
         (Stat.LocalFlaskStunRecoveryPlusPctWhileHealing, Stat.BaseStunRecoveryPlusPct, 1, false),
         (Stat.LocalFlaskAvoidStunChancePctDuringFlaskEffect, Stat.BaseAvoidStunPct, 1, false),
@@ -128,6 +133,11 @@ public static class UtilityFlasks
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanShockDuringEffect, Stat.AllDamageFromCriticalStrikesCanShock, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanChillDuringEffect, Stat.AllDamageFromCriticalStrikesCanChill, 1, true),
         (Stat.LocalUniqueFlaskAllDamageFromCriticalStrikesCanFreezeDuringEffect, Stat.AllDamageFromCriticalStrikesCanFreeze, 1, true),
+        // "25% reduced Mana Cost of Skills during Effect" (the official Topaz Flask,
+        // JunMaster2LocalFlaskSkillManaCostDuringFlaskEffect1): the local stat is
+        // negative, the character stat is the reduction, so the sign flips.
+        // The finished skill mana cost reads base_mana_cost_-% as its first percentage.
+        (Stat.LocalFlaskSkillManaCostPlusPctDuringFlaskEffect, Stat.BaseManaCostMinusPct, -1, false),
     ];
 
     // The "during effect" flags modules handed over (HandOverDuringEffectFlags), in the order they were handed over.
@@ -191,6 +201,7 @@ public static class UtilityFlasks
         Stat.MonsterBaseBlockPct, Stat.BaseSpellBlockPct,   // Rumi's Concoction (Apply)
         Stat.AllDamageFromCriticalStrikesCanShock, Stat.AllDamageFromCriticalStrikesCanChill,
         Stat.AllDamageFromCriticalStrikesCanFreeze,   // Stormblood
+        Stat.BaseManaCostMinusPct,   // "reduced Mana Cost of Skills during Effect"
     };
 
     /// <summary>The flask buff flag that stands for Onslaught (the Silver Flask's flask_utility_haste has no stats of its
@@ -293,6 +304,38 @@ public static class UtilityFlasks
         return stats;
     }
 
+    /// <summary>The BuffDefinitions row of each "during effect" suffix buff, by the character stat it grants:
+    /// every BuffDefinitions row whose Id starts with <c>flask_bonus_</c>, keyed by its StatsKeys or GrantedFlags
+    /// entry (the granted stat's id, as <see cref="Load"/> reads it: Stats row + 1). Read from the tables, never
+    /// hardcoded: flask_bonus_cast_speed 1386 (base_cast_speed_+%), flask_bonus_reduced_self_curse_effect 1928
+    /// (curse_effect_on_self_+%), flask_bonus_evasion 43 (evasion_rating_+%), flask_bonus_armour 42
+    /// (physical_damage_reduction_rating_+%), flask_bonus_mana_cost 1241 (base_mana_cost_-%), and the rest of
+    /// the family the same way. Empty when the tables are missing, so a use then sends no suffix buff, as before.</summary>
+    public static Dictionary<uint, ushort> SuffixBuffRows()
+    {
+        var map = new Dictionary<uint, ushort>();
+        if (!ClientTables.Has("BuffDefinitions")) return map;
+        foreach (var (i, b) in ClientTables.Table("BuffDefinitions").Select((b, i) => (i, b)))
+        {
+            if (b.Text("Id") is not { } id || !id.StartsWith("flask_bonus_", StringComparison.Ordinal)) continue;
+            foreach (int key in b.Ints("StatsKeys").Concat(b.Ints("GrantedFlags")))
+                map.TryAdd((uint)key + 1, (ushort)i);
+        }
+        return map;
+    }
+
+    /// <summary>The suffix buffs a use sends: for each "during effect" mod on the flask
+    /// (<see cref="DuringEffect"/>) that names a flask_bonus_* row in <paramref name="rows"/>, that row — in
+    /// <see cref="DuringEffect"/> order, the official order in the captures' sample rows (one suffix per flask
+    /// there, so the order across suffixes on one flask is unmeasured). The immunity flags are in the map too,
+    /// through their GrantedFlags (flask_bonus_poison_immunity 1960 grants immune_to_poison); a mod with no
+    /// flask_bonus_* row at all sends nothing. This does not filter by <see cref="SupportOf"/>: the buff is the
+    /// client's icon for the mod, whether or not the server models its stat (base_mana_cost_-% is unmodelled here).</summary>
+    public static IReadOnlyList<ushort> SuffixBuffRowsFor(IReadOnlyDictionary<uint, int> local,
+        IReadOnlyDictionary<uint, ushort> rows) =>
+        [.. DuringEffect.Where(e => local.GetValueOrDefault(e.Local) != 0 && rows.ContainsKey(e.Stat))
+            .Select(e => rows[e.Stat]).Distinct()];
+
     /// <summary>The "during effect" mods of life, mana and hybrid flasks (Divination Distillate, the suffixes): each use's
     /// stats count while any of that use's own recovery effects still runs (Flasks.Effects), so they also end when the
     /// pools fill and the recovery stops early, at death and when the recovery is discarded. Copies of the same mod do not
@@ -350,9 +393,19 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
-        public int SelfChaosDamageLifePctPerMinute { get; init; }
+        public int SelfChaosDamageLifePctPerMinute { get; set; }
+        public IReadOnlyDictionary<uint, int>? LocalStats { get; init; }
+        public double PeriodicThrough { get; set; } = Started;
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
+
+        /// <summary>The stats this effect applies now. They change only through <see cref="Effects.Retune"/>.</summary>
+        public IReadOnlyList<Source> Stats { get; internal set; } = Stats;
+
+        /// <summary>The "during effect" suffix buffs this use sends: (buff instance, BuffDefinitions
+        /// row), in send order. Allocated with the effect in UseUtilityFlaskCore, so an effect always carries the
+        /// buffs it sent and <see cref="EndBuffs"/> removes exactly those.</summary>
+        public IReadOnlyList<(ushort Buff, ushort Row)> SuffixBuffs { get; init; } = [];
     }
 
     /// <summary>Whether a flask's effect ends when the flask leaves its cell of the flask bar (picked up, swapped, moved).
@@ -413,10 +466,32 @@ public static class UtilityFlasks
             lock (_lock) return _latest.GetValueOrDefault(item) == activation;
         }
 
+        /// <summary>The effects running now, a copy.</summary>
+        public IReadOnlyList<Active> All()
+        {
+            lock (_lock) return [.. _active];
+        }
+
+        /// <summary>Gives a running effect new stats and self damage rate (its buff, cell and deadline stay).</summary>
+        public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute)
+        {
+            lock (_lock)
+            {
+                effect.Stats = stats;
+                effect.SelfChaosDamageLifePctPerMinute = selfChaosDamageLifePctPerMinute;
+            }
+        }
+
         /// <summary>The effect of this flask (item id) still running, or null.</summary>
         public Active? Of(uint itemId)
         {
             lock (_lock) return _active.FirstOrDefault(a => a.ItemId == itemId);
+        }
+
+        public Active? FirstWithLocalStat(uint stat, Func<Active, bool> eligible)
+        {
+            lock (_lock)
+                return _active.FirstOrDefault(effect => effect.LocalStats?.GetValueOrDefault(stat) > 0 && eligible(effect));
         }
 
         /// <summary>Starts an effect, next to any other, of the same kind or not: each keeps its own duration
@@ -474,9 +549,12 @@ public static class UtilityFlasks
 
         /// <summary>The running effects' sources, unreduced: callers that also have other sources of the same effects
         /// (Mageblood's permanent ones) combine them before one strongest-per-(effect, stat) pass.</summary>
-        public IReadOnlyList<Source> Sources()
+        public IReadOnlyList<Source> Sources() => Sources(null);
+
+        public IReadOnlyList<Source> Sources(double? at)
         {
-            lock (_lock) return [.. _active.SelectMany(a => a.Stats)];
+            lock (_lock) return [.. _active.Where(a => at is not double now || a.Started <= now && now < a.Ends)
+                .SelectMany(a => a.Stats)];
         }
 
         /// <summary>The strongest positive value of one stat without allocating a source snapshot.</summary>
@@ -507,6 +585,17 @@ public static class UtilityFlasks
         public bool ActiveAt(double now)
         {
             lock (_lock) return _active.Any(a => a.Started <= now && now < a.Ends);
+        }
+
+        public double? NextExpiry(double now)
+        {
+            lock (_lock)
+            {
+                double next = double.PositiveInfinity;
+                foreach (var a in _active)
+                    if (a.Ends > now) next = Math.Min(next, a.Ends);
+                return double.IsFinite(next) ? next : null;
+            }
         }
     }
 
@@ -593,6 +682,9 @@ public static class UtilityFlasks
                 // Quartz: the client's Pathfinding reads virtual_phase_through_objects (0x141ea3618: +0x52e "Phase Through
                 // Objects", which picks its blocker filter, 0x141e81e6c).
                 Stat.PhaseThroughObjects => Stat.VirtualPhaseThroughObjects,
+                // The flask's reduced skill mana cost: the finished cost reads it
+                // off the character's stats, and the running flasks reach those only here.
+                Stat.BaseManaCostMinusPct => stat,
                 _ when ActorScale.IsInput(stat) || PanelOnly.Contains(stat) || ElementalAilmentInputs.Contains(stat)
                     || HandedFlag(stat) => stat,
                 _ => null,
@@ -653,20 +745,28 @@ public static class UtilityFlasks
         return ended;
     }
 
-    /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell) and the
-    /// extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown).</summary>
-    public static void ShowBuffs(Active e, Player player)
+    /// <summary>S→C 0x1c1 for an effect: the flask's buff (<see cref="Flasks.Buff"/>: duration and flask-bar cell),
+    /// the extra buff (Onslaught: same duration, no cell, so it shows in the buff row with its countdown), and the
+    /// "during effect" suffix buffs: one 0x1c1 per suffix mod, on the same flask-bar cell with the same duration as
+    /// the flask's own buff — the official sends one per suffix on every use with a flask buff, so the client draws
+    /// one icon per suffix instead of one less.</summary>
+    public static void ShowBuffs(Active e, Player player) => ShowBuffs(e, player, null);
+
+    public static void ShowBuffs(Active e, Player player, ushort? visual)
     {
         double seconds = (e.Ends - e.Started) * e.ExpiryRate;
-        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds));
+        player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, e.Buff, e.Flask.BuffRow, e.Slot, seconds, values: null, visual: visual));
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra)
             player.Area.Buffs.Set(player.Id, new(x.BuffRow, player.Id, U68: global::Buff.Seconds(seconds), Tag: extra));
+        foreach (var (buff, row) in e.SuffixBuffs)
+            player.Area.Buffs.Set(player.Id, Flasks.Buff(player.Id, buff, row, e.Slot, seconds));
     }
 
-    /// <summary>An effect that ends: its buff and the extra buff.</summary>
+    /// <summary>An effect that ends: its buff, the extra buff, and the suffix buffs.</summary>
     public static void EndBuffs(Active e, Player player)
     {
         player.Area.Buffs.Clear(player.Id, e.Flask.BuffRow, player.Id, tag: e.Buff);
         if (e.Flask.Extra is { } x && e.ExtraBuff is ushort extra) player.Area.Buffs.Clear(player.Id, x.BuffRow, player.Id, tag: extra);
+        foreach (var (buff, row) in e.SuffixBuffs) player.Area.Buffs.Clear(player.Id, row, player.Id, tag: buff);
     }
 }

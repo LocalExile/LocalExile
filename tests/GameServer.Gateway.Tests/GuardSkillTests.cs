@@ -6,6 +6,64 @@ namespace GameServer.Gateway.Tests;
 public sealed class GuardSkillTests
 {
     [Fact]
+    public async Task A_peer_guard_stays_on_cooldown_until_the_used_guard_allows_it()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Molten Shell", 1), ("Steelskin", 1));
+        var molten = Game.GemSkillEffects(f.Player).Single(gem => gem.Name == "Molten Shell");
+        var steel = Game.GemSkillEffects(f.Player).Single(gem => gem.Name == "Steelskin");
+        double castAt = Game.AreaTime(f.Player);
+        await Game.UseInstantSkill(f.Player, molten.Id, 0, f.Player.Walk.Position(castAt));
+        Assert.False(Game.TriggerGuardReady(f.Player, castAt));
+        var peer = Assert.IsType<SingleUseCooldownState>(Game.SingleUseState(f.Player, steel.Effect, steel.Id));
+        double whileBlocked = castAt + 4.5;
+        Assert.False(Game.TriggerGuardReady(f.Player, whileBlocked));
+        peer.Refresh(whileBlocked, peer.Rate);
+        Assert.False(peer.Ready);
+        Assert.Same(Game.SingleUseState(f.Player, molten.Effect, molten.Id), peer);
+        Assert.Equal(4000, peer.TotalBaseMilliseconds);
+        Assert.True(Game.TriggerGuardReady(f.Player, castAt + 7.5));
+        Assert.True(peer.Ready);
+    }
+
+    [Fact]
+    public void A_damage_triggered_guard_holds_every_group_skill_and_publishes_one_clock()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        f.Equip(("Immortal Call", 1), ("Cast when Damage Taken Support", 1), ("Steelskin", 1));
+        var items = Game.ItemsOf(player);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with { Links = [2, 1] });
+        var gems = Game.GemSkillEffects(player).ToDictionary(gem => gem.Name);
+        var call = gems["Immortal Call"];
+        var steel = gems["Steelskin"];
+        Assert.Null(Game.TriggerOnlyReason(Game.SupportedSkill(player, steel.Id)));
+        Assert.Contains("damage is taken", Game.TriggerOnlyReason(Game.SupportedSkill(player, call.Id))!);
+        var frozen = InstanceEntities.PlayerSingleUseCooldowns(player.Id,
+            [new SingleUseCooldownUpdate(call.Id, 3f, 3f, 0f, 1), new SingleUseCooldownUpdate(steel.Id, 3f, 3f, 0f, 1)]);
+        double now = Game.AreaTime(player);
+        var session = Game.ProjectilesFor(player);
+        uint mana = player.PlayerMana;
+        Game.RecordDamageTakenTriggers(player, 1000, now);
+        Game.ReleaseDamageTakenTriggers(player, session);
+        Assert.True(player.PlayerMana < mana);
+        Assert.Equal(frozen, Game.HeldGuardCooldownRefresh(player));
+        var cooldown = Assert.IsType<SingleUseCooldownState>(Game.SingleUseState(player, call.Effect, call.Id));
+        Assert.Same(cooldown, Game.SingleUseState(player, steel.Effect, steel.Id));
+        Assert.True(cooldown.Held);
+        int version = cooldown.UseVersion;
+        bool committed = false;
+        Assert.False(Game.TryBeginSkillCooldownUse(player, steel.Id, steel.Effect, Game.CooldownForSkill(player, steel.Id),
+            instant: true, () => committed = true, out _));
+        Assert.False(committed);
+        Assert.Equal(version, cooldown.UseVersion);
+        Assert.False(Game.TriggerGuardReady(player, now + 3));
+        Assert.True(Game.TriggerGuardReady(player, now + 4.5));
+        Assert.True(cooldown.Ready);
+    }
+
+    [Fact]
     public async Task Casting_immortal_call_applies_its_buff_and_holds_the_shared_guard_cooldown()
     {
         using var f = new MinionUtilityTests.Fixture();
@@ -41,14 +99,14 @@ public sealed class GuardSkillTests
         // Level 1 with three charges: 25% less Physical and Elemental Damage, then 15% less Physical per charge.
         Assert.Equal((412, 750, 1000), Game.TriggeredGuardHit(f.Player, 1000, 1000, 1000, castAt));
         // The buff is 1 s + 20% per charge, and the 3 s cooldown does not recover during it.
-        double ended = double.NaN, ready = double.NaN;
+        double ended = double.NaN;
         for (double t = castAt; t < castAt + 8; t += 0.01)
         {
-            if (double.IsNaN(ended) && Game.TriggeredGuardHit(f.Player, 1000, 0, 0, t).Physical >= 1000) ended = t;
-            if (double.IsNaN(ready) && Game.TriggerGuardReady(f.Player, t)) { ready = t; break; }
+            if (Game.TriggeredGuardHit(f.Player, 1000, 0, 0, t).Physical < 1000) continue;
+            ended = t;
+            break;
         }
         Assert.InRange(ended - castAt, 1.2, 1.8);
-        Assert.InRange(ready - ended, 2.9, 3.1);
         // The buff is over: the held entry became the skill's own 3 s, counting at the character's recovery rate from
         // the moment the buff ended, and it expires when the guard becomes ready (TriggerGuardReady) again.
         Assert.False(stored.Held);
@@ -56,14 +114,15 @@ public sealed class GuardSkillTests
         Assert.False(stored.FullyRecovered);
         stored.Refresh(ended + 1.5 / stored.Rate, stored.Rate);
         Assert.InRange(stored.RemainingBaseMilliseconds, 1490, 1510);
-        stored.Refresh(ended + 3.5 / stored.Rate, stored.Rate);
-        Assert.True(stored.FullyRecovered);
-        Assert.Null(Game.GuardCooldownEntry(f.Player, gem.Id, gem.Effect));
+        Assert.False(Game.TriggerGuardReady(f.Player, ended + 2.9));
         // A second cast is refused by the shared guard cooldown before any cost, so nothing is spent.
         mana = f.Player.PlayerMana;
         await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(now));
         Assert.Equal(mana, f.Player.PlayerMana);
         Assert.Equal(limits.Minimum, charges.Effective(ChargeType.Endurance));
+        Assert.True(Game.TriggerGuardReady(f.Player, ended + 3.1));
+        Assert.True(stored.FullyRecovered);
+        Assert.Null(Game.GuardCooldownEntry(f.Player, gem.Id, gem.Effect));
 
         // Arcane Cloak has the Guard type but no guard buff here: a cast must not start one (with Steelskin's icon).
         using var cloak = new MinionUtilityTests.Fixture();
@@ -139,6 +198,44 @@ public sealed class GuardSkillTests
             await Game.SendCharacterStats(f.Player, PlayerStatChange.Sources);
             Assert.Contains(packets, p => p.SequenceEqual(frozen));
             Assert.True(Game.SingleUseState(f.Player, gem.Effect, gem.Id)!.Held);
+        }
+        finally { Program.Outgoing = outgoing; }
+    }
+
+    // An aura toggle can empty its own bound slot, so the saved bar goes out after its last skill list, and the bar
+    // re-creates every slot's cooldown entry: a held guard's frozen entry must go out after it, or its cooldown counts
+    // while the buff runs. Off lockstep: the lockstep bar is sent two frames later on wall-clock time.
+    [Fact]
+    public async Task An_aura_toggle_during_a_held_guard_refreezes_it_after_the_skill_bar()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Player.Connection.LockstepClient = false;
+        f.Equip(("Immortal Call", 1), ("Clarity", 1));
+        CharacterSaves.SetSkillBar(f.Player.Character.Name!, 2, "ImmortalCall");
+        CharacterSaves.SetSkillBar(f.Player.Character.Name!, 3, "Clarity");
+        var gem = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "ImmortalCall");
+        var aura = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "Clarity");
+        var charges = Game.ChargesOf(f.Player);
+        var limits = charges.Limits(ChargeType.Endurance);
+        charges.State.Set(ChargeType.Endurance, limits.Minimum + 3, 0, limits);
+        await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(Game.AreaTime(f.Player)));
+        Assert.True(Game.SingleUseState(f.Player, gem.Effect, gem.Id)!.Held);
+        var frozen = InstanceEntities.PlayerSingleUseCooldowns(f.Player.Id,
+            [new SingleUseCooldownUpdate(gem.Id, 3f, 3f, 0f, 1)]);
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Game.ProjectilesFor(f.Player).Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+        await drained.Task;
+        var packets = new List<byte[]>();
+        var outgoing = Program.Outgoing;
+        Program.Outgoing = (player, bytes) => { if (ReferenceEquals(player, f.Player)) packets.Add(bytes.ToArray()); };
+        try
+        {
+            Assert.True(await Game.ToggleAura(f.Player, aura.Id, aura.Effect, aura.Name,
+                Game.SupportedReservationCost(f.Player, aura.Id)!.Value, aura.Level, aura.Quality));
+            int bar = packets.FindLastIndex(p => p.Length > 2 && p[0] == 0 && p[1] == 0x53);
+            Assert.True(bar >= 0);
+            Assert.DoesNotContain(packets.Skip(bar + 1), p => p[0] == 2 && p[1] == 0xbc && !p.SequenceEqual(frozen));
+            Assert.Contains(packets.Skip(bar + 1), p => p.SequenceEqual(frozen));
         }
         finally { Program.Outgoing = outgoing; }
     }

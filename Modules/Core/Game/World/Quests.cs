@@ -106,7 +106,7 @@ public static partial class Game
     public static async Task PublishQuestFlags(Player player, QuestFlagCommit change, bool on = true)
     {
         foreach (string flag in change.Changed) Console.WriteLine($"[gateway] {player.Connection.Remote} {CharacterName(player)}: quest flag {flag} {(on ? "set" : "cleared")}");
-        if (!player.Connection.PlayerSent) return;
+        if (player.Closed || !player.Connection.PlayerSent) return;
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "current quest flags", Kind: PlayerMinions.OutputKind.QuestFlags));
         else
@@ -304,6 +304,7 @@ public static partial class Game
         if (Quests.IsInstanceFlag(flag))
             return flag == LabyrinthDay.PlazaDoorOpen ? player.LabyrinthEntry is not null : player.Instance.HasState(flag);
         if (player.Character.HasQuestFlag(flag)) return true;
+        if (GameEvents.HasAreaQuestFlag(player, flag)) return true;
         if (Quests.Rows([flag]) is not [int row]) return false;
         bool inHideout = HideoutCatalog.ByArea(player.Layout.Hash) is not null || player.Layout.Hash == StashCatalog.DelveHub;
         if (player.Character.UnearnedQuestFlags.Contains(flag) && Quests.EndgameOnly.Contains(flag)
@@ -382,6 +383,7 @@ public static partial class Game
                     player.LockstepBusyUntil = Math.Max(player.LockstepBusyUntil, frame.Start + (frames + 1) * (frame.End - frame.Start));
                 return InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, x, y, TutorialObjects.WashedUpSkillId, sequence, flags);
             });
+        await CharacterVoiceLines.OnWakeUpOnBeach(player);
     }
 
     public static bool LyingOnBeach(Player player) => player.PeerTemplate is { WashedUp: true } && !player.TutorialGettingUp;

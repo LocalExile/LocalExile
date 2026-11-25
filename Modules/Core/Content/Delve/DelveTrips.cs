@@ -55,6 +55,8 @@ public sealed partial class DelveModule
         if (!DelveMine.Change(world.AccountData, m => m.Pending is null && m.Current == plan.From
             ? m with { Pending = plan, SceneSeeds = plan.SceneSeed == 0 ? m.SceneSeeds : [.. (m.SceneSeeds ?? []).Append(plan.SceneSeed)] } : null))
         { _attempts.TryRemove(plan.Id, out _); return; }
+        await modPlayer.Send(InstanceDelve.RouteConfirmed([.. plan.Route.Select(p => p.Wire)]),
+            $"0x0242 Delve route confirmed ({plan.Route.Count} point(s), depth {plan.Depth})");
         try { await TransferChunk(module, modPlayer, attempt); }
         catch { await AbortTrip(module, modPlayer, attempt, "departure failed"); throw; }
     }
@@ -327,10 +329,12 @@ public sealed partial class DelveModule
         if (!DelveMine.Change(attempt.Account, m => m.Pending?.Id == attempt.Plan.Id ? m.Finish(attempt.Plan.Id) : null)) return;
         character.Change(DepthKey, text => Math.Max(int.TryParse(text, out int deepest) ? deepest : 0, trip.Depth).ToString());
         if (!trip.TryComplete(false)) return;
+        uint? azuriteBalance = null;
         if (attempt.Plan.Reward)
         {
             uint azurite = (uint)(30 + Math.Max(0, trip.Depth - 1) * 10);
             ChangeEquipment(attempt.Account, p => p with { Azurite = p.Azurite + azurite });
+            azuriteBalance = Equipment(attempt.Account).Azurite;
         }
         player.Instance.SetState(DestinationFlag(modPlayer));
         var at = state.CrawlerCell;
@@ -350,6 +354,10 @@ public sealed partial class DelveModule
         await PlayCompletionEffect(modPlayer, state, state.CrawlerCell);
         if (attempt.Plan.Reward && Equipment(attempt.Account).Azurite >= 30 && !player.Character.HasQuestFlag("NikoHaveEnoughAzurite"))
             await SetQuestFlags(player, ["NikoHaveEnoughAzurite"]);
+        if (azuriteBalance is uint azuriteTotal)
+            await modPlayer.Send(InstanceDelve.AzuriteChanged(azuriteTotal), $"0x0227 Delve azurite: {azuriteTotal}");
+        await modPlayer.Send(InstanceDelve.ChartDelta([.. attempt.Plan.Route.Select(p => p.Wire)]),
+            $"0x022c Delve chart delta ({attempt.Plan.Route.Count} cell(s), depth {trip.Depth})");
         await PublishChart(module, modPlayer);
         foreach (var (id, ground) in groundItems)
         {

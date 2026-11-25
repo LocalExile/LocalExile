@@ -93,18 +93,24 @@ public sealed class MapDevice
 
         /// <summary>Whether a map device run for this area uses the owner's Atlas stats.</summary>
         public bool UsesAtlas { get; init; } = true;
+        public string? DivinationCardArea { get; init; }
     }
 
     private readonly Dictionary<uint, MapArea> _byItemType;
+    private readonly Dictionary<uint, MapArea> _uniqueByWord;
     private readonly AtlasCatalog? _atlas;
     private readonly MapRunCatalog _runs;
     private readonly List<MapArea?> _worldAreas;
     private readonly HashSet<ushort> _recipeAreas;
 
+    /// <param name="uniqueByWord">The legendary maps (UniqueMaps) by their name's Words HASH32: the area a unique map
+    /// opens. 3.29 builds most of them on the generic tier-1 base, so the base alone names no area of its own.</param>
     public MapDevice(IReadOnlyDictionary<uint, MapArea> byItemType, AtlasCatalog? atlas = null,
-        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null)
+        MapRunCatalog? runs = null, IReadOnlyList<MapArea?>? worldAreas = null,
+        IReadOnlyDictionary<uint, MapArea>? uniqueByWord = null)
     {
         _byItemType = new(byItemType);
+        _uniqueByWord = uniqueByWord is null ? [] : new(uniqueByWord);
         _atlas = atlas;
         _runs = runs ?? new MapRunCatalog(new Dictionary<int, MapRunCatalog.Fragment>(), []);
         _worldAreas = worldAreas is null ? [] : [.. worldAreas];
@@ -138,7 +144,46 @@ public sealed class MapDevice
         }
         var worldAreas = LoadWorldAreas(folder);
         return new MapDevice(byType, catalog is null ? null : new AtlasCatalog(catalog, folder),
-            MapRunCatalog.Load(folder), worldAreas);
+            MapRunCatalog.Load(folder), worldAreas, LoadUniqueMaps());
+    }
+
+    /// <summary>UniqueMaps: each legendary map's name word (Words HASH32) to its WorldAreasKey. The level is the higher
+    /// of the Maps row's tier level (Rewritten Distant Memory: tier 15, level 82, where its WorldAreas level is 68) and
+    /// its WorldAreas level (Cortex: WorldAreas level 79, while its legacy Maps row is tier 4). Names on more than one
+    /// row (The Beachhead) keep the first as the fallback when the base itself does not name a tier.</summary>
+    static Dictionary<uint, MapArea> LoadUniqueMaps()
+    {
+        var byWord = new Dictionary<uint, MapArea>();
+        if (!ClientTables.Has("UniqueMaps") || !ClientTables.Has("Words") || !ClientTables.Has("WorldAreas")) return byWord;
+        var words = ClientTables.Table("Words");
+        var areas = ClientTables.Table("WorldAreas");
+        var tierOf = new Dictionary<int, int>();
+        if (ClientTables.Has("Maps"))
+            foreach (var row in ClientTables.Table("Maps"))
+                if (row.IntOrNull("Unique_WorldAreasKey") is int ua) tierOf.TryAdd(ua, row.Int("Tier"));
+        foreach (var unique in ClientTables.Table("UniqueMaps"))
+        {
+            if (unique.IntOrNull("WordsKey") is not int w || w < 0 || w >= words.Count
+                || unique.IntOrNull("WorldAreasKey") is not int area || area < 0 || area >= areas.Count) continue;
+            var wa = areas[area];
+            int areaLevel = wa.Int("AreaLevel");
+            int tier = tierOf.GetValueOrDefault(area);
+            int level = tier > 0 ? Math.Max(MapLevel(tier), areaLevel) : areaLevel;
+            byWord.TryAdd(words[w].UInt("HASH32"), new MapArea((ushort)wa.Int("HASH16"), wa.Text("Id") ?? "",
+                unique.Text("Name") ?? wa.Text("Name") ?? "", tier)
+            {
+                Level = level,
+            });
+        }
+        return byWord;
+    }
+
+    /// <summary>The area a unique map with these name words opens, or null when none is a legendary map's.</summary>
+    public MapArea? UniqueAreaOf(IReadOnlyList<uint> nameWords)
+    {
+        foreach (uint word in nameWords)
+            if (_uniqueByWord.TryGetValue(word, out var area)) return area;
+        return null;
     }
 
     static List<MapArea?> LoadWorldAreas(string folder)
@@ -170,6 +215,7 @@ public sealed class MapDevice
 
     /// <summary>Whether a map opens this area (WorldAreas HASH16): it gets a portal back to the hideout.</summary>
     public bool IsMapArea(ushort hash16) => _byItemType.Values.Any(a => a.Hash16 == hash16)
+        || _uniqueByWord.Values.Any(a => a.Hash16 == hash16)
         || _atlas?.Layouts.Any(l => l.Hash16 == hash16) == true || _recipeAreas.Contains(hash16);
 
     /// <summary>One item in the slots: its type, class, BaseItemTypes row, rolled mods and quality.</summary>
@@ -187,6 +233,9 @@ public sealed class MapDevice
         public bool Corrupted { get; init; }
         public string BaseId { get; init; } = "";
 
+        /// <summary>The item's name words (Words HASH32): a unique map's name, which picks its legendary area.</summary>
+        public IReadOnlyList<uint> NameWords { get; init; } = [];
+
         public bool IsMap =>
             Class is MapClass or MapKeyClass
             || Components is { } c && (c.Contains("Map") || c.Contains("MapKey"));
@@ -198,6 +247,9 @@ public sealed class MapDevice
     {
         /// <summary>AtlasPrimordialBossOptions selection from C→S 0xd8/0x297 (0 none, 1 Maven, 2 Eater, 3 Exarch).</summary>
         public byte BossOption { get; init; }
+
+        /// <summary>Pantheon soul to capture when a Divine Vessel was placed with a matching map.</summary>
+        public PantheonCatalog.Soul? PantheonSoul { get; init; }
     }
 
     /// <summary>
@@ -241,7 +293,15 @@ public sealed class MapDevice
         if (maps.Count > 1) { why = "Only one map can be activated at a time."; return null; }
         if (maps.Count == 1)
         {
-            MapArea? area = AreaOf(maps[0].TypeHash);
+            // A legendary map opens its own area, whatever base it is built on (the tier-1 key, or a MapWorlds base
+            // whose regular area is the ordinary map's). Keep a dedicated unique base (The Beachhead's mid/high bases)
+            // when it already points directly at a unique area.
+            MapArea? baseArea = AreaOf(maps[0].TypeHash);
+            MapArea? uniqueArea = maps[0].Rarity == ItemRarity.Unique ? UniqueAreaOf(maps[0].NameWords) : null;
+            MapArea? area = baseArea is not null && uniqueArea is not null
+                && string.Equals(baseArea.Name, uniqueArea.Name, StringComparison.Ordinal)
+                ? baseArea
+                : uniqueArea ?? baseArea;
             if (area is null && _atlas?.TierOf(maps[0].TypeHash) is int tier)
             {
                 if (_atlas.Selected(character) is { } layout)
@@ -276,7 +336,17 @@ public sealed class MapDevice
             if (area is null) { why = $"{maps[0].Name} opens no known area."; return null; }
             var extras = slots.Where(s => !s.IsMap).ToList();
             if (!_runs.FragmentsAllowed(extras, area.Level, out why)) return null;
-            return new Opening(area, mods is null ? MapMods.None : _runs.Of(slots, mods));
+            PantheonCatalog.Soul? pantheonSoul = null;
+            if (extras.Any(s => PantheonCatalog.IsDivineVessel(s.BaseId)))
+            {
+                pantheonSoul = PantheonCatalog.Default?.SoulForArea(area.Id);
+                if (pantheonSoul is null)
+                {
+                    why = $"{area.Name} has no Pantheon soul to capture with a Divine Vessel.";
+                    return null;
+                }
+            }
+            return new Opening(area, mods is null ? MapMods.None : _runs.Of(slots, mods)) { PantheonSoul = pantheonSoul };
         }
         if (_runs.Match([.. slots.Select(s => s.BaseRow)]) is { } recipe && AreaOfWorld(recipe) is { } recipeArea)
             return new Opening(recipeArea, mods is null ? MapMods.None : _runs.OfRecipe(recipe, mods),
@@ -310,6 +380,9 @@ public sealed class MapDevice
         public Origin? Entrance { get; init; }
         /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
         public byte BossOption { get; init; }
+
+        /// <summary>Pantheon soul bound to this map run when opened with a Divine Vessel.</summary>
+        public PantheonCatalog.Soul? PantheonSoul { get; init; }
     }
 
     public sealed record Origin(ushort Area, ulong Instance, int X, int Y);
@@ -323,6 +396,7 @@ public sealed class MapDevice
         {
             Atlas = map.Area.UsesAtlas,
             BossOption = map.BossOption,
+            PantheonSoul = map.PantheonSoul,
         };
 
         /// <summary>The run is an Atlas map: the atlas tree, the tier block and the device stats apply. False for a run a
@@ -331,6 +405,9 @@ public sealed class MapDevice
 
         /// <summary>Selected AtlasPrimordialBossOptions value (0 none, 1 Maven, 2 Eater of Worlds, 3 Searing Exarch).</summary>
         public byte BossOption { get; init; }
+
+        /// <summary>Pantheon soul bound to this map run when opened with a Divine Vessel.</summary>
+        public PantheonCatalog.Soul? PantheonSoul { get; init; }
     }
 
     /// <summary>The map a transfer's ticket opens its instance with (<see cref="PendingTransfer.Map"/>), until that
@@ -359,7 +436,7 @@ public sealed class MapDevice
 
     /// <summary>Opens a map for the character with a portal at every place, replacing the one open before.</summary>
     public static OpenMap Activate(string character, MapArea area, MapMods? mods = null, int itemRow = 0, Origin? returnTo = null,
-        Origin? entrance = null, byte bossOption = 0)
+        Origin? entrance = null, byte bossOption = 0, PantheonCatalog.Soul? pantheonSoul = null)
     {
         lock (Open)
         {
@@ -368,13 +445,13 @@ public sealed class MapDevice
                     && at.Area == origin.Area && at.Instance == origin.Instance).ToArray())
                     Open.TryRemove(other);
             return Open[character] = new OpenMap(area, 0, [.. Enumerable.Range(0, PortalCount)], mods ?? MapMods.None, itemRow)
-                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption };
+                { Owner = character, ReturnTo = returnTo, Entrance = entrance, BossOption = bossOption, PantheonSoul = pantheonSoul };
         }
     }
 
     // Keep the original callable signature for compiled consumers.
     public static OpenMap Activate(string character, MapArea area, MapMods? mods, int itemRow, Origin? returnTo) =>
-        Activate(character, area, mods, itemRow, returnTo, null, 0);
+        Activate(character, area, mods, itemRow, returnTo, null, 0, null);
 
     /// <summary>The run whose portals belong to this exact device instance.</summary>
     public static OpenMap? AtEntrance(ushort area, ulong instance) => instance == 0 ? null
@@ -488,5 +565,14 @@ public sealed class MapDevice
     {
         double angle = Math.PI / 2 + 2 * Math.PI * index / Math.Max(count, 1);
         return (deviceX + (int)Math.Round(radius * Math.Cos(angle)), deviceY + (int)Math.Round(radius * Math.Sin(angle)));
+    }
+
+    /// <summary>Radial facing angle (in radians, matching PoE Positioned's atan2(dx, -dy) convention) for a portal
+    /// on the ring around the map device, so each of the 6 portals faces radially instead of all 6 sharing 0°.</summary>
+    public static float PortalRotation(int deviceX, int deviceY, int portalX, int portalY, int index, int count = PortalCount)
+    {
+        int dx = portalX - deviceX, dy = portalY - deviceY;
+        if (dx == 0 && dy == 0) return 2f * MathF.PI * index / Math.Max(count, 1);
+        return MathF.Atan2(dx, -dy);
     }
 }

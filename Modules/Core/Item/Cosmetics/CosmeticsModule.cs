@@ -12,9 +12,16 @@ public sealed class CosmeticsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LocalShopFeature.LoadData();
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player =>
         {
             return CosmeticsFeature.SpawnPets(player);
+        });
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) =>
+        {
+            // A transfer request can fail. Remove the old area's pets once the connection actually closes.
+            if (player.Closed) CosmeticsFeature.RemoveDepartedPets(player);
+            return Task.CompletedTask;
         });
         GameEvents.LocalGateUsed.Add(module.Manifest.Id, CosmeticsFeature.FollowThroughGate);
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.Always((player, _) => CosmeticsFeature.StepPetFollow(player)));
@@ -35,6 +42,36 @@ public sealed class CosmeticsModule : IModule
             await CosmeticsFeature.PickSkillCosmetic(player, InstanceMicrotransactions.ReadSkillPick(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceShop.BuyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleBuy(player, InstanceShop.ReadBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ReloadId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await LocalShopFeature.HandleReload(player);
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ShippingQuoteRequestId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleShippingQuote(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.PlaceOrderId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandlePlaceOrder(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenMysteryBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenMysteryBox(player, InstanceShop.ReadOpenMysteryBox(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenSalvageBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenSalvageBox(player, InstanceShop.ReadOpenSalvageBox(bytes));
+            return true;
+        });
     }
 }
 
@@ -45,7 +82,7 @@ public static class CosmeticsFeature
     // personal hideout list includes all exported templates; the guild list stays empty.
     internal static async Task AnswerMtxRequest(Player player, InstanceMicrotransactions.Lists asked)
     {
-        var owned = Mtx.Owned;
+        var owned = LocalShopFeature.CombinedOwned(player);
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Records))
             await Send(player, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.Records),
                 $"0x01f4 microtransactions: {owned.Count} owned (the panel's records)");
@@ -59,7 +96,13 @@ public static class CosmeticsFeature
             await Send(player, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
                 $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
-            await Send(player, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
+        {
+            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? HideoutCatalog.OwnedRows : [];
+            await Send(player, InstanceMicrotransactions.Hideouts(guildRows, guild: true),
+                guildRows.Length > 0
+                    ? $"0x01f5 guild hideouts: all {guildRows.Length} templates"
+                    : "0x01f5 guild hideouts: none");
+        }
     }
 
     // C→S 0x1fa: a pick in one of the Cosmetics tab's skill slots (record 0 empties it). Saved for the slot's gem type and
@@ -75,7 +118,7 @@ public static class CosmeticsFeature
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea)
                 return;
-            record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+            record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
             if (!player.Character.SkillSlots.TryGetValue(pick.Key, out var current))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
@@ -102,6 +145,7 @@ public static class CosmeticsFeature
         // Active reservation skills (Tempest Shield, auras, heralds, Arctic Armour) likewise re-emit their buffs with
         // the new art variation / hide flag so the pick applies immediately.
         await RefreshReservationCosmetics(player, slot.GemHash);
+        global::Game.RefreshSpectreCosmetics(player, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
@@ -109,7 +153,7 @@ public static class CosmeticsFeature
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
     internal static async Task PickCosmetic(Player player, (byte Slot, uint RecordId, byte Option) pick)
     {
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+        var record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId}: not a slot or not a record, ignored");
@@ -136,6 +180,7 @@ public static class CosmeticsFeature
         await SendEquipment(player, ItemsOf(player));
         // A skin that turns the character into another creature in towns and hideouts (the Goblin Shaman Skin).
         await SendMorph(player, morph);
+        RefreshFlaskEffectCosmetic(player, pick.Slot);
         if (pick.Slot is 18 or 19) await SpawnPets(player);
         if (pick.Slot == PortraitSlot)
         {
@@ -159,14 +204,13 @@ public static class CosmeticsFeature
     // old ones first. StepPetFollow walks them after the player.
     internal static async Task SpawnPets(Player player)
     {
-        List<uint> old;
-        lock (player.Pets) { old = [.. player.Pets.Keys]; player.Pets.Clear(); }
-        foreach (uint id in old)
+        foreach (uint id in TakePetIds(player))
             await global::Game.SendWorldRemoval(player, id, $"0x{InstanceProtocol.RemoveObjectId:x4} remove pet 0x{id:x}");
         double now = AreaTime(player);
         var (px, py) = player.Walk.Position(now);
         foreach (var worn in WornCosmetics(player).Where(w => w.Slot is 18 or 19))
         {
+            if (player.Closed) break;
             if (MtxEffects.Of(worn.MtxTypeHash) is not { PetType: { Length: > 0 } type } fx) continue;
             if (!PetObject.CanSerialize(fx.PetComponents, fx.PetStates is not null))
             {
@@ -176,11 +220,34 @@ public static class CosmeticsFeature
             var (x, y) = PetSpot(player, (px, py), worn.Slot == 18 ? 1 : -1);
             uint id = player.TakeObjectId();
             var pet = new PetObject(x, y, player.Id, fx.PetComponents, fx.PetStates);
-            await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
-                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})");
-            await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
+            if (!await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type), pet.Blob()),
+                $"0x02bb create pet 0x{id:x} {type} at ({x}, {y})")) continue;
+            if (player.Closed) { RemoveDepartedPet(player, id); break; }
             lock (player.Pets) player.Pets[id] = new SpawnedPet(player.NewWalk(x, y, player.Walk.Speed), worn.Slot == 18 ? 1 : -1);
+            await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 pet 0x{id:x} enters wake zone");
         }
+    }
+
+    static uint[] TakePetIds(Player player)
+    {
+        lock (player.Pets)
+        {
+            uint[] ids = [.. player.Pets.Keys];
+            player.Pets.Clear();
+            return ids;
+        }
+    }
+
+    static void RemoveDepartedPet(Player player, uint id)
+    {
+        var remove = InstanceProtocol.RemoveObject(id);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+        player.Area.Delta.RemoveSharedObject(id, remove, $"0x02bd remove pet 0x{id:x} (owner left the area)");
+    }
+
+    internal static void RemoveDepartedPets(Player player)
+    {
+        foreach (uint id in TakePetIds(player)) RemoveDepartedPet(player, id);
     }
 
     // Where a pet stands by the player: PetDistance cells to the player's side (side +1 or −1, the two Pet slots), on the

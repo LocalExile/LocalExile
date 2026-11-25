@@ -19,7 +19,10 @@ public sealed class TotemState
 
     /// <summary>A totem's aura on the player within <paramref name="Radius"/> cells: a BuffDefinitions row and its stats from
     /// the totem's skill, before aura effect.</summary>
-    public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats);
+    public sealed record Aura(ushort Row, int Radius, IReadOnlyList<(uint Stat, int Value)> Stats)
+    {
+        public int HitRedirectPercent { get; init; }
+    }
 
     /// <summary>What a nova totem (Shockwave Totem) does with its skill: the granted id its object carries for the
     /// action the client plays and the cells around the totem it hits; the hit itself is worked out at each contact.</summary>
@@ -56,7 +59,8 @@ public sealed class TotemState
         public int Row => row;
         public string VarietyId => varietyId;
         public int Level => level;
-        public (int X, int Y) At => at;
+        public (int X, int Y) At { get; private set; } = at;
+        public void Relocate((int X, int Y) destination) => At = destination;
         public uint MaxLife { get; } = maxLife;
         public double Until { get; set; } = until;
         public Aura? Aura => aura;

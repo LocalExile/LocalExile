@@ -15,8 +15,12 @@ public static class BossMods
         Rows = Load();
     }
 
-    /// <summary>BossHealOnPlayerDeath is not here: its stat (<c>heal_aura_owner_%_max_life_on_death</c>) is 0 in the
-    /// extracted table for both it and its Minor form, so how much life comes back is not something the data says.</summary>
+    /// <summary>Retail act/quest boss heal-on-player-death marker mods. The extracted Mods table stores 0 for
+    /// <c>heal_aura_owner_%_max_life_on_death</c>; retail heals nearby living bosses for +10% max life on
+    /// <see cref="HealOnPlayerDeath"/> and +5% max life on <see cref="HealOnPlayerDeathMinor"/>.</summary>
+    public const string HealOnPlayerDeath = "BossHealOnPlayerDeath";
+    public const string HealOnPlayerDeathMinor = "BossHealOnPlayerDeathMinor";
+
     public const string ImmuneToKnockback = "ImmuneToKnockback";
 
     /// <summary>The monster gives no items and no experience (a boss's first stage: Piety's escape, Malachai, Shakari).</summary>
@@ -28,6 +32,13 @@ public static class BossMods
     /// <summary>A boss slows no further than this: its own row states the floor (half speed for the Elder, Atziri, the
     /// Shaper and the campaign bosses that carry it).</summary>
     public const string SlowFloor = "CannotBeSlowedBelowValueBosses";
+
+    /// <summary>The marker mod that names a pinnacle boss: MonsterVarieties <c>ModsKeys</c> carries
+    /// <c>PinnacleAtlasBoss</c> (Mods row 32441) on exactly 49 varieties — the Shaper, the Elder, Sirus and the
+    /// Conquerors, the Maven, the Eater of Worlds, the Searing Exarch, Venarius and the Atlas Memory Incarnations,
+    /// with their standalone, gauntlet and Uber forms (client.db, 3.29.3c). No other variety carries it. Read
+    /// through <see cref="Has"/> like the other marker mods here.</summary>
+    public const string PinnacleAtlasBoss = "PinnacleAtlasBoss";
 
     /// <summary>An act boss cannot be stunned again for this long after a stun ends (2000 ms in its row).</summary>
     const uint StunImmunityStat = Stat.CannotBeStunnedForMsAfterStunFinished;
@@ -78,6 +89,31 @@ public static class BossMods
     /// <summary>Whether the monster's death gives no items (its experience may still be rolled).</summary>
     public static bool GivesNoItems(MonsterCatalog.Variety? variety) => Has(variety, NoDropsOrExperience) || Has(variety, NoDrops);
 
+    /// <summary>Whether the variety carries any <c>MonsterActBoss*</c> species mod (Acts 1–10 Act Bosses).</summary>
+    public static bool IsActBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterActBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>Whether the variety carries any <c>MonsterQuestBoss*</c> species mod (campaign quest bosses).</summary>
+    public static bool IsQuestBoss(MonsterCatalog.Variety? variety)
+    {
+        if (variety is null || !Rows.TryGetValue(variety.Id, out var row)) return false;
+        foreach (string mod in row.Mods)
+            if (mod.StartsWith("MonsterQuestBoss", StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    /// <summary>Fraction of max life restored to this monster when a nearby player dies: 10% for
+    /// <see cref="HealOnPlayerDeath"/>, 5% for <see cref="HealOnPlayerDeathMinor"/>, or 0 otherwise.</summary>
+    public static double PlayerDeathHealFraction(MonsterCatalog.Variety? variety) =>
+        Has(variety, HealOnPlayerDeath) ? 0.10
+        : Has(variety, HealOnPlayerDeathMinor) ? 0.05
+        : 0;
+
     static Dictionary<string, Row> Load()
     {
         if (!ClientTables.Has("MonsterVarieties") || !ClientTables.Has("Mods")) return [];
@@ -97,7 +133,7 @@ public static class BossMods
     static readonly string[] StatsKeyColumns = ["StatsKey1", "StatsKey2", "StatsKey3", "StatsKey4", "StatsKey5", "StatsKey6", "StatsKey7", "StatsKey8"];
     static readonly string[] StatMinColumns = ["Stat1Min", "Stat2Min", "Stat3Min", "Stat4Min", "Stat5Min", "Stat6Min", "Stat7Min", "Stat8Min"];
     static readonly string[] StatMaxColumns = ["Stat1Max", "Stat2Max", "Stat3Max", "Stat4Max", "Stat5Max", "Stat6Max", "Stat7Max", "Stat8Max"];
-    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys"];
+    static readonly string[] VarietyModColumns = ["ModsKeys", "Special_ModsKeys", "Part1_ModsKeys", "Part2_ModsKeys", "Endgame_ModsKeys"];
 
     /// <summary>From the MonsterVarieties, Mods and (for the stat values) Stats client tables: each variety's mod ids, how
     /// long it cannot be stunned after a stun, and the floor under its action speed, both its own keys into Mods.</summary>

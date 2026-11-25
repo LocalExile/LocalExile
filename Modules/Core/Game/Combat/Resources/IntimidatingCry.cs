@@ -109,7 +109,11 @@ public static partial class Game
     }
 
     public static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> playerStats, double now)
+        IReadOnlyDictionary<uint, int> playerStats, double now) =>
+        ApplyIntimidatingCryLocked(player, own, playerStats, now, applyMovementBuff: true);
+
+    static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff)
     {
         int Own(uint n) => GolemStat(own, n);
         int Player(uint n) => GolemStat(playerStats, n);
@@ -124,16 +128,21 @@ public static partial class Game
         if (Own(Stat.EnemiesTauntedByYourWarciesAreIntimidated) != 0 && taunt > 0)
             foreach (var m in enemies)
                 { m.IntimidatedUntil = Math.Max(m.IntimidatedUntil, now + taunt / m.RecipientDebuffRate); m.PresentationChanged?.Invoke(); }
-        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
+        double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
+            * SkillDurationModifiers.CallToArmsMore(Player);
         double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)
             * Own(Stat.IntimidatingCryMovementSpeedPlusPctPer5PowerUpToCap) * effect, 0, int.MaxValue);
-        var gift = new CryGift(player.Instance.Presence, now + duration, movement);
-        if (duration > 0)
+        if (applyMovementBuff && duration > 0)
         {
-            CryOf(player).Gifts.Add(gift);
-            CryGiftGained(player);
-            MarkPlayerStats(player, PlayerStatStep.CryMovement);
+            var gift = new CryGift(player.Instance.Presence, now + duration, movement);
+            // Call to Arms: "Your Warcries do not grant Buffs or Charges to You"; the allies still get theirs.
+            if (Player(Stat.KeystoneCallToArms) == 0)
+            {
+                CryOf(player).Gifts.Add(gift);
+                CryGiftGained(player);
+                MarkPlayerStats(player, PlayerStatStep.CryMovement);
+            }
             // Deliver immutable release-time gifts. Recipients consume their own inbox, without cross-simulation reads.
             foreach (var peer in player.Instance.PlayersExcept(player.Id)
                          .Where(p => p.PlayerLife > 0 && Dist(p.Walk.Position(AreaTime(p)), at) <= radius))

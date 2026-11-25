@@ -24,15 +24,16 @@ public sealed class HideoutEditingModule : IModule
             UseDisplayCase(player, use, at));
         GameEvents.Command(module.Manifest.Id, "save_hideout", "/save_hideout (save and report the current hideout layout)",
             (player, _) => global::Game.SaveHideoutLayout(player));
-        GameEvents.Packet(InstanceHideoutEditing.PlaceId).Add(module.Manifest.Id, async (player, bytes) =>
+        foreach (ushort id in new[] { InstanceHideoutEditing.PlaceId, InstanceHideoutEditing.PlaceByHashId })
+            GameEvents.Packet(id).Add(module.Manifest.Id, async (player, bytes) =>
+            {
+                await PlaceDecoration(player, InstanceHideoutEditing.ReadPlace(bytes));
+                return true;
+            });
+        GameEvents.Packet(InstanceHideoutEditing.RemoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
-            await PlaceDecoration(player, InstanceHideoutEditing.ReadPlace(bytes));
+            await ReclaimDecoration(player, InstanceHideoutEditing.ReadRemove(bytes));
             return true;
-        });
-        GameEvents.Packet(InstanceHideoutEditing.PlaceGuildId).Add(module.Manifest.Id, (player, _) =>
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x005a guild hideout decoration placement refused (guild hideouts are not supported)");
-            return Task.FromResult(true);
         });
         GameEvents.Packet(InstanceHideoutEditing.MoveId).Add(module.Manifest.Id, async (player, bytes) =>
         {
@@ -52,6 +53,11 @@ public sealed class HideoutEditingModule : IModule
         GameEvents.Packet(InstanceHideoutEditing.MusicId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await SetMusic(player, InstanceHideoutEditing.ReadMusic(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceHideoutEditing.LayoutId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await ImportLayout(player, InstanceHideoutEditing.ReadLayout(bytes));
             return true;
         });
         GameEvents.Packet(InstanceHideoutEditing.DisplayCasePlaceId).Add(module.Manifest.Id, async (player, bytes) =>

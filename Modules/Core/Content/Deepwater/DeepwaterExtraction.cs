@@ -151,6 +151,9 @@ internal static class DeepwaterExtraction
             stage = run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > 0 ? DropStage(run.DescentStart, now) : null;
         }
         foreach (var device in devices) await Create(player, device, stage);
+        if (run.Phase == DeepwaterRun.RunPhase.Descending && run.LandAt > now)
+            await PlayerOf(player).Send(InstanceTimers.CountdownTimer((uint)Math.Max(1, Math.Ceiling(run.LandAt - now))),
+                $"0x0162 countdown timer: {Math.Max(1, Math.Ceiling(run.LandAt - now)):0} s (Bathysphere descent)");
         if (run.DeckChest != 0) await ShowDeckChest(player, run);
     }
 
@@ -353,6 +356,22 @@ internal static class DeepwaterExtraction
         await SendCount(player);
     }
 
+    /// <summary>C→S 0x0114: Ctrl + click an item from the collection (inventory 114) into the open personal stash,
+    /// updating the CollectionChest quest flag and deck count when it succeeds.</summary>
+    public static async Task MoveCollectionToStash(IModuleContext module, Player player, InstanceStash.CollectionToStash request)
+    {
+        var modPlayer = PlayerOf(player);
+        if (player.ModuleWindow != CollectionWindow || !player.StashOpen)
+        {
+            module.Log($"{modPlayer.Character} <= 0x0114 collection item {request.ItemId} to stash tab {request.Tab}: refused (window or stash closed)");
+            return;
+        }
+        if (!await global::Game.MoveCollectionToStash(player, request)) return;
+        if (ItemsOf(player).Items(CollectionRow).Count == 0)
+            await SetQuestFlags(player, [DeepwaterConstants.StoredItems], on: false);
+        await SendCount(player);
+    }
+
     // ---- the capsule's buttons ----
 
     static Device? OpenCapsuleOf(Player player, DeepwaterRun run)
@@ -504,6 +523,8 @@ internal static class DeepwaterExtraction
                 await Create(member, bathysphere, 0);
                 if (start is not null) await SendLanded(member, start);
                 await SetQuestFlags(member, [DeepwaterConstants.VoyageDefend]);
+                await PlayerOf(member).Send(InstanceTimers.CountdownTimer((uint)Math.Ceiling(Descent)),
+                    $"0x0162 countdown timer: {Descent:0} s (Bathysphere descent)");
             }
             // The light at the capsule holds (G: the lanterns of its cell and any lighting it); the others collapse.
             var cell = run.Board.CellAt((capsule.X, capsule.Y));
@@ -599,6 +620,8 @@ internal static class DeepwaterExtraction
                 ? [DeepwaterConstants.CanExtract, DeepwaterConstants.VoyageReturn] : [DeepwaterConstants.CanExtract]);
             await SendDropStage(member, landed, DropStages);
             await SendLanded(member, landed);
+            await PlayerOf(member).Send(InstanceTimers.HideCountdownTimer(),
+                "0x0162 hide countdown timer (Bathysphere landed)");
         }
     }
 
@@ -710,6 +733,8 @@ internal static class DeepwaterExtraction
         var modPlayer = PlayerOf(player);
         await modPlayer.Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Deepwater),
             "0x0163 hide mission timer Deepwater (the run is over)");
+        await modPlayer.Send(InstanceTimers.HideCountdownTimer(),
+            "0x0162 hide countdown timer (the run is over)");
         if (DeepwaterRuleset.Collapse(3) is { } hide) await modPlayer.Send(hide, "0x02c9 ruleset DeepwaterRules mode 3: 3 (the run is over)");
         if ((success ? DeepwaterRuleset.Success() : DeepwaterRuleset.Failure()) is { } line)
             await modPlayer.Send(line, $"0x02c9 ruleset DeepwaterRules mode {(success ? 5 : 6)}: {(success ? "success" : "failure")}");

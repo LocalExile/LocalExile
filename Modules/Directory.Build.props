@@ -34,12 +34,14 @@
     <InternalsVisibleTo Include="anarchy" />
     <InternalsVisibleTo Include="atlas" />
     <InternalsVisibleTo Include="bench" />
+    <InternalsVisibleTo Include="blight" />
     <InternalsVisibleTo Include="chat" />
     <InternalsVisibleTo Include="commands" />
     <InternalsVisibleTo Include="cosmetics" />
     <InternalsVisibleTo Include="crucible" />
     <InternalsVisibleTo Include="currencyexchange" />
     <InternalsVisibleTo Include="deepwater" />
+    <InternalsVisibleTo Include="expedition" />
     <InternalsVisibleTo Include="delve" />
     <InternalsVisibleTo Include="delirium" />
     <InternalsVisibleTo Include="harvest" />

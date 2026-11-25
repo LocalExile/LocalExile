@@ -102,6 +102,20 @@ public static class InstanceNpcs
     public static int? BuyLength(ReadOnlySpan<byte> data) =>
         data.Length < 15 ? null : 14 + CompactUIntLength(data[14]) is int n && data.Length >= n ? n : null;
 
+    public const ushort BuyAndSocketId = 0x89;
+    public const int BuyAndSocketLength = 20;
+
+    /// <summary>C→S 0x89 (20 bytes, class 0x1435cadb0, write 0x141f9c300, sent by 0x140314a90 when clicking a quest
+    /// reward or vendor gem directly onto an item's socket): u32 BE offer item id, u32 BE destination inventory id
+    /// (masked &amp; 0xc01fffff), u32 BE target host item id, u32 BE 0-based socket index, u8 tab, u8 flag.</summary>
+    public sealed record BuyAndSocket(uint OfferItemId, uint InventoryId, uint TargetItemId, uint Socket, byte U8, byte Flag);
+
+    public static BuyAndSocket ReadBuyAndSocket(ReadOnlySpan<byte> m)
+    {
+        var r = new LoginReader(m[2..]);
+        return new(r.U32(), r.U32() & 0xc01fffff, r.U32(), r.U32(), r.U8(), r.U8());
+    }
+
     public const ushort CtrlBuyId = 0x8a;
 
     /// <summary>C→S 0x8a: Ctrl + click on an item in an open shop tab: buy it into the main inventory (the server picks the
@@ -187,19 +201,26 @@ public static class InstanceNpcs
         return new(r.U32() & 0xc01fffff, r.U32(), r.U16(), r.U8(), r.U8(), r.U16());
     }
 
-    public const ushort TradeTakeBackId = 0xb3, TradeMoveAllId = 0xb5;
-    public const int TradeTakeBackLength = 12, TradeMoveAllLength = 12;
+    public const ushort TradeTakeBackId = 0xb3, TradeCtrlMoveId = 0xb4, TradeMoveAllId = 0xb5;
+    public const int TradeTakeBackLength = 12, TradeCtrlMoveLength = 12, TradeMoveAllLength = 12;
 
     /// <summary>
-    /// C→S 0xb3 (12 bytes, sent by 0x14216d100) and 0xb5 (12 bytes, class 0x1435ca240, write 0x141f9c880, sent by
-    /// 0x14216d1e0): Shift + click and Ctrl + Shift + click on an item in a grid while a trade is open (the grid click
-    /// handler 0x1402de150). 0xb3: u32 BE item id, u32 BE the grid's inventory id, u16. 0xb5: u32 BE item id, u32 BE the
-    /// grid's inventory id, u8, u8. The item moves to the other side (inventory ↔ offer). Live 2026-10-19 a click on an
-    /// item in "Your Offer" sent 0xb3 with inventory 0.
+    /// C→S 0xb3 (12 bytes, sent by 0x14216d100), 0xb4 (12 bytes, Ctrl + right-click in 0x1403119d0, shared writer
+    /// 0x141f9c880) and 0xb5 (12 bytes, class 0x1435ca240, write 0x141f9c880, sent by 0x14216d1e0): grid quick-move
+    /// actions while a trade or vendor sale is open. Wire: u16 id, u32 BE item id (+0x10), u32 BE inventory id (+0x14,
+    /// masked with 0xc01fffff), u16 LE token (+0x18). Live 2026-10-19 a click on an item in "Your Offer" sent 0xb3 with
+    /// inventory 0.
     /// </summary>
     public static (uint ItemId, uint InventoryId) ReadTradeMove(ReadOnlySpan<byte> m) =>
         (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]),
          System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]) & 0xc01fffff);
+
+    /// <summary>C→S 0xb4 (12 bytes, Ctrl + right-click, 0x1403119d0 → 0x141f9c880): item id, masked inventory id, and
+    /// two-byte token.</summary>
+    public static (uint ItemId, uint InventoryId, ushort Token) ReadTradeCtrlMove(ReadOnlySpan<byte> m) =>
+        (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]),
+         System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[6..]) & 0xc01fffff,
+         System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(m[10..]));
 
     public const ushort TradeAcceptId = 0xb6, TradeUnacceptId = 0xb7;
     public const int TradeAcceptLength = 6, TradeUnacceptLength = 4;

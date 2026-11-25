@@ -33,15 +33,18 @@ public sealed class FlaskAutomationState
     /// flask use), and two that took the same create each reserved its object id.</summary>
     public readonly SemaphoreSlim PublishGate = new(1, 1);
     public long StatRevision, PresentedStatRevision;
-    public void Enqueue(FlaskAutomationEvent signal, FlaskAutomationChain? chain = null)
+    /// <summary>Queues one trigger signal; false when the same signal is already in flight (a standing condition that
+    /// is checked on every tick therefore queues one use, not one per tick).</summary>
+    public bool Enqueue(FlaskAutomationEvent signal, FlaskAutomationChain? chain = null)
     {
         lock (gate)
         {
             bool root = chain is null;
-            if (root && !roots.Add(signal)) return;
+            if (root && !roots.Add(signal)) return false;
             chain ??= new();
-            if (chain.Finished || !chain.Pending.Add(signal)) return;
+            if (chain.Finished || !chain.Pending.Add(signal)) return false;
             Events.Enqueue(new(signal, chain, root));
+            return true;
         }
     }
     // Game calls these while holding Monsters. Its accepted callback also holds FlaskBarGate:

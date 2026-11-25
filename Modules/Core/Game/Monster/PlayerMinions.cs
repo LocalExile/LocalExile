@@ -56,12 +56,19 @@ public static partial class Game
     {
         var rules = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(CombatLifetime, rules);
+        if (!Current()) return;
+        RetireDisallowedMinions(player, now);
+        RetireDarkMonarchMinions(player, now);
         foreach (var tick in GameEvents.CompanionTick.For(player))
         {
             if (!Current()) return;
             await tick(player, now);
             if (!Current()) return;
         }
+        await TickEquippedItemMinions(player, now);
+        if (!Current()) return;
+        await TickWeaponMinionTriggers(player, now);
+        if (!Current()) return;
         await TickBeastCompanions(player, now, rules);
         if (!Current()) return;
         await TickEssenceSummons(player, now);
@@ -73,6 +80,7 @@ public static partial class Game
         MinionUtilityTick(player, now);
         InfernalLegionTickLocked(player, now);
         TickEssenceAurasLocked(player, now);
+        TickRemnantAurasLocked(player, now);
         await GolemsTick(player, now);
         if (!Current()) return;
         await SummonsTick(player, now);
@@ -94,7 +102,8 @@ public static partial class Game
         using (ProjectileMutation(player))
         {
             if (!Current() || player.Closed || player.LeavingArea) return;
-            bool keep = player.PlayerLife > 0 && RelicTriggerOf(player) is not null;
+            bool keep = player.PlayerLife > 0 && RelicTriggerOf(player) is not null
+                && DarkMonarchAllows("ElementalRelic", StatSourceValues(player));
             summons = keep ? player.Minions.PendingRelics : 0;
             if (!keep) player.Minions.PendingRelics = 0;
             RemoveMinionBodiesLocked(player, now);
@@ -105,7 +114,8 @@ public static partial class Game
                 bool current = player.Area.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 player.Minions.Remove(minion.Id);
-                DropZones(player, minion.Id, MinionAuraZones);
+                if (minion.OwnerAura is { SharesWithAllies: true }) ClearSharedMinionAuras(player, minion.Id);
+                else DropZones(player, minion.Id, MinionAuraZones);
                 if (minion.OwnerBuff != 0)
                 {
                     player.Area.Buffs.ClearSource(player.Id, minion.Id);
@@ -145,14 +155,23 @@ public static partial class Game
             // range, the game's is not in the data (RelicTeleport has no stats).
             if (minion.Teleports && player.PlayerLife > 0 && Dist(m.Walk.Position(now), here) > m.AggroRange)
             {
-                var (x, y) = NextToPlayer(player);
+                var (x, y) = NextToPlayer(player, LivingCollision.Size(m), minion.Id);
                 m.Walk = player.NewMonsterWalk(minion.Id, x, y, m.Walk.Speed, LivingCollision.Size(m), false);
                 m.LastTarget = null;
                 bytes.AddRange(InstanceProtocol.Teleport(minion.Id, x, y));
             }
             if (bytes.Count > 0) player.Minions.OutputQueue.Add(new([.. bytes], "minion teleport", minion.Id, m));
             bytes.Clear();
-            if (minion.OwnerAura is not { } aura) continue;
+            if (minion.OwnerAura is not { } aura)
+            {
+                SyncNativeMinionAuras(player, minion, now);
+                continue;
+            }
+            if (aura.SharesWithAllies)
+            {
+                SyncSharedMinionAura(player, minion, aura, now);
+                continue;
+            }
             // The aura is a zone around the minion that reaches its owner (OwnedZones).
             SyncZones(player, minion.Id, MinionAuraZones, [(0u, aura.Radius, default((int, int)))],
                 new(ReachesOnly(player.Id), new EntityId(minion.Id)));
@@ -166,18 +185,27 @@ public static partial class Game
         await PublishMinionOutcomesFor(player, rules);
     }
 
-    /// <summary>The auras the player's minions cast on him, as raw stats. The strongest of one aura applies (wiki Aura):
-    /// his own aura of the same family wins when its stats add up to at least as much.</summary>
-    static IEnumerable<(uint Key, int Value)> MinionAuraStats(Player player, IReadOnlyList<AuraCatalog.Aura> own)
+    static PlayerMinions.Aura[] SelectMinionAuras(Player player, uint target, List<AuraCatalog.Aura> auras, int effect)
     {
-        List<PlayerMinions.Aura> auras;
-        auras = [.. player.Minions.All.Where(m => m.OwnerBuff != 0).Select(m => m.OwnerAura).OfType<PlayerMinions.Aura>()];
-        foreach (var aura in auras)
+        Dictionary<string, (PlayerMinions.Aura Aura, long Strength)>? strongest = null;
+        foreach (var shared in SharedMinionAurasReaching(player, target)) Include(shared);
+        if (target == player.Id)
+            foreach (var minion in player.Minions.All)
+                if (minion.OwnerBuff != 0 && minion.OwnerAura is { SharesWithAllies: false } own) Include(own);
+        if (strongest is null) return [];
+        var selected = strongest.Values.Select(entry => entry.Aura)
+            .Where(aura => !PlayerAuraAtLeastAsStrong(player, aura, auras, effect)).ToArray();
+        if (selected.Length > 0)
+            auras.RemoveAll(a => selected.Any(other => AuraCatalog.Family(other.EffectId) == AuraCatalog.Family(a.EffectId)));
+        return selected;
+
+        void Include(PlayerMinions.Aura candidate)
         {
-            var same = own.Where(a => AuraCatalog.Family(a.EffectId) == AuraCatalog.Family(aura.EffectId)).ToList();
-            if (same.Count > 0 && AuraCatalog.RawStats(same, player.Pools.AuraEffectPct, SkillsFor(player), Stats).Sum(s => (long)s.Value)
-                >= aura.Stats.Sum(s => (long)s.Value)) continue;
-            foreach (var stat in aura.Stats) yield return stat;
+            string family = AuraCatalog.Family(candidate.EffectId);
+            long strength = candidate.Stats.Sum(stat => (long)stat.Value);
+            strongest ??= new(StringComparer.Ordinal);
+            if (!strongest.TryGetValue(family, out var current) || strength > current.Strength)
+                strongest[family] = (candidate, strength);
         }
     }
 
@@ -189,8 +217,9 @@ public static partial class Game
     // shortcut: Combat Focus's element exclusions (RandomElement skills) are not modelled; every element can come.
     static async Task SummonElementalRelic(Player player, double now)
     {
-        if (!CurrentGameWork || player.Closed || player.LeavingArea) return;
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Minions.PendingRelics == 0) return;
         var playerStats = CharacterPlayerStats(player);
+        if (!CanHaveMinion(playerStats, OwnedMinionFamily.Other)) { player.Minions.PendingRelics = 0; return; }
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         MonsterCatalog.Variety? variety;
         DamageType element;
@@ -216,12 +245,12 @@ public static partial class Game
         level = (byte)Math.Clamp(Math.Min(player.Pools.Level, Own(Stat.MinionActorLevelIsUserLevelUpToMaximum)), 1, 100);
         lifePct = Own(Stat.GuardianRelicExplodeOnDeathForPctLifeAsElementDamage);
         variety = Monsters.Find(id);
-        at = NextToPlayer(player);
         if (variety is null)
         {
             if (CurrentGameWork && player.Minions.PendingRelics > 0) player.Minions.PendingRelics--;
             Console.WriteLine($"[gateway] {player.Connection.Remote} {element} Relic: no MonsterVarieties row"); return;
         }
+        at = NextToPlayer(player, Math.Clamp(variety.ObjectSize - 1, 0, 127));
         var aura = RelicAura(player, variety, level);
         bool teleports = variety.GrantedEffects?.Any(e => SkillsFor(player).EffectId(e) == "RelicTeleport") == true;
         // The player's increased minion life raises its life (on its Stats as maximum_life) and so its explosion.
@@ -236,7 +265,9 @@ public static partial class Game
                 {
                     Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
                 });
-            }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0 && RelicTriggerOf(player) is not null);
+            }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0
+                && RelicTriggerOf(player) is not null && CanHaveOtherMinions(player)
+                && DarkMonarchAllows("ElementalRelic", StatSourceValues(player)));
         if (!CurrentGameWork) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {element} Relic summoned at level {level} for {seconds:0.##} s" +
             (aura is null ? "" : $", {aura.EffectId} within {aura.Radius} cells: {string.Join(", ", aura.Stats.Select(s => $"{Stats.Name(s.Key)} {s.Value}"))}"));
@@ -257,7 +288,7 @@ public static partial class Game
             var own = skills.EffectStats(effect, skills.MaxLevelAt(effect, level)).ToDictionary(s => s.Item1, s => s.Item2);
             int Get(uint k) => own.GetValueOrDefault(k);
             return new(id, AuraCatalog.BuffRow(id), SkillArea.Radius(AuraCatalog.BaseRadius, Get, spell: false),
-                PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level));
+                PlayerMinions.AuraStatsAt(skills, Stats, effect, id, level)) { SharesWithAllies = true };
         }
         return null;
     }
@@ -278,11 +309,15 @@ public static partial class Game
             var at = minion.Monster.Walk.Position(now);
             amount = (int)Math.Min(int.MaxValue, minion.Monster.MaxLife * (long)blast.LifePct / 100);
             var packet = DamagePacket.Of(blast.Type, amount, amount);
+            var ownerStats = PlayerStatValues(player);
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
                 if (!m.Hostile || m.Dead || m.Life == 0 || Dist(m.Walk.Position(now), at) > blast.Radius) continue;
                 int damage = MonsterTakesRolled(m, packet, spell: false, now: now);
-                if (ApplyMonsterHitLocked(player, m, damage, allyAt: at) is not { } hit) continue;
+                var cull = MinionIgniteKillRule(ownerStats, m, now);
+                int chaosDamage = blast.Type == DamageType.Chaos ? damage : 0;
+                if (ApplyMonsterHitLocked(player, m, damage, rampageSource: null, playerStats: null, allyAt: at,
+                    cull: cull, cullPlayer: null, chaosDamage: chaosDamage) is not { } hit) continue;
                 if (hit.StageStarts)
                 {
                     CommitBossStage(player, id, m, ProjectileWorldTime(player));
@@ -295,12 +330,35 @@ public static partial class Game
         Console.WriteLine($"[gateway] {player.Connection.Remote} {minion.Kind} Relic 0x{minion.Id:x} explodes for {amount} {blast.Type} within {blast.Radius} cells: {hits.Count} hit, {hits.Count(h => h.Hit.Life == 0)} killed");
     }
 
-    // A cell 3 cells from the server's estimate of the player, walkable if the walk map says so.
-    public static (int X, int Y) NextToPlayer(Player player)
+    // Published mods bind the one-argument signature.
+    public static (int X, int Y) NextToPlayer(Player player) => NextToPlayer(player, bodySize: 1);
+
+    // A walkable, collision-clear cell just outside the player's footprint for a mover of size bodySize.
+    public static (int X, int Y) NextToPlayer(Player player, int bodySize = 1, uint excludeId = 0)
     {
+        int size = Math.Max(0, bodySize);
         var (px, py) = player.Walk.Position(AreaTime(player));
-        foreach (var (dx, dy) in new[] { (3, 0), (-3, 0), (0, 3), (0, -3), (2, 2), (-2, -2) })
-            if (player.Layout.Walkable is not { } w || w(px + dx, py + dy)) return (px + dx, py + dy);
+        int r = Math.Max(3, size + LivingCollision.PlayerSize + 1);
+        bool Floor(int x, int y) => player.Layout.WalkableFor(x, y, size) && !player.Barrier.Contains((x, y));
+        var blockers = player.MonsterPlacementBlockers(excludeId);
+        int w = player.Layout.GridW > 0 ? player.Layout.GridW : int.MaxValue;
+        int h = player.Layout.GridH > 0 ? player.Layout.GridH : int.MaxValue;
+        bool Clear(int x, int y) => CollisionEscape.Clear((x, y), w, h, Floor, blockers, moverSize: size);
+        for (int step = 0; step < 2; step++)
+        {
+            int ring = r + step * 2;
+            ReadOnlySpan<(int Dx, int Dy)> offsets =
+                [(ring, 0), (-ring, 0), (0, ring), (0, -ring), (ring, ring), (-ring, -ring), (ring, -ring), (-ring, ring)];
+            foreach (var (dx, dy) in offsets)
+                if (Clear(px + dx, py + dy)) return (px + dx, py + dy);
+        }
+        if (player.Layout.GridW > 0 && player.Layout.GridH > 0
+            && CollisionEscape.Find((px, py), player.Layout.GridW, player.Layout.GridH, Floor, blockers, maxRadius: 24, moverSize: size) is { } escaped)
+            return escaped;
+        ReadOnlySpan<(int Dx, int Dy)> fallback =
+            [(r, 0), (-r, 0), (0, r), (0, -r), (r, r), (-r, -r), (r, -r), (-r, r)];
+        foreach (var (dx, dy) in fallback)
+            if (Floor(px + dx, py + dy)) return (px + dx, py + dy);
         return (px, py);
     }
 }

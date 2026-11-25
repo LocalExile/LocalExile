@@ -198,15 +198,15 @@ public sealed class SupportHitDamageTests
             Assert.Equal(1, Use(3, Plain));
             Assert.False(counts.ContainsKey(3));
         }
-        // Trap and mine throwing: 0.6 s and 0.3 s over the summed throwing speed and each support's more.
-        Assert.Equal(.6, Game.PlacedThrowSeconds(Get(), mine: false), 9);
-        Assert.Equal(.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 19), (Stat.TrapAndMineThrowingSpeedPlusPct, 1)), mine: false), 9);
-        Assert.Equal(.6 / (1.2 * .9), Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+        // Trap and mine throwing: 0.5 s and 0.3 s over the summed throwing speed and each support's more.
+        Assert.Equal(.5, Game.PlacedThrowSeconds(Get(), mine: false), 9);
+        Assert.Equal(.5 / 1.2, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 19), (Stat.TrapAndMineThrowingSpeedPlusPct, 1)), mine: false), 9);
+        Assert.Equal(.5 / (1.2 * .9), Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
             (Stat.SupportTrapAndMineDamageTrapThrowingSpeedPlusPctFinal, -10)), mine: false), 9);
         Assert.Equal(.3 / (1.5 * .45), Game.PlacedThrowSeconds(Get((Stat.MineLayingSpeedPlusPct, 50),
             (Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal, -55)), mine: true), 9);
         Assert.Equal(15, Game.TrapTriggerRadius(Get((Stat.TrapTriggerRadiusPlusPct, 50))), 9);
-        Assert.Equal(.6 / 1.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
+        Assert.Equal(.5 / 1.5, Game.PlacedThrowSeconds(Get((Stat.TrapThrowingSpeedPlusPct, 20),
             (Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge, 10)), mine: false, frenzyCharges: 3), 9);
         // Swift Assembly's three chances are rolled separately and their extra throws add up.
         static uint Swift(int extra) => extra switch
@@ -243,6 +243,8 @@ public sealed class SupportHitDamageTests
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)]));
         Assert.Equal((100, 80), Game.PlacedProjectileAim((100, 100), (100, 130), []));
         Assert.Equal((120, 100), Game.PlacedProjectileAim((100, 100), (100, 100), []));
+        // With a random source and no enemy it fires any way, 20 cells out.
+        Assert.InRange(Game.Dist(Game.PlacedProjectileAim((100, 100), (90, 100), [(300, 100)], new Random(3)), (100, 100)), 19, 21);
         // The trap, mine and totem supports' own more/less damage multiplies the supported hit (level 1 values).
         foreach (var (stat, value) in new[] { (Stat.SupportTrapDamagePlusPctFinal, -20),
             (Stat.SupportTrapAndMineDamagePlusPctFinal, 30), (Stat.SupportClustertrapDamagePlusPctFinal, -61),

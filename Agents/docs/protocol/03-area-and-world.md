@@ -26,20 +26,23 @@ Dispatcher case 6. Class `0x1435e4c20` (0x168 bytes, ctor `0x1421a42b0`), write 
 | 12 | u8 | +0x28 | default 0x3c → `0x142149550` |
 | 13 | u16 | +0x16 | **only if** flag 0x21 bit 3: second area hash |
 | 14 | vec16⟨u32⟩ | +0x68 | `0x141faa4a0` |
-| 15 | vec16⟨u8⟩ | +0x80 | stored as 4-byte elements, sent as 1 byte each |
+| 15 | vec16⟨u8⟩ | +0x80 | `PreloadGroups` row + 1 on the wire (Town 25, Hideout 21, Affliction 53); stored as 4-byte elements |
 | 16 | vec8⟨u8⟩ | +0x50 | visible AchievementSetsDisplay ids → instance +0xc418 (dispatcher r13 +0xc410); Delve sends permanent set 2 to enable the shared upgrade window |
 | 17 | vec16⟨u16⟩ | +0xe0 | |
 | 18 | vec8⟨u8⟩ | +0x98 | only if flag 0x21 bit 7 |
-| 19 | vec8⟨u8⟩ | +0xb0 | only if flag 0x22 bit 0 |
+| 19 | vec8⟨u8⟩ | +0xb0 | initial ruleset rows, only if flag 0x22 bit 0 |
 | 20 | `0x142179c50` | +0xc8 | only if flag 0x22 bit 1 |
 | 21 | varint pair lists | +0x100/+0x120/+0x138 | only if flag 0x21 bit 6 |
 | 22 | vec16⟨u8⟩ | +0x150 | only if flag 0x22 bit 2 |
 
 Flag bits read by the handler (from the 3 bytes at +0x21): 0, 1, 2, 4, 5 (inverted) → `+0xc3e5..` bytes; 0xc, 0xd, 0xe →
 world setters; 3 = second area hash (`AreaState +0xc0` via `0x142149620`, Delve return area); 2 → `0x142149680`;
-0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670` in hideouts.
+0xa → `0x1421495e0(+0x150)`; 0xf (byte 1 bit `0x80`) → `AreaState +0xda` via `0x142149670`: the hideout is the guild's
+(`0x1421719c0`). The Decorations panel (`0x1408dc5e2`) and the editor (`0x140204fc6`) then read the guild's owned list
+(0x1f4 flags 3) instead of the account's (flags 1), so a personal hideout leaves it clear. With it set in the owner's
+hideout the panel showed only the decorations that need no record (live 2026-11-23).
 
-`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, hideout permissions, return area
+`AreaInstance.Encode()` defaults to the minimal form, with optional league stat lists, guild hideout flag, return area
 hash and extra terrain data.
 `TerrainData` sets flag 0x22 bit 2 and appends a big-endian u16 byte count followed by the extra-data bytes.
 The extra-data decoder (`0x141ecdad0`) has its own two-byte flags and little-endian nested records.
@@ -121,6 +124,13 @@ flags(+0x3d) & 0x20 raw u64 +0x00, & 0x10 u8 +0x3c, & 0x40 4 raw bytes +0x3f.
 
 We send the minimal form: `0021 0000 0000 0000 0000 000000 00 00` (`InstanceProtocol.EnterArea`).
 
+Flag bits are `byte[n >> 3] & (1 << (n & 7))` (`0x14012c1b0`). Bit 0 → session `+0xcd31` (the weapon set), bit 1 →
+`+0xcd32`, **bit 2 → `+0xcd36`, "this is my own hideout"**, bit 3 → `+0xcd37`, bit 4 → `+0xcd38`. Hideout UI accepts a
+personal hideout only with bit 2 (guild hideouts use world `+0xda` instead, §1): the Decorations panel's list-loaded
+handler `0x1408df510` and the HUD's `0x1401ffcc0` check it, and without it the panel stays on "Loading…" after the
+store's owned list (0x1f4 flags 1, [23](23-microtransactions.md) §1) arrives (live 2026-11-22). The Gateway sets it in
+the character's own hideout.
+
 ### The 0x21 handler
 
 Sets many instance flags from the 24 bits, copies the vectors, then calls **`0x14215d6d0`**:
@@ -161,7 +171,7 @@ minimap marker inside the town outline). The character model is not visible yet.
 `u16 0x001f, u8 Rulesets.dat row, u32` (big-endian; the factories ignore it). Instance dispatcher 0x142150ae0 case 8 calls
 the instance's slot 8 (0x1415a6800), which builds the row's ruleset from the factory table and appends it to the
 instance's ruleset list, unless one of that row is already there; a row without a factory logs "Failed to create
-ruleset". Nothing in 0x1d or 0x21 creates rulesets, and the WorldAreas `Ruleset` column is not read. Client code finds
+ruleset". The optional initial ruleset list in 0x1d precedes the world's creation. The WorldAreas `Ruleset` column is not read. Client code finds
 a ruleset in that list by its row: a Sacred Grove Extractor's label (0x140c87de0) looks up HarvestRules (row 105) once,
 when it turns targetable, and the client crashes later without it (live 2026-11-18). Send it after 0x7d: the
 HarvestRules constructor (0x14168d750) looks for the layout's `harvest_grid_anchor` point.
@@ -301,4 +311,28 @@ Removed and created again with `opened` = 1 it shows opened with no minimap mark
 A unique box (live 2026-11-18, Strange Barrel and Redblade Cache) is its base strongbox's object with rarity 3, the
 UniqueChests row's `AOFile` as the Animated model, its Words row's HASH32 as the name (flags bit 8, as a unique item),
 and its UniqueChests mods in the explicit list: the nameplate shows the name in unique colour and the mod lines. A currency used on it is C→S 0x74 ([13](13-items.md)).
-Not verified live: whether the box plays its opening (`.ao` animation `open`), and what `started` does.
+Its opening is the model's one clip: `Art/Models/Chests/Strongboxes/<box>.amd` declares `1 "open" once 1166`, and the
+`.ao`'s client `SoundEvents` bind the model's lid sounds to it (`Small_Open`/`Small_Stop_01`, `Large_Open`/`Large_Stop`,
+`Armoury_Open`/`Armoury_Stop`, `Ornate_Open`/`Ornate_Close`, `SB_Open`/`SB_Stop`, or a unique box's `Kaoms`,
+`Malachais`, `Pendarus`, `Vase`+`VaseMagic`, `BaroqueVase_01`+`_02`+`BaroqueVaseMagic`, `ChestMetal`+`ChestMetalMagic`).
+Live (2026-11-22): the client's own opened-flag path (Chest vtable +0xc0, `0x141e17130`) looks the clip up by name and
+resolves nothing for these objects, so the server plays clip 0 with S→C 0x1b2; the Chest component has **no 0x2bc
+reader** (slot 20 is `ret`), so `opened` = 1 reaches the client only in a created object, and the box is created again
+opened once the clip is over (nameplate and marker gone). `Chests.ChestEffectsKey` names the `ChestEffects` row that
+gives the per-rarity `…_Closed_AOFile` looping glow (no SoundEvents) and the `…_Open_AOFile` open effect, whose
+`openfx` clip carries `Chests/Strongbox/Effect_$(#)`; the boxes' monster-spawn art is `MiscAnimated
+SummonedMonsterEffect` (`chestsummon.ao`: `Chests/TrapTrigger/MonsterSpawn/Spawn_$(#)` and `Layer_$(#)`) and
+`StrongboxCorpseExplode`'s is `MiscAnimated StrongboxExplosion` (`strongbox_explode/rig.ao`: `NewStrongBoxExplode`).
+What `started` does is not verified.
+The Chest flag byte's **bit 1** is the box's activated flag: the client's warning routine (`0x1415d6470`) reads it and
+plays `Audio/…/Chests/TrapTrigger/Trigger_$(#).ogg` for a mod with `chest_play_warning_sound`. A closed box created
+with the bit set showed no nameplate at all (live 2026-11-22), so the server sets it only on the opened object. The
+`ObjectMagicProperties` component has a real 0x2bc reader (slot 17 forwards to slot 20 `0x141e7e080`), so a currency
+change is sent in place and the client's nameplate and selection stay. A daemon skill's record must carry the area
+level's `active_skill_area_of_effect_radius` and `total_skill_area_of_effect_radius_+%_including_final`, and its
+`skill_behaviour_variation` (`GrantedEffects.SkillID`, e.g. ChestExplode's 30), or the client draws the wrong effect or
+none. The daemon's action is held open for the skill's own cast time (GrantedEffects `CastTime`: Ice Nova 800 ms,
+storms 900 ms, Explode 1000 ms) and ended together with the effect: ending it at once made every spell appear the
+moment the box opened (live 2026-11-23). Not solved (issue "Strongbox daemon spells"): Firestorm's and Lightning
+Storm's falling projectiles (the client draws only the first) and Putrifying's corpse detonation (one delayed cast,
+21 cells).

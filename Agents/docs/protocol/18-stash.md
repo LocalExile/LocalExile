@@ -137,6 +137,9 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   the tab's own index as the folder: only then does the sender leave the tab's +0x3a alone, so the server makes the
   folder (a StashType 16 tab, never asked for contents) and the tab list (S→C 0x136) puts the tab in it. A drag in the
   tab list (`0x140a8cf75`) sends the same pair. Kept (`AccountStash.MoveToFolder`, the parent column).
+  Live 2026-11-24: the new folder's settings then open with its name; the check mark sends 0xcd only for a changed
+  name and closes the window on its 0x136, while an unchanged "New Folder" sends nothing and the window stays open, as
+  in retail (the 0x136 header's listener byte 1 instead of 0 after 0xd1 changed nothing).
 - **0xcd** (vtable `0x1435cab10`, write `0x141f9ccd0`; built by the tab settings `0x14025b9b0`): a premium tab renamed.
   u8 kind, u16 BE tab, u64 (0), wstr name. **0xce** (17 bytes, vtable `0x1435ca3c0`, write `0x141f9d0a0`): its colour,
   u8 kind, u16 BE tab, u64 (0), u32 BE colour; the client keeps the colour in the tab record's +0x2c, which the tab lists
@@ -148,10 +151,15 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0x1a1** (variable length, writer `0x141fa2270`, senders `0x14021de00`/`0x1402fbbf0`/`0x140b10ca0`): sets or clears
   an item's price note (u32 BE inventory id, u32 BE item id with bit 31 flag, WStr note) on items in an open, visible,
   public, premium stash tab.
+  Retail clears the note when the item lands in a tab that isn't public (2026-11-24), and so does the server
+  (`AccountStash.Place`); whether the inventory on the way clears it in retail is not known (ours keeps it there).
   The note travels in the item's `Base` component bit 4 (0x10) as `WStr32` before `SkinTransferSource` (0x40) and
   `Price` (0x80).
 - **0xf5** (12 bytes, writer `0x141f9a550`, sender `0x1403136e1`): Blight tab oil take-out (u32 BE item id, u8 kind,
-  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag).
+  u32 BE tab, u8 uiPanelState — UI panel state at `0x1403136d5`/`0x140313879`, not a bulk flag). Ctrl + click on an
+  oil in the Blight tab sends it with panelState 1 whatever the anoint cell holds. Retail (2026-11-24): with the anoint
+  cell empty the oil goes to the inventory; with an item there one oil goes to the first free input cell (15–17), and
+  nothing happens when they are full. The server sends a Tainted Oil to cell 78 (from BlightCraftingItems.UseType 1).
 - **0xd2** (5 bytes: u16 BE folder, u8 kind; `0x14025c5c0`, registered at `0x140258e87`): the folder settings' "Delete
   Folder", sent only for type 16 after the client cleared +0x3a of the tabs in it. The server moves them out and keeps
   the folder as a record with the hidden flag (0x20, so the panel leaves it out), which the next new folder reuses:
@@ -159,10 +167,14 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
 - **0xd3** (class `0x1435cad70`, read `0x141f9d9a0`, write `0x141f9d7d0`, built by `0x14216de70`): the tab settings' affinities, sent by the
   window's check mark. u16 BE tab, u8 kind, u8 n, n × (u8 affinity, u8 on). Live 2026-10-20: `00D3 0005 00 01 03 01`
   (Currency on, tab 5). The window stays open until the server answers; the Gateway saves the bits with the tab
-  (`SavedTab.Affinities`) and sends the tab list again (S→C 0x136), with flag 0x40 and the bitset in each record. Whether
-  0x136 is what closes the window is not checked live yet. S→C **0xd3** uses the same class and wire layout for guild stash
-  affinity broadcasts (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`, accepting `kind == 1` only), encoded by
-  `InstanceStash.EncodeSetAffinities`.
+  (`SavedTab.Affinities`), echoes the change as S→C 0xd3 and sends the tab list again (S→C 0x136), with flag 0x40 and
+  the bitset in each record. Live 2026-11-24: the window closes on the echo (kind 0 too); on 0x136 alone it stays open.
+  Ticking an affinity another tab has makes the client send two: that tab's off, then this tab's on.
+  The message's kind names the stash (guild kind 1 saves to the guild stash), whichever panel is open. Live
+  2026-11-24: the guild tabs' settings show no affinities, though retail has them; the guess is that the client wants
+  guild rights this server never sends.
+  S→C **0xd3** uses the same class and wire layout (dispatcher case `0x3f` at `0x142155f46` → `0x142174850`), encoded
+  by `InstanceStash.EncodeSetAffinities`; the earlier reading that it accepts `kind == 1` only does not hold.
 - **0xe0** (20 bytes, vtable `0x1435cb2b0`, write `0x141f9df90`, built by `0x14216f460`): Ctrl + click on an inventory
   item while a tab is shown. u16 BE tab (the stash page's +0x4a4), u32 BE item id, u8 flags (bit 1: Ctrl + right click, the
   bulk boolean of `0x1403119d0`, as 0xe1 below), u8 kind (page +0x491), u16 token (raw, changes per request), u64 raw (0). The
@@ -191,7 +203,19 @@ connection. Later opens send b = 0x16: the panel keeps its own tab while the con
   orb: `00E1 000037D5 02 00 6A7D 01 0005 03`; `InstanceStash.MoveAllOfType`): the Gateway moves every stack of that item
   type in the same inventory into the tab, the clicked one first, each as one Ctrl + click (its own transaction and 0xbf
   pair), so a full slot stops only what doesn't fit.
-- **0xe2** (u16, u8; `0x14216f6b0`, the unique / special pages) is not seen yet.
+- **S→C 0xd5** (8 bytes, class `0x1435e6fe0`, read `0x1421aab70`, dispatcher case `0x40` → HUD `0x140dd8890`): result of
+  a `C→S 0xe1` affinity deposit. `u8 success`, `u16 BE tab` (child tab index for Map/Unique tabs so the HUD resolves
+  `Parent` and `HiddenKey`, or `0xffff` for a league locker), `u8 cellX`, `u8 affinity` (`StashTabAffinityId` row),
+  `u8 stashKind` (`0` personal, `1` guild). Emitted on both success and full-tab refusal.
+- **S→C 0xd6** (class `0x1435e6da0`, read `0x1421aae00`, dispatcher case `0x41`): updates a personal stash tab's narrow
+  id string (`+0x48`): `u16 BE tab`, narrow UTF-8 string (`u16 BE len` + bytes).
+- **C→S 0xe2** (9 bytes, writer `0x141f9e6d0`, sender `0x140b1df20`): cursor quick-place into a specialty/Unique/Map tab.
+  `u16 BE tab`, `u32 BE itemId`, `u8 kind` (`0` personal, `1` guild).
+- **C→S 0x2b** (21 bytes, writer `0x141f96570`, senders `0x140b3b770` / `0x140b7fae0`): click cell `(x, y)` on a
+  specialty sub-tab (Map page or Unique category). `u8 kind`, `u16 BE tab`, `u64 LE subTabKey`, `u32 BE x`, `u32 BE y`.
+- **C→S 0x114** (16 bytes, writer `0x141fa08c0`, sender `0x1403133bb`): Ctrl + click an item from row `0x72` (114,
+  `DeepwaterCollectionInventory1`) directly into the open personal stash tab (`u32 BE itemId`, `u16 BE tab`,
+  `u64 LE subTabKey`).
 
 ## 6. The server's stash
 
@@ -244,6 +268,13 @@ item moved into or out of a tab (0x28, 0x2a, 0xe0, 0xe3). Stacks merge into a ta
   Other slotted tabs retain 5000 (`StashRules.SlotStack`), also the fallback for absent or invalid currency limits.
   The Delve (StashType 12, DelveStashTabLayout) and
   Blight (13, BlightStashTabLayout) and Delirium (15, DeliriumStashTabLayout) tabs are slotted the same way; the
+  Blight tab's crafting rows are cells too (live 2026-11-24): CraftingItem (13) takes any item, CraftingInputs1–3 and
+  CraftingInputCorrupt (15–17, 78) the tab's own items, and BlightedMapSlots (18, Width 60) in cells 18–77 maps with
+  the `InfectedMap` or `UberInfectedMap__` modifier (retail refuses an ordinary map there). Ctrl + click on a blighted
+  map sends 0xe1 with affinity 13 and the Blight tab, though maps have no Blight affinity in the tables; it goes to the
+  first free map cell (`AccountStash.TakesInMapRow`).
+  Its Anoint button is the client's: without the quest flag `CassiaOnAnointingOils` it shows
+  BlightAnointErrorNoCassia ("Strange Growths") and sends nothing. The
   Divination tab (6) too, a card's slot being its DivinationCardStashTabLayout row. The client builds a
   map from each row's card (its BaseItemTypes Id) to the row index (`0x140b306d0`), and 470 rows run past the tab's
   255 cells. So slot n is cell (n mod width, n / width): rows 255–469 go into the second row of its 255 × 2. Every other
@@ -346,15 +377,34 @@ inventory ids from 0x900 and its items ids from 0x50000000, so they never meet t
 (0xc7 kind 1 → 0xc0 + 0xc8 kind 1, 0x28, 0x2a, Ctrl + click) act on it (`StashOf`); opening the personal stash switches back.
 Its tab inventories and their 0xbf changes go to **inventory manager 2** (`InstanceStash.GuildManager`, instance
 `+0xcb90`): sent under manager 0 the panel shows no grid and the client hangs.
+Reordering guild tabs (`C→S 0x00cc` kind 1) broadcasts `S→C 0x00cc` (same wire layout, dispatcher case `0x3e` at
+`0x142155ec1`) to online guild members.
 Gold stays with the personal stash.
+
+## Async-trade merchant stash (mode 2)
+
+Faustus's "Manage Shop" option (`NPCTalkCategory` 62 `ManageAsyncTrade`, `SendOpenScreen(AsyncTradeStashWindow)`) emits
+`S→C 0x0136` kind `2`, `S→C 0x02ae` earnings balances, and `S→C 0x007b` kind `0x63` (`0x142169ebf`). Trade tabs use
+`StashType` row 2 (`TradeStash`, 12 × 12) in inventory manager 0 (ids `0xa00..`, item ids `0x60000000..`, refused in
+SSF). Pricing an unpriced held cursor item sends `C→S 0x01a1` with bit 31 set (`Flag == true`, sender `0x1402fbbf0`)
+before `C→S 0x002a`.
+
+- **C→S 0x02ac** (2 B) → **S→C 0x02ad** (`0x1421b9520`, case `0xe4`): `CompactUInt count`, `count × (RawU64 timestamp,
+  u32 BE currencyTypeHash, u32 BE amount, u8 sold, u16 BE itemWireLen, byte[itemWireLen])`, trailing `u8 isIncremental`
+  (`0` for full snapshot replying to `0x02ac`, `1` for incremental sale push).
+- **S→C 0x02ae** (`0x1421b9820`, case `0xe5`): `CompactUInt count`, `count × (u32 BE currencyTypeHash, u32 BE amount)`.
+- **C→S 0x02b0** (12 B, `0x141f9c880`): `u32 BE currencyTypeHash`, `u32 BE amount`, `u8 flagA`, `u8 flagB`.
+- **S→C 0x008e** (`0x141fa8ef0`, case `0x20`): `u16 BE errorCode`, `u32 BE inventoryId`, `u32 BE itemId`,
+  `u32 LE rawItemClass` (no byte-swap at `0x141fa8f6f..0x141fa8f80`), `u8 count`, `count × (u32 BE typeHash, CompactUInt amount)`.
 
 ## Open
 
 - **Last tab:** switching to an already loaded tab sends nothing, so a switch followed by a logout without reopening
   the stash or moving an item is not seen; the next login opens on the tab before it.
-- Not checked live yet: the affinity window closing on S→C 0x136, and the special tabs other than currency and map.
-- Tab folders in the real client (0xd1 and 0xd2 are handled, not checked live), 0xe2, the unique, divination and other special tabs, the
-  real guilds (shared guild stash, members, rights), stashes per league, and stashes in the other towns.
+- Not checked live yet: the special tabs other than currency and map.
+- 0xe2, the unique, divination and other special tabs, the
+  real guilds (shared guild stash, members, rights; the guild tabs' affinity settings wait on them),
+  stashes per league, and stashes in the other towns.
 
 ### Delve inventory bounds and resonators
 

@@ -179,7 +179,8 @@ public static partial class Game
             // Attack and cast speed are in the character's stats; the skill list carries the attack time the client
             // swings with, so both go out when a soul is gained or lost.
             bytes.World(player.Id, PlayerStatsOffFrames(player));
-            bytes.World(player.Id, PlayerSkillsIfChanged(player, PlayerSkills(player)));
+            foreach (var packet in PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)))
+                bytes.World(player.Id, packet);
             player.SoulEater.SentStacks = SoulEaterCount(player, now);
             player.SoulEater.SentUsingFlask = usingFlask;
             Console.WriteLine($"[gateway] {CharacterName(player)} Soul Eater {player.SoulEater.SentStacks}/{player.SoulEater.Limit}");

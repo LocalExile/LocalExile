@@ -85,6 +85,10 @@ public static class InstanceWaypoints
     /// <summary>S→C 0x7b kind 0x11: the Atlas **passive tree** screen (HUD +0x668, listener 0x140dcb810), not the map screen.</summary>
     public const byte AtlasUi = 0x11;
 
+    /// <summary>S→C 0x7b kind 0x13: the Atlas screen (HUD +0x660, listener 0x140dcb750). Passing <c>a = 1</c> enables
+    /// Atlas Scrying mode (<c>[atlas+0x3d8] = 1</c>) and stores <c>b</c> as the scrying source object id (<c>+0x3dc</c>).</summary>
+    public const byte AtlasScryingUi = 0x13;
+
     /// <summary>S→C 0x7b kind 0x33: instance +0x22f8 → HUD virtual +0x8e0 (0x140dd8e80) → 0x140c3e780.
     /// The first u32 is the CraftingBenchTypes row (0: ordinary bench, 1: runesmithing), not an object id.</summary>
     public const byte CraftingBenchUi = 0x33;
@@ -129,6 +133,10 @@ public static class InstanceWaypoints
     /// first u32 is the 0-based <c>Descendancy.dat</c> row the client previews (0 = None); the handler
     /// <c>0x142169dd0</c> reads the row and notifies the listeners at instance +0x1af8. Accept sends 0x3a.</summary>
     public const byte DescendancySelectUi = 0x4c;
+
+    /// <summary>S→C 0x7b kind 0x72: <c>DeepwaterActiveVoyageWindow</c> (<c>CurrentVoyage</c>, <c>0x14216b9a6</c> ->
+    /// <c>instance+0x4678</c>). Ignores the four u32 arguments and requires ruleset 172 (<c>DeepwaterHubRules</c>).</summary>
+    public const byte DeepwaterActiveVoyageUi = 0x72;
 
     /// <summary>
     /// S→C 0x4c (class 0x1435e76c0, read 0x1421a5dd0; dispatcher case 0x12): u32 BE (+0x10, passed with the bitset to the

@@ -133,6 +133,30 @@ public static partial class Game
         return true;
     }
 
+    sealed class HitSoulCooldown { public double NextAt = double.NegativeInfinity; }
+    static readonly RuleTable<Player, HitSoulCooldown> HitSoulCooldowns = new();
+
+    static void HarvestVaalSoulOnHitLocked(Player player, int intervalMs, double now,
+        IReadOnlyDictionary<uint, int> playerStats)
+    {
+        if (player.Closed || player.LeavingArea || player.VaalSoulsRetired || player.Paused || player.PlayerLife == 0
+            || InTown(player) || player.VaalPreventionUntil > VaalResourceTime(player)
+            || VaalImmortalCallActive(player, now) || playerStats.GetValueOrDefault(Stat.HasSoulGainPrevention) != 0
+            || playerStats.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) != 0) return;
+
+        var cooldown = HitSoulCooldowns.GetOrCreateValue(player);
+        if (now < cooldown.NextAt || !player.VaalSouls.Gain()) return;
+        cooldown.NextAt = now + intervalMs / 1000.0;
+        QueueVaalSoulPresentationLocked(player, "Vaal souls from a supported attack");
+    }
+
+    static void QueueVaalSoulPresentationLocked(Player player, string label)
+    {
+        var queue = player.Minions.OutputQueue;
+        if (!queue.Any(o => o.Kind == PlayerMinions.OutputKind.Vaal))
+            queue.Add(new([], label, Kind: PlayerMinions.OutputKind.Vaal));
+    }
+
     // Native UPDATE clamps against OLD capacity. Unknown rows and increases must seed first, then restore current.
     // Empty lists preserve native entries, so every removed row needs an explicit zero update.
     public static (VaalSoulSeed[] Seeds, VaalSoulUpdate[] Updates) VaalSoulChanges(Player player, bool reconcile = true)
@@ -157,10 +181,14 @@ public static partial class Game
     }
 
     public static byte[] PlayerSkillsWithVaalSouls(Player player, IReadOnlyList<GrantedSkill> skills,
+        IReadOnlyList<ushort> gone) =>
+        [.. PlayerSkillsBatchesWithVaalSouls(player, skills, gone).SelectMany(p => p)];
+
+    public static byte[][] PlayerSkillsBatchesWithVaalSouls(Player player, IReadOnlyList<GrantedSkill> skills,
         IReadOnlyList<ushort> gone)
     {
         var changes = VaalSoulChanges(player);
-        return InstanceEntities.PlayerSkillsChange(player.Id, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(player));
+        return InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, gone, changes.Seeds, changes.Updates, CanDetonateMines(player));
     }
 
     public static byte[]? VaalSoulPresentation(Player player)

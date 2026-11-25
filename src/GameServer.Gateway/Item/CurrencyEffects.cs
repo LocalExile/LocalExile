@@ -56,6 +56,13 @@ public static class CurrencyEffects
     public static Item? EldritchAnnulment(Item item, ItemRolls rolls, Random random) =>
         rolls.HasEldritchImplicit(item) ? rolls.Annul(item, random) : null;
 
+    public const string OrbOfConflict = "Metadata/Items/Currency/CurrencyConflictOrb";
+
+    /// <summary>Orb of Conflict (CurrencyItems row 1204, Action conflict_orb): a non-unique item with both Eldritch
+    /// implicits has one raised a tier and the other lowered a tier; see ItemRolls.Conflict for the admission and
+    /// the local weighting. An item without both implicits, or with no valid move, is refused before the orb is spent.</summary>
+    public static Item? Conflict(Item item, ItemRolls rolls, Random random) => rolls.Conflict(item, random);
+
     public const string OrbOfBinding = "Metadata/Items/Currency/CurrencyUpgradeToRareAndSetSockets";
 
     /// <summary>Orb of Binding, the documented LocalExile rule: a normal, uncorrupted weapon or armour piece that can hold
@@ -320,7 +327,9 @@ public static class CurrencyEffects
                 or "add_mod_to_magic" or "reroll_magic" or "convert_to_normal" or "add_mod_to_rare"
                 or "upgrade_magic_to_rare" or "reroll_socket_colours" or "reroll_socket_links" or "reroll_socket_numbers"
                 or "reroll_mod_values" or "reroll_implicit_mod" or "reroll_variable_defences"
-                or "remove_random_mod" or "fracture_random_mod" or "add_flask_seal" or "add_flask_injector");
+                or "remove_random_mod" or "fracture_random_mod" or "add_flask_seal" or "add_flask_injector"
+                or "conflict_orb" or "reroll_rare_eldritch" or "add_mod_to_rare_eldritch"
+                or "remove_random_mod_eldritch");
 
     public static bool Recognizes(ItemCatalog items, ItemCatalog.BaseType type, bool essence = false) =>
         essence || HandlesAction(items.CurrencyAction(type))
@@ -329,7 +338,7 @@ public static class CurrencyEffects
             or OrbOfAlteration or OrbOfAugmentation or RegalOrb or ExaltedOrb or OrbOfAnnulment or AncientOrb
             or ArmourersScrap or SacredOrb or BlacksmithsWhetstone or OrbOfChance or VaalOrb or GlassblowersBauble
             or GemcuttersPrism or FacetorsLens or FracturingOrb or CartographersChisel or EldritchChaosOrb or EldritchExaltedOrb
-            or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking
+            or EldritchAnnulmentOrb or OrbOfBinding or OrbOfUnmaking or OrbOfConflict
             or TaintedChaosOrb or TaintedExaltedOrb or TaintedChromaticOrb or TaintedOrbOfFusing or TaintedJewellersOrb
             or TaintedArmourersScrap or TaintedBlacksmithsWhetstone or TaintedCatalyst
             or LesserEldritchIchor or GreaterEldritchIchor or GrandEldritchIchor or ExceptionalEldritchIchor
@@ -381,6 +390,10 @@ public static class CurrencyEffects
             "reroll_variable_defences" => targetType is not null
                 ? Sacred(target, items.Defences(targetType), random) : null,
             "remove_random_mod" => Annulment(target, rolls, random),
+            "conflict_orb" => Conflict(target, rolls, random),
+            "reroll_rare_eldritch" => EldritchChaos(target, rolls, random),
+            "add_mod_to_rare_eldritch" => EldritchExalted(target, rolls, random),
+            "remove_random_mod_eldritch" => EldritchAnnulment(target, rolls, random),
             "fracture_random_mod" => Fracture(target, rolls, random),
             "add_flask_seal" or "add_flask_injector" => targetType is not null
                 ? FlaskEnchantments.Apply(target, targetType, items.Mods, action == "add_flask_injector", random) : null,
@@ -547,8 +560,15 @@ public static class CurrencyEffects
             layouts.Add(layout);
             sizes[layout.Max()]++;
         }
+        double qualityBonus = 1.0 + item.Quality / 100.0;
+        int boostedMinLink = Math.Min(count, 5);
         var choices = layouts.Where(g => !g.SequenceEqual(old)).Select(g =>
-            (Links: g, Weight: weights[g.Max()] / sizes[g.Max()] * Math.Pow(1 + item.Quality / 100.0, g.Max() - 1))).ToArray();
+        {
+            byte largest = g.Max();
+            double weight = weights[largest] / sizes[largest];
+            if (largest >= boostedMinLink) weight *= qualityBonus;
+            return (Links: g, Weight: weight);
+        }).ToArray();
         if (choices.Length == 0) return null;
         double roll = random.NextDouble() * choices.Sum(c => c.Weight);
         foreach (var choice in choices)
@@ -559,11 +579,10 @@ public static class CurrencyEffects
         return item with { Links = choices[^1].Links };
     }
 
-    // Initial local rules: 1, 2, 3, 4 or 6 sockets (five deliberately excluded).
-    // Weights and link chances are approximations, not recovered client/server constants.
+    // Retail item-level socket caps: 2 at ilvl 1, 3 at ilvl 2+, 4 at ilvl 25+, 5 at ilvl 35+, 6 at ilvl 50+.
     public static int MaximumSockets(Item item, ItemCatalog.BaseType type)
     {
-        int levelLimit = item.ItemLevel >= 50 ? 6 : item.ItemLevel >= 25 ? 4 : item.ItemLevel >= 2 ? 3 : 2;
+        int levelLimit = item.ItemLevel >= 50 ? 6 : item.ItemLevel >= 35 ? 5 : item.ItemLevel >= 25 ? 4 : item.ItemLevel >= 2 ? 3 : 2;
         return Math.Min(SocketCapacity(item, type), levelLimit);
     }
 
@@ -581,30 +600,32 @@ public static class CurrencyEffects
     {
         int max = MaximumSockets(item, type);
         if (max == 0 || item.Sockets.Count >= SocketCapacity(item, type) || item.Sockets.Any(s => s.Gem is not null)) return null;
-        (int Count, int Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (6, 1)];
+        double qualityBonus = 1.0 + item.Quality / 100.0;
+        int boostedMinSockets = Math.Min(max, 5);
+        (int Count, double Weight)[] choices = [(1, 50), (2, 120), (3, 100), (4, 30), (5, 5), (6, 1)];
         var abyss = item.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
         if (abyss.Length > 0 && ItemModStats.Local(item, Program.Items.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets))
             return null;
         var ordinary = item.Sockets.Where(s => s.Colour != SocketColour.Abyss).ToArray();
-        var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count).ToArray();
+        var allowed = choices.Where(c => c.Count >= abyss.Length && c.Count <= max && c.Count != item.Sockets.Count)
+            .Select(c => (c.Count, Weight: c.Count >= boostedMinSockets ? c.Weight * qualityBonus : c.Weight)).ToArray();
         if (allowed.Length == 0) return null;
-        int roll = random.Next(allowed.Sum(c => c.Weight));
-        int count = allowed[0].Count;
+        double roll = random.NextDouble() * allowed.Sum(c => c.Weight);
+        int count = allowed[^1].Count;
         foreach (var choice in allowed)
         {
             if (roll < choice.Weight) { count = choice.Count; break; }
             roll -= choice.Weight;
         }
-        var sockets = new List<ItemSocket>();
-        var links = new List<byte> { 1 };
+        int ordinaryCount = count - abyss.Length;
+        var sockets = new List<ItemSocket>(count);
         for (int i = 0; i < count; i++)
         {
-            bool isAbyss = i >= count - abyss.Length;
-            sockets.Add(isAbyss ? abyss[i - (count - abyss.Length)] : i < ordinary.Length ? ordinary[i] : new(SocketColour.White));
-            if (i == 0) continue;
-            if (!isAbyss && random.Next(2) == 0) links[^1]++;
-            else links.Add(1);
+            bool isAbyss = i >= ordinaryCount;
+            sockets.Add(isAbyss ? abyss[i - ordinaryCount] : i < ordinary.Length ? ordinary[i] : new(SocketColour.White));
         }
+        var links = new List<byte>(ItemCatalog.RollSocketLinks(ordinaryCount, random));
+        for (int i = 0; i < abyss.Length; i++) links.Add(1);
         return item with { Sockets = sockets, Links = links };
     }
 

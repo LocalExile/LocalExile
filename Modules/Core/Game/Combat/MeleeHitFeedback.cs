@@ -29,7 +29,7 @@ public static partial class Game
         uint id;
         if (!session.Active || player.LeavingArea) return;
         id = player.TakeObjectId();
-        player.ProjectileObjects.Add(id);
+        player.TrackProjectileObject(id);
         var effect = new EffectObject(at.X, at.Y, art)
         {
             AnimatedFlags = 9, Flags0 = EffectObject.FixedRotation, Scale = scale,
@@ -38,14 +38,14 @@ public static partial class Game
         bool created = await SendWorldCreate(player, id,
             () => session.Active ? InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob()) : null,
             "native melee impact", wake: true);
-        if (!created) { player.ProjectileObjects.Remove(id); return; }
+        if (!created) { player.UntrackProjectileObject(id); return; }
         if (!session.Active) return;
         // Existing connection scheduler/outbox: no per-hit task, timer or worker.
         long until = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(AreaTime(player)))
             + ProjectileRuntime.Time(2);
         session.Runtime.Schedule(until, () => session.WorldRecords(id, () =>
         {
-            player.ProjectileObjects.Remove(id);
+            player.UntrackProjectileObject(id);
             return [InstanceProtocol.RemoveObject(id)];
         }, remove: true));
     }

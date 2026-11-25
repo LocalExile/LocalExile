@@ -14,9 +14,13 @@ public static partial class Game
         started = default;
         using (ProjectileMutation(player))
         {
-            double now = ProjectileWorldTime(player);
-            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, now)) return false;
-            CancelMeleeRepeats(player, now);
+            double checkNow = ProjectileWorldTime(player);
+            if (player.Closed || player.PlayerLife == 0 || PlayerActionBlocked(player, requestedAt, checkNow)) return false;
+            CancelMeleeRepeats(player, checkNow);
+            double now = player.Connection.LockstepClient
+                ? player.Connection.LockstepFrame?.Start ?? checkNow
+                : checkNow;
+            if (player.Connection.LockstepClient) StepWalkers(player, now);
             int action = Interlocked.Increment(ref player.ActionCount);
             player.ChannelSkill = 0;
             var (here, stop, arrive) = centreRange ? player.Walk.Approach(x, y, reach, now, tolerance) : player.Walk.WalkUpTo(x, y, (int)reach, now);
@@ -59,6 +63,14 @@ public static partial class Game
         }
         SpawnedMonster? target;
         target = player.Area.Monsters.GetValueOrDefault(use.TargetId);
+        // Predictive C→S 0x0024 can arrive for a totem, trap, or mine when the cursor hovers over a non-hostile or dead
+        // actor, an existing totem/trap/mine, a ground item, or another world object: cast it on that target's cell
+        // instead of dropping it or triggering item pickup / object interaction.
+        if (target is not { Hostile: true, Dead: false, OwnerId: null } && GroundPlaceableGemSkill(player, use.SkillId))
+        {
+            await CastGroundPlaceableOnObject(player, use, target, requestedAt);
+            return;
+        }
         if (target is not null)
         {
             if (use.SkillId != SkillCatalog.FirstSkillId) await CastOn(player, use, target, requestedAt);
@@ -105,7 +117,7 @@ public static partial class Game
         }
         // Objects of a module or mod.
         if (await GameEvents.AnyObjectUse(player, use, requestedAt)) return;
-        if (use.TargetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint)
+        if (use.TargetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint)
         {
             await UseWaypoint(player, use, waypoint, requestedAt);
             return;
@@ -185,6 +197,92 @@ public static partial class Game
         await ChangeArea(player, transfer, use.ToString());
     }
 
+    static bool GroundPlaceableGemSkill(Player player, ushort skillId)
+    {
+        if (skillId == 0x266 || !SkillsFor(player).IsGemSkill(skillId)) return false;
+        var supported = SupportedSkill(player, skillId);
+        return supported.Effect >= 0 && (IsTotemSkill(player, skillId) || PlacedKind(supported) is (true, _) or (_, true));
+    }
+
+    static (int X, int Y)? ResolveObjectAimCell(Player player, uint targetId, SpawnedMonster? monster, double now)
+    {
+        if (monster is not null) return monster.Walk.Position(now);
+        if (targetId == player.Id) return player.Walk.Position(now);
+        if (player.Instance.Player(targetId) is { } peer) return peer.Walk.Position(now);
+        if (player.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } totem) return totem.At;
+        if (player.Placed.All.TryGetValue(targetId, out var placed)) return placed.At;
+        if (player.Instance.Ground.Get(targetId) is { } ground) return (ground.GridX, ground.GridY);
+        if (targetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint) return (waypoint.GridX, waypoint.GridY);
+        SpawnedNpc? npc;
+        lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(targetId);
+        if (npc is not null) return (npc.X, npc.Y);
+        if (player.Layout.AreaTransitions.FirstOrDefault(e => e.Id == targetId).Transition is { } transition)
+            return (transition.GridX, transition.GridY);
+        if (player.StationaryPosition(targetId) is { } stationary) return stationary;
+        lock (player.QuestObjects)
+            if (player.QuestObjects.TryGetValue(targetId, out var quest)) return (quest.At.X, quest.At.Y);
+        lock (player.MapPortals)
+            if (player.MapPortals.TryGetValue(targetId, out var map)) return (map.X, map.Y);
+        if (player.ReturnPortal is { } portal && portal.Id == targetId) return (portal.X, portal.Y);
+        if (player.BackPortal is { } back && back.Id == targetId) return (back.X, back.Y);
+        if (player.Area.Objects.StaticPosition(targetId, StationaryCollision.StaticPositionedTypes) is { } scenery) return scenery;
+        foreach (var owner in player.Instance.PlayersExcept(player.Id))
+        {
+            if (!ReferenceEquals(owner.Area, player.Area)) continue;
+            if (owner.Placed.All.TryGetValue(targetId, out var otherPlaced)) return otherPlaced.At;
+            if (owner.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } otherTotem) return otherTotem.At;
+        }
+        return null;
+    }
+
+    static async Task CastGroundPlaceableOnObject(Player player,
+        InstanceTransfer.UseSkillOnObject use, SpawnedMonster? target, double requestedAt)
+    {
+        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == use.SkillId);
+        if (gem.Name is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4}: unknown dynamic skill id (action not started)");
+            return;
+        }
+        if (!ProjectilePathAvailable(player, use.SkillId, gem.Effect)) return;
+        int action = 0;
+        (int px, int py) = (0, 0);
+        if (ResolveObjectAimCell(player, use.TargetId, target, requestedAt) is not { } aim) return;
+        CooldownUseTicket? cooldownUse = null;
+        void StartAction()
+        {
+            bool lockstep = player.Connection.LockstepClient;
+            double at = Math.Max(requestedAt, ProjectileWorldTime(player));
+            double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : at;
+            if (lockstep) StepWalkers(player, actionAt);
+            CancelMeleeRepeats(player, at);
+            action = Interlocked.Increment(ref player.ActionCount);
+            (px, py) = player.Walk.Position(actionAt);
+            if (target is not null) aim = target.Walk.Position(actionAt);
+            if (lockstep) player.Walk.Cancel(actionAt);
+            else player.Walk.Order(px, py, at);
+            player.ChannelSkill = use.SkillId;
+            player.ChannelSkillSequence = use.Sequence;
+        }
+        if (!TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
+            CooldownForSkill(player, use.SkillId), false, StartAction, out cooldownUse, requestedAt: requestedAt)) return;
+        bool projectileRuntime = UsesProjectileRuntime(gem.Effect);
+        Task<bool>? castTask = projectileRuntime ? CastGemSkill(player, use.SkillId,
+            (px, py), aim, sequence: use.Sequence, actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse) : null;
+        if (castTask is { IsCompletedSuccessfully: true, Result: false }) return;
+        bool acknowledged = false;
+        await SendWorldRecords(player, player.Id, () => [InstanceProtocol.ActionStarted(player.Id, px, py, aim.X, aim.Y,
+                use.SkillId, use.Sequence, use.Flags), InstanceProtocol.ActionEnded(player.Id)],
+            $"0x01ab player skill 0x{use.SkillId:x4} {gem.Name} on object 0x{use.TargetId:x} as ground cast at ({aim.X}, {aim.Y}) from ({px}, {py}) (t={AreaTime(player):0.000})",
+            still: () => acknowledged = SkillAcknowledgementAllowed(player, gem.Effect, use.SkillId,
+                () => cooldownUse?.CommitNativeUse(player, use.SkillId) ?? PlayerActionCurrent(player, action)));
+        if (acknowledged) await SendNativeCooldownRefresh(player);
+        if (!projectileRuntime && !acknowledged) return;
+        if (cooldownUse?.Current(player) == false) return;
+        if (!projectileRuntime) _ = CastGemSkill(player, use.SkillId, (px, py), aim, sequence: use.Sequence,
+            actionToken: cooldownUse?.ActionToken ?? action, cooldownUse: cooldownUse);
+    }
+
     // karui_fortress_01/02: miniboss.arm has two bridges in one graph node. Its four telepad
     // points are in file order: arena, exterior, arena, exterior. Each pair belongs to one bridge.
     internal static void PrepareKaruiBridgeGates(Player player)
@@ -236,6 +334,27 @@ public static partial class Game
                 .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, TransitionDarkenSeconds)],
             $"0x00cb fade through {through} to ({to.X}, {to.Y}), {TransitionMoveSeconds} s and {TransitionDarkenSeconds} s");
         double until = AreaTime(player) + 0.8 * TransitionDarkenSeconds;
+        while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
+    }
+
+    // Resurrect at Checkpoint sends two 0x00cb FadeMove messages (with 0x0055 hide death screen in the same write):
+    // the second replaces FadeToBlack's duration (0.8 * 0.66 = 0.528 s) while the first fires FadeFromBlack
+    // (1.6 * 0.25 = 0.40 s) at 2 * 0.25 = 0.50 s. Because 0.528 s > 0.50 s, FadeController+0x24 (checked by
+    // DrawMiniLifeBars at 0x140222829) never drops to 0 between fade-in and fade-out, preventing the local player's
+    // overhead healthbar from flickering over the black screen. The client skips the move body in 0x14218b898, so
+    // the second entry's later expiry is a no-op.
+    const float ResurrectMoveSeconds = 0.25f, ResurrectDarkenSeconds = 0.66f;
+    const double ResurrectReviveDelaySeconds = 0.46;
+
+    /// <summary>Hides the death screen and darkens continuously into the fade-out without letting FadeController+0x24
+    /// drop to zero between darken and clear, waiting until the screen is dark before reviving and teleporting.</summary>
+    public static async Task SendResurrectFade(Player player, (int X, int Y) to)
+    {
+        await Send(player, [.. InstanceProtocol.DeathScreen(0x02),
+                .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectMoveSeconds),
+                .. InstanceProtocol.FadeMove(player.Id, to.X, to.Y, ResurrectDarkenSeconds)],
+            $"0x0055 hide death screen + 0x00cb resurrect fade to ({to.X}, {to.Y}), {ResurrectMoveSeconds} s and {ResurrectDarkenSeconds} s");
+        double until = AreaTime(player) + ResurrectReviveDelaySeconds;
         while (!player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
     }
 
@@ -352,6 +471,8 @@ public static partial class Game
         string[] endgame;
         endgame = [.. Quests.EndgameOnly.Where(player.Character.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(player.Layout.Hash))) own.UnionWith(endgame);
+        // What a module grants for this area alone (GameEvents.AreaQuestFlags): the client has it while it is here.
+        if (GameEvents.RunAreaQuestFlags(player) is { } granted) own.UnionWith(granted);
         lock (player.Character.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => player.Character.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(player.Character.Visited.Concat(player.Character.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))
@@ -397,6 +518,73 @@ public static partial class Game
         await ChangeArea(player, new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true), $"{why}: {hideout.Name}");
     }
 
+    // C→S 0x17a: visit a named character's hideout (self, same party, friend, or invited via 0x179).
+    public static async Task WarpToPlayerHideout(Player player, string rawTarget, string why)
+    {
+        if (player.PlayerLife == 0 || player.Character.HardcoreDeathRecorded) return;
+        string targetName = rawTarget.Trim();
+        if (targetName.Length == 0
+            || string.Equals(targetName, CharacterName(player), StringComparison.OrdinalIgnoreCase)
+            || player.Character.Account is not null && string.Equals(targetName, player.Character.Account, StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        var target = InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed && !c.LeavingArea
+            && (string.Equals(CharacterName(c), targetName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(c.Character.Account, targetName, StringComparison.OrdinalIgnoreCase)));
+        if (target is null)
+        {
+            await (player.Commands?.Reply("Player not found.") ?? Task.CompletedTask);
+            return;
+        }
+        if (ReferenceEquals(target, player)
+            || string.Equals(CharacterName(target), CharacterName(player), StringComparison.OrdinalIgnoreCase))
+        {
+            await WarpToHideout(player, why);
+            return;
+        }
+        bool sameLeague = !player.Character.Ssf && !target.Character.Ssf
+            && player.Character.Hardcore == target.Character.Hardcore && player.Character.LeagueForm == target.Character.LeagueForm
+            && string.Equals(player.Character.League, target.Character.League, StringComparison.OrdinalIgnoreCase);
+        if (!sameLeague)
+        {
+            await (player.Commands?.Reply("You cannot visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (!CanVisitHideout(player, target))
+        {
+            await (player.Commands?.Reply("You do not have permission to visit that player's hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        if (HomeHideout(target) is not { } hideout)
+        {
+            await (player.Commands?.Reply("That player does not have a hideout.") ?? Task.CompletedTask);
+            return;
+        }
+        string ownerName = CharacterName(target);
+        if (HideoutCatalog.ByArea(target.Layout.Hash) is not null && OwnHideout(target) && target.InstanceNumber != 0)
+        {
+            if (player.Layout.Hash == target.Layout.Hash && player.InstanceNumber == target.InstanceNumber) return;
+            await ChangeArea(player,
+                new PendingTransfer(target.Layout.Hash, target.InstanceNumber, false, AtWaypoint: true),
+                $"{why}: {ownerName}'s {hideout.Name}");
+            return;
+        }
+        if (player.Layout.Hash == hideout.AreaHash16 && string.Equals(player.InstanceOwner, ownerName, StringComparison.OrdinalIgnoreCase))
+            return;
+        await ChangeArea(player,
+            new PendingTransfer(hideout.AreaHash16, 0, false, AtWaypoint: true) { InstanceOwner = ownerName },
+            $"{why}: {ownerName}'s {hideout.Name}");
+    }
+
+    static bool CanVisitHideout(Player visitor, Player owner)
+    {
+        if (visitor.Character.Account is not null && string.Equals(visitor.Character.Account, owner.Character.Account, StringComparison.OrdinalIgnoreCase))
+            return true;
+        return GameEvents.CanVisitHideout(visitor, owner);
+    }
+
     /// <summary>Whether <paramref name="areaHash"/> is a safe returnable world area (a town, waypoint campaign area, or
     /// the player's own hideout) — excluding maps, pinnacle boss recipes, Labyrinth areas, Delve areas, and other players' hideouts.</summary>
     public static bool IsReturnableWorldArea(Player player, ushort areaHash)
@@ -433,18 +621,34 @@ public static partial class Game
 
     public static HideoutScene? HideoutFurniture(Player player) => player.Furniture ??=
         HideoutCatalog.ByArea(player.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
-            ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player)) : null;
+            ? WithMapDevice(player, HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player))) : null;
+
+    // The map device variant the owner placed from the Decorations panel, at the device's saved place (one saved before
+    // the server refused its type keeps the template's device).
+    static HideoutScene WithMapDevice(Player player, HideoutScene scene)
+    {
+        if (AccountMapDevice(player) is not { } d || HideoutCatalog.DoodadByHash(d.Hash) is not ({ } type, var models)
+            || !ServableMapDevice(type)) return scene;
+        string? model = models is { Length: > 0 } ? models[Math.Clamp((int)d.Variation, 0, models.Length - 1)] : null;
+        return scene with { Device = scene.Device with { Name = "Map Device", Hash = d.Hash, Type = type, Model = model,
+            Variation = d.Variation, CollisionRadius = HideoutCatalog.CollisionRadius(model) } };
+    }
 
     public static async Task SelectHideout(Player player, (int Row, bool Guild) selected)
     {
-        if (selected.Guild || player.PendingTransfer is not null) return;
+        if (player.PendingTransfer is not null) return;
+        if (selected.Guild)
+        {
+            await GameEvents.RunGuildHideoutSelected(player, selected.Row);
+            return;
+        }
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
         SelectAccountHideout(player, hideout.AreaId);
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         await Send(player, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
-        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, 0),
+        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, GameEvents.ResolveGuildHideoutHash(player) ?? 0),
             $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(player)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(player, "Helena: Select Hideout");
@@ -583,7 +787,8 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: false).ConfigureAwait(false);
             return;
         }
-        ulong join = t.Instance != 0 || t.New ? 0 : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
+        ulong join = t.Instance != 0 || t.New || !string.IsNullOrWhiteSpace(t.InstanceOwner) ? 0
+            : InstanceEvents.TransferInstance.For(player).Select(run => run(player, t)).FirstOrDefault(i => i != 0);
         uint sourceTicket = player.Ticket;
         string? soloOwner = player.Character.Ssf ? player.Character.Id?.ToString("N") : null;
         string characterName = CharacterName(player);
@@ -598,10 +803,11 @@ public static partial class Game
             r = await call(new ControlRequest
             {
                 Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = join != 0 ? join : t.Instance, New = t.New, Seed = t.Seed,
+                Owner = t.InstanceOwner,
             }).ConfigureAwait(false);
             // The party member's instance may be gone or closed to this player: the default choice then.
             if (join != 0 && !r.Ok)
-                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed }).ConfigureAwait(false);
+                r = await call(new ControlRequest { Op = "transfer", Ticket = sourceTicket, Area = t.Area, Instance = t.Instance, New = t.New, Seed = t.Seed, Owner = t.InstanceOwner }).ConfigureAwait(false);
             else if (join != 0) Console.WriteLine($"[gateway] {remote} transfer: joins party instance {join}");
         }
         catch (Exception ex)
@@ -611,7 +817,6 @@ public static partial class Game
             await FailOnFrame(fail, restoreSession: true, resumeVitals: true).ConfigureAwait(false);
             throw;
         }
-
         if (!r.Ok)
         {
             Console.WriteLine($"[gateway] {remote} transfer failed: {r.Error}");
@@ -671,6 +876,7 @@ public static partial class Game
                 return;
             }
             player.TransferAccepted = true;
+            ClearSessionQuestFlags(player, r.Area, r.Instance);
             player.TransferredTo = (r.Area, r.Instance);
             t.Done?.Invoke(r);
             foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, r);
@@ -703,5 +909,24 @@ public static partial class Game
             Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
             await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
         }
+    }
+
+    // A session quest flag (SessionQuestFlags.dat) lasts only while the player stays in the same instance: drop it from
+    // the connection once Auth has accepted the move, before the client is sent to the new instance. Only here: Transfer
+    // is the move's single commit point, and a failed transfer returns before this point, so a player who stays keeps
+    // the flag. A reload into the exact same area and instance (the ascendancy / descendancy reloads, which re-enter the
+    // instance they are in) is not a move and keeps it too; entering a new instance of the same area (e.g. Ctrl-click
+    // instance reset or another map on the same tileset) or another area clears it. Only IsSession flags go, never the
+    // login-granted ones (Quests.EveryCharacter: five of them are session rows too), never UnearnedQuestFlags, never
+    // LeagueQuestFlags, and nothing is written to the save (the save never holds a session flag:
+    // CharacterSaves.ChangeQuestFlags filters them). CommitQuestFlags must not do this: its monster-kill callers run
+    // mid-combat. This runs on the area frame, where QuestFlags is changed.
+    internal static void ClearSessionQuestFlags(Player player, ushort destinationArea, ulong destinationInstance)
+    {
+        if (destinationArea == player.Layout.Hash && destinationInstance == player.InstanceNumber) return;
+        List<string> cleared = [.. player.Character.QuestFlags.Where(f => QuestStates.Default.IsSession(f) && !Quests.EveryCharacter.Contains(f))];
+        foreach (string flag in cleared) player.Character.QuestFlags.Remove(flag);
+        if (cleared.Count > 0)
+            Console.WriteLine($"[gateway] {CharacterName(player)}: session quest flag(s) cleared on instance change: {string.Join(", ", cleared)}");
     }
 }

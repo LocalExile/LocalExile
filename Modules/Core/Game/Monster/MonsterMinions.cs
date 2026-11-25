@@ -66,7 +66,11 @@ public static partial class Game
     {
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(uint key) => stats.GetValueOrDefault(key);
-        if (Get(Stat.IsTotem) == 0 && !catalog.HasType(effect, "SummonsTotem")) return null;
+        // Non-totem monsters can share an ActiveSkill row with a player totem (e.g. Voidbearer FlamebearerFlameBlue
+        // uses totem_fire_spray which has ActiveSkillType SummonsTotem even though is_totem == 0 and base_totem_duration == 0).
+        bool isTotemSkill = Get(Stat.IsTotem) != 0 || Get(Stat.BaseSkillIsTotemified) != 0
+            || (catalog.HasType(effect, "SummonsTotem") && Get(Stat.BaseTotemDuration) > 0);
+        if (!isTotemSkill) return null;
         int? skillKey = ClientTables.TableOrNull("GrantedEffects")?.Row(effect)?.IntOrNull("ActiveSkill") is int active
             ? ClientTables.TableOrNull("ActiveSkills")?.Row(active)?.IntOrNull("SkillTotemId") : null;
         int skin = Get(Stat.TotemArtVariation);

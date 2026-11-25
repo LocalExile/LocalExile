@@ -20,7 +20,7 @@ public sealed class SocialModule : IModule
     public void Load(IModuleContext module)
     {
         LoadData();
-        GameEvents.EnterMessages.Add(module.Manifest.Id, player => FriendsFeature.Enter(player));
+        GameEvents.EnterMessages.Add(module.Manifest.Id, player => FriendsFeature.Enter(player).Concat(GuildFeature.Enter(player)));
         // The first tick after the entry: the party (after an area change) and the friends' presence as they are now.
         GameEvents.AreaTick.Add(module.Manifest.Id, _ =>
         {
@@ -32,13 +32,97 @@ public sealed class SocialModule : IModule
                 if (!SocialFeature.Rebound.TryAdd(c, null)) return;
                 await PartyRoster.Rebind(c);
                 await FriendsFeature.AfterEntry(c);
+                await GuildFeature.AfterEntry(c);
             };
         });
         InstanceEvents.TransferInstance.Add(module.Manifest.Id, PartyRoster.SharedInstance);
-        GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) => FriendsFeature.Leaving(player));
+        GameEvents.PlayerLeaving.Add(module.Manifest.Id, async (player, why) =>
+        {
+            await PartyRoster.DisconnectHuman(player, why);
+            await FriendsFeature.Leaving(player);
+            await GuildFeature.Leaving(player);
+        });
         GameEvents.Packet(InstanceSocial.FriendAddId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await FriendsFeature.Change(player, InstanceSocial.ReadFriendAdd(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.SocialStatusId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await FriendsFeature.SetStatus(player, InstanceSocial.ReadSocialStatus(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.PublicPartyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            var (desc, flag) = InstanceSocial.ReadPublicParty(bytes);
+            await PartyRoster.SetPublicParty(player, desc, flag);
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.HideoutInviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await FriendsFeature.InviteToHideout(player, InstanceSocial.ReadHideoutInvite(bytes).Name);
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.DuelChallengeId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await FriendsFeature.ChallengeDuel(player, InstanceSocial.ReadDuelChallenge(bytes));
+            return true;
+        });
+        GameEvents.PartyInvite.Add(module.Manifest.Id, PartyRoster.InviteHuman);
+        GameEvents.PlayerIgnored.Add(module.Manifest.Id, (viewer, sender) => FriendsFeature.IsIgnoring(viewer.Character.Account, sender));
+        GameEvents.HideoutVisitAllowed.Add(module.Manifest.Id, (visitor, owner) => FriendsFeature.CanVisitHideout(visitor, owner) || GuildFeature.SameGuild(visitor, owner));
+        GameEvents.GuildChat.Add(module.Manifest.Id, GuildFeature.DeliverChat);
+        GameEvents.GuildStorageKey.Add(module.Manifest.Id, GuildFeature.StorageKeyOf);
+        GameEvents.GuildPeers.Add(module.Manifest.Id, GuildFeature.PeersOf);
+        GameEvents.GuildHideoutSelected.Add(module.Manifest.Id, GuildFeature.SelectGuildHideout);
+        GameEvents.GuildHideoutHash.Add(module.Manifest.Id, GuildFeature.HideoutHashOf);
+        GameEvents.GuildTagQuery.Add(module.Manifest.Id, GuildFeature.TagOf);
+        GameEvents.GuildCanManageStash.Add(module.Manifest.Id, GuildFeature.CanManageStash);
+        module.Lifetime.Own(new GuildCleanup());
+        GameEvents.Packet(InstanceGuilds.CreateId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Create(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.InviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Invite(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.AcceptInviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.AcceptInvite(player, InstanceGuilds.ReadInviteIndex(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.DeclineInviteId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.DeclineInvite(player, InstanceGuilds.ReadInviteIndex(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetMemberRankId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            var (target, rank) = InstanceGuilds.ReadSetMemberRank(bytes);
+            await GuildFeature.SetMemberRank(player, target, rank);
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.RemoveMemberId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.LeaveOrKick(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetStatusId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.SetStatus(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.RenameId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.Rename(player, InstanceGuilds.ReadText(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceGuilds.SetTagId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await GuildFeature.SetTag(player, InstanceGuilds.ReadText(bytes));
             return true;
         });
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, why) => SocialFeature.CancelPlayerTrade(player, why));
@@ -68,6 +152,13 @@ public sealed class SocialModule : IModule
                 await SocialFeature.PlayerTradeOffer(player, trade, inventory, item);
                 return true;
             });
+        GameEvents.Packet(InstanceNpcs.TradeCtrlMoveId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            if (player.Trade is not { } trade) return false;
+            var (item, inventory, _) = InstanceNpcs.ReadTradeCtrlMove(bytes);
+            await SocialFeature.PlayerTradeMoveSameType(player, trade, inventory, item);
+            return true;
+        });
         GameEvents.Packet(InstanceNpcs.TradeAcceptId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             if (player.Trade is not { } trade) return false;
@@ -127,6 +218,11 @@ public sealed class SocialModule : IModule
             return party == 0 ? [] : PartyRoster.Players(party);
         }));
     }
+
+    sealed class GuildCleanup : IDisposable
+    {
+        public void Dispose() => GuildFeature.ResetRuntime();
+    }
 }
 
 static class SocialFeature
@@ -154,7 +250,7 @@ static class SocialFeature
     // third field is the player's area as a WorldAreas HASH16 (+0xa8), not the character's level (#715).
     internal static async Task Introduce(Player to, Player about) =>
         await SendTo(to, InstanceSocial.KnownPlayer(about.Character.Account ?? CharacterName(about), CharacterName(about), about.Layout.Hash,
-            PackedClass(about), about.Character.PortraitFrame, WornPortrait(about)), $"0x00a7 known player {CharacterName(about)}");
+            PackedClass(about), about.Character.PortraitFrame, WornPortrait(about), FriendsFeature.StatusOf(about.Character.Account)), $"0x00a7 known player {CharacterName(about)}");
 
     // 0xb8 builds the trade window's two offer grids at once, even for the request and the waiting notice: their
     // inventories must exist (inventory 0 crashed both clients at 0x1402d1029 through the grid 0x140317a44). A fresh
@@ -172,7 +268,8 @@ static class SocialFeature
     internal static async Task RequestTrade(Player player, uint target)
     {
         if (player.Instance.Player(target) is not { Connection.Outbox: not null } other || !PlayerTradeAllowed(player, other)
-            || other.Trade is not null || player.Trade is not null)
+            || other.Trade is not null || player.Trade is not null
+            || FriendsFeature.IsIgnoring(other.Character.Account, player.Character.Account ?? CharacterName(player)))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00ba trade request to 0x{target:x}: not available");
             return;
@@ -233,9 +330,8 @@ static class SocialFeature
         }
     }
 
-    // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
-    // click into the first free cell), or an offered item taken back.
-    internal static async Task PlayerTradeOffer(Player player, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null)
+    // C→S 0xb4 (Ctrl + right-click): move every item of the clicked item's base type between inventory and trade offer.
+    internal static async Task PlayerTradeMoveSameType(Player player, PlayerTrade trade, uint inventory, uint itemId)
     {
         if (!PlayerTradeAllowed(player, trade.Other(player)))
         {
@@ -243,7 +339,55 @@ static class SocialFeature
             return;
         }
         var items = ItemsOf(player);
-        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(player, trade, itemId); return; }
+        if (items.Offered().FirstOrDefault(i => i.Id == itemId) is { } offeredTarget)
+        {
+            uint type = offeredTarget.Item.TypeHash;
+            uint[] ids = [itemId, .. items.Offered().Where(i => i.Id != itemId && i.Item.TypeHash == type)
+                .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+            bool moved = false;
+            foreach (uint id in ids)
+            {
+                if (player.Trade != trade || trade.Over) break;
+                int before = items.Offered().Count;
+                await PlayerTradeTakeBack(player, trade, id, sendState: false);
+                if (items.Offered().Count != before) moved = true;
+            }
+            if (moved && player.Trade == trade && !trade.Over) await SendTradeState(trade);
+            return;
+        }
+        byte? row = PlayerInventories.Row(inventory);
+        var clicked = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
+        if (clicked is null)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00b4 trade ctrl-move: item {itemId} not in inventory {inventory}");
+            return;
+        }
+        uint matchType = clicked.Item.TypeHash;
+        uint[] toOffer = [itemId, .. items.Items(row!.Value).Where(i => i.Id != itemId && i.Item.TypeHash == matchType)
+            .OrderBy(i => i.Y).ThenBy(i => i.X).Select(i => i.Id)];
+        bool offeredAny = false;
+        foreach (uint id in toOffer)
+        {
+            if (player.Trade != trade || trade.Over) break;
+            int before = items.Offered().Count;
+            await PlayerTradeOffer(player, trade, inventory, id, sendState: false);
+            if (items.Offered().Count == before) break;
+            offeredAny = true;
+        }
+        if (offeredAny && player.Trade == trade && !trade.Over) await SendTradeState(trade);
+    }
+
+    // C→S 0xb2 / 0xb3 / 0xb5 while a player trade is open: an item into the offer (a drop at x, y, or Ctrl / Shift
+    // click into the first free cell), or an offered item taken back.
+    internal static async Task PlayerTradeOffer(Player player, PlayerTrade trade, uint inventory, uint itemId, byte? x = null, byte? y = null, bool sendState = true)
+    {
+        if (!PlayerTradeAllowed(player, trade.Other(player)))
+        {
+            await CancelPlayerTrade(player, "player or game mode no longer permits trading");
+            return;
+        }
+        var items = ItemsOf(player);
+        if (items.Offered().Any(i => i.Id == itemId)) { await PlayerTradeTakeBack(player, trade, itemId, sendState); return; }
         byte? row = PlayerInventories.Row(inventory);
         var it = row is byte r ? items.Items(r).FirstOrDefault(i => i.Id == itemId) : null;
         if (it is null || ShapeOf(it.Item) is not { } shape) { Console.WriteLine($"[gateway] {player.Connection.Remote} trade offer: item {itemId} not in inventory {inventory}"); return; }
@@ -280,10 +424,10 @@ static class SocialFeature
         await SendTo(player, InstanceItems.InventoryChange(PlayerTradeMine, mine, [], [shown], NpcShops.Manager), $"0x00bf trade offer: item {itemId} at ({at.X}, {at.Y})");
         await SendTo(other, InstanceItems.InventoryChange(PlayerTradeTheirs, theirs, [], [shown with { Id = view }], NpcShops.Manager),
             $"0x00bf {CharacterName(player)}'s offer: item {view} at ({at.X}, {at.Y})");
-        await SendTradeState(trade);
+        if (sendState) await SendTradeState(trade);
     }
 
-    internal static async Task PlayerTradeTakeBack(Player player, PlayerTrade trade, uint itemId)
+    internal static async Task PlayerTradeTakeBack(Player player, PlayerTrade trade, uint itemId, bool sendState = true)
     {
         var items = ItemsOf(player);
         if (items.TakeBack(itemId) is not var (row, back)) return;
@@ -303,7 +447,7 @@ static class SocialFeature
             $"0x00bf return item {itemId} to inventory {PlayerInventories.InventoryId(row)}");
         await SendTo(other, InstanceItems.InventoryChange(PlayerTradeTheirs, theirs, [view], [], NpcShops.Manager),
             $"0x00bf {CharacterName(player)}'s offer: remove item {view}");
-        await SendTradeState(trade);
+        if (sendState) await SendTradeState(trade);
     }
 
     // C→S 0xb6: Accept, with the revision of the other's offer this client saw. Both accepted on the current offers

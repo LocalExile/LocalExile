@@ -48,7 +48,8 @@ static class Act3Items
 /// <summary>Act 3's quest objects, chests and out-of-town NPCs.</summary>
 static class Act3Objects
 {
-    public const string ClarissaSlums = "Metadata/NPC/Act3/ClarissaSlums", TolmanChair = "Metadata/Chests/QuestChests/Tolman/TolmanChair";
+    public const string ClarissaSlums = "Metadata/NPC/Act3/ClarissaSlums", ClarissaTown = "Metadata/NPC/Act3/ClarissaTown",
+        TolmanChair = "Metadata/Chests/QuestChests/Tolman/TolmanChair";
     public const string SewerGrating = "Metadata/QuestObjects/Sewers/SewersLockedDoor";
     public static readonly string[] Stashes =
         ["Metadata/Chests/QuestChests/Victario/Stash1", "Metadata/Chests/QuestChests/Victario/Stash2", "Metadata/Chests/QuestChests/Victario/Stash3"];
@@ -64,7 +65,8 @@ static class Act3Objects
     public static readonly string[] BookStands =
         ["Metadata/Chests/QuestChests/Siosa/GoldenBookStand1", "Metadata/Chests/QuestChests/Siosa/GoldenBookStand2",
          "Metadata/Chests/QuestChests/Siosa/GoldenBookStand3", "Metadata/Chests/QuestChests/Siosa/GoldenBookStand4"];
-    public const string Fairgraves = "Metadata/NPC/Act3/Fairgraves";
+    public const string Fairgraves = "Metadata/NPC/Act3/Fairgraves",
+        FairgravesFigurehead = "Metadata/NPC/Act3/FairgravesFigurehead";
     public const string DecanterChest = "Metadata/Chests/QuestChests/Fairgraves/DecanterChest", PlumTree = "Metadata/Chests/QuestChests/Fairgraves/FruitTree";
     public const string EpicDoorLock = "Metadata/QuestObjects/EpicDoor/EpicDoorLock", EpicDoor = "Metadata/QuestObjects/EpicDoor/EpicDoor",
         EpicDoorBlocker = "Metadata/QuestObjects/EpicDoor/EpicDoorBlocker";
@@ -93,10 +95,15 @@ static class Act3Objects
     /// portal out of the Labyrinth (to town, as the plaza's) and the font (a tile record, StatueLionBase), which awards the
     /// Labyrinth's points and opens the class selector.</summary>
     public const string ChamberPortal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthReturnPortal",
-        AscendancyFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAscendancyDevice";
+        AscendancyFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAscendancyDevice",
+        DivineFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthBlessingBench";
     public const string Chamber1 = "1_Labyrinth_boss_1_end", Chamber2 = "1_Labyrinth_boss_2_end", Chamber3 = "1_Labyrinth_boss_3_end_#";
     public const string CruelChamber1 = "2_Labyrinth_boss_1_end", CruelChamber2 = "2_Labyrinth_boss_2_end",
         CruelChamber3 = "2_Labyrinth_boss_3_end_#";
+    public const string MercilessChamber1 = "3_Labyrinth_boss_1_end", MercilessChamber2 = "3_Labyrinth_boss_2_end_#",
+        MercilessChamber3 = "3_Labyrinth_boss_3_end";
+    public const string EternalChamber1 = "EndGame_Labyrinth_boss_1_end", EternalChamber2 = "EndGame_Labyrinth_boss_2_end",
+        EternalChamber3 = "EndGame_Labyrinth_boss_3_end";
 }
 
 /// <summary>
@@ -121,8 +128,9 @@ sealed class Act3 : Act
                 On.Npc(CityOfSarn, Act3Objects.ClarissaSlums, goneWith: "a3q1-RescuedGirl", freedBy: Act3Monsters.GuardCaptain),
                 On.Near(Slums, Act3Objects.ClarissaSlums, "a3q1-SeenGirl"),
                 On.Npc(Slums, Act3Objects.ClarissaSlums, goneWith: "a3q1-RescuedGirl", freedBy: Act3Monsters.GuardCaptain),
+                On.Npc(SarnEncampment, Act3Objects.ClarissaTown, null, shownBy: "a3q1-RescuedGirl"),
                 On.Seen(Crematorium, Act3Monsters.PietyEscape, "a3q2-SeenPiety"),
-                On.Threshold(Crematorium, Act3Monsters.PietyEscape, 50, Act3Objects.PietyFled),
+                On.Threshold(Crematorium, Act3Monsters.PietyEscape, 50, Act3Objects.PietyFled, "AudioEventDrivenOffPiety"),
                 new ChestRule(Crematorium, Act3Objects.TolmanChair, Act3Items.TolmansBracelet, Act3Objects.PietyFled)
                 {
                     Guards = ["Metadata/Monsters/Axis/AxisEliteSoldierGuardTolman", "Metadata/Monsters/Axis/AxisCasterGuardTolman",
@@ -211,7 +219,10 @@ sealed class Act3 : Act
             // reward (offer 25) is magic and rare rings.
             new Quest("a3q13")
             {
-                On.Npc(Docks, Act3Objects.Fairgraves, goneWith: null, shownBy: "a1q6-KilledFairgraves"),
+                On.Npc(Docks, Act3Objects.Fairgraves, goneWith: null, shownBy: "a1q6-KilledFairgraves", transitionedBy: "AudioEventFairgraves2Dead"),
+                On.Exists(Act3Objects.FairgravesFigurehead, from: "a1q6-KilledFairgraves"),
+                On.Object(Docks, Act3Objects.FairgravesFigurehead, "AudioEventFairgraves2Dead"),
+                On.TalkRow(502, "a3q13-FairgravesFarewell"),
                 // Row 496 (both items carried) takes both in that click, as online; the data's rows 497 and 498 would take
                 // them one click each.
                 On.HandIn(Act3Objects.Fairgraves, "A Swig of Hope", Act3Items.Plum, row: 496),
@@ -251,12 +262,36 @@ sealed class Act3 : Act
                 On.Object(Act3Objects.Chamber1, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.Chamber2, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.Chamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.Chamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.Chamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.Chamber3, Act3Objects.DivineFont),
                 On.Object(Act3Objects.CruelChamber1, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber2, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber3, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber1, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.CruelChamber2, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.CruelChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.CruelChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.CruelChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.CruelChamber3, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.DivineFont),
             },
             new Quest("a3q10")
             {

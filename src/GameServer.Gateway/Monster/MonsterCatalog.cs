@@ -21,6 +21,7 @@ public sealed class MonsterCatalog
         _rows = Load(folder);
         _life = LifeTables.Load(folder);
         _mapBoss = MapBossScalingTable.Load(folder);
+        _areaTiers = LoadAreaTiers();
         _takeHit = LoadTakeHit();
         _corpse = LoadCorpse();
         _degenDeath = LoadDegenDeath();
@@ -62,16 +63,36 @@ public sealed class MonsterCatalog
         /// <summary>The row's ModelSizeMultiplier as a factor (100 → 1): the client scales the model, and a skill with
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
+        /// <summary>The row's MinAgroRange (cells); 0 when the row has none.</summary>
+        public int MinAgroRange { get; init; }
+        /// <summary>The row's AilmentThreshold multiplier (percent of DefaultMonsterStats.AilmentThreshold); 0 means use LifeMultiplier.</summary>
+        public int AilmentThreshold { get; init; }
+        /// <summary>The row's MinimumAttackDistance (cells).</summary>
+        public int MinimumAttackDistance { get; init; }
+        /// <summary>Passive species Mods.dat rows from ModsKeys and Special_ModsKeys (excluding stance-only ModsKeys2).</summary>
+        public IReadOnlyList<int>? ActiveSpeciesMods { get; init; }
+        /// <summary>Area-tier Mods.dat rows applied in Part 1 (Acts 1–5), Part 2 (Acts 6–10) and Endgame (maps).</summary>
+        public IReadOnlyList<int>? Part1Mods { get; init; }
+        public IReadOnlyList<int>? Part2Mods { get; init; }
+        public IReadOnlyList<int>? EndgameMods { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>The type's .ot chain from object-types.json, for lineage-gated extras
+        /// (<see cref="MonsterObject.CanSerialize"/>): empty when object-types.json is absent.</summary>
+        public IReadOnlyList<string> Chain { get; init; } = [];
         /// <summary>Mods.dat rows owned by this MonsterVarieties row (ModsKeys, ModsKeys2 and Special_ModsKeys).</summary>
         public IReadOnlyList<int> SpeciesModsOrEmpty => SpeciesMods ?? [];
-        public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
+        public IReadOnlyList<int> ActiveSpeciesModsOrEmpty => ActiveSpeciesMods ?? SpeciesModsOrEmpty;
+        public IReadOnlyList<int> Part1ModsOrEmpty => Part1Mods ?? [];
+        public IReadOnlyList<int> Part2ModsOrEmpty => Part2Mods ?? [];
+        public IReadOnlyList<int> EndgameModsOrEmpty => EndgameMods ?? [];
+        public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null, Chain);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
     private readonly (List<Variety> Rows, string? Error) _rows;
     private readonly LifeTables? _life;
     private readonly MapBossScalingTable? _mapBoss;
+    private readonly (Dictionary<string, int> ById, Dictionary<ushort, int> ByHash) _areaTiers;
     private readonly MonsterResistanceCatalog _resistance;
     private readonly Dictionary<string, HitAnimation[]> _takeHit;
 
@@ -184,7 +205,8 @@ public sealed class MonsterCatalog
         if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
         var type = v.MonsterType >= 0 && v.MonsterType < t.Types.Count ? t.Types[v.MonsterType] : default;
         var row = t.Levels[level - 1];
-        double d = (type.Minion ? row.MinionDamage : row.Damage) * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
+        double baseDmg = type.AltLife1 ? row.AltDamage1 : type.AltLife2 ? row.AltDamage2 : type.Minion ? row.MinionDamage : row.Damage;
+        double d = baseDmg * v.DamageMultiplier / 100.0 * (type.IgnoresAttackSpeed ? 1 : v.AttackMs / 1000.0);
         double spread = (type.DamageSpread > 0 ? type.DamageSpread : 20) / 100.0;
         return (Math.Max(1, (int)Math.Round(d * (1 - spread))), Math.Max(1, (int)Math.Round(d * (1 + spread))));
     }
@@ -220,15 +242,154 @@ public sealed class MonsterCatalog
     public int? BaseAccuracy(int level) =>
         _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Accuracy : null;
 
+    /// <summary>A variety's accuracy at this level: DefaultMonsterStats `Accuracy` × MonsterTypes `Accuracy` / 100
+    /// (default 100 for standard monsters, 120–500 for accurate archetypes; verified in Game.exe 0x141e7829d).</summary>
+    public int? BaseAccuracy(Variety? variety, int level)
+    {
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
+        int acc = t.Levels[level - 1].Accuracy;
+        if (variety is null || variety.MonsterType < 0 || variety.MonsterType >= t.Types.Count) return acc;
+        int pct = t.Types[variety.MonsterType].Accuracy;
+        return pct > 0 && pct != 100 ? (int)((long)acc * pct / 100) : acc;
+    }
+
     /// <summary>A monster's evasion rating at this level: DefaultMonsterStats `Evasion` (the same table PoB uses for
     /// <c>monsterEvasionTable</c>). Null when the tables are missing.</summary>
     public int? BaseEvasion(int level) =>
         _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].Evasion : null;
 
+    /// <summary>A variety's evasion rating at this level: interpolates/extrapolates from DefaultMonsterStats `Evasion`
+    /// (MonsterTypes.Evasion = 0) through `EvasiveEvasion` (MonsterTypes.Evasion = 50), matching Game.exe 0x141e7813b.</summary>
+    public int? BaseEvasion(Variety? variety, int level)
+    {
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
+        var row = t.Levels[level - 1];
+        if (variety is null || variety.MonsterType < 0 || variety.MonsterType >= t.Types.Count) return row.Evasion;
+        int pct = t.Types[variety.MonsterType].Evasion;
+        if (pct <= 0) return row.Evasion;
+        if (pct == 50) return row.EvasiveEvasion;
+        return Math.Max(0, row.Evasion + (int)((long)(row.EvasiveEvasion - row.Evasion) * pct / 50));
+    }
+
     /// <summary>The evasion of an evasive (high-dexterity) monster at this level: DefaultMonsterStats `EvasiveEvasion`.
     /// The character panel's "Chance to Hit Evasive Monsters" row uses it.</summary>
     public int? BaseEvasiveEvasion(int level) =>
         _life is { } t && level >= 1 && level <= t.Levels.Count ? t.Levels[level - 1].EvasiveEvasion : null;
+
+    /// <summary>A variety's base armour rating at this level: DefaultMonsterStats `Armour` × MonsterTypes `Armour` / 100
+    /// (0 when MonsterTypes.Armour is 0; null when tables are missing).</summary>
+    public int? BaseArmour(Variety? variety, int level)
+    {
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (variety is null || variety.MonsterType < 0 || variety.MonsterType >= t.Types.Count) return 0;
+        int pct = t.Types[variety.MonsterType].Armour;
+        return pct <= 0 ? 0 : (int)Math.Clamp((long)t.Levels[level - 1].Armour * pct / 100, 0, int.MaxValue);
+    }
+
+    /// <summary>A variety's base energy shield at this level: ((baseLife × GameConstants.EnergyShieldRatioOfLife / 100)
+    /// × MonsterTypes.EnergyShield) / 100 (40% × type% of base life; verified in Game.exe 0x141e780ef).</summary>
+    public int? BaseEnergyShield(Variety? variety, int level, long baseLife)
+    {
+        if (_life is not { } t || level < 1 || level > t.Levels.Count) return null;
+        if (variety is null || baseLife <= 0 || variety.MonsterType < 0 || variety.MonsterType >= t.Types.Count) return 0;
+        int pct = t.Types[variety.MonsterType].EnergyShield;
+        if (pct <= 0) return 0;
+        long ratio = baseLife * t.EnergyShieldRatioOfLife / 100;
+        return (int)Math.Clamp(ratio * pct / 100, 0, int.MaxValue);
+    }
+
+    /// <summary>A variety's ailment threshold for a monster with <paramref name="maxLife"/>: scales <paramref name="maxLife"/>
+    /// by MonsterVarieties.AilmentThreshold / LifeMultiplier (e.g. Kitava A5 3000/7200 and reduced-threshold map bosses)
+    /// and DefaultMonsterStats.AilmentThreshold / matching base life column (verified in Game.exe 0x141e781f8).</summary>
+    public long AilmentThreshold(Variety? variety, int level, long maxLife)
+    {
+        if (maxLife <= 1 || variety is null) return Math.Max(1, maxLife);
+        double threshold = maxLife;
+        if (variety.AilmentThreshold > 0 && variety.LifeMultiplier > 0 && variety.AilmentThreshold != variety.LifeMultiplier)
+            threshold *= (double)variety.AilmentThreshold / variety.LifeMultiplier;
+        if (_life is { } t && level >= 1 && level <= t.Levels.Count)
+        {
+            var row = t.Levels[level - 1];
+            var type = variety.MonsterType >= 0 && variety.MonsterType < t.Types.Count ? t.Types[variety.MonsterType] : default;
+            int baseRowLife = type.AltLife1 ? row.AltLife1 : type.AltLife2 ? row.AltLife2 : type.Minion ? row.MinionLife : row.MonsterLife;
+            if (row.AilmentThreshold > 0 && baseRowLife > 0 && row.AilmentThreshold != baseRowLife)
+                threshold *= (double)row.AilmentThreshold / baseRowLife;
+        }
+        return Math.Max(1L, (long)Math.Round(threshold));
+    }
+
+    /// <summary>Area progression tier for <see cref="SpeciesModsForArea(Variety, int)"/>: 1 = Part 1 (Acts 1–5, Normal
+    /// Labyrinth), 2 = Part 2 (Acts 6–10, Cruel Labyrinth), 3 = Endgame (maps, Act 11+, Merciless/Eternal Labyrinth,
+    /// Delve, Heist).</summary>
+    public int AreaTier(string? areaId, ushort areaHash, bool isMap)
+    {
+        if (isMap) return 3;
+        if (!string.IsNullOrEmpty(areaId) && _areaTiers.ById.TryGetValue(areaId, out int byId)) return byId;
+        if (areaHash != 0 && _areaTiers.ByHash.TryGetValue(areaHash, out int byHash)) return byHash;
+        if (string.IsNullOrEmpty(areaId)) return 1;
+        return ClassifyAreaTier(areaId, act: 0, areaLevel: 0, isMapArea: false, isLabyrinth: false);
+    }
+
+    static int ClassifyAreaTier(string id, int act, int areaLevel, bool isMapArea, bool isLabyrinth)
+    {
+        if (isMapArea || act >= 11) return 3;
+        if (isLabyrinth || id.Contains("Labyrinth", StringComparison.OrdinalIgnoreCase))
+        {
+            if (id.StartsWith("EndGame_", StringComparison.OrdinalIgnoreCase)
+                || id.StartsWith("3_Labyrinth", StringComparison.OrdinalIgnoreCase)
+                || areaLevel >= 68)
+                return 3;
+            if (id.StartsWith("2_Labyrinth", StringComparison.OrdinalIgnoreCase) || areaLevel >= 55)
+                return 2;
+            return 1;
+        }
+        if (id.StartsWith("Delve_", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("Heist", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("EndGame_", StringComparison.OrdinalIgnoreCase)
+            || id.StartsWith("Map", StringComparison.OrdinalIgnoreCase))
+            return 3;
+        if (act is >= 6 and <= 10 || id.StartsWith("2_", StringComparison.Ordinal)) return 2;
+        return 1;
+    }
+
+    static (Dictionary<string, int> ById, Dictionary<ushort, int> ByHash) LoadAreaTiers()
+    {
+        var byId = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var byHash = new Dictionary<ushort, int>();
+        if (ClientTables.TableOrNull("WorldAreas") is not { } areas) return (byId, byHash);
+        foreach (var r in areas)
+        {
+            string id = r.Text("Id") ?? "";
+            if (id.Length == 0) continue;
+            int act = r.IntOrNull("Act") ?? 0;
+            int areaLevel = r.IntOrNull("AreaLevel") ?? 0;
+            bool isMap = r.BoolOrNull("IsMapArea") == true || r.BoolOrNull("IsUniqueMapArea") == true;
+            bool isLab = r.BoolOrNull("IsLabyrinthArea") == true || r.BoolOrNull("IsLabyrinthBossArea") == true;
+            int tier = ClassifyAreaTier(id, act, areaLevel, isMap, isLab);
+            byId[id] = tier;
+            if (r.IntOrNull("HASH16") is int h and > 0 and <= ushort.MaxValue)
+                byHash.TryAdd((ushort)h, tier);
+        }
+        return (byId, byHash);
+    }
+
+    /// <summary>The active species Mods.dat rows for a variety in an area: ModsKeys + Special_ModsKeys plus the area's
+    /// tier mods (1 = Part 1, 2 = Part 2, 3 = Endgame).</summary>
+    public static IReadOnlyList<int> SpeciesModsForArea(Variety variety, int tier)
+    {
+        var baseMods = variety.ActiveSpeciesModsOrEmpty;
+        var tierMods = tier >= 3 ? variety.EndgameModsOrEmpty : tier == 2 ? variety.Part2ModsOrEmpty : variety.Part1ModsOrEmpty;
+        if (tierMods.Count == 0) return baseMods;
+        if (baseMods.Count == 0) return tierMods;
+        var merged = new List<int>(baseMods.Count + tierMods.Count);
+        foreach (int m in baseMods) merged.Add(m);
+        foreach (int m in tierMods) if (!merged.Contains(m)) merged.Add(m);
+        return merged;
+    }
+
+    /// <summary>Compatibility overload mapping (part, isMap) to area tier (1 = Part 1, 2 = Part 2, 3 = Endgame).</summary>
+    public static IReadOnlyList<int> SpeciesModsForArea(Variety variety, int part, bool isMap) =>
+        SpeciesModsForArea(variety, isMap ? 3 : part >= 2 ? 2 : 1);
 
     /// <summary>
     /// The life and damage a unique map boss has more than its base life and hit at this map level: MonsterMapBossDifficulty
@@ -264,23 +425,49 @@ public sealed class MonsterCatalog
     }
 
     private sealed record LifeTables(List<(int MonsterLife, int MinionLife, int AltLife1, int AltLife2, double Damage,
-        int Experience, int Accuracy, int Evasion, int EvasiveEvasion, double MinionDamage)> Levels,
-        List<(bool Minion, bool AltLife1, bool AltLife2, int DamageSpread, bool IgnoresAttackSpeed)> Types)
+        int Experience, int Accuracy, int Evasion, int EvasiveEvasion, double MinionDamage,
+        int Armour, int AilmentThreshold, double AltDamage1, double AltDamage2)> Levels,
+        List<(bool Minion, bool AltLife1, bool AltLife2, int DamageSpread, bool IgnoresAttackSpeed,
+            int Armour, int EnergyShield, int Evasion, int Accuracy)> Types,
+        int EnergyShieldRatioOfLife)
     {
         public static LifeTables? Load(string folder)
         {
             if (!ClientTables.Has("DefaultMonsterStats") || !ClientTables.Has("MonsterTypes")) return null;
             var s = ClientTables.Table("DefaultMonsterStats");
             var t = ClientTables.Table("MonsterTypes");
+            int esRatio = 40;
+            if (ClientTables.TableOrNull("GameConstants") is { } constants)
+            {
+                foreach (var c in constants)
+                {
+                    if (c.Text("Id") == "EnergyShieldRatioOfLife")
+                    {
+                        int val = c.IntOrNull("Value") ?? 40;
+                        int div = c.IntOrNull("Divisor") ?? 1;
+                        if (val > 0 && div > 0) esRatio = val / div;
+                        break;
+                    }
+                }
+            }
             return new LifeTables(
                 [.. s.Select(r => (r.Int("MonsterLife"), r.Int("MinionLife"),
                     r.Int("AltLife1"), r.Int("AltLife2"), r.Real("Damage"),
                     r.Int("Experience"), r.Int("Accuracy"), r.Int("Evasion"),
-                    r.Int("EvasiveEvasion"), r.Real("MinionDamage")))],
+                    r.Int("EvasiveEvasion"), r.Real("MinionDamage"),
+                    r.IntOrNull("Armour") ?? 0,
+                    r.IntOrNull("AilmentThreshold") ?? r.Int("MonsterLife"),
+                    r.RealOrNull("AltDamage1") ?? r.Real("Damage"),
+                    r.RealOrNull("AltDamage2") ?? r.Real("Damage")))],
                 [.. t.Select(r => (r.Bool("IsPlayerMinion"), r.Bool("AltLife1"),
                     r.Bool("AltLife2"),
                     (r.IntOrNull("DamageSpread") ?? 0),
-                    r.BoolOrNull("BaseDamageIgnoresAttackSpeed") == true))]);
+                    r.BoolOrNull("BaseDamageIgnoresAttackSpeed") == true,
+                    r.IntOrNull("Armour") ?? 0,
+                    r.IntOrNull("EnergyShield") ?? 0,
+                    r.IntOrNull("Evasion") ?? 0,
+                    r.IntOrNull("Accuracy") ?? 100))],
+                esRatio);
         }
     }
 
@@ -440,9 +627,17 @@ public sealed class MonsterCatalog
                 int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
                     .SelectMany(r.Ints)
                     .Distinct().ToArray();
+                int[] activeSpeciesMods = new[] { "ModsKeys", "Special_ModsKeys" }
+                    .SelectMany(r.Ints)
+                    .Distinct().ToArray();
+                int[] part1Mods = r.Ints("Part1_ModsKeys");
+                int[] part2Mods = r.Ints("Part2_ModsKeys");
+                int[] endgameMods = r.Ints("Endgame_ModsKeys");
+                int lifeMult = r.Int("LifeMultiplier");
+                int ailmentThreshold = r.IntOrNull("AilmentThreshold") is int at and > 0 ? at : lifeMult;
                 rows.Add(new Variety(rows.Count, id, r.Text("Name") ?? "", baseType, ao,
                     components.Count == 0 ? null : components.GetValueOrDefault(type),
-                    r.Int("LifeMultiplier"),
+                    lifeMult,
                     !r.IsNull("MonsterTypesKey") ? r.Int("MonsterTypesKey") : -1,
                     machine, transitionStates.GetValueOrDefault(type, (byte)1),
                     r.Int("MovementSpeed"), r.Int("ObjectSize"), r.Int("MaxAgroRange"),
@@ -453,10 +648,18 @@ public sealed class MonsterCatalog
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
+                        Chain = chain,
                         SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
+                        MinAgroRange = r.IntOrNull("MinAgroRange") ?? 0,
+                        AilmentThreshold = ailmentThreshold,
+                        MinimumAttackDistance = r.IntOrNull("MinimumAttackDistance") ?? 0,
+                        ActiveSpeciesMods = activeSpeciesMods,
+                        Part1Mods = part1Mods,
+                        Part2Mods = part2Mods,
+                        EndgameMods = endgameMods,
                     });
             }
         }

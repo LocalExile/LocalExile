@@ -162,7 +162,7 @@ in the leagues that list it; a mod's run in every league, after the modules'.
 | `AreaGenerated` | the area is ready: after the client's "area generated", with the monsters and objects placed | |
 | `ObjectUse` | a click on an object the Gateway's own objects did not take | `true`: it was this owner's |
 | `MonsterKilled` | a hostile monster died by the player's hand: before its experience and drops, right after them for a projectile's kill (a bow, a spell) | |
-| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold` (multipliers, on top of the league's), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled) |
+| `Drops` | its drops, before they roll | `Quantity`, `Rarity`, `Gold`, `MapRelated` (multipliers, on top of the league's), `Weights` (factors on the server's own kill roll: the kinds, a map's base card and scarab chances and its extra card, scarab and currency drops, and single currency, card and scarab types), `Cancel`, `Items` (extra items, named as `/item` takes them), `Stacks` (stackable items with a count, split at the item's stack size), `Made` (extra items, already made and rolled), `AddTransform` (a change to the rolled drops) |
 | `Gambles` | a gamble window as it opens (an NPC whose shop is the black market, window kind 10), with `CharacterLevel` and `PriceLevel` | `Offers` (add, remove or reprice offers) |
 | `FeatureFilled` | asked with an `ExtraTerrainFeatures` row's Id when a map links that row's sub-area to it (the Sacred Grove) | `true`: this owner fills it; without one the gates into it are not shown |
 | `InventorySlot` | each of the player's inventories as it is registered with the client on entering an area (S→C 0xc0) | another kind or flags for the row; the first answer wins |
@@ -225,8 +225,15 @@ warning).
 A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
 LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
 reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
-own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads. A mod
-breaks when what it uses in the server changes, as a module would, and is fixed in its own repository.
+own, and those subscriptions run in every league while it is loaded; the host releases them when it unloads.
+
+The PR tests check compiled official mods against the proposed server. From the repository root, run
+`dotnet build GameServer.slnx -c Release`, then `dotnet run --project scripts/dev/mod-compat -c Release`.
+The check verifies each release ZIP's SHA-256 and reports the mod and signature for each missing server reference.
+For an offline run, append `-- . <zip-directory>` to the second command. The ZIPs keep their release filenames.
+When adding support for another published DLL, add its mod id, version and ZIP SHA-256 to
+`scripts/dev/mod-compat/releases.json`. Keep older entries for as long as their binaries are supported.
+Script mods compile from source when loaded. Command behavior needs a separate runtime test.
 
 When a mod needs the framework to hand it something it does not, its LocalExile pull request adds a **general hook or
 event**, one any mod could use ("before an item is rolled", "when currency lands"), and nothing else. The feature's

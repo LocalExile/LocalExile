@@ -101,11 +101,11 @@ public static partial class Game
         bool live = TargetLive(t, player);
         if (live && ReferenceEquals(t, player))
         {
-            if (!m.Aggro && candidate.Distance > m.AggroRange) m.Target = null; // gave up: free for whoever comes
+            if (!m.Aggro && candidate.Distance > MonsterNoticeRange(m)) m.Target = null; // gave up: free for whoever comes
             return true;
         }
-        // In its reach, or still chasing (the AI gives up beyond twice its aggro range, as before).
-        double reach = Math.Max(1, m.AggroRange) * (m.Aggro && !live ? 2 : 1);
+        // In its reach, or still chasing (the AI gives up beyond its leash range).
+        double reach = Math.Max(1, !m.Aggro ? MonsterNoticeRange(m) : live ? m.AggroRange : MonsterLeashRange(m));
         if (player.PlayerLife == 0 || candidate.Distance > reach) return false;
         if (live)
         {
@@ -134,46 +134,85 @@ public static partial class Game
     // At disconnect: this player's minions leave the instance with them.
     public static void RemoveLeavingMinionsLocked(Player left)
     {
-        foreach (uint id in left.MinionOrigins.Keys) left.Instance.World.Area.Monsters.Remove(id);
+        foreach (uint id in left.MinionOrigins.Keys)
+        {
+            if (OwnedFighter(left, id) is { } fighter)
+            {
+                ClearItemHarbingerLocked(left, fighter);
+                ClearEffigyHexesLocked(fighter);
+                ClearSkitterAuraLocked(fighter);
+                ClearSharedMinionAuras(left, id);
+            }
+            left.Instance.World.Area.Monsters.Remove(id);
+        }
     }
 
 
-    // The area's wake zone: a monster is awake while any player in the area is near it (WakeZoneRadius, back within
-    // WakeZoneReturn), and every client is told when that changes (S->C 0x1a9 / 0x1aa). Asleep, its walk stands and the
-    // AI gives it no order. Players far apart each keep their own surroundings awake.
-    const int WakeZoneRadius = 171, WakeZoneReturn = 163;
+    // The area's wake zone is the official square, not a circle: a monster or a corpse is in it while
+    // max(|dx|, |dy|) <= 172 around any player in the area, and every client is told when that changes
+    // (S->C 0x1a9 / 0x1aa). One number both ways: no hysteresis band. A monster at (172, 172) is still awake,
+    // where the old Euclid circle (171 out, 163 back) had already put it to sleep at (121, 121). Asleep, a live
+    // monster's walk stands and the AI gives it no order. Players far apart each keep their own surroundings awake.
+    const int WakeZoneHalfSide = 172;
+    // The Euclid reach of the square's corner (ceil(172 * sqrt(2))): the radius a grid query needs to cover every
+    // monster the square wakes.
+    const int WakeZoneCorner = 244;
+
+    /// <summary>Whether a monster or corpse at <paramref name="at"/> is in the wake zone of the player at
+    /// <paramref name="player"/>: the official square, max(|dx|, |dy|) &lt;= 172. The same test decides leaving
+    /// and coming back.</summary>
+    public static bool InWakeZone((int X, int Y) at, (int X, int Y) player) =>
+        Math.Max(Math.Abs((long)at.X - player.X), Math.Abs((long)at.Y - player.Y)) <= WakeZoneHalfSide;
 
     internal static void StepAreaWake(Player view)
     {
-        var area = view.Area;
         double now = AreaTime(view);
         var players = view.Frames.Players().Where(p => !p.Closed && !p.LeavingArea && p.Connection.PlayerSent)
             .Select(p => p.Walk.Position(now)).ToArray();
         if (players.Length == 0) return;
+        StepAreaWake(view, players, now);
+    }
+
+    internal static void StepAreaWake(Player view, (int X, int Y)[] players, double now)
+    {
+        if (players.Length == 0) return;
+        var area = view.Area;
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters))
         {
-            if (m.Dead || m.Life <= 0 || m.OwnerId is not null || m.WorldHidden) continue;
+            if (m.OwnerId is not null || m.WorldHidden || m.CorpseConsumed || m.Ailments.Shattered) continue;
+            // Corpses join the wake zone too: the official wakes and sleeps them like live monsters, but they get
+            // only the enter / leave messages -- no walk to stop, no AI to clear, no teleport back (a corpse stands
+            // where it died). Consumed or shattered corpses were already removed from the client (0x2bd / shatter)
+            // and stay skipped.
+            bool corpse = m.Dead || m.Life <= 0;
             var at = m.Walk.Position(now);
-            double nearest = double.MaxValue;
-            foreach (var p in players) nearest = Math.Min(nearest, Dist(at, p));
-            if (!m.Asleep && nearest > WakeZoneRadius)
+            long nearest = long.MaxValue;
+            foreach (var p in players)
+                nearest = Math.Min(nearest, Math.Max(Math.Abs((long)at.X - p.X), Math.Abs((long)at.Y - p.Y)));
+            if (!m.Asleep && nearest > WakeZoneHalfSide)
             {
                 m.Asleep = true;
-                m.Walk.StopAt(now);
-                m.Leg = null;
-                m.ClientChase = null;
-                m.LastTarget = null;
-                m.SwingGeneration = null;
-                m.ActionGeneration++;
+                if (!corpse)
+                {
+                    m.Walk.StopAt(now);
+                    m.Leg = null;
+                    m.ClientChase = null;
+                    m.LastTarget = null;
+                    m.SwingGeneration = null;
+                    m.ActionGeneration++;
+                }
                 area.Delta.Add(id, InstanceProtocol.LeaveWakeZone(id), $"0x01aa monster 0x{id:x} leaves the area's wake zone");
             }
-            else if (m.Asleep && nearest <= WakeZoneReturn)
+            else if (m.Asleep && nearest <= WakeZoneHalfSide)
             {
                 m.Asleep = false;
                 area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), $"0x01a9 monster 0x{id:x} enters the area's wake zone");
-                // Back where the server has it (its walk stood while it slept).
-                area.Delta.Add(id, InstanceProtocol.Teleport(id, at.X, at.Y));
-                if (Arakaali.StanceUpdateLocked(view, id, now) is { } stance) area.Delta.Add(id, stance);
+                if (!corpse)
+                {
+                    // Back where the server has it (its walk stood while it slept).
+                    area.Delta.Add(id, InstanceProtocol.Teleport(id, at.X, at.Y));
+                    if (Arakaali.StanceUpdateLocked(view, id, now) is { } stance) area.Delta.Add(id, stance);
+                }
             }
         }
     }
@@ -183,8 +222,8 @@ public static partial class Game
     {
         double now = AreaTime(player);
         foreach (var p in player.Frames.Players())
-            if (!p.Closed && !p.LeavingArea && Dist(at, p.Walk.Position(now)) <= WakeZoneRadius) return false;
-        return Dist(at, player.Walk.Position(now)) > WakeZoneRadius;
+            if (!p.Closed && !p.LeavingArea && InWakeZone(at, p.Walk.Position(now))) return false;
+        return !InWakeZone(at, player.Walk.Position(now));
     }
 
     /// <summary>Whether the monster is in the area: then every client has it (its create went to all of them).</summary>
@@ -241,17 +280,28 @@ public static partial class Game
                 $"0x0020 the area's {area.MonsterTypes.Count} monster type(s)", AreaDelta.Kind.Message, only: player);
         foreach (var (id, m) in area.Monsters.Concat(area.DormantMonsters).OrderBy(e => e.Key))
         {
-            if (player.Connection.WorldOutput.Has(id)) continue;
+            if (player.Connection.WorldOutput.HasDirect(id) || area.Delta.HasCreateFor(id, player)) continue;
             bool corpse = (m.Dead || m.Life == 0) && m.CreatedAsCorpse && !m.CorpseConsumed;
             if (!m.WorldHidden && ((!m.Dead && m.Life > 0) || corpse) && m.OwnerId != player.Id)
                 AddMonsterCreate(player, id, m, now, only: player);
         }
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
             if (peer is { } other && other.Connection.PlayerSent && !other.Closed && !other.LeavingArea && other.PeerTemplate is not null)
-                foreach (var (bytes, kind) in PlayerCreate(other, player, now)) area.Delta.Add(other.Id, bytes, null, kind, only: player);
+            {
+                var otherAt = other.Walk.Position(now);
+                foreach (var (bytes, kind) in PlayerCreate(other, player, now))
+                    area.Delta.Add(other.Id, bytes,
+                        kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{other.Id:x} ({CharacterName(other)}) at ({otherAt.X}, {otherAt.Y})" : null,
+                        kind, only: player);
+            }
         if (player.PeerTemplate is not null)
+        {
+            var selfAt = player.Walk.Position(now);
             foreach (var (bytes, kind) in PlayerCreate(player, player, now))
-                area.Delta.Add(player.Id, bytes, $"player 0x{player.Id:x} {CharacterName(player)} joins the area", kind, except: player);
+                area.Delta.Add(player.Id, bytes,
+                    kind == AreaDelta.Kind.Create ? $"0x02bb create peer player 0x{player.Id:x} ({CharacterName(player)}) at ({selfAt.X}, {selfAt.Y})" : null,
+                    kind, except: player);
+        }
         // The area's objects as the others have them, then what the area's entities have now: their buffs and the stats
         // written since their creates.
         area.Objects.Join(player);
@@ -276,6 +326,7 @@ public static partial class Game
             GridX = at.X,
             GridY = at.Y,
             Life = corpse ? 1u : m.Life,
+            EnergyShield = corpse ? 0u : MonsterEnergyShieldOf(m) is { Max: > 0 } es ? es.Current : o.Object.EnergyShield,
             Team = m.TemporarilyAllied ? (ushort)0 : o.Object.Team,
         };
         // One that has risen meanwhile is created risen (targetable), not in the wait it was placed in.
@@ -350,7 +401,9 @@ public static partial class Game
     {
         if (!player.Area.MonsterTypes.Add((row, level))) return;
         var bytes = InstanceEntities.MonsterTypes([(row, level)]);
-        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message);
-        if (!player.Connection.WorldOutput.Started) await Send(player, bytes, log);
+        bool direct = !player.Connection.WorldOutput.Started;
+        if (player.Area.Owned) player.Area.Delta.Add(0, bytes, log, AreaDelta.Kind.Message, except: direct ? player : null);
+        // Direct writes encrypt in place. The area keeps its plaintext for other clients.
+        if (direct) await Send(player, bytes.ToArray(), log);
     }
 }
