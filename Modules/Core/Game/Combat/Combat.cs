@@ -2122,7 +2122,8 @@ public static partial class Game
         bool channelled = Supports.Of(gem.Effect)?.Types.Contains(47) == true;
         // A spell's repeats (SpellRepeats) land again a cast time apart, with the use's critical roll; a melee attack's
         // Multistrike repeats are swings of the same paid use, each a full attack time apart.
-        int spellRepeats = SpellRepeats(player, skillId, gem.Effect);
+        int spellRepeats = Math.Max(0, SpellRepeats(player, skillId, gem.Effect)
+            - ShockNovaProcessionRepeats(player, gem.Effect, gem.Level, gem.Quality));
         int meleeRepeats = channelled || spellRepeats > 0 ? 0 : MeleeAttackRepeats(player, skillId);
         double repeatInterval = meleeRepeats > 0 ? SupportedAttackSeconds(player, skillId, sequence) : 0;
         if (meleeRepeats > 0) actionToken ??= player.ActionCount;
