@@ -420,11 +420,12 @@ public static partial class Game
     }
 
     [Flags]
-    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8 }
+    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Mark = 16 }
 
     static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
         (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
         | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
+        | (skills.HasType(effect, "Mark") ? CostEfficiency.Mark : CostEfficiency.None)
         | (skills.EffectId(effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? CostEfficiency.Spectre : CostEfficiency.None)
         | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
 
@@ -477,6 +478,7 @@ public static partial class Game
         }
         long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
             + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((efficiency & CostEfficiency.Mark) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills) : 0)
             + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
