@@ -5,7 +5,9 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
 using GameServer.Modules.Expedition;
+using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
@@ -24,10 +26,16 @@ public sealed class ExpeditionTests
         uint seed = ServerLevels.PlayableSeed(area, 1304805886, 0, null, LeagueCategory.None, [((ushort)0x086a, kept)]);
         Assert.Equal(1304805886u, seed);
         ushort hash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == area).Int("HASH16");
-        var room = ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, seed));
+        var layout = AreaLayouts.For(hash, seed);
+        var room = ExpeditionEncounter.RoomDetonator(layout);
         Assert.NotNull(room);
         Assert.Equal((839, 631), room.Value.Cell);
         Assert.Equal(3 * Math.PI / 2, room.Value.Rotation, 4);
+        Assert.NotNull(ExpeditionEncounter.RoomNpc(layout));
+        Assert.Equal("Metadata/Monsters/LeagueExpedition/NPC/ExpeditionGwennen_", ExpeditionEncounter.WildNpcPath("Faction1"));
+        Assert.Equal("Metadata/Monsters/LeagueExpedition/NPC/ExpeditionTujen", ExpeditionEncounter.WildNpcPath("Faction2"));
+        Assert.Equal("Metadata/Monsters/LeagueExpedition/NPC/ExpeditionRog", ExpeditionEncounter.WildNpcPath("Faction3"));
+        Assert.Equal("Metadata/Monsters/LeagueExpedition/NPC/ExpeditionDannig", ExpeditionEncounter.WildNpcPath("Faction4"));
         uint plain = ServerLevels.PlayableSeed(area, 1304805887, 0, null, LeagueCategory.None, null);
         Assert.Null(ExpeditionEncounter.RoomDetonator(AreaLayouts.For(hash, plain)));
         await Encounter_is_the_instances_and_every_entering_player_is_replayed_it();
@@ -261,5 +269,81 @@ public sealed class ExpeditionTests
         var (row, payload) = InstanceRulesets.ReadAction(placement);
         Assert.Equal((byte)116, row);
         Assert.Equal((1055, 1208), ExpeditionWire.ReadPlacement(payload));
+
+        // Detonator StateMachine carries three shared states [activated, light_colour, explosives_placed] with explicit override flags.
+        byte[]? detonatorPlacing = ExpeditionWire.StateUpdate(0x3ff, ExpeditionEncounter.DetonatorType, [0, 1, 1], true);
+        Assert.NotNull(detonatorPlacing);
+        Assert.Equal("0300000201020102", Convert.ToHexString(detonatorPlacing![^8..]));
+    }
+
+    [GameFilesFact]
+    public async Task Expedition_registers_before_enter_places_detonator_state_and_spawns_npc()
+    {
+        const string area = "MapWorldsForbiddenWoods";
+        byte[] kept = [0x04, 0x00]; // Faction2 -> ExpeditionTujen
+        uint seed = ServerLevels.PlayableSeed(area, 1304805886, 0, null, LeagueCategory.None, [((ushort)0x086a, kept)]);
+        ushort hash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == area).Int("HASH16");
+        var layout = AreaLayouts.For(hash, seed);
+        var instance = new InstanceState();
+
+        TestEnvironment.OpenOwnSaves("expedition-npc");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        var module = new ModuleLifetime("Expedition");
+        new ExpeditionModule().Load(Context(module));
+        await using var owner = await Wire.Open(layout, seed, instance, "ExpeditionNpcOwner");
+        owner.Player.LeagueModule = new(new League("expedition-test", "Standard", false, false),
+            new HashSet<string>(["Game", "Expedition"]));
+        instance.World.Runner = owner.Player;
+        Program.InGame.TryAdd(owner.Player, 0);
+        try
+        {
+            var before = GameEvents.RunBeforeEnterMessages(owner.Player).ToList();
+            byte row = ExpeditionTables.RulesetRow!.Value;
+            Assert.Contains(before, m => m.Message.AsSpan().SequenceEqual(InstanceProtocol.AddRuleset(row)));
+            Assert.DoesNotContain(GameEvents.RunEnterMessages(owner.Player),
+                m => m.Message.AsSpan().SequenceEqual(InstanceProtocol.AddRuleset(row)));
+
+            await GameEvents.RunAreaGenerated(owner.Player);
+            var detonator = ExpeditionEncounter.RoomDetonator(layout)!.Value;
+            owner.Player.Walk.Teleport(detonator.Cell.X, detonator.Cell.Y, Game.AreaTime(owner.Player));
+            var work = GameEvents.AreaTickWork(owner.Player);
+            await GameEvents.RunAreaTick(work, owner.Player, 0.1);
+
+            Assert.Contains(owner.Player.Area.Monsters.Values,
+                m => m.Variety?.Id == ExpeditionEncounter.WildNpcPath("Faction2") && !m.Hostile && m.Scripted);
+        }
+        finally
+        {
+            Program.InGame.TryRemove(owner.Player, out _);
+            PlayerInventories.Forget(owner.Player.Character.Name!);
+            module.Stop(ex => throw ex);
+            GameEventOwners.Release("Expedition", GameEventOwners.ModuleRank);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    static IModuleContext Context(IModuleLifetime lifetime)
+    {
+        var context = System.Reflection.DispatchProxy.Create<IModuleContext, ModuleHook>();
+        ((ModuleHook)(object)context).Lifetime = lifetime;
+        return context;
+    }
+
+    public class ModuleHook : System.Reflection.DispatchProxy
+    {
+        public IModuleLifetime Lifetime = null!;
+        protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args) => method!.Name switch
+        {
+            "get_Lifetime" => Lifetime,
+            "get_Manifest" => new ModManifest(Lifetime.Id, "0", ModKind.Feature, [], Lifetime.Id + ".dll"),
+            "Log" => null,
+            _ => throw new NotSupportedException(method.Name),
+        };
     }
 }

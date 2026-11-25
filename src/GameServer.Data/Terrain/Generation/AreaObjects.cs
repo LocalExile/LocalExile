@@ -140,7 +140,8 @@ public static class AreaObjects
                     if (room.Room.Doodads[i] is var d && keep(d.Type)) lines[i] = Add(d.Type, d.Model, d.X, d.Y, d.Angle, d.FixedHeight ?? float.NaN, d.Scale, d.Flip);
                 if (points)
                     foreach (var p in room.Room.Points)
-                        if (p.Name.StartsWith("Metadata/", StringComparison.Ordinal) && keep(p.Name)) Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);
+                        if ((p.Name.StartsWith("Metadata/", StringComparison.Ordinal) || p.Name == "expedition_npc") && keep(p.Name))
+                            Add(p.Name, "", p.X, p.Y, p.Angle, float.NaN);
                 if (links is not null)
                     foreach (var l in room.Room.Links)
                         if (lines.TryGetValue(l.From, out int from) && lines.TryGetValue(l.To, out int to)) links.Add(new PlacedLink(from, to, l.Name));

@@ -40,7 +40,7 @@ public sealed class ExpeditionEncounter : IDisposable
     public sealed record Remnant((int X, int Y) Cell, IReadOnlyList<ExpeditionTables.RelicMod> Mods, uint Id, double Rotation = 0);
     public sealed record Plan((int X, int Y) Detonator, float Rotation, string FactionId, int Explosives,
         List<Marker> Markers, List<Remnant> Remnants, (int MinX, int MinY, int MaxX, int MaxY) Box,
-        List<(int X, int Y, byte Size)> Dirt);
+        List<(int X, int Y, byte Size)> Dirt, (int X, int Y)? Npc = null, float NpcRotation = 0);
 
     sealed class Chest
     {
@@ -74,6 +74,7 @@ public sealed class ExpeditionEncounter : IDisposable
         public Stage Stage = Stage.Hidden;
         public bool Revealed;
         public uint DetonatorId;
+        public uint NpcId;
         public readonly Dictionary<uint, Piece> Pieces = [];
         public readonly List<(int X, int Y)> Explosives = [];
         public readonly List<uint> ExplosiveIds = [];
@@ -93,6 +94,7 @@ public sealed class ExpeditionEncounter : IDisposable
     /// encounter room <c>Metadata/Terrain/Leagues/Expedition/encounter.arm</c>, so it is created where that room is in the
     /// layout and nowhere else.</summary>
     public const string DetonatorType = "Metadata/MiscellaneousObjects/Expedition/ExpeditionDetonator";
+    public const string NpcPoint = "expedition_npc";
     const string ExplosiveType = "Metadata/MiscellaneousObjects/Expedition/ExpeditionExplosive";
     const string PoleType = "Metadata/MiscellaneousObjects/Expedition/ExpeditionConnectorPole";
     const string FuseType = "Metadata/MiscellaneousObjects/Expedition/ExpeditionExplosiveFuse";
@@ -176,13 +178,28 @@ public sealed class ExpeditionEncounter : IDisposable
     /// <summary>The detonator the area's own layout holds: the <see cref="DetonatorType"/> line of the encounter room the
     /// generation placed, with a negative angle taken as the same turn above zero (the official create's f32 is 3π/2 for
     /// the line's −π/2). Null when the layout has no such room.</summary>
-    public static ((int X, int Y) Cell, float Rotation)? RoomDetonator(AreaLayout layout)
+    public static ((int X, int Y) Cell, float Rotation)? RoomDetonator(AreaLayout layout) => RoomPoint(layout, DetonatorType);
+
+    /// <summary>The expedition NPC spot (<c>expedition_npc</c>) placed by the encounter room.</summary>
+    public static ((int X, int Y) Cell, float Rotation)? RoomNpc(AreaLayout layout) => RoomPoint(layout, NpcPoint);
+
+    static ((int X, int Y) Cell, float Rotation)? RoomPoint(AreaLayout layout, string type)
     {
         foreach (var o in layout.Level?.RoomObjects ?? [])
-            if (o.Type == DetonatorType)
+            if (o.Type == type)
                 return ((o.X, o.Y), o.Rotation < 0 ? o.Rotation + MathF.Tau : o.Rotation);
         return null;
     }
+
+    /// <summary>Wild NPC monster variety path for the rolled Expedition faction (<c>ExpeditionFactions</c>).</summary>
+    public static string WildNpcPath(string factionId) => factionId switch
+    {
+        "Faction1" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionGwennen_",
+        "Faction2" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionTujen",
+        "Faction3" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionRog",
+        "Faction4" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionDannig",
+        _ => "",
+    };
 
     /// <summary>Whether this instance's area gets the encounter: it declares ExpeditionPlugin and the layout holds its room.
     /// Decided once per instance. The first to ask also names the owner: the map's, or the player whose entry came first.</summary>
@@ -414,22 +431,33 @@ public sealed class ExpeditionEncounter : IDisposable
                 ao: ExpeditionTables.RelicAo, mods: [.. remnant.Mods.Select(m => new ItemMod(ModSection.Explicit, m.Hash, m.Values))],
                 stateValues: state.Broken.Contains(index) ? BrokenRemnant : null));
         }
+        if (state.NpcId == 0 && plan.Npc is { } npcAt && WildNpcPath(plan.FactionId) is { Length: > 0 } npcPath
+            && Monsters.Find(npcPath) is { Supported: true } npcVariety)
+        {
+            uint npcId = await SpawnMonster(player, npcVariety, AreaLevel(player), MonsterRarity.Normal, npcAt.X, npcAt.Y,
+                friendly: true, instanceOwned: true, scripted: true, rotation: plan.NpcRotation,
+                shape: m => m with { StateMachine = npcVariety.StateMachine, HasDialogue = false, NpcFlags = 0, InteractionFlags = 0 });
+            if (npcId != 0)
+            {
+                state.NpcId = npcId;
+                if (player.Area.Monsters.TryGetValue(npcId, out var npcBody)) npcBody.States = npcVariety.StateMachine;
+            }
+        }
     }
 
     static readonly int[] BrokenRemnant = [0, 1, 1];
 
-    /// <summary>The detonator's StateMachine values for the stage [capture: 0, 1, 0 while explosives are placed, 0, 2, 1 once
-    /// it is set off and 1, 2, 1 when the chain is done]; null for the type's own.</summary>
+    /// <summary>The detonator's StateMachine values for the stage: <c>[activated, light_colour, explosives_placed]</c>.</summary>
     static IReadOnlyList<int>? DetonatorStates(State state) => state.Stage switch
     {
-        Stage.Placing => [0, 1, 0],
+        Stage.Placing => [0, 1, state.Explosives.Count > 0 ? 1 : 0],
         Stage.Chain or Stage.Fight => state.Blasts >= state.Explosives.Count && state.Explosives.Count > 0 ? [1, 2, 1] : [0, 2, 1],
         Stage.Over => [1, 2, 1],
         _ => null,
     };
 
     static Task UpdateDetonator(Player player, State state) => Update(player, state.DetonatorId,
-        DetonatorStates(state) is { } values ? ExpeditionWire.StateUpdate(state.DetonatorId, DetonatorType, values, false) : null,
+        DetonatorStates(state) is { } values ? ExpeditionWire.StateUpdate(state.DetonatorId, DetonatorType, values, true) : null,
         "Expedition detonator state");
 
     // ---- The encounter's clock -------------------------------------------------------------------------------------------
@@ -539,6 +567,7 @@ public sealed class ExpeditionEncounter : IDisposable
                              (int)Math.Round(end.Y + (want.Y - end.Y) * ExpeditionTables.PlaceRange / d)));
         state.Explosives.Add(cell);
         state.Left--;
+        if (state.Explosives.Count == 1) await UpdateDetonator(player, state);
         await Broadcast(player, ExpeditionWire.Placed(cell, state.Explosives), "0x2c9 Expedition 01");
         var covered = Covered(plan, state.Explosives);
         await Broadcast(player, ExpeditionWire.Summary(ExpeditionTables.SumStats(covered.SelectMany(r => r.Mods)), covered.Count, plan.Remnants.Count),
@@ -838,7 +867,9 @@ public sealed class ExpeditionEncounter : IDisposable
             if (!dirt.Any(d => d.X == lattice.Item1 && d.Y == lattice.Item2)) dirt.Add((lattice.Item1, lattice.Item2, size));
         }
         dirt.Sort((a, b) => b.Size.CompareTo(a.Size));
-        return new Plan(site, room.Rotation, factionId, explosives, markers, remnants, box, dirt);
+        var npcSpot = RoomNpc(layout);
+        var npcCell = npcSpot?.Cell ?? SpotNear(layout, site, 10, 22, rng);
+        return new Plan(site, room.Rotation, factionId, explosives, markers, remnants, box, dirt, npcCell, npcSpot?.Rotation ?? 0f);
     }
 
     /// <summary>A cell at a distance in <paramref name="range"/> from the detonator, inside the map, on floor and at least
