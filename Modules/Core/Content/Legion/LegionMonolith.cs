@@ -332,7 +332,9 @@ static partial class LegionMonolith
         {
             await Show(player, e);
             await ShowRules(player, e);
-            await LegionStasis.Present(player, e.Army, e.Plan);
+            List<LegionStasis.Member>? army;
+            lock (e) army = e.Army is { } live ? [.. live] : null;   // MarkBroken/AddMember change e.Army in place
+            await LegionStasis.Present(player, army, e.Plan);
             await ShowBoxes(player, e);
         }
     }
@@ -343,9 +345,14 @@ static partial class LegionMonolith
     {
         var states = Defaults!;
         if (phase == Phase.Idle) return states;
-        int lightning = e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken) ? 1 : 0;
-        int chests = e?.Army is { } spawned ? spawned.Count(m => m.Chest)
-            : e?.Plan?.Factions.Sum(f => f.Chests.Length) ?? 1;
+        int lightning = 0, chests = e?.Plan?.Factions.Sum(f => f.Chests.Length) ?? 1;
+        if (e is not null)
+            lock (e)
+                if (e.Army is { } army)
+                {
+                    lightning = army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken) ? 1 : 0;
+                    chests = army.Count(m => m.Chest);
+                }
         int crystal = Math.Clamp(chests, 1, 3);
         return phase switch
         {
