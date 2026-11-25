@@ -99,6 +99,86 @@ public sealed class EquipmentAndUniqueFlaskTests
             Assert.Equal(5, items.Items(PlayerInventories.Flask).Single().Item.Charges);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+        await EquipmentCleansesAilmentsAfterPaidFlasks();
+    }
+
+    static async Task EquipmentCleansesAilmentsAfterPaidFlasks()
+    {
+        var results = new List<((bool Bleed, bool Ignite, bool Chill, bool Freeze) Expected,
+            (bool Bleed, bool Ignite, bool Chill, bool Freeze) Actual)>();
+        foreach (string flaskName in new[] { "Quartz Flask", "Small Life Flask" })
+        foreach (uint stat in new[] { 0u, Stat.RemoveBleedOnFlaskUse, Stat.RemoveIgniteAndBurningOnFlaskUse,
+                     Stat.RemoveChillAndFreezeOnFlaskUse })
+        {
+            var clock = new CastClock { At = 10 };
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            var items = Game.ItemsOf(player);
+            if (stat == Stat.RemoveBleedOnFlaskUse)
+            {
+                const byte slot = 1;
+                var unique = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(71)));
+                var mod = Program.Items.Mods.ById("AnimalCharmRemoveBleedOnFlaskUse")!;
+                var jewel = unique with { Mods = [new ItemMod(ModSection.Explicit, mod.Hash, [1])] };
+                player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+                Assert.Null(Game.PassiveJewelRefusal(player, slot, 0, jewel));
+                items.Add(PlayerInventories.PassiveJewels, slot, 0, jewel);
+            }
+            else if (stat != 0)
+            {
+                bool ignite = stat == Stat.RemoveIgniteAndBurningOnFlaskUse;
+                var belt = ModItem("Leather Belt", ItemRarity.Rare,
+                    (ignite ? "RemoveIgniteOnFlaskUseUber1" : "RemoveFreezeOnFlaskUseUber1_", new[] { 1 })) with
+                { Influences = ignite ? ItemInfluence.Elder : ItemInfluence.Shaper };
+                items.Add(PlayerInventories.Belt, 0, 0, belt);
+            }
+
+            foreach (var item in items.Items(PlayerInventories.Flask).ToArray()) items.Remove(PlayerInventories.Flask, item.Id);
+            var flask = ItemCatalog.Create(Program.Items.Find(flaskName)!) with { Charges = 0 };
+            var row = items.Add(PlayerInventories.Flask, 0, 0, flask);
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                if (stat != 0) Assert.Equal(1, Game.CharacterPlayerStats(player).GetValueOrDefault(stat));
+                player.PlayerLife = Math.Min(100u, player.PlayerMaxLife / 2);
+                double now = clock.At;
+                bool ApplyBleed() => player.IncomingAilments.ApplyBleed(now, 10, 15);
+                var hit = DamagePacket.Of(DamageType.Fire, 15000, 15000)
+                    .Add(DamageType.Cold, new(15000, 15000)).Add(DamageType.Lightning, new(15000, 15000));
+                void ApplyElemental() => player.ElementalAilments.Apply(hit, hit, true, player.Pools.Life, now, _ => 0, new Random(17));
+                (bool Bleed, bool Ignite, bool Chill, bool Freeze) Ailments()
+                {
+                    var elemental = player.ElementalAilments.Snapshot(now);
+                    return (player.IncomingAilments.Bleeding(now), elemental.Ignite, elemental.Chill > 0, elemental.Freeze);
+                }
+                Assert.True(ApplyBleed());
+                Assert.True(player.IncomingAilments.ApplyPoison(now, 10, 15));
+                ApplyElemental();
+                Assert.Equal((true, true, true, true), Ailments());
+                await Game.UseFlask(player, 0);
+                Assert.Equal(0, Assert.Single(items.Items(PlayerInventories.Flask)).Item.Charges);
+                Assert.Equal((true, true, true, true), Ailments());
+
+                int charges = flaskName == "Quartz Flask" ? 60 : 21;
+                items.Change(PlayerInventories.Flask, row.Id, item => item with { Charges = charges });
+                await Game.UseFlask(player, 0);
+                Assert.True(Assert.Single(items.Items(PlayerInventories.Flask)).Item.Charges < charges);
+                var actual = Ailments();
+                bool retainCold = stat != Stat.RemoveChillAndFreezeOnFlaskUse;
+                var expected = (stat != Stat.RemoveBleedOnFlaskUse, stat != Stat.RemoveIgniteAndBurningOnFlaskUse,
+                    retainCold, retainCold);
+                Console.WriteLine($"{flaskName}, equipment stat {stat}: bleed/ignite/chill/freeze {actual}");
+                results.Add((expected, actual));
+                Assert.Equal(1, player.IncomingAilments.PoisonStacks(now));
+                Assert.True(player.ElementalAilments.Snapshot(now).Shock > 0);
+                Assert.True(ApplyBleed());
+                ApplyElemental();
+                Assert.Equal((true, true, true, true), Ailments());
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
+        }
+        Assert.All(results, result => Assert.Equal(result.Expected, result.Actual));
     }
 
     [Fact]
