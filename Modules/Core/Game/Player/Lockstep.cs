@@ -799,7 +799,9 @@ public static partial class Game
             return Animations.DefaultAttackCutInSeconds(ao, weapon, sequence, seconds);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skill);
         string? clip = gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) is { } effectId
-            ? SkillClipName(TransfiguredBase(effectId) ?? effectId) : null;
+            ? SkillsFor(player).ActionHash(gem.Effect) == HolyHammersAction ? HolyHammersSourceClip(weapon)
+                : SkillClipName(TransfiguredBase(effectId) ?? effectId)
+            : null;
         return seconds * Animations.AttackCutIn(ao, weapon, clip);
     }
 
