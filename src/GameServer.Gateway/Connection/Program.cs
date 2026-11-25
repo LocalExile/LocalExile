@@ -275,12 +275,24 @@ public sealed partial class Program
     public static readonly byte FrameMs =
         byte.TryParse(Environment.GetEnvironmentVariable("Game_FRAME_MS"), out var fm) && fm > 0 ? fm : (byte)33;
 
-    // Simulation speed multiplier for accelerated lockstep runtime tests (Game_SIM_SPEED, default 1.0): scales
-    // SimulationClock and AreaFrames.Drive pacing while keeping S→C 0x2b8 at FrameMs so each frame stays deterministic.
-    // An unmodified lockstep client catches up natively up to ~5x (0x14218a2a0); higher speeds pair with nullifier.js --sim-speed.
-    public static readonly double SimSpeed =
-        double.TryParse(Environment.GetEnvironmentVariable("Game_SIM_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var simSpeed)
-        && double.IsFinite(simSpeed) && simSpeed > 0
-            ? Math.Clamp(simSpeed, 0.1, 1000.0)
+    // Simulation speed multiplier for accelerated lockstep runtime tests (/sim_speed or Game_SIM_SPEED, default 1.0):
+    // scales SimulationClock and AreaFrames.Drive pacing while keeping S→C 0x2b8 at FrameMs so each frame stays
+    // deterministic. An unmodified lockstep client catches up natively up to ~5x (0x14218a2a0); higher speeds pair
+    // with nullifier.js --sim-speed.
+    static double simSpeed =
+        double.TryParse(Environment.GetEnvironmentVariable("Game_SIM_SPEED"), System.Globalization.CultureInfo.InvariantCulture, out var initialSimSpeed)
+        && double.IsFinite(initialSimSpeed) && initialSimSpeed > 0
+            ? SimulationClock.ClampSpeed(initialSimSpeed)
             : 1.0;
+
+    public static double SimSpeed => Volatile.Read(ref simSpeed);
+
+    /// <summary>Updates the default simulation speed and every live instance/player clock continuously.</summary>
+    public static double SetSimSpeed(double value)
+    {
+        double clamped = SimulationClock.ClampSpeed(value);
+        Volatile.Write(ref simSpeed, clamped);
+        SimulationClock.SetAllLiveSpeed(clamped);
+        return clamped;
+    }
 }

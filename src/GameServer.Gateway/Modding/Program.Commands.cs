@@ -95,6 +95,23 @@ public partial class Program
             int n = args.Length > 0 && int.TryParse(args[0], out int count) ? Math.Clamp(count, 1, PacketHistory.Capacity) : 64;
             player.Connection.Session.Packets.Print(remote, "/lastpackets", n);
             await player.Commands!.Reply($"The last {Math.Min(n, player.Connection.Session.Packets.Count)} of {player.Connection.Session.Packets.Count} packet(s) are in logs\\live-gateway.log.");
+        })
+        .Add("sim_speed", "/sim_speed [multiplier] (show or set the lockstep simulation speed multiplier, 0.1..1000; 1 returns to normal)", async args =>
+        {
+            if (args.Length == 0)
+            {
+                await player.Commands!.Reply($"Simulation speed is {SimSpeed:0.##}x (instance {player.Clock.Speed:0.##}x; S->C 0x2b8 stays {FrameMs} ms).");
+                return;
+            }
+            if (!double.TryParse(args[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double requested)
+                || !double.IsFinite(requested) || requested <= 0)
+                throw new FormatException("expected a positive number, e.g. /sim_speed 2 or /sim_speed 1");
+            double applied = SetSimSpeed(requested);
+            Console.WriteLine($"[gateway] {remote} /sim_speed {applied:0.##}x (S->C 0x2b8 stays {FrameMs} ms)");
+            string note = applied > 5.0
+                ? " Unmodified lockstep clients catch up natively up to ~5x; pair with nullifier --sim-speed for higher rates."
+                : "";
+            await player.Commands!.Reply($"Simulation speed set to {applied:0.##}x (S->C 0x2b8 stays {FrameMs} ms).{note}");
         });
         return GameEvents.RunCommandsBuilding(player, commands);
     }

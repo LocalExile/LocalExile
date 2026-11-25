@@ -452,13 +452,13 @@ public sealed class AreaFrames
     {
         double frame = Program.FrameMs / 1000d;
         var watch = clock();
-        double speed = watch.Speed;
         double next = Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame;
         long pausedStep = 0;
         try
         {
             while (Prune() > 0)
             {
+                double speed = watch.Speed;
                 // Paused (only a member alone in its area pauses), the Clock stands and no frame falls due: it looks again a
                 // third of a frame later. The loops still step once a frame length of real time (they see the pause).
                 if (Paused() is { } paused)
