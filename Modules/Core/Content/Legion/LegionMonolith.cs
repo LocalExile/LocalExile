@@ -76,6 +76,8 @@ static partial class LegionMonolith
         public LegionStasis.Member[]? Army = saved.Army;
         /// <summary>True while BeginArmy still spawns: the early end waits for the whole army (not saved).</summary>
         public bool Spawning;
+        /// <summary>True while Finish/ReleaseArmy wakes broken members and spawns chests: Frozen waits for it (not saved).</summary>
+        public bool Releasing;
         /// <summary>The chests the war chests became (kept in the save).</summary>
         public Box[]? Boxes = saved.Boxes;
         /// <summary>map_legion_frozen_monsters_damage_taken_+% captured at activation for the frozen army's EncounterStats.</summary>
@@ -482,6 +484,7 @@ static partial class LegionMonolith
                 else if (e.Phase == Phase.Running && now >= e.EndsAt)
                 {
                     e.Phase = Phase.Frozen;
+                    e.Releasing = true;
                     e.StageAt = now;
                     e.RuleStage = 1;
                     e.RuleStep = 3;
@@ -489,7 +492,7 @@ static partial class LegionMonolith
                     step = 2;
                     Keep(player, e);
                 }
-                else if (e.Phase == Phase.Frozen && now - e.StageAt >= BattleAfterFreezeSeconds)
+                else if (e.Phase == Phase.Frozen && !e.Releasing && now - e.StageAt >= BattleAfterFreezeSeconds)
                 {
                     e.Phase = Phase.Battle;
                     e.StageAt = now;
@@ -591,61 +594,71 @@ static partial class LegionMonolith
     /// Frozen/Battle (or Ending when 0 monsters woke), plays the release pulse and releases the army.</summary>
     static async Task Finish(IModuleContext module, Player player, Encounter e, uint pulse, string reason)
     {
-        if (!OtherInPhases(module, player, e, p => p == Phase.Running))
-            foreach (var member in Members(player))
-                await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
-        foreach (var member in Members(player))
-            await SendRules(member, LegionRules.State(e.Id, 1, 3), "0x02c9 LegionRules state (1,3 frozen)");
-        await ToAll(player, e, StatesOf(Phase.Frozen, e), "obelisk=3, shattered=2, locked=1");
-        if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
-        // Second radial shockwave at release (00:00 / early end), matching real PoE visuals.
-        if (InArea(player, e.Id))
+        try
         {
-            uint releasePulse = player.TakeObjectId();
-            await ShowPulse(player, e, releasePulse);
-            var inst = player.Instance;
-            global::Game.SendAfter(player, PulseSeconds + 0.5, () =>
-                ResolveRunner(player, inst) is { } runner ? LegionOutput.Remove(runner, releasePulse) : Task.CompletedTask);
-        }
-        module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} timer ended ({reason})");
-        uint[] wokenIds = await ReleaseArmy(module, player, e, reason);
-        var data = LegionData.Current;
-        double now = global::Game.AreaTime(player);
-        if (wokenIds.Length > 0)
-        {
-            lock (e)
-            {
-                e.StageAt = now;
-                e.ReleasedIds = wokenIds;
-                e.Environments = data.EnvBattle != 0 ? [data.EnvBattle] : [];
-                Keep(player, e);
-            }
             if (!OtherInPhases(module, player, e, p => p == Phase.Running))
+                foreach (var member in Members(player))
+                    await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
+            foreach (var member in Members(player))
+                await SendRules(member, LegionRules.State(e.Id, 1, 3), "0x02c9 LegionRules state (1,3 frozen)");
+            await ToAll(player, e, StatesOf(Phase.Frozen, e), "obelisk=3, shattered=2, locked=1");
+            if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
+            // Second radial shockwave at release (00:00 / early end), matching real PoE visuals.
+            if (InArea(player, e.Id))
             {
-                if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
-                if (data.EnvBattle != 0) await BroadcastEnvironments(player, "battle", (data.EnvBattle, 0.0));
+                uint releasePulse = player.TakeObjectId();
+                await ShowPulse(player, e, releasePulse);
+                var inst = player.Instance;
+                global::Game.SendAfter(player, PulseSeconds + 0.5, () =>
+                    ResolveRunner(player, inst) is { } runner ? LegionOutput.Remove(runner, releasePulse) : Task.CompletedTask);
+            }
+            module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} timer ended ({reason})");
+            uint[] wokenIds = await ReleaseArmy(module, player, e, reason);
+            var data = LegionData.Current;
+            double now = global::Game.AreaTime(player);
+            if (wokenIds.Length > 0)
+            {
+                lock (e)
+                {
+                    e.StageAt = now;
+                    e.ClearedAt = null;
+                    e.ReleasedIds = wokenIds;
+                    e.Environments = data.EnvBattle != 0 ? [data.EnvBattle] : [];
+                    e.Releasing = false;
+                    Keep(player, e);
+                }
+                if (!OtherInPhases(module, player, e, p => p == Phase.Running))
+                {
+                    if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
+                    if (data.EnvBattle != 0) await BroadcastEnvironments(player, "battle", (data.EnvBattle, 0.0));
+                }
+            }
+            else
+            {
+                lock (e)
+                {
+                    e.Phase = Phase.Ending;
+                    e.StageAt = now;
+                    e.BattleOutSent = true;
+                    e.RuleStage = 2;
+                    e.RuleStep = 5;
+                    e.Environments = data.EnvPostBattle != 0 ? [data.EnvPostBattle] : [];
+                    e.Releasing = false;
+                    Keep(player, e);
+                }
+                foreach (var member in Members(player))
+                    await SendRules(member, LegionRules.State(e.Id, 2, 5), "0x02c9 LegionRules state (2,5 no woken)");
+                await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
+                if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
+                {
+                    if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
+                    if (data.EnvPostBattle != 0) await BroadcastEnvironments(player, "post-battle", (data.EnvPostBattle, 0.2));
+                }
             }
         }
-        else
+        finally
         {
-            lock (e)
-            {
-                e.Phase = Phase.Ending;
-                e.StageAt = now;
-                e.BattleOutSent = true;
-                e.RuleStage = 2;
-                e.RuleStep = 5;
-                e.Environments = data.EnvPostBattle != 0 ? [data.EnvPostBattle] : [];
-                Keep(player, e);
-            }
-            foreach (var member in Members(player))
-                await SendRules(member, LegionRules.State(e.Id, 2, 5), "0x02c9 LegionRules state (2,5 no woken)");
-            await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
-            if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
-            {
-                if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
-                if (data.EnvPostBattle != 0) await BroadcastEnvironments(player, "post-battle", (data.EnvPostBattle, 0.2));
-            }
+            lock (e) e.Releasing = false;
         }
     }
 
@@ -666,6 +679,7 @@ static partial class LegionMonolith
             }
             if (plainBroken * 10 < plain * 9) return;
             e.Phase = Phase.Frozen;
+            e.Releasing = true;
             e.StageAt = global::Game.AreaTime(player);
             e.RuleStage = 1;
             e.RuleStep = 3;

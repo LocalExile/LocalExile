@@ -96,10 +96,11 @@ static partial class LegionMonolith
     static async Task BreakOut(IModuleContext module, Player player, Hold hold, SpawnedMonster monster)
     {
         // The break-out is queued as a frame task; if it fails or the runner left, re-arm so a later hit/tick can break it out.
+        var instance = player.Instance;
         bool done = false;
         try
         {
-            var runner = ResolveRunner(player, player.Instance);
+            var runner = ResolveRunner(player, instance);
             if (runner is null || monster.Dead) return;
             var (x, y) = monster.Walk.Position(global::Game.AreaTime(runner));
             if (hold.Member.Chest) await BreakChest(module, runner, hold, monster, x, y);
@@ -113,7 +114,7 @@ static partial class LegionMonolith
             {
                 bool revealed;
                 lock (hold) { hold.Broken = false; revealed = hold.Revealed; }
-                if (revealed && !monster.Dead && ResolveRunner(player, player.Instance) is { } runner)
+                if (revealed && !monster.Dead && ResolveRunner(player, instance) is { } runner)
                     ArmFloor(module, runner, hold, monster);
             }
         }
