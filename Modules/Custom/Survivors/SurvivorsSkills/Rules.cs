@@ -130,7 +130,7 @@ static partial class SurvivorsSkills
     /// <summary>The skill bar's cooldown for one run skill: one server instant action per target runs the gem's own use
     /// there (the client draws its projectile and starts the bar's cooldown, live 2026-10-21), then the actor's cooldown
     /// trailer sets the exact time to the next cast.</summary>
-    internal static async Task SendSurvivorsCooldown(Player player, int skill, int rank, IReadOnlyList<(int X, int Y)> aims, double interval)
+    internal static async Task SendSurvivorsCooldown(Player player, int skill, IReadOnlyList<(int X, int Y)> aims, double interval)
     {
         if (StateOf(player).Ownership is not { Current: true } ownership) return;
         ushort id = SurvivorsSkillId(skill);
@@ -139,11 +139,9 @@ static partial class SurvivorsSkills
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.InstantAction(player.Id, id, aim.X, aim.Y),
                 $"0x01ce survivors skill 0x{id:x4} used at ({aim.X}, {aim.Y})", still: () => ownership.Current);
         if (!ownership.Current) return;
-        var definition = StateOf(player).SurvivorsCatalog is { } catalog && skill < catalog.Count ? catalog[skill] : null;
-        float total = (definition is null ? 1000 : SurvivorsSkillCooldownMs(definition, rank)) / 1000f;
-        float remaining = (float)Math.Clamp(interval, 0, total);
-        await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.PlayerSingleUseCooldowns(player.Id, [new SingleUseCooldownUpdate(id, remaining, total, 1f)]),
-            $"0x02bc survivors cooldown 0x{id:x4} {remaining:0.00}/{total:0.00} s", still: () => ownership.Current);
+        float seconds = (float)Math.Max(0, interval);
+        await global::Game.SendWorldRecord(player, player.Id, InstanceEntities.PlayerSingleUseCooldowns(player.Id, [new SingleUseCooldownUpdate(id, seconds, seconds, 1f)]),
+            $"0x02bc survivors cooldown 0x{id:x4} {seconds:0.00} s", still: () => ownership.Current);
     }
 
     /// <summary>True when a skill id is one of the run's skills: a click on its bar slot must not become a walk.</summary>
@@ -536,7 +534,7 @@ static partial class SurvivorsSkills
             await global::Game.SendWorldRecord(player, player.Id, InstanceProtocol.InstantAction(player.Id, pulseId, origin.X, origin.Y),
                 $"0x01ce survivors pulse 0x{pulseId:x4} {skill.Name} around ({origin.X}, {origin.Y})", still: () => ownership.Current);
             if (!ownership.Current) return 0;
-            await SendSurvivorsCooldown(player, skillIndex, rank, [origin], cast.Interval);
+            await SendSurvivorsCooldown(player, skillIndex, [origin], cast.Interval);
             return cast.Interval;
         }
         var profile = cast.Profile!;
@@ -562,7 +560,7 @@ static partial class SurvivorsSkills
             { Payload = shot, ReturnAnchor = owner };
             runtime.Schedule(now, () => ownership.Current, () => use);
         }
-        await SendSurvivorsCooldown(player, skillIndex, rank, aims, cast.Interval);
+        await SendSurvivorsCooldown(player, skillIndex, aims, cast.Interval);
         return cast.Interval;
     }
 
