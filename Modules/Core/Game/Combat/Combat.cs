@@ -2654,11 +2654,14 @@ public static partial class Game
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
-        double chargeAttackMore = 1;
-        if (!spell && Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge) is not 0 and var perCharge)
+        double chargeAttackMore = 1, chargeRadius = 1;
+        int perChargeDamage = Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge);
+        int perChargeArea = Stat(global::Stat.ActiveSkillAreaOfEffectPlusPctFinalPerEnduranceCharge);
+        if (!spell && (perChargeDamage != 0 || perChargeArea != 0))
         {
             int charges = cooldownUse?.EnduranceChargesAfterCost ?? ChargesOf(player).Effective(ChargeType.Endurance);
-            chargeAttackMore = Math.Max(0, 1 + perCharge * (double)charges / 100);
+            chargeAttackMore = Math.Max(0, 1 + perChargeDamage * (double)charges / 100);
+            chargeRadius = SkillArea.RadiusMultiplier(ActorScale.Saturate((long)perChargeArea * charges));
         }
         if (!hitPlan.CanHit)
         {
@@ -2716,7 +2719,7 @@ public static partial class Game
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d) : 1;
         int radius = (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
-            : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore);
+            : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore * chargeRadius);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
         // the player stands instead of landing one circle (GroundSlamWave; its length, half angle and direction are read
         // once here, so the log after the sweep can report them). Vaal Ground Slam's own skill is a different action, so
@@ -4211,7 +4214,8 @@ public static partial class Game
         if (playerKill)
         {
             WitchbaneOnKill(player, m, AreaTime(player));
-            await ApplyMapDeathMarkOnKill(player, m);
+            if (MapDeathMarkDuration(player, m) is > 0 and var markMs)
+                await ApplyMapDeathMarkOnKill(player, markMs);
             await GameEvents.RunMonsterKilled(new(player, monster));
             if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
             ChargesOnKill(player, m);

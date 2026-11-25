@@ -3106,7 +3106,7 @@ public static partial class Game
             TrimLeechLocked(player);
         }
         if (!blocked && player.PlayerLife > 0)
-            IncomingImpaleContactLocked(player, m.Effects, rolled[DamageType.Physical].Min, now, here, stats);
+            IncomingImpaleContactLocked(player, id, m, attackHit, rolled[DamageType.Physical].Min, now, here, stats);
         uint life = player.PlayerLife;
         RageWhenHitLocked(player);
         if (!blocked && player.PlayerLife > 0 && m.Effects[Stat.GlobalChanceToBlindOnHitPct] is > 0 and var blindChance

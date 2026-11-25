@@ -27,11 +27,12 @@ public static partial class Game
     static readonly IReadOnlyDictionary<uint, int> MarkedForDeathStats =
         new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 50 };
 
-    static Task ApplyMapDeathMarkOnKill(Player player, SpawnedMonster monster) =>
-        (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
-            && MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) is > 0 and var milliseconds
-            ? AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d)
-            : Task.CompletedTask;
+    static int MapDeathMarkDuration(Player player, SpawnedMonster monster) =>
+        monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            ? MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) ?? 0 : 0;
+
+    static Task ApplyMapDeathMarkOnKill(Player player, int milliseconds) =>
+        AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d);
 
     static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
     {

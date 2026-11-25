@@ -9,16 +9,16 @@ public static class ImpaleStats
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
         IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? weaponLocal = null,
-        bool critical = false) => From(character, catalog, attack, own, weaponLocal, critical, twoHanded: false, axeOrSword: false);
+        bool critical = false) => From(character, catalog, attack, own, weaponLocal, critical, additionalAttackChance: 0);
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
-        IReadOnlyDictionary<uint, int>? own, IReadOnlyDictionary<uint, int>? weaponLocal, bool critical, bool twoHanded, bool axeOrSword)
+        IReadOnlyDictionary<uint, int>? own, IReadOnlyDictionary<uint, int>? weaponLocal, bool critical, long additionalAttackChance)
     {
         long Get(uint key) => (long)character.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         long chance = Get(Stat.ImpaleOnHitPctChance) + (attack
             ? Get(Stat.AttacksImpaleOnHitPctChance) + (weaponLocal?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) ?? 0)
-                + (twoHanded ? Get(Stat.AttacksWithTwoHandedWeaponsImpaleOnHitPctChance) : 0)
-                + (axeOrSword ? Get(Stat.ImpaleOnHitPctChanceWithAxesSwords) : 0)
+                + additionalAttackChance
+
             : Get(Stat.SpellsImpaleOnHitPctChance) + (critical ? Get(Stat.SpellImpaleOnCritPctChance) : 0));
         long effect = Get(Stat.ImpaleDebuffEffectPlusPct) + (attack ? 0 : Get(Stat.ImpaleEffectPlusPctForImpalesInfictedBySpells));
         return new((int)Math.Clamp(chance, 0, 100), (int)Math.Clamp(effect, int.MinValue, int.MaxValue),

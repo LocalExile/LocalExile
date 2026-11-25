@@ -101,7 +101,11 @@ public static partial class Game
         }
     }
 
-    public static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false)
+    public static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source, MonsterAttack attack, double now, bool area = false) =>
+        GolemTakeHitLocked(player, g, attacker, source, attack, now, area, reflectedPhysical: false);
+
+    static bool GolemTakeHitLocked(Player player, GolemState.Golem g, uint attacker, SpawnedMonster source,
+        MonsterAttack attack, double now, bool area, bool reflectedPhysical)
     {
         if (!GolemCurrent(player, g) || g.Monster.Dead || g.Monster.Life == 0) return false;
         if (GolemIgnoresDots(g)) return false;
@@ -158,13 +162,19 @@ public static partial class Game
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Life));
             return false;
         }
-        var rolled = MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out bool critical,
+        bool critical = false;
+        var rolled = reflectedPhysical ? attack.Damage
+            : MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out critical,
             now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
             .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now));
         bool elementalImmune = GolemElementalImmune(g);
         bool chaosNoBypass = effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0;
         bool spellHit = attack.Spell && !attack.Secondary;
-        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now)
+        int reflectedTaken = reflectedPhysical ? ActorScale.Saturate((long)effects[Stat.PhysicalReflectDamageTakenPlusPct]
+            + effects[Stat.ReflectDamageTakenPlusPct] + Player(Stat.MinionsReflectedDamageTakenPlusPct)
+            + Player(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)
+            + Player(Stat.PhysicalReflectDamageTakenAndMinionPhysicalReflectDamageTakenPlusPct)) : 0;
+        double taken = effects.DamageTaken(spellHit, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Shock, now) + reflectedTaken
             + m.Ailments.ChillDamageTakenPct(now) + HitDebuffTaken(m, spellHit, now)) * MinionFortificationHitFactor(player, g, now)
             * CompanionshipDamageTaken(player, g, now) * HallowedMonarchDamageTaken(link, currentPlayer);
         int prevented = 0;
@@ -253,10 +263,10 @@ public static partial class Game
 
         PublishEnergyShieldLocked(player, g);
         m.Life = (uint)Math.Max(0, (long)m.Life - damage);
-        StealMapChargesLocked(player, attacker, source, g, now, random);
-        if (!elementalImmune)
+        if (!reflectedPhysical) StealMapChargesLocked(player, attacker, source, g, now, random);
+        if (!reflectedPhysical && !elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
-        if (m.Life > 0)
+        if (!reflectedPhysical && m.Life > 0)
         {
             if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);
             GolemHostileAilmentsLocked(player, g, attacker, source, rolled, critical, !attack.Spell && !attack.Secondary, now,
@@ -271,7 +281,7 @@ public static partial class Game
         var from = source.Walk.Position(now);
         var to = m.Walk.Position(now);
         // Immediate kind 3 reaches the attacker's native result consumer; 0xffff never supplies a consuming action.
-        player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
+        if (!reflectedPhysical) player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(attacker, 0xffff, g.Id,
             flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
             angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
         player.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));

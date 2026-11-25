@@ -2,7 +2,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static void ApplySelfHitLocked(Player player, DamagePacket hit, double now)
+    static void ApplySelfHitLocked(Player player, DamagePacket hit, double now, bool reflectedPhysical = false)
     {
         var stats = PlayerStatValues(player);
         int Get(uint stat) => stats.GetValueOrDefault(stat);
@@ -13,10 +13,17 @@ public static partial class Game
         bool usesArmour = shifted.Components.Any(c => !immune.Contains(c.Type)
             && PlayerHitMitigation.ArmourPercent(player.Pools, c.Type, Get) > 0);
         var armour = IncomingArmourLocked(player, usesArmour, player.RecentEnemyHits.Count(now), stats);
+        int reflectedTaken = reflectedPhysical ? ActorScale.Saturate((long)Get(Stat.ReflectDamageTakenPlusPct)
+            + Get(Stat.PhysicalReflectDamageTakenPlusPct) + Get(Stat.ReflectDamageTakenAndMinionReflectDamageTakenPlusPct)
+            + Get(Stat.PhysicalReflectDamageTakenAndMinionPhysicalReflectDamageTakenPlusPct)) : 0;
         var taken = shifted.Select((type, range) =>
         {
-            int damage = immune.Contains(type) ? 0 : MitigateTakenWithArmour(player, type, (int)range.Min,
-                Resistance(player, type), MaxResistance(player, type), armour.EffectiveArmour, stats, attack: false);
+            int resisted = type == DamageType.Physical ? (int)range.Min
+                : DamageModel.Mitigate((int)range.Min, Resistance(player, type), MaxResistance(player, type));
+            int damage = immune.Contains(type) ? 0 : FortificationDamageTaken(player,
+                TakenAfterResistance(player, type, resisted, armour.EffectiveArmour, stats,
+                    attack: false, ranged: false, spell: false, additionalIncreased: reflectedTaken));
+
             return new(damage, damage);
         });
         RecoupHitLocked(player, taken, now, stats);

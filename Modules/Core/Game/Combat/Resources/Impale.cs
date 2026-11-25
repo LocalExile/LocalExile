@@ -32,22 +32,26 @@ public static partial class Game
         var local = weapon?.LocalSources;
         bool twoHanded = WeaponTypeDamage.TwoHanded(itemClass) || itemClass == "FishingRod";
         bool axeOrSword = WeaponTypeDamage.FamilyOf(itemClass) is "axe" or "sword" || WeaponIdentity.AllOneHandMelee(local);
-        return ImpaleStats.From(stats, catalog, attack, own, local, critical, twoHanded, axeOrSword);
+        long Get(uint id) => (long)stats.GetValueOrDefault(id) + (own?.GetValueOrDefault(id) ?? 0);
+        long additionalChance = (twoHanded ? Get(Stat.AttacksWithTwoHandedWeaponsImpaleOnHitPctChance) : 0)
+            + (axeOrSword ? Get(Stat.ImpaleOnHitPctChanceWithAxesSwords) : 0);
+        return ImpaleStats.From(stats, catalog, attack, own, local, critical, additionalChance);
     }
 
     static readonly RuleTable<Player, IncomingImpale> IncomingImpales = new();
-    // The map description names nearby allies without exporting the distance in its mod row.
-    const int MapImpaleBlastRadius = 30;
+    // The map stat description gives 1.8 m, or 18 cells.
+    const int MapImpaleBlastRadius = 18;
     sealed class IncomingImpale(int epoch)
     {
         public readonly int Epoch = epoch;
         public readonly ImpaleState Stacks = new();
     }
 
-    static void IncomingImpaleContactLocked(Player player, MonsterModEffects source, double physical, double at,
+    static void IncomingImpaleContactLocked(Player player, uint attacker, SpawnedMonster monster, bool attack, double physical, double at,
         (int X, int Y) center, IReadOnlyDictionary<uint, int> stats)
     {
-        int chance = source[Stat.MapMonstersChanceToImpalePct];
+        var source = monster.Effects;
+        int chance = attack ? source[Stat.MapMonstersChanceToImpalePct] : 0;
         IncomingImpales.TryGetValue(player, out var state);
         if (state is not null && state.Epoch != player.IncomingHitEpoch)
         {
@@ -67,17 +71,20 @@ public static partial class Game
         if (state.Stacks.Stacks == 0) IncomingImpales.Remove(player);
 
         if (reflected > 0)
-            ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Physical, reflected, reflected), at);
+            ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Physical, reflected, reflected), at, reflectedPhysical: true);
         if (burst <= 0) return;
         var damage = DamagePacket.Of(DamageType.Physical, burst, burst);
-        if (player.PlayerLife > 0) ApplySelfHitLocked(player, damage, at);
+        if (player.PlayerLife > 0) ApplySelfHitLocked(player, damage, at, reflectedPhysical: true);
 
+        var blast = new MonsterAttack(0, 0, MapImpaleBlastRadius, damage) { Secondary = true };
+        DamageAlliedMinions(player);
         var instance = player.Instance;
         var area = player.Area;
         foreach (var ally in instance.Presence.PlayersExcept(player.Id))
         {
-            if (ally.Closed || ally.LeavingArea || ally.PlayerLife == 0 || !ReferenceEquals(ally.Area, area)
-                || Dist(center, ally.Walk.Position(at)) > MapImpaleBlastRadius) continue;
+            if (ally.Closed || ally.LeavingArea || ally.PlayerLife == 0 || !ReferenceEquals(ally.Area, area)) continue;
+            bool nearby = Dist(center, ally.Walk.Position(at)) <= MapImpaleBlastRadius;
+            if (!nearby && ally.Golems.All.Count + ally.Reservations.Fighters.Count + ally.Summons.Fighters.Count == 0) continue;
             int epoch = ally.IncomingHitEpoch;
             // Never acquire another player's mutation gate while committing the original hit.
             ProjectilesFor(player).Enqueue(async () =>
@@ -88,8 +95,10 @@ public static partial class Game
                     if (!CurrentGameWork || ally.Closed || ally.LeavingArea || ally.PlayerLife == 0
                         || !ReferenceEquals(ally.Area, area) || ally.IncomingHitEpoch != epoch) return;
                     mana = ally.PlayerMana;
-                    ApplySelfHitLocked(ally, damage, at);
+                    if (nearby) ApplySelfHitLocked(ally, damage, at, reflectedPhysical: true);
+                    DamageAlliedMinions(ally);
                 }
+                if (!nearby) return;
                 await SendPlayerEnergyShield(ally);
                 if (ally.PlayerMana != mana) await SendPlayerMana(ally, "mana after reflected impale detonation");
                 if (ally.PlayerLife == 0)
@@ -99,6 +108,15 @@ public static partial class Game
                 }
                 else ally.Area.Life.Resend(ally);
             });
+        }
+
+        void DamageAlliedMinions(Player owner)
+        {
+            var targets = owner.Golems.All.Values.Concat(owner.Reservations.Fighters.Values)
+                .Concat(owner.Summons.Fighters.Values).Where(g => g.Monster.Life > 0 && !g.Monster.Dead
+                    && Dist(center, g.Monster.Walk.Position(at)) <= MapImpaleBlastRadius).ToArray();
+            foreach (var target in targets)
+                GolemTakeHitLocked(owner, target, attacker, monster, blast, at, area: true, reflectedPhysical: true);
         }
     }
 

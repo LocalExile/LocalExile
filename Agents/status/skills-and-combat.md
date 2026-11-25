@@ -38,6 +38,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [20](../docs/protocol/20-damage.md) Â§2c.
 - Behemoth Steel Willed: attack damage per 450 final armour. Docs: [20](../docs/protocol/20-damage.md) Â§2d.
 - Steel Willed incoming-hit armour. Docs: [Steel Willed armour](../docs/game/steel-willed-armour.md).
+- Lancing Steel and Shattering Steel release their projectile variants. Call of Steel removes surviving impales from
+  enemies and corpses and refills Steel Shards. Ammo-using attacks spend the shards and Shattering Steel of Ammunition
+  grants timed projectile block.
 - Accuracy, the Accuracy Mastery's target conditions, Deadeye's Avidity and attack evasion.
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.

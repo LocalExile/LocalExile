@@ -134,7 +134,43 @@ public static partial class Game
                 * spent / 100d;
             shot = shot with { ShatteringSteelAmmoHitBonus = bonus };
         }
-        return use with { Profile = profile, Payload = shot };
+        use = use with { Profile = profile, Payload = shot };
+        return shot.LancingSteelHits is { } series ? AimLancingSteelCluster(context, use, series) : use;
+    }
+
+    static ProjectileUse AimLancingSteelCluster(ProjectileReleaseContext context, ProjectileUse use, ProjectileOffense.LancingSteelHitSeries series)
+    {
+        var session = context.Session;
+        var ray = use.Aim - use.Origin;
+        var forward = ray.Unit;
+        // A small forward offset gives the cluster its own origin. Keep the cast origin if the offset meets terrain.
+        var origin = use.Origin + forward * Math.Min(4, ray.Length / 2);
+        if (session.TraceTerrain(use.Origin, origin) is not null) origin = use.Origin;
+        double range = use.Profile.Range;
+        double search = range * Math.Clamp(1 + context.Get(Stat.LancingSteelTargetingRangePlusPct) / 100d, 0, 2);
+        return use with { Origin = origin, InitialAim = Select };
+
+        ProjectileVector? Select(ProjectileVector from)
+        {
+            ProjectileVector? best = null;
+            double nearest = double.PositiveInfinity;
+            bool seen = true;
+            long at = session.Runtime.Now;
+            foreach (var target in session.ActorsNear(from, search, at))
+            {
+                if (target.Team == use.Team) continue;
+                var aim = target.Position(at);
+                var offset = aim - from;
+                double distance = offset.Length;
+                if (distance <= 0 || distance > search || (offset.Dot(forward) < 0 && !TargetAccuracy.InCloseRange(distance)))
+                    continue;
+                bool alreadyHit = series.Targets.Contains(target.Key);
+                if (best is not null && (alreadyHit && !seen || alreadyHit == seen && distance >= nearest)) continue;
+                if (session.TraceTerrain(from, aim) is not null) continue;
+                (best, nearest, seen) = (aim, distance, alreadyHit);
+            }
+            return best;
+        }
     }
 
     static void AddSteelWard(ProjectileReleaseContext context, SteelState state)
