@@ -291,7 +291,7 @@ public static partial class Game
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
         DamageType.Fire => (double)effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct],
+        DamageType.Cold => effects[Stat.ColdDamageTakenPlusPct] + m.Ailments.ColdDamageTakenFromChillPct(now),
         DamageType.Lightning => effects[Stat.LightningDamageTakenPlusPct],
         _ => 0,
     };
@@ -418,7 +418,7 @@ public static partial class Game
         {
             DamageType.Physical => (double)m.Effects[Stat.PhysicalDamageTakenPlusPct] + MaimedPhysicalTaken(m, now),
             DamageType.Fire => (double)m.Effects[Stat.FireDamageTakenPlusPct] + CoveredInAshFireTaken(m, now),
-            DamageType.Cold => m.Effects[Stat.ColdDamageTakenPlusPct],
+            DamageType.Cold => ElementalHitTakenPercent(m.Effects, m, DamageType.Cold, now),
             DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };

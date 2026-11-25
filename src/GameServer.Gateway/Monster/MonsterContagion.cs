@@ -28,6 +28,18 @@ public sealed class MonsterContagion
     /// <summary>The strongest application affecting the monster at the last advance; null when none is.</summary>
     public Cast? Active => Strongest(instances, last)?.Cast;
 
+    public (Cast Cast, double Until)? ApplicationAt(double now) => Strongest(instances, now) is { } active
+        ? (active.Cast, active.Until) : null;
+
+    public void RetimeExpiry(double now, double oldRate, double rate)
+    {
+        for (int i = 0; i < instances.Count; i++)
+        {
+            var effect = instances[i];
+            instances[i] = effect with { Until = RecipientEffectTime.RetimedDeadline(effect.Until, now, oldRate, rate) };
+        }
+    }
+
     public Cast? ForHitSpread(double now)
     {
         var active = Strongest(instances, now);
@@ -48,10 +60,13 @@ public sealed class MonsterContagion
     /// <summary>True once any Contagion has been applied anywhere in the process.</summary>
     public static bool AnyApplied => Volatile.Read(ref applied) > 0;
 
-    public void Apply(double now, Cast cast)
+    public void Apply(double now, Cast cast) => Apply(now, cast, trackContagion: true);
+
+    // Other strongest-only chaos debuffs can use this integrator without enabling the Contagion/Bane scan.
+    public void Apply(double now, Cast cast, bool trackContagion)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
-        Interlocked.Increment(ref applied);
+        if (trackContagion) Interlocked.Increment(ref applied);
         if (instances.Count == 0)
         {
             previous = last = now;

@@ -5,15 +5,24 @@ public static class ImpaleStats
         or Stat.VirtualTotalOffHandImpaleOnHitPctChance or Stat.VirtualTotalSpellImpaleOnHitPctChance;
 
     public readonly record struct Settings(int Chance, int EffectPercent = 0,
-        int Hits = ImpaleState.HitsPerStack, double Duration = ImpaleState.BaseDuration);
+        int Hits = ImpaleState.HitsPerStack, double Duration = ImpaleState.BaseDuration)
+    {
+        public int Applications { get; init; } = 1;
+        public double ReapplicationDelay { get; init; }
+    }
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
         IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? weaponLocal = null,
-        bool critical = false)
+        bool critical = false) => From(character, catalog, attack, own, weaponLocal, critical, additionalAttackChance: 0);
+
+    public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
+        IReadOnlyDictionary<uint, int>? own, IReadOnlyDictionary<uint, int>? weaponLocal, bool critical, long additionalAttackChance)
     {
         long Get(uint key) => (long)character.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
         long chance = Get(Stat.ImpaleOnHitPctChance) + (attack
             ? Get(Stat.AttacksImpaleOnHitPctChance) + (weaponLocal?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) ?? 0)
+                + additionalAttackChance
+
             : Get(Stat.SpellsImpaleOnHitPctChance) + (critical ? Get(Stat.SpellImpaleOnCritPctChance) : 0));
         long effect = Get(Stat.ImpaleDebuffEffectPlusPct) + (attack ? 0 : Get(Stat.ImpaleEffectPlusPctForImpalesInfictedBySpells));
         return new((int)Math.Clamp(chance, 0, 100), (int)Math.Clamp(effect, int.MinValue, int.MaxValue),

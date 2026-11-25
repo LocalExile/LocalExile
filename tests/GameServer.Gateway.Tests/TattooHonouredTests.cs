@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -62,5 +63,38 @@ public sealed class TattooHonouredTests
         Assert.Equal(Stat.DexteritySkillGemLevelPlus, SkillGemLevel.AttributeStat(2));
         Assert.Equal(Stat.IntelligenceSkillGemLevelPlus, SkillGemLevel.AttributeStat(3));
         Assert.Null(SkillGemLevel.AttributeStat(4));
+    }
+
+    [Fact]
+    public void Minion_skill_gem_level_stat_raises_minion_active_gem_levels()
+    {
+        Assert.Contains((Stat.MinionSkillGemLevelPlus, "minion"), SkillGemLevel.TaggedActiveLevelStats);
+
+        using var f = new AnimatedAdmissionTests.Fixture();
+        f.Player.Pools = f.Player.Pools with { Level = 80, Strength = 300, Dexterity = 300, Intelligence = 300 };
+        var items = Game.ItemsOf(f.Player);
+        foreach (var p in items.Items(PlayerInventories.Weapon1)) items.Remove(PlayerInventories.Weapon1, p.Id);
+        var gemType = Program.Items.FindGem("Raise Spectre")!.Value;
+        var specGem = ItemCatalog.Create(gemType.Type) with
+        {
+            GemVariant = gemType.Variant.Index,
+            GemExperience = Program.Items.Gem(gemType.Type)!.ExperienceFor(20),
+        };
+        Assert.True(Program.Skills.GemHasTag(Program.Items.ByHash(specGem.TypeHash)!.Row, 0, "minion"));
+        items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
+        {
+            Sockets = [new ItemSocket(GameServer.Core.Protocol.Instance.SocketColour.Blue, specGem)],
+            Links = [1],
+        });
+        ushort source = Game.GemSkillEffects(f.Player).Single().Id;
+        Assert.Equal(20, Game.SupportedSkill(f.Player, source).Level);
+
+        var mod = Program.Items.Mods.ById("MinionGemLevel1h1")!;
+        items.Add(PlayerInventories.Offhand1, 0, 0, ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!) with
+        {
+            Rarity = ItemRarity.Rare,
+            Mods = [new ItemMod(ModSection.Explicit, mod.Hash, [1])],
+        });
+        Assert.Equal(21, Game.SupportedSkill(f.Player, source).Level);
     }
 }

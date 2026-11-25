@@ -38,7 +38,11 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         var value = state.PlayerBlind.Read(now, player.PlayerLife == 0);
         if (state.PlayerBlind.NextEnd is double end) StatsChangeAt(end, () => ResourceEffectsTime(player));
-        return value.Less > 0 && BlindImmune(player, playerStats) ? state.PlayerBlind.Read(now, true) : value;
+        var stats = playerStats ?? StatSourceValues(player);
+        bool selfBlinded = player.PlayerLife > 0 && stats.GetValueOrDefault(Stat.KeystoneBlindMonk) != 0;
+        if ((value.Less > 0 || selfBlinded) && BlindImmune(player, stats))
+            return state.PlayerBlind.Read(now, true);
+        return selfBlinded && value.Less < 20 ? (20, double.PositiveInfinity) : value;
     }
     public static int PlayerBlindAccuracy(Player player, int rating, IReadOnlyDictionary<uint, int>? playerStats = null) =>
         TimedBlind.Apply(rating, PlayerBlindValue(player, playerStats).Less);
@@ -260,7 +264,7 @@ public static partial class Game
         StatOf(playerStats, VsBlindedCriticalStat) is not (not 0 and var extra)
             ? null : AttackCriticalChanceWith(player, playerStats, extra, release, hand);
 
-    /// <summary>A hit's chances against a target on the player's grounds, worked out once from the chance's base: on
+    /// <summary>A hit's chances against a target on ground effects, worked out once from the chance's base: on
     /// profane ground (+100% increased, PoB's SelfCritChance INC for enemies on Profane Ground), on consecrated ground with
     /// Bottled Faith's increase (null without it), and on both (the increases add). Picked per target at the hit.</summary>
     public readonly record struct GroundCritical(int? Profane, int? Consecrated, int? Both,
@@ -285,8 +289,7 @@ public static partial class Game
     {
         if (vsGround is not { } g) return null;
         bool profane = player.FlaskGrounds.Profane(target);
-        bool consecrated = g.Consecrated is not null && player.Area.Monsters.ContainsKey(target)
-            && InFlaskGround(player, FlaskGrounds.Kind.ConsecratedGround, target);
+        bool consecrated = g.Consecrated is not null && EnemyOnConsecratedGround(player, target);
         if (Blinded(player, target))
             return profane && consecrated ? g.BlindedBoth ?? g.Both
                 : profane ? g.BlindedProfane ?? g.Profane : consecrated ? g.BlindedConsecrated ?? g.Consecrated : null;

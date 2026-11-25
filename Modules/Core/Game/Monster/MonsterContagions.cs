@@ -28,6 +28,8 @@ static partial class Game
         Stat.SupportTrapAndMineDamagePlusPctFinal, Stat.SupportRemoteMine2DamagePlusPctFinal,
     ];
 
+    static bool IsContagionEffect(string? effect) => effect is "Contagion" or "ContagionAltX" or "ContagionAltY";
+
     /// <summary>Contagion (GrantedEffects <c>Contagion</c>) or Contagion of Subsiding (<c>ContagionAltX</c>): what one cast
     /// puts on each monster in its area; null for any other skill. Its damage is base_chaos_damage_to_deal_per_minute (the
     /// gem level's resolved value) with the increases a spell's chaos damage over time takes (its implicit
@@ -36,7 +38,7 @@ static partial class Game
     internal static MonsterContagion.Cast? ContagionCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("Contagion" or "ContagionAltX" or "ContagionAltY")) return null;
+        if (!IsContagionEffect(id)) return null;
         var gem = SupportedSkill(player, skillId);
         var own = gem.Stats;
         var playerStats = CharacterPlayerStats(player);
@@ -226,7 +228,7 @@ static partial class Game
     /// <summary>Plays the Contagion circle (<paramref name="ao"/>: the caster's skin's, else the default) at a spread, sized
     /// to its radius, for <see cref="ContagionSpreadArtSeconds"/>.</summary>
     internal static async Task ShowContagionSpread(Player player,
-        (int X, int Y) at, int radius, string ao)
+        (int X, int Y) at, int radius, string ao, string effectName = "contagion")
     {
         float scale = (float)(radius * (250.0 / 23) / (Art.ArtRadius(ao) ?? 180));
         // Every player in the instance sees it, each under an object id of its own client and through its own world output:
@@ -237,7 +239,7 @@ static partial class Game
             effect = viewer.TakeObjectId();
             await SendWorldCreate(viewer, effect, InstanceEntities.CreateObject(effect,
                 InstanceEntities.ObjectTypeHash(EffectObject.TypePath), new EffectObject(at.X, at.Y, ao) { Scale = scale }.Blob()),
-                $"0x02b9 create effect 0x{effect:x} contagion spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
+                $"0x02b9 create effect 0x{effect:x} {effectName} spread at ({at.X}, {at.Y}), radius {radius}, art {ao}");
             await SendWorldRecord(viewer, effect, InstanceProtocol.EnterWakeZone(effect), null);
             SendAfter(viewer, ContagionSpreadArtSeconds, async () =>
             {
@@ -253,25 +255,43 @@ static partial class Game
 
     internal static async Task TickContagions(Player player)
     {
-        if (!MonsterContagion.AnyApplied) return;
+        if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area)) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
             if (player.Closed || player.LeavingArea) return;
             double now = ProjectileWorldTime(player);
-            foreach (var (id, m) in player.Area.Monsters)
-            {
-                Tick(id, m, m.Contagion, spreads: true);
-                if (m.Bane is { } bane)
+            if (MonsterContagion.AnyApplied)
+                foreach (var (id, m) in player.Area.Monsters)
                 {
-                    Tick(id, m, bane, spreads: false);
-                    if (bane.Idle) m.Bane = null;
+                    Tick(id, m, m.Contagion, "Contagion", ContagionBuffRow);
+                    if (m.Bane is { } bane)
+                    {
+                        Tick(id, m, bane, "Bane");
+                        if (bane.Idle) m.Bane = null;
+                    }
                 }
+            if (PestilentDots.TryGetValue(player.Area, out var pestilent))
+            {
+                List<uint>? expired = null;
+                foreach (var (id, entry) in pestilent)
+                {
+                    if (player.Area.Monsters.GetValueOrDefault(id) == entry.Monster)
+                        Tick(id, entry.Monster, entry.Damage, "Pestilent Strike", PestilentStrikeDamageRow);
+                    else
+                    {
+                        (expired ??= []).Add(id);
+                        continue;
+                    }
+                    if (entry.Damage.Idle) (expired ??= []).Add(id);
+                }
+                if (expired is not null) foreach (uint id in expired) pestilent.Remove(id);
             }
 
-            void Tick(uint id, SpawnedMonster m, MonsterContagion dot, bool spreads)
+            void Tick(uint id, SpawnedMonster m, MonsterContagion dot, string by, ushort row = 0)
             {
                 if (dot.Idle) return;
+                var previous = row == PestilentStrikeDamageRow ? dot.Active : null;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) dot.Clear();
                 else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
@@ -296,10 +316,16 @@ static partial class Game
                         // time it had left then (also when this tick ended it).
                         dot.Died(fraction);
                     }
-                    hits.Add((id, m, m.Life, damage, owner, spreads ? "Contagion" : "Bane"));
+                    hits.Add((id, m, m.Life, damage, owner, by));
                     if (stageStarts) CommitBossStage(player, id, m, now);
                 }
-                if (!spreads) return;
+                if (row == PestilentStrikeDamageRow)
+                {
+                    if (m.Dead || m.Life == 0 || !ReferenceEquals(previous, dot.Active))
+                        PresentPestilentDamage(player, id, m, dot, now);
+                    return;
+                }
+                if (row != ContagionBuffRow) return;
                 if (m.Dead || m.Life == 0 || dot.Active is null)
                 {
                     EndDot(player, id, ref dot.Buff, dot.BuffSource);
