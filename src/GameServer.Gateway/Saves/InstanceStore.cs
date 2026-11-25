@@ -166,6 +166,15 @@ public sealed partial class InstanceState
         lock (_areaStatsGate) return _terrainPluginStates ??= compose();
     }
 
+    public bool HasTerrainPlugin(ushort id)
+    {
+        var plugins = Volatile.Read(ref _terrainPluginStates);
+        if (plugins is null) return false;
+        for (int i = 0; i < plugins.Count; i++)
+            if (plugins[i].Plugin == id) return true;
+        return false;
+    }
+
     /// <summary>The instance is played without terrain plugin states from now on (0x1d carries other extra data).</summary>
     public void DropTerrainPluginStates()
     {

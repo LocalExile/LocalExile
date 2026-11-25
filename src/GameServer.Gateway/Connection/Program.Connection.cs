@@ -12,18 +12,6 @@ public partial class Program
     static readonly Lazy<PacketLogQueue> PacketSummaries = new(() => new(Console.WriteLine));
     public static string CharacterName(Player player) => string.IsNullOrEmpty(player.Character.Name) ? "Exile" : player.Character.Name;
 
-    /// <summary>Whether <paramref name="player"/> owns the hideout instance they are in (same character or same account).</summary>
-    public static bool OwnsHideoutInstance(Player player)
-    {
-        if (HideoutCatalog.ByArea(player.Layout.Hash) is null) return false;
-        if (player.InstanceOwner is null || string.Equals(player.InstanceOwner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
-            return true;
-        if (player.Character.Account is null || !Saves.IsOpen) return false;
-        var store = new SqliteAccountStore(Saves.Db);
-        return store.FindCharacter(player.InstanceOwner) is { } owner
-            && string.Equals(store.GetAccount(owner.AccountId)?.Name, player.Character.Account, StringComparison.OrdinalIgnoreCase);
-    }
-
     // Set while a projectile's output is sent: false drops it (Send).
     public static readonly AsyncLocal<Func<bool>?> ProjectileOutputGuard = new();
 
@@ -88,7 +76,8 @@ public partial class Program
         // The terrain plugin states (0x1d extra data, InstanceEvents.TerrainPluginStates), which a plugin builds its part
         // of the level from. A Labyrinth room's extra data is its node, so it gets none.
         var pluginStates = LabyrinthDay.DifficultyOf(AreaLayouts.IdOf(areaHash)) is not null ? []
-            : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague, areaRequest));
+            : instance.TerrainPluginStates(() => InstanceEvents.ComposeTerrainPluginStates(areaLeague,
+                areaRequest with { Seed = authSeed, HardMode = areaLeague.HardMode, AreaStats = areaStats }));
         // The client generates the area at the seed, level, stats, category and plugin states of 0x1d: a seed the
         // Gateway can generate too. Cached on the instance so a transfer that pre-generated it while the client showed
         // "Entering <area>" hands the finished layout straight to HandleAsync without regenerating on the loading screen.
@@ -268,13 +257,13 @@ public partial class Program
                 // generated the layout at instead of 0.
                 if (areaLevel == 0 && ServerLevels.IsMapArea(layout.Id))
                     areaLevel = (byte)Math.Clamp(ServerLevels.PlayedLevel(layout.Id, seed), 1, 100);
+                var rules = GameEvents.AreaRulesets(player);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
                     TerrainData: terrainData,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
-                    HideoutPermissions: OwnsHideoutInstance(player),
                     ReturnAreaHash: player.ReturnAreaHash,
-                    DisplayStats: preparedArea.AreaDisplayStats);
+                    DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
                 await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
                     string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));

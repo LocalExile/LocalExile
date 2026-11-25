@@ -344,6 +344,53 @@ public class StashTabReloadTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Blight_anoint_oil_in_anoint_cell_does_not_self_match_and_move_is_atomic()
+    {
+        var catalog = new ItemCatalog("data");
+        TestEnvironment.OpenOwnSaves("blightatomic");
+        string account = "BlightAtomic" + Guid.NewGuid().ToString("N");
+        PlayerInventories.Shape? ShapeOf(Item i) => catalog.ByHash(i.TypeHash) is { } t ? new(t.Width, t.Height, t.Class, t.MaxStack) : null;
+        try
+        {
+            var stash = AccountStash.For(account, catalog);
+            int blight = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Blight);
+            var oil = catalog.Find("Metadata/Items/Currency/Mushrune1")!;
+            InventoryItem New(ItemCatalog.BaseType type, ushort stack = 1) =>
+                new(stash.NewItemId(), 0, 0, ItemCatalog.Create(type) with { StackSize = stack });
+
+            // An oil placed directly in the anoint cell (slot 13) must NOT self-match as "anoint cell occupied"
+            // and bounce into slot 15; it returns null so Ctrl+click withdraws it to inventory.
+            var oilInAnoint = stash.Place(blight, 13, 0, New(oil), ShapeOf, out _)!.Value.Placed;
+            Assert.Null(stash.AnointInputFor(blight, oilInAnoint.Id, out bool full));
+            Assert.False(full);
+            Assert.Null(ItemMoves.StashToAnointInput(stash, blight, oilInAnoint.Id, ShapeOf, out full));
+            Assert.False(full);
+            Assert.Single(stash.Inventory(blight).Items, i => i.Id == oilInAnoint.Id && i.X == 13);
+
+            // Atomic MoveToAnointInput shrinks a 2-stack to 1 (leaving id intact) and removes a 1-stack cleanly
+            // with a fresh id, preserving total oil count with no duplication or loss.
+            var stack = stash.Place(blight, 0, 0, New(oil, stack: 2), ShapeOf, out _)!.Value.Placed;
+            var first = ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out full)!;
+            Assert.False(full);
+            Assert.Equal(15, first.TabAdded[0].X);
+            Assert.NotEqual(stack.Id, first.TabAdded[0].Id);
+            Assert.Equal(1, first.LeftInTab!.Item.StackSize);
+
+            var second = ItemMoves.StashToAnointInput(stash, blight, stack.Id, ShapeOf, out full)!;
+            Assert.False(full);
+            Assert.Equal(16, second.TabAdded[0].X);
+            Assert.NotEqual(stack.Id, second.TabAdded[0].Id);
+            Assert.Null(second.LeftInTab);
+            Assert.DoesNotContain(stash.Inventory(blight).Items, i => i.Id == stack.Id);
+            Assert.Equal(3, stash.Inventory(blight).Items.Sum(i => (int)i.Item.StackSize));
+        }
+        finally
+        {
+            AccountStash.Forget(account);
+        }
+    }
+
     static void ExpectLoaded(Wire wire, AccountStash stash, int tab, bool register)
     {
         if (register)

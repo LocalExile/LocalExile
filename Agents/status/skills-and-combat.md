@@ -256,6 +256,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   skill-list refresh during the buff (movement, conditional item stats) re-publishes the held entry, since the client's
   skill replacement would otherwise refresh its zero-rate entry: the ring does not sweep or replay on the first press or
   while moving (#1127).
+  Blink cooldown refreshes use the same gem copy as the shared debit.
   Docs: [11](../docs/protocol/11-skills.md) §9, §11.
 - Vaal Immortal Call: 100 souls, its 60 s cooldown, 8 s of soul gain prevention, a duration from the Endurance Charges it
   discharges, and Life held at 1 while the buff runs. Docs: [11](../docs/protocol/11-skills.md) Â§11, Â§12.
