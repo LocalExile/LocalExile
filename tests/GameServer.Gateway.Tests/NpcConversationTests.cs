@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
+using GameServer.Modules.Atlas;
 
 namespace GameServer.Gateway.Tests;
 
@@ -141,6 +142,52 @@ public sealed class NpcConversationTests
         await VerifyLillyGemIntroduction();
     }
 
+    [Fact]
+    public async Task Kirac_gives_first_Atlas_choices_before_late_automatic_dialogue()
+    {
+        using var wire = new Wire("2_11_endgame_town");
+        var player = wire.Player;
+        var kirac = Game.Npcs.Find("Metadata/NPC/Epilogue/Kirac")!;
+        var (x, y) = player.Walk.Position(0);
+        var npc = new SpawnedNpc(kirac, x, y);
+        const uint id = 0x300;
+        player.Npcs[id] = npc;
+        player.Character.LeagueQuestFlags.UnionWith(AtlasFeature.UnlockLeagueFlags);
+        var heard = new List<int>();
+        using var leagueFlags = GameEvents.NpcUsesLeagueFlags.Add("Game", (_, who) => who == kirac);
+        using var automatic = GameEvents.NpcQuestConversation.Add("Game", AtlasFeature.KiracStarterConversation);
+        using var options = GameEvents.NpcOption.Add("Game", async option =>
+        {
+            heard.Add(option.Row);
+            if (option.RewardOffer is int offer) return await Game.OfferNpcReward(player, offer);
+            player.InNpcTalk = option.HasText;
+            return option.HasText;
+        });
+
+        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+        player.Character.QuestFlags.Add(Quests.EndGameAvailable);
+        await Game.OnUseObject(player, new InstanceTransfer.UseSkillOnObject(id, 0x266, 1, 0x0408),
+            player.Clock.Elapsed.TotalSeconds);
+        Assert.Equal([2257], heard);
+        await Game.CloseNpcDialogue(player);
+        Assert.Equal([2257], heard);
+        Assert.Contains(1035, player.Character.LeagueQuestFlags);
+        Assert.Null(player.NpcRewardOffer);
+        await Game.ChooseNpcOption(player, 43);
+        Assert.Null(player.NpcRewardOffer);
+        await Game.ChooseNpcOption(player, 4);
+        await Game.CloseNpcDialogue(player);
+        Assert.Equal([2257, 2258], heard);
+        await Game.ChooseNpcOption(player, 43);
+        Assert.Equal(70, player.NpcRewardOffer);
+        Assert.Equal("Metadata/Items/Maps/MapKeyTier1", Program.Items.ByHash(Assert.Single(player.NpcRewardItems.Values).TypeHash)!.Id);
+        player.Character.LeagueQuestFlags.Add(216);
+        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+        player.Character.LeagueQuestFlags.Remove(216);
+        player.Character.LeagueQuestFlags.Add(1037);
+        Assert.False(await AtlasFeature.KiracStarterConversation(player, id, npc));
+    }
+
     static async Task VerifyLillyGemIntroduction()
     {
         using var f = new MinionUtilityTests.Fixture();
@@ -176,10 +223,11 @@ public sealed class NpcConversationTests
         readonly TcpClient reader;
         readonly ConnectionCiphers decrypt = new(new byte[64], true);
         public readonly ConnectionCiphers Ciphers = new(new byte[64], false);
-        public readonly Player Player = new(new(0, "1_1_town", 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
+        public readonly Player Player;
         public NetworkStream Stream => writer.GetStream();
-        public Wire()
+        public Wire(string area = "1_1_town")
         {
+            Player = new(new(0, area, 32, 32, 10, 10, null, []), 0, 1) { Instance = new(), PlayerLife = 50 };
             listener.Start();
             var accepting = listener.AcceptTcpClientAsync();
             writer.Connect(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);

@@ -632,6 +632,8 @@ public static class GameEvents
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
+    /// <summary>The automatic quest conversation on a click or Continue. True when a module supplied the response.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcQuestConversation = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
     public static readonly GameEvent<Func<ChatCommands, Player, ChatCommands>> CommandsBuilding = new();
     /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
@@ -703,6 +705,12 @@ public static class GameEvents
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
         foreach (var run in NpcTalk.For(player)) if (await run(player, id, npc)) return true;
+        return false;
+    }
+
+    public static async Task<bool> AnyNpcQuestConversation(Player player, uint id, SpawnedNpc npc)
+    {
+        foreach (var run in NpcQuestConversation.For(player)) if (await run(player, id, npc)) return true;
         return false;
     }
 
