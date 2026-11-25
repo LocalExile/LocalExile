@@ -22,7 +22,7 @@ public sealed class DeliriumMirrorEncounter
     const int MaxActiveMonsters = 28;
     const int MaxSpawnTotal = 160;
     const double SpawnIntervalSeconds = 2.5;
-    const int MaxRewardTiles = 3;
+    static int MaxRewardTiles => MirrorRewardPool.Length;
 
     static readonly string[] FallbackMirrorComponents = ["Positioned", "BaseEvents", "Functions", "Animated", "MinimapIcon", "StateMachine"];
     static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
@@ -59,6 +59,7 @@ public sealed class DeliriumMirrorEncounter
         public int[] Rewards { get; set; } = [];
         public int[] RewardPoints { get; set; } = [];
         public int[] RewardCounts { get; set; } = [];
+        public int InitialRewards { get; set; }
         public HashSet<uint> Monsters { get; set; } = [];
         public string Why { get; set; } = "";
 
@@ -134,8 +135,11 @@ public sealed class DeliriumMirrorEncounter
             else if (rarity is MonsterRarity.Rare or MonsterRarity.Unique)
                 Splinters += rarity == MonsterRarity.Unique ? 3 : 1;
 
-            // Unlock additional reward tiles at cumulative tier 3 and 5 (up to 3 tiles in a map mirror).
-            int desiredTiles = Math.Min(MaxRewardTiles, 1 + (nextTotal >= 3 ? 1 : 0) + (nextTotal >= 5 ? 1 : 0));
+            // Unlock an additional reward tile every 2 tiers of the first reward bar (3, 5, 7, 9, ...), matching retail PoE.
+            int baseTiles = Math.Clamp(InitialRewards > 0 ? InitialRewards : 1, 1, MaxRewardTiles);
+            int firstCount = RewardCounts.Length > 0 ? RewardCounts[0] : 0;
+            int tierUnlocks = firstCount >= 3 ? (firstCount - 1) / 2 : 0;
+            int desiredTiles = Math.Min(MaxRewardTiles, baseTiles + tierUnlocks);
             if (desiredTiles > Rewards.Length)
             {
                 var list = Rewards.ToList();
@@ -145,7 +149,7 @@ public sealed class DeliriumMirrorEncounter
                 while (list.Count < desiredTiles)
                 {
                     int pick = MirrorRewardPool[Math.Abs(seed = unchecked(seed * 31 + 17)) % MirrorRewardPool.Length];
-                    if (list.Contains(pick)) pick = MirrorRewardPool[(Array.IndexOf(MirrorRewardPool, pick) + 1) % MirrorRewardPool.Length];
+                    if (list.Contains(pick)) pick = MirrorRewardPool.First(p => !list.Contains(p));
                     list.Add(pick);
                     pts.Add(0);
                     cnts.Add(0);
@@ -232,7 +236,12 @@ public sealed class DeliriumMirrorEncounter
                 var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
                 var rng = new Random(AreaPopulation.PopulationSeed(player.Layout.Hash, player.Seed) ^ 0x4166666c);
                 var spot = PickMirrorSpot(player.Layout, rng);
-                int count = Math.Clamp(1 + stats.GetValueOrDefault(Stat.MapAfflictionEncounterRewardTypesPlus), 1, MaxRewardTiles);
+                int extra = stats.GetValueOrDefault(Stat.MapAfflictionEncounterRewardTypesPlus);
+                if (rng.Next(100) < stats.GetValueOrDefault(Stat.MapDeliriumAdditionalRewardTypeChancePct))
+                    extra += 1;
+                if (rng.Next(100) < stats.GetValueOrDefault(Stat.MapDelirium3AdditionalRewardTypesChancePct))
+                    extra += 3;
+                int count = Math.Clamp(1 + Math.Max(0, extra), 1, MaxRewardTiles);
                 var rewards = new List<int>(count);
                 while (rewards.Count < count)
                 {
@@ -243,6 +252,7 @@ public sealed class DeliriumMirrorEncounter
                 state.OuterElapsed = WaveStart;
                 state.MirrorX = spot.X;
                 state.MirrorY = spot.Y;
+                state.InitialRewards = count;
                 state.Rewards = [.. rewards];
                 state.EnsureRewardArrays();
                 state.Why = stats.GetValueOrDefault(Stat.MapAfflictionLeague) > 0 ? "forced by map_affliction_league" : "league roll Delirium";

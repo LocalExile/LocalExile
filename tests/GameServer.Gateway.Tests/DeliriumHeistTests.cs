@@ -137,6 +137,43 @@ public class DeliriumHeistTests
     }
 
     [Fact]
+    public void Delirium_mirror_unlocks_reward_tiles_past_three_every_two_tiers()
+    {
+        var state = new DeliriumMirrorEncounter.MirrorState
+        {
+            Stage = DeliriumMirrorEncounter.MirrorStage.Active,
+            MirrorX = 50,
+            MirrorY = 60,
+            OuterElapsed = 5f,
+            Wave = MirrorFogWave.For(68, new Dictionary<uint, int>()),
+            DepthPercent = 60,
+            InitialRewards = 1,
+            Rewards = [0],
+        };
+        for (int i = 0; i < 80; i++) state.RecordKill(MonsterRarity.Unique, progressBonusPct: 0);
+        Assert.True(state.RewardCounts[0] >= 9);
+        Assert.Equal(1 + (state.RewardCounts[0] - 1) / 2, state.Rewards.Length);
+        Assert.Equal(state.Rewards.Length, state.Rewards.Distinct().Count());
+        Assert.True(state.Rewards.Length >= 5);
+
+        var boosted = new DeliriumMirrorEncounter.MirrorState
+        {
+            Stage = DeliriumMirrorEncounter.MirrorStage.Active,
+            MirrorX = 50,
+            MirrorY = 60,
+            OuterElapsed = 5f,
+            Wave = MirrorFogWave.For(68, new Dictionary<uint, int>()),
+            DepthPercent = 40,
+            InitialRewards = 3,
+            Rewards = [0, 1, 2],
+        };
+        for (int i = 0; i < 40; i++) boosted.RecordKill(MonsterRarity.Unique, progressBonusPct: 0);
+        Assert.True(boosted.RewardCounts[0] >= 5);
+        Assert.Equal(3 + (boosted.RewardCounts[0] - 1) / 2, boosted.Rewards.Length);
+        Assert.Equal(boosted.Rewards.Length, boosted.Rewards.Distinct().Count());
+    }
+
+    [Fact]
     public async Task Heist_module_registers_planning_packets_and_cleans_up_on_unload()
     {
         string moduleDir = Path.GetFullPath("Modules/Core/Content/Heist");
