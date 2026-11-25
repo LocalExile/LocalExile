@@ -109,7 +109,7 @@ public sealed class SecondarySkillExecutionTests
         var method = typeof(Game).GetMethod("PlacedDamageLocked", BindingFlags.Static | BindingFlags.NonPublic)!;
         var records = Activator.CreateInstance(method.GetParameters()[^1].ParameterType,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, [f.Player, null], null);
-        method.Invoke(null, [f.Player, placed, 1d, records]);
+        method.Invoke(null, [f.Player, placed, 1d, default(KeyValuePair<uint, SpawnedMonster>), records]);
     }
 
     [Fact]

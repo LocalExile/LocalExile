@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 /// lock, as the movement phase that updates them.
 /// </summary>
 /// <summary>What a kept zone is for; the key tells the zones of one kind apart (a skill, an aura row, an object id).</summary>
-public enum ZoneKind { EnemyAuras, SharedAuras, FlaskGrounds, MinionAura, Sight, MonsterSight, TotemAuras, ShrineCloud, CursedCorpses }
+public enum ZoneKind { EnemyAuras, SharedAuras, FlaskGrounds, MinionAura, Sight, MonsterSight, TotemAuras, ShrineCloud, CursedCorpses, RejuvenationTotemAllies }
 
 public static partial class Game
 {
@@ -50,9 +50,10 @@ public static partial class Game
         }
         foreach (var entry in zones.Where(z => z.Key.Owner == owner && z.Key.Kind == kind && !keep.Contains(z.Key.Key)).ToArray())
         {
+            EntityId[] affected = rules.Changed is null ? [] : entry.Value.Zone.Inside.ToArray();
             area.Zones.Remove(entry.Value.Zone);
             zones.Remove(entry.Key);
-            foreach (var id in entry.Value.Zone.Inside) rules.Changed?.Invoke(id);
+            foreach (var id in affected) rules.Changed?.Invoke(id);
         }
     }
 

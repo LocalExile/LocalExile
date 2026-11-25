@@ -11,7 +11,7 @@ public static partial class Game
         public readonly object? Rules = rules;
         public readonly Dictionary<int, double> ReadyAt = [];
         public Dictionary<ushort, ManaforgedProgress>? Manaforged;
-        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
+        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource? Source, int Next)> Rotation = [];
     }
     static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
     static LinkedTriggerState LinkedTriggersOf(Player player)
@@ -27,6 +27,33 @@ public static partial class Game
         && source.Epoch == player.ProjectileEpoch && ReferenceEquals(source.Rules, CombatLifetime)
         && !player.Closed && !player.LeavingArea && player.PendingTransfer is null && !player.Paused && player.PlayerLife > 0
         && SameTriggerSource(source.Gem, SupportedSkill(player, source.Skill));
+
+    static readonly RuleTable<LinkSkills.Link, LinkedTriggerSource> IntuitiveLinkSources = new();
+
+    static void CaptureIntuitiveLink(Player player, LinkSkills.Link link, SupportedGem gem)
+    {
+        if (CurrentPlayerSkillSourceLocked(player, link.SkillId) is not { } active) return;
+        var spells = GemSkillEffects(player).Select(row => new LinkedSpell(row.Id, SupportedSkill(player, row.Id)))
+            .Where(spell => spell.Gem.Host == gem.Host && spell.Gem.Group == gem.Group
+                && spell.Gem.Supports.Any(support => support.Effect.Id == "SupportIntuitiveLink"
+                    && support.Gem.Socket == active.Identity.Socket && SupportHas(support, Stat.TriggerOnTriggerLinkTargetHit))
+                && TriggeredSpellExecutable(player, spell.Skill, spell.Gem)).ToArray();
+        if (spells.Length > 0)
+            IntuitiveLinkSources.Add(link, new(link.SkillId, gem, spells, player.ProjectileEpoch, CombatLifetime));
+    }
+
+    static void ReleaseIntuitiveLinkLocked(Player player, GolemState.Golem fighter, (int X, int Y) aim, double now)
+    {
+        if (fighter.Monster.Dead || ActiveMinionLink(player, fighter, now) is not { EffectId: "IntuitiveLink" } link
+            || !IntuitiveLinkSources.TryGetValue(link, out var source) || !GolemCurrent(player, fighter)
+            || !LinkedSourceCurrent(player, source)) return;
+        var session = ProjectilesFor(player);
+        if (!session.Active) return;
+        bool StillLinked() => GolemCurrent(player, fighter) && !fighter.Monster.Dead
+            && ReferenceEquals(ActiveMinionLink(player, fighter, AreaTime(player)), link);
+        ReleaseLinkedSpell(player, session, source, "Intuitive Link", aim, now, Stat.TriggerOnTriggerLinkTargetHit,
+            fighter.Monster.Walk.Position(now), StillLinked);
+    }
 
     public static LinkedTriggerSource? CaptureCriticalTriggerSource(Player player, ushort skill)
     {
@@ -70,15 +97,18 @@ public static partial class Game
         return ReleaseLinkedSpell(player, session, source, "CoMK", aim, at, Stat.CastSpellOnLinkedMeleeKill);
     }
 
+    // rotation: the host and group the cycle over the spells belongs to, when it is not the driving gem's own socket
+    // group (an item's trigger cycles for the item: ReleaseItemCriticalTrigger).
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
-        string family, (int X, int Y) aim, double at, uint spellFlag)
+        string family, (int X, int Y) aim, double at, uint spellFlag, (int X, int Y)? origin = null,
+        Func<bool>? activeTarget = null, (uint Host, int Group)? rotation = null)
     {
         var state = LinkedTriggersOf(player);
-        var key = (source.Gem.Host, source.Gem.Group, family);
+        var key = (rotation?.Host ?? source.Gem.Host, rotation?.Group ?? source.Gem.Group, family);
         bool Same(LinkedTriggerSource a, LinkedTriggerSource b) => SameTriggerSource(a.Gem, b.Gem)
             && a.Spells.Length == b.Spells.Length && a.Spells.Zip(b.Spells)
                 .All(p => p.First.Skill == p.Second.Skill && SameTriggerSource(p.First.Gem, p.Second.Gem));
-        int next = state.Rotation.TryGetValue(key, out var previous) && Same(previous.Source, source) ? previous.Next : 0;
+        int next = state.Rotation.TryGetValue(key, out var previous) && previous.Source is { } prevSource && Same(prevSource, source) ? previous.Next : 0;
         double now = Math.Max(at, AreaTime(player));
         for (int i = 0; i < source.Spells.Length; i++)
         {
@@ -88,10 +118,10 @@ public static partial class Game
             if (!SameTriggerSource(spell.Gem, gem) || now < state.ReadyAt.GetValueOrDefault(gem.Effect)
                 || GemSkillInstanceDisabled(player, gem.Effect, spell.Skill, triggered: true) is not null) continue;
             bool Current() => session.Active && LinkedSourceCurrent(player, source)
-                && SameTriggerSource(spell.Gem, SupportedSkill(player, spell.Skill));
-            var release = PrepareTriggeredPayload(player, session, spell.Skill, aim, Current);
+                && SameTriggerSource(spell.Gem, SupportedSkill(player, spell.Skill)) && (activeTarget?.Invoke() ?? true);
+            var release = PrepareTriggeredPayload(player, session, spell.Skill, aim, Current, origin);
             if (release is null) continue;
-            var trigger = gem.Supports.Single(s => SupportHas(s, spellFlag));
+            if (gem.Supports.FirstOrDefault(s => SupportHas(s, spellFlag)) is not { } trigger) continue;
             if (!PayMana(player, spell.Skill, out uint mana, out uint life))
             {
                 state.Rotation[key] = (source, (index + 1) % source.Spells.Length);
@@ -99,6 +129,8 @@ public static partial class Game
             }
             int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
                 SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
+            if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
             var playerStats = CharacterPlayerStats(player);
             double rate = Math.Max(0, 1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
                 + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)

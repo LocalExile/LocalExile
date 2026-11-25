@@ -125,8 +125,9 @@ public sealed class ResonanceSupportTests
             return copy;
         });
         var bowTarget = mirage.AddTarget((110, 100));
+        mirage.AdvanceOutput(0.25); // an output callback overtakes the test schedule, without waiting on wall time
         Assert.True(mirage.FireBow((110, 100)));
-        Assert.True(mirage.AdvanceUntilHit(bowTarget, 1.0) > 0);
+        Assert.True(mirage.AdvanceUntilPlayerHit(1.0));
         Game.ClearResonance(mirage.Player);
         Assert.Equal((0, 0, 0), mirage.Elemental());
 
@@ -139,13 +140,14 @@ public sealed class ResonanceSupportTests
         // Build all three resonances to >= 25 via player hits, then observe Mirage Archer's boosted hit.
         mirage.Dominant = DamageType.Fire;
         Assert.True(mirage.FireBow((110, 100)));
-        Assert.True(mirage.AdvanceUntilHit(bowTarget, 1.0) > 0);
+        Assert.True(mirage.AdvanceUntilPlayerHit(1.0));
         mirage.Advance(1.1);
         mirage.Dominant = DamageType.Cold;
         Assert.True(mirage.FireBow((110, 100)));
-        Assert.True(mirage.AdvanceUntilHit(bowTarget, 1.0) > 0);
+        Assert.True(mirage.AdvanceUntilPlayerHit(1.0));
         mirage.Advance(1.1);
-        Assert.True(mirage.Stat(Stat.VirtualLowestResonance) >= 25);
+        int lowest = mirage.Stat(Stat.VirtualLowestResonance);
+        Assert.True(lowest >= 25, $"Expected all three Resonances to reach 25, but the lowest was {lowest}.");
 
         bowTarget.Life = bowTarget.MaxLife;
         uint boosted = mirage.AdvanceUntilHit(bowTarget, 3.0);
@@ -155,7 +157,7 @@ public sealed class ResonanceSupportTests
     sealed class Fixture : IDisposable, IPlayerUpdateSchedule
     {
         public const uint TargetId = 271;
-        readonly TriggeredSummonTests.Fixture fixture = new();
+        readonly TriggeredSummonTests.Fixture fixture;
         readonly PlayerUpdatesState? previous = Game.AreaUpdateContext.Value;
         readonly PlayerUpdatesState updates;
         readonly IDisposable damage;
@@ -169,11 +171,12 @@ public sealed class ResonanceSupportTests
         {
             await Task.Yield();
             stopping.ThrowIfCancellationRequested();
-            Now += milliseconds / 1000d;
+            MoveClock(milliseconds / 1000d, advanceProjectiles: false);
         }
 
         public Fixture(string support, DamageType dominant, bool bow = false)
         {
+            fixture = new(this);
             updates = new(fixture.Lifetime, this);
             Player.Walk.Teleport(100, 100, Now);
             if (bow)
@@ -227,15 +230,41 @@ public sealed class ResonanceSupportTests
             fixture.Session.Schedule(fixture.Session.Runtime.Now, () => true, () => use);
             return true;
         }
+        public bool AdvanceUntilPlayerHit(double maxSeconds)
+        {
+            double before = Player.LastEnemyHitAt;
+            return AdvanceUntil(() => Player.LastEnemyHitAt > before, maxSeconds);
+        }
+
         public uint AdvanceUntilHit(SpawnedMonster target, double maxSeconds)
         {
-            uint before = target.Life;
-            for (int i = 0; i < (int)(maxSeconds * 20); i++)
+            uint previousLife = target.Life, damage = 0;
+            void ObserveHit()
             {
-                Advance(0.05);
-                if (target.Life < before) return before - target.Life;
+                uint life = target.Life;
+                if (damage == 0 && life < previousLife) damage = previousLife - life;
+                previousLife = life;
             }
-            return 0;
+
+            // One advance can commit multiple arrows. Compare the first individual hit in each phase.
+            target.LifeChanged += ObserveHit;
+            try
+            {
+                AdvanceUntil(() => damage > 0, maxSeconds);
+                return damage;
+            }
+            finally { target.LifeChanged -= ObserveHit; }
+        }
+
+        bool AdvanceUntil(Func<bool> observed, double maxSeconds)
+        {
+            const double step = 0.05;
+            for (int i = 0; i < (int)(maxSeconds / step); i++)
+            {
+                Advance(step);
+                if (observed()) return true;
+            }
+            return false;
         }
         public SpawnedMonster AddTarget((int X, int Y)? at = null)
         {
@@ -247,10 +276,21 @@ public sealed class ResonanceSupportTests
         public int Stat(uint key) => Game.PlayerStatValues(Player).GetValueOrDefault(key);
         public (int, int, int) Elemental() => (Stat(global::Stat.FireResonance), Stat(global::Stat.ColdResonance),
             Stat(global::Stat.LightningResonance));
-        public void Advance(double seconds)
+        public void Advance(double seconds) => MoveClock(seconds, advanceProjectiles: true);
+        public void AdvanceOutput(double seconds)
         {
-            Now += seconds;
-            fixture.Session.AdvanceTo(ProjectileRuntime.Time(Now));
+            using (Game.ProjectileMutation(Player, advance: false))
+                fixture.Session.AdvanceTo(Math.Max(fixture.Session.Runtime.Now, ProjectileRuntime.Time(Now))
+                    + ProjectileRuntime.Time(seconds));
+        }
+        void MoveClock(double seconds, bool advanceProjectiles)
+        {
+            using (Game.ProjectileMutation(Player, advance: false))
+            {
+                // Output callbacks can advance the session too; both drivers share its gate and monotonic time.
+                Now = Math.Max(Now, fixture.Session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond) + seconds;
+                if (advanceProjectiles) fixture.Session.AdvanceTo(ProjectileRuntime.Time(Now));
+            }
         }
         public void Dispose()
         {

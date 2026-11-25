@@ -99,6 +99,8 @@ public static partial class Game
             if (retiring.Count == 0) return;
             var identities = retiring.Select(source => source.Identity).ToHashSet();
             pending.RemoveAll(source => identities.Contains(source.Identity));
+            if (ShaperMemories.TryGetValue(player, out var memory) && retiring.Any(source => source.WornGrant == memory.Grant))
+                RetireShaperMemoryLocked(player, memory);
             RetireDirectMinionSourcesLocked(player, retiring);
         }
     }

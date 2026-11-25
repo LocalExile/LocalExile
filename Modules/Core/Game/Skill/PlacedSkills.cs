@@ -258,11 +258,38 @@ public static partial class Game
         return (aim.X + (int)Math.Round(Math.Cos(angle) * distance), aim.Y + (int)Math.Round(Math.Sin(angle) * distance));
     }
 
-    // Preserve the existing placement-time offensive snapshot. A recipient's Blind is selected only at contact.
+    static readonly RuleTable<PlacedSkills.DamageSnapshot, PlacedSkills.DamageSnapshot> RecentMineAreaProfiles = new();
+
+    // Preserve the placement-time offensive inputs. A mine chooses the recent-detonation area profile at release.
     static PlacedSkills.DamageSnapshot? CapturePlacedDamage(Player player, ushort skill, SupportedGem gem)
     {
         if (SupportedHitInputsFor(player, skill, capturedGem: gem) is not { } inputs) return null;
         inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
+        if (IsPyroclastMine(SkillsFor(player).EffectId(gem.Effect)))
+            inputs = inputs with { Projectile = false };
+        int recentArea = inputs.Area && PlacedKind(gem).Mine
+            ? inputs.Get(Stat.MineAreaDamagePlusPctIfDetonatedMineRecently) : 0;
+        if (recentArea == 0) return CapturePlacedProfile(player, skill, gem, inputs);
+        bool recent = player.RecentEvents.Happened(StatConditions.DetonatedMine, AreaTime(player));
+        var normal = CapturePlacedProfile(player, skill, gem, recent ? AddAreaDamage(inputs, -(long)recentArea) : inputs);
+        var active = CapturePlacedProfile(player, skill, gem, recent ? inputs : AddAreaDamage(inputs, recentArea));
+        RecentMineAreaProfiles.Add(normal, active);
+        return normal;
+    }
+
+    static SupportedHitInputs AddAreaDamage(SupportedHitInputs inputs, long increase)
+    {
+        int area = ActorScale.Saturate((long)inputs.Get(Stat.AreaDamagePlusPct) + increase);
+        var stats = new Dictionary<uint, int>(inputs.FrozenStats) { [Stat.AreaDamagePlusPct] = area };
+        return inputs with
+        {
+            FrozenStats = stats,
+            Get = name => name == Stat.AreaDamagePlusPct ? area : inputs.Get(name),
+        };
+    }
+
+    static PlacedSkills.DamageSnapshot CapturePlacedProfile(Player player, ushort skill, SupportedGem gem, SupportedHitInputs inputs)
+    {
         bool spell = !inputs.Attack;
         long additionalIncreased = inputs.Get(PlayerHitDamage.VsBlindedDamageStat);
         PlacedSkills.DamageProfile Profile(long increased) => new(
@@ -408,6 +435,7 @@ public static partial class Game
                         context.Life, context.Efficiency)
                     {
                         LandAt = land, Landed = false, Offense = offense, TriggerRadius = TrapTriggerRadius(Get),
+                        Source = admission.Source,
                         EffectDurationSeconds = GolemStat(payload, Stat.SkillEffectDuration) / 1000d,
                     };
                     player.Placed.All.Add(id, placement);
@@ -461,6 +489,7 @@ public static partial class Game
     static void RemovePlacedLocked(Player player, PlacedSkills.Placed placed, WorldRecordBuilder bytes)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
+        RemovePyroclastAura(player.Area, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
         player.Placed.Dirty = true;
@@ -472,6 +501,7 @@ public static partial class Game
     static void RetirePlacedLocked(Player player, PlacedSkills.Placed placed, double now)
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
+        RemovePyroclastAura(player.Area, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
         player.Placed.Dirty = true;
         player.Minions.StatRevision++;
@@ -500,6 +530,8 @@ public static partial class Game
     // The wait before a mine of a detonation sequence goes off after the one before it: the mine's detonation time
     // (base_mine_detonation_time_ms, 250 in every 3.29.3c mine row) at 10% more detonation speed for each mine before
     // it in the sequence (Detonate Mines' display_mine_deontation_mechanics_detonation_speed_+%_final_per_sequence_mine).
+    static bool IsMineDetonation(string? effect) => effect is "DetonateMines" or "GemDetonateMines" or "TriggeredDetonateMines";
+
     public static double MineSequenceGap(int milliseconds, int prior) =>
         (milliseconds > 0 ? milliseconds : 250) / 1000d / (1 + .1 * Math.Max(0, prior));
 
@@ -511,14 +543,22 @@ public static partial class Game
         bool running = player.Placed.All.Values.Any(p => p.Mine && !double.IsPositiveInfinity(p.DetonateAt));
         double next = running ? player.Placed.NextChain : now;
         int prior = running ? player.Placed.Chain : 0;
+        if (!running) player.Placed.TriggeredInChain = 0;
         var playerAt = player.Walk.Position(now);
+        IReadOnlyDictionary<uint, int>? stats = null;
         foreach (var mine in player.Placed.All.Values.Where(p => p.Mine && double.IsPositiveInfinity(p.DetonateAt)
             && MineCanDetonateFrom(p, playerAt))
             .OrderBy(p => p.Armed).ThenBy(p => p.Id))
         {
             int time = GolemStat(mine.Own, Stat.BaseMineDetonationTimeMs);
             if (time <= 0) time = GolemStat(mine.Own, Stat.SupportRemoteMine2BaseMineDetonationTimeMs);
-            if (prior > 0) next += MineSequenceGap(time, prior);
+            if (prior > 0)
+            {
+                stats ??= CharacterPlayerStats(player);
+                long increased = (long)GolemStat(stats, Stat.MineDetonationSpeedPlusPct)
+                    + GolemStat(mine.Own, Stat.MineDetonationSpeedPlusPct);
+                next += MineSequenceGap(time, prior) / Math.Max(.01, 1 + increased / 100d);
+            }
             next = Math.Max(Math.Max(next, now), mine.Armed);
             mine.DetonateAt = next;
             prior++;
@@ -556,34 +596,66 @@ public static partial class Game
     }
 
     // Where a trap or mine at a cell fires its projectile skill: at the nearest enemy within 60 cells that does not
-    // stand on it, and with none in range 20 cells straight away from the player, so that it still uses its skill.
-    public static (int X, int Y) PlacedProjectileAim((int X, int Y) at, (int X, int Y) player, IEnumerable<(int X, int Y)> enemies)
+    // stand on it, and with none in range 20 cells any way (straight away from the player without a random source), so
+    // that it still uses its skill.
+    public static (int X, int Y) PlacedProjectileAim((int X, int Y) at, (int X, int Y) player, IEnumerable<(int X, int Y)> enemies,
+        Random? random = null)
     {
         var near = enemies.Where(e => Dist(e, at) is >= 1 and <= 60).OrderBy(e => Dist(e, at)).ToArray();
         if (near.Length > 0) return near[0];
+        // With no target the official client's mines fire any way (seen 2026-11-19).
+        if (random is not null && random.NextDouble() * Math.Tau is var turn)
+            return (at.X + (int)Math.Round(Math.Cos(turn) * 20), at.Y + (int)Math.Round(Math.Sin(turn) * 20));
         double away = Dist(at, player);
         return away < 1 ? (at.X + 20, at.Y)
             : (at.X + (int)Math.Round((at.X - player.X) / away * 20), at.Y + (int)Math.Round((at.Y - player.Y) / away * 20));
     }
 
-    static void PlacedDamageLocked(Player player,
-        PlacedSkills.Placed placed, double now, WorldRecordBuilder bytes)
+    static void LeechPlacedMineHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated, bool spell,
+        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0)
+    {
+        int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
+        if (coefficient <= 0) return;
+        var life = DamagePacket.Empty.Select((_, _) => new(coefficient, coefficient));
+        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
+            new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
+    }
+
+    static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now,
+        KeyValuePair<uint, SpawnedMonster> triggeringEnemy, WorldRecordBuilder bytes)
     {
         int inventionRate = GolemStat(placed.Own, Stat.SupportInventionTrapAndMineDamagePlusPctFinalPerSecondPlacedUpTo100);
         double inventionMore = 1 + Math.Clamp(inventionRate * Math.Max(0, now - placed.LandAt), 0, 100) / 100;
-        bool bear = SkillsFor(player).EffectId(placed.Effect) is "BearTrap" or "BearTrapAltX";
+        string? effect = SkillsFor(player).EffectId(placed.Effect);
+        bool bear = effect is "BearTrap" or "BearTrapAltX";
+        bool pyroclast = IsPyroclastMine(effect);
         double radius = SkillRadius(player, placed.Own, spell: true, placed.Effect);
         bool spellDamage = SkillHitPlan.ForSkill(SkillsFor(player), placed.Effect, 1).Kind != SkillHitKind.Secondary;
         var payload = GemSkillEffects(player).FirstOrDefault(g => g.Id == placed.Skill);
         bool currentSkill = payload.Name is not null && payload.Effect == placed.Effect;
+        bool rainSkill = !bear && currentSkill && ArrowRain(SkillsFor(player).EffectId(placed.Effect));
         bool projectile = !bear && currentSkill
             && UsesProjectileRuntime(placed.Effect) && ResolveProjectileDefinition(placed.Effect) is not null;
         KeyValuePair<uint, SpawnedMonster> target = default;
         (int X, int Y) aim = placed.At;
+        bool locusAim = placed.Mine && GolemStat(placed.Own, Stat.SupportLocusMineMinesAlwaysTargetYourLocation) != 0;
         if (projectile)
         {
-            aim = PlacedProjectileAim(placed.At, player.Walk.Position(now), player.Area.MonstersNear(placed.At, 60)
-                .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)));
+            var ownerAt = player.Walk.Position(now);
+            aim = locusAim
+                ? ownerAt
+                : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)), AreaRng(player));
+        }
+        else if (rainSkill)
+        {
+            aim = locusAim
+                ? player.Walk.Position(now)
+                : player.Area.MonstersNear(placed.At, 60)
+                    .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false, WorldHidden: false }
+                        && !MonsterAsleep(player, m.Key))
+                    .Select(m => m.Value.Walk.Position(now)).Where(p => Dist(p, placed.At) <= 60).OrderBy(p => Dist(p, placed.At))
+                    .Select(p => ((int X, int Y)?)p).FirstOrDefault() ?? placed.At;
         }
         else if (bear)
         {
@@ -592,10 +664,81 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
-        bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
-        // A projectile spell leaves the trap or mine towards the nearest enemy as its own projectile, with the hit and
-        // support modifiers of the supported skill, instead of an area hit around the object. The server draws it, as it
-        // does a triggered spell's: no local input action predicts it.
+        bool arc = PlacedArcPayload(effect);
+        bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
+        bool brand = TriggerBrandSpell(player, placed.Effect);
+        bool frostBomb = effect == "FrostBomb";
+        if (!arc)
+            bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
+        if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
+            && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand || frostBomb))
+        {
+            var session = ProjectilesFor(player);
+            var lifetime = CombatLifetime;
+            bool Current()
+            {
+                if (!ReferenceEquals(lifetime, CombatLifetime) || !player.GemSourceLifetimes.IsCurrent(source)) return false;
+                var supported = SupportedSkill(player, placed.Skill);
+                var kind = PlacedKind(supported);
+                return kind.Mine == placed.Mine && (kind.Mine || kind.Trap) && SameLinkedSkillSource(gem, supported);
+            }
+            if (TriggerSummonSpell(player, gem))
+                session.Enqueue(() => ReleaseTriggeredSummon(player, session, placed.Skill, placed.At, Current,
+                    useProxyOrigin: true));
+            else if (frostBomb)
+                session.SchedulePlacedFrostBomb(new(placed, inventionMore), Current);
+            else if (brand)
+                ResolveCastBrandLocked(player, placed.Skill, payload.Effect, placed.At, recoveryGeneration: null,
+                    Current, bytes, new(placed, inventionMore));
+            else if (storm)
+            {
+                var placedHit = new PlacedAreaHit(placed, inventionMore);
+                if (IsStormCall(effect))
+                    session.SchedulePlacedStormCall(payload, placedHit, Current);
+                else
+                {
+                    var sacrifice = new SacrificeUse(player, placed.Skill, payload.Effect, payload.Gem, triggered: true);
+                    session.ScheduleFirestorm(payload, placed.At, 0, Current, sacrifice, critical: null, placedHit: placedHit);
+                }
+            }
+            else if (arc)
+            {
+                if (Current()) ReleasePlacedArc(player, session, placed, triggeringEnemy, inventionMore, bytes);
+            }
+            else if (Current())
+                CommitTriggeredUtilityLocked(player, placed.Skill, gem, payload.Gem, effect!, placed.At, now, fromPlacement: true);
+            return;
+        }
+        // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
+        // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
+        if (rainSkill)
+        {
+            var session = ProjectilesFor(player);
+            var lifetime = CombatLifetime;
+            var critical = CaptureSkillCriticalRoll(player, placed.Skill);
+            var at = placed.At;
+            var rain = aim;
+            var rainSource = placed.Source;
+            session.Runtime.Schedule(session.Runtime.Now, () =>
+            {
+                if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || player.PlayerLife == 0) return;
+                if (rainSource is not null && !player.GemSourceLifetimes.IsCurrent(rainSource)) return;
+                if (SupportedSkill(player, placed.Skill).Effect != placed.Effect) return;
+                try
+                {
+                    ReleaseArrowRain(session, placed.Skill, payload, rain, critical, (ushort)placed.Id,
+                        transform: inventionMore == 1 ? null : s => s.ScaleDamage(inventionMore),
+                        podDamageFactor: inventionMore, from: at);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {player.Connection.Remote} placed rain skill unavailable: {ex.Message}");
+                }
+            });
+            return;
+        }
+        // The trap or mine emits its own projectile with the supported skill's hit and the device's resolved aim.
+        // The server draws it because no local input action predicts it.
         if (projectile)
         {
             var session = ProjectilesFor(player);
@@ -605,16 +748,53 @@ public static partial class Game
             var shot = aim;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, from: at);
-                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, 0, 0);
+                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
+                if (placed.Mine && placed.Chain > 0)
+                {
+                    int group = GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer2MinesInDetonationSequence) != 0 ? 2
+                        : GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer3MinesInDetonationSequence) != 0 ? 3 : 0;
+                    if (group > 0 && placed.Chain >= group
+                        && GolemStat(CharacterPlayerStats(player), Stat.MaximumNumberOfProjectilesToFireIs1) == 0)
+                        use = use with { Profile = use.Profile with { Count = Math.Min(256, use.Profile.Count + placed.Chain / group) } };
+                }
+                // The volley's rules are the player's own cast's, some of which start it at the player's cell (Spark's
+                // and Twister's wander): it leaves from the trap or mine whatever the skill.
+                var origin = use.Origin;
+                // Its random spread and wander are seeded by the use's sequence: the object's id, so two do not match.
+                use = ClientDrawnVolley(player, session, placed.Skill, payload, use, (ushort)placed.Id, 0) with { Origin = origin };
+                if (pyroclast) use = PyroclastMortars(player, placed, use);
+                // The rig's flight clip is what shows art that has no default animation (Spark's sparks).
                 var offense = ((ProjectileOffense)use.Payload!).ScaleDamage(inventionMore);
-                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true } };
+                return use with { Payload = offense with { ClientPredicted = false, FromTrapOrMine = true, FromMine = placed.Mine,
+                    Presentation = WithProjectileClips(offense.Presentation, SkillsFor(player).Clips(use.Profile.Id),
+                        use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
             });
-            return;
+            if (!pyroclast) return;
         }
+        if (effect == "Vortex")
+            ProjectilesFor(player).PlaceVortexGround(placed, CharacterPlayerStats(player), inventionMore);
+        PlacedAreaDamageLocked(player, placed, placed.At, radius, now, inventionMore, currentSkill, spellDamage,
+            bear ? target.Key : null);
+    }
+
+    internal sealed record PlacedAreaHit(PlacedSkills.Placed Device, double DamageMore)
+    {
+        public void Apply(Player player, (int X, int Y) centre, double radius, double now, double more = 1) =>
+            PlacedAreaDamageLocked(player, Device, centre, radius, now, DamageMore * more, currentSkill: true, spellDamage: true);
+    }
+
+    static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
+        (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
+        uint? bearTarget = null)
+    {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
-        var playerStats = placed.Offense?.Caster ?? owner;
+        var offenseSnapshot = placed.Offense;
+        if (offenseSnapshot is not null && placed.Mine && RecentMineAreaProfiles.TryGetValue(offenseSnapshot, out var active)
+            && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
+            offenseSnapshot = active;
+        var playerStats = offenseSnapshot?.Caster ?? owner;
+
         int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
         if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
             skitterPct = ReservationStat(player, skitter, Stat.SkitterbotsTrapMineDamagePlusPctFinal);
@@ -622,71 +802,67 @@ public static partial class Game
         // PlayerHitDamage already applies Skitterbots' trap/mine more multiplier when placed.Offense was captured;
         // apply it here only for synthetic Offense-less placements, for ailments (AilmentPanelStats omits it),
         // and for Fire Trap's burning ground DoT below.
-        double hitMore = (placed.Offense is null ? skitterMore : 1) * inventionMore;
-        double ailmentMore = skitterMore * inventionMore;
-        bool spell = placed.Offense?.Spell ?? spellDamage;
+        double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
+        double ailmentMore = skitterMore * damageMore;
+        bool spell = offenseSnapshot?.Spell ?? spellDamage;
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
+        int burningMorePct = GolemStat(placed.Own, Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int chance = currentSkill ? SupportedReleaseCriticalChance(player, placed.Skill) : 0;
         int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
         GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
         int multiplier = currentSkill ? SupportedCriticalMultiplier(player, placed.Skill) : 100;
         var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
-        foreach (var (id, m) in player.Area.Monsters.ToArray())
+        foreach (var (id, m) in player.Area.MonstersNear(centre, radius).ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || bear && id != target.Key || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), placed.At) > radius
+                || bearTarget is uint target && target != id || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), centre) > radius
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
-            var profile = placed.Offense is { } captured
-                ? Blinded(player, id) ? captured.Blinded : captured.Normal
+            var profile = offenseSnapshot is { } captured
+                ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
                 : new PlacedSkills.DamageProfile(placed.Damage, MonsterIgnites.Settings.None,
                     MonsterIgnites.Settings.None, MonsterPoisons.Settings.None);
-            if (placed.Offense?.Spider is { } spider)
-                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id),
-                    m.Ignites.Burning, m.Bleeds.Burning, EnemyOnLowLife(m));
+            if (offenseSnapshot?.Spider is { } spider)
+                profile = SpiderDamageProfile(spider, m.SpiderWebs.Count(now), Blinded(player, id, now),
+                    m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), m.MaimedUntil > now,
+                    spider.Melee && TargetAccuracy.InCloseRange(Dist(centre, m.Walk.Position(now))),
+                    ContactDamage(player, m, now, spider.Stats));
+            double targetMore = burningMorePct != 0 && BurningTarget(player, m, now)
+                ? Math.Max(0, 1 + burningMorePct / 100d) : 1;
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
                 profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
-            var mitigated = DamageModel.Mitigate(rolled, type => MonsterHitResistance(m, type, default, now));
+            if (targetMore != 1) rolled = rolled.Scale(targetMore);
+            var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
+                Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
+                    GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
             int damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
             bool critical = currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
                 placed.Own, attack, criticalRoll, owner);
-            int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, owner, placed.Own) : 100;
+            int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
             if (placed.Mine)
-            {
-                // This is an explicit owner-leech grant, not the player's ordinary attack/spell leech.
-                int coefficient = Math.Max(0, GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad));
-                if (coefficient > 0)
-                {
-                    var life = DamageTypes.ConversionOrder.Aggregate(DamagePacket.Empty,
-                        (sum, type) => sum.Add(DamagePacket.Of(type, coefficient, coefficient)));
-                    LeechOnHitLocked(player, m, MonsterTakenComponents(m, mitigated, spell, now), damage,
-                        new(life, DamagePacket.Empty, DamagePacket.Empty));
-                }
-            }
-            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placed.At, default, null, chaosDamage) is not { } hit) continue;
+                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
+            if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             OwnedKillLocked(m, hit.Life);
-            var poison = profile.Poison with { Min = profile.Poison.Min * ailmentMore, Max = profile.Poison.Max * ailmentMore,
-                CriticalMin = profile.Poison.CriticalMin * ailmentMore, CriticalMax = profile.Poison.CriticalMax * ailmentMore };
+            double targetAilmentMore = ailmentMore * targetMore;
+            var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
-                var ignite = profile.Ignite with { Min = profile.Ignite.Min * ailmentMore, Max = profile.Ignite.Max * ailmentMore,
-                    CriticalMin = profile.Ignite.CriticalMin * ailmentMore, CriticalMax = profile.Ignite.CriticalMax * ailmentMore };
+                var ignite = RepeatAilment(profile.Ignite, targetAilmentMore);
                 foreach (var packet in IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine ignite", id, m));
             }
             if (!m.Dead && !spell && rolled[DamageType.Physical].Max > 0)
             {
-                var bleed = profile.Bleed with { Min = profile.Bleed.Min * ailmentMore, Max = profile.Bleed.Max * ailmentMore,
-                    CriticalMin = profile.Bleed.CriticalMin * ailmentMore, CriticalMax = profile.Bleed.CriticalMax * ailmentMore };
+                var bleed = RepeatAilment(profile.Bleed, targetAilmentMore);
                 foreach (var packet in BleedOnHitLocked(player, id, m, bleed, critical, now) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, "trap/mine bleed", id, m));
             }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "trap/mine", playerKill: false);
-            if (bear)
+            if (bearTarget is not null)
                 BearTrapOnHitLocked(m, damage, now, n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n));
         }
         if (GolemStat(placed.Own, Stat.BaseFireDamageToDealPerMinute) > 0)
@@ -698,9 +874,10 @@ public static partial class Game
             if (Get(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += Get(Stat.SpellDamagePlusPct);
             double groundMore = new[] { "damage_+%_final", "fire_damage_+%_final", "elemental_damage_+%_final",
                 "damage_over_time_+%_final", "trap_damage_+%_final", "area_damage_+%_final" }
-                .Aggregate(1d, (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
+                .Aggregate(DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
+                    (factor, n) => factor * Math.Max(0, 1 + Get(Stat.Of(n)) / 100d));
             double dps = Get(Stat.BaseFireDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * inventionMore;
+                * Math.Max(0, 1 + (Get(Stat.DotMultiplierPlus) + Get(Stat.FireDotMultiplierPlus)) / 100d) * groundMore * skitterMore * damageMore;
             var damage = new SkillDamageContext(SkillHitKind.Spell, placed.Offense?.Caster ?? TotemCasterStats(playerStats))
                 .OverTime(new(DamageType.Fire, dps, 1));
             int baseDuration = Get(Stat.BaseSkillEffectDuration);
@@ -796,9 +973,15 @@ public static partial class Game
                 foreach (var placed in player.Placed.All.Values.ToArray())
                 {
                     if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(placed.Id).IsReady) continue;
-                    if (player.PlayerLife == 0 || now >= placed.Until) { RemovePlacedLocked(player, placed, bytes); continue; }
+                    // A trap goes off when its duration ends (seen on the official client 2026-11-19); a mine is removed.
+                    // A Conversion Trap that was never set off converts nobody at its end: it only leaves.
+                    bool expired = now >= placed.Until;
+                    if (player.PlayerLife == 0 || expired && (placed.Mine || SkillsFor(player).EffectId(placed.Effect) == "ConversionTrap"))
+                    { RemovePlacedLocked(player, placed, bytes); continue; }
                     LandPlacedRecordsLocked(player, placed, now, bytes);
                     if (now < placed.Armed) continue;
+                    if (placed.Mine && IsPyroclastMine(SkillsFor(player).EffectId(placed.Effect)))
+                        KeepPyroclastAura(player, placed);
                     if (placed.Mine && !MineCanDetonateFrom(placed, playerAt))
                     {
                         if (now >= placed.DetonateAt) placed.DetonateAt = double.PositiveInfinity;
@@ -824,22 +1007,29 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    var trigger = conversion ? ConversionTrapTarget(player, placed, now) : default;
-                    bool nearby = !placed.Mine && (conversion ? trigger.Value is not null
+                    bool arcTrap = !placed.Mine && PlacedArcPayload(effect);
+                    var trigger = conversion ? ConversionTrapTarget(player, placed, now)
+                        : arcTrap ? PlacedArcTarget(player, placed, placed.TriggerRadius, now) : default;
+                    bool nearby = !placed.Mine && (conversion || arcTrap ? trigger.Value is not null
                         : player.Area.MonstersNear(placed.At, placed.TriggerRadius).Any(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }
                             && Dist(m.Value.Walk.Position(now), placed.At) <= placed.TriggerRadius));
-                    if (!skitter && !nearby && now < placed.DetonateAt) continue;
+                    if (!skitter && !nearby && !expired && now < placed.DetonateAt) continue;
                     // Scheduling, an unarmed mine, a retired placement and a Skitterbot's detonation are not a
                     // player detonation. Record only this accepted player-chain trigger, even without a hit target.
                     if (placed.Mine && !skitter)
-                        player.RecentEvents.Record(StatConditions.DetonatedMine, AreaTime(player));
+                    {
+                        placed.Chain = player.Placed.TriggeredInChain++;
+                        player.RecentEvents.RecordAmount(StatConditions.DetonatedMine, now);
+                    }
+                    else if (placed.Mine) placed.Chain = 0;
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
-                    else PlacedDamageLocked(player, placed, now, bytes);
+                    else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
-                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : "chain")} trigger; rearm={rearm}");
+                    Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)
                     {
+                        RemovePyroclastAura(player.Area, placed.Id);
                         player.Placed.All[placed.Id] = placed with
                         {
                             Armed = now + PlacedArmSeconds,

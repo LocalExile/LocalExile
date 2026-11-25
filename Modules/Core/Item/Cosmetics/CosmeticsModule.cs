@@ -12,6 +12,7 @@ public sealed class CosmeticsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LocalShopFeature.LoadData();
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player =>
         {
             return CosmeticsFeature.SpawnPets(player);
@@ -41,6 +42,36 @@ public sealed class CosmeticsModule : IModule
             await CosmeticsFeature.PickSkillCosmetic(player, InstanceMicrotransactions.ReadSkillPick(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceShop.BuyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleBuy(player, InstanceShop.ReadBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ReloadId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await LocalShopFeature.HandleReload(player);
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ShippingQuoteRequestId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleShippingQuote(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.PlaceOrderId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandlePlaceOrder(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenMysteryBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenMysteryBox(player, InstanceShop.ReadOpenMysteryBox(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenSalvageBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenSalvageBox(player, InstanceShop.ReadOpenSalvageBox(bytes));
+            return true;
+        });
     }
 }
 
@@ -51,7 +82,7 @@ public static class CosmeticsFeature
     // personal hideout list includes all exported templates; the guild list stays empty.
     internal static async Task AnswerMtxRequest(Player player, InstanceMicrotransactions.Lists asked)
     {
-        var owned = Mtx.Owned;
+        var owned = LocalShopFeature.CombinedOwned(player);
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Records))
             await Send(player, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.Records),
                 $"0x01f4 microtransactions: {owned.Count} owned (the panel's records)");
@@ -65,7 +96,13 @@ public static class CosmeticsFeature
             await Send(player, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
                 $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
-            await Send(player, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
+        {
+            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? HideoutCatalog.OwnedRows : [];
+            await Send(player, InstanceMicrotransactions.Hideouts(guildRows, guild: true),
+                guildRows.Length > 0
+                    ? $"0x01f5 guild hideouts: all {guildRows.Length} templates"
+                    : "0x01f5 guild hideouts: none");
+        }
     }
 
     // C→S 0x1fa: a pick in one of the Cosmetics tab's skill slots (record 0 empties it). Saved for the slot's gem type and
@@ -81,7 +118,7 @@ public static class CosmeticsFeature
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea)
                 return;
-            record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+            record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
             if (!player.Character.SkillSlots.TryGetValue(pick.Key, out var current))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
@@ -108,6 +145,7 @@ public static class CosmeticsFeature
         // Active reservation skills (Tempest Shield, auras, heralds, Arctic Armour) likewise re-emit their buffs with
         // the new art variation / hide flag so the pick applies immediately.
         await RefreshReservationCosmetics(player, slot.GemHash);
+        global::Game.RefreshSpectreCosmetics(player, slot.GemHash);
     }
 
     // C→S 0x1f9: a pick in the Cosmetics tab's slot flyout (record 0 empties the slot). Saved per character, then the whole
@@ -115,7 +153,7 @@ public static class CosmeticsFeature
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
     internal static async Task PickCosmetic(Player player, (byte Slot, uint RecordId, byte Option) pick)
     {
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+        var record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId}: not a slot or not a record, ignored");

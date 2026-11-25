@@ -117,7 +117,7 @@ public static partial class Game
         }
         // Objects of a module or mod.
         if (await GameEvents.AnyObjectUse(player, use, requestedAt)) return;
-        if (use.TargetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint)
+        if (use.TargetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint)
         {
             await UseWaypoint(player, use, waypoint, requestedAt);
             return;
@@ -212,7 +212,7 @@ public static partial class Game
         if (player.Totems.All.FirstOrDefault(t => t.Id == targetId) is { } totem) return totem.At;
         if (player.Placed.All.TryGetValue(targetId, out var placed)) return placed.At;
         if (player.Instance.Ground.Get(targetId) is { } ground) return (ground.GridX, ground.GridY);
-        if (targetId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint) return (waypoint.GridX, waypoint.GridY);
+        if (targetId == WaypointCatalog.ObjectId && InstanceEvents.RunAreaWaypoint(player, player.Layout.Waypoint) is { } waypoint) return (waypoint.GridX, waypoint.GridY);
         SpawnedNpc? npc;
         lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(targetId);
         if (npc is not null) return (npc.X, npc.Y);
@@ -623,14 +623,19 @@ public static partial class Game
 
     public static async Task SelectHideout(Player player, (int Row, bool Guild) selected)
     {
-        if (selected.Guild || player.PendingTransfer is not null) return;
+        if (player.PendingTransfer is not null) return;
+        if (selected.Guild)
+        {
+            await GameEvents.RunGuildHideoutSelected(player, selected.Row);
+            return;
+        }
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
         SelectAccountHideout(player, hideout.AreaId);
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         await Send(player, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
-        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, 0),
+        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, GameEvents.ResolveGuildHideoutHash(player) ?? 0),
             $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(player)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(player, "Helena: Select Hideout");
@@ -858,6 +863,7 @@ public static partial class Game
                 return;
             }
             player.TransferAccepted = true;
+            ClearSessionQuestFlags(player, r.Area, r.Instance);
             player.TransferredTo = (r.Area, r.Instance);
             t.Done?.Invoke(r);
             foreach (var resolved in GameEvents.TransferResolved.For(player)) await resolved(player, t, r);
@@ -890,5 +896,24 @@ public static partial class Game
             Program.Instances.ClearPreparedLayoutIfEmpty(r.Instance, r.Created, soloOwner);
             await TryLeaveTicket(r.Ticket).ConfigureAwait(false);
         }
+    }
+
+    // A session quest flag (SessionQuestFlags.dat) lasts only while the player stays in the same instance: drop it from
+    // the connection once Auth has accepted the move, before the client is sent to the new instance. Only here: Transfer
+    // is the move's single commit point, and a failed transfer returns before this point, so a player who stays keeps
+    // the flag. A reload into the exact same area and instance (the ascendancy / descendancy reloads, which re-enter the
+    // instance they are in) is not a move and keeps it too; entering a new instance of the same area (e.g. Ctrl-click
+    // instance reset or another map on the same tileset) or another area clears it. Only IsSession flags go, never the
+    // login-granted ones (Quests.EveryCharacter: five of them are session rows too), never UnearnedQuestFlags, never
+    // LeagueQuestFlags, and nothing is written to the save (the save never holds a session flag:
+    // CharacterSaves.ChangeQuestFlags filters them). CommitQuestFlags must not do this: its monster-kill callers run
+    // mid-combat. This runs on the area frame, where QuestFlags is changed.
+    internal static void ClearSessionQuestFlags(Player player, ushort destinationArea, ulong destinationInstance)
+    {
+        if (destinationArea == player.Layout.Hash && destinationInstance == player.InstanceNumber) return;
+        List<string> cleared = [.. player.Character.QuestFlags.Where(f => QuestStates.Default.IsSession(f) && !Quests.EveryCharacter.Contains(f))];
+        foreach (string flag in cleared) player.Character.QuestFlags.Remove(flag);
+        if (cleared.Count > 0)
+            Console.WriteLine($"[gateway] {CharacterName(player)}: session quest flag(s) cleared on instance change: {string.Join(", ", cleared)}");
     }
 }

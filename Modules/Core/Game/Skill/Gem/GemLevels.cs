@@ -18,22 +18,41 @@ public static partial class Game
     {
         int intrinsic = ItemsFor(player).GemLevel(gem);
         var type = ItemsFor(player).ByHash(gem.TypeHash);
-        if (type is null || ItemsFor(player).Gem(type) is not { } info)
+        if (type is null || ItemsFor(player).Gem(type) is not { Variants.Count: > 0 } info)
             return SkillGemLevel.Resolve(intrinsic, supportedBonus, []);
-        uint[] stats = info.IsSupport
-            ? SkillsFor(player).IsExceptional(type.Row) ? [] : [SkillGemLevel.NonExceptionalSupports]
-            : [SkillGemLevel.AllSkillGems, .. SkillGemLevel.FamilyStats.Where(stat => SkillsFor(player).FamilyStatRaises(stat, type.Row)),
-                .. AttributeStat(info.Colour) is { } attribute ? [attribute] : Array.Empty<uint>()];
-        return SkillGemLevel.Resolve(intrinsic, supportedBonus, stats.Select(stat => RawGemStat(player, stat)));
+        var skills = SkillsFor(player);
+        int variant = info.Variant(gem.GemVariant).Index;
+        long bonus = (long)intrinsic + supportedBonus;
+        if (info.IsSupport)
+        {
+            if (!skills.IsExceptional(type.Row, variant)) bonus += RawGemStat(player, SkillGemLevel.NonExceptionalSupports);
+            if (skills.GemHasTag(type.Row, variant, "critical")) bonus += RawGemStat(player, Stat.CriticalSupportGemLevelPlus);
+        }
+        else
+        {
+            bonus += RawGemStat(player, SkillGemLevel.AllSkillGems);
+            foreach (uint stat in SkillGemLevel.FamilyStats)
+                if (skills.FamilyStatRaises(stat, type.Row, variant)) bonus += RawGemStat(player, stat);
+            foreach (var (stat, tag) in SkillGemLevel.TaggedActiveLevelStats)
+                if (skills.GemHasTag(type.Row, variant, tag)) bonus += RawGemStat(player, stat);
+            if (AttributeStat(info.Colour) is { } attribute) bonus += RawGemStat(player, attribute);
+        }
+        return (int)Math.Clamp(bonus, 1, int.MaxValue);
     }
 
     // The attribute gem-level stat for a SkillGems GemColour (Active gems only: support gems have their own).
     static uint? AttributeStat(int colour) => SkillGemLevel.AttributeStat(colour);
 
-    // +% quality of all skill gems: active gems only, like the level stat.
-    public static int GemQualityBonus(Player player, GameServer.Core.Protocol.Instance.Item gem) =>
-        ItemsFor(player).ByHash(gem.TypeHash) is { } type && ItemsFor(player).Gem(type) is { IsSupport: false }
-            ? RawGemStat(player, SkillGemLevel.AllSkillGemQuality) : 0;
+    // Global skill gem quality applies to active gems with the relevant native gem tag.
+    public static int GemQualityBonus(Player player, GameServer.Core.Protocol.Instance.Item gem)
+    {
+        var items = ItemsFor(player);
+        if (items.ByHash(gem.TypeHash) is not { } type || items.Gem(type) is not { IsSupport: false, Variants.Count: > 0 } info) return 0;
+        int quality = RawGemStat(player, SkillGemLevel.AllSkillGemQuality);
+        int variant = info.Variant(gem.GemVariant).Index;
+        return !SkillsFor(player).FamilyStatRaises(Stat.LocalSocketedMinionGemLevelPlus, type.Row, variant) ? quality
+            : ActorScale.Saturate((long)quality + RawGemStat(player, Stat.MinionSkillGemQualityPlus));
+    }
 
     public static int RawGemStat(Player player, uint stat)
     {

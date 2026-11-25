@@ -27,6 +27,24 @@ public sealed class EnergyShieldNotDelayedTests
         Assert.True(undelayed.RechargeReady(11, Stats(true)));
     }
     [Fact]
+    public void Forced_recharge_uses_the_event_time_and_can_be_interrupted()
+    {
+        var shield = new EnergyShield();
+        shield.SetMaximum(300, refill: true);
+        shield.Damage(200, false, 10);
+        shield.StartRecharge(10.5, Stats(false));
+        Assert.True(shield.Recharging);
+
+        shield.Advance(10.25, 11, Stats(false), alive: true);
+        Assert.Equal(150u, shield.Current);
+
+        shield.Damage(1, false, 11);
+        Assert.False(shield.Recharging);
+        shield.Advance(11, 11.5, Stats(false), alive: true);
+        Assert.Equal(149u, shield.Current);
+    }
+
+    [Fact]
     public void VaalAuraExpiryUsesGameTimeAndRemovesBothBuffsOnce()
     {
         var player = new Player(new(1, "vaal", 100, 100, 10, 10, null, []), 1, 1) { PlayerLife = 100 };

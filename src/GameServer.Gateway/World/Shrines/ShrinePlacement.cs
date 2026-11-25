@@ -30,7 +30,7 @@ public static class ShrinePlacement
 
     /// <summary>The shrines of these room lines on this walk grid, at most <paramref name="limit"/>, in placement order.</summary>
     public static List<Placed> Plan(IReadOnlyList<PlacedTileObject> roomObjects, Func<int, int, bool> walkable, uint seed,
-        int limit = int.MaxValue)
+        int limit = int.MaxValue, int greedChancePct = 0)
     {
         var placed = new List<Placed>();
         if (limit <= 0 || ShrineCatalog.Standard.Count == 0) return placed;
@@ -40,7 +40,7 @@ public static class ShrinePlacement
             if (!string.Equals(o.Type, Type, StringComparison.Ordinal)) continue;
             if (o.X < 0 || o.Y < 0) continue;
             if (!walkable(o.X, o.Y) || !seen.Add((o.X, o.Y))) continue;
-            var shrine = Roll(seed, o.X, o.Y);
+            var shrine = Roll(seed, o.X, o.Y, greedChancePct);
             placed.Add(new Placed(o.X, o.Y, o.Rotation, string.IsNullOrEmpty(o.Model) ? DefaultModel : o.Model, shrine));
             if (placed.Count >= limit) break;
         }
@@ -48,10 +48,13 @@ public static class ShrinePlacement
     }
 
     /// <summary>The deterministic type at this cell. Repeated types do not suppress later shrine rooms.</summary>
-    static ShrineCatalog.ShrineDefinition Roll(uint seed, int x, int y)
+    static ShrineCatalog.ShrineDefinition Roll(uint seed, int x, int y, int greedChancePct = 0)
     {
-        var standard = ShrineCatalog.Standard;
         uint hash = unchecked(seed * 0x9e3779b1u ^ (uint)x * 0x85ebca77u ^ (uint)y * 0xc2b2ae3du);
+        if (greedChancePct > 0 && ((hash >> 8) % 100) < (uint)Math.Clamp(greedChancePct, 0, 100)
+            && ShrineCatalog.Find("Greed") is { } greed)
+            return greed;
+        var standard = ShrineCatalog.Standard;
         return standard[(int)(hash % (uint)standard.Count)];
     }
 }

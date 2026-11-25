@@ -103,9 +103,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   compares client tile hashes against server-generated `TileHash` (not yet checked live).
   Docs: [02](../docs/protocol/02-instance-connection.md), [03](../docs/protocol/03-area-and-world.md).
 - Campaign world objects and encounters: ordinary clickable doors, ordinary breakables/chests, biome-filtered packs,
-  and campaign Essences and Voltaxic Sulphite deposits spawn across Acts 1–5 (not checked live).
+  Essences, Voltaxic Sulphite deposits and Act 6–10 Smuggler's Caches spawn across Acts 1–10 (not checked live).
 - HUD mission timers (S→C 0x163) and countdown timers (S→C 0x162): protocol encoders implemented and wired into
   Allflame lantern collapse (`Deepwater`) and Survivors stage countdowns (`Generic`); not yet checked live.
+- Life-0 `0x2bb` dead-pose bytes and `0x2bc` updates for shrines, ground effects and beams (not checked live).
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
@@ -125,7 +126,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   served in lockstep. The
 - Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
   add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,
-  a Geode map, Acts 8-10). Boxes roll normal, magic or rare (our own 35% / 10% odds) with chest-domain mods, or are
+  a Geode map, Acts 8-10). Boxes roll normal, magic or rare (the recorded mix) with chest-domain mods, or are
   unique (UniqueChests by weight, our 0.6% from the 2016 sample, with the area's unique chance; live: Strange Barrel,
   Redblade Cache, Ashes of the Condemned, Deshret's Storm); a non-normal box has its rarity's hidden quantity and rarity.
   The content, item and guard mods act; warband caches bring their warband. The daemon mods act when the box opens
@@ -133,11 +134,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Firestorm, Lightning Storm, a curse, corpse detonation, the torment and sandstorm streams): the summons arrive in
   waves and guard the box, Revive raises the dead near it. An opening plays as the game's (live 2026-11-22): the
   model's own `open` clip with its lid sounds, the rarity's `ChestEffects` glow while closed and its open effect, the
-  box shown opened once the clip is over, then the guards' dust columns with the spawn sounds (their wave waits for the
-  clip, as the daemons do). The spell daemons' hits act, but their falling projectiles are not right yet: Firestorm and
-  Lightning Storm show only the client's first meteor/bolt, and Putrifying's single delayed corpse explosion finds
-  nothing unless corpses already lie within 21 cells (the "Strongbox daemon spells" issue). Gems with experience drop at a random level up to 20;
-  Deshret's weapons drop identified; the party's currency bonus applies (not to Diviner's or Cartographer's). Strongbox
+  box shown opened once the clip is over; the guards' dust columns and spawn sounds come in three waves 7, 14 and 22
+  frames after the click, and the items drop only once all the guards are dead. The spell daemons' hits act, but their
+  falling projectiles are not right yet: Firestorm and Lightning Storm show only the client's first meteor/bolt, and
+  Putrifying's single delayed corpse explosion finds nothing unless corpses already lie within 21 cells (the "Strongbox
+  daemon spells" issue). Gems with experience drop at a random level up to 20; Deshret's weapons drop identified; the
+  party's currency bonus applies (not to Diviner's or Cartographer's). Strongbox
   Rogue Exiles spawn on ambush; Vaalsmithed daemons remain open (roadmap, "Vaal Vessels"). Currency changes a closed
   box (C→S 0x74, live: Transmutation, Alteration, Regal, Chaos), Annulment, Divine and Chance (which may make it
   unique, at our 5%) included; a Vaal Orb corrupts it and its contents; unique boxes take none (our choice). The orb is

@@ -13,14 +13,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int> playerStats, SkillCatalog.Unarmed? weapon = null, long additionalIncreased = 0,
         SupportedHitInputs? capturedInputs = null, int addedChaos = 0)
     {
-        Func<uint, int> get;
-        if (capturedInputs is null)
-        {
-            var merged = MergeSkillStats(playerStats, SupportedSkill(player, skillId).Stats);
-            get = name => name is var key ? merged.GetValueOrDefault(key) : 0;
-        }
-        else
-            get = capturedInputs.Get;
+        var get = SupportedAilmentStats(player, skillId, playerStats, capturedInputs);
         string hand = spell ? "spell" : "main_hand";
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
@@ -83,19 +76,43 @@ public static partial class Game
         if (avoid > 0 && RandomRolls.Chance(avoid, 100, random)) return false;
 
         var (min, max) = critical ? (settings.CriticalMin, settings.CriticalMax) : (settings.Min, settings.Max);
-        // Lethal Dose: a hit that finds the enemy unpoisoned applies additional poisons on top of its own.
-        int stacks = 1 + (target.Poisons.Stacks(now) == 0
-            ? Math.Max(0, Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies)) : 0);
         perSecond = min + (Math.Max(min, max) - min) * random.NextDouble();
         seconds = settings.Seconds * MonsterPoisons.SelfDuration(name => target.Mods.Effects[name]);
-        int accepted = 0;
-        for (int i = 0; i < stacks; i++)
-            if (target.Poisons.Add(now, perSecond, seconds)) accepted++;
-        if (accepted == 0) return false;
+        // Master Toxicist: "Poisons you inflict during any Flask Effect have N% chance to deal 100% more Damage", rolled for
+        // each poison applied.
+        int doubleChance = Get(Stat.PathfinderPoisonDamagePlus100PctFinalChanceDuringFlaskEffect) is var finalChance and > 0 && AnyFlaskEffect(player)
+            ? Math.Min(finalChance, 100) : 0;
+        if (!ApplyHitPoisonsLocked(target.Poisons, now, perSecond, seconds,
+            Get(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies), doubleChance, random)) return false;
         InflictedLocked(player, target, AilmentType.Poison, now + seconds);
         ReservationPoisonLocked(player, now);
         return true;
     }
+
+    static bool ApplyHitPoisonsLocked(MonsterPoisons target, double now, double perSecond, double seconds, int additional,
+        int doubleChance = 0, Random? random = null)
+    {
+        // Decide whether Lethal Dose applies before inserting any poisons from this hit.
+        int extra = additional > 0 && target.Stacks(now) == 0 ? additional : 0;
+        bool AddPoison() => target.Add(now,
+            doubleChance > 0 && random is not null && RandomRolls.Chance(doubleChance, 100, random) ? perSecond * 2 : perSecond, seconds);
+        bool applied = AddPoison();
+        for (int i = 0; i < extra; i++) applied |= AddPoison();
+        return applied;
+    }
+
+    /// <summary>The 0x1c1 for the poison on this monster now, built exactly as the tick builds it: the stacks and
+    /// the countdown to the last poison's end, so a hit that shows it and the tick that follows agree on one record.
+    /// Only call after a hit applied a poison (the stacks are what the hit added).</summary>
+    public static Buff PoisonBuffToShow(Player player, SpawnedMonster m, double now) => new(PoisonBuffRow, player.Id,
+        Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
+        U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison"));
+
+    /// <summary>Stage a hit's poison buff in the area's frame under lock, with the same record the tick shows: the
+    /// tick then finds the same buff already shown and sends nothing again. No stat is read here; the stacks and the
+    /// countdown are the monster's own counters.</summary>
+    public static void ShowPoisonBuff(Player player, uint id, SpawnedMonster m, Buff buff) =>
+        ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, buff);
 
     public static async Task TickPoisons(Player player)
     {
@@ -139,9 +156,7 @@ public static partial class Game
                 else
                 {
                     // The stacks and the countdown to the last poison's end; a new poison moves both.
-                    ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, new(PoisonBuffRow, player.Id,
-                        Stacks: (ushort)Math.Clamp(m.Poisons.Stacks(now), 1, ushort.MaxValue),
-                        U68: Buff.Seconds(m.Poisons.Until - now), Visual: AilmentArtVisual(player, "poison")));
+                    ShowDot(player, id, ref m.Poisons.Buff, ref m.Poisons.BuffSource, PoisonBuffToShow(player, m, now));
                 }
             }
             if (done is not null) foreach (uint id in done) active.Remove(id);

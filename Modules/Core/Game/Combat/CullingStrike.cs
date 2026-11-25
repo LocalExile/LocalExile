@@ -33,6 +33,10 @@ public static partial class Game
         }
     }
 
+    static Cull MinionIgniteKillRule(IReadOnlyDictionary<uint, int> owner, SpawnedMonster target, double now) =>
+        new(0, 0, CannotKill: owner.GetValueOrDefault(Stat.MinionsHitsCanOnlyKillIgnitedEnemies) != 0
+            && !target.Ignites.IgnitedAt(now));
+
     // The hit's own damage, then the cull. A boss stage this hit starts, or one still running, keeps the boss alive.
     public static (uint Life, bool StageStarts) TakeOwnerHitLocked(Player player, SpawnedMonster m, int damage, Cull cull,
         bool? rampageSource = null, IReadOnlyDictionary<uint, int>? playerStats = null,
@@ -122,19 +126,19 @@ public static partial class Game
     // Burning covers the supported non-ignite sources too. Righteous Fire only puts its aura on the monsters in range
     // and ticks their burn; the DoT itself never reaches this hit path, so it cannot cull on its own. `m.Burn` is only
     // the DoT's fractional carry and is never cleared, so it is not a burning signal.
-    static bool BurningTarget(Player player, SpawnedMonster m)
+    static bool BurningTarget(Player player, SpawnedMonster m, double? at = null)
     {
-        if (m.Ignites.Burning || m.HeraldBurns.Burning
+        double now = at ?? ProjectileWorldTime(player);
+        if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now)
             || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
         foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
             if (other.PlayerLife > 0 && other.Instance == player.Instance
                 && InfernalLegionFields.TryGetValue(other, out var otherField) && otherField.Burning.Contains(m)) return true;
         if (player.Placed.Grounds.Count > 0)
         {
-            double now = AreaTime(player);
-            var at = m.Walk.Position(now);
+            var position = m.Walk.Position(now);
             foreach (var ground in player.Placed.Grounds)
-                if (now < ground.Until && Dist(at, ground.At) <= ground.Radius) return true;
+                if (now < ground.Until && Dist(position, ground.At) <= ground.Radius) return true;
         }
         return player.RighteousFire is { } rf && player.Area.Monsters.Any(pair =>
             pair.Value == m && rf.Auras.ContainsKey(pair.Key));

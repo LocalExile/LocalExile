@@ -38,7 +38,7 @@ public sealed class SupportGemState
     /// <summary>Client instances for the two buffs and the counts last shown for Inspiration.</summary>
     public ushort ArcaneSurgeBuff, PresentedArcaneSurge, InspirationBuff, PresentedInspiration;
     public int PresentedInspirationCharges;
-    public bool ArcaneSurgeRefresh, InspirationRefresh, PendingStats;
+    public bool ArcaneSurgeRefresh, PresentedArcaneSurgeFromFlask, InspirationRefresh, PendingStats;
 
     public bool ArcaneSurgeActiveAt(double now) => ArcaneSurgeUntil > now;
 

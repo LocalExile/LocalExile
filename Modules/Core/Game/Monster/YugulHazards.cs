@@ -8,10 +8,14 @@ using static ArenaHazards;
 internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owner)
 {
     const string Root = "Metadata/Monsters/Frog/FrogGod/";
-    const ushort TurretSkill = 0x4ff0;
+    const ushort TurretSkill = 0x4ff0, FearfulBuffRow = 870;
     internal const double PoolRadius = 12, FearRadius = 8;
+    static readonly uint ColdDamageTakenPctStat = global::Stat.Of("cold_damage_taken_+%");
+    readonly InstanceState instance = owner.Instance;
+    readonly GameArea area = owner.Area;
     readonly List<Player> players = [];
     readonly Dictionary<Player, Exposure> exposure = [];
+    readonly object fearHolder = new();
     readonly HashSet<uint> owned = [];
     readonly HashSet<ProjectileSession> flights = [];
     readonly List<uint> turrets = [], orbs = [];
@@ -19,39 +23,43 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
     readonly Dictionary<uint, double> channelEnds = [];
     readonly Dictionary<uint, double> orbReady = [];
     readonly List<(uint Id, string Type, QuestObject Object)> scene = [];
-    List<GlyphQuest.Placement>? pools;
-    bool stopped, initialized;
+    List<GlyphQuest.Placement>? pools, turretPlacements;
+    bool stopped, initialized, sceneBroadcast;
     double nextMove, nextGround;
-    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, owner.Instance));
+    IEnumerable<Player> Present => players.Where(p => !p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance));
     bool Current => !stopped && CurrentGameWork && !boss.Dead && boss.Life > 0;
-    internal async Task Bind(Player c)
+    internal Task Bind(Player c)
     {
         if (!players.Contains(c)) players.Add(c);
-        foreach (var s in scene)
-        {
-            if (Scenes(c).Contains(s.Id)) continue;
-            if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id,
-                InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()), "[Yugul] native statue", wake: true))
+        if (initialized && sceneBroadcast)
+            foreach (var s in scene)
                 Scenes(c).Add(s.Id);
-        }
+        return Task.CompletedTask;
     }
     async Task All(uint id, byte[] bytes, string label)
     {
-        if ((Present.ToArray()).FirstOrDefault() is { } p)
-        { await SendWorldRecord(p, id, [.. bytes], label); }
+        if (Present.FirstOrDefault() is { } p)
+            await SendWorldRecord(p, id, [.. bytes], label);
     }
     async Task<uint> Spawn(Player c, string type, (int X, int Y) at, IReadOnlyList<GrantedSkill>? skills = null)
     {
         uint id = await SpawnMonster(c, Monsters.Find(type)!, boss.Level,
-            MonsterRarity.Normal, at.X, at.Y, unrisen: false, scripted: true, ownedSkills: skills,
-            ownedMaximumLife: 1, owned: (id, m) => { m.SummonerId = bossId; m.NoRewards = true; m.EntranceGrace = true; owned.Add(id); },
+            MonsterRarity.Normal, at.X, at.Y, unrisen: false, scripted: true, instanceOwned: true, ownedSkills: skills,
+            ownedMaximumLife: 1, owned: (mid, m) =>
+            {
+                m.SummonerId = bossId; m.NoRewards = true; m.EntranceGrace = true; owned.Add(mid);
+            },
             ownedCurrent: () => Current);
+        if (id != 0 && c.Area.Monsters.TryGetValue(id, out var spawned))
+            CampaignBossHelpers.SetInvulnerable(c, id, spawned, true);
         return id;
     }
     async Task Initialize(Player c)
     {
-        pools = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []).Of(Root + "SilverPool");
-        var placements = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []);
+        // Cache placements once per fight (never allocate AreaPlacements per tick).
+        var placements = CampaignBossHelpers.AreaPlacements(c);
+        pools = placements.Of(Root + "SilverPool");
+        turretPlacements = placements.Of(Root + "SilverPoolTurret");
         foreach (var point in placements.Of(Root + "SilverStatue"))
         {
             var info = QuestObjectTypes.Find(point.Type);
@@ -59,20 +67,23 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
             scene.Add((c.Instance.World.TakeObjectId(), point.Type,
                 new(point.X, point.Y, info.Components, point.Rotation, point.Z, point.Model, 3)));
         }
-        foreach (var p in Present.ToArray()) await Bind(p);
-        // Existing owned actors are retired on module unload; no controller adopts unrelated summons.
         initialized = true;
+        foreach (var s in scene)
+            if (await SendWorldCreate(c, s.Id, () => InstanceEntities.CreateObject(s.Id,
+                InstanceEntities.ObjectTypeHash(s.Type), s.Object.Blob()), "[Yugul] native statue", wake: true))
+                foreach (var p in Present.ToArray()) Scenes(p).Add(s.Id);
+        sceneBroadcast = true;
     }
     internal async Task Step(Player c, double now)
     {
         if (stopped || c.Paused) return;
-        if (!Current) { await Clear(); return; }
+        if (!Current) { await Clear(c); return; }
         if (!boss.Aggro || !Present.Any(p => p.PlayerLife > 0 && MonsterShown(p, bossId) && !MonsterAsleep(p, bossId)) && !boss.WorldHidden) return;
         if (!initialized) await Initialize(c);
         int phase = boss.LifePhases?.Completed ?? 0;
         // TriggerSpawnersYugul1/2/3 add 1, 1 and 2 native turrets cumulatively.
-        int poolCount = Enumerable.Range(0, phase + 1).Sum(n => Stat(c, 2976 + n, boss.Level, Stat.TriggerSpawnersMaxCount));
-        var placements = new QuestObjectTypes.AreaPlacements(Yugul.Area, c.Seed, []).Of(Root + "SilverPoolTurret");
+        int poolCount = Enumerable.Range(0, phase + 1).Sum(n => Stat(c, 2976 + n, boss.Level, global::Stat.TriggerSpawnersMaxCount));
+        var placements = turretPlacements ?? [];
         while (turrets.Count < Math.Min(poolCount, placements.Count))
         {
             var point = placements[turrets.Count]; var v = Monsters.Find(Root + "SilverPoolTurret")!;
@@ -105,7 +116,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
             double interval = .35 / .6; // Native YugulStormBurst: 350 ms, 40% reduced cast speed.
             double end = now + interval * 6;
             channelEnds[id] = end;
-            nextTurret[id] = end + Stat(c, 4858, boss.Level, Stat.BaseSkillEffectDuration) / 1000d;
+            nextTurret[id] = end + Stat(c, 4858, boss.Level, global::Stat.BaseSkillEffectDuration) / 1000d;
             await All(id, InstanceProtocol.AnimationUpdate(id, 0, 0, (float)(.166 / interval)), "[Yugul] turret channel");
             var attack = BossKits.AttackFor(c, m.Variety!, boss.Level, 6582, TurretSkill) with { Spell = true, Scripted = true,
                 Ailments = IncomingAilmentSettings(name => Stat(c, 6582, boss.Level, name)) };
@@ -123,7 +134,7 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                     {
                         var use = MonsterProjectileUse(session, id, m, attack with { Projectile = projectile }, projectile, m.ActionGeneration, orderedAim: aim);
                         return use with { Payload = ((HostileProjectileOffense)use.Payload!) with { MinionDamageFactor = Math.Max(0,
-                            1 + Stat(p, 6582, boss.Level, Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) },
+                            1 + Stat(p, 6582, boss.Level, global::Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) },
                             Profile = use.Profile with { Pierce = int.MaxValue, Range = 150,
                             Lifetime = ProjectileRuntime.Time(Math.Max(.01, end - release)),
                             EndArea = new("Yugul burst", 10.8, Multiplier: 2),
@@ -166,32 +177,55 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
                 int Get(uint k) => stats.GetValueOrDefault(k);
                 ApplyPlayerAilmentsLocked(p, now, a => a.Inflict(PlayerElementalAilments.Kind.Chill, 30, .5, now, Get, p.IncomingHitRandom));
             }
-            // Server-only Fearful magnitudes are absent from client tables. This level-scaled fallback is calibration.
             var baseDamage = Monsters.BaseDamage(boss.Variety!, boss.Level) ?? (1, 1);
             double perOrb = (baseDamage.Item1 + baseDamage.Item2) * .25;
             int fear = p.PlayerLife > 0 && !InGracePeriod(p) ? Fears(p.Walk.Position(now)) : 0;
             if (fear != e.FearValue)
             {
                 e.Fear = (ushort)(fear == 0 ? 0 : 1); e.FearValue = fear;
-                // Fearful is not IsRecovery: its wire record carries no GrantedStats values.
-                if (fear > 0) p.Area.Buffs.Set(p.Id, new(870, Stacks: (ushort)fear)); else p.Area.Buffs.Clear(p.Id, 870);
+                // Fearful (870): increased cold damage taken + movement speed slow per active fear orb stack.
+                if (fear > 0)
+                {
+                    p.Area.Buffs.Set(p.Id, new(FearfulBuffRow, Stacks: (ushort)fear));
+                    await HoldPlayerDebuff(p, fearHolder, 0, bossId, new Dictionary<uint, int>
+                    {
+                        [ColdDamageTakenPctStat] = 10 * fear,
+                        [global::Stat.BaseMovementVelocityPlusPct] = -12 * fear,
+                    });
+                }
+                else
+                {
+                    p.Area.Buffs.Clear(p.Id, FearfulBuffRow);
+                    await ReleasePlayerDebuff(p, fearHolder);
+                }
             }
             await Ground(p, e, now, (at, minion) => DamagePacket.Of(DamageType.Cold, perOrb * Fears(at) * (minion ? .5 : 1), perOrb * Fears(at) * (minion ? .5 : 1)), () => Current);
         }
     }
-    static Task AllBuff(Player p, byte[] bytes)
-    { return SendWorldRecord(p, p.Id, bytes, "[Yugul] Fearful"); }
-    internal async Task Clear()
+    internal async Task Clear(Player runner)
     {
         RetireShots();
         foreach (var p in players.ToArray())
         {
-            if (exposure.TryGetValue(p, out var e) && e.Fear != 0) { p.Area.Buffs.Clear(p.Id, 870); e.Fear = 0; e.FearValue = 0; }
+            if (exposure.TryGetValue(p, out var e) && e.Fear != 0)
+            {
+                p.Area.Buffs.Clear(p.Id, FearfulBuffRow);
+                e.Fear = 0; e.FearValue = 0;
+                await ReleasePlayerDebuff(p, fearHolder);
+            }
         }
-        // Once, for every client (the area's record).
+        foreach (uint id in owned)
+        {
+            if (runner.Area.Monsters.Remove(id, out var m))
+                CampaignBossHelpers.ClearInvulnerableOnUnload(runner.Area, id, m);
+            runner.Instance.World.MonsterOrigins.TryRemove(id, out _);
+        }
+        // Once, for every client (the area's record), using active runner `c` instead of stale `owner`.
         foreach (uint id in owned.Concat(scene.Select(s => s.Id)).ToArray())
-            await SendWorldRemoval(owner, id, "[Yugul] arena actor leaves");
-        foreach (uint id in owned) { owner.Area.Monsters.Remove(id); owner.Instance.World.MonsterOrigins.TryRemove(id, out _); }
+        {
+            foreach (var p in Present.ToArray()) Scenes(p).Remove(id);
+            await SendWorldRemoval(runner, id, "[Yugul] arena actor leaves");
+        }
         owned.Clear(); scene.Clear(); orbs.Clear(); turrets.Clear(); channelEnds.Clear(); orbReady.Clear();
     }
     void RetireShots()
@@ -204,18 +238,27 @@ internal sealed class YugulHazards(uint bossId, SpawnedMonster boss, Player owne
     {
         stopped = true;
         RetireShots();
-        foreach (var p in Present.ToArray())
+        var present = Present.ToArray();
+        var allIds = owned.Concat(scene.Select(s => s.Id)).ToArray();
+        foreach (var p in present)
         {
             if (exposure.TryGetValue(p, out var e) && e.Fear != 0)
-            { p.Area.Buffs.Clear(p.Id, 870); e.Fear = 0; }
-            foreach (uint id in owned.Concat(scene.Select(s => s.Id)).ToArray())
             {
- Scenes(p).Remove(id);
-                _ = Send(p, InstanceProtocol.RemoveObject(id), null);
+                p.Area.Buffs.Clear(p.Id, FearfulBuffRow);
+                e.Fear = 0; e.FearValue = 0;
+                _ = ReleasePlayerDebuff(p, fearHolder);
             }
+            foreach (uint id in allIds) Scenes(p).Remove(id);
         }
         foreach (uint id in owned)
-        { owner.Area.Monsters.Remove(id); owner.Instance.World.MonsterOrigins.TryRemove(id, out _); }
+        {
+            if (area.Monsters.Remove(id, out var m))
+                CampaignBossHelpers.ClearInvulnerableOnUnload(area, id, m);
+            instance.World.MonsterOrigins.TryRemove(id, out _);
+        }
+        if (present.FirstOrDefault() is { } runner)
+            foreach (uint id in allIds)
+                _ = SendWorldRemoval(runner, id, null);
         owned.Clear(); scene.Clear(); orbs.Clear(); turrets.Clear(); channelEnds.Clear(); orbReady.Clear();
     }
 }
