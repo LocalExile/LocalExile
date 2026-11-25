@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -188,8 +189,9 @@ public sealed class HitAndKillRecoveryTests
     // Recovery on kill (with the corpse's ailments) and Onslaught on kill: what each source gives, and the kill that
     // applies it.
     [Fact]
-    public void Kills_recover_and_grant_onslaught_by_their_stats()
+    public async Task Kills_recover_and_grant_onslaught_by_their_stats()
     {
+        await SquirmingTerrorLosesLifeOncePerKill();
         // Kill recovery comes from flat, per-level and percent stats, and from the corpse's ailments.
         var raw = new Dictionary<uint, int>
         {
@@ -282,6 +284,98 @@ public sealed class HitAndKillRecoveryTests
             Assert.Equal(((ushort)0, (double?)null, true), o.Present(now + 2, alive: false, hidden: true)); // death ends it
             Assert.False(o.Applied);
             Assert.Empty(Game.KillOnslaughtSources(player, _ => 0));
+        }
+    }
+
+    static async Task SquirmingTerrorLosesLifeOncePerKill()
+    {
+        var clock = new KillClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.Walk.Teleport(100, 100, clock.Now(player));
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Character.Passives.Add(31703); // Pain Attunement
+        fixture.Equip(("Ice Nova", 18), ("Double Strike", 18));
+        ushort nova = Game.GemSkillEffects(player).Single(gem => gem.Name == "Ice Nova").Id;
+        var ring = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Squirming Terror", new Random(17)));
+        uint mod = Program.Items.Mods.ById("LoseLifePerTargetUnique__2")!.Hash;
+        var loss = Assert.Single(ring.Mods, m => m.Hash == mod) with { Values = [-16] };
+        var bare = ring with { Mods = [.. ring.Mods.Where(m => m.Hash != mod)] };
+        var items = Game.ItemsOf(player);
+        uint itemId = items.Add(PlayerInventories.Ring1, 0, 0, bare)!.Id;
+        var updates = new PlayerUpdatesState(fixture.Lifetime, clock);
+        player.PlayerUpdatesState = updates;
+        Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = updates;
+        try
+        {
+            uint plain = await KillPack();
+            items.Change(PlayerInventories.Ring1, itemId, _ => bare with { Mods = [.. bare.Mods, loss] });
+            Game.StepPlayerStats(player);
+            Assert.Equal(-16, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.BaseLifeGainedOnEnemyDeath));
+            uint modified = await KillPack();
+            using var blockRecovery = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (ReferenceEquals(owner, player)) values[Stat.CannotRecoverLife] = 1;
+                return values;
+            });
+            Game.MarkPlayerStats(player, PlayerStatStep.Sources);
+            uint recoveryBlocked = await KillPack();
+            int epoch = player.IncomingHitEpoch;
+            uint lethal = await KillPack(startingLife: 16);
+            Console.WriteLine($"Squirming Terror Life: from 415 plain {plain}, loss {modified}, recovery blocked {recoveryBlocked}; from 16 loss {lethal}");
+            Assert.Equal((415u, 367u, 367u, 0u), (plain, modified, recoveryBlocked, lethal));
+            Assert.True(player.IncomingHitEpoch > epoch);
+        }
+        finally
+        {
+            Game.AreaUpdateContext.Value = previous;
+            if (ReferenceEquals(player.PlayerUpdatesState, updates)) player.RetirePlayerUpdates();
+        }
+
+        async Task<uint> KillPack(uint startingLife = 415)
+        {
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerLife = startingLife;
+            player.PlayerMana = 1000;
+            Game.StepPlayerStats(player);
+            var zombie = Game.Monsters.Find("Metadata/Monsters/Zombies/Zombie")!;
+            var pack = new List<SpawnedMonster>();
+            for (uint i = 1; i <= 3; i++)
+            {
+                uint id = 900 + i;
+                int x = 104 + (int)i;
+                var enemy = new SpawnedMonster("life on kill target", new(x, 100, 0), 0, 0, 20)
+                {
+                    ObjectId = id, Variety = zombie, Rarity = MonsterRarity.Rare, Hostile = true, NoRewards = true,
+                };
+                player.Area.Monsters[id] = enemy;
+                player.Area.Grid.Set(new(id), (x, 100));
+                pack.Add(enemy);
+            }
+            Assert.True(await Game.CastGemSkill(player, nova, (100, 100), (100, 100)));
+            Assert.True(player.PlayerMana < 1000);
+            Assert.All(pack, m => Assert.True(m.Dead));
+            foreach (var enemy in pack)
+            {
+                player.Area.Monsters.Remove(enemy.ObjectId);
+                player.Area.Grid.Remove(new(enemy.ObjectId));
+            }
+            await clock.Wait(1000, CancellationToken.None);
+            return player.PlayerLife;
+        }
+    }
+
+    sealed class KillClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
         }
     }
 }

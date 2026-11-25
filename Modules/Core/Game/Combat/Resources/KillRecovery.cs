@@ -14,8 +14,9 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
     public static KillRecovery From(Func<uint, int> get, int level)
     {
         bool life = !LifeRecovery.NonLeechBlocked(get), shield = get(Stat.CannotRecoverEnergyShield) == 0;
+        int flatLife = ActorScale.Saturate((long)get(Stat.BaseLifeGainedOnEnemyDeath) + (long)get(Stat.LifeGainedOnEnemyDeathPerLevel) * level);
         return new(
-            life ? get(Stat.BaseLifeGainedOnEnemyDeath) + get(Stat.LifeGainedOnEnemyDeathPerLevel) * level : 0,
+            life ? flatLife : Math.Min(0, flatLife),
             life ? get(Stat.RecoverPctMaximumLifeOnKill) : 0,
             get(Stat.BaseManaGainedOnEnemyDeath) + get(Stat.ManaGainedOnEnemyDeathPerLevel) * level,
             get(Stat.RecoverPctMaximumManaOnKill) + get(Stat.MaximumManaPctGainedOnKill),
@@ -54,15 +55,23 @@ public static partial class Game
             m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
         k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
             Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
-        static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
+        static double Amount(int flat, int pct, uint maximum) => Math.Floor(flat + maximum * (double)pct / 100);
         uint life = player.PlayerLife, mana = player.PlayerMana;
-        player.PlayerLife = PetrifiedBlood.RecoverLife(player, life,
-            Amount(k.Life, k.LifePct, player.PlayerMaxLife), ref session.LifeInstantCarry, minimum: 1);
-        player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Amount(k.Mana, k.ManaPct, player.Pools.Mana),
-            ref session.ManaInstantCarry);
-        player.EnergyShield.Gain(Amount(k.EnergyShield, k.EnergyShieldPct, player.EnergyShield.Maximum));
+        double lifeChange = Amount(k.Life, k.LifePct, player.PlayerMaxLife);
+        player.PlayerLife = lifeChange < 0 ? (uint)Math.Max(0, life + lifeChange)
+            : PetrifiedBlood.RecoverLife(player, life, lifeChange, ref session.LifeInstantCarry, minimum: 1);
         // Sent with the next vitals update, as instant leech is.
         session.InstantLifeChanged |= life != player.PlayerLife;
+        if (player.PlayerLife == 0)
+        {
+            player.InvalidateIncomingHits();
+            ClearAntiquarianOnDeath(player);
+            RecordHardcoreDeath(player);
+            return;
+        }
+        player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Math.Max(0, Amount(k.Mana, k.ManaPct, player.Pools.Mana)),
+            ref session.ManaInstantCarry);
+        player.EnergyShield.Gain(Math.Max(0, Amount(k.EnergyShield, k.EnergyShieldPct, player.EnergyShield.Maximum)));
         session.InstantManaChanged |= mana != player.PlayerMana;
     }
 }
