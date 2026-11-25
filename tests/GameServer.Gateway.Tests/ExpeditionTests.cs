@@ -55,18 +55,18 @@ public sealed class ExpeditionTests
         Assert.Equal(1, ExpeditionTables.FactionOf([0x04, 0x00]));
         // A map's switches: the league's own bit of MapDisableLeagues (not any bit), nothing-more maps, the keystone, Blighted
         // maps and the league's disable stat each stop the roll; a test's forced chance reaches no area without a chance.
-        var forest = ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapExtraContentHasNoBaseChanceToSpawn, 1),
+        var forest = ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), AreaStatsOf((Stat.MapExtraContentHasNoBaseChanceToSpawn, 1),
             (Stat.MapLeagueContentAdditionalChancePct, 100)));
         Assert.NotNull(forest);
-        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, MapModsOf(
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, AreaStatsOf(
             (Stat.MapExtraContentHasNoBaseChanceToSpawn, 1), (Stat.MapExpeditionLeague, 1))));
-        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, MapModsOf(
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", rng, AreaStatsOf(
             (Stat.MapExtraContentHasNoBaseChanceToSpawn, 1), (Stat.MapExpeditionEncounterAdditionalChancePct, 50),
             (Stat.MapExpeditionEncounterChancePlusPct, 100))));
         foreach (var (stat, value) in new (uint, int)[] { (Stat.MapDisableLeagues, 1 << LeagueChances.Expedition), (Stat.MapNukeEverything, 1),
                      (Stat.AtlasKeystoneNoExtraContent, 1), (Stat.IsBlightedMap, 1), (Stat.MapDisableExpeditionFromChance, 1) })
-            Assert.Null(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapLeagueContentAdditionalChancePct, 100), (stat, value))));
-        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), MapModsOf((Stat.MapLeagueContentAdditionalChancePct, 100),
+            Assert.Null(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), AreaStatsOf((Stat.MapLeagueContentAdditionalChancePct, 100), (stat, value))));
+        Assert.NotNull(ExpeditionEncounter.PluginStates("MapWorldsForbiddenWoods", new Random(2), AreaStatsOf((Stat.MapLeagueContentAdditionalChancePct, 100),
             (Stat.MapDisableLeagues, 1 << LeagueChances.Breach))));
 
         // Every GGG-like league lists the module; its state is kept by the composition, one the generator does not port
@@ -75,6 +75,13 @@ public sealed class ExpeditionTests
         var standard = leagues.Find("Standard")!;
         Assert.All(leagues.All.Where(l => l.Modules.Contains("Core/Content/Anarchy")), l => Assert.Contains("Core/Content/Expedition", l.Modules));
         var request = new AreaStatsRequest("Exile", "Standard", 0x7ad2, null);
+        ushort mapHash = (ushort)ClientTables.Table("WorldAreas").First(r => r.TextOrNull("Id") == "MapWorldsForbiddenWoods").Int("HASH16");
+        var areaStats = Game.ComposeMapAreaStats(MapMods.None, 1,
+            AreaStatsOf((Stat.MapLeagueContentAdditionalChancePct, 100)), new HashSet<string>(), -1);
+        var mapRequest = request with { Area = mapHash, AreaStats = areaStats };
+        Assert.NotNull(ExpeditionModule.PlanTerrain(mapRequest));
+        areaStats[Stat.AtlasKeystoneNoExtraContent] = 1;
+        Assert.Null(ExpeditionModule.PlanTerrain(mapRequest));
         var runtime = new LeagueRuntime(standard, ServerLeagues.ModulesOf(standard));
         byte[] kept = [0x04, 0x00];
         using (InstanceEvents.TerrainPluginStates.Add("Expedition", _ => [((ushort)0x086a, kept)]))
@@ -132,7 +139,7 @@ public sealed class ExpeditionTests
         Assert.Equal(one.Length, two.Length);
     }
 
-    static MapMods MapModsOf(params (uint Stat, int Value)[] stats) => new(stats.ToDictionary(s => s.Stat, s => s.Value));
+    static Dictionary<uint, int> AreaStatsOf(params (uint Stat, int Value)[] stats) => stats.ToDictionary(s => s.Stat, s => s.Value);
 
     static bool Contains(byte[] bytes, byte[] pattern) => bytes.AsSpan().IndexOf(pattern) >= 0;
 

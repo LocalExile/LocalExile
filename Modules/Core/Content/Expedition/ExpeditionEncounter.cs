@@ -131,10 +131,10 @@ public sealed class ExpeditionEncounter : IDisposable
     /// switches off (MapDisableLeagues, AtlasKeystoneNoExtraContent, MapExtraContentHasNoBaseChanceToSpawn): the request names the
     /// area's stats.
     /// </summary>
-    public static IReadOnlyList<(ushort Plugin, byte[] State)>? PluginStates(string areaId, Random rng, MapMods? map = null, bool hardMode = false)
+    public static IReadOnlyList<(ushort Plugin, byte[] State)>? PluginStates(string areaId, Random rng, IReadOnlyDictionary<uint, int>? areaStats = null, bool hardMode = false)
     {
         if (ExpeditionTables.PluginId is not { } plugin || ExpeditionTables.RulesetRow is null) return null;
-        int S(uint stat) => map?.Get(stat) ?? 0;
+        int S(uint stat) => areaStats?.GetValueOrDefault(stat) ?? 0;
         // What a map switches off, as the client's own roll reads it (0x141ea8b40): the league's bit of the disabled-leagues
         // mask, nothing-more maps, the keystone, a Blighted map (seven Blight encounters and nothing else), and the league's
         // own disable stat, which only a stat that forces or adds to the league's chance outweighs.
