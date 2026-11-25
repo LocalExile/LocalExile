@@ -789,7 +789,7 @@ public static partial class Game
                 Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
-                Life = initialLife, Stage = stageSkill is null ? null : stage, States = states,
+                Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(player).ThresholdOf(player.Layout.Id, variety.Id),
                 CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted || atlas),

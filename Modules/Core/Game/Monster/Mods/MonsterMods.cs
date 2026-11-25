@@ -466,8 +466,8 @@ public static partial class Game
     static void RegenerateOneMonsterLocked(uint id, SpawnedMonster m, double seconds, double now, int onHitPct, List<(uint Id, uint Life)> changed)
     {
         double spreadRecovery = SpreadPoisonRecovery(m, now);
-        // Not while EntranceGrace holds it out of the fight (a frozen or entering monster, a boss in its grace): it does not regain life.
-        if (m.Dead || m.EntranceGrace || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
+        // Not while EntranceGrace or a non-lethal encounter floor holds it out of the fight: it does not regain life.
+        if (m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0 || m.Life >= m.MaxLife) { m.Regen = 0; return; }
         double perSecond = m.Effects.LifeRegenPerSecond(m.MaxLife);
         if (onHitPct != 0 && seconds > 0)
         {

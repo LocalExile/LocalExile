@@ -3916,6 +3916,16 @@ public static partial class Game
             if (left * 100 <= (long)m.MaxLife * threshold.LifePct) { m.ThresholdReached = true; m.PresentationChanged?.Invoke(); }
             return ((uint)left, false);
         }
+        // Encounter-owned non-lethal life floor: damage lowers life normally, stops at 1 instead of killing, and notifies
+        // the controller once in the area's frame.
+        if (m.OnNonLethalZero is { } onNonLethalZero)
+        {
+            long left = (long)m.Life - damage;
+            if (left > 0) return ((uint)left, false);
+            m.Life = 1;
+            onNonLethalZero(m);
+            return (1, false);
+        }
         var (life, starts) = BossFights.Damage(m.Life, m.MaxLife, damage, m.StageTaken ? null : m.Stage);
         if (starts)
         {

@@ -148,7 +148,7 @@ public static partial class Game
     /// <c>energy_shield_recharge_rate_+%</c>).</summary>
     public static void StepMonsterEnergyShieldLocked(GameArea area, uint id, SpawnedMonster m, double seconds, double now)
     {
-        if (!HasAreaMonsterEs(area) || seconds <= 0 || m.Dead || m.Life == 0) return;
+        if (!HasAreaMonsterEs(area) || seconds <= 0 || m.Dead || m.EntranceGrace || m.OnNonLethalZero is not null || m.Life == 0) return;
         if (!MonsterEsStates.TryGetValue(m, out var state) || state.Max == 0 || state.Current >= state.Max) return;
         double delay = MonsterEsBaseRechargeDelaySeconds / Math.Max(0.01, 1 + m.Effects[Stat.EnergyShieldDelayMinusPct] / 100.0);
         if (now < state.LastHitAt + delay) return;
@@ -163,6 +163,16 @@ public static partial class Game
         if (whole == 0) return;
         state.Current = (uint)Math.Min(state.Max, (long)state.Current + whole);
         if (state.Current >= state.Max) state.RechargeCarry = 0;
+        area.Life.Set(id, AreaLife.EnergyShieldPool, state.Current);
+    }
+
+    /// <summary>Restores a living monster's Energy Shield pool to maximum (if it has one) and publishes the update.</summary>
+    public static void RefillMonsterEnergyShieldLocked(GameArea area, uint id, SpawnedMonster m)
+    {
+        if (!MonsterEsStates.TryGetValue(m, out var state) || state.Max == 0) return;
+        state.RechargeCarry = 0;
+        if (state.Current == state.Max) return;
+        state.Current = state.Max;
         area.Life.Set(id, AreaLife.EnergyShieldPool, state.Current);
     }
 
