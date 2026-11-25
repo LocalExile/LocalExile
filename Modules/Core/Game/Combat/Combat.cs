@@ -2783,6 +2783,11 @@ public static partial class Game
         double frostboltMore = 1;
         bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
         bool hexblastExpanded = false;
+        bool elementalHit = !spell && Stat(global::Stat.ElementalHitNoDamageOfUnchosenElementalType) != 0;
+        int element = 3, elementalHitContacts = 0;
+        int elementalHitPerAilment = elementalHit ? Stat(global::Stat.ElementalHitDamagePlusPctFinalPerEnemyElementalAilment) : 0;
+        HashSet<uint>? elementalHitStruck = null;
+        (int Radius, double More)? elementalHitSplash = null;
         int artVariation = ring ? SkillArtVariation(player, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
@@ -2833,6 +2838,19 @@ public static partial class Game
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
             var found = (centres is null ? TargetsAt(centre) : centres.SelectMany(TargetsAt)).ToList();
+            if (elementalHit)
+            {
+                element = SelectElementalHitElement(player, skillId, admittedGem, sequence, repeat);
+                if (element >= ElementalHitOnly.Length) return;
+                skillStats = new Dictionary<uint, int>(skillStats) { [ElementalHitOnly[element]] = 1 };
+                admittedGem = admittedGem with { Stats = skillStats };
+                int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
+                var primary = found.Where(entry => (targetId == 0 || entry.Key == targetId)
+                        && !entry.Value.WorldHidden && SwingInReach(player, entry.Value, from, entry.At, strikeReach))
+                    .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).FirstOrDefault();
+                found.Clear();
+                if (primary.Value is not null) found.Add(primary);
+            }
             if (hexblast)
             {
                 var primary = targetId != 0 ? found.Find(entry => entry.Key == targetId)
@@ -2869,12 +2887,18 @@ public static partial class Game
             if (echo is { } at)
                 targets.AddRange(player.Area.MonstersNear(at, radius).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), at) <= radius && struck.Add(e.Key)).Select(e => (e.Key, e.Value)));
+            if (elementalHit)
+            {
+                elementalHitStruck = struck;
+                elementalHitContacts = targets.Count;
+            }
             // Melee Splash: each struck enemy splashes onto the enemies around it, for the support's less damage.
             if (!spell && hammer is null)
             {
                 var merged = SkillAreaStats(player, SupportedSkill(player, skillId).Stats, gem.Effect);
                 int SplashStat(uint key) => merged.GetValueOrDefault(key);
-                if (MeleeSplash.Settings(SplashStat) is { } splash)
+                if (elementalHit) elementalHitSplash = MeleeSplash.Settings(SplashStat);
+                else if (MeleeSplash.Settings(SplashStat) is { } splash)
                     foreach (var (_, m) in targets.ToArray())
                     {
                         var splashAt = m.Walk.Position(now);
@@ -3117,8 +3141,11 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, overexertionMore),
                             Poison = RepeatAilment(profile.Poison, overexertionMore),
                         };
-                    var hex = hexblast ? HexblastHex(m, ProjectileWorldTime(player)) : null;
-                    double targetAilmentMore = hex is null ? 1
+                    double elementalAt = elementalHit || hexblast ? ProjectileWorldTime(player) : 0;
+                    var elementalAilments = elementalHit ? ElementalHitAilmentsOn(m, elementalAt) : ElementalHitAilments.None;
+                    double elementalMore = elementalHit ? ElementalHitDamageMore(elementalHitPerAilment, elementalAilments) : 1;
+                    var hex = hexblast ? HexblastHex(m, elementalAt) : null;
+                    double targetAilmentMore = hex is null ? elementalMore
                         : Math.Max(0, 1 + Stat(global::Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
                     if (targetAilmentMore != 1)
                         profile = profile with
@@ -3127,7 +3154,7 @@ public static partial class Game
                             Bleed = RepeatAilment(profile.Bleed, targetAilmentMore),
                             Poison = RepeatAilment(profile.Poison, targetAilmentMore),
                         };
-                    var contactHit = profile.Hit;
+                    var contactHit = elementalMore == 1 ? profile.Hit : profile.Hit.Scale(elementalMore);
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     if (waveCloseDamage != 0 && victim < reach.Length)
@@ -3246,6 +3273,13 @@ public static partial class Game
                         chaosDamage: chaosDamage);
                     if (applied is not null)
                     {
+                        if (elementalHitStruck is not null && victim < elementalHitContacts)
+                        {
+                            int splashRadius = Stat(global::Stat.ElementalHitAreaOfEffectPlus100PctFinalVsEnemyWithAssociatedAilment) != 0
+                                ? ElementalHitRadius(radius, element, elementalAilments) : radius;
+                            AddElementalHitNearby(player, m.Walk.Position(at), at, splashRadius, elementalHitSplash,
+                                targets, elementalHitStruck, splashMore, once);
+                        }
                         if (applied.Value.Life < lifeBefore)
                             RecordResonanceHitLocked(player, m, skillStats, rolled, at);
                         CrueltyOnHitLocked(player, skillId, damage, lifeBefore, m.MaxLife, skillStats, at);
