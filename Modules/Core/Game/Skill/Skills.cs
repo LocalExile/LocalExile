@@ -878,9 +878,9 @@ public static partial class Game
                 Publish(placed.Mine ? Stat.NumberOfMinesToPlace : Stat.NumberOfTrapsToThrow,
                     PlacedSkillCount(player, supported, placed.Mine));
                 int frenzy = ChargesOf(player).Effective(ChargeType.Frenzy);
-                int throwSpeed = Get(placed.Mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
-                    + Get(Stat.TrapAndMineThrowingSpeedPlusPct)
-                    + frenzy * Get(placed.Mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge);
+                // Read the same additive inputs as placement, before final cast speed is projected into the skill stats.
+                int ThrowStat(uint key) => GolemStat(supported.Stats, key) + GolemStat(playerStats, key);
+                int throwSpeed = PlacedThrowIncrease(ThrowStat, placed.Mine, frenzy);
                 Publish(placed.Mine ? Stat.VirtualMineThrowingSpeedPlusPct : Stat.VirtualTrapThrowingSpeedPlusPct, throwSpeed);
                 if (Get(Stat.TrapTriggerRadiusPlusPct) is int triggerPct and not 0)
                     Publish(Stat.VirtualTrapTriggerRadiusPlusPct, triggerPct);
