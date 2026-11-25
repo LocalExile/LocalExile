@@ -29,7 +29,8 @@ public static partial class Game
     /// aggravate_bleeding_on_attack_crit_chance_%), and aggravate_inflicted_bleeding aggravates the hit's own; Crimson
     /// Dance (keystone_crimson_dance) stacks 8 instead and cannot aggravate (ReminderTextKeystoneCrimsonDance). It lasts
     /// 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
-    /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
+    /// base_all_ailment_duration_+% and, for a bow, status_ailments_you_inflict_duration_+%_with_bows);
+    /// faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
@@ -62,7 +63,8 @@ public static partial class Game
                 bow ? SkillDurationModifiers.Kinds.Bow : SkillDurationModifiers.Kinds.None)
             : Ailments.BleedDurationSeconds;
         double seconds = baseSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
-            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
+            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+            + (bow ? get(Stat.StatusAilmentsYouInflictDurationPlusPctWithBows) : 0)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
         bool dance = get(Stat.KeystoneCrimsonDance) != 0;
         int aggravate = dance ? 0 : get(Stat.BaseAggravateBleedingOnAttackHitChancePct);
