@@ -1554,7 +1554,7 @@ public static partial class Game
             if (SupportedChannelSeconds(player, skillId) is not double interval)
             { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
-            _ = RunChannel(player, skillId, gem, action, to);
+            _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
@@ -2258,9 +2258,13 @@ public static partial class Game
             $"0x01ae channel 0x{sequence:x4} ended");
     }
 
-    public static async Task RunChannel(Player player,
+    public static Task RunChannel(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action,
-        (int X, int Y) initialAim = default)
+        (int X, int Y) initialAim = default) => RunChannel(player, skillId, gem, action, initialAim, initialCostPaid: false);
+
+    static async Task RunChannel(Player player,
+        ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, int action,
+        (int X, int Y) initialAim, bool initialCostPaid)
     {
         int generation = player.ChannelGeneration;
         ushort channelSequence = player.ChannelSkillSequence;
@@ -2271,7 +2275,7 @@ public static partial class Game
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
-        bool firstStagePaid = snipe || scourge;
+        bool firstStagePaid = snipe || (scourge && initialCostPaid);
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
