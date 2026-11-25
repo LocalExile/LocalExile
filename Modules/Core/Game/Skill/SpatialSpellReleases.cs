@@ -118,7 +118,7 @@ public static partial class Game
                 else if (effect == "ArcAltX")
                 {
                     int distance = Own(Stat.ArcChainDistance);
-                    int splits = Math.Max(0, Own(Stat.ProjectileNumberToSplit));
+                    int splits = (int)Math.Clamp((long)Own(Stat.ProjectileNumberToSplit) + caster.GetValueOrDefault(Stat.ProjectileNumberToSplit), 0, 256);
                     if (distance > 0)
                         Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(Math.Max(0, Own(Stat.ArcAdditionalDelayMs)) / 1000d), () =>
                         {

@@ -2275,7 +2275,7 @@ public static partial class Game
         uint orbEffect = 0;
         bool snipe = IsSnipe(gem.Effect);
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
-        bool firstStagePaid = snipe || (scourge && initialCostPaid);
+        bool firstStagePaid = snipe;
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
@@ -2286,7 +2286,7 @@ public static partial class Game
             else if (snipe)
                 await SnipeStart(player, skillId, gem, action, initialAim);
             else if (scourge)
-                StartScourgeChannel(player, gem, action, generation, channelSequence, initialAim);
+                StartScourgeChannel(player, gem, action, generation, channelSequence, initialAim, initialCostPaid);
             else if (divineIre)
             {
                 divineIreStages = 1;

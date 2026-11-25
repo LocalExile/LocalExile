@@ -14,7 +14,7 @@ public static partial class Game
     static void ApplyEqualisingHitLocked(Player player, SpawnedMonster source)
     {
         int percent = EqualisingPercent(player, source);
-        if (percent == 0) return;
+        if (percent == 0 || player.PlayerLife == 0) return;
         player.PlayerLife -= HitResourceLoss(player.PlayerLife, player.PlayerMaxLife, percent);
         player.PlayerMana -= HitResourceLoss(player.PlayerMana, player.Pools.Mana, percent);
         player.EnergyShield.Spend(HitResourceLoss(player.EnergyShield.Current, player.EnergyShield.Maximum, percent));
@@ -25,12 +25,16 @@ public static partial class Game
         int perAlly = MapModsOf(player)?.Get(Stat.MapDamageTakenPlusPctPerNearbyAlly) ?? 0;
         if (perAlly == 0) return 0;
         const int radius = 40; // Local nearby reach for the legacy map stat; the stat provides only the percentage.
-        var peers = player.Instance?.PlayersExcept(player.Id);
-        int allies = peers?.Count(ally => !ally.Closed && !ally.LeavingArea && ally.PlayerLife > 0
-            && ReferenceEquals(player.Area, ally.Area) && Dist(ally.Walk.Position(now), here) <= radius) ?? 0;
-        allies += player.Area.MonstersNear(here, radius).Count(p => p.Value is
-            { Hostile: false, Dead: false, Life: > 0, OwnerId: not null, WorldHidden: false } ally
-            && Dist(ally.Walk.Position(now), here) <= radius);
+        int allies = 0;
+        if (player.Instance is { } instance)
+            foreach (var ally in instance.PlayersExcept(player.Id))
+                if (!ally.Closed && !ally.LeavingArea && ally.PlayerLife > 0
+                    && ReferenceEquals(player.Area, ally.Area) && Dist(ally.Walk.Position(now), here) <= radius)
+                    allies++;
+        foreach (var (_, ally) in player.Area.MonstersNear(here, radius))
+            if (ally is { Hostile: false, Dead: false, Life: > 0, OwnerId: not null, WorldHidden: false }
+                && Dist(ally.Walk.Position(now), here) <= radius)
+                allies++;
         return ActorScale.Saturate((long)allies * perAlly);
     }
 

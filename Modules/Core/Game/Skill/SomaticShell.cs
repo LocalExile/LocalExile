@@ -50,6 +50,11 @@ public static partial class Game
     static readonly RuleTable<SpawnedMonster, SomaticShellState> SomaticShells = new();
     static readonly RuleTable<SpawnedMonster, SomaticImmunity> SomaticImmunities = new();
 
+    internal static void ClearSomaticShellLocked(SpawnedMonster target)
+    {
+        if (SomaticShells.TryGetValue(target, out var shell)) shell.Session.RemoveSomaticShell(shell);
+    }
+
     static int AbsorbSomaticShell(SpawnedMonster target, int damage, ref int chaos, double now, bool preventsBreak)
     {
         if (damage <= 0 || target.Invulnerable || !SomaticShells.TryGetValue(target, out var shell)) return damage;
@@ -102,6 +107,8 @@ public static partial class Game
             applications.Remaining--;
             if (SomaticShells.TryGetValue(target, out var previous)) previous.Session.RemoveSomaticShell(previous);
             var own = somaticShells ??= [];
+            for (int i = own.Count - 1; i >= 0; i--)
+                if (own[i].Target.Dead || own[i].Target.Life == 0) RemoveSomaticShell(own[i]);
             while (own.Count >= limit) RemoveSomaticShell(own[0]);
             double areaMore = Math.Max(0, 1 + Own(Stat.ActiveSkillAreaDamagePlusPctFinal) / 100d);
             var shell = new SomaticShellState(this, Player.Area, target, contact.Projectile.Use,

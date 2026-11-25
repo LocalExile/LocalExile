@@ -53,8 +53,14 @@ public static partial class Game
             else if (element == DamageType.Fire)
             {
                 // The fire radius uses the common strike area until the client explosion extent is measured.
-                int radius = SkillRadius(player, 24, source.Stats, spell: false, gem.Effect, playerStats);
-                radius = (int)Math.Round(radius * SkillArea.RadiusMultiplier(source.Stats.GetValueOrDefault(Stat.WildStrikeRadiusPlusPct)));
+                int extraArea = source.Stats.GetValueOrDefault(Stat.WildStrikeRadiusPlusPct)
+                    + playerStats.GetValueOrDefault(Stat.WildStrikeRadiusPlusPct);
+                var fireStats = extraArea == 0 ? source.Stats : new Dictionary<uint, int>(source.Stats)
+                {
+                    [Stat.BaseSkillAreaOfEffectPlusPct] = ActorScale.Saturate(
+                        (long)source.Stats.GetValueOrDefault(Stat.BaseSkillAreaOfEffectPlusPct) + extraArea)
+                };
+                int radius = SkillRadius(player, 24, fireStats, spell: false, gem.Effect, playerStats);
                 session.Runtime.Impact(followup, origin, new("WildStrikeFire", radius));
             }
             else ReleaseWildStrikeArc(session, followup, strike.Actor, source.Stats.GetValueOrDefault(Stat.AdditionalBeamOnlyChains));

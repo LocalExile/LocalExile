@@ -52,12 +52,19 @@ public static partial class Game
 
     static void StartScourgeChannel(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        int action, int generation, ushort sequence, (int X, int Y) aim)
+        int action, int generation, ushort sequence, (int X, int Y) aim, bool initialCostPaid)
     {
         if (ScourgeChannels.TryGetValue(player, out var previous))
             RetireScourgeChannel(player, previous.Generation, previous.Action);
-        ScourgeChannels.AddOrUpdate(player, new(SupportedSkill(player, gem.Id), gem.Id,
-            generation, action, player.ProjectileEpoch, sequence, aim));
+        var channel = new ScourgeChannel(SupportedSkill(player, gem.Id), gem.Id,
+            generation, action, player.ProjectileEpoch, sequence, aim);
+        ScourgeChannels.AddOrUpdate(player, channel);
+        if (initialCostPaid && channel.MaxStages > 0)
+        {
+            channel.Stages = 1;
+            player.Area.Buffs.Set(player.Id, new(ScourgeStageBuff, player.Id, channel.Skill,
+                Stacks: 1, KeepInstance: true));
+        }
     }
 
     static bool IsScourgeChannelling(Player player, ushort skill, int generation, int action) =>
@@ -90,27 +97,30 @@ public static partial class Game
 
     static void ReleaseScourgeChannel(Player player, double at)
     {
-        if (!ScourgeChannels.TryGetValue(player, out var channel)
-            || !ChannelCurrent(player, channel.Skill, channel.Action, channel.Generation)) return;
-        RetireScourgeChannel(player, channel.Generation, channel.Action);
-        if (player.ProjectileEpoch != channel.Epoch || PlayerActionBlocked(player, at, at)) return;
-        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == channel.Skill);
-        if (gem.Name is null || !IsChannelledScourgeArrow(gem.Effect)
-            || !SameTriggerSource(channel.Source, SupportedSkill(player, channel.Skill))
-            || GemSkillInstanceDisabled(player, gem.Effect, channel.Skill) is not null) return;
-        var session = ProjectilesFor(player);
-        var critical = CaptureSkillCriticalRoll(player, channel.Skill);
-        session.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(at)),
-            () => session.Active && player.PlayerLife > 0 && player.ProjectileEpoch == channel.Epoch,
-            () =>
-            {
-                var use = CaptureGemProjectile(player, session, channel.Skill, gem, channel.Aim, critical, channel.Sequence);
-                var shot = (ProjectileOffense)use.Payload!;
-                int StageStat(uint key) => shot.SkillStats.GetValueOrDefault(key);
-                double more = Math.Max(0, 1 + StageStat(Stat.VirulentArrowDamagePlusPctFinalPerStage) * (double)channel.Stages / 100);
-                long pods = (long)channel.Stages + (channel.Stages == channel.MaxStages ? StageStat(Stat.VirulentArrowAdditionalSporesAtMaxStages) : 0);
-                return use with { Payload = shot.ScaleDamage(more) with { ScourgePods = (int)Math.Clamp(pods, 0, 256) } };
-            });
+        using (ProjectileMutation(player, advance: false))
+        {
+            if (!ScourgeChannels.TryGetValue(player, out var channel)
+                || !ChannelCurrent(player, channel.Skill, channel.Action, channel.Generation)) return;
+            RetireScourgeChannel(player, channel.Generation, channel.Action);
+            if (player.ProjectileEpoch != channel.Epoch || PlayerActionBlocked(player, at, at)) return;
+            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == channel.Skill);
+            if (gem.Name is null || !IsChannelledScourgeArrow(gem.Effect)
+                || !SameTriggerSource(channel.Source, SupportedSkill(player, channel.Skill))
+                || GemSkillInstanceDisabled(player, gem.Effect, channel.Skill) is not null) return;
+            var session = ProjectilesFor(player);
+            var critical = CaptureSkillCriticalRoll(player, channel.Skill);
+            session.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(at)),
+                () => session.Active && player.PlayerLife > 0 && player.ProjectileEpoch == channel.Epoch,
+                () =>
+                {
+                    var use = CaptureGemProjectile(player, session, channel.Skill, gem, channel.Aim, critical, channel.Sequence);
+                    var shot = (ProjectileOffense)use.Payload!;
+                    int StageStat(uint key) => shot.SkillStats.GetValueOrDefault(key);
+                    double more = Math.Max(0, 1 + StageStat(Stat.VirulentArrowDamagePlusPctFinalPerStage) * (double)channel.Stages / 100);
+                    long pods = (long)channel.Stages + (channel.Stages == channel.MaxStages ? StageStat(Stat.VirulentArrowAdditionalSporesAtMaxStages) : 0);
+                    return use with { Payload = shot.ScaleDamage(more) with { ScourgePods = (int)Math.Clamp(pods, 0, 256) } };
+                });
+        }
     }
 
     public sealed partial class ProjectileSession
@@ -121,7 +131,7 @@ public static partial class Game
             int count = shot.ScourgePodsPerProjectile ? Math.Min(256, shot.ScourgePods)
                 : shot.ScourgePods / arrows + (arrow.VolleyIndex < shot.ScourgePods % arrows ? 1 : 0);
             int thorns = shot.SkillStats.GetValueOrDefault(Stat.VirulentArrowNumberOfPodProjectiles);
-            if (count <= 0 || thorns <= 0) return;
+            if (count <= 0 || thorns <= 0 || arrow.Speed <= 0) return;
 
             // Distribute pods between release and aim on that arrow's flight, up to its travel range.
             double reach = Math.Min(arrow.Profile.Range, (arrow.Use.Aim - arrow.Position).Length);
