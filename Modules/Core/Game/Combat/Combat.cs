@@ -3320,6 +3320,8 @@ public static partial class Game
                     }
                     else if (tectonic is not null)
                     {
+                        sweepStats?.Dispose();
+                        sweepStats = null;
                         await SettleSweep();
                         if (!await tectonic.AppendContacts(targets)) break;
                     }
