@@ -2082,6 +2082,9 @@ Native flight/contact logic resides in action/Positioned paths, not this small c
   The 3.29.3c client creates its three bolts locally: a server create duplicates them.
   A Positioned trace aimed left from (391,352) starts all three at (388,352), rather than the sword's contact point.
   The native flights have different durations; their per-projectile speed variation is not yet mirrored.
+  Lightning Strike of Arcing (`LightningStrikeAltX`) uses the same action and one bolt at base. The melee target is
+  excluded from its bolt, and a successful melee hit makes the bolt unable to miss. Its stats give the bolt 50% less
+  hit and ailment damage and 10% more per chain already made, so the first projectile contact has no chain bonus.
   Spectral Throw's row is `Metadata/Projectiles/ThrownWeapon` (1000). Its action (ThrownWeaponProjectile, HASH16
   0xcf7b) draws its own weapon, as a spell does, so the server sends none. Frida 2026-11-02
   (`scripts/re/frida/trace-projectile-path.js`, Positioned path of the client's object): the weapon slows evenly to a

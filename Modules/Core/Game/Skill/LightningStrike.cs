@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
+    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) is "LightningStrike" or "LightningStrikeAltX";
 
     // Strike projectiles release at the contact keyframe of each swing in the same paid use.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
