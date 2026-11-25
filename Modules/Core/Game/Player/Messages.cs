@@ -791,13 +791,17 @@ public static partial class Game
                 // player is. Without this update the channel counts as silent and ends (ChannelSilenceSeconds).
                 var (cx, cy) = InstanceProtocol.ReadChannelUpdate(bytes);
                 double t = player.ClockAt(readAt);
+                ushort? changedAim = null;
                 using (ProjectileMutation(player))
                 {
                     t = Math.Max(t, player.ProjectileRuntime?.Runtime.Now / 120000d ?? 0);
                     if (PlayerActionBlocked(player, t, AreaTime(player))) continue;
-                    ChannelAimedAt(player, cx, cy, t);
+                    if (ApplyChannelAim(player, cx, cy, t) && !player.Connection.LockstepClient)
+                        changedAim = player.ChannelSkillSequence;
                     player.LastChannelUpdateAt = AreaTime(player);
                 }
+                if (changedAim is ushort sequence)
+                    await SendChannelAim(player, sequence, (cx, cy));
             }
             else if (id == InstanceProtocol.ChannelEndId)
             {

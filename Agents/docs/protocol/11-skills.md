@@ -3456,6 +3456,20 @@ BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The nati
   the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
   (`PlayerStatsWithCleared`). Each monster keeps the increased damage taken they give ([20](20-damage.md) §4).
 
+### Blade Flurry
+
+The 3.29.3c `ChargedAttackChannelled` action (0xaf62) places its acquisition centre 22 cells along
+the aim from the actor (`0x141d07390`). While held, `0x141d07340` adds one stage before the scan up to
+the skill's virtual maximum. The hit circle is 14 cells around the chosen opponent (`0x141d075b0`).
+Release copies the last acquisition centre. Its scans widen from 22 to 28 cells (`0x141d06d50`).
+All three radii use the skill's radius scale. The release copy runs one scan for each stage reached
+(`0x141d06d10`), spaced by 25 ms after a 10 ms initial delay. The client's chosen contacts have a
+70 ms visual lead. The seeded selection weights nearby enemies and lowers the weight of repeated targets.
+
+The player's ordinary and Incision channels use the gained stage for each hit. Their release strikes
+use the completed stage's damage or critical modifiers throughout. The area publishes the count on
+the current charged attack stat and buff row 640 while held.
+
 ### Cyclone area updates (2026-10-25)
 
 `/set_aoe` sends the increased-area input, but Cyclone's visual also needs the final

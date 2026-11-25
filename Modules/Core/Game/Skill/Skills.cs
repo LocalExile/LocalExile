@@ -560,6 +560,14 @@ public static partial class Game
             // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
             if (SkillsFor(player).IsAttack(effect) && Stat.AttackRepeatCount is var attackRepeatKey)
                 stats[attackRepeatKey] = MeleeAttackRepeats(player, id);
+            if (IsBladeFlurry(player, effect))
+            {
+                var flurryArea = SkillAreaStats(player, own, effect, playerStats);
+                int AreaGet(uint key) => flurryArea.GetValueOrDefault(key);
+                stats[Stat.VirtualMaxChargedAttackStages] = BladeFlurryMaxStages(own, characterInputs);
+                stats[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(AreaGet, spell: false);
+                stats[Stat.SkillAreaOfEffectPlusPct] = SkillArea.Increased(AreaGet, spell: false);
+            }
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(player).EffectId(effect)))
             {

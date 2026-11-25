@@ -244,6 +244,7 @@ public static partial class Game
         WinterOrbRetire(player);
         ClearCycloneStages(player);
         SnipeRetire(player);
+        RetireBladeFlurry(player, player.ChannelGeneration);
         MirageWarriorsRetire(player);
         player.RetireOwnedCombat();
         player.ChannelSkill = 0;
