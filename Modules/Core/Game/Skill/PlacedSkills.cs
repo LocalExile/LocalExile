@@ -74,8 +74,9 @@ public static partial class Game
 
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {
-        var types = (Supports.Of(gem.Effect)?.Types ?? []).Concat(gem.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
-        return (types.Contains(32), types.Contains(35));
+        var types = Supports.Of(gem.Effect)?.Types;
+        bool Has(int type) => types?.Contains(type) == true || gem.Supports.Any(s => s.Effect.Added.Contains(type));
+        return (Has(32), Has(35));
     }
 
     private sealed record PlacedCastAdmission(ushort Skill, int Effect, bool Trap, bool Mine,

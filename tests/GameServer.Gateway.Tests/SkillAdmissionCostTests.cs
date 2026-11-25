@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class SkillAdmissionCostTests
 {
     [Fact]
-    public void Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
+    public async Task Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
     {
         using var f = new Fixture();
         var player = f.Player;
@@ -170,6 +170,99 @@ public sealed class SkillAdmissionCostTests
         Assert.Equal((uint)heavyBase, paidMana);
         Assert.Equal(0u, paidLife);
         Assert.Equal(900u, player.PlayerLife);
+        await SlavedriversHandConvertsOnlyTrapCosts();
+    }
+
+    static async Task SlavedriversHandConvertsOnlyTrapCosts()
+    {
+        var clock = new TrapCostClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.Now(player));
+        var gloves = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Slavedriver's Hand", new Random(17)));
+        uint mod = Program.Items.Mods.ById("TrapSkillsHaveBloodMagicUnique__1")!.Hash;
+        Assert.Equal(1, Assert.Single(Assert.Single(gloves.Mods, m => m.Hash == mod).Values));
+        var items = Game.ItemsOf(player);
+        uint gloveId = items.Add(PlayerInventories.Gloves, 0, 0, gloves with
+        {
+            Mods = [.. gloves.Mods.Where(m => m.Hash != mod)],
+        })!.Id;
+
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort native = Assert.Single(fixture.Equip(("Ice Trap", 18), ("Added Cold Damage Support", 18),
+                ("Increased Area of Effect Support", 18)));
+            Assert.Equal(2, Game.SupportedSkill(player, native).Supports.Count);
+            var baseline = await Cast(native, trap: true);
+            items.Change(PlayerInventories.Gloves, gloveId, _ => gloves);
+            Assert.Equal(1, Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.TrapThrowSkillsHaveBloodMagic));
+            var converted = await Cast(native, trap: true);
+            ushort spell = Assert.Single(fixture.Equip(("Ice Nova", 18)));
+            var ordinary = await Cast(spell, trap: false);
+            ushort supported = Assert.Single(fixture.Equip(("Ice Nova", 18), ("Trap Support", 18)));
+            var supportedTrap = await Cast(supported, trap: true);
+            Console.WriteLine($"Slavedriver cost (Mana, Life): baseline {baseline}, native {converted}, spell {ordinary}, supported trap {supportedTrap}");
+            Assert.Equal((32u, 0u), baseline);
+            Assert.Equal((0u, baseline.Mana), converted);
+            Assert.True(ordinary.Mana > 0);
+            Assert.Equal(0u, ordinary.Life);
+            Assert.Equal(0u, supportedTrap.Mana);
+            Assert.True(supportedTrap.Life > 0);
+            player.PlayerLife = supportedTrap.Life;
+            uint availableMana = (uint)Game.UnreservedMana(player);
+            player.PlayerMana = availableMana;
+            Assert.False(Game.CanPaySkillCost(player, supported));
+            Assert.False(await Game.CastGemSkill(player, supported, (100, 100), (102, 100)));
+            Assert.Equal(supportedTrap.Life, player.PlayerLife);
+            Assert.Equal(availableMana, player.PlayerMana);
+            Assert.Empty(player.Placed.All);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+
+        async Task<(uint Mana, uint Life)> Cast(ushort id, bool trap)
+        {
+            Game.RecomputePoolsAndSpeed(player);
+            var wire = Game.PlayerSkills(player).Single(skill => skill.Id == id).Stats!;
+            var predicted = ((uint)wire.SingleOrDefault(stat => stat.Key == Stat.ManaCost).Value,
+                (uint)wire.SingleOrDefault(stat => stat.Key == Stat.LifeCost).Value);
+            uint availableMana = (uint)Game.UnreservedMana(player);
+            player.PlayerMana = availableMana;
+            player.PlayerLife = 1000;
+            Assert.True(await Game.CastGemSkill(player, id, (100, 100), (102, 100)));
+            var paid = (availableMana - player.PlayerMana, 1000 - player.PlayerLife);
+            if (trap)
+            {
+                var placed = Assert.Single(player.Placed.All.Values);
+                Assert.False(placed.Mine);
+                const uint targetId = 901;
+                var target = new SpawnedMonster("trap cost target", new(placed.At.X, placed.At.Y, 0), 0, 0, 100000);
+                player.Area.Monsters.Add(targetId, target);
+                int wait = Math.Max(1, (int)Math.Ceiling((placed.Armed + .01 - clock.Now(player)) * 1000));
+                await clock.Wait(wait, CancellationToken.None);
+                await Game.PlayerMinionsTick(player, clock.Now(player));
+                Assert.InRange(target.Life, 1u, target.MaxLife - 1);
+                Assert.Empty(player.Placed.All);
+                player.Area.Monsters.Remove(targetId);
+            }
+            Assert.Equal(predicted, paid);
+            await clock.Wait(1000, CancellationToken.None);
+            return paid;
+        }
+    }
+
+    sealed class TrapCostClock : IPlayerUpdateSchedule
+    {
+        double now = 1;
+        public double Now(Player player) => now;
+        public Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            stopping.ThrowIfCancellationRequested();
+            now += milliseconds / 1000d;
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
