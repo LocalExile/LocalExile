@@ -396,7 +396,7 @@ public static partial class MapStrongboxes
                 InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(type.Id),
                     StrongboxCatalog.Blob(type, box.X, box.Y, box.Phase > 0, box.Phase > 0, box.Rarity,
                         box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : null, null,
-                        box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null, chestFlags)),
+                        box.Unique is { } unique ? StrongboxCatalog.FindUnique(unique) : null, chestFlags, box.Corrupted)),
                 $"strongbox 0x{box.Id:x} {Label(player, box)} phase={box.Phase} cycle={box.Cycle} at ({box.X}, {box.Y})");
             await SendWorldRecord(player, box.Id, InstanceProtocol.EnterWakeZone(box.Id), null);
             area.Shown[box.Id] = box;

@@ -29,6 +29,7 @@ public static class AilmentPanelStats
     public readonly record struct Context(string Hand, bool Spell, bool Melee = false)
     {
         public bool Attack => Hand is "main_hand" or "off_hand";
+        public IReadOnlyDictionary<uint, int>? WeaponStats { get; init; }
     }
 
     public const int BleedPercent = 70, IgnitePercent = 90, PoisonPercent = 30;
@@ -105,6 +106,7 @@ public static class AilmentPanelStats
         if (get(Stat.UniqueFireDamageShocks) != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
         Add("ignite", DamageType.Fire, ignite, IgnitePercent);
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
+            || context.Attack && (context.WeaponStats?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) ?? 0) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0
             ? DamageTypes.ConversionOrder : [DamageType.Physical, DamageType.Chaos], PoisonPercent);
         if (get(Stat.ChaosDamageChanceToPoisonPct) != 0)
@@ -132,6 +134,7 @@ public static class AilmentPanelStats
                 DamageType.Fire => get(Stat.BurnDamagePlusPct) + get(Stat.IgniteDamagePlusPct) + get(Stat.ElementalDamagePlusPct)
                     + (tinctureWeapon ? get(Stat.IgniteDamagePlusPctWithTincturedWeapons) : 0),
                 _ => get(Stat.BasePoisonDamagePlusPct)
+                    + (get(Stat.Dexterity) >= 300 ? get(Stat.PoisonDamagePlusPctWithOver300Dexterity) : 0)
                     + (tinctureWeapon ? get(Stat.PoisonDamagePlusPctWithTincturedWeapons) : 0),
             };
         bool attack = context.Attack && !context.Spell;
@@ -145,6 +148,8 @@ public static class AilmentPanelStats
         (int weaponAny, HitIncreases weaponExtra) = context.Attack && !context.Spell
             ? WeaponTypeDamage.Ailment(get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType), get)
             : (0, default);
+        if (attack && context.WeaponStats?.GetValueOrDefault(Stat.LocalAttacksWithThisWeaponElementalDamagePlusPct) is not (null or 0) and int localElemental)
+            weaponExtra = weaponExtra with { Elemental = ActorScale.Saturate((long)weaponExtra.Elemental + localElemental) };
         common += weaponAny;
         var more = SupportMore.Where(m => (m.Only is null || m.Only.Contains(ailment)) && (!m.MeleeHit || context.Melee)
             && (!m.Attack || context.Attack) && get(m.Stat) != 0).ToList();
@@ -161,17 +166,25 @@ public static class AilmentPanelStats
         // multiplier is 150% plus base_critical_strike_multiplier_+ (the generic bonuses; a weapon's local critical
         // multiplier is not in this merged view).
         bool perfectAgony = get(Stat.KeystoneAilmentCrit) != 0;
+        int localDotMultiplier = context.Attack && context.WeaponStats is { } local ? ailment switch
+        {
+            "bleeding" => local.GetValueOrDefault(Stat.LocalBleedingAilmentDotMultiplierPlus),
+            "poison" => local.GetValueOrDefault(Stat.LocalPoisonDotMultiplierPlus),
+            _ => 0,
+        } : 0;
         double dotMultiplier = perfectAgony
             ? Math.Max(0, (150 + get(Stat.BaseCriticalStrikeMultiplierPlus)
                 + (tinctureWeapon ? get(Stat.CriticalStrikeMultiplierPlusWithTincturedWeapons) : 0)) / 100.0)
             : Math.Max(0, 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.Of(Slug(ailmentType) + "_dot_multiplier_+"))
-                + get(Stat.AilmentDotMultiplierPlus) + get(Stat.Of(ailment + "_dot_multiplier_+"))
+                + get(Stat.AilmentDotMultiplierPlus) + get(Stat.Of(ailment + "_dot_multiplier_+")) + localDotMultiplier
                 + (ailmentType == DamageType.Fire && context.Attack ? get(Stat.FireDamageOverTimeMultiplierPlusWithAttacks) : 0)
                 + (context.Spell && ailment == "poison" ? get(Stat.PoisonDotMultiplierPlusWithSpells) : 0)
                 + (bowAttack ? get(Stat.DotMultiplierPlusWithBowSkills) : 0)
                 + (tinctureWeapon ? get(Stat.DamageOverTimeMultiplierPlusWithTincturedWeapons) : 0)
                 + (critical && !neverFromCrit ? get(Stat.CriticalAilmentDotMultiplierPlus) + get(Stat.Of("critical_" + ailment + "_dot_multiplier_+")) : 0)) / 100);
-        double multiplier = dotMultiplier
+        int localIgniteMore = attack && ailment == "ignite"
+            ? context.WeaponStats?.GetValueOrDefault(Stat.LocalIgniteDamagePlusPctFinalWithThisWeapon) ?? 0 : 0;
+        double multiplier = dotMultiplier * Math.Max(0, 1 + localIgniteMore / 100d)
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get(Stat.ActiveSkillIgniteDamagePlusPctFinal) / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".

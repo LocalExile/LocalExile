@@ -119,7 +119,7 @@ public static partial class Game
                 || NativeProjectileTotem(player, effect) && ResolveProjectileDefinition(effect) is not null
                 // A dedicated totem skill the local path runs (TotemUseLocked): its own hit, the corpse meal or the taunt.
                 // A ranged attack totem is a ballista and Holy Flame Totem flies its own projectile: both place only
-                // through their own clause, so what that clause refuses (Focused Ballista off a bow) stays refused, and
+                // through their own clause, so what that clause refuses (a ballista off a bow) stays refused, and
                 // the hit lookup below is never paid on SpellTotemCurrent's per-tick check for them.
                 || SkillsFor(player).HasType(effect, TotemSkillType) && !NativeProjectileTotem(player, effect)
                     && GolemStat(SupportedSkill(player, skill).Stats, Stat.IsRangedAttackTotem) == 0
@@ -377,6 +377,7 @@ public static partial class Game
             placed.Ballista = ballista;
             placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
+            BindFocusedBallista(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
@@ -413,8 +414,9 @@ public static partial class Game
                 + (devour is null ? "" : $", devours {devour.Life} life / {devour.Mana} mana a corpse"));
         }
 
+        await EnsureMonsterTypeSent(player, variety, level, Valid);
         uint? created = null;
-        // Registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
+        // The objects are registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
         await SendWorldBatch(player, [], admission =>
         {
             if (!Valid()) return null;
@@ -425,8 +427,6 @@ public static partial class Game
                 playerStats = CharacterPlayerStats(player);
             }
             var bytes = new WorldRecordBuilder(player, admission);
-            if (player.MonsterTypes.Add((variety.Row, level)))
-                bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
             var objectStats = new List<(uint, int)>();
             if (life != baseLife) objectStats.Add((Stat.MaximumLife, (int)life));
             if (spellTotem && Stat.UsesNoMana is var noMana) objectStats.Add((noMana, 1));
@@ -437,7 +437,7 @@ public static partial class Game
                 place = ClearPosition(objectId);
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
                     TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
-                    Stats: objectStats) { LifeData = variety.LifeData };
+                    Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
                 bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));

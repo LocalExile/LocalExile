@@ -239,7 +239,8 @@ public static partial class Game
                 if (stat is var key) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
-            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack())
+            { WeaponStats = mainWeapon.LocalSources };
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
                 SupportedAttackDamage.Raw(mainWeapon, Get, new(mainAccuracy), melee: ailmentContext.Melee), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
@@ -249,7 +250,7 @@ public static partial class Game
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 var offConversion = SupportedAttackDamage.WithWeaponGains(
                     DamageStats.Conversion(stats, Stats, attack: true), offWeapon, Get);
-                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
+                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand", WeaponStats = offWeapon.LocalSources },
                     SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }
             foreach (var (stat, value) in ailmentRows)

@@ -251,12 +251,13 @@ public static partial class Game
         player.ChannelMovement = default;
         EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
+        ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
+        ClearSteelWardOnDeath(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
-        VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
@@ -461,9 +462,10 @@ public static partial class Game
             {
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
-                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    && (own.TryGetValue(Stat.ManaCost, out int unsplitBase) || Own(Stat.BaseManaCostPct) > 0))
                 {
-                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0
+                        || Own(Stat.BaseManaCostPct) > 0)
                         unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
@@ -1654,6 +1656,7 @@ public static partial class Game
             {
                 await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
+                ClearOwnerAttacks(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
                 await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");
@@ -1836,6 +1839,13 @@ public static partial class Game
             foreach (var (log, message) in extra(player))
                 messages.Add((log, message));
         messages.AddRange(GameEvents.RunBeforeEnterMessages(player));
+        foreach (var (owner, run) in GameEvents.BeforeEnterObject.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(GameEvents.BeforeEnterObject), () =>
+            {
+                if (run(player) is { } obj)
+                    messages.Add(($"0x02bb create {obj.Type} 0x{obj.Id:x} at ({obj.Object.GridX}, {obj.Object.GridY})",
+                        Create(obj.Id, InstanceEntities.ObjectTypeHash(obj.Type), obj.Object.Blob())));
+            });
         var (passives, passivesLabel) = PassivesMessage(player);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.
@@ -1857,8 +1867,9 @@ public static partial class Game
             var tabs = PersonalStashOf(player).Records((int)StashSelectAffinity);
             var tradeTabs = player.Character.Ssf ? null : TradeStashOf(player).Records(null);
             bool secondSet = PlayerInventories.For(string.IsNullOrEmpty(name) ? "Exile" : name, ItemsFor(player)).WeaponSet == 1;
-            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms",
-                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs)));
+            bool ownHideout = OwnHideout(player);
+            messages.Add(($"0x0021 enter area, {tabs.Count} stash tab(s), {tradeTabs?.Count ?? 0} trade tab(s), last {PersonalStashOf(player).LastTab}, weapon set {(secondSet ? 2 : 1)}, frame {FrameMs} ms{(ownHideout ? ", own hideout" : "")}",
+                InstanceProtocol.EnterArea(tabs, secondSet, FrameMs, tradeTabs, ownHideout)));
             messages.AddRange(GameEvents.RunEnterMessages(player));
             // The contents of every stash tab with currency in it (stackable items), as 0xc7 would send them (0xc0, no 0xc8:
             // the panel is not open). The client checks a shop price against the currency it knows of, the inventory's and
