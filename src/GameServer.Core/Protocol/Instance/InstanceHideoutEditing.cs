@@ -6,12 +6,14 @@ namespace GameServer.Core.Protocol.Instance;
 /// <summary>Native hideout editor, music box and Item Display Case messages (3.29.3c).</summary>
 public static class InstanceHideoutEditing
 {
-    /// <summary>C→S 0x59 (personal) / 0x5a (guild), 16 bytes (writer 0x141f99e90): place a hideout decoration.
-    /// u32 BE MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 = mirrored).</summary>
-    public const ushort PlaceId = 0x59, PlaceGuildId = 0x5a;
+    /// <summary>C→S 0x59 (sender 0x1421669d0) / 0x5a (sender 0x142166a40), 16 bytes (writer 0x141f99e90), from the
+    /// editor's placement 0x140204570: place a hideout decoration. 0x59 names an owned record (0x1f4 flags 1, its id),
+    /// 0x5a the decoration's MtxTypes HASH32 itself (the panel's decorations that need no record). u32 BE the id or
+    /// hash, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 = mirrored).</summary>
+    public const ushort PlaceId = 0x59, PlaceByHashId = 0x5a;
     public const int PlaceLength = 16;
 
-    public readonly record struct Place(uint Hash, ushort X, ushort Y, float Rotation, byte Variation, byte Flags)
+    public readonly record struct Place(bool ByHash, uint Id, ushort X, ushort Y, float Rotation, byte Variation, byte Flags)
     {
         public bool Mirrored => (Flags & 1) != 0;
     }
@@ -19,9 +21,9 @@ public static class InstanceHideoutEditing
     public static Place ReadPlace(ReadOnlySpan<byte> m)
     {
         ushort op = m.Length >= 2 ? BinaryPrimitives.ReadUInt16BigEndian(m) : (ushort)0;
-        if (m.Length != PlaceLength || (op != PlaceId && op != PlaceGuildId))
+        if (m.Length != PlaceLength || (op != PlaceId && op != PlaceByHashId))
             throw new ArgumentException("Invalid hideout place packet", nameof(m));
-        return new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[6..]),
+        return new(op == PlaceByHashId, BinaryPrimitives.ReadUInt32BigEndian(m[2..]), BinaryPrimitives.ReadUInt16BigEndian(m[6..]),
             BinaryPrimitives.ReadUInt16BigEndian(m[8..]),
             BitConverter.UInt32BitsToSingle(BinaryPrimitives.ReadUInt32BigEndian(m[10..])),
             m[14], m[15]);
@@ -53,6 +55,18 @@ public static class InstanceHideoutEditing
     {
         if (m.Length != ReclaimLength || BinaryPrimitives.ReadUInt16BigEndian(m) != ReclaimId)
             throw new ArgumentException("Invalid hideout reclaim packet", nameof(m));
+        return BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+    }
+
+    /// <summary>C→S 0x5c (6 bytes, the generic u32 class 0x1431767e8): the editor's Delete key (0x140204210, VK_DELETE)
+    /// on the selected object. u32 BE its object id.</summary>
+    public const ushort RemoveId = 0x5c;
+    public const int RemoveLength = 6;
+
+    public static uint ReadRemove(ReadOnlySpan<byte> m)
+    {
+        if (m.Length != RemoveLength || BinaryPrimitives.ReadUInt16BigEndian(m) != RemoveId)
+            throw new ArgumentException("Invalid hideout remove packet", nameof(m));
         return BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
     }
 

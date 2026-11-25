@@ -6,10 +6,15 @@ using GameServer.Core;
 public static class AreaTerrainPlugins
 {
     static Dictionary<ushort, (ushort Id, string Name)> ByArea = default!;
+    static Dictionary<ushort, string> Names = default!;
 
     public static void LoadGameData()
     {
         var plugins = ClientTables.TableOrEmpty("TerrainPlugins");
+        var names = new Dictionary<ushort, string>();
+        foreach (var plugin in plugins)
+            if (plugin.IntOrNull("__col1") is int id && plugin.Text("Id") is { Length: > 0 } name) names.TryAdd((ushort)id, name);
+        Names = names;
         var byArea = new Dictionary<ushort, (ushort, string)>();
         foreach (var area in ClientTables.TableOrEmpty("WorldAreas"))
         {
@@ -22,6 +27,9 @@ public static class AreaTerrainPlugins
 
     /// <summary>The plugin of the area (WorldAreas HASH16), null for none.</summary>
     public static (ushort Id, string Name)? Of(ushort areaHash) => ByArea.TryGetValue(areaHash, out var p) ? p : null;
+
+    /// <summary>The TerrainPlugins Id of a u16 plugin id (<c>__col1</c>), null when there is none.</summary>
+    public static string? NameOf(ushort id) => Names.GetValueOrDefault(id);
 
     /// <summary>The u16 id of a TerrainPlugins row by its Id, null when there is none.</summary>
     public static ushort? IdOf(string name) =>

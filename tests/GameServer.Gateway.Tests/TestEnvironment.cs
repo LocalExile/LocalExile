@@ -31,6 +31,7 @@ static class TestEnvironment
         GameServer.Modules.M_portals.PortalsModule.LoadData();
         GameServer.Modules.Survivors.SurvivorsSkillsModule.LoadData();
         GameServer.Modules.Harvest.HarvestModule.LoadData();
+        GameServer.Modules.Expedition.ExpeditionModule.LoadData();
         GameServer.Modules.Deepwater.DeepwaterModule.LoadData();
         GameServer.Modules.Bestiary.BestiaryModule.LoadData();
         GameServer.Modules.Incursion.IncursionModule.LoadData();

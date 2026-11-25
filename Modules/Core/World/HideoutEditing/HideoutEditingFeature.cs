@@ -18,9 +18,9 @@ static class HideoutEditingFeature
 
     static async Task BroadcastRebuildCollision(Player player, string reason)
     {
-        byte[] packet = InstanceHideoutEditing.RebuildCollision();
+        // Sending encrypts the buffer in place with the recipient's session key.
         foreach (var member in AreaPlayers(player))
-            await Send(member, packet, reason);
+            await Send(member, InstanceHideoutEditing.RebuildCollision(), reason);
     }
 
     static bool PlacementInBounds(AreaLayout layout, int x, int y)
@@ -35,9 +35,22 @@ static class HideoutEditingFeature
         player.Connection.PlayerSent && player.PendingTransfer is null && OwnHideout(player)
         && HomeHideout(player)?.AreaHash16 == player.Layout.Hash;
 
+    static bool CanPlaceDecoration(uint hash)
+    {
+        if (HideoutCatalog.DoodadByHash(hash) is ({ } type, _))
+            return !HideoutCatalog.IsMapDevice(type) && HideoutCatalog.TypeOf(type) is var (components, _)
+                && HideoutObject.CanSerialize(components);
+        return global::Game.MtxEffects.Of(hash) is { PetType.Length: > 0 } pet
+            && PetObject.CanSerialize(pet.PetComponents, pet.PetStates is not null);
+    }
+
     static async Task<uint?> SpawnDecorationObject(Player player, global::Game.SavedHideoutDecoration saved, string label)
     {
+        if (HideoutCatalog.DoodadByHash(saved.Hash) is null && global::Game.MtxEffects.Of(saved.Hash) is { PetType: { Length: > 0 } petType } pet)
+            return await SpawnPet(player, saved, petType, pet, label);
         if (HideoutCatalog.DoodadByHash(saved.Hash) is not var (type, models) || string.IsNullOrEmpty(type)) return null;
+        // Old layouts can contain a device as ordinary furniture. Preserve serializable models, but never spawn a Puzzle Cube.
+        if (HideoutCatalog.IsMapDevice(type) && !global::Game.ServableMapDevice(type)) return null;
         if (HideoutCatalog.TypeOf(type) is not var (components, states) || !HideoutObject.CanSerialize(components)) return null;
         string? model = models is { Length: > 0 } ? models[Math.Clamp(saved.Variation, 0, models.Length - 1)] : null;
         uint id = player.TakeObjectId();
@@ -54,12 +67,37 @@ static class HideoutEditingFeature
         {
             CollisionRadius = HideoutCatalog.CollisionRadius(model),
         };
+        AddAreaDecoration(player, id, doodad);
+        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key, model);
+        return id;
+    }
+
+    // A pet has no HideoutDoodads row: its Pet.dat object stands with no owner to follow (PetAi 0), at its saved facing.
+    static async Task<uint?> SpawnPet(Player player, global::Game.SavedHideoutDecoration saved, string type,
+        CosmeticEffects.Effect pet, string label)
+    {
+        if (!PetObject.CanSerialize(pet.PetComponents, pet.PetStates is not null))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} {label} pet {type}: components {string.Join(", ", pet.PetComponents ?? [])} not supported");
+            return null;
+        }
+        uint id = player.TakeObjectId();
+        await global::Game.SendWorldCreate(player, id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(type),
+            new PetObject(saved.X, saved.Y, 0, pet.PetComponents, pet.PetStates) { Rotation = saved.Rotation }.Blob()),
+            $"0x02bb {label} pet 0x{id:x} ({type}) at ({saved.X}, {saved.Y})");
+        await global::Game.SendWorldRecord(player, id, InstanceProtocol.EnterWakeZone(id),
+            $"0x01a9 {label} pet 0x{id:x} enters wake zone");
+        AddAreaDecoration(player, id, new HideoutCatalog.Doodad(saved.Key, saved.Hash, type, null, saved.X, saved.Y, saved.Rotation, saved.Variation));
+        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key);
+        return id;
+    }
+
+    static void AddAreaDecoration(Player player, uint id, HideoutCatalog.Doodad doodad)
+    {
         var areaDecorations = DecorationsOf(player);
         lock (areaDecorations) areaDecorations[id] = doodad;
         foreach (var member in AreaPlayers(player))
             lock (member.HideoutDoodads) member.HideoutDoodads[id] = doodad;
-        await RegisterStationaryCollision(player, id, type, saved.X, saved.Y, saved.Rotation, saved.Key, model);
-        return id;
     }
 
     /// <summary>Copies the area's spawned custom hideout decorations into a late-joining player's doodad lookup.</summary>
@@ -81,40 +119,78 @@ static class HideoutEditingFeature
             await SpawnDecorationObject(player, saved, "saved hideout decoration");
     }
 
-    /// <summary>C→S 0x59: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
+    /// <summary>C→S 0x59 / 0x5a: places a hideout decoration at the requested grid cell, saves it and updates collision.</summary>
     internal static async Task PlaceDecoration(Player player, InstanceHideoutEditing.Place place)
     {
-        if (!CanEditHere(player) || player.Character.Account is null || !float.IsFinite(place.Rotation)) return;
-        if (!PlacementInBounds(player.Layout, place.X, place.Y))
+        Task Tell(string text) => Send(player, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
+        string what = place.ByHash ? $"hash 0x{place.Id:x8}" : $"record {place.Id}";
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{(place.ByHash ? InstanceHideoutEditing.PlaceByHashId : InstanceHideoutEditing.PlaceId):x4} place decoration "
+            + $"{what} at ({place.X},{place.Y}) rotation {place.Rotation:0.###} variation {place.Variation} mirrored {place.Mirrored}");
+        if (!CanEditHere(player) || player.Character.Account is null || !float.IsFinite(place.Rotation))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: not the character's own hideout, no account or a bad rotation");
             return;
         }
-        if (HideoutCatalog.DoodadByHash(place.Hash) is not var (type, _) || string.IsNullOrEmpty(type)
-            || HideoutCatalog.TypeOf(type) is not var (components, _) || !HideoutObject.CanSerialize(components))
+        if (!PlacementInBounds(player.Layout, place.X, place.Y))
         {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8}: unknown or unsupported decoration type");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what} at ({place.X},{place.Y}): out of bounds or unwalkable cell");
+            return;
+        }
+        if ((place.ByHash ? place.Id : global::Game.Mtx.Find(place.Id)?.MtxTypeHash) is not uint hash)
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: not an owned record");
+            return;
+        }
+        if (HideoutCatalog.DoodadByHash(hash) is ({ } deviceType, _) && HideoutCatalog.IsMapDevice(deviceType))
+        {
+            if (!global::Game.ServableMapDevice(deviceType))
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} refused map device {deviceType}: unknown type, unsupported components or a puzzle this server does not run");
+                await Tell("This map device cannot be placed on this server yet.");
+                return;
+            }
+            await ReplaceMapDevice(player, new(global::Game.MapDeviceKey, hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored));
+            return;
+        }
+        if (!CanPlaceDecoration(hash))
+        {
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what} (0x{hash:x8}): unknown or unsupported decoration type");
+            await Tell("This decoration cannot be placed on this server yet.");
             return;
         }
         string key = DecorationKeyPrefix + Guid.NewGuid().ToString("N")[..12];
-        var saved = new global::Game.SavedHideoutDecoration(key, place.Hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored);
+        var saved = new global::Game.SavedHideoutDecoration(key, hash, place.X, place.Y, place.Rotation, place.Variation, place.Mirrored);
         if (!global::Game.AddAccountHideoutDecoration(player, player.Layout.Id, saved))
         {
             int limit = global::Game.MaxHideoutDecorations;
-            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place 0x{place.Hash:x8}: hideout decoration limit ({limit}) reached");
-            if (player.Commands is { } cmd)
-                await cmd.Reply($"Hideout decoration limit ({limit}) reached.");
+            Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout place {what}: hideout decoration limit ({limit}) reached");
+            await Tell($"Hideout decoration limit ({limit}) reached.");
             return;
         }
-        if (await SpawnDecorationObject(player, saved, "hideout decoration") is not uint id) return;
+        if (await SpawnDecorationObject(player, saved, "hideout decoration") is not uint id)
+        {
+            global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, key);
+            await Tell("This decoration cannot be placed on this server yet.");
+            return;
+        }
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after placing {key} (0x{id:x})");
         await PushOutOfCollision(player);
     }
 
-    /// <summary>C→S 0x5d: reclaims a placed custom decoration (core stations and NPCs cannot be reclaimed).</summary>
+    /// <summary>C→S 0x5c (the editor's Delete key) / 0x5d: reclaims a placed custom decoration (core stations and NPCs
+    /// cannot be reclaimed).</summary>
     internal static async Task ReclaimDecoration(Player player, uint objectId)
     {
         if (!CanEditHere(player)) return;
+        bool device;
+        lock (player.HideoutDoodads)
+            device = player.HideoutDoodads.GetValueOrDefault(objectId) is { } d && HideoutCatalog.IsPlaced(d)
+                || global::Game.MapDeviceOfButton(player, objectId) is not null;
+        if (device && global::Game.AccountMapDevice(player) is not null)
+        {
+            await ReplaceMapDevice(player, null);
+            return;
+        }
         if (!player.HideoutEditor.TryGet(objectId, out var entry) || !entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} refused hideout reclaim 0x{objectId:x}: not a removable custom decoration");
@@ -139,6 +215,42 @@ static class HideoutEditingFeature
         await global::Game.SendWorldRemoval(player, objectId,
             $"0x02bd reclaim hideout decoration {entry.Key} (0x{objectId:x})");
         await BroadcastRebuildCollision(player, "rebuild hideout collision after decoration reclaim");
+    }
+
+    // A map device variant placed from the panel takes the device's place: the old device goes, the new one is the
+    // working device. Null goes back to the template's device, where the last device stood. The device is each player's
+    // own view, as on entry, so everyone in the hideout has theirs replaced. The map portals standing at it close and the
+    // run's remaining ones stand again where the new device puts them (one at a time for a single-portal device).
+    static async Task ReplaceMapDevice(Player player, global::Game.SavedHideoutDecoration? variant)
+    {
+        HideoutCatalog.Doodad? last;
+        lock (player.HideoutDoodads) last = player.HideoutDoodads.Values.FirstOrDefault(HideoutCatalog.IsPlaced);
+        HideoutPlacement? at = variant is not null ? new(variant.X, variant.Y, variant.Rotation)
+            : last is not null ? new(last.X, last.Y, last.Rotation) : null;
+        global::Game.SetAccountMapDevice(player, variant, at);
+        await RefreshMapDevice(player);
+    }
+
+    static async Task RefreshMapDevice(Player player)
+    {
+        var members = AreaPlayers(player).ToList();
+        foreach (var member in members) await PortalsRules.RemoveMapPortals(member);
+        var previousView = Program.ViewOf.Value;
+        try
+        {
+            foreach (var member in members)
+            {
+                Program.ViewOf.Value = member;
+                await global::Game.RemoveHideoutDevice(member);
+                member.Furniture = null;
+                await global::Game.SpawnHideoutDevice(member);
+                if (MapDevice.AtEntrance(member.Layout.Hash, member.InstanceNumber) is { PortalsLeft: > 0 } open)
+                    await PortalsRules.SpawnMapPortals(member, open);
+            }
+        }
+        finally { Program.ViewOf.Value = previousView; }
+        await BroadcastRebuildCollision(player, "rebuild hideout collision after replacing the map device");
+        foreach (var member in members) await PushOutOfCollision(member);
     }
 
     /// <summary>C→S 0x5e: mode 0 reclaims all custom decorations; mode 1 resets placements and decorations to defaults.</summary>
@@ -400,6 +512,9 @@ static class HideoutEditingFeature
             lock (member.HideoutDoodads)
                 if (member.HideoutDoodads.TryGetValue(move.ObjectId, out var doodad))
                     member.HideoutDoodads[move.ObjectId] = doodad with { X = p.X, Y = p.Y, Rotation = p.Rotation };
+        HideoutCatalog.Doodad? device;
+        lock (player.HideoutDoodads)
+            device = player.HideoutDoodads.GetValueOrDefault(move.ObjectId) is { } moved && HideoutCatalog.IsPlaced(moved) ? moved : null;
         if (move.ObjectId == WaypointCatalog.ObjectId && player.Layout.Waypoint is { } waypoint)
             player.MoveWaypoint(waypoint with { GridX = p.X, GridY = p.Y, Rotation = p.Rotation });
         player.Furniture = null;
@@ -407,6 +522,16 @@ static class HideoutEditingFeature
             $"hideout move {entry.Key} 0x{move.ObjectId:x} to ({p.X},{p.Y}), saved");
         await Send(player, InstanceHideoutEditing.Rotation(move.ObjectId, p.Rotation),
             $"hideout rotation {p.Rotation:0.###}");
+        if (device is not null) await global::Game.MoveMapDeviceButton(player, move.ObjectId, device);
+        // The map portals standing at the device stand again where it now puts them.
+        if (device is not null && MapDevice.AtEntrance(player.Layout.Hash, player.InstanceNumber) is { PortalsLeft: > 0 } open)
+        {
+            await PortalsRules.RemoveMapPortals(player);
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try { await PortalsRules.SpawnMapPortals(player, open, standing: true); }
+            finally { Program.ViewOf.Value = previousView; }
+        }
         await BroadcastRebuildCollision(player, "rebuild hideout model collision from current placements");
         await PushOutOfCollision(player);
     }
@@ -452,7 +577,6 @@ static class HideoutEditingFeature
             MapFunctional(scene.Stash.Hash, "stash");
             if (hideout.First(StashObject.GuildMetadataPath) is { } gs) MapFunctional(gs.Hash, "guild-stash");
             MapFunctional(scene.Bench.Hash, "bench");
-            MapFunctional(scene.Device.Hash, "map-device");
         }
         var objectIdByKey = new Dictionary<string, (uint Id, HideoutEditing.Entry Entry)>(StringComparer.Ordinal);
         foreach (var (id, entry) in player.HideoutEditor.All())
@@ -461,20 +585,27 @@ static class HideoutEditingFeature
 
         var importedPlacements = new Dictionary<string, HideoutPlacement>(StringComparer.Ordinal);
         var importedDecorations = new List<global::Game.SavedHideoutDecoration>();
+        global::Game.SavedHideoutDecoration? importedDevice = null;
         int skipped = 0;
         foreach (var d in layout.Doodads)
         {
             if (!PlacementInBounds(player.Layout, d.X, d.Y)) { skipped++; continue; }
             float rot = d.RotationRadians;
             if (!float.IsFinite(rot)) { skipped++; continue; }
+            if (HideoutCatalog.DoodadByHash(d.Hash) is ({ } deviceType, _) && HideoutCatalog.IsMapDevice(deviceType))
+            {
+                if (importedDevice is not null || !global::Game.ServableMapDevice(deviceType)) { skipped++; continue; }
+                importedDevice = new(global::Game.MapDeviceKey, d.Hash, d.X, d.Y, rot, d.Variation, d.Mirrored);
+                importedPlacements[global::Game.MapDeviceKey] = new(d.X, d.Y, rot);
+                continue;
+            }
             if (functionalByHash.TryGetValue(d.Hash, out string? key) && !importedPlacements.ContainsKey(key))
             {
                 importedPlacements[key] = new HideoutPlacement(d.X, d.Y, rot);
                 continue;
             }
             if (importedDecorations.Count >= global::Game.MaxHideoutDecorations) { skipped++; continue; }
-            if (HideoutCatalog.DoodadByHash(d.Hash) is not var (type, _) || string.IsNullOrEmpty(type)
-                || HideoutCatalog.TypeOf(type) is not var (components, _) || !HideoutObject.CanSerialize(components))
+            if (!CanPlaceDecoration(d.Hash))
             {
                 skipped++;
                 continue;
@@ -484,7 +615,7 @@ static class HideoutEditingFeature
         }
         ushort? musicRow = HideoutCatalog.HideoutMusicRowByHash16(layout.MusicHash);
 
-        if (!global::Game.ReplaceAccountHideoutLayout(player, player.Layout.Id, importedPlacements, importedDecorations, musicRow))
+        if (!global::Game.ReplaceAccountHideoutLayout(player, player.Layout.Id, importedPlacements, importedDecorations, musicRow, importedDevice))
             return;
 
         // Remove previously spawned custom decorations before spawning the imported layout.
@@ -508,7 +639,7 @@ static class HideoutEditingFeature
         // Move matched functional objects in place and broadcast teleport + rotation.
         foreach (var (key, p) in importedPlacements)
         {
-            if (!objectIdByKey.TryGetValue(key, out var target)) continue;
+            if (key == global::Game.MapDeviceKey || !objectIdByKey.TryGetValue(key, out var target)) continue;
             var (objId, entry) = target;
             lock (areaDecorations)
                 if (areaDecorations.TryGetValue(objId, out var areaDoodad))
@@ -534,6 +665,8 @@ static class HideoutEditingFeature
             await global::Game.SendWorldRecord(player, objId, InstanceHideoutEditing.Rotation(objId, p.Rotation),
                 $"hideout import rotation {entry.Key} {p.Rotation:0.###}");
         }
+
+        if (importedDevice is not null) await RefreshMapDevice(player);
 
         // Spawn newly imported custom decorations.
         int spawned = 0;

@@ -29,6 +29,11 @@ public static partial class Game
     // Only accepted contacts call these, in the same Monsters critical section as life mutation, before any await.
     public static bool RageOnHitLocked(Player player, bool attack, bool melee, bool critical,
         IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+        => RageOnHitWithWeaponLocked(player, attack, melee, critical, null, own, random, playerStats);
+
+    static bool RageOnHitWithWeaponLocked(Player player, bool attack, bool melee, bool critical, string? weaponClass,
+        IReadOnlyDictionary<uint, int>? own = null, Random? random = null, IReadOnlyDictionary<uint, int>? playerStats = null,
+        string? secondWeaponClass = null)
     {
         if (player.Character.Name is null || player.Closed || player.LeavingArea || player.RageRetired
             || player.Paused || player.PlayerLife == 0) return false;
@@ -36,6 +41,10 @@ public static partial class Game
         int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
+        if (attack && (WeaponTypeDamage.FamilyOf(weaponClass) is "axe" or "sword"
+                || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
+            && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
+            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0);
     }

@@ -2,7 +2,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool IsBane(Player player, int effect) => SkillsFor(player).EffectId(effect) is "Bane" or "BaneAltX";
+    static bool IsBaneEffect(string? effect) => effect is "Bane" or "BaneAltX";
+
+    static bool IsBane(Player player, int effect) => IsBaneEffect(SkillsFor(player).EffectId(effect));
 
     static bool IsBaneLinkedHex(Player player, SupportedGem hex)
     {

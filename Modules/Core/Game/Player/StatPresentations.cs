@@ -8,7 +8,7 @@ public static partial class Game
     // (PresentStats), not on the player tick.
     static readonly Func<Player, Task>[] StatPresentations =
     [
-        SendAntiquarian, SendKillOnslaught, SendSoulEater, SendVaalAuraExpiry, SendRecentEnemyHits,
+        SendAntiquarian, SendKillOnslaught, SendSoulEater, SendRecentEnemyHits,
         SendAvatarOfFire, SendHerEmbrace, SendElusive, SendConditionalItemStats, SendElementalAilmentChanges,
         SendIncomingAilmentChanges, SendLeechBuffs, SendSpreadPoisonRegeneration,
         SendSupportGemBuffs, SendLifetap, SendPetrifiedBloodLoss,
