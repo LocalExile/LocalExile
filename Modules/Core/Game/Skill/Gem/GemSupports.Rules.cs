@@ -1209,6 +1209,9 @@ public static partial class Game
         if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
+        if (!lifeInstead && (manaFlat != 0 || manaPercent != 0) && HasFixedManaReservation(effectId, Get))
+            return new(0, 4500, (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor))
+                { FixedMana = true };
         decimal manaFactor = Get(Stat.KeystoneSupremeEgo) != 0
             && SkillsFor(player).IsAura(gem.Effect, gem.Supports.Select(s => s.Effect.Row)) ? factor * 1.4m : factor;
         return new((int)Math.Floor(manaFlat * manaFactor), (int)Math.Floor(manaPercent * manaFactor),
