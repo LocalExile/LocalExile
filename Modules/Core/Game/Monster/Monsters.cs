@@ -3162,7 +3162,8 @@ public static partial class Game
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
             monsterCritical, blocked, now, stats, incomingAilments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
+            blocked, now, stats, incomingAilments, critical: monsterCritical);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
             skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);

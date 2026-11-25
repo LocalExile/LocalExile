@@ -232,11 +232,12 @@ public static partial class Game
     /// modelled for the player's hits. Under the Monsters lock.
     /// </summary>
     public static void AlternateAilmentsOnPlayerLocked(Player player, SpawnedMonster m, DamagePacket taken, bool blocked,
-        double now, IReadOnlyDictionary<uint, int> stats, PlayerElementalAilments.HitSettings settings)
+        double now, IReadOnlyDictionary<uint, int> stats, PlayerElementalAilments.HitSettings settings, bool critical = false)
     {
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
             || player.PlayerMaxLife == 0) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
+        int critAvoid = critical ? Math.Max(0, Get(Stat.AvoidAilmentsPctFromCrit)) : 0;
         foreach (var a in AlternateAilments)
         {
             if (!a.OnPlayer) continue;
@@ -245,16 +246,16 @@ public static partial class Game
             double damage = a.TakenCan is uint can && Get(can) != 0 ? taken.MinTotal : taken[a.Element].Min;
             if (chance <= 0 || damage <= 0 || !RandomRolls.Chance(chance, 100, player.IncomingHitRandom)) continue;
             int magnitude = AlternateMagnitude(a, damage, player.PlayerMaxLife, AlternateEffectOnSelf(a, Get));
-            AlternateOnPlayerLocked(player, a, magnitude, now, Get, player.IncomingHitRandom);
+            AlternateOnPlayerLocked(player, a, magnitude, now, Get, player.IncomingHitRandom, critAvoid);
         }
     }
 
     // One Scorch or Brittle on the player: its immunity, then the avoidance roll, then its duration on self.
     static void AlternateOnPlayerLocked(Player player, AlternateAilment a, double magnitude, double now, Func<uint, int> get,
-        Random random)
+        Random random, int critAvoid = 0)
     {
         if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)
-            || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct), 100, random))
+            || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct) + critAvoid, 100, random))
             return;
         double seconds = AlternateAilmentSeconds
             * Math.Max(0, 1 - (get(Stat.SelfElementalStatusDurationMinusPct) - get(Stat.BaseAllAilmentDurationOnSelfPlusPct)) / 100.0);
