@@ -146,6 +146,8 @@ public static partial class Game
             sources.Attack, sources.Melee, sources.WeaponLifeLeechInstant, powerInstant);
         if (instant.Life > 0 && RecoverVampiricMinions(player, instant.Life, now)) instant.Life = 0;
         var gain = sources.GainOnHit;
+        if (sources.LifeOnBleedingHit > 0 && target.Bleeds.IgnitedAt(now))
+            gain.Life = ActorScale.Saturate((long)gain.Life + sources.LifeOnBleedingHit);
         if (sources.LifeOnBlindedHit > 0)
         {
             if (targetId == 0) targetId = player.Area.Monsters.FirstOrDefault(entry => ReferenceEquals(entry.Value, target)).Key;

@@ -12,6 +12,7 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     public int InstantLeechPerEnemyPower { get; init; }
     public int LifeOnBlindedHit { get; init; }
     public int LifeLeechVsBleeding { get; init; }
+    public int LifeOnBleedingHit { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
     // weapon's local "Grants X Life per Enemy Hit". The aura-conditioned jewel stats apply to attacks and spells.
     public (int Life, int Mana, int EnergyShield) GainOnHit { get; init; }
@@ -66,6 +67,7 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
             InstantLeechPerEnemyPower = attack ? Local(Stat.HitsHaveLeechPctIsInstantPerMonsterPower) : 0,
             LifeOnBlindedHit = attack ? Math.Max(0, Local(Stat.LocalLifeGainPerTargetVsBlindedEnemies)) : 0,
             LifeLeechVsBleeding = attack ? Math.Max(0, get(Stat.LifeLeechFromAttackDamagePermyriadVsBleedingEnemies)) : 0,
+            LifeOnBleedingHit = Math.Max(0, get(Stat.LifeGainedOnBleedingEnemyHit)),
         };
 
         static int Positive(long amount) => (int)Math.Clamp(amount, 0, int.MaxValue);
