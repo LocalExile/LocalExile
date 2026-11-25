@@ -11,8 +11,10 @@ static class LegionArmy
 {
     /// <summary>A group of monsters of one variety (LegionMonsterVarieties.MonsterVarietiesKey) of one rank tier
     /// (0 normal, 1 elite, 2 sergeant, 3 general), standing from FromPct to ToPct of the formation's depth.
-    /// Rarities: one MonsterRarity per monster (null in an old save: the fixed mapping by tier). Rewards (sergeants only): one entry per monster of the squad, its LegionRewardTypeVisuals rows (empty: none); null when the plan has none.</summary>
-    public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct, int[][]? Rewards = null, int[]? Rarities = null);
+    /// Rarities: one MonsterRarity per monster (null in an old save: the fixed mapping by tier). Rewards: one entry per
+    /// monster of the squad, its LegionRewardTypeVisuals rows (empty: none); null when the plan has none.
+    /// RevivalMs: Endless Domain revival cooldown from LegionRanks.__col6 (0 for map monoliths).</summary>
+    public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct, int[][]? Rewards = null, int[]? Rarities = null, int RevivalMs = 0);
 
     /// <summary>A chest monster (LegionChestTypes col0) with the Chests rows (standard and Ruthless HardmodeChest) it turns into at release; WarHoard uses the faction's second LegionChestTypes row (the Epic chest).</summary>
     public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct, int[]? Rewards = null, int HardmodeChest = -1);
@@ -41,13 +43,29 @@ static class LegionArmy
 
     // ---- the rewards. ALL OF THESE ARE GUESSES; the live game's numbers are not known. Rolled only in Plan/Compose. ----
 
-    /// <summary>GUESS: a sergeant carries a reward with the percent chance of the level's LegionBalancePerLevel __col1 (100 at low levels, 50 from level 41; the column's
-    /// meaning is unconfirmed and server-only), plus map_legion_sergeants_reward_additional_chance_% as percentage points.</summary>
-    static int SergeantRewardChance(LegionData data, int level)
+    /// <summary>The balance row with highest MinLevel &lt;= min(level, MaxLevel).</summary>
+    static LegionData.Balance? BalanceFor(LegionData data, int level)
     {
         LegionData.Balance? row = null;
         foreach (var b in data.Balances) if (b.MinLevel <= Math.Min(level, MaxLevel) && (row is null || b.MinLevel > row.MinLevel)) row = b;
-        return row?.Cols[0] ?? 50;
+        return row;
+    }
+
+    /// <summary>GUESS: a sergeant carries a reward with the percent chance of the level's LegionBalancePerLevel __col1 (100 at low levels, 50 from level 41; the column's
+    /// meaning is unconfirmed and server-only), plus map_legion_sergeants_reward_additional_chance_% as percentage points.</summary>
+    static int SergeantRewardChance(LegionData data, int level) => BalanceFor(data, level)?.Cols[0] ?? 50;
+
+    /// <summary>Maximum Alert gauge before Schism triggers under the Timeless Conflict keystone (LegionBalancePerLevel.__col15, 1000).</summary>
+    public static int AlertMax(LegionData data, int level) => BalanceFor(data, level)?.AlertMax ?? 1000;
+
+    /// <summary>Alert value contributed by breaking out a member under Timeless Conflict (LegionRanks.__col8: 5/18/40/350, chests 40/80).</summary>
+    public static int RankAlertValue(LegionData data, int level, int tier, bool chest, bool hoard)
+    {
+        if (chest) return hoard ? 80 : 40;
+        var rank = data.Ranks.Where(r => r.Col0 == tier && MinLevelOf(data, r.BalanceKey) <= Math.Min(level, MaxLevel))
+            .OrderByDescending(r => MinLevelOf(data, r.BalanceKey)).FirstOrDefault();
+        if (rank is { Col8: > 0 }) return rank.Col8;
+        return tier switch { 3 => 350, 2 => 40, 1 => 18, _ => 5 };
     }
     /// <summary>GUESS: the number of reward types a War Hoard carries (inclusive range); a normal chest carries <see cref="ChestRewards"/>.</summary>
     const int HoardRewardsMin = 2, HoardRewardsMax = 3, ChestRewards = 1;
@@ -83,23 +101,83 @@ static class LegionArmy
     static Squad ScaleCampaign(Squad s) => s.Tier >= 2 ? s : s with { Count = Math.Max(1, (int)Math.Round(s.Count * CampaignArmyScale)) };
 
     /// <summary>Chooses the two factions and plans both armies for an area of this level. <paramref name="stats"/> are the
-    /// area's league stats (Game.AreaLeagueStats); <paramref name="rng"/> is the instance's seeded generator.</summary>
+    /// area's composed stats (map owner's Atlas + Scarabs + MapMods); <paramref name="rng"/> is the instance's seeded generator.</summary>
     public static ArmyPlan Plan(LegionData data, int level, string areaId, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         var chosen = ChooseFactions(data, level, areaId, stats, rng);
         int sergeantChance = Math.Clamp(SergeantRewardChance(data, level) + stats.GetValueOrDefault(Stat.MapLegionSergeantsRewardAdditionalChancePct), 0, 100);
-        int general = RollGeneral(data, chosen, level, stats, rng);
+        bool[] generals = RollGenerals(data, chosen, level, stats, rng);
         var plans = new FactionPlan[chosen.Count];
-        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng, sergeantChance);
+        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, generals[i], stats, rng, sergeantChance);
         if (Campaign.ContainsKey(areaId)) for (int i = 0; i < plans.Length; i++) plans[i] = plans[i] with { Squads = [.. plans[i].Squads.Select(ScaleCampaign)] };
         return new ArmyPlan(level, plans);
+    }
+
+    /// <summary>Plans the Endless Domain of Timeless Conflict armies for 2..5 slotted factions using the MinLevel=101
+    /// endless rank rows (LegionRanks 56..59, revival cooldowns 6s/6s/16s/24s, *Endless varieties for Tier 1).</summary>
+    public static ArmyPlan PlanEndless(LegionData data, IReadOnlyList<string> factionIds, int level, int packSizePct, int uberRewardPct, Random rng)
+    {
+        var endlessRanks = data.Ranks.Where(r => MinLevelOf(data, r.BalanceKey) > MaxLevel).ToDictionary(r => r.Row);
+        var pool = RewardPool(data, level);
+        // Scale tier 0..1 wave sizes across 2..5 simultaneous factions so the arena stays lively without starving frames;
+        // every faction always keeps all 4 Sergeants and its 1 General.
+        double waveScale = factionIds.Count switch { <= 2 => 0.55, 3 => 0.42, 4 => 0.34, _ => 0.28 };
+        double packScale = Math.Max(0.25, (100 + packSizePct) / 100.0);
+        var plans = new List<FactionPlan>(factionIds.Count);
+        foreach (string fid in factionIds)
+        {
+            if (data.Factions.FirstOrDefault(f => f.Id == fid) is not { } faction) continue;
+            var squads = new List<Squad>();
+            foreach (var count in data.MonsterCounts.Where(c => c.Faction == faction.Row && endlessRanks.ContainsKey(c.RankKey))
+                .OrderBy(c => endlessRanks[c.RankKey].Col0))
+            {
+                var rank = endlessRanks[count.RankKey];
+                int tier = rank.Col0;
+                int raw = rng.Next(count.Col2, Math.Max(count.Col2, count.Col3) + 1);
+                int n = tier <= 1 ? Math.Max(2, (int)Math.Round(raw * waveScale * packScale)) : raw;
+                // Tier 1 has dedicated *Endless varieties on the MinLevel=101 rank row; Tiers 0, 2 and 3 reuse the faction's standard varieties.
+                var varieties = data.MonsterVarieties.Where(v => v.Faction == faction.Row && v.RankKey == rank.Row).ToList();
+                if (varieties.Count == 0)
+                    varieties = data.MonsterVarieties.Where(v => v.Faction == faction.Row && v.RankKey >= 0 && v.RankKey < data.Ranks.Count
+                        && data.Ranks[v.RankKey].Col0 == tier && MinLevelOf(data, data.Ranks[v.RankKey].BalanceKey) <= MaxLevel).ToList();
+                if (n <= 0 || varieties.Count == 0) continue;
+                var per = new int[varieties.Count];
+                int totalWeight = varieties.Sum(v => Math.Max(1, v.SpawnWeight));
+                for (int i = 0; i < n; i++)
+                {
+                    int roll = rng.Next(totalWeight), k = 0;
+                    while (k < varieties.Count - 1 && (roll -= Math.Max(1, varieties[k].SpawnWeight)) >= 0) k++;
+                    per[k]++;
+                }
+                for (int i = 0; i < per.Length; i++)
+                {
+                    if (per[i] <= 0) continue;
+                    int[][]? rewards = null;
+                    if (pool.Length > 0 && tier >= 2)
+                    {
+                        rewards = new int[per[i]][];
+                        for (int j = 0; j < per[i]; j++)
+                        {
+                            int rCount = tier == 3 ? 2 : 1;
+                            if (uberRewardPct > 0 && rng.Next(100) < Math.Clamp(uberRewardPct, 0, 100)) rCount++;
+                            rewards[j] = RollRewards(pool, rCount, rng);
+                        }
+                    }
+                    squads.Add(new Squad(tier, varieties[i].Monster, per[i], count.Col4, count.Col5,
+                        Rewards: rewards, Rarities: RollRarities(rank, tier, per[i], rng), RevivalMs: rank.Col6));
+                }
+            }
+            plans.Add(new FactionPlan(faction.Row, faction.Id, [.. squads], []));
+        }
+        return new ArmyPlan(level, [.. plans]);
     }
 
     static int MinLevelOf(LegionData data, int balanceKey) =>
         balanceKey >= 0 && balanceKey < data.Balances.Count ? data.Balances[balanceKey].MinLevel : int.MaxValue;
 
     /// <summary>Weight = SpawnWeight x (100 + the faction's map_legion_monoliths_chance_for_..._+%) / 100, among the factions
-    /// whose own balance row (a minimum area level: Vaal 15, Templar 46, Maraketh 68) allows the level.</summary>
+    /// whose own balance row (a minimum area level: Vaal 15, Templar 46, Maraketh 68) allows the level.
+    /// Honors Legion Scarab of The Sekhema (<c>map_legion_contains_maraketh_faction</c>) and Faridun replacement.</summary>
     static List<LegionData.Faction> ChooseFactions(LegionData data, int level, string areaId, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         var chosen = new List<LegionData.Faction>(2);
@@ -107,10 +185,34 @@ static class LegionArmy
         if (Campaign.TryGetValue(areaId, out var fixedIds))
             foreach (string id in fixedIds)
                 if (data.Factions.FirstOrDefault(f => f.Id == id) is { } f && chosen.Count < 2) { chosen.Add(f); pool.Remove(f); }
+        bool forceMaraketh = stats.GetValueOrDefault(Stat.MapLegionContainsMarakethFaction) > 0;
+        bool faridunReplace = stats.GetValueOrDefault(Stat.MapLegionFaridunReplaceMarakethFaction) > 0;
+        int marakethWeight = data.Factions.FirstOrDefault(f => f.Id == "Maraketh")?.SpawnWeight ?? 220;
+        if (forceMaraketh && chosen.Count < 2)
+        {
+            string targetId = faridunReplace ? "Faridun" : "Maraketh";
+            var forced = data.Factions.FirstOrDefault(f => f.Id == targetId)
+                ?? data.Factions.FirstOrDefault(f => f.Id == "Maraketh");
+            if (forced is not null && !chosen.Contains(forced))
+            {
+                chosen.Add(forced);
+                pool.RemoveAll(f => f.Id is "Maraketh" or "Faridun");
+            }
+        }
+        else if (faridunReplace && pool.FirstOrDefault(f => f.Id == "Maraketh") is { } mkt
+            && data.Factions.FirstOrDefault(f => f.Id == "Faridun") is { } faridun)
+        {
+            int idx = pool.IndexOf(mkt);
+            if (idx >= 0) pool[idx] = faridun;
+        }
         while (chosen.Count < 2 && pool.Count > 0)
         {
             // The stat's id is its Stats row + 1 (the Stat.g.cs ids); LegionFactions.StatsKey is the row.
-            var weights = pool.Select(f => f.SpawnWeight * Math.Max(0, 100 + (f.StatsKey >= 0 ? stats.GetValueOrDefault((uint)f.StatsKey + 1) : 0)) / 100.0).ToArray();
+            var weights = pool.Select(f =>
+            {
+                int baseWeight = f.SpawnWeight > 0 ? f.SpawnWeight : marakethWeight;
+                return baseWeight * Math.Max(0, 100 + (f.StatsKey >= 0 ? stats.GetValueOrDefault((uint)f.StatsKey + 1) : 0)) / 100.0;
+            }).ToArray();
             double total = weights.Sum(), roll = rng.NextDouble() * total;
             int pick = 0;
             if (total > 0) { while (pick < weights.Length - 1 && (roll -= weights[pick]) >= 0) pick++; }
@@ -134,35 +236,42 @@ static class LegionArmy
         return null;
     }
 
-    /// <summary>Index of the army that brings the encounter's one general, or -1. TODO phase 4: map_legion_generals_spawn_both_generals.</summary>
-    static int RollGeneral(LegionData data, List<LegionData.Faction> chosen, int level, IReadOnlyDictionary<uint, int> stats, Random rng)
+    /// <summary>Flags which armies bring a General: honors <c>map_legion_general_chance_+%</c>, legacy
+    /// <c>map_legion_league_force_general</c> and Face Off (<c>map_legion_generals_spawn_both_generals</c>).</summary>
+    static bool[] RollGenerals(LegionData data, List<LegionData.Faction> chosen, int level, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
-        if (chosen.Count == 0 || FindGroup(data, chosen[0], level) is not { } rows) return -1;
+        var result = new bool[chosen.Count];
+        if (chosen.Count == 0 || FindGroup(data, chosen[0], level) is not { } rows) return result;
         int basePct = rows.Values.FirstOrDefault(r => r.Col0 == 3)?.Col7 ?? 0;
         long pct = (long)basePct * Math.Max(0, 100 + stats.GetValueOrDefault(Stat.MapLegionGeneralChancePlusPct)) / 100;
-        return rng.Next(100) < pct ? rng.Next(chosen.Count) : -1;
+        bool spawned = stats.GetValueOrDefault(Stat.MapLegionLeagueForceGeneral) > 0 || rng.Next(100) < pct;
+        if (!spawned) return result;
+        if (stats.GetValueOrDefault(Stat.MapLegionGeneralsSpawnBothGenerals) > 0)
+            Array.Fill(result, true);
+        else
+            result[rng.Next(chosen.Count)] = true;
+        return result;
     }
 
-    /// <summary>
-    /// THE COUNT MODEL AND THE GENERAL AND CHEST ROLLS, A GUESS FROM THE DATA; reverse engineering can correct them here
-    /// and nowhere else. Per faction and area level:
-    /// - the rank group is the LegionRanks rows (one per tier 0..3, tier = col0) of the balance row with the highest
-    ///   MinLevel &lt;= level, falling back to a lower group that has LegionMonsterCounts for the faction (ranks 12-15 have none);
-    /// - LegionMonsterCounts per rank row: col2..col3 = the min and max count (inclusive), col4..col5 = the band of the
-    ///   formation's depth in percent where the group stands, col6 = the number of varieties (matches LegionMonsterVarieties);
-    ///   tier 0 and 1 are the normal and elite monsters, tier 2 sergeants, tier 3 the general (counted only when it appears);
-    /// - the general: the chosen rank group's tier 3 row col7 is the base percent chance (0 below level 46, 1 at 46, up to 8
-    ///   at 82; the endless row 0) of one general in the whole encounter, times (100 + map_legion_general_chance_+%) / 100,
-    ///   and it goes to one of the two armies at random (at most one);
-    /// - varieties are the faction's LegionMonsterVarieties rows of the same tier (those exist only for rank rows 0..3; rows
-    ///   whose rank is endless, MinLevel &gt; 100, are left out), each monster picking one uniformly;
-    /// - LegionChestCounts: the faction's rows with the highest MinLevel &lt;= level; the tier 0 row gives col2..col3 chests
-    ///   (0 to 2, no forced minimum) and the band col4..col5; the tier 1 row's col7 is the percent chance, rolled once per army,
-    ///   that one of its chests (or one extra if it has none) is a War Hoard (the faction's second LegionChestTypes row). The other reading, a roll per chest,
-    ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
-    /// </summary>
-    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng, int sergeantChance)
+    static int[] RollMonsterRewards(int[] pool, int addOnePct, int addTwoPct, Random rng)
     {
+        int count = 1;
+        if (addTwoPct > 0 && rng.Next(100) < addTwoPct) count += 2;
+        else if (addOnePct > 0 && rng.Next(100) < addOnePct) count += 1;
+        return RollRewards(pool, count, rng);
+    }
+
+    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general,
+        IReadOnlyDictionary<uint, int> stats, Random rng, int sergeantChance)
+    {
+        int extraSergeants = Math.Max(0, stats.GetValueOrDefault(Stat.MapLegionAdditionalNumberOfSergeants));
+        int packSizePct = stats.GetValueOrDefault(Stat.MapLegionPackSizePlusPct);
+        int extraChestRewards = Math.Max(0, stats.GetValueOrDefault(Stat.MapLegionChestsContainsAnAdditionalReward));
+        int addOneRewardPct = Math.Clamp(stats.GetValueOrDefault(Stat.MapLegionMonstersWithRewardsHavePctChanceToGainAdditionalReward), 0, 100);
+        int addTwoRewardsPct = Math.Clamp(stats.GetValueOrDefault(Stat.MapLegionMonstersWithRewardsHavePctChanceToGainTwoAdditionalRewards), 0, 100);
+        int monsterRewardPct = stats.GetValueOrDefault(Stat.MapLegionMonsterRewardChancePlusPct);
+        int soldierRewardChance = monsterRewardPct > 0 ? Math.Clamp((int)Math.Round(10 * (100 + monsterRewardPct) / 100.0), 1, 100) : 0;
+
         var squads = new List<Squad>();
         if (FindGroup(data, faction, level) is { } rows)
             foreach (var count in data.MonsterCounts.Where(c => c.Faction == faction.Row && rows.ContainsKey(c.RankKey)).OrderBy(c => rows[c.RankKey].Col0))
@@ -170,6 +279,8 @@ static class LegionArmy
                 int tier = rows[count.RankKey].Col0;
                 if (tier == 3 && !general) continue;
                 int n = rng.Next(count.Col2, Math.Max(count.Col2, count.Col3) + 1);
+                if (tier == 2 && extraSergeants > 0) n += extraSergeants;
+                else if (tier <= 1 && packSizePct != 0) n = Math.Max(1, (int)Math.Round(n * Math.Max(0.25, (100 + packSizePct) / 100.0)));
                 var varieties = data.MonsterVarieties.Where(v => v.Faction == faction.Row && v.RankKey >= 0 && v.RankKey < data.Ranks.Count
                     && data.Ranks[v.RankKey].Col0 == tier && MinLevelOf(data, data.Ranks[v.RankKey].BalanceKey) <= MaxLevel).ToList();
                 if (n <= 0 || varieties.Count == 0) continue;
@@ -186,12 +297,28 @@ static class LegionArmy
             }
         var pool = RewardPool(data, level);
         for (int i = 0; i < squads.Count; i++)
-            if (squads[i].Tier == 2 && pool.Length > 0)   // the general has none: its drops come from its own rolls
-                squads[i] = squads[i] with { Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ => rng.Next(100) < sergeantChance ? RollRewards(pool, 1, rng) : [])] };
-        var chests = PlanChests(data, faction, level, rng);
+        {
+            if (pool.Length == 0) continue;
+            if (squads[i].Tier == 2)   // the general has none: its drops come from its own rolls
+                squads[i] = squads[i] with
+                {
+                    Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ =>
+                        rng.Next(100) < sergeantChance ? RollMonsterRewards(pool, addOneRewardPct, addTwoRewardsPct, rng) : [])]
+                };
+            else if (squads[i].Tier <= 1 && soldierRewardChance > 0)
+                squads[i] = squads[i] with
+                {
+                    Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ =>
+                        rng.Next(100) < soldierRewardChance ? RollMonsterRewards(pool, addOneRewardPct, addTwoRewardsPct, rng) : [])]
+                };
+        }
+        var chests = PlanChests(data, faction, level, stats, rng);
         if (pool.Length > 0)
             for (int i = 0; i < chests.Count; i++)
-                chests[i] = chests[i] with { Rewards = RollRewards(pool, chests[i].WarHoard ? rng.Next(HoardRewardsMin, HoardRewardsMax + 1) : ChestRewards, rng) };
+            {
+                int rewardCount = (chests[i].WarHoard ? rng.Next(HoardRewardsMin, HoardRewardsMax + 1) : ChestRewards) + extraChestRewards;
+                chests[i] = chests[i] with { Rewards = RollRewards(pool, rewardCount, rng) };
+            }
         return new FactionPlan(faction.Row, faction.Id, [.. squads], [.. chests]);
     }
 
@@ -215,7 +342,7 @@ static class LegionArmy
     /// <summary>The fixed rarity of a tier (the old mapping, kept for a rank row without weights and for a saved plan without rarities): a MonsterRarity value.</summary>
     public static int TierRarity(int tier) => tier switch { 1 => 1, 2 => 2, 3 => 3, _ => 0 };
 
-    static List<ChestPlan> PlanChests(LegionData data, LegionData.Faction faction, int level, Random rng)
+    static List<ChestPlan> PlanChests(LegionData data, LegionData.Faction faction, int level, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
         var chests = new List<ChestPlan>();
         var rows = data.ChestCounts.Where(c => c.Faction == faction.Row && c.MinLevel <= level).ToList();
@@ -230,7 +357,8 @@ static class LegionArmy
         if (types.Count == 0) return chests;
         // GUESS: the real game shows chests in nearly every army; the table's col2 is 0, so a roll of 0 would leave an army without one.
         int n = Math.Max(MinChestsPerArmy, rng.Next(main.Col2, Math.Max(main.Col2, main.Col3) + 1));
-        bool hoard = rng.Next(100) < hoardPct;
+        bool forceWarChest = stats.GetValueOrDefault(Stat.MapLegionLeagueForceWarChest) > 0;
+        bool hoard = forceWarChest || rng.Next(100) < hoardPct;
         int hoardAt = hoard ? rng.Next(n) : -1;
         // A faction has two chest monsters (LegionChestTypes, in row order): the plain chest (MonsterChestKarui1) and the
         // War Hoard (MonsterChestKarui2, the "Epic" one, 3x the life). The War Hoard roll picks the second and uses Tier 1's depth band (35..100%).
@@ -243,6 +371,12 @@ static class LegionArmy
             int to = isHoard && hoardRow is not null ? hoardRow.Col5 : main.Col5;
             chests.Add(new ChestPlan(type.Col0, type.Chest, isHoard, from, to, HardmodeChest: type.HardmodeChest));
         }
+        // War Supplies (map_legion_army_additional_war_chest): each point adds an extra War Hoard to the army.
+        int extraHoards = Math.Max(0, stats.GetValueOrDefault(Stat.MapLegionArmyAdditionalWarChest));
+        var hoardType = types.Count > 1 ? types[1] : types[0];
+        int hoardFrom = hoardRow?.Col4 ?? 35, hoardTo = hoardRow?.Col5 ?? 100;
+        for (int i = 0; i < extraHoards; i++)
+            chests.Add(new ChestPlan(hoardType.Col0, hoardType.Chest, true, hoardFrom, hoardTo, HardmodeChest: hoardType.HardmodeChest));
         return chests;
     }
 

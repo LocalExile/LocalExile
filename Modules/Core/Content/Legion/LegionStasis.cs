@@ -21,8 +21,9 @@ static class LegionStasis
     /// <summary>A spawned army member: its object id, the army (index into the plan's factions), the rank tier (0 normal,
     /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), whether it broke out, the
     /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2), its reward types
-    /// (LegionRewardTypeVisuals rows; null or empty: none), and its formation facing angle.</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null);
+    /// (LegionRewardTypeVisuals rows; null or empty: none), its formation facing angle, how many times it was broken out
+    /// (Eternal Conflict scarab), and whether a Treasures chest explosion spread rewards onto it.</summary>
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null, int BreakOutCount = 0, bool SpreadEnhanced = false);
 
     /// <summary>The LegionBreakout action: ActionTypes HASH16 (the 0x2c8 header's action type) and its skill id, the type's HASH16 &amp; 0x3fff (R11 section 0).</summary>
     const ushort ActionType = 0xd8fe, ActionSkill = 0x18fe;
@@ -35,9 +36,12 @@ static class LegionStasis
 
     /// <summary>BuffDefinitions 1328 legion_reward_display: its list is [LegionRewardTypeVisuals row, hidden (0 shows), height, index, count], always 5 entries.</summary>
     public const ushort RewardBuff = 1328;
+    /// <summary>BuffDefinitions 2459 legion_breakout_monster_enhanced: applied when Eternal Conflict breaks a monster out multiple times.</summary>
+    public const ushort EnhancedBuff = 2459;
 
-    /// <summary>A woken member as the drops see it: its reward types (LegionRewardTypeVisuals rows), its faction's LegionFactions Id and its rank tier.</summary>
-    public sealed record Fighter(int[] Rewards, string FactionId, int Tier);
+    /// <summary>A woken member as the drops see it: its reward types (LegionRewardTypeVisuals rows), its faction's LegionFactions Id,
+    /// its rank tier, how many break-outs it received (Eternal Conflict), and any bonus sergeant item rarity (%).</summary>
+    public sealed record Fighter(int[] Rewards, string FactionId, int Tier, int BreakOutCount = 1, int SergeantRarityPct = 0);
 
     /// <summary>The members that woke and fight, by the new monster's id, per AREA (ids restart in every area instance; the table goes with its area).
     /// Also persisted in Instance.ContentState["LegionFighters"] so module hot-reloads keep sergeant/general rewards intact.</summary>
@@ -139,7 +143,7 @@ static class LegionStasis
     /// then to <paramref name="standing"/> (outside the encounter's lock, for a reveal when the shatter has already passed).
     /// When a general is planned and <paramref name="monolithRotation"/> is finite, the axis aligns the general's army with the monolith's forward direction.
     /// <paramref name="monolithId"/> is written into each unit's <c>owning_initiator</c> state (with <c>present=0</c>).</summary>
-    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0, float monolithRotation = float.NaN, uint monolithId = 0)
+    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0, float monolithRotation = float.NaN, uint monolithId = 0, int lifePerRewardPct = 0, int sextantLifePct = 0)
     {
         var rng = global::Game.AreaRng(player);
         var frozenStats = FrozenStats(frozenDamageTakenPct);
@@ -172,6 +176,16 @@ static class LegionStasis
                 placement: MonsterPlacement.Established,   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
                 shape: monolithId == 0 ? null : o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("present", 0).Set("owning_initiator", (int)monolithId) });
             if (id == 0) { skipped++; return; }
+            // Logistical Support (+50% more life per reward) & map_legion_monster_life_+%_final_from_sextant scale stasis MaxLife too.
+            if (!chest && player.Area.Monsters.TryGetValue(id, out var spawned))
+            {
+                double mult = InitialLifeMultiplier(rewards?.Length ?? 0, lifePerRewardPct, sextantLifePct);
+                if (mult > 1.001)
+                {
+                    spawned.MaxLife = (uint)Math.Clamp(Math.Round(spawned.MaxLife * mult), 1, uint.MaxValue);
+                    spawned.Life = spawned.MaxLife;
+                }
+            }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id), frozenStats);
             var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null, Facing: facing);
             if (!keep(member)) { stopped = true; await Remove(player, [member]); return; }
@@ -318,19 +332,32 @@ static class LegionStasis
         await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceEntities.StateMachineUpdate(id, (byte)component, states), null));
     }
 
+    public static double InitialLifeMultiplier(int rewardCount, int lifePerRewardPct, int sextantLifePct)
+    {
+        double mult = 1.0;
+        if (rewardCount > 0 && lifePerRewardPct > 0) mult *= 1.0 + rewardCount * (lifePerRewardPct / 100.0);
+        if (sextantLifePct > 0) mult *= 1.0 + sextantLifePct / 100.0;
+        return mult;
+    }
+
     /// <summary>The end of the stasis for a member that broke out. The frozen monster was spawned scripted (no AI, no kit, cannot be
     /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity, cell and formation facing,
     /// shaped with <c>present=1</c>, <c>breakout=1</c>, <c>activated=1</c> and <c>owning_initiator</c> right in its 0x02bb create so no crystal flickers and no post-spawn state update is needed.
+    /// Preserves stasis life/damage scaling from Logistical Support, Eternal Conflict multi-breakouts, and Treasures reward spread.
     /// Returns the woken monster's object id, or 0 when the new monster could not be made (the frozen one is then left standing).</summary>
-    public static async Task<uint> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null, uint monolithId = 0)
+    public static async Task<uint> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null, uint monolithId = 0, int lifePerRewardPct = 0, int sextantLifePct = 0, int sergeantRarityPct = 0)
     {
         var variety = monster.Variety;
         if (variety is null) return 0;
         var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
         float rotation = member.Facing is float f && float.IsFinite(f) ? f : (float)Math.Atan2(cx - x, -(cy - y));
+        int extraBreakouts = Math.Max(0, member.BreakOutCount - 1);
+        bool carryScaledLife = extraBreakouts > 0 || member.SpreadEnhanced || sextantLifePct > 0
+            || (lifePerRewardPct > 0 && member.Rewards is { Length: > 0 });
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
             rotation: rotation,
+            ownedMaximumLife: carryScaledLife ? monster.MaxLife : null,
             extraStats: RewardStats(member.Rewards, false),   // the icon, shown
             shape: o =>
             {
@@ -338,13 +365,18 @@ static class LegionStasis
                 if (monolithId != 0) sm = sm?.Set("owning_initiator", (int)monolithId);
                 return o with { StateMachine = sm };
             });
-        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out _)) return 0;   // the frozen one stays: the caller removes it
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return 0;   // the frozen one stays: the caller removes it
+        int damagePct = extraBreakouts * 35 + (member.SpreadEnhanced ? 25 : 0);
+        if (damagePct > 0) woken.EncounterStats = new Dictionary<uint, int> { [Stat.DamagePlusPct] = damagePct };
         await Remove(player, [member]);
+        if (extraBreakouts > 0) player.Area.Buffs.Set(id, new Buff(EnhancedBuff, Tag: 1));
         if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
         if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
         {
             var map = FightersByArea.GetOrCreateValue(player.Area);
-            map[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier);   // for the drops (LegionRewards)
+            map[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier,
+                BreakOutCount: Math.Max(1, member.BreakOutCount),
+                SergeantRarityPct: member.Tier == 2 ? sergeantRarityPct : 0);   // for the drops (LegionRewards)
             anyFighter = true;
             PersistFighters(player, map);
         }

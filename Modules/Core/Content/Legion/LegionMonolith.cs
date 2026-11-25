@@ -57,7 +57,9 @@ static partial class LegionMonolith
         Box[]? Boxes = null, float PulseScale = 1, int FrozenDamageTakenPct = 0,
         uint FlashLight = 0, uint GeneralId = 0, double StageAt = 0, double? ClearedAt = null,
         bool BattleOutSent = false, uint[]? ReleasedIds = null, byte RuleStage = 0, byte RuleStep = 0,
-        bool RuleActivated = false, ushort[]? Environments = null);
+        bool RuleActivated = false, ushort[]? Environments = null,
+        bool AlertMode = false, int AlertGauge = 0, int AlertMax = 1000, bool MultipleBreakout = false,
+        int ChestSpreadChancePct = 0, int LifePerRewardPct = 0, int SextantLifePct = 0, int SergeantRarityPct = 0);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -98,12 +100,27 @@ static partial class LegionMonolith
         public bool RuleActivated = saved.RuleActivated;
         /// <summary>Active 0xdf Environments rows for late joiners.</summary>
         public ushort[]? Environments = saved.Environments;
+        /// <summary>Timeless Conflict Atlas keystone: replaces countdown timer with Alert gauge ending in Schism.</summary>
+        public bool AlertMode = saved.AlertMode;
+        public int AlertGauge = saved.AlertGauge, AlertMax = saved.AlertMax;
+        /// <summary>Legion Scarab of Eternal Conflict: monsters can be broken out multiple times in stasis.</summary>
+        public bool MultipleBreakout = saved.MultipleBreakout;
+        /// <summary>Legion Scarab of Treasures: % chance for broken War Chests/Hoards to spread rewards onto freed soldiers.</summary>
+        public int ChestSpreadChancePct = saved.ChestSpreadChancePct;
+        /// <summary>Logistical Support (+50% more life per reward), sextant life multiplier, and Sergeant bonus IIR.</summary>
+        public int LifePerRewardPct = saved.LifePerRewardPct, SextantLifePct = saved.SextantLifePct, SergeantRarityPct = saved.SergeantRarityPct;
         /// <summary>Latest saved snapshot updated under this encounter's lock so Keep never locks another encounter.</summary>
         public Saved Snapshot { get; private set; } = saved;
         public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale, FrozenDamageTakenPct,
-            FlashLight, GeneralId, StageAt, ClearedAt, BattleOutSent, ReleasedIds, RuleStage, RuleStep, RuleActivated, Environments);
+            FlashLight, GeneralId, StageAt, ClearedAt, BattleOutSent, ReleasedIds, RuleStage, RuleStep, RuleActivated, Environments,
+            AlertMode, AlertGauge, AlertMax, MultipleBreakout, ChestSpreadChancePct, LifePerRewardPct, SextantLifePct, SergeantRarityPct);
         public void Commit() => Snapshot = ToSaved();
     }
+
+    /// <summary>Area stats for Legion encounters: uses the instance's composed map-owner Atlas/Scarab/MapMods stats
+    /// (<see cref="InstanceState.KeptAreaStats"/>) when present, falling back to <see cref="Game.AreaLeagueStats"/>.</summary>
+    public static IReadOnlyDictionary<uint, int> AreaStats(Player player) =>
+        player.Instance?.KeptAreaStats ?? global::Game.AreaLeagueStats(player);
 
     static readonly ConditionalWeakTable<object, Encounter[]> Encounters = new();
     static readonly JsonSerializerOptions Json = new();
@@ -266,12 +283,15 @@ static partial class LegionMonolith
         KeepAll(player, all);   // saved first: a failure leaves no encounter that the client was not shown
         if (LegionRules.Add() is { } add)
             foreach (var member in Members(player)) await SendRules(member, add, "0x001f ruleset LegionRules");
-        int durationPct = global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct);
+        var areaStats = AreaStats(player);
+        int durationPct = areaStats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
+        bool alertMode = areaStats.GetValueOrDefault(Stat.AtlasKeystoneTimelessConflict) > 0
+            || areaStats.GetValueOrDefault(Stat.MapLegionUsesAlertInsteadOfTimer) > 0;
         foreach (var e in all)
         {
             float baseSeconds = (float)(TimerMilliseconds(LegionData.Current, e.Level, durationPct) / 1000.0);
             foreach (var member in Members(player))
-                await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, baseSeconds, stage: 0, step: 0, angle: e.Rotation),
+                await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, baseSeconds, stage: 0, step: 0, angle: e.Rotation, alertMode: alertMode),
                     $"0x02c9 LegionRules mode 0 (monolith 0x{e.Id:x})");
             module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} placed at ({e.X}, {e.Y}) in {player.Layout.Id}");
             await Show(player, e);
@@ -372,8 +392,10 @@ static partial class LegionMonolith
         lock (e) (phase, pulse) = (e.Phase, e.Pulse);
         if (phase == Phase.Idle && Info!.Blocking) player.SetBlocker(e.Id, e.X, e.Y, Math.Max(1, Info.Size));
         if (phase == Phase.Running && pulse != 0) await ShowPulse(player, e, pulse);
-        // The timer shows from the shatter: the charge is not part of the countdown.
-        if (phase == Phase.Running)
+        // The timer shows from the shatter: the charge is not part of the countdown (hidden under Timeless Conflict alert mode).
+        bool alertMode;
+        lock (e) alertMode = e.AlertMode;
+        if (phase == Phase.Running && !alertMode)
         {
             double left = Math.Ceiling(endsAt - global::Game.AreaTime(player));
             if (left > 0 && left < 3600)
@@ -423,22 +445,38 @@ static partial class LegionMonolith
         if (!await WorldOf(player).WalkUpTo(e.X, e.Y, Reach, requestedAt)) return true;
         double seconds;
         string plan;
+        bool alertMode;
         lock (e)
         {
             if (e.Phase != Phase.Idle) return true;   // a second use does nothing
-            // AreaLeagueStats reads the clicker's atlas passives, as Anarchy does (phase 4 settles whose stats count).
-            // TODO(phase 4): the other map_legion_* stats (monster counts, chests, factions) are read with the atlas.
-            var stats = global::Game.AreaLeagueStats(player);
+            var stats = AreaStats(player);
             int percent = stats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
             e.FrozenDamageTakenPct = stats.GetValueOrDefault(Stat.MapLegionFrozenMonstersDamageTakenPlusPct);
+            e.AlertMode = stats.GetValueOrDefault(Stat.AtlasKeystoneTimelessConflict) > 0
+                || stats.GetValueOrDefault(Stat.MapLegionUsesAlertInsteadOfTimer) > 0;
+            e.AlertGauge = 0;
+            e.AlertMax = LegionArmy.AlertMax(LegionData.Current, e.Level);
+            e.MultipleBreakout = stats.GetValueOrDefault(Stat.MapLegionMultipleBreakout) > 0;
+            e.ChestSpreadChancePct = stats.GetValueOrDefault(Stat.MapLegionPctChanceChestsBreakOutSpreadRewards);
+            e.LifePerRewardPct = stats.GetValueOrDefault(Stat.MapLegionMonstersPlusPctLifePerRewardFinal);
+            e.SextantLifePct = stats.GetValueOrDefault(Stat.MapLegionMonsterLifePlusPctFinalFromSextant);
+            e.SergeantRarityPct = stats.GetValueOrDefault(Stat.MapLegionSergeantsDroppedItemRarityPlusPct);
+            alertMode = e.AlertMode;
             seconds = TimerMilliseconds(LegionData.Current, e.Level, percent) / 1000.0;
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);
-            (e.Phase, e.StageAt, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now, now + ChargeSeconds, now + ChargeSeconds + seconds);
+            double endsAt = e.AlertMode ? double.PositiveInfinity : now + ChargeSeconds + seconds;
+            (e.Phase, e.StageAt, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now, now + ChargeSeconds, endsAt);
             Keep(player, e);
         }
-        module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
+        if (player.Layout.Id is "1_1_6" or "1_4_2")
+        {
+            string flag = player.Layout.Id == "1_1_6" ? "ClimbLegionActivated" : "DriedLakeLegionActivated";
+            if (!global::Game.ClientHasQuestFlag(player, flag))
+                await global::Game.SetQuestFlags(player, [flag]);
+        }
+        module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), {(alertMode ? $"Timeless Conflict alert cap {e.AlertMax}" : $"timer {seconds} s")}");
         module.Log($"{PlayerOf(player).Character}: {plan}");
         if (InteractionIndex >= 0 && InArea(player, e.Id))
             await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), e.Id,
@@ -447,7 +485,7 @@ static partial class LegionMonolith
         foreach (var member in Members(player))
         {
             await SendRules(member, LegionRules.Add(), "0x001f ruleset LegionRules");
-            await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, (float)seconds, stage: 0, step: 0, angle: e.Rotation),
+            await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, (float)seconds, stage: 0, step: 0, angle: e.Rotation, alertMode: alertMode),
                 "0x02c9 LegionRules mode 0 (sync duration)");
         }
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
@@ -556,9 +594,12 @@ static partial class LegionMonolith
                 if (flashLight != 0 && FlashLightAnimatedIndex >= 0 && InArea(player, flashLight))
                     await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), flashLight,
                         InstanceEntities.ComponentUpdate(flashLight, (byte)FlashLightAnimatedIndex, [0]), $"0x02bc LegionFlashLight 0x{flashLight:x} Animated 00"));
-                double left = Math.Max(1, e.EndsAt - global::Game.AreaTime(player));
-                foreach (var member in Members(player))
-                    await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(left)), $"0x0163 mission timer Legion: {left:0.0} s (at the shatter)");
+                if (!e.AlertMode)
+                {
+                    double left = Math.Max(1, e.EndsAt - global::Game.AreaTime(player));
+                    foreach (var member in Members(player))
+                        await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(left)), $"0x0163 mission timer Legion: {left:0.0} s (at the shatter)");
+                }
                 await RevealArmy(module, player, e, pulse);   // the pulse and the reveal start at the same instant
                 foreach (var member in Members(player))
                     await SendRules(member, LegionRules.State(e.Id, 1, 2), "0x02c9 LegionRules state (1,2)");
@@ -670,7 +711,8 @@ static partial class LegionMonolith
         uint pulse;
         lock (e)
         {
-            if (e.Phase != Phase.Running || e.Spawning || e.Army is not { Length: > 0 } army) return;
+            // Eternal Conflict lets players keep breaking out monsters until timer/Schism; skip 90% auto-end so multi-breakouts work.
+            if (e.Phase != Phase.Running || e.Spawning || e.MultipleBreakout || e.Army is not { Length: > 0 } army) return;
             int plain = 0, plainBroken = 0;
             foreach (var m in army)
             {
@@ -701,8 +743,17 @@ static partial class LegionMonolith
     static async Task BeginArmy(IModuleContext module, Player player, Encounter e)
     {
         LegionArmy.ArmyPlan? plan;
-        int frozenDamageTakenPct;
-        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; frozenDamageTakenPct = e.FrozenDamageTakenPct; e.Army = []; e.Spawning = true; }
+        int frozenDamageTakenPct, lifePerRewardPct, sextantLifePct;
+        lock (e)
+        {
+            if (e.Army is not null || e.Plan is null) return;
+            plan = e.Plan;
+            frozenDamageTakenPct = e.FrozenDamageTakenPct;
+            lifePerRewardPct = e.LifePerRewardPct;
+            sextantLifePct = e.SextantLifePct;
+            e.Army = [];
+            e.Spawning = true;
+        }
         // Each member joins e.Army as soon as it stands, so a timer that ends meanwhile (ReleaseArmy) removes it too;
         // once the encounter leaves Charging/Running a new member is refused and Spawn removes it itself.
         bool Keeps(LegionStasis.Member m)
@@ -722,14 +773,14 @@ static partial class LegionMonolith
             lock (e) reveal = e.Phase == Phase.Running;
             if (reveal) await RevealMembers(module, player, e, [m], keep: false);
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct, e.Rotation, monolithId: e.Id); }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct, e.Rotation, monolithId: e.Id, lifePerRewardPct: lifePerRewardPct, sextantLifePct: sextantLifePct); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
         uint generalId = 0;
         lock (e)
         {
             phase = e.Phase;
-            if (e.Army?.FirstOrDefault(m => m.Tier == 3 && !m.Chest) is { } gen)
+            if (e.Army?.FirstOrDefault(m => m.Tier == 3 && !m.Chest && !m.Broken) is { } gen)
             {
                 e.GeneralId = gen.Id;
                 generalId = gen.Id;
@@ -782,7 +833,8 @@ static partial class LegionMonolith
             else if (broken && !m.Chest)
             {
                 uint wokenId = await LegionStasis.Wake(player, m, monster, e.X, e.Y,
-                    e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null, monolithId: e.Id);
+                    e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null,
+                    monolithId: e.Id, lifePerRewardPct: e.LifePerRewardPct, sextantLifePct: e.SextantLifePct, sergeantRarityPct: e.SergeantRarityPct);
                 if (wokenId != 0) { wokenIds.Add(wokenId); generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }

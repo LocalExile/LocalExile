@@ -127,15 +127,16 @@ static partial class LegionMonolith
     }
 
     /// <summary>The ruleset's mode 0 message for a client: its elapsed seconds since the shatter (0 before shatter),
-    /// timer length and monolith angle.</summary>
+    /// timer length, alert mode/gauge (Timeless Conflict) and monolith angle.</summary>
     static byte[]? RulesBegin(Player player, Encounter e, byte stage = 0, byte step = 0)
     {
         double now = global::Game.AreaTime(player);
-        double length = e.EndsAt > e.ChargeEnd
+        double length = double.IsFinite(e.EndsAt) && e.EndsAt > e.ChargeEnd
             ? e.EndsAt - e.ChargeEnd
-            : TimerMilliseconds(LegionData.Current, e.Level, global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct)) / 1000.0;
+            : TimerMilliseconds(LegionData.Current, e.Level, AreaStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct)) / 1000.0;
         float elapsed = e.Phase == Phase.Running ? (float)Math.Clamp(now - e.ChargeEnd, 0, length) : 0f;
-        return LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, elapsed, (float)length, stage, step, e.Rotation);
+        float gauge = e.AlertMode && e.AlertMax > 0 ? Math.Clamp((float)e.AlertGauge / e.AlertMax, 0f, 1f) : 0f;
+        return LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, elapsed, (float)length, stage, step, e.Rotation, alertMode: e.AlertMode, gauge: gauge);
     }
 
     static Task SendRules(Player to, byte[]? message, string what) => message is null ? Task.CompletedTask : PlayerOf(to).Send(message, what);

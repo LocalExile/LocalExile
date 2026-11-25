@@ -1,4 +1,5 @@
 using GameServer.Core;
+using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Modules.Legion;
 
@@ -28,12 +29,20 @@ public sealed class LegionData
     /// <summary>A LegionChestCounts row; cols 2-5 and 7 meaning unknown.</summary>
     public sealed record ChestCount(int Row, int Faction, int RankKey, int MinLevel, int Col2, int Col3, int Col4, int Col5, int Col7);
 
-    /// <summary>A LegionBalancePerLevel row from MinLevel; Cols holds col1..col15, meaning unknown except col3.</summary>
+    /// <summary>A LegionBalancePerLevel row from MinLevel; Cols holds col1..col15 (col3 timer ms, col15 Timeless Conflict alert cap).</summary>
     public sealed record Balance(int Row, int MinLevel, int[] Cols)
     {
         /// <summary>col3: timer length in ms (client 0x1416290a0).</summary>
         public int DurationMs => Cols[2];
+        /// <summary>col15: maximum Alert level before Schism triggers under the Timeless Conflict keystone (1000).</summary>
+        public int AlertMax => Cols.Length >= 15 && Cols[14] > 0 ? Cols[14] : 1000;
     }
+
+    /// <summary>One of the four Domain of Timeless Conflict areas (WorldAreas LegionLeague..LegionLeague4, 2..5 emblems).</summary>
+    public sealed record DomainArea(int Row, ushort Hash16, string Id, string Name, int BaseLevel, int[] ModRows);
+
+    /// <summary>A Timeless Emblem or Unrelenting Timeless Emblem (BaseItemTypes 3055..3064) and its MapFragmentMods entry.</summary>
+    public sealed record EmblemInfo(int BaseRow, string BaseId, uint TypeHash, string Name, string FactionId, int Family, bool Uber, int[] ModRows);
 
     /// <summary>A LegionRewardTypeVisuals row: its minimap icon (MinimapIcons row; the monster stat is the row + 1),
     /// its MiscAnimatedKey (.ao floating symbol above clickable chests) and its scale (__col4). The client draws the symbol by row.</summary>
@@ -47,10 +56,11 @@ public sealed class LegionData
     public IReadOnlyList<ChestType> ChestTypes { get; }
     public IReadOnlyList<ChestCount> ChestCounts { get; }
     public IReadOnlyList<Balance> Balances { get; }
-    /// <summary>Environments rows for LegionLeagueWorld, LegionLeagueWorldBattle and LegionLeagueWorldPostBattle (0 when absent).</summary>
+    /// <summary>Environments rows for LegionLeagueWorld, LegionLeagueWorldBattle, LegionLeagueWorldPostBattle and LegionLeague (Domain).</summary>
     public ushort EnvWorld { get; }
     public ushort EnvBattle { get; }
     public ushort EnvPostBattle { get; }
+    public ushort EnvDomain { get; }
     /// <summary>Rulesets row for LegionRules, or null when absent from client.db.</summary>
     public byte? RulesetRow { get; }
     /// <summary>MiscAnimated row -> AOFile path, loaded eagerly so hot-reload clears it cleanly.</summary>
@@ -59,6 +69,13 @@ public sealed class LegionData
     public IReadOnlyDictionary<int, (string Id, string? InheritsFrom)> ChestsByRow { get; }
     /// <summary>Chest Id -> InheritsFrom for Legion chests (used when resolving QuestObjectTypes for openable chests).</summary>
     public IReadOnlyDictionary<string, string?> ChestInherits { get; }
+    /// <summary>Ordered Domain of Timeless Conflict areas: [0]=2-way (LegionLeague), [1]=3-way, [2]=4-way, [3]=5-way (LegionLeague4).</summary>
+    public IReadOnlyList<DomainArea> DomainAreas { get; }
+    /// <summary>AtlasNode HASH16 for LegionDomain (50774), or 0 when absent.</summary>
+    public ushort DomainAtlasNodeHash { get; }
+    /// <summary>Timeless Emblems and Unrelenting Emblems indexed by BaseItemTypes row and TypeHash.</summary>
+    public IReadOnlyDictionary<int, EmblemInfo> EmblemsByRow { get; }
+    public IReadOnlyDictionary<uint, EmblemInfo> EmblemsByHash { get; }
 
     static LegionData? Loaded;
     public static LegionData Current => Loaded ?? throw new InvalidOperationException("LegionData not loaded; call LegionModule.LoadData() first.");
@@ -108,6 +125,7 @@ public sealed class LegionData
         EnvWorld = Env("LegionLeagueWorld");
         EnvBattle = Env("LegionLeagueWorldBattle");
         EnvPostBattle = Env("LegionLeagueWorldPostBattle");
+        EnvDomain = Env("LegionLeague");
         RulesetRow = ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == "LegionRules") is { Table: not null } rr && rr.Index <= byte.MaxValue
             ? (byte)rr.Index : null;
         MiscAnimatedModels = ClientTables.TableOrEmpty("MiscAnimated")
@@ -130,5 +148,50 @@ public sealed class LegionData
         }
         ChestsByRow = byRow;
         ChestInherits = inherits;
+
+        // Domain of Timeless Conflict WorldAreas (LegionLeague..LegionLeague4) and AtlasNode (LegionDomain).
+        string[] domainIds = ["LegionLeague", "LegionLeague2", "LegionLeague3", "LegionLeague4"];
+        var worldAreas = ClientTables.TableOrEmpty("WorldAreas");
+        var domains = new List<DomainArea>(4);
+        foreach (string areaId in domainIds)
+        {
+            if (worldAreas.FirstOrDefault(r => r.Text("Id") == areaId) is { Table: not null } wa)
+                domains.Add(new DomainArea(wa.Index, (ushort)wa.Int("HASH16"), areaId,
+                    wa.Text("Name") ?? "Domain of Timeless Conflict", wa.Int("AreaLevel"), wa.Ints("ModsKeys")));
+        }
+        DomainAreas = domains;
+        DomainAtlasNodeHash = ClientTables.TableOrEmpty("AtlasNode").FirstOrDefault(r => r.Text("Id") == "LegionDomain") is { Table: not null } an
+            ? (ushort)an.Int("HASH16") : (ushort)0;
+
+        // Normal & Unrelenting Timeless Emblems from BaseItemTypes + MapFragmentMods.
+        var fragModsByBase = new Dictionary<int, (int Family, int[] Mods)>();
+        foreach (var fm in ClientTables.TableOrEmpty("MapFragmentMods"))
+            if (fm.IntOrNull("BaseItemTypesKey") is int baseRow)
+                fragModsByBase[baseRow] = (fm.IntOrNull("MapFragmentFamilies") ?? -1, fm.Ints("ModsKeys"));
+        var emblemsByRow = new Dictionary<int, EmblemInfo>();
+        var emblemsByHash = new Dictionary<uint, EmblemInfo>();
+        foreach (var bt in ClientTables.TableOrEmpty("BaseItemTypes"))
+        {
+            if (bt.Text("Id") is not { } bid || !bid.StartsWith("Metadata/Items/MapFragments/CurrencyLegionFragment", StringComparison.Ordinal)) continue;
+            string suffix = bid["Metadata/Items/MapFragments/CurrencyLegionFragment".Length..];
+            bool uber = suffix.EndsWith("Uber", StringComparison.Ordinal);
+            string key = uber ? suffix[..^4] : suffix;
+            string? faction = key switch
+            {
+                "Karui" => "Karui",
+                "Maraketh" => "Maraketh",
+                "Eternal" => "EternalEmpire",
+                "Templar" => "Templar",
+                "Vaal" => "Vaal",
+                _ => null,
+            };
+            if (faction is null) continue;
+            var (family, modRows) = fragModsByBase.TryGetValue(bt.Index, out var entry) ? entry : (-1, []);
+            var info = new EmblemInfo(bt.Index, bid, InstanceEntities.ObjectTypeHash(bid), bt.Text("Name") ?? bid, faction, family, uber, modRows);
+            emblemsByRow[bt.Index] = info;
+            emblemsByHash[info.TypeHash] = info;
+        }
+        EmblemsByRow = emblemsByRow;
+        EmblemsByHash = emblemsByHash;
     }
 }
