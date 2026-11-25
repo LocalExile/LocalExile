@@ -7,13 +7,14 @@ public static class JewelPathEffects
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadJewelPathEffectsData()
     {
-        Graphs = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links);
+        Graph = PassiveGraphs.Links(AscendancyCatalog.NormalGraph);
         Starts = LoadStarts();
     }
 
     public const uint EffectStat = Stat.LocalJewelPlusPctEffectPerPassiveBetweenJewelAndClassStart;
     const int Expansion = 1 << 16;
-    static Dictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs = default!;
+    // The ordinary graph; another family's comes from its loaded module.
+    static Dictionary<ushort, HashSet<ushort>> Graph = default!;
     static Dictionary<int, ushort> Starts = default!;
 
     static Dictionary<int, ushort> LoadStarts() =>
@@ -71,8 +72,9 @@ public static class JewelPathEffects
             if (!graph.TryGetValue(b, out var y)) graph[b] = y = [];
             x.Add(b); y.Add(a);
         }
+        var links = family == AscendancyFamily.Normal ? Graph : AscendancyPolicies.Tree(family)?.Links ?? [];
         foreach (int n in allocated.Where(n => n < Expansion))
-            foreach (ushort adjacent in Graphs[family].GetValueOrDefault((ushort)n) ?? []) Edge(n, adjacent);
+            foreach (ushort adjacent in links.GetValueOrDefault((ushort)n) ?? []) Edge(n, adjacent);
         var layouts = jewels.Select(j => (j.X, Layout: ClusterJewelLayout.For(j.X, j.Item)))
             .Where(p => p.Layout is not null).ToDictionary(p => (int)p.X, p => p.Layout!);
         foreach (var (cell, layout) in layouts)

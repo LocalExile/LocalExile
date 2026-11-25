@@ -6,6 +6,11 @@ public sealed class PhreciaFourClassesTests
 {
     // Ancestral Commander, Paladin, Polytheist and Surfcaster: each is a Phrecia class of the catalog, played only with its
     // own opt-in, and its nodes' stats reach the player once the PhreciaAscendancies module owns the selection.
+    // The family's choices are its module's own: the catalog has them only while a provider is registered.
+    internal static AscendancyTree PhreciaTree() => ((IAscendancyFamilyPolicy)Activator.CreateInstance(
+        typeof(GameServer.Modules.PhreciaAscendancies.PhreciaAscendanciesModule).Assembly
+            .GetType("GameServer.Modules.PhreciaAscendancies.PhreciaFamilyPolicy", throwOnError: true)!, nonPublic: true)!).Tree;
+
     [Theory]
     [InlineData("Ancestral Commander", "Juggernaut", "Game_VERIFIED_ANCESTRAL_COMMANDER")]
     [InlineData("Paladin", "Champion", "Game_VERIFIED_PALADIN")]
@@ -13,8 +18,8 @@ public sealed class PhreciaFourClassesTests
     [InlineData("Surfcaster", "Saboteur", "Game_VERIFIED_SURFCASTER")]
     public void Each_class_is_admitted_with_its_own_opt_in(string name, string id, string optIn)
     {
-        var definition = Assert.Single(new AscendancyCatalog().Definitions,
-            candidate => candidate.Identity.Family == AscendancyFamily.Phrecia && candidate.Name == name);
+        var definition = Assert.Single(PhreciaFourClassesTests.PhreciaTree().Definitions,
+            candidate => candidate.Name == name);
         Assert.Equal(id, definition.Identity.Id);
         var policy = (IAscendancyFamilyPolicy)Activator.CreateInstance(
             typeof(GameServer.Modules.PhreciaAscendancies.PhreciaAscendanciesModule).Assembly

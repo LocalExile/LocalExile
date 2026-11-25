@@ -774,7 +774,7 @@ public static partial class Game
                 {
                     foreach (var peer in GameEvents.ResolveGuildPeers(player))
                     {
-                        if (peer is not { Controlled: false, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }) continue;
+                        if (peer is not { HasClient: true, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }) continue;
                         try
                         {
                             await outbox(InstanceStash.EncodeReorderTabs(InstanceStash.Guild, order),

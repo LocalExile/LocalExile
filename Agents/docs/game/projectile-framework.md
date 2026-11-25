@@ -116,7 +116,7 @@ and the flight arc. The return leg keeps the measured 150-cell overshoot past th
 plain fresh budget.
 
 Far Shot (`player_far_shot`) and the Point Blank keystone (`keystone_point_blank`) scale an attack projectile's hit
-by that cumulative travel at the contact, with PoB `CalcOffence.lua`'s ramps (`AntiquarianEffects`): Far Shot from
+by that cumulative travel at the contact, with PoB `CalcOffence.lua`'s ramps (`WardBreakEffects`): Far Shot from
 20% less up to 10 units to 60% more from 70, Point Blank from 30% more up to 10 units through none at 35 to 30% less
 from 120. Both multiply when both apply; spells and melee never read them. The map mod
 `map_players_have_point_blank` is not read.

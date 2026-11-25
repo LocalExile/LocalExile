@@ -14,6 +14,10 @@ public sealed class LeagueRuntime(League definition, IReadOnlySet<string> module
     public string Name => definition.Name;
     public IReadOnlySet<string> Modules => modules;
 
+    readonly HashSet<string>? mods = definition.Mods?.ToHashSet(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Whether a mod's hooks run for this league's players: every mod's, unless its <c>league.json</c> "mods" says.</summary>
+    public bool Takes(string mod) => mods is null || mods.Contains(mod);
+
     /// <summary>Uses the game files' HardMode data; fixed for the connection, as its items and skills are.</summary>
     public bool HardMode { get; } = definition.DataSet == "HardMode";
 

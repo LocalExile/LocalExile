@@ -20,7 +20,7 @@ public static partial class Game
             CharacterHolder[id] = player;
         }
         foreach (var other in Program.InGame.Keys)
-            if (!ReferenceEquals(other, player) && !other.Controlled && other.Character.Id == id
+            if (!ReferenceEquals(other, player) && other.HasClient && other.Character.Id == id
                 && !displaced.Contains(other))
                 displaced.Add(other);
         return displaced;
