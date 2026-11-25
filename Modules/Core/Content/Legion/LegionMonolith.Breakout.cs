@@ -102,7 +102,7 @@ static partial class LegionMonolith
             var runner = ResolveRunner(player, player.Instance);
             if (runner is null || monster.Dead) return;
             var (x, y) = monster.Walk.Position(global::Game.AreaTime(runner));
-            if (hold.Member.Chest) await BreakChest(module, runner, hold, x, y);
+            if (hold.Member.Chest) await BreakChest(module, runner, hold, monster, x, y);
             else await Free(module, runner, hold.E, [(hold, monster)]);
             done = true;
             await EarlyEnd(module, runner, hold.E);   // once per break-out, not per hit
@@ -194,15 +194,14 @@ static partial class LegionMonolith
         if (created) global::Game.SendAfter(player, FlashSeconds, () => LegionOutput.Remove(player, id));
     }
 
-    static async Task BreakChest(IModuleContext module, Player player, Hold hold, int x, int y)
+    static async Task BreakChest(IModuleContext module, Player player, Hold hold, SpawnedMonster chestMonster, int x, int y)
     {
         var e = hold.E;
-        var chest = hold.Member;
         double radius = ChestRadius * Math.Max(0, 100 + global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0 + ChestMargin;
         LegionStasis.Member[] army;
         lock (e) army = e.Army ?? [];
         double now = global::Game.AreaTime(player);
-        var near = new List<(Hold Hold, SpawnedMonster Monster)>();
+        var near = new List<(Hold Hold, SpawnedMonster Monster)> { (hold, chestMonster) };
         foreach (var m in army)
         {
             if (m.Chest || m.Tier > 1 || m.Broken) continue;
@@ -214,12 +213,11 @@ static partial class LegionMonolith
             monster.EntranceGrace = true;
             near.Add((h, monster));
         }
-        MarkBroken(player, e, [chest.Id]);
+        // During the timer a broken-out War Chest explodes, frees nearby normal/elite soldiers and stays as a broken-out
+        // silhouette (state 3, breakout=1, overhead reward symbols intact); it becomes clickable only at release (ReleaseArmy).
         await Flash(player, ModelOf(ChestExplodeKey), x, y);
-        await LegionStasis.Remove(player, [chest]);
-        await SpawnBox(module, player, e, chest, x, y);
         await Free(module, player, e, near);
-        module.Log($"chest broke out at ({x}, {y}), freed {near.Count}");
+        module.Log($"chest broke out at ({x}, {y}), freed {near.Count - 1}");
     }
 
     /// <summary>The early end: every member still frozen breaks out as a hit would break it (the 0x2c8 state 3, the crystal off), so ReleaseArmy then wakes it.
@@ -247,13 +245,20 @@ static partial class LegionMonolith
 
     // ---- the openable chest ----
 
-    /// <summary>The chest the war chest becomes (the plan's Chests row; the War Hoard's for a hoard), standing where it was.</summary>
+    /// <summary>The chest the war chest becomes at release (the plan's Chests row, or HardmodeChest in Ruthless; the War Hoard's for a hoard), standing where it was.</summary>
     static async Task SpawnBox(IModuleContext module, Player player, Encounter e, LegionStasis.Member member, int x, int y)
     {
-        int row = e.Plan is { } plan && member.Faction < plan.Factions.Length
-            ? plan.Factions[member.Faction].Chests.FirstOrDefault(c => c.WarHoard == member.WarHoard)?.Chest ?? -1 : -1;
-        string? type = ClientTables.TableOrEmpty("Chests").Where(r => r.Index == row).Select(r => r.Text("Id")).FirstOrDefault();
-        if (type is null || QuestObjectTypes.Find(type) is not { } info || !QuestObject.CanSerialize(info.Components))
+        var planned = e.Plan is { } plan && member.Faction < plan.Factions.Length
+            ? plan.Factions[member.Faction].Chests.FirstOrDefault(c => c.WarHoard == member.WarHoard) : null;
+        bool ruthless = global::Game.LeagueFor(player).HardMode;
+        int row = planned is null ? -1 : ruthless && planned.HardmodeChest >= 0 ? planned.HardmodeChest : planned.Chest;
+        static (string Type, QuestObjectTypes.Info Info)? ResolveChest(int chestRow)
+        {
+            string? id = ClientTables.TableOrEmpty("Chests").Where(r => r.Index == chestRow).Select(r => r.Text("Id")).FirstOrDefault();
+            return id is not null && QuestObjectTypes.Find(id) is { } found && QuestObject.CanSerialize(found.Components) ? (id, found) : null;
+        }
+        var resolved = ResolveChest(row) ?? (planned is not null && row != planned.Chest ? ResolveChest(planned.Chest) : null);
+        if (resolved is not var (type, info))
         {
             module.Log($"chest row {row} cannot be shown: no chest at ({x}, {y})");
             return;

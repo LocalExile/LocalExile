@@ -14,8 +14,8 @@ static class LegionArmy
     /// Rarities: one MonsterRarity per monster (null in an old save: the fixed mapping by tier). Rewards (sergeants only): one entry per monster of the squad, its LegionRewardTypeVisuals rows (empty: none); null when the plan has none.</summary>
     public sealed record Squad(int Tier, int Monster, int Count, int FromPct, int ToPct, int[][]? Rewards = null, int[]? Rarities = null);
 
-    /// <summary>A chest monster (LegionChestTypes col0) with the Chests row it turns into; WarHoard uses the faction's second LegionChestTypes row (the Epic chest).</summary>
-    public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct, int[]? Rewards = null);
+    /// <summary>A chest monster (LegionChestTypes col0) with the Chests rows (standard and Ruthless HardmodeChest) it turns into at release; WarHoard uses the faction's second LegionChestTypes row (the Epic chest).</summary>
+    public sealed record ChestPlan(int Monster, int Chest, bool WarHoard, int FromPct, int ToPct, int[]? Rewards = null, int HardmodeChest = -1);
 
     public sealed record FactionPlan(int Faction, string Id, Squad[] Squads, ChestPlan[] Chests);
 
@@ -205,22 +205,24 @@ static class LegionArmy
         rows = [.. rows.Where(c => c.MinLevel == minLevel)];
         LegionData.ChestCount? Tier(int tier) => rows.FirstOrDefault(c => c.RankKey >= 0 && c.RankKey < data.Ranks.Count && data.Ranks[c.RankKey].Col0 == tier);
         if (Tier(0) is not { } main) return chests;
-        int hoardPct = Tier(1)?.Col7 ?? 0;
+        var hoardRow = Tier(1);
+        int hoardPct = hoardRow?.Col7 ?? 0;
         var types = data.ChestTypes.Where(t => t.Faction == faction.Row).ToList();
         if (types.Count == 0) return chests;
         // GUESS: the real game shows chests in nearly every army; the table's col2 is 0, so a roll of 0 would leave an army without one.
         int n = Math.Max(MinChestsPerArmy, rng.Next(main.Col2, Math.Max(main.Col2, main.Col3) + 1));
         bool hoard = rng.Next(100) < hoardPct;
-        int hoardAt = hoard && n > 0 ? rng.Next(n) : 0;
-        if (hoard && n == 0) n = 1;
+        int hoardAt = hoard ? rng.Next(n) : -1;
         // A faction has two chest monsters (LegionChestTypes, in row order): the plain chest (MonsterChestKarui1) and the
-        // War Hoard (MonsterChestKarui2, the "Epic" one, 3x the life). The War Hoard roll picks the second.
+        // War Hoard (MonsterChestKarui2, the "Epic" one, 3x the life). The War Hoard roll picks the second and uses Tier 1's depth band (35..100%).
         types.Sort((a, b) => a.Row.CompareTo(b.Row));
         for (int i = 0; i < n; i++)
         {
             bool isHoard = hoard && i == hoardAt;
             var type = isHoard && types.Count > 1 ? types[1] : types[0];
-            chests.Add(new ChestPlan(type.Col0, type.Chest, isHoard, main.Col4, main.Col5));
+            int from = isHoard && hoardRow is not null ? hoardRow.Col4 : main.Col4;
+            int to = isHoard && hoardRow is not null ? hoardRow.Col5 : main.Col5;
+            chests.Add(new ChestPlan(type.Col0, type.Chest, isHoard, from, to, HardmodeChest: type.HardmodeChest));
         }
         return chests;
     }
