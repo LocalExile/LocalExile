@@ -101,16 +101,40 @@ public static partial class Game
                 bool here = ReferenceEquals(ground.Area, player.Layout);
                 if (here && now < ground.Until) continue;
                 placed.Grounds.Remove(ground.Id);
-                if (here && ground.Drawn) bytes.Remove(ground.Id);
+                if (here && ground.Drawn)
+                {
+                    bytes.World(ground.Id, InstanceEntities.GroundEffectUpdate(ground.Id, 0, 0f));
+                    bytes.Remove(ground.Id);
+                }
             }
             var playerAt = player.Walk.Position(now);
             bool exposed = player.PlayerLife > 0 && !InGracePeriod(player);
+            var unaffected = exposed && placed.Grounds.Count > 0 ? UnaffectedByGround(player) : default;
+            ushort fireRow = GroundTypes.GetValueOrDefault("Fire").Buff;
+            ushort causticRow = GroundTypes.GetValueOrDefault("CausticCloud").Buff;
+            ushort fireBuff = unaffected.Burning ? fireRow : (ushort)0;
+            ushort iceBuff = unaffected.Chilled ? GroundTypes.GetValueOrDefault("Ice").Buff : (ushort)0;
+            ushort lightningBuff = unaffected.Shocked ? GroundTypes.GetValueOrDefault("Lightning").Buff : (ushort)0;
+            bool onBurning = false, inCaustic = false;
             foreach (ushort row in holders.Keys) standing[row] = null;
             foreach (var ground in placed.Grounds.Values)
             {
                 if (!exposed || Dist(playerAt, ground.At) > ground.Radius) continue;
+                if (fireRow != 0 && ground.BuffRow == fireRow) onBurning = true;
+                if (causticRow != 0 && ground.BuffRow == causticRow) inCaustic = true;
+                if (fireBuff != 0 && ground.BuffRow == fireBuff
+                    || iceBuff != 0 && ground.BuffRow == iceBuff
+                    || lightningBuff != 0 && ground.BuffRow == lightningBuff) continue;
                 if (standing.GetValueOrDefault(ground.BuffRow) is { } best && Strength(best) >= Strength(ground)) continue;
                 standing[ground.BuffRow] = ground;
+            }
+            bool burningChanged = player.OnBurningGround != onBurning;
+            player.OnBurningGround = onBurning;
+            player.InCausticCloud = inCaustic;
+            if (burningChanged && PlayerStat(player, Stat.MovementSpeedPlusPctWhileOnBurningGround) != 0)
+            {
+                MarkPlayerStats(player, PlayerStatStep.Sources);
+                RecomputePoolsAndSpeed(player);
             }
             return bytes.Count > 0 ? bytes.Build() : null;
         });

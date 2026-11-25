@@ -280,6 +280,61 @@ public sealed class ItemRolls
         item.Mods.Any(m => m.Section == ModSection.Implicit && catalog.Mods.ByHash(m.Hash) is { } mod
             && mod.GenerationType is EaterImplicit or ExarchImplicit);
 
+    /// <summary>The tier (1-6) of an Eldritch implicit mod, from its Mods.dat Id suffix (EldritchImplicit,
+    /// UniquePresence or PinnaclePresence followed by the tier); null for any other mod.</summary>
+    static int? EldritchTier(string id)
+    {
+        if (id.Length == 0 || id[^1] is < '1' or > '6') return null;
+        string tier = id[^1..];
+        return id.EndsWith("EldritchImplicit" + tier, StringComparison.Ordinal)
+            || id.EndsWith("UniquePresence" + tier, StringComparison.Ordinal)
+            || id.EndsWith("PinnaclePresence" + tier, StringComparison.Ordinal) ? id[^1] - '0' : null;
+    }
+
+    /// <summary>The index and tier of the item's Eldritch implicit of one influence, or null when it has none.</summary>
+    (int Index, int Tier)? EldritchImplicitOn(Item item, int influence)
+    {
+        for (int i = 0; i < item.Mods.Count; i++)
+        {
+            var mod = item.Mods[i];
+            if (mod.Section == ModSection.Implicit && catalog.Mods.ByHash(mod.Hash) is { } found
+                && found.GenerationType == influence && EldritchTier(found.Id) is int tier)
+                return (i, tier);
+        }
+        return null;
+    }
+
+    /// <summary>Orb of Conflict (CurrencyItems row 1204, Action conflict_orb): a non-unique item carrying both a
+    /// Searing Exarch and an Eater of Worlds implicit has one raised a tier and the other lowered a tier; a tier 1
+    /// (Lesser) implicit lowered below 1 is removed. The table only says the chance of raising or lowering depends on
+    /// the relative strength, so the direction is a local rule: the weaker implicit is the likelier to rise (its weight
+    /// is the other implicit's tier). A tier at 6 cannot rise, so a 6/6 pair is refused. Corrupted and mirrored items
+    /// are refused, and so is an item whose new tier has no Mods.dat row.</summary>
+    public Item? Conflict(Item item, Random random)
+    {
+        if (item.Rarity == ItemRarity.Unique || item.Corrupted || item.Mirrored) return null;
+        if (EldritchImplicitOn(item, EaterImplicit) is not (int eaterAt, int eaterTier) ||
+            EldritchImplicitOn(item, ExarchImplicit) is not (int exarchAt, int exarchTier)) return null;
+        bool eaterCanRise = eaterTier < 6;
+        bool exarchCanRise = exarchTier < 6;
+        if (!eaterCanRise && !exarchCanRise) return null;
+        bool raiseEater = eaterCanRise && exarchCanRise
+            ? random.Next(eaterTier + exarchTier) < exarchTier : eaterCanRise;
+        var eaterMod = catalog.Mods.ByHash(item.Mods[eaterAt].Hash)!;
+        var exarchMod = catalog.Mods.ByHash(item.Mods[exarchAt].Hash)!;
+        int newEaterTier = raiseEater ? eaterTier + 1 : eaterTier - 1;
+        int newExarchTier = raiseEater ? exarchTier - 1 : exarchTier + 1;
+        ModCatalog.Mod? newEater = newEaterTier > 0 ? catalog.Mods.ById(eaterMod.Id[..^1] + newEaterTier) : null;
+        ModCatalog.Mod? newExarch = newExarchTier > 0 ? catalog.Mods.ById(exarchMod.Id[..^1] + newExarchTier) : null;
+        if ((newEaterTier > 0 && newEater is null) || (newExarchTier > 0 && newExarch is null)) return null;
+        var mods = item.Mods.ToList();
+        if (newEater is not null) mods[eaterAt] = newEater.Roll(ModSection.Implicit, random);
+        if (newExarch is not null) mods[exarchAt] = newExarch.Roll(ModSection.Implicit, random);
+        if (newEaterTier == 0) mods.RemoveAt(eaterAt);
+        else if (newExarchTier == 0) mods.RemoveAt(exarchAt);
+        return item with { Mods = mods };
+    }
+
     Item? EldritchImplicit(Item item, ItemCatalog.BaseType type, int tier, int influence, int keptInfluence, Random random)
     {
         if (tier is < 1 or > 4 || item.Rarity is not (ItemRarity.Normal or ItemRarity.Magic or ItemRarity.Rare) ||

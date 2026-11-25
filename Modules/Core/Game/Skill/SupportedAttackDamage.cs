@@ -6,7 +6,8 @@ using GameServer.Core.World;
 public static class SupportedAttackDamage
 {
     const uint ColdPerDexterityMin = Stat.AttacksWithThisWeaponMinimumAddedColdDamagePer10Dexterity,
-        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity;
+        ColdPerDexterityMax = Stat.AttacksWithThisWeaponMaximumAddedColdDamagePer10Dexterity,
+        EphemeralEdgeLightningFromEs = Stat.EphemeralEdgeMaximumLightningDamageFromEsPct;
 
     static readonly (DamageType Type, uint Min, uint Max)[] WandAddedRanges =
     [
@@ -46,7 +47,15 @@ public static class SupportedAttackDamage
     // "with Claws" (Claw + Hit, not an ailment increase). WeaponTypeDamage reads the hand's family through
     // WeaponIdentity, so a weapon that counts as all one-hand melee types (Varunastra) takes every family's row.
     public static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        WeaponTypeDamage.Any(weapon, get);
+        WeaponIncrease(weapon, get, skillProjectileSpeed: 0);
+
+    internal static int WeaponIncrease(SkillCatalog.Unarmed weapon, Func<uint, int> get, int skillProjectileSpeed)
+    {
+        int increased = WeaponTypeDamage.Any(weapon, get);
+        if (weapon.Bow && get(Stat.ArrowSpeedAdditiveModifiersAlsoApplyToBowDamage) != 0)
+            increased = ActorScale.Saturate((long)increased + get(Stat.ProjectileSpeedPlusPct) + skillProjectileSpeed);
+        return increased;
+    }
 
     public static void AddWandGains(DamageConversion conversion, Func<uint, int> get)
     {
@@ -69,11 +78,13 @@ public static class SupportedAttackDamage
 
     // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
     // Keep this in the existing projectile-hit increase bucket, so it cannot increase melee hits or ailments.
+    // "Increased Projectile Attack Damage" is the same bucket for every attack.
     public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get)
     {
-        if (!WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
-            && !WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") && weapon.ItemClass != "Rune Dagger") return get;
-        int increased = get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
+        int increased = get(Stat.ProjectileAttackDamagePlusPct);
+        if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
+            || WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") || weapon.ItemClass == "Rune Dagger")
+            increased += get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
         return increased == 0 ? get : name => get(name) + (name == Stat.ProjectileDamagePlusPct ? increased : 0);
     }
 
@@ -101,10 +112,16 @@ public static class SupportedAttackDamage
             lightRadiusIncrease * get(Stat.MinimumAddedFireDamageToAttacksPer1PctLightRadius),
             lightRadiusIncrease * get(Stat.MaximumAddedFireDamageToAttacksPer1PctLightRadius)));
         long dexterityGroups = Math.Max(0, get(Stat.Dexterity)) / 10;
-        if (weapon.LocalSources is { } source && dexterityGroups > 0)
-            added = added.Add(DamageType.Cold, new(
-                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
-                dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+        if (weapon.LocalSources is { } source)
+        {
+            if (dexterityGroups > 0)
+                added = added.Add(DamageType.Cold, new(
+                    dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMin),
+                    dexterityGroups * (double)source.GetValueOrDefault(ColdPerDexterityMax)));
+            int esPct = source.GetValueOrDefault(EphemeralEdgeLightningFromEs);
+            if (esPct > 0 && get(Stat.MaximumEnergyShield) is int maxEnergyShield and > 0)
+                added = added.Add(DamageType.Lightning, new(0, (long)maxEnergyShield * esPct / 100.0));
+        }
         foreach (var (itemClass, ranges) in MeleeFamilyAddedRanges)
             if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, itemClass)
                 || itemClass == "Dagger" && weapon.ItemClass == "Rune Dagger")

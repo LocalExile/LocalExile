@@ -23,6 +23,25 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
+    {
+        if (map is null) return;
+        void Add(uint mapStat, uint minionStat)
+        {
+            int value = map.Get(mapStat);
+            if (value != 0) stats[minionStat] = ActorScale.Saturate((long)stats.GetValueOrDefault(minionStat) + value);
+        }
+        Add(Stat.MapMinionAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
+        Add(Stat.MapMinionCastSpeedPlusPct, Stat.CastSpeedPlusPct);
+        Add(Stat.MapMinionMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+    }
+
+    static double MapMinionDamageFactor(Player player)
+    {
+        if (MapModsOf(player)?.Get(Stat.MapPlayersMinionDamagePlusPctFinalPerEquippedItem) is not int perItem || perItem == 0) return 1;
+        return Math.Max(0, 1 + (double)perItem * ItemsOf(player).EquipmentSnapshot().Count / 100);
+    }
+
     internal static bool ScarabsDisabled(MapMods? mods) => (mods?.Get(Stat.MapDisableScarabDrops) ?? 0) > 0;
 
     public static double MapScarabQuantity(MapMods? mods) =>
@@ -52,6 +71,8 @@ public static partial class Game
     public static Dictionary<uint, int> MapMonsterEffects(MapMods mods)
     {
         var extra = mods.MonsterEffectStats();
+        if (mods.Get(Stat.MapMonstersStealCharges) is > 0 and var steal)
+            extra[Stat.MapMonstersStealCharges] = steal;
         foreach (var (map, atlas) in AtlasPairs)
             if (mods.Get(map) is int more and not 0) extra[atlas] = more;
         if (mods.Get(Stat.MapMonstersCannotBeStunned) != 0)
@@ -71,9 +92,15 @@ public static partial class Game
                 new(RandomPhysicalGain[Random.Shared.Next(RandomPhysicalGain.Length)])).Stat;
             extra[element] = ActorScale.Saturate((long)extra.GetValueOrDefault(element) + elementalGain);
         }
+        Gain(Stat.MapRareMonstersPhysicalThornsForXDamage, Stat.PhysicalThornsBaseDamage);
+        Gain(Stat.MapRareMonstersElementalThornsForXDamage, Stat.ElementalThornsBaseDamage);
         Gain(Stat.MapMonstersAttackSpeedPlusPct, Stat.AttackSpeedPlusPct);
         Gain(Stat.MapMonstersCastSpeedPlusPct, Stat.BaseCastSpeedPlusPct);
         Gain(Stat.MapMonstersMovementSpeedPlusPct, Stat.BaseMovementVelocityPlusPct);
+        Gain(Stat.MapMonsterSkillsChainXAdditionalTimes, Stat.NumberOfChains);
+        Gain(Stat.MapMonsterProjectileChainFromTerrainChancePct, Stat.ProjectileChainFromTerrainChancePct);
+        if (mods.Get(Stat.DelveBiomeMonsterProjectilesAlwaysPierce) != 0)
+            extra[Stat.AlwaysPierce] = 1;
         if (mods.Get(Stat.MapMonstersMovementSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.MovementSpeedCannotBeReducedBelowBase] = 1;
         if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
@@ -138,8 +165,20 @@ public static partial class Game
             chanceFactor *= MapDropFactor(mods, Stat.MapMapItemDropChancePlusPctFinalFromUberMod,
                 Stat.MapUnscaledMapItemDropChancePlusPctFinalFromUberMod);
         }
+        chanceFactor *= ItemQuantityFactor(player);
+        int voidstones = 0;
+        if (tier > 0 && MapBossFights.Current is { } fights)
+        {
+            int mask = 0;
+            var catalog = ItemsFor(player);
+            foreach (var entry in ItemsOf(player).Items(PlayerInventories.AtlasUpgrades))
+                if (catalog.ByHash(entry.Item.TypeHash) is { } type && fights.StoneByItem(type.Id) is { } stone)
+                    mask |= 1 << stone.Slot;
+            voidstones = System.Numerics.BitOperations.PopCount((uint)mask);
+        }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        return DropsFor(player).Map(level, rarity, tier, rng, chanceFactor: chanceFactor, tierUpgradePermillage: upgrade);
+        return DropsFor(player).Map(level, rarity, tier, rng, voidstones: voidstones, chanceFactor: chanceFactor,
+            tierUpgradePermillage: upgrade, increasedRarity: IncreasedItemRarity(player));
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and
@@ -193,7 +232,7 @@ public static partial class Game
             if (snapshot.CurrencyWeights.Count > 0)
             {
                 foreach (var row in snapshot.CurrencyWeights.Values)
-                    if (row.Weight > 0 && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
+                    if (row is { Enabled: true, Weight: > 0 } && catalog.Find(row.CurrencyId) is { Supported: true } t && t.Id == row.CurrencyId)
                         list.Add((t, row.Weight, Math.Max(t.DropLevel, row.DropLevel)));
             }
             if (list.Count == 0)

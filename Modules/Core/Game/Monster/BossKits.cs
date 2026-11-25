@@ -81,14 +81,24 @@ public static class BossKits
                 || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
                 || id.Contains("EmptyAction", StringComparison.Ordinal)
                 || id.Contains("Emerge", StringComparison.Ordinal)
-                || id.Contains("Retreat", StringComparison.Ordinal))) continue;
-            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect))) continue;
+                || id.Contains("Retreat", StringComparison.Ordinal)
+                // GA* GeometryAttack rows (e.g. GANavaliGoatmanLeapDamage, GAGoatmanLeapSlamDamage) are secondary
+                // payloads paired with another action (such as a leap), not standalone swings.
+                || IsLeapDamagePayload(id, effect))) continue;
+            // A summon row the tables give no attack, spell or projectile type (Piety's eye spawners: their
+            // ActiveSkills rows carry no type at all) is still an action when the server can name what it raises;
+            // anything else without a type is no action.
+            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect)) && !BossSummons.HasOverride(effect)) continue;
             // A skill on a corpse is no hit of its own: without one the client plays nothing (MonsterSkills.OnCorpse).
             if (MonsterSkills.IsCorpseSkill(effect)) continue;
             if (!usable.Contains(effect)) usable.Add(effect);
         }
         return usable;
     }
+
+    internal static bool IsLeapDamagePayload(string id, int effect) =>
+        id.StartsWith("GA", StringComparison.Ordinal) && id.Contains("Leap", StringComparison.Ordinal)
+        && id.EndsWith("Damage", StringComparison.Ordinal) && SkillCatalog.ActionTypeId(effect) == "GeometryAttack";
 
     /// <summary>A summoned monster's kit: its whole usable effect list, not only its cooldown spells. A totem casts its
     /// Arc (no cooldown) as well as its shocked ground, a spider its Viper Strike, a summoned daemon its nova / ball
@@ -259,6 +269,7 @@ public static class BossKits
         if (!KeepUnshapedForUniques && !IsKitBoss(catalog, variety)) return false;
         string id = catalog.EffectId(effect) ?? "";
         if (id.Length == 0 || catalog.HasType(effect, "Triggered") || id.StartsWith("GS", StringComparison.Ordinal)
+            || SkillCatalog.ActionTypeId(effect) == "CastGroundEffect"
             || SetOffWords.Any(w => id.Contains(w, StringComparison.Ordinal))) return false;
         return !(variety.Id.Contains("/Exiles/", StringComparison.Ordinal) || variety.Id.Contains("Mercenar", StringComparison.Ordinal)
             || id.Contains("Exile", StringComparison.Ordinal) || id.Contains("Mercenary", StringComparison.Ordinal)
@@ -271,7 +282,7 @@ public static class BossKits
     /// <summary>Whether an attack does anything: it hits for damage, summons, flies a projectile, throws a trap, puts a
     /// debuff on the player or leaves a ground.</summary>
     public static bool Acts(MonsterAttack a) => !a.Damage.IsZero || a.Summon is not null || a.Projectile is not null
-        || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null;
+        || a.Storm is not null || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null;
 
     /// <summary>A unique's skill as it plays, by what the skill is (its ActiveSkillTypes) and what its client action
     /// class does (<see cref="ActionClasses"/>), in this order:
@@ -314,7 +325,9 @@ public static class BossKits
         attack = attack with { Debuffs = SkillDebuffs(catalog, effect, kind, Get, names) };
         if (body) attack = attack with { Summon = null };
         else if (attack.Summon is not null) return attack;
-        else if (Get(Stat.IsTotem) != 0 || catalog.HasType(effect, "SummonsTotem") || catalog.HasType(effect, "Minion")) return null;
+        else if (Get(Stat.IsTotem) != 0 || Get(Stat.BaseSkillIsTotemified) != 0
+            || (catalog.HasType(effect, "SummonsTotem") && Get(Stat.BaseTotemDuration) > 0)
+            || catalog.HasType(effect, "Minion")) return null;
         bool spell = catalog.IsSpell(effect);
         // A skill that is melee too (Frenzy, Puncture, Elemental Hit) swings when its user's attack does.
         bool melee = catalog.IsMelee(effect) && !attack.Ranged;
@@ -328,21 +341,42 @@ public static class BossKits
             attack = attack with { Projectile = shot, ReleaseEffect = effect, Release = MonsterReleaseFor(player, variety, effect, level, shot) };
         if (attack.Projectile is not null)
             return attack with { Ground = SkillGround(kind, ActionClasses.GroundAt.ProjectileEnd, Get, names, null, spell) };
-        if (fromUser) return null;
+        if (fromUser)
+        {
+            // Ranged weapon attacks (MonsterSplitArrow, MonsterBurningArrow, MonsterCausticArrowAtAnimationSpeed)
+            // whose art table carries no projectile row still fire as instant ranged weapon attacks (matching default attack).
+            if (!spell && catalog.IsRangedAttack(effect) && !attack.Damage.IsZero)
+                return attack with { Ground = SkillGround(kind, ActionClasses.GroundAt.ProjectileEnd, Get, names, null, spell) };
+            return null;
+        }
         if (area)
         {
             var ground = SkillGround(kind, setOff ? ActionClasses.GroundAt.Trap : ActionClasses.GroundAt.Landing, Get, names, radius, spell);
+            // CastGroundEffect has no client ground visuals of its own (0x141298280 installs the base action vtable)
+            // and relies on a server-spawned ground effect; without a ground spec it would fire invisible ranged hits.
+            if (ground is null && SkillCatalog.ActionTypeId(effect) == "CastGroundEffect") return null;
             double reach = radius ?? ground?.Radius ?? 0;
+            // Damaging area spells without an explicit radius stat (e.g. DelayedBlast, SeaWitchScreech) use a safe
+            // 14-cell default radius rather than failing to shape.
+            if (reach <= 0 && !attack.Damage.IsZero && catalog.HasType(effect, "AreaSpell")) reach = 14;
             // A trap's skill without a radius hits whoever set it off (MonsterTraps).
             if (reach <= 0) return setOff ? attack with { AreaAtSelf = true } : null;
-            attack = attack with { AreaRadius = reach, AreaAtSelf = setOff || catalog.HasType(effect, "Nova"), Ground = ground };
+            bool selfArea = setOff || catalog.HasType(effect, "Nova")
+                || SkillCatalog.ActionTypeId(effect) is "RighteousFire" or "InvisibleFire";
+            attack = attack with
+            {
+                AreaRadius = reach,
+                AreaAtSelf = selfArea,
+                Range = selfArea && !setOff ? reach : attack.Range,
+                Ground = ground,
+            };
             if (catalog.SameActionEffects(effect).Any(e => Game.IsStormCall(catalog.EffectId(e))))
                 return Game.StormCallStrikeOf(catalog, effect, level) is { } strike ? attack with { Strike = strike } : null;
             return attack;
         }
         // A trap's skill with neither a projectile nor an area hits whoever set it off (MonsterTraps: Bear Trap).
         if (setOff) return attack with { AreaAtSelf = true };
-        return catalog.HasType(effect, "Chains") || !attack.Ranged ? attack : null;
+        return catalog.HasType(effect, "Chains") || !attack.Ranged || (body && !attack.Damage.IsZero) ? attack : null;
     }
 
     /// <summary>The ground a skill's class leaves where <paramref name="at"/> says (ActionClasses.GroundSpec), its kind's
@@ -518,7 +552,8 @@ public static class BossKits
         var catalog = SkillsFor(player);
         var native = GolemData.Skill(catalog, effect, actorLevel);
         int Raw(uint key) => native.Stats.GetValueOrDefault(key);
-        bool spell = catalog.IsSpell(effect);
+        bool spell = catalog.IsSpell(effect) || Raw(Stat.CastingSpell) != 0;
+        bool isDischarge = SkillCatalog.ActionTypeId(effect) == "Discharge";
         // A ranged skill reaches its variety's MaximumAttackDistance (AttackRange); a spell keeps the aggro range it is
         // given, as the default attack of a ranged spell does (Monsters.Spawn). A melee skill reaches its swing.
         bool ranged = spell && !catalog.IsMelee(effect) || catalog.IsRangedAttack(effect);
@@ -536,6 +571,20 @@ public static class BossKits
                 }
                 if (!damage.IsZero) break;
             }
+        if (isDischarge && damage.IsZero)
+        {
+            // Placeholder per-charge base damage so Acts(attack) succeeds; live Discharge contact replaces this with
+            // exact damage scaled by MonsterChargesOf(m) and consumes the charges.
+            int lMin = Raw(Stat.SpellMinimumBaseLightningDamagePerRemovablePowerCharge),
+                lMax = Raw(Stat.SpellMaximumBaseLightningDamagePerRemovablePowerCharge);
+            int fMin = Raw(Stat.SpellMinimumBaseFireDamagePerRemovableEnduranceCharge),
+                fMax = Raw(Stat.SpellMaximumBaseFireDamagePerRemovableEnduranceCharge);
+            int cMin = Raw(Stat.SpellMinimumBaseColdDamagePerRemovableFrenzyCharge),
+                cMax = Raw(Stat.SpellMaximumBaseColdDamagePerRemovableFrenzyCharge);
+            if (lMax > 0) damage = damage.Add(DamageType.Lightning, new(lMin, Math.Max(lMin, lMax)));
+            else if (fMax > 0) damage = damage.Add(DamageType.Fire, new(fMin, Math.Max(fMin, fMax)));
+            else if (cMax > 0) damage = damage.Add(DamageType.Cold, new(cMin, Math.Max(cMin, cMax)));
+        }
         if (spell && damage.IsZero)
         {
             int coneMin = Raw(Stat.Of("malachai_elemental_cone_spell_minimum_damage")),
@@ -548,15 +597,30 @@ public static class BossKits
                     .Add(DamageType.Lightning, new(minThird, maxThird));
             }
         }
-        if (!spell && damage.IsZero)
+        double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
+            / Math.Max(.01, 1 + Raw(spell ? Stat.CastSpeedPlusPct : Stat.AttackSpeedPlusPct) / 100d)
+            / Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
+        if (spell && damage.IsZero)
+        {
+            // Damage-over-time beam/aura spells (e.g. Tukohama's Vanguard Scorching Ray totem, Wicker Man RF) carry
+            // base_fire_damage_to_deal_per_minute rather than hit spell damage: approximate one cast-tick of burning damage.
+            int firePerMin = Raw(Stat.BaseFireDamageToDealPerMinute);
+            if (firePerMin > 0)
+            {
+                double tick = Math.Max(1.0, firePerMin / 60.0 * Math.Clamp(seconds, 0.25, 1.5));
+                damage = damage.Add(DamageType.Fire, new(tick * 0.9, tick * 1.1));
+            }
+        }
+        // Movement attacks marked Spell+Movement (GoatmanLeapSlam: dash_to_target) carry their damage on a paired
+        // geometry row; use the monster's base melee damage so the landing slam deals physical damage.
+        bool movementSlam = spell && damage.IsZero && catalog.IsMovement(effect) && !BossMoves.IsTeleport(catalog, effect)
+            && catalog.EffectId(effect) is { } eid && (eid.Contains("LeapSlam", StringComparison.Ordinal) || eid.Contains("Slam", StringComparison.Ordinal));
+        if ((!spell || movementSlam) && damage.IsZero)
         {
             var (min, max) = Monsters.BaseDamage(variety, actorLevel) ?? (1, 1);
             int more = Raw(Stat.ActiveSkillDamagePlusPctFinal);
             damage = DamagePacket.Of(DamageType.Physical, min, max).Scale(native.Multiplier * Math.Max(0, 1 + more / 100d));
         }
-        double seconds = (spell && catalog.CastTimeMs(effect) > 0 ? catalog.CastTimeMs(effect) / 1000d : variety.AttackMs / 1000d)
-            / Math.Max(.01, 1 + Raw(spell ? Stat.CastSpeedPlusPct : Stat.AttackSpeedPlusPct) / 100d)
-            / Math.Max(.01, 1 + Raw(spell ? Stat.ActiveSkillCastSpeedPlusPctFinal : Stat.ActiveSkillAttackSpeedPlusPctFinal) / 100d);
         // A ranged spell casts from as far as it sees the player, up to the farthest its action reaches (ActionClasses).
         double reach = ranged && spell
             ? Math.Max(variety.AttackRange, Math.Min(variety.AggroRange, ActionClasses.SpellActionDistance(effect, Raw)))
@@ -574,11 +638,14 @@ public static class BossKits
         return new(skillId, summon is { CastSeconds: > 0 } ? summon.CastSeconds : Math.Max(.25, seconds), reach, damage)
         {
             Spell = spell,
+            IsDischarge = isDischarge,
             DualWielding = HasOffHandWeapon(variety),
             CorruptedBlood = CorruptedBloodFor(Raw),
             Ranged = ranged,
             Projectile = projectile,
             Summon = summon,
+            Storm = catalog.MonsterStorm(effect, actorLevel),
+            LaunchFrames = catalog.LaunchFrames(catalog.EffectId(effect)),
             ReleaseEffect = projectile is null ? null : effect,
             Release = projectile is null ? null : MonsterReleaseFor(player, variety, effect, actorLevel, projectile),
             Hits = catalog.IsMelee(effect) && !catalog.IsChannelled(effect) ? hits : 1,
@@ -689,6 +756,9 @@ public static class BossKits
 
     static MonsterAttack? WalkUpFor(SpawnedMonster monster, double now, double distance)
     {
+        // Only bosses/uniques periodically walk into melee between ranged casts; ordinary casters stay at spell range.
+        if (monster.Variety is { } v && monster.Rarity != MonsterRarity.Unique && !v.BossHealthBar && !IsCampaignBoss(v))
+            return null;
         // Its melee swing: a damaging attack with no cooldown that is neither a spell, ranged nor a move.
         MonsterKitSkill? melee = null;
         for (int i = 0; i < monster.Kit.Count; i++)

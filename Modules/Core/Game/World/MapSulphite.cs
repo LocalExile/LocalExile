@@ -59,44 +59,47 @@ public static class MapSulphite
 
     public static bool Present(MapMods mods) => !Excluded(mods) && mods.Get(Stat.MapDelveLeague) > 0;
 
-    public static bool Present(Player player, MapDevice.MapArea map, MapMods mods)
+    public static bool Present(Player player, MapDevice.MapArea map, MapMods mods) =>
+        Present(player, map.Id, mods);
+
+    public static bool Present(Player player, string areaId, MapMods mods)
     {
         if (player.Instance is { } cachedInstance && Placements.TryGetValue(cachedInstance, out var cached))
             return cached.Present;
         if (Excluded(mods))
         {
-            if (player.Instance is { KeptAreaStats: not null } excludedInstance)
+            if (player.Instance is { } excludedInstance)
                 Placements.AddOrUpdate(excludedInstance, PresentFalse);
             return false;
         }
         if (Present(mods))
         {
-            if (player.Instance is { KeptAreaStats: not null } forcedInstance)
+            if (player.Instance is { } forcedInstance)
                 Placements.AddOrUpdate(forcedInstance, PresentTrue);
             return true;
         }
-        if (player.Instance is not { KeptAreaStats: not null } instance) return false;
-        bool present = RollNatural(player, map, mods);
+        if (player.Instance is not { } instance) return false;
+        bool present = RollNatural(player, areaId, mods);
         Placements.AddOrUpdate(instance, present ? PresentTrue : PresentFalse);
         return present;
     }
 
-    static bool RollNatural(Player player, MapDevice.MapArea map, MapMods mods)
+    static bool RollNatural(Player player, string areaId, MapMods mods)
     {
         var areas = _areas ??= LoadAreas();
-        if (!areas.TryGetValue(map.Id, out var area) || !area.IsMapArea || area.RandomnessDisabled)
+        if (!areas.TryGetValue(areaId, out var area) || area.RandomnessDisabled)
             return false;
         bool hardMode = Program.LeagueFor(player).HardMode;
         if (!(hardMode ? area.HasHardModeLeagueChance : area.HasLeagueChance))
             return false;
         int baseChance = mods.Get(Stat.MapExtraContentHasNoBaseChanceToSpawn) > 0
             ? 0
-            : LeagueChances.Current.ChanceOf(map.Id, DelveLeagueRow, alternate: hardMode).Chance;
+            : LeagueChances.Current.ChanceOf(areaId, DelveLeagueRow, alternate: hardMode).Chance;
         long chance = baseChance * Math.Max(0L, 100L + mods.Get(Stat.MapLeagueBaseChancePlusPctFinal)) / 100
             + mods.Get(Stat.MapLeagueContentAdditionalChancePct)
             + mods.Get(Stat.MapMasterMissionNikoPctChance);
         chance = Math.Max(0L, chance) * Math.Max(0L, 100L + mods.Get(Stat.MapMasterMissionNikoChancePlusPct)) / 100;
-        // Sulphite is placed after terrain generation, using its own roll for the map's seed.
+        // Sulphite is placed after terrain generation, using its own roll for the area's seed.
         return chance >= 100 || (chance > 0 && new LevelRandom(player.Seed, false).Next(100u) < (uint)chance);
     }
 

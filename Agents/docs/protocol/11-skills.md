@@ -2764,6 +2764,7 @@ Fireball's `SkillTotemId = 22` has no dedicated variation; generic intelligence/
 `SkillTotemVariations` keys 3/2, skin 0, varieties 2272/2273. The proxy carries the underlying skill's
 GEPL/statset and clears placement flags; its own entity sends the action and owns/emits the projectile.
 On 3.29.3c the proxy action alone does not draw Spark. Its Projectiles.dat flight clip on server-created objects displays the simulated sparks.
+The same holds for every projectile a totem emits (Fireball checked live 2026-11-19): the server creates it with its rig's flight and impact clips.
 The installed support statset supplies 8000 ms duration, -40% final cast speed and level-one -55% final damage.
 Its `totem_support_gem_level` supplies the monster level. Only placement pays player costs. The actual caster inherits
 owner offensive stats and type prohibitions. Ancestral Bond is `keystone_ancestral_bond` (key 5336), not
@@ -2790,6 +2791,18 @@ Actor update flag `0x0100` (`0x142199c20`) reads a u16 count followed by `(u32 o
 A zero source removes the id; other entries append, so a changed entry needs removal before addition.
 The native vector at Actor `+0x740` uses twelve-byte entries after widening MinionType.
 `MinionType` rows 1/2/3/4 describe normal/magic/rare/ascended Dominance; 50/51 are ordinary/ascended Absolution.
+`MinionType` row 78 is the Holy Armament. Its body's native `HolyStrikeMinionAttack` reads the main-hand weapon copy.
+
+`ItemisedCorpse` maps the inventory base to its body. The placed corpse carries `is_spectre_corpse`, which the
+client's Life predicate checks alongside the consuming skill context. `SpectreOverrides` maps ordinary corpse
+rows to their raised counterparts. The three Marionette bodies share `AzmeriMannequinReviveAfterTime` with a
+4,000 ms delay.
+
+Phantasmal Might uses BuffDefinitions row 1472 with the spell physical minimum and maximum. The two values per
+Phantasm come from its source's per-level stats.
+
+Spectral Spirits use the `SpectralSummonedSkull` body while the Essence of Insanity grant is active. Soulwrest's
+`TriggeredSummonGhostOnKill` row names a corpse-consumption trigger in its stats and supplies the Phantasm lifetime.
 
 UpgradeMinion's availability check (`0x1412ea7d0`) requires a matching ownership entry.
 It maps a skill id to `0xc000 | (id & 0x3fff)`, or `0x8000 | (id & 0x3fff)` for an id already tagged `0xc000`.
@@ -2862,7 +2875,10 @@ With the button held, the 3.29.3c client sent its next use about 0.39 s after th
 Trap Support). Under a 0.75 s cast-time wait every held throw but the last was dropped after its cost was paid, so a
 throw replaced after half its time still lands. The flight (0.975 s) and arming (0.5 s) times are not from the client.
 A triggered trap or mine whose skill is a projectile spell releases it from the object, drawn by the server.
-It aims at the nearest enemy within 60 cells, or with none straight away from the player (a local rule).
+It aims at the nearest enemy within 60 cells, or with none any way (seen on the official client, 2026-11-19).
+A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down around that enemy, or on the object.
+An attack thrown as a trap or mine is paced by the throw, not by the weapon's attack time.
+A trap goes off when its duration ends (a Conversion Trap that was never set off only leaves); a mine is removed.
 A trap or mine removed in the packet that starts its action vanishes without showing it, and one removed in the packet
 that creates another was shown moving to the new one's place (live 2026-11-17), so both removals are sent apart.
 One Detonate Mines use queues every mine: the first goes off at once, each later one `base_mine_detonation_time_ms`
@@ -4313,3 +4329,21 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
   serialize with `NonBlocking` `Positioned` flags (`flags1 = 0x0a`, trailing `1` → `+0x1e6` bit `0x40`, matching
   `PetObject`) so the client never blocks player movement on the warrior's cell, and render via `BuffDefinitions`
   `1748` with `BuffVisuals` `1215` (`mirage_warrior_visual`).
+
+### Channel release, action updates and combat deltas (3.29.3c client findings)
+
+- **Channel end (`S→C 0x1ae`) and Divine Ire (`0x233f`)**: `0x141fe4740` ends held channels for predictive players,
+  lockstep players, totems and channelled monster actions. Divine Ire release (`0x141d292d0` / `0x141d2a0c0`) reads
+  live actor stat `0x233f` (`divine_tempest_current_number_of_stages`) and skips the beam when zero.
+- **Flame Dash segment (`S→C 0x2c8`)**: `InstanceClientActionUpdate` (`0x141fe54d0`, Actor dispatch `0x14219be04`)
+  carries `(u16 actionTypeHash, u16 skillId, u16 actionSequence, u8 detachId, blob16)`. Flame Dash's slot `+0x300`
+  reader (`0x141478930` → `0x1414786c0` → `0x142196f20`) takes 20 LE bytes `(i32 x1, i32 y1, i32 x2, i32 y2, f32 duration)`.
+- **Component updates (`S→C 0x2bc`)**: Shrine slot 20 (`0x1415e49f0`, index `7`) reads the creation layout
+  (`0x141e3e0c0`, bit 7 claimed flag + `Shrines.dat` row) plus `u32 LE` taker object id; `GroundEffect` slot 20
+  (`0x141e1ea90` → `0x141e1ead0`, index `2`) reads `(u8 state, f32 LE remainingSeconds)` (`<= 0` triggers `EndEffect`);
+  `Beam` slot 20 (`0x1416710c0`, index `4`) shares the creation layout.
+- **Combat/action deltas**: `S→C 0x00c6` (`0x141f99010`: `u32 itemId, u32 charges`), `S→C 0x0174` (`0x141f99e10`:
+  `u32 inventoryId, u32 itemId, u8 result`, companion to `C→S 0x0057`), `S→C 0x00bb` (`0x1421a9480`: 1B `FreezeActions`
+  bitfield), `S→C 0x00bc` (`0x1421a95d0`: `u8 active`, optional `u8 durationSeconds`), `S→C 0x01c9` (`0x1421afa00`:
+  `u32 entityId, u16 soundEffectRow, u16 param`), `S→C 0x01ca` (`0x1421afcc0`: `MiscObjectSpawn`) and `S→C 0x02d9`
+  (`0x1421b8d30`, table `0x1435e6c78`: `EntityVariantDelta` with raw LE tagged variants).

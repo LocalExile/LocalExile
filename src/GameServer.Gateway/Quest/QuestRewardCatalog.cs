@@ -78,21 +78,51 @@ public sealed class QuestRewardCatalog
 
     // Grant level-one gems/currency and normal flasks at the row's level. With the mode's ItemRolls (Game's OfferNpcReward passes
     // them in every mode) gear is built at its actual item level and rarity: HardMode's magic armours, the later acts' rare
-    // belts and amulets. Scripted rewards without a model remain unavailable; OfferNpcReward omits a choice when this
-    // returns null.
+    // belts and amulets. A levelled choice with no rarity is a normal item at that item level (the Act 1/Act 3 rings), unless
+    // it is a gem, whose level lives in its experience instead: those still return null. Scripted rewards without a model
+    // remain unavailable; OfferNpcReward omits a choice when this returns null.
     public static Item? Create(Choice choice, ItemCatalog items, ItemRolls? rolls = null)
     {
         if (choice.Stack <= 0 || items.Row(choice.ItemRow) is not { Supported: true } type) return null;
         bool normalFlask = type.Components.Contains("Flask") && choice.Rarity == 0 && choice.Level is >= 1 and <= 100;
-        if ((choice.Level != 1 && !normalFlask) || choice.Rarity is > 0)
+        // A row that settles only the base and the item level carries no rarity: the plain path below makes it a normal
+        // item at that level. Gems are the exception (their level is their experience, ItemCatalog.GemLevel), and flasks
+        // keep their own rule keyed on Rarity == 0, so neither takes this branch.
+        bool levelledNoRarity = choice.Rarity is null && choice.Level is >= 1 and <= 100
+            && items.Gem(type) is null && !type.Components.Contains("Flask");
+        if ((choice.Level != 1 && !normalFlask && !levelledNoRarity) || choice.Rarity is > 0)
         {
             if (rolls is null || choice.Level is < 1 or > 100 || choice.Rarity is not (0 or 1 or 2)
                 || !type.Components.Contains("Mods")) return null;
-            var (sockets, links) = items.DefaultSockets(type);
+            var (sockets, links) = RewardSockets(type, choice.Level, items, Random.Shared);
             return rolls.Roll(ItemCatalog.Create(type, sockets, links) with { ItemLevel = (byte)choice.Level },
                 (ItemRarity)choice.Rarity.Value, Random.Shared);
         }
         return ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(choice.Stack, ushort.MaxValue), ItemLevel = (byte)choice.Level };
+    }
+
+    // Act-appropriate linked sockets for quest reward gear: 2L in Act 1, up to 3L from level 12+,
+    // and up to 4L from level 25+ (capped by the slot's and item level's socket limit).
+    static (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) RewardSockets(
+        ItemCatalog.BaseType type, int itemLevel, ItemCatalog items, Random random)
+    {
+        if (!type.Components.Contains("Sockets") || ItemCatalog.ResonatorSockets(type) > 0
+            || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
+            return items.DefaultSockets(type, itemLevel, random: random);
+        int classCap = SystemSettings.Default.SocketMax(type.Class);
+        if (classCap <= 0)
+            return SystemSettings.Default.Values.Count == 0
+                ? items.DefaultSockets(type, itemLevel, random: random)
+                : ([], null);
+        int levelCap = itemLevel >= 50 ? 6 : itemLevel >= 35 ? 5 : itemLevel >= 25 ? 4 : itemLevel >= 2 ? 3 : 2;
+        int max = Math.Min(classCap, levelCap);
+        int target = itemLevel >= 25 ? Math.Min(max, 4) : itemLevel >= 12 ? Math.Min(max, 3) : Math.Min(max, 2);
+        if (target <= 0) return ([], null);
+        var requirements = items.Requirements(type);
+        var sockets = new ItemSocket[target];
+        for (int i = 0; i < target; i++)
+            sockets[i] = new(SocketColours.Roll(requirements, itemLevel, 0, random));
+        return (sockets, [(byte)target]);
     }
 
     /// <summary>Pack rewards using their actual sizes; HardMode gear choices must not overlap like 1×1 gems.</summary>
@@ -137,7 +167,7 @@ public sealed class QuestRewardCatalog
         if (leagueFlag is int lf && leagueFlags is not null) leagueFlags.ChangeLeagueQuestFlags([lf], true);
         var flags = new List<string>();
         if (takenFlag is not null) flags.Add(takenFlag);
-        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra }.OfType<string>().Where(f => !saved.Contains(f)));
+        if (quest is not null) flags.AddRange(new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>().Where(f => !saved.Contains(f)));
         if (flags.Count > 0) CharacterSaves.ChangeQuestFlags(character, flags, true);
     }
 
@@ -280,7 +310,7 @@ public sealed class QuestRewardCatalog
             claimedIds.Add(offerItemId);
             carriedTypes?.Add(reward.TypeHash);
             if (quest is not null)
-                foreach (var f in new[] { quest.Grant, quest.Extra }.OfType<string>())
+                foreach (var f in new[] { quest.Grant, quest.Extra, quest.Extra2 }.OfType<string>())
                     if (saved.Add(f)) granted.Add(f);
         }
 

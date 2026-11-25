@@ -100,7 +100,10 @@ public static partial class Game
     public static readonly int MapPortalListMs = EnvMs("Game_MAP_PORTAL_LIST_MS", 100), MapPortalGapMs = EnvMs("Game_MAP_PORTAL_GAP_MS", 150),
         MapPortalEntryMs = EnvMs("Game_MAP_PORTAL_ENTRY_MS", 1500),
         // A portal is listed once more this long after its first 0x8f (Game_MAP_PORTAL_RELIST_MS): Game.ListPortal.
-        MapPortalRelistMs = EnvMs("Game_MAP_PORTAL_RELIST_MS", 600);
+        MapPortalRelistMs = EnvMs("Game_MAP_PORTAL_RELIST_MS", 600),
+        // Portal Scroll uses its own list/relist delays (at least two lockstep frames so 0x8f lands after 0x02bb) without speeding up the 6-portal Map Device animation.
+        PortalScrollListMs = EnvMs("Game_PORTAL_SCROLL_LIST_MS", 60),
+        PortalScrollRelistMs = EnvMs("Game_PORTAL_SCROLL_RELIST_MS", 300);
     public static int EnvMs(string name, int fallback) => int.TryParse(Environment.GetEnvironmentVariable(name), out int ms) && ms >= 0 ? ms : fallback;
     // Unique items the server can create (names/art from the client data, mods curated: UniqueCatalog).
     public static UniqueCatalog Uniques = null!;

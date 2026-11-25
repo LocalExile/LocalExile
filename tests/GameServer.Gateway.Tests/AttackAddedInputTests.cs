@@ -76,8 +76,11 @@ public sealed class AttackAddedInputTests : IDisposable
     {
         var catalogue = new UniqueCatalog(Program.Items);
         var definition = Assert.IsType<UniqueCatalog.Definition>(catalogue.Find("Eclipse Solaris"));
-        return Assert.IsType<Item>(catalogue.Create(definition with
+        var item = Assert.IsType<Item>(catalogue.Create(definition with
         { Ranges = [new("LightRadiusUnique__1", 0, 20, 20)] }, new Random(17)));
+        // Faun's Horn's own "Adds # to # Fire Damage to Spells and Attacks" stays out: these checks measure the
+        // light-radius fire alone.
+        return item with { Mods = [.. item.Mods.Where(m => m.Section != ModSection.Implicit)] };
     }
 
     [Fact]
@@ -507,5 +510,94 @@ public sealed class AttackAddedInputTests : IDisposable
             player.Closed = true;
             await session.OutputCompleted;
         }
+    }
+
+    [Fact]
+    public void Ephemeral_edge_adds_maximum_lightning_damage_from_maximum_energy_shield_per_attacking_weapon()
+    {
+        player.Character.Experience = CharacterStats.ExperienceFor(80);
+        Set(Stat.VirtualStrengthForRequirements, 500);
+        Set(Stat.VirtualDexterityForRequirements, 500);
+        Set(Stat.VirtualIntelligenceForRequirements, 500);
+        var esMod = Program.Items.Mods.ById("WeaponAddedLightningDamagePerEnergyShieldUnique__1")!;
+        var sword = Make("Dusk Blade") with
+        {
+            Rarity = ItemRarity.Unique,
+            Mods = [new(ModSection.Explicit, esMod.Hash, [15])],
+        };
+        var items = Game.ItemsOf(player);
+        var main = items.Add(PlayerInventories.Weapon1, 0, 0, sword)!;
+        items.Add(PlayerInventories.BodyArmour, 0, 0, Make("Vaal Regalia") with
+        {
+            Rarity = ItemRarity.Rare,
+            Mods = [new(ModSection.Explicit, Program.Items.Mods.ById("LocalIncreasedEnergyShield10")!.Hash, [800])],
+            Sockets = [new(SocketColour.Red, Make("Cleave")), new(SocketColour.Blue, Make("Fireball"))],
+            Links = [1, 1],
+        });
+        player.Pools = Game.PoolsFor(player, 80);
+        var stats = Game.FinalPlayerStats(player).ToDictionary(s => s.Item1, s => s.Item2);
+        int Get(string name) => Key(name) is uint key && key != 0 ? stats.GetValueOrDefault(key) : 0;
+        int GetId(uint key) => stats.GetValueOrDefault(key);
+        int maxEs = Get("maximum_energy_shield");
+        Assert.True(maxEs >= 900);
+        double expectedEsLightning = (long)maxEs * 15 / 100.0;
+
+        var weapon = Game.WeaponFor(player);
+        Assert.Equal(0, weapon.LocalDamage![DamageType.Lightning].Max);
+        var accuracy = new AttackAccuracyProfile(Game.PlayerAccuracy(player));
+        Assert.Equal(new DamageRange(0, expectedEsLightning), SupportedAttackDamage.Raw(weapon, GetId, accuracy)[DamageType.Lightning]);
+        var scaled = SupportedAttackDamage.Raw(weapon, GetId, accuracy, 20_000, 15_000)[DamageType.Lightning];
+        Assert.Equal(0, scaled.Min, 6);
+        Assert.Equal(expectedEsLightning * 1.5, scaled.Max, 6);
+        Assert.Equal((int)Math.Floor(expectedEsLightning), Get("main_hand_maximum_lightning_damage"));
+
+        var cleave = Game.GemSkillEffects(player).Single(g => g.Name == "Cleave");
+        var fireball = Game.GemSkillEffects(player).Single(g => g.Name == "Fireball");
+        Assert.True(Game.SupportedHit(player, cleave.Id)[DamageType.Lightning].Max > 0);
+        Assert.Equal(0, Game.SupportedHit(player, fireball.Id)[DamageType.Lightning].Max);
+
+        // Dual wielding: only the hand holding Ephemeral Edge gains the added maximum lightning damage.
+        var off = items.Add(PlayerInventories.Offhand1, 0, 0, Make("Dusk Blade"))!;
+        stats = Game.FinalPlayerStats(player).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(new DamageRange(0, expectedEsLightning),
+            SupportedAttackDamage.Raw(Game.WeaponFor(player), GetId, accuracy)[DamageType.Lightning]);
+        Assert.Equal(0, SupportedAttackDamage.Raw(Game.OffhandWeaponFor(player)!, GetId, accuracy)[DamageType.Lightning].Max);
+
+        items.Change(PlayerInventories.Weapon1, main.Id, _ => Make("Dusk Blade"));
+        items.Change(PlayerInventories.Offhand1, off.Id, _ => sword);
+        items.Add(14, 0, 0, sword);
+        stats = Game.FinalPlayerStats(player).ToDictionary(s => s.Item1, s => s.Item2);
+        Assert.Equal(0, SupportedAttackDamage.Raw(Game.WeaponFor(player), GetId, accuracy)[DamageType.Lightning].Max);
+        Assert.Equal(new DamageRange(0, expectedEsLightning),
+            SupportedAttackDamage.Raw(Game.OffhandWeaponFor(player)!, GetId, accuracy)[DamageType.Lightning]);
+    }
+
+    // Avidity's "5% more Accuracy Rating per Frenzy Charge": the per-charge value times the charges held is one
+    // more multiplier of the resolved rating, so it reaches every attack and the panel. Nothing held is the
+    // control -- the node alone must not change the rating -- and the rating is floored, not rounded.
+    [Fact]
+    public void Avidity_s_more_accuracy_per_frenzy_charge_reaches_the_pools()
+    {
+        var previousPools = player.Pools;
+        var items = Game.ItemsOf(player);
+        var weapon = items.Add(PlayerInventories.Weapon1, 0, 0, Make("Driftwood Wand"))!;
+        Set(Stat.AccuracyRatingPlusPct, 100);
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 5);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(456, Game.PlayerAccuracy(player)); // no charge held.
+        Set(Stat.CurrentFrenzyCharges, 2);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(501, Game.PlayerAccuracy(player)); // 456 * 1.10, floored.
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 0);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(456, Game.PlayerAccuracy(player)); // the charges without the node are nothing.
+        Set(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge, 5);
+        player.Pools = Game.PoolsFor(player, 100);
+        Assert.Equal(501, Game.PlayerAccuracy(player));
+        items.Remove(PlayerInventories.Weapon1, weapon.Id);
+        overrides.Remove(Stat.AccuracyRatingPlusPct);
+        overrides.Remove(Stat.DeadeyeAccuracyRatingPlusPctFinalPerFrenzyCharge);
+        overrides.Remove(Stat.CurrentFrenzyCharges);
+        player.Pools = previousPools;
     }
 }

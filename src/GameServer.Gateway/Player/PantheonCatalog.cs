@@ -16,6 +16,20 @@ public sealed class PantheonCatalog
         Default = Load();
     }
 
+    /// <summary>The empty Divine Vessel BaseItemTypes Ids accepted alongside a map in the Map Device.</summary>
+    public const string DivineVesselId = "Metadata/Items/MapFragments/FragmentPantheonFlask";
+    public const string CurrencyDivineVesselId = "Metadata/Items/MapFragments/CurrencyFragmentPantheonFlask";
+
+    /// <summary>Whether a BaseItemTypes Id is an empty Divine Vessel.</summary>
+    public static bool IsDivineVessel(string? baseId) =>
+        string.Equals(baseId, DivineVesselId, StringComparison.Ordinal)
+        || string.Equals(baseId, CurrencyDivineVesselId, StringComparison.Ordinal);
+
+    /// <summary>One PantheonSouls row: the Atlas map whose boss fills a Divine Vessel into <see cref="VesselItemId"/>,
+    /// which Sin exchanges for <see cref="UpgradeFlag"/> on <see cref="PanelRow"/>.</summary>
+    public sealed record Soul(int Row, string WorldAreaId, ushort WorldAreaHash16, string VesselItemId,
+        int VesselItemRow, int PanelRow, string UpgradeFlag, string Description);
+
     /// <summary>A panel row: its Id (TheBrineKing …), whether it is a major god, the flag that unlocks it, the god's name
     /// (GodName1), its power (Effect1: Stats keys = row + 1, values) and its upgrades (Effect2–4, each with the PantheonSouls
     /// flag that unlocks it, in the souls' order).</summary>
@@ -27,13 +41,30 @@ public sealed class PantheonCatalog
     }
 
     public IReadOnlyList<God> Gods { get; }
+    public IReadOnlyList<Soul> Souls { get; }
 
-    PantheonCatalog(IReadOnlyList<God> gods) => Gods = gods;
+    PantheonCatalog(IReadOnlyList<God> gods, IReadOnlyList<Soul>? souls = null)
+    {
+        Gods = gods;
+        Souls = souls ?? [];
+    }
 
     public static PantheonCatalog Default = default!;
 
     public God? ByWire(byte wire) => wire >= 1 && wire <= Gods.Count ? Gods[wire - 1] : null;
     public God? ById(string? id) => id is null ? null : Gods.FirstOrDefault(g => g.Id == id);
+
+    /// <summary>The capturable Pantheon soul bound to an Atlas map's WorldAreas Id, or null when that map has none.</summary>
+    public Soul? SoulForArea(string? worldAreaId) => string.IsNullOrEmpty(worldAreaId)
+        ? null : Souls.FirstOrDefault(s => string.Equals(s.WorldAreaId, worldAreaId, StringComparison.Ordinal));
+
+    /// <summary>The Pantheon soul matching a filled CapturedVessel BaseItemTypes Id.</summary>
+    public Soul? SoulByVessel(string? vesselId) => string.IsNullOrEmpty(vesselId)
+        ? null : Souls.FirstOrDefault(s => string.Equals(s.VesselItemId, vesselId, StringComparison.Ordinal));
+
+    /// <summary>The Pantheon soul unlocked by a QuestFlags Id (<c>BrineKingUpgrade1</c> …).</summary>
+    public Soul? SoulByUpgradeFlag(string? flag) => string.IsNullOrEmpty(flag)
+        ? null : Souls.FirstOrDefault(s => string.Equals(s.UpgradeFlag, flag, StringComparison.Ordinal));
 
     /// <summary>What the Player component's byte says for a chosen god (its Id; null = none): the row + 1, 0 for none or a
     /// row the table no longer has.</summary>
@@ -71,13 +102,34 @@ public sealed class PantheonCatalog
             string? Flag(int? v) => v is int i && i >= 0 && i < flags.Count
                 && flags[i] != "NEVER_SET" ? flags[i] : null;
             var upgradeFlags = new Dictionary<int, List<string?>>();
+            var souls = new List<Soul>();
+            var areas = ClientTables.Has("WorldAreas") ? ClientTables.Table("WorldAreas") : null;
+            var baseItems = ClientTables.Has("BaseItemTypes") ? ClientTables.Table("BaseItemTypes") : null;
             if (ClientTables.Has("PantheonSouls"))
+            {
+                int soulRow = 0;
                 foreach (var s in ClientTables.Table("PantheonSouls"))
+                {
+                    int currentRow = soulRow++;
+                    string? upgradeFlag = Flag(s.IntOrNull("QuestFlagUpgrade"));
                     if (s.IntOrNull("PanelLayout") is int p)
                     {
                         if (!upgradeFlags.TryGetValue(p, out var list)) upgradeFlags[p] = list = [];
-                        list.Add(Flag(s.IntOrNull("QuestFlagUpgrade")));
+                        list.Add(upgradeFlag);
+                        if (areas is not null && baseItems is not null
+                            && s.IntOrNull("WorldArea") is int waRow && waRow >= 0 && waRow < areas.Count
+                            && s.IntOrNull("CapturedVessel") is int itemRow && itemRow >= 0 && itemRow < baseItems.Count
+                            && upgradeFlag is not null)
+                        {
+                            var wa = areas[waRow];
+                            string vesselId = baseItems[itemRow].Text("Id") ?? "";
+                            if (vesselId.Length > 0)
+                                souls.Add(new Soul(currentRow, wa.Text("Id") ?? "", (ushort)(wa.IntOrNull("HASH16") ?? 0),
+                                    vesselId, itemRow, p, upgradeFlag, s.TextOrNull("CapturedMonsterDescription") ?? ""));
+                        }
                     }
+                }
+            }
             var gods = new List<God>();
             foreach (var r in ClientTables.Table("PantheonPanelLayout"))
             {
@@ -90,7 +142,7 @@ public sealed class PantheonCatalog
                     r.BoolOrNull("IsMajorGod") == true, Flag(r.IntOrNull("QuestFlag")),
                     r.BoolOrNull("IsDisabled") == true, Effect(1), upgrades));
             }
-            return new(gods);
+            return new(gods, souls);
         }
         catch (Exception ex) when (ex is IOException or JsonException or InvalidOperationException or KeyNotFoundException)
         {

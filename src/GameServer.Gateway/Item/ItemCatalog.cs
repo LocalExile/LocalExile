@@ -42,6 +42,7 @@ public sealed class ItemCatalog
         _defences = LoadDefences(folder);
         _flasks = LoadFlasks(folder, _rows.Rows, hardMode);
         _utilityFlasks = UtilityFlasks.Load(folder, _rows.Rows, hardMode);
+        _suffixBuffRows = UtilityFlasks.SuffixBuffRows();
         _tinctures = Tinctures.Load(folder, _rows.Rows);
         _onslaught = _utilityFlasks.Values.Select(u => u.Extra).FirstOrDefault(x => x is not null);
         _visualsById = LoadVisualsById(folder);
@@ -315,7 +316,7 @@ public sealed class ItemCatalog
     /// <summary>The gems a shop sells of one colour, active or support: creatable, writable, dropping (DropLevel above 0),
     /// not Vaal or awakened, one per name, by drop level then name.</summary>
     public IReadOnlyList<BaseType> ShopGems(int colour, bool support) =>
-        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest")
+        [.. _rows.Rows.Where(t => t.Supported && t.DropLevel > 0 && !t.Name.Contains("Playtest") && !t.Id.Contains("Royale")
                 // Same-name legacy rows differ in progression/pricing; these are absent from the official vendor capture.
                 && t.Id is not ("Metadata/Items/Gems/SkillGemNewPhaseRun" or "Metadata/Items/Gems/SkillGemNewArcticArmour"
                     or "Metadata/Items/Gems/SkillGemConvocation")
@@ -487,6 +488,12 @@ public sealed class ItemCatalog
     /// <summary>A utility flask's use (<see cref="UtilityFlasks"/>), or null for other types.</summary>
     public UtilityFlasks.Utility? UtilityFlaskOf(BaseType t) => _utilityFlasks.GetValueOrDefault(t.Row);
 
+    /// <summary>The BuffDefinitions row of each "during effect" suffix buff (<see cref="UtilityFlasks.SuffixBuffRows"/>),
+    /// by the character stat it grants: the flask_bonus_* rows, read from the tables once at load.</summary>
+    public IReadOnlyDictionary<uint, ushort> SuffixBuffRows => _suffixBuffRows;
+
+    private readonly Dictionary<uint, ushort> _suffixBuffRows;
+
     private readonly Tinctures.Catalog _tinctures;
 
     /// <summary>A tincture's native timing and buff definition (<see cref="Tinctures"/>), or null for other types.</summary>
@@ -645,6 +652,71 @@ public sealed class ItemCatalog
     static readonly (int Level, int Weight, int FourSocketWeight)[] DropSocketCounts =
         [(1, 50, 100), (1, 120, 90), (2, 100, 80), (25, 30, 30), (35, 5, 0), (50, 1, 0)];
 
+    // Retail-shaped maximum link group weights across 1..6 sockets (at drop_socket_link_scale = 1.0):
+    // 2S: ~47% 2L; 3S: ~21% 3L; 4S: ~8.2% 4L; 5S: ~0.81% 5L; 6S: ~0.09% 6L.
+    static readonly double[] LinkGroupWeights = [0, 38.0, 34.0, 19.0, 8.1, 0.81, 0.09];
+
+    // Precomputed link partitions indexed by [socketCount][maxLinkGroup] -> array of layouts (each layout sums to socketCount).
+    static readonly byte[][][][] LinkPartitions = BuildLinkPartitions();
+
+    static byte[][][][] BuildLinkPartitions()
+    {
+        var table = new byte[SocketLayout.MaximumSockets + 1][][][];
+        for (int count = 1; count <= SocketLayout.MaximumSockets; count++)
+        {
+            var byMax = new List<byte[]>[count + 1];
+            for (int m = 1; m <= count; m++) byMax[m] = [];
+            int masks = 1 << (count - 1);
+            for (int mask = 0; mask < masks; mask++)
+            {
+                var groups = new List<byte>(count) { 1 };
+                for (int edge = 0; edge < count - 1; edge++)
+                    if ((mask & (1 << edge)) != 0) groups[^1]++;
+                    else groups.Add(1);
+                byte maxGroup = 1;
+                foreach (byte g in groups) if (g > maxGroup) maxGroup = g;
+                byMax[maxGroup].Add(groups.ToArray());
+            }
+            table[count] = new byte[count + 1][][];
+            for (int m = 1; m <= count; m++) table[count][m] = byMax[m].ToArray();
+        }
+        return table;
+    }
+
+    /// <summary>Roll retail-shaped link groups for <paramref name="socketCount"/> sockets, scaled smoothly by
+    /// <c>drop_socket_link_scale</c> (1.0 = retail parity; 0 = unlinked; &gt;1 = more linked).</summary>
+    public static IReadOnlyList<byte> RollSocketLinks(int socketCount, Random random, double? linkScale = null)
+    {
+        if (socketCount <= 0) return [];
+        if (socketCount == 1) return [1];
+        int capped = Math.Min(socketCount, SocketLayout.MaximumSockets);
+        double scale = linkScale is double s && double.IsFinite(s)
+            ? Math.Max(0, s)
+            : SystemSettings.Default.DropSocketLinkScale;
+        double total = 0;
+        Span<double> weights = stackalloc double[capped + 1];
+        for (int m = 1; m <= capped; m++)
+        {
+            double w = m == 1 ? LinkGroupWeights[1]
+                : LinkGroupWeights[m] * Math.Min(1e9, Math.Pow(scale, m - 1));
+            weights[m] = w;
+            total += w;
+        }
+        int chosenMax = 1;
+        if (total > 0)
+        {
+            double roll = random.NextDouble() * total;
+            for (int m = 1; m <= capped; m++)
+            {
+                roll -= weights[m];
+                if (roll < 0) { chosenMax = m; break; }
+                chosenMax = m;
+            }
+        }
+        var layouts = LinkPartitions[capped][chosenMax];
+        return layouts[random.Next(layouts.Length)];
+    }
+
     public (IReadOnlyList<ItemSocket> Sockets, IReadOnlyList<byte>? Links) DropSockets(BaseType type, int level, Random random)
     {
         if (!type.Components.Contains("Sockets") || ResonatorSockets(type) > 0 || type.Id == AbyssJewels.StygianVise || type.HasOneSocket)
@@ -664,15 +736,10 @@ public sealed class ItemCatalog
             roll -= capacity == 4 ? entry.FourSocketWeight : entry.Weight;
         } while (roll >= 0);
         var sockets = new List<ItemSocket>(count);
-        var links = new List<byte>();
         var requirements = Requirements(type);
         for (int i = 0; i < count; i++)
-        {
             sockets.Add(new(SocketColours.Roll(requirements, level, 0, random)));
-            if (i == 0 || random.Next(2) != 0) links.Add(1);
-            else links[^1]++;
-        }
-        return (sockets, links);
+        return (sockets, RollSocketLinks(count, random));
     }
 
     private readonly Dictionary<string, (int Str, int Dex, int Int)> _requirements;
@@ -724,9 +791,10 @@ public sealed class ItemCatalog
             components[type] = [.. t.Texts("components").Take(t.Int("read"))];
             if (!t.IsNull("tags")) itemTags[type] = t.Texts("tags");
             // The Quest component's flags (quest_*: a type without Quest has none).
-            string? Flag(string name) => t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
-            if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
-                questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"));
+            string? Flag(string name) => t.Has("quest_" + name) && t.TextOrNull("quest_" + name) is { Length: > 0 } f ? f : null;
+            string? extra2 = Flag("extra_flag2");
+            if (Flag("grant_flag") is not null || Flag("extra_flag") is not null || extra2 is not null || Flag("remove_flag") is not null || Flag("use_flag") is not null)
+                questFlags[type] = new(Flag("grant_flag"), Flag("extra_flag"), Flag("remove_flag"), Flag("use_flag"), extra2);
         }
         List<ushort> visualHashes;
         var itemVisualIdentityTable = ClientTables.Table("ItemVisualIdentity");
@@ -834,7 +902,7 @@ public sealed class ItemCatalog
 }
 
 /// <summary>A quest item's Quest component (its .it file; Agents/docs/protocol/12-quests.md §5): <see cref="Grant"/> is held
-/// while the item is carried, <see cref="Extra"/> set when it is first picked up, <see cref="Remove"/> takes the item away
-/// once set (and stops it dropping again), <see cref="Use"/> is set by using it (the quest books, whose static rewards
-/// QuestStaticRewards keys by that flag).</summary>
-public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use);
+/// while the item is carried, <see cref="Extra"/> and <see cref="Extra2"/> are set when it is first picked up,
+/// <see cref="Remove"/> takes the item away once set (and stops it dropping again), <see cref="Use"/> is set by using it
+/// (the quest books, whose static rewards QuestStaticRewards keys by that flag).</summary>
+public sealed record QuestItemFlags(string? Grant, string? Extra, string? Remove, string? Use, string? Extra2 = null);

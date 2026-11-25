@@ -73,7 +73,9 @@ public static class LeechLimits
             decimal rate = Math.Max(0, Input(Stat.Of($"maximum_{pool}_leech_rate_%_per_minute"),
                     pool == "energy_shield" ? BaseEnergyShieldRatePercentPerMinute : BaseLifeManaRatePercentPerMinute))
                 * Math.Max(0, 100 + Input(Stat.Of($"maximum_{pool}_leech_rate_+%")) + Input(Stat.MaximumLeechRatePlusPct)
-                    + Input(Stat.MapPlayerMaximumLeechRatePlusPct));
+                    + Input(Stat.MapPlayerMaximumLeechRatePlusPct)
+                    // The Elder ring's "#% increased Maximum total Life Recovery per second from Leech" is a twelfth.
+                    + (pool == "life" ? decimal.Truncate(Input(Stat.MaximumLifeLeechRatePlus1PctPer12StatValue) / 12) : 0));
             if (pool == "energy_shield" && Flag(Stat.MaximumEnergyShieldLeechAmountPerLeechIsDoubled)) instance *= 2;
             if (pool == "life" && Flag(Stat.MaximumLifeLeechRatePctPerMinuteIsDoubled)) rate *= 2;
             if (pool == "life" && Flag(Stat.KeystoneEternalYouth)) rate *= .5m;

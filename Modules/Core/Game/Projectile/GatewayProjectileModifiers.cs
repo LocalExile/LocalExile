@@ -10,16 +10,26 @@ public static class GatewayProjectileModifiers
     {
         var p = profile;
         int splitTargets = Math.Max(get(Stat.ProjectileNumberToSplit), get(Stat.Of("projectile_number_of_targets_to_split_to")));
-        int extra = skillExtraProjectiles + get(Stat.NumberOfAdditionalProjectiles)
-            + get(attack ? Stat.AttacksNumberOfAdditionalProjectiles : Stat.SpellsNumberOfAdditionalProjectiles)
-            + (attack && WeaponIdentity.WieldingClawOrDagger(get)
-                ? get(Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers) : 0)
-            + (arrows ? AdditionalArrows(get) : 0);
+        int extra = 0;
+        if (get(Stat.ModifiersToProjectileCountDoNotApply) == 0)
+        {
+            extra = skillExtraProjectiles + get(Stat.NumberOfAdditionalProjectiles)
+                + get(attack ? Stat.AttacksNumberOfAdditionalProjectiles : Stat.SpellsNumberOfAdditionalProjectiles)
+                + (attack && WeaponIdentity.WieldingClawOrDagger(get)
+                    ? get(Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers) : 0)
+                + (get(Stat.IsTotem) != 0 ? get(Stat.TotemNumberOfAdditionalProjectiles) : 0)
+                + (arrows ? AdditionalArrows(get) : 0);
+        }
         int pierce = skillPierce + Math.Max(get(Stat.ProjectileNumberOfTargetsToPierce), get(Stat.ProjectileBaseNumberOfTargetsToPierce));
         if (attack) pierce += Math.Max(get(Stat.ArrowNumberOfTargetsToPierce), get(Stat.ArrowBaseNumberOfTargetsToPierce));
         if (get(Stat.AlwaysPierce) != 0 || get(Stat.VirtualAlwaysPierce) != 0
             || attack && (get(Stat.ArrowsAlwaysPierce) != 0 || get(Stat.BaseArrowsAlwaysPierce) != 0)) pierce = -1;
-        int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles));
+        int chains = Math.Max(get(Stat.NumberOfChains), get(Stat.VirtualNumberOfChainsForProjectiles))
+            + get(Stat.NumberOfAdditionalChainsForProjectiles);
+        if (arrows) chains += get(Stat.ArrowChainsPlus);
+        if (get(Stat.VirtualMaximumFrenzyCharges) is > 0 and var maximumFrenzy
+            && get(Stat.CurrentFrenzyCharges) >= maximumFrenzy)
+            chains += get(Stat.NumOfAdditionalChainsAtMaxFrenzyCharges);
         // "Supported Skills Chain X% more times" (Greater Chain): a more multiplier on the whole count. PoB keeps the
         // resulting fraction instead of rounding up, so a single chain no longer gains one from a fractional result.
         int chainMore = get(Stat.SupportChainCountPlusPctFinal);
@@ -74,20 +84,54 @@ public static class GatewayProjectileModifiers
         // metre), so 48 is 4.8 m. It caps rather than replaces either the baseline or a distance override.
         if (get(Stat.ProjectileMaximumRangeOverride) is > 0 and var maximum)
             p = p with { Range = Math.Min(p.Range, maximum) };
-        ProjectileProfile ReturnControls(ProjectileProfile target) => target with
+        double chainRangeFactor = Math.Max(0, 1 + get(Stat.ChainingRangePlusPct) / 100d);
+        double forkAngleFactor = Math.Max(0, 1 + get(Stat.ForkingAnglePlusPct) / 100d);
+        bool stopOnEnemy = get(Stat.ProjectileObjectCollisionBehaviourOnlyExplode) != 0;
+        bool splitOnTerrain = get(Stat.ProjectilesCanSplitFromTerrain) != 0;
+        bool splitAtEndOfRange = get(Stat.ProjectilesCanSplitAtEndOfRange) != 0;
+        ProjectileProfile ContinuationControls(ProjectileProfile target) => target with
         {
+            SplitRange = target.SplitRange ?? target.ChainRange,
+            ChainRange = target.ChainRange * chainRangeFactor,
+            ForkAngleRadians = Math.Min(Math.PI, target.ForkAngleRadians * forkAngleFactor),
+            StopOnEnemy = target.StopOnEnemy || stopOnEnemy,
+            PierceAllAfterFork = target.PierceAllAfterFork || arrows && get(Stat.ArrowsAlwaysPierceAfterForking) != 0,
+            SplitOnTerrain = target.SplitOnTerrain || splitOnTerrain,
+            SplitAtEndOfRange = target.SplitAtEndOfRange || splitAtEndOfRange,
             ReturnChancePercent = Math.Max(target.ReturnChancePercent, Math.Clamp(get(Stat.ProjectileReturnPctChance), 0, 100)),
             PierceAllOnReturn = target.PierceAllOnReturn || get(Stat.ReturningProjectilesAlwaysPierce) != 0,
             ReturnSpeedMultiplier = target.ReturnSpeedMultiplier * Math.Max(.01, 1 + get(Stat.ReturnedProjectileSpeedPlusPct) / 100d)
         };
-        p = ReturnControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
+        p = ContinuationControls(ProjectileParameters.Resolve(p with { ZigZags = Math.Max(p.ZigZags, zigZags) }, modifiers));
+        p = p with
+        {
+            SpeedVariationPercent = Math.Clamp(get(Stat.ProjectileSpeedVariationPlusPct)
+                + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99)
+        };
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)
-            p = p with { EndEmission = endEmission with { Child = ReturnControls(ProjectileParameters.Resolve(endEmission.Child,
+            p = p with { EndEmission = endEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(endEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
         if (p.TravelEmission is { } travelEmission)
-            p = p with { TravelEmission = travelEmission with { Child = ReturnControls(ProjectileParameters.Resolve(travelEmission.Child,
+            p = p with { TravelEmission = travelEmission with { Child = ContinuationControls(ProjectileParameters.Resolve(travelEmission.Child,
                 modifiers with { ExtraProjectiles = 0 })) } };
+        int locusCount = get(Stat.ModifiersToProjectileCountDoNotApply) == 0
+            ? get(Stat.NumberOfProjectilesPlusPctFinalFromLocusMineSupport) : 0;
+        if (locusCount != 0)
+        {
+            int ScaleCount(int n) => (int)Math.Clamp(Math.Floor(n * (1 + locusCount / 100d)), 1, 256);
+            p = p.CountConsumer switch
+            {
+                ProjectileCountConsumer.Primary when p.Count > 0 => p with { Count = ScaleCount(p.Count) },
+                ProjectileCountConsumer.Children when p.EndEmission is { Child.Count: > 0 } e =>
+                    p with { EndEmission = e with { Child = e.Child with { Count = ScaleCount(e.Child.Count) } } },
+                ProjectileCountConsumer.ContactAreas when p.ContactArea is { Count: > 0 } a =>
+                    p with { ContactArea = a with { Count = ScaleCount(a.Count) } },
+                _ => p
+            };
+        }
+        if (get(Stat.MaximumNumberOfProjectilesToFireIs1) != 0)
+            p = p with { Count = Math.Min(1, p.Count) };
         if (get(Stat.ProjectilesCanShotgun) != 0)
             p = p with { HitRule = new(ProjectileHitScope.Projectile) };
         return p;

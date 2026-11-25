@@ -27,7 +27,12 @@ public static partial class Game
     /// totem_aura_life_regen, base radius 10, wiki Rejuvenation Totem) regenerates the player's Life. A totem skill that
     /// is not here still places its totem and uses its own skill (TotemUseLocked), or casts that skill through the
     /// ordinary projectile runtime when it is an adopted projectile spell (SpellTotems.cs); only the aura is special.</summary>
-    static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new() { ["RejuvenationTotem"] = (172, 10) };
+    const string VaalRejuvenationTotemEffect = "VaalRejuvenationTotem";
+    static readonly Dictionary<string, (ushort Buff, int Radius)> TotemAuras = new()
+    {
+        ["RejuvenationTotem"] = (172, 10),
+        [VaalRejuvenationTotemEffect] = (2201, 10),
+    };
 
     /// <summary>The ActiveSkillType a dedicated totem skill's own ActiveSkills row carries. SkillTotemId cannot serve as
     /// the marker: every one of the 1941 rows has it, and 1906 share the default 22, so it names the sprite a
@@ -129,7 +134,7 @@ public static partial class Game
     /// Searing Bond are still refused before cost.</summary>
     static bool TotemDoesSomething(Player player, int effect) =>
         TotemAuras.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
-        || SkillsFor(player).EffectId(effect) is "DevouringTotem" or "DecoyTotem"
+        || SkillsFor(player).EffectId(effect) is "DevouringTotem" or "DecoyTotem" or VaalAncestralWarchiefEffect
         || TotemNova(player, effect);
 
     static bool TotemNova(Player player, int effect) => SkillsFor(player).HasType(effect, "Nova")
@@ -155,9 +160,12 @@ public static partial class Game
         // share a 0.6 s base placement time (Decoy/Devouring Totem's 1000 ms CastTime is their proxy action, not placement).
         bool ballista = BallistaEffect(player, effect)
             && GolemStat(SupportedSkill(player, skillId).Stats, Stat.IsRangedAttackTotem) != 0;
-        double basis = ballista ? .5 : .6;
+        double basis = SkillsFor(player).EffectId(effect) == VaalRejuvenationTotemEffect
+            ? SkillsFor(player).CastTimeMs(effect) / 1000d : ballista ? .5 : .6;
         return basis / Math.Max(.01, 1 + speed / 100) / Math.Max(.01, factor);
     }
+
+    static double TotemDurationFactor(int increased) => Math.Max(0, 1 + increased / 100d);
 
     static async Task PlaceTotem(Player player,
         ushort skillId, int effect, int level, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool> current)
@@ -181,6 +189,12 @@ public static partial class Game
                     : Math.Clamp((int)Math.Ceiling(Math.Min(0.025, remaining) * 1000), 1, 25);
                 await AreaWait(PlayerUpdateRole.Minions, waitMs);
             }
+        }
+        if (TotemsPerUse(player, skillId) is 2)
+        {
+            if (await WaitUntil(placedAt))
+                await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null, count: 2);
+            return;
         }
         bool twoStage = seconds > 0
             && (SpellTotemEffect(player, effect) || NativeProjectileTotem(player, effect)
@@ -258,9 +272,14 @@ public static partial class Game
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current = null) =>
         CreateTotem(player, skillId, effect, gemLevel, variety, at, current, null);
 
-    internal static async Task<uint?> CreateTotem(Player player,
+    internal static Task<uint?> CreateTotem(Player player,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
         Func<Task<bool>>? finishPlacement)
+        => CreateTotems(player, skillId, effect, gemLevel, variety, at, current, finishPlacement, count: 1);
+
+    static async Task<uint?> CreateTotems(Player player,
+        ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
+        Func<Task<bool>>? finishPlacement, int count)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
         var stats = SupportedStats(player, skillId);
@@ -272,8 +291,12 @@ public static partial class Game
             ? supportLevel : SkillsFor(player).PlayerLevelReq(effect, gemLevel), 1, 100);
         int baseLife = Monsters.BaseLife(variety, level) ?? 1;
         bool decoy = SkillsFor(player).EffectId(effect) == "DecoyTotem";
-        uint life = (uint)Math.Clamp((long)baseLife * (100 + Get(Stat.TotemLifePlusPct)) / 100, 1, int.MaxValue);
-        double seconds = Get(Stat.BaseTotemDuration) / 1000.0 * Math.Max(0, 100 + Get(Stat.TotemDurationPlusPct)) / 100;
+        int moreLifePerTotem = Get(Stat.StygianSpireTotemLifePlusPctFinalPerMaximumTotem);
+        double moreLife = (moreLifePerTotem == 0 ? 1
+            : Math.Max(0, 1 + moreLifePerTotem * (double)TotemAllowance(player, effect, own, stats) / 100))
+            * Math.Max(0, 1 + Get(Stat.TotemLifePlusPctFinal) / 100d);
+        uint life = (uint)Math.Clamp(baseLife * (100L + Get(Stat.TotemLifePlusPct)) / 100d * moreLife, 1, int.MaxValue);
+        double seconds = Get(Stat.BaseTotemDuration) / 1000d * TotemDurationFactor(Get(Stat.TotemDurationPlusPct));
         TotemState.Aura? aura = null;
         if (SkillsFor(player).EffectId(effect) is { } id && TotemAuras.TryGetValue(id, out var source))
         {
@@ -282,13 +305,19 @@ public static partial class Game
                 + area.GetValueOrDefault(name);
             var buffStats = TotemBuffStats.GetValueOrDefault(source.Buff) ?? [];
             aura = new(source.Buff, SkillArea.Radius(source.Radius, Area, spell: true),
-                [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)]);
+                [.. buffStats.Where(own.ContainsKey).Select(s => (s, own[s])).Where(s => s.Item2 != 0)])
+            {
+                HitRedirectPercent = own.GetValueOrDefault(Stat.VaalRejuvenationTotemPctDamageTakenAppliedToTotemInstead),
+            };
         }
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        (int X, int Y) place = (Math.Clamp(at.X, 0, Math.Max(0, player.Layout.GridW - 1)), Math.Clamp(at.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
+        (int X, int Y) requested = (Math.Clamp(at.X, 0, Math.Max(0, player.Layout.GridW - 1)),
+            Math.Clamp(at.Y, 0, Math.Max(0, player.Layout.GridH - 1)));
+        var place = requested;
         var playerStats = CharacterPlayerStats(player);
         bool ballista = BallistaEffect(player, effect) && GolemStat(own, Stat.IsRangedAttackTotem) != 0;
-        bool spellTotem = (SpellTotemEffect(player, effect) || ballista || NativeProjectileTotem(player, effect)) && IsTotemSkill(player, skillId);
+        bool spellTotem = (SpellTotemEffect(player, effect) || ballista || NativeProjectileTotem(player, effect)
+            || SkillsFor(player).EffectId(effect) == VaalAncestralWarchiefEffect) && IsTotemSkill(player, skillId);
         var sourceGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId).Gem;
         var proxy = spellTotem ? TotemProxy(player, skillId) : null;
         if (spellTotem && proxy is null) return null;
@@ -332,19 +361,24 @@ public static partial class Game
             return CollisionEscape.Find(around, width, height, Floor, blockers,
                 maxRadius: TotemPlacementSearchRadius, moverSize: bodySize) ?? around;
         }
+        bool onslaughtChanged = false;
         void Activate(uint objectId, WorldRecordBuilder bytes)
         {
             double now = AreaTime(player);
-            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, strike, grantedId, devour,
+            var ownStrike = strike is null ? null : new TotemState.Strike(strike.GrantedId, strike.Radius);
+            var ownDevour = devour is null ? null : new TotemState.Devour(devour.Life, devour.Mana);
+            var placed = new TotemState.Totem(objectId, skillId, place, life, now + seconds, aura, ownStrike, grantedId, ownDevour,
                 row: variety.Row, varietyId: variety.Id, level: level, effectRow: effect)
             { Effect = spellTotem ? effect : -1, SourceGem = sourceGem,
                 SourceHost = SupportedSkill(player, skillId).Host, SourceItem = SupportedSkill(player, skillId).SourceGem,
                 DecoyRadius = decoy && grantedId != 0 ? TotemTargetRange(player, skillId) : 0, BodySize = Math.Max(0, bodySize) };
             int ordinaryLimit = OrdinaryTotemLimit(playerStats);
+            bool singleTotem = GolemStat(playerStats, Stat.Maximum1TotemAtATime) != 0;
             placed.Ballista = ballista;
-            placed.BonusSlots = ballista ? Math.Max(0, limit - ordinaryLimit) : 0;
+            placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
-            var replaced = player.Totems.Place(placed, limit, now, ordinaryLimit);
+            var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
+            onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
             if (replaced.Count > 0)
             {
@@ -371,7 +405,6 @@ public static partial class Game
                     ConsecratedEnemyDamageTakenNow(player)) { SourceAlive = placed.Alive, GrantsCurseImmunity = Get(Stat.ConsecratedGroundImmuneToCurses) != 0 });
                 PresentNearby(player);
             }
-            TotemRecords(player, bytes);
             Console.WriteLine($"[gateway] {CharacterName(player)}: totem 0x{objectId:x} {variety}@{level} at ({place.X}, {place.Y}), "
                 + $"life {life}, {seconds:0.##} s, limit {limit}, {replaced.Count} replaced"
                 + (aura is null ? "" : $", aura {aura.Row} radius {aura.Radius}")
@@ -385,29 +418,40 @@ public static partial class Game
         await SendWorldBatch(player, [], admission =>
         {
             if (!Valid()) return null;
-            uint objectId = player.TakeObjectId();
-            place = ClearPosition(objectId);
+            if (count > 1)
+            {
+                limit = TotemLimit(player, skillId);
+                if (limit < 1) return null;
+                playerStats = CharacterPlayerStats(player);
+            }
             var bytes = new WorldRecordBuilder(player, admission);
             if (player.MonsterTypes.Add((variety.Row, level)))
                 bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
             var objectStats = new List<(uint, int)>();
             if (life != baseLife) objectStats.Add((Stat.MaximumLife, (int)life));
             if (spellTotem && Stat.UsesNoMana is var noMana) objectStats.Add((noMana, 1));
-            var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-                TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
-                Stats: objectStats) { LifeData = variety.LifeData };
-            bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
-                InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
-            bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
-            // It rises where it appeared: the Emerge basic action, at once (0x1ab then 0x1ac). A totem has no
-            // Transitionable component, so the monster rise's 0x2bc is not sent and the actor needs no grant.
-            if (Emerges.SkillId is ushort emerge)
-                bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
-                    emerge, player.NextActionSequence(), 0x0800, objectId));
-            if (finishPlacement is null) Activate(objectId, bytes);
-            created = objectId;
+            for (int i = 0; i < Math.Min(count, limit); i++)
+            {
+                uint objectId = player.TakeObjectId();
+                place = requested;
+                place = ClearPosition(objectId);
+                var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
+                    TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
+                    Stats: objectStats) { LifeData = variety.LifeData };
+                bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
+                    InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
+                bytes.Presentation(objectId, InstanceProtocol.EnterWakeZone(objectId));
+                // The Emerge action needs neither a Transitionable component nor a granted actor skill.
+                if (Emerges.SkillId is ushort emerge)
+                    bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
+                        emerge, player.NextActionSequence(), 0x0800, objectId));
+                if (finishPlacement is null) Activate(objectId, bytes);
+                created ??= objectId;
+            }
+            if (finishPlacement is null) TotemRecords(player, bytes);
             return bytes.Build();
         });
+        if (onslaughtChanged) await SendKillOnslaught(player);
         if (created is not uint pendingId || finishPlacement is null) return created;
         bool active = false;
         try
@@ -430,11 +474,13 @@ public static partial class Game
                         bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
                     }
                     Activate(pendingId, bytes);
+                    TotemRecords(player, bytes);
                     active = true;
                     return bytes.Build();
                 });
                 if (!paused) break;
             }
+            if (onslaughtChanged) await SendKillOnslaught(player);
             return active ? pendingId : null;
         }
         finally
@@ -442,6 +488,40 @@ public static partial class Game
             if (!active && !player.Closed && !player.LeavingArea)
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
+    }
+
+    /// <summary>How many totems one use of the skill summons: two with Multiple Totems Support (its `summon_2_totems` stat, Stats row 8677, or the support gem itself), or on `chance_to_summon_two_totems_%` (Stats row 15272; Crucible weapon trees, Animal Charm), never more than the skill's limit -- CreateTotems clamps the count to it. A skill with a cooldown summons one a use (Multiple Totems Support: each totem takes a use).</summary>
+    public static int TotemsPerUse(Player player, ushort skillId)
+    {
+        if (CooldownForSkill(player, skillId) is not null) return 1;
+        var own = SupportedSkill(player, skillId);
+        bool two = GolemStat(own.Stats, Stat.Summon2Totems) != 0
+            || own.Supports.Any(s => s.Effect.Id is "SupportMultipleTotems" or "SupportMultipleTotemsRoyale")
+            || Random.Shared.Next(100) < GolemStat(SupportedStats(player, skillId), Stat.ChanceToSummonTwoTotemsPct);
+        return two ? 2 : 1;
+    }
+
+    static bool TotemSummonedLocked(Player player, (int X, int Y) at, double now,
+        IReadOnlyDictionary<uint, int> stats)
+    {
+        player.RecentEvents.Record(StatConditions.SummonedTotem, now);
+        if (stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctOnPlacingTotem) != 0)
+        {
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+            PresentStats(player);
+        }
+        if (stats.GetValueOrDefault(Stat.GainArcaneSurgeWhenYouSummonATotem) != 0)
+            GainArcaneSurgeLocked(player, now);
+
+        const int hinderRadius = 30;
+        if (stats.GetValueOrDefault(Stat.TotemHinderNearbyEnemiesWhenSummonedWith25PctReducedMovementSpeed) != 0)
+            foreach (var (_, enemy) in player.Area.MonstersNear(at, hinderRadius))
+                if (enemy.Hostile && !enemy.Dead && enemy.Life > 0 && !enemy.Invulnerable
+                    && Dist(enemy.Walk.Position(now), at) <= hinderRadius)
+                    ApplyHinderLocked(enemy, now, fromTotem: true);
+
+        return stats.GetValueOrDefault(Stat.HasOnslaughtIfTotemSummonedRecently) != 0
+            && KillOnslaughtOf(player).Gain(now, RecentlySeconds) && Marked(player, PlayerStatStep.Onslaught);
     }
 
     /// <summary>
@@ -452,10 +532,34 @@ public static partial class Game
     public static (int NonChaos, int Chaos) TotemsTakeHitLocked(Player player, int nonChaos, int chaos, double now,
         IReadOnlyDictionary<uint, int> stats)
     {
-        int pct = TotemRedirectStat is var key ? stats.GetValueOrDefault(key) : 0;
+        int pct = TotemRedirectStat is var key ? Math.Clamp(stats.GetValueOrDefault(key), 0, 100) : 0;
         // The totems live on the connection clock; the hit's world time places the player.
         double clock = AreaTime(player);
-        if (pct <= 0 || player.Totems.Nearest(player.Walk.Position(now), clock) is not { } totem) return (nonChaos, chaos);
+        var at = player.Walk.Position(now);
+        var rejuvenation = RejuvenationTotemAt(player, at);
+        int vrtPct = rejuvenation is { } src ? RejuvenationRedirectPct(src.Owner, src.Totem.Aura!) : 0;
+        var nearest = pct > 0 ? player.Totems.Nearest(at, clock) : null;
+        if (rejuvenation is { } source && vrtPct > 0)
+        {
+            if (nearest is not null && ReferenceEquals(nearest, source.Totem))
+                return RedirectTotemHitLocked(source.Owner, source.Totem, nonChaos, chaos,
+                    Math.Min(100, vrtPct + pct), AreaTime(source.Owner), source.Owner == player ? stats : null);
+            var afterVrt = RedirectTotemHitLocked(source.Owner, source.Totem, nonChaos, chaos,
+                vrtPct, AreaTime(source.Owner), source.Owner == player ? stats : null);
+            int remainingPct = Math.Min(pct, Math.Max(0, 100 - vrtPct));
+            if (nearest is null || remainingPct <= 0) return afterVrt;
+            var afterNearest = RedirectTotemHitLocked(player, nearest, nonChaos, chaos, remainingPct, clock, stats);
+            int takenNonChaos = (nonChaos - afterVrt.NonChaos) + (nonChaos - afterNearest.NonChaos);
+            int takenChaos = (chaos - afterVrt.Chaos) + (chaos - afterNearest.Chaos);
+            return (Math.Max(0, nonChaos - takenNonChaos), Math.Max(0, chaos - takenChaos));
+        }
+        return nearest is not null
+            ? RedirectTotemHitLocked(player, nearest, nonChaos, chaos, pct, clock, stats) : (nonChaos, chaos);
+    }
+
+    static (int NonChaos, int Chaos) RedirectTotemHitLocked(Player player, TotemState.Totem totem,
+        int nonChaos, int chaos, int pct, double clock, IReadOnlyDictionary<uint, int>? stats)
+    {
         var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, totem.Life);
         var (keptChaos, left) = TotemState.Redirect(chaos, pct, life);
         totem.Life = left;
@@ -465,7 +569,8 @@ public static partial class Game
             player.RemoveBlocker(totem.Id);
             MarkPlayerStats(player, PlayerStatStep.TotemAura);
             PresentNearby(player);
-            TotemsDiedLocked(player, clock, stats);
+            SyncRejuvenationAllyZones(player, clock);
+            TotemsDiedLocked(player, clock, stats ?? PlayerStatValues(player));
         }
         return (keptNonChaos, keptChaos);
     }
@@ -489,16 +594,19 @@ public static partial class Game
     static void AddTotemAuraStats(Player player, StatMap stats)
     {
         double now = AreaTime(player);
-        var covering = TotemAuraCovering(player, now);
+        var covering = ReceivedTotemAura(player, now);
         // The player walking in or out of an aura is its zone's event; a totem's end is timed.
         double? next = null;
         foreach (var totem in player.Totems.Living(now))
             if (totem.Aura is not null) next = Math.Min(next ?? double.PositiveInfinity, totem.Until);
         if (next is double changes) StatsChangeIn(changes - now);
-        if (player.PlayerLife == 0 || covering?.Aura is not { } aura) return;
+        if (VaalWarchiefMeleeBonus(player, now) is > 0 and var melee)
+            stats[Stat.SlamAncestorTotemGrantedMeleeDamagePlusPctFinal] = melee;
+        if (player.PlayerLife == 0 || covering is not { Totem.Aura: { } aura } source) return;
+        if (source.Owner != player) StatsChangeIn(Math.Max(0, source.Totem.Until - AreaTime(source.Owner)));
         foreach (var (key, value) in aura.Stats)
             stats[key] = (int)Math.Clamp(stats.GetValueOrDefault(key)
-                + Math.Round(value * Math.Max(0, 100 + player.Pools.AuraEffectPct) / 100.0, MidpointRounding.AwayFromZero), int.MinValue, int.MaxValue);
+                + TotemAuraStat(source.Owner, value), int.MinValue, int.MaxValue);
     }
 
     // The totems as the client should see them, from the totems' timer and after a placement: expired ones die, their Life
@@ -533,26 +641,36 @@ public static partial class Game
             player.RemoveBlocker(t.Id);
             bytes.Remove(t.Id);
         }
-        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now).Where(t => t.Aura is not null)
-                .Select(t => (t.Id, t.Aura!.Radius, t.At)),
+        SyncZones(player, player.Id, TotemAuraZones, totems.Living(now)
+                .Select(t => (t.Id, Radius: t.Aura?.Radius ?? VaalWarchiefActivationRange(player, t), t.At))
+                .Where(t => t.Radius > 0),
             new(ReachesOnly(player.Id), Changed: _ => MarkPlayerStats(player, PlayerStatStep.TotemAura)));
-        uint source = player.PlayerLife > 0 ? TotemAuraCovering(player, now)?.Id ?? 0 : 0;
-        if (source != totems.SentAuraTotem)
-        {
-            if (totems.SentAuraInstance != 0) player.Area.Buffs.Clear(player.Id, totems.SentAuraInstance, player.Id, tag: (ushort)BuffTag.TotemAura);
-            totems.SentAuraInstance = 0;
-            // shortcut: the buff names the player as its source (the shape every server buff uses), not the totem and its
-            // skill; send the totem once a live check shows the client takes a monster source for a player buff.
-            if (totems.All.FirstOrDefault(t => t.Id == source) is { Aura: { } aura })
-            {
-                // The aura's row is kept to end it (SentAuraInstance).
-                totems.SentAuraInstance = aura.Row;
-                player.Area.Buffs.Set(player.Id, new(aura.Row, player.Id, Tag: (ushort)BuffTag.TotemAura));
-            }
-            totems.SentAuraTotem = source;
-            bytes.World(player.Id, PlayerStatsOffFrames(player));
-        }
+        SyncRejuvenationAllyZones(player, now);
+        SyncReceivedTotemAuraLocked(player, now, bytes);
+        SyncVaalWarchiefBuff(player, now, bytes);
         return bytes.Count == 0 ? null : bytes.Build();
+    }
+
+    static void SyncReceivedTotemAuraLocked(Player player, double now, WorldRecordBuilder bytes)
+    {
+        var totems = player.Totems;
+        var auraSource = player.PlayerLife > 0 ? ReceivedTotemAura(player, now) : null;
+        uint source = auraSource?.Totem.Id ?? 0;
+        if (source == totems.SentAuraTotem) return;
+        if (totems.SentAuraInstance != 0)
+            player.Area.Buffs.Clear(player.Id, totems.SentAuraInstance, player.Id, tag: (ushort)BuffTag.TotemAura);
+        totems.SentAuraInstance = 0;
+        // shortcut: the buff names the player as its source (the shape every server buff uses), not the totem and its
+        // skill; send the totem once a live check shows the client takes a monster source for a player buff.
+        if (auraSource is { Totem.Aura: { } aura })
+        {
+            // The aura's row is kept to end it (SentAuraInstance).
+            totems.SentAuraInstance = aura.Row;
+            player.Area.Buffs.Set(player.Id, new(aura.Row, player.Id, Tag: (ushort)BuffTag.TotemAura));
+        }
+        totems.SentAuraTotem = source;
+        MarkPlayerStats(player, PlayerStatStep.TotemAura);
+        bytes.World(player.Id, PlayerStatsOffFrames(player));
     }
 
     // A totem with a skill of its own uses it. Shockwave Totem (a nova) casts while a targetable hostile is within its
@@ -582,7 +700,7 @@ public static partial class Game
         {
             if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
                 && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                TotemNovaLocked(player, session, totem, strike, sequence);
+                TotemNovaLocked(player, session, totem, totem.At, strike.Radius, sequence);
         });
     }
 
@@ -635,37 +753,52 @@ public static partial class Game
     // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.
-    static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem, TotemState.Strike strike,
-        ushort sequence)
+    static void ReleaseTotemNova(Player player, ProjectileSession session, TotemState.Totem totem, int radius,
+        ushort sequence, int? ringArt = null) =>
+        TotemNovaLocked(player, session, totem, totem.At, radius, sequence, ringArt: ringArt);
+
+    static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
+        (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
+        Func<(int X, int Y), bool>? covers = null)
     {
-        double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
         var caster = TotemCasterStats(CharacterPlayerStats(player));
         var blind = BlindHitInput.Capture(caster, skill.Stats);
-        var hit = new SkillDamageContext(SkillHitKind.Spell, caster).Hit(SupportedHitFrom(inputs, suppress: false));
+        bool attack = SkillsFor(player).IsAttack(skill.Effect);
+        var hit = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster)
+            .Hit(SupportedHitFrom(inputs, suppress: false));
         if (hit.IsZero) return;
+        var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
         var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
-        var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
+        var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
-        foreach (var (id, m) in player.Area.Monsters.ToArray())
+        void Contact(uint id, SpawnedMonster m)
         {
+            double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
-            if (!TotemTargetable(m) || MonsterAsleep(player, id)
-                || Dist(targetAt, totem.At) > strike.Radius || MonsterBlocks(m, AreaRng(player), spell: true)) continue;
-            var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
+            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
+                || covers?.Invoke(targetAt) == false) return;
+            if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
+                AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
+            if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
+            var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, attack, m,
                 GameEvents.WithOutgoingDamage(player, caster, m, hit.Roll(AreaRng(player))), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, totem.SkillId),
                 SupportedCriticalChanceVsBlinded(player, totem.SkillId, false), SupportedCriticalChanceVsGround(player, totem.SkillId, false));
-            bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
-            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
+            bool crit = RollCriticalStrike(player, chance, skill.Stats, attack, skillRoll: criticalRoll, playerStats: caster);
+            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, attack, now, resistance, penetration,
                 GamblerFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
-            if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId)));
-            if (ApplyMonsterHitLocked(player, m, damage, allyAt: totem.At) is not { } accepted) continue;
+            if (crit) damage = DamageModel.CriticalDamage(damage,
+                CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, totem.SkillId), now, caster, skill.Stats));
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: !attack, now, damage);
+            if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
+            if (hitSummon)
+                HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
-                    blind: blind, hitOrigin: totem.At, attackerSize: totem.BodySize, attackerHasReversedStat: false);
+                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, skill.Stats, now, AreaRng(player),
+                    blind: blind, hitOrigin: totem.At, playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);
@@ -673,6 +806,22 @@ public static partial class Game
             session.World(totem.Id, InstanceProtocol.ActionHit(totem.Id, sequence, id, flags: hitFlags,
                 kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, "totem", playerKill: false);
+        }
+
+        long release = session.Runtime.Now;
+        double releasedAt = release / (double)ProjectileRuntime.QuantaPerSecond;
+        var lifetime = CombatLifetime;
+        foreach (var (id, target) in player.Area.Monsters.ToArray())
+        {
+            if (ringArt is not int variation) { Contact(id, target); continue; }
+            double distance = Dist(target.Walk.Position(releasedAt), centre);
+            if (!TotemTargetable(target) || distance > radius) continue;
+            session.Runtime.Schedule(release + ProjectileRuntime.Time(IceNovaRing.Reach(distance, (int)Math.Round(radius), variation)), () =>
+            {
+                if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && player.PlayerLife != 0
+                    && player.Area.Monsters.GetValueOrDefault(id) == target)
+                    Contact(id, target);
+            });
         }
     }
 

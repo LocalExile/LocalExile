@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -81,5 +82,29 @@ public sealed class MonsterPoisonsTests
         Assert.False(Poisons(("base_deal_no_chaos_damage", 1)));
         Assert.False(Poisons(("deal_no_non_physical_damage", 1)));
         Assert.True(Poisons(("base_deal_no_cold_damage", 1)));
+    }
+
+    // A hit's poison is staged in the hit's own frame under lock with its own stacks and duration: the 0x1c1 carries
+    // exactly what the hit applied (one stack, 2 s here), so the tick that follows has nothing new to show.
+    [Fact]
+    public void A_hit_poison_is_shown_with_its_own_stacks_and_duration()
+    {
+        var player = new Player(new(1, "poison", 300, 300, 100, 100, null, []), 1, 1);
+        var physical = DamagePacket.Of(DamageType.Physical, 100, 100);
+        var rows = new MonsterPoisons.Settings(100, Min: 10, Max: 10, CriticalMin: 20, CriticalMax: 20, Seconds: 2);
+        var playerStats = new Dictionary<uint, int>
+        {
+            [Program.Stats.Key("base_chance_to_poison_on_hit_%")!.Value] = 100,
+        };
+        var m = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 1000);
+        Game.AilmentsOnHitLocked(player, 42, m, physical, spell: false, critical: false, criticalMultiplier: 150,
+            playerStats, null, now: 10, new Random(1), poison: rows);
+        Assert.True(m.Poisons.Poisoned);
+        Assert.Equal(Game.PoisonBuffRow, m.Poisons.Buff);
+        Assert.Equal(player.Id, m.Poisons.BuffSource);
+        Assert.True(player.Area.Buffs.Has(42, Game.PoisonBuffRow, player.Id));
+        var buff = Game.PoisonBuffToShow(player, m, now: 10);
+        Assert.Equal((ushort)1, buff.Stacks);
+        Assert.Equal(Buff.Seconds(2), buff.U68);
     }
 }
