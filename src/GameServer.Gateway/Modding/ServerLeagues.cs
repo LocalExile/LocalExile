@@ -17,6 +17,9 @@ public sealed class LeagueRuntime(League definition, IReadOnlySet<string> module
     /// <summary>Uses the game files' HardMode data; fixed for the connection, as its items and skills are.</summary>
     public bool HardMode { get; } = definition.DataSet == "HardMode";
 
+    /// <summary>The client's LeagueCategoryToDisplayName id the league launches in (0 = none).</summary>
+    public byte LaunchCategory => definition.LaunchCategory;
+
     /// <summary>The league's rules now: its tunables hot-reload.</summary>
     public LeagueRules Rules => ServerLeagues.RulesOf(definition, modules);
 }

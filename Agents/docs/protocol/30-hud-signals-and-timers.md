@@ -26,6 +26,13 @@ All four progress and completion signals are published exclusively by the instan
 | `0x124` | `0x4c` | `0x1421557f1` | `0x1435ca200` | `0x141f99160` / `0x141f991c0` | `+0x7df8` | `u16 BE rowIndex` — **0-based** `Achievements.dat` row index (stride `0x4a`, bounds-checked in `0x142361330`) |
 | `0x127` | `0x4f` | `0x14215584e` | `0x1435ca200` | `0x141f99160` / `0x141f991c0` | `+0x7e78` | `u16 BE rowIndex` — **0-based** `AchievementItems.dat` row index (stride `0x30`, bounds-checked in `0x14223f970`) |
 
+**League mapping.** The optional `AchievementSetsDisplay` list in C→S `0x1d` (the client's `instance +0xc418`) holds the
+sets the panel's tab control shows. LocalExile advertises the permanent set `2` always, and for a league whose
+`league.json` `launchCategory` is `59` (Deepwater/Allflame) also challenge set `79` (or `80` for a Ruthless form). The
+client data also keys historical league challenges (sets 1–78); LocalExile refuses to award those items, so only the
+league's own challenge tab collects progress. The server sends the initial `0x126` bitset for every advertised set on
+area entry and when C→S `0x123` reports the panel opened.
+
 ### Verified client consumers
 
 - **`+0x7cf8` (S→C `0x126`, per-set progress bitset)**: notifier `0x1421773b0(signal, setId, &msg+0x14)` passes

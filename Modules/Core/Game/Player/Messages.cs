@@ -593,7 +593,7 @@ public static partial class Game
             {
                 bool opened = bytes.Length >= 3 && bytes[2] != 0;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0123 panel {(opened ? "opened" : "closed")}");
-                if (opened) await SendAchievementProgress(player);
+                if (opened) await SendVisibleAchievementProgress(player);
             }
             else if (id == InstanceEntities.CancelBuffId)
             {

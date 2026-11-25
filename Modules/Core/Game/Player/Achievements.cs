@@ -27,6 +27,7 @@ public static partial class Game
         public Dictionary<byte, AchievementSetLayout> Sets { get; } = [];
         public Dictionary<string, ushort[]> KillItemsByVariety { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, ushort[]> FullClearItemsByArea { get; } = new(StringComparer.Ordinal);
+        public Dictionary<string, ushort> EnterItemsByArea { get; } = new(StringComparer.Ordinal);
         public Dictionary<uint, ushort> EquipItemByTypeHash { get; } = [];
 
         public bool IsLoaded => Sets.Count > 0;
@@ -141,10 +142,10 @@ public static partial class Game
                 catalog.Sets[setId] = new(setId, byteLen, [.. list]);
             }
 
-            bool IsTrackablePermanent(ushort itemRow) =>
+            // Every set's data keyed triggers are tracked; FillerSpace is the permanent set's padding row.
+            bool IsTrackable(ushort itemRow) =>
                 catalog.ItemsByRow.TryGetValue(itemRow, out var it)
                 && catalog.AchievementsByRow.TryGetValue(it.AchievementRow, out var ach)
-                && ach.SetId == InstanceAchievements.PermanentAchievementSetId
                 && !string.Equals(ach.Id, "FillerSpace", StringComparison.Ordinal);
 
             var killMap = new Dictionary<string, List<ushort>>(StringComparer.Ordinal);
@@ -163,7 +164,7 @@ public static partial class Game
                     {
                         if (row.Text("Id") is not { Length: > 0 } mvId) continue;
                         foreach (int key in row.Ints("KillSpecificMonsterCount_AchievementItemsKeys"))
-                            if (key >= 0 && key <= ushort.MaxValue && IsTrackablePermanent((ushort)key))
+                            if (key >= 0 && key <= ushort.MaxValue && IsTrackable((ushort)key))
                                 AddKill(mvId, (ushort)key);
                     }
                 }
@@ -184,10 +185,19 @@ public static partial class Game
                         if (row.Text("Id") is not { Length: > 0 } areaId) continue;
                         List<ushort>? matched = null;
                         foreach (int key in row.Ints("FullClear_AchievementItemsKeys"))
-                            if (key >= 0 && key <= ushort.MaxValue && IsTrackablePermanent((ushort)key))
+                            if (key >= 0 && key <= ushort.MaxValue && IsTrackable((ushort)key))
                                 (matched ??= []).Add((ushort)key);
                         if (matched is { Count: > 0 })
                             catalog.FullClearItemsByArea[areaId] = [.. matched];
+                    }
+                }
+                if (waTable.HasColumn("Enter_AchievementItemsKey"))
+                {
+                    foreach (var row in waTable)
+                    {
+                        if (row.Text("Id") is not { Length: > 0 } areaId) continue;
+                        if (row.IntOrNull("Enter_AchievementItemsKey") is not int key || key < 0 || key > ushort.MaxValue) continue;
+                        if (IsTrackable((ushort)key)) catalog.EnterItemsByArea[areaId] = (ushort)key;
                     }
                 }
             }
@@ -200,7 +210,7 @@ public static partial class Game
                     foreach (var row in bitTable)
                     {
                         if (row.IntOrNull("Equip_AchievementItemsKey") is not int key || key < 0 || key > ushort.MaxValue) continue;
-                        if (!IsTrackablePermanent((ushort)key)) continue;
+                        if (!IsTrackable((ushort)key)) continue;
                         if (row.Text("Id") is { Length: > 0 } baseId)
                             catalog.EquipItemByTypeHash[InstanceEntities.ObjectTypeHash(baseId)] = (ushort)key;
                     }
@@ -215,7 +225,7 @@ public static partial class Game
     static object? AchievementCatalogRevision;
     static AchievementCatalog AchievementCatalogCache = AchievementCatalog.Empty;
 
-    /// <summary>Builds the permanent achievements catalog from <see cref="ClientTables"/> at module startup.</summary>
+    /// <summary>Builds the achievements/challenges catalog from <see cref="ClientTables"/> at module startup.</summary>
     public static void LoadAchievementsData()
     {
         lock (AchievementCatalogGate)
@@ -367,15 +377,42 @@ public static partial class Game
         return bitset;
     }
 
-    /// <summary>Initial <c>S->C 0x126</c> permanent achievement progress message sent on area entry (<see cref="GameEvents.EnterMessages"/>).</summary>
+    /// <summary>
+    /// The challenge set a league's characters see, from the league's launch category: Deepwater (59) uses the softcore
+    /// set 79 or the Ruthless set 80. Other leagues show the permanent achievements set only.
+    /// </summary>
+    public static byte? ChallengeSetFor(byte launchCategory, bool hardMode) =>
+        launchCategory == 59 ? (hardMode ? (byte)80 : (byte)79) : null;
+
+    /// <summary>The challenge set for this player's league, if it has one.</summary>
+    public static byte? ChallengeSetFor(Player player) =>
+        ChallengeSetFor(LeagueFor(player).LaunchCategory, LeagueFor(player).HardMode);
+
+    /// <summary>The tabs S->C 0x1d's optional AchievementSetsDisplay list shows: permanent achievements and the league's challenges.</summary>
+    public static IReadOnlyList<byte> VisibleAchievementSets(Player player) =>
+        ChallengeSetFor(player) is { } challenge ? [InstanceAchievements.PermanentAchievementSetId, challenge]
+            : [InstanceAchievements.PermanentAchievementSetId];
+
+    /// <summary>Initial <c>S->C 0x126</c> progress messages for every visible set, sent on area entry (<see cref="GameEvents.EnterMessages"/>).</summary>
     public static IReadOnlyList<(string Log, byte[] Bytes)> AchievementEnterMessages(Player player)
     {
         if (player.Controlled) return [];
         var catalog = AchievementsCatalog();
-        if (!catalog.Sets.ContainsKey(InstanceAchievements.PermanentAchievementSetId)) return [];
-        byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(player), InstanceAchievements.PermanentAchievementSetId);
-        return [($"0x0126 achievement progress (set {InstanceAchievements.PermanentAchievementSetId}, {bitset.Length} bytes)",
-            InstanceAchievements.AchievementProgress(InstanceAchievements.PermanentAchievementSetId, bitset))];
+        var messages = new List<(string, byte[])>();
+        foreach (byte setId in VisibleAchievementSets(player))
+        {
+            if (!catalog.Sets.ContainsKey(setId)) continue;
+            byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(player), setId);
+            messages.Add(($"0x0126 achievement progress (set {setId}, {bitset.Length} bytes)",
+                InstanceAchievements.AchievementProgress(setId, bitset)));
+        }
+        return messages;
+    }
+
+    /// <summary>Sends <c>S->C 0x126</c> progress for every visible set (panel open).</summary>
+    public static async Task SendVisibleAchievementProgress(Player player)
+    {
+        foreach (byte setId in VisibleAchievementSets(player)) await SendAchievementProgress(player, setId);
     }
 
     static Task SendAchievementPacket(Player player, byte[] bytes, string log)
@@ -426,6 +463,9 @@ public static partial class Game
         if (!catalog.AchievementsByRow.TryGetValue(item.AchievementRow, out var parent)) return false;
         if (player.Character.Hardcore && parent.SoftcoreOnly) return false;
         if (!player.Character.Hardcore && parent.HardcoreOnly) return false;
+        // Only the permanent set and the league's own challenge set are tracked: the client data also keys historical
+        // league challenges, and those must not be awarded (or toasted) to characters that cannot see their tab.
+        if (!VisibleAchievementSets(player).Contains(parent.SetId)) return false;
 
         // Fast zero-alloc check before entering persistence transaction.
         if (ReadCompletedItems(player).Contains(item.Id)) return false;
@@ -499,6 +539,9 @@ public static partial class Game
     public static async Task CheckAreaEntryAchievements(Player player)
     {
         if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        var catalog = AchievementsCatalog();
+        if (catalog.EnterItemsByArea.TryGetValue(player.Layout.Id, out ushort enterItem))
+            await AwardAchievementItem(player, enterItem);
         if (MapRunOf(player) is not null && MapDevices.IsMapArea(player.Layout.Hash))
             await AwardAchievementItem(player, "OpenAndEnterAMap");
     }
