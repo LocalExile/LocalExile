@@ -422,7 +422,6 @@ static class LegionDomain
     {
         DomainPhase phase; double startedAt, endsAt, timerSec;
         lock (state) (phase, startedAt, endsAt, timerSec) = (state.Phase, state.StartedAt, state.EndsAt, state.TimerSeconds);
-        if (LegionRules.Add() is { } add) await PlayerOf(player).Send(add, "0x001f ruleset LegionRules (domain)");
         double now = global::Game.AreaTime(player);
         float elapsed = phase == DomainPhase.Active ? (float)Math.Clamp(now - startedAt, 0, timerSec) : 0f;
         byte stage = phase switch { DomainPhase.Active => 1, DomainPhase.Finished => 2, _ => 0 };

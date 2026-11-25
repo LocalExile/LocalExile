@@ -261,6 +261,25 @@ static class LegionArmy
         return RollRewards(pool, count, rng);
     }
 
+    /// <summary>
+    /// THE COUNT MODEL AND THE GENERAL AND CHEST ROLLS, A GUESS FROM THE DATA; reverse engineering can correct them here
+    /// and nowhere else. Per faction and area level:
+    /// - the rank group is the LegionRanks rows (one per tier 0..3, tier = col0) of the balance row with the highest
+    ///   MinLevel &lt;= level, falling back to a lower group that has LegionMonsterCounts for the faction (ranks 12-15 have none);
+    /// - LegionMonsterCounts per rank row: col2..col3 = the min and max count (inclusive), col4..col5 = the band of the
+    ///   formation's depth in percent where the group stands, col6 = the number of varieties (matches LegionMonsterVarieties);
+    ///   tier 0 and 1 are the normal and elite monsters, tier 2 sergeants, tier 3 the general (counted only when it appears);
+    /// - the general: the chosen rank group's tier 3 row col7 is the base percent chance (0 below level 46, 1 at 46, up to 8
+    ///   at 82; the endless row 0) of one general in the whole encounter, times (100 + map_legion_general_chance_+%) / 100,
+    ///   and it goes to one of the two armies at random (at most one);
+    /// - varieties are the faction's LegionMonsterVarieties rows of the same tier (those exist only for rank rows 0..3; rows
+    ///   whose rank is endless, MinLevel &gt; 100, are left out), each monster picking one uniformly;
+    /// - LegionChestCounts: the faction's rows with the highest MinLevel &lt;= level; the tier 0 row gives col2..col3 chests
+    ///   (0 to 2, no forced minimum) and the band col4..col5; the tier 1 row's col7 is the percent chance, rolled once per army,
+    ///   that one of its chests (or one extra if it has none) is a War Hoard (the faction's second LegionChestTypes row). The other reading, a roll per chest,
+    ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes;
+    /// - the Scarab and Atlas stats of <c>stats</c> (more sergeants, pack size, chest and monster rewards) add to these, as the guess of their own.
+    /// </summary>
     static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general,
         IReadOnlyDictionary<uint, int> stats, Random rng, int sergeantChance)
     {
