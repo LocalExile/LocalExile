@@ -688,7 +688,7 @@ public static partial class Game
                         BleedReflected(playerStats)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
-                if (!raged) raged = RageOnHitLocked(player, attack: true, melee: weapon.Melee, critical);
+                if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
                 if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
@@ -2652,6 +2652,12 @@ public static partial class Game
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
+        double chargeAttackMore = 1;
+        if (!spell && Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge) is not 0 and var perCharge)
+        {
+            int charges = cooldownUse?.EnduranceChargesAfterCost ?? ChargesOf(player).Effective(ChargeType.Endurance);
+            chargeAttackMore = Math.Max(0, 1 + perCharge * (double)charges / 100);
+        }
         if (!hitPlan.CanHit)
         {
             if (IsBane(player, gem.Effect))
@@ -2915,7 +2921,7 @@ public static partial class Game
         Item? weaponContactSource = null, secondWeaponContactSource = null;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<uint, int>? weaponLocal = null;
-        string? sweepWeaponClass = null;
+        string? sweepWeaponClass = null, secondSweepWeaponClass = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
         // Mirrored monster's reflected ailments reach the player (its freeze would end the action between two targets).
@@ -2985,7 +2991,10 @@ public static partial class Game
                             ? SupportedHitInputsFor(player, skillId, weapon: bothOff, charges: discharge?.Charges, capturedGem: admittedGem)
                             : null;
                         if (weaponAttack && offInputs is not null)
+                        {
                             secondWeaponContactSource = SkeletonWeaponContactSource(player, AttackHand.Off, bothOff?.LocalSources);
+                            secondSweepWeaponClass = bothOff?.ItemClass;
+                        }
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
                         // before the shared hit and ailment ancestry, so increases, more multipliers and prohibition
                         // rules see it exactly as they see any other spell-added damage.
@@ -3129,6 +3138,7 @@ public static partial class Game
                         };
                     var contactHit = profile.Hit;
                     if (frostboltMore != 1) contactHit = contactHit.Scale(frostboltMore);
+                    if (chargeAttackMore != 1) contactHit = contactHit.Scale(chargeAttackMore);
                     if (spell && repeat > 0) contactHit = contactHit.Scale(GreaterEchoHitMore(repeat, Stat));
                     if (waveCloseDamage != 0 && victim < reach.Length)
                         contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
@@ -3327,8 +3337,9 @@ public static partial class Game
                             movement: SkillsFor(player).IsMovement(gem.Effect)));
                         if (fortifiedThisHit) AfterFortificationGainLocked(player, playerStats);
                         stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
-                        if (!rageGranted) rageGranted = RageOnHitLocked(player, attack: !spell,
-                            melee: !spell && SkillsFor(player).IsMelee(gem.Effect), critical, skillStats, playerStats: playerStats);
+                        if (!rageGranted) rageGranted = RageOnHitWithWeaponLocked(player, attack: !spell,
+                            melee: !spell && SkillsFor(player).IsMelee(gem.Effect), critical, sweepWeaponClass,
+                            skillStats, playerStats: playerStats, secondWeaponClass: secondSweepWeaponClass);
                         if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         {
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
@@ -4198,6 +4209,7 @@ public static partial class Game
         if (playerKill)
         {
             WitchbaneOnKill(player, m, AreaTime(player));
+            await ApplyMapDeathMarkOnKill(player, m);
             await GameEvents.RunMonsterKilled(new(player, monster));
             if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
             ChargesOnKill(player, m);

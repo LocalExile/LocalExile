@@ -23,6 +23,16 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    const ushort MarkedForDeathBuffRow = 2431;
+    static readonly IReadOnlyDictionary<uint, int> MarkedForDeathStats =
+        new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 50 };
+
+    static Task ApplyMapDeathMarkOnKill(Player player, SpawnedMonster monster) =>
+        (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique)
+            && MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) is > 0 and var milliseconds
+            ? AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d)
+            : Task.CompletedTask;
+
     static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
     {
         if (map is null) return;

@@ -325,6 +325,13 @@ public static partial class Game
                 paid = (mana, life);
             }
             if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
+            // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
+            // must not change the attack already admitted by this ticket.
+            int? enduranceCharges = null;
+            if (reserve && plan is not null && skillId is ushort chargeAttack && SkillsFor(player).IsAttack(effect)
+                && Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge is var perCharge
+                && GolemStat(SupportedSkill(player, chargeAttack).Stats, perCharge) != 0)
+                enduranceCharges = ChargesOf(player).Effective(ChargeType.Endurance);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -339,6 +346,7 @@ public static partial class Game
                 SharedUses = sharedUses, Paid = paid, Attack = attack,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
+            accepted.EnduranceChargesAfterCost = enduranceCharges;
             return true;
         }
     }

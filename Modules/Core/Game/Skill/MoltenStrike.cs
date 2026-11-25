@@ -440,7 +440,8 @@ public static partial class Game
                 if (fortifiedThisHit) AfterFortificationGainLocked(player, playerStats);
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
-                    rageGranted = RageOnHitLocked(player, attack: true, melee: true, critical, skillStats, playerStats: playerStats);
+                    rageGranted = RageOnHitWithWeaponLocked(player, attack: true, melee: true, critical,
+                        weapon.ItemClass, skillStats, playerStats: playerStats);
                 CombatRushOnHit(player, skillStats, now);
                 HallowOnMeleeHit(player, m, skillStats, now);
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);
