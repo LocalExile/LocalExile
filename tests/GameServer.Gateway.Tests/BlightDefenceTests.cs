@@ -68,7 +68,13 @@ public sealed class BlightDefenceTests
         await encounter.Start(area.A, d);
         d.MonstersPerLane = 2;
         double now = d.StartedAt + 100;
-        for (int i = 0; i < 4; i++) await encounter.Tick(area.A, now += 100);
+        for (int i = 0; i < 4; i++)
+        {
+            await encounter.Tick(area.A, now += 100);
+            // Hold the waves outside pump reach until the test deliberately lets one through.
+            foreach (uint id in d.Monsters.Keys)
+                area.A.Area.Monsters[id].Walk.Teleport(20, 20, now);
+        }
         Assert.Equal(Phase.Running, d.Phase);
         Assert.Equal(d.Plan!.Lanes.Count * 2, d.Monsters.Count);
         Assert.All(d.Monsters.Keys, id => Assert.Equal(d.Level, area.A.Area.Monsters[id].Level));
