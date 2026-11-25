@@ -909,7 +909,8 @@ public static partial class Game
         });
         bool ignorePhysical = MinionIgnoresPhysicalReduction(mitigated, effects, target, random, a.Stats);
         int projectileTaken = projectile ? MinionProjectileCurseStat(target, Stat.ProjectileDamageTakenPlusPct, now) : 0;
-        int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random);
+        int damage = MonsterTakesMitigatedCore(target, mitigated, a.Attack.Spell, now, projectileTaken, ignorePhysical, random,
+            a.Attack.Spell ? 0 : Math.Max(0, effects[Stat.EnemyPhysReductionPctPenaltyVsHit]));
         var from = g.Monster.Walk.Position(now);
         var to = target.Walk.Position(now);
         var cull = Cull.Of(effects.Stats, a.Stats, critical, a.Attack.Spell).WithWeapon(g.Weapon?.LocalSources);
@@ -938,6 +939,9 @@ public static partial class Game
             GrantMinionShieldLeech(g, target, profile.ShieldLeech, mitigated, damage, now);
         }
         if (!target.Dead && damage > 0) MinionExposureOnHitLocked(g.Own, target, mitigated, now, AreaRng(player));
+        // The hit event, with the minion as its actor: a rule that names minions runs for it, the player's own do not.
+        if (damage > 0)
+            HitLandedLocked(player, target, critical, a.Attack.Spell, a.Stats, CombatActors.Minion, at: now, damage: mitigated, monsterId: id);
         if (hit.StageStarts)
         { CommitBossStage(player, id, target, now); hit = hit with { StageStarts = false }; }
         ushort flags = MonsterHitFlags(blocked: false, critical);

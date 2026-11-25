@@ -167,7 +167,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   weapon, the old leech and spell block names, "+# to Armour and Evasion Rating"). Offline tests only so far.
 - Added damage "with Axe / Mace or Sceptre / Staff / Sword Attacks" counts for attacks with that weapon, Overwhelm
   takes its percent off the physical damage reduction a hit meets, and "Minions take #% increased Damage" reaches
-  minions. Offline tests only so far.
+  minions. A minion's hit is a hit event of its own actor: "Minions have #% chance to Blind on Hit with Attacks" and
+  "... to Hinder Enemies on Hit with Spells" run from it, and minions' attacks Overwhelm. Offline tests only so far.
   Code: `Modules/Core/Game/Effects/`. Not yet: see the doc's "Not yet".
 
 ## Not working yet

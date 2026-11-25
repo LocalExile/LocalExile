@@ -301,6 +301,13 @@ The reverse-engineering behind the art and buff choices is in
 - An always-on item skill has `cast_on_gain_skill` in its stat set (the aegises, Death Aura, Blinding Aura, Abberath's
   Fury, Death Walk); most of them have no radius or period in their data.
 
+## Minion hits
+
+A minion's hit raises the hit event (`HitLanded`) with `Who` = `minion`, at the minion's own hit in `GolemCombat`
+(its projectiles and the other minion hit paths do not yet). A rule runs for it only when its trigger says
+`"who": "minion"`: `"any"` is the character and its totems, traps and mines, whose hits use the character's stats.
+The rule's numbers still come from the player's stats (the `minion_...` line is the player's).
+
 ## Aliases and `remove`
 
 `fx_aliases` holds stats that are another stat under a second id, with no condition (`stat`, `counts_as`, `scale`).

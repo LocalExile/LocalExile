@@ -579,6 +579,9 @@ public static class EffectRules
         foreach (var rule in rules)
         {
             if (rule.Rule.Who is { } who && who != e.Who) continue;
+            // A minion acts on its own stats: "anyone's" means the character and what it places (totems, traps, mines),
+            // whose hits use the character's stats. A rule is for minions only when it names them.
+            if (rule.Rule.Who is null && e.Who == CombatActors.Minion) continue;
             // A flask's own line fires for that flask's use, not for another flask's.
             if (e is ChargeEvent.FlaskUse used && rule.Source is { ItemId: not 0 } carrier && carrier.ItemId != used.ItemId) continue;
             if (rule.Rule.Chains && e.Depth > rule.Rule.MaxDepth && LoopGuard) continue;

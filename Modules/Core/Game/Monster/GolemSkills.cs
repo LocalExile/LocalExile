@@ -269,6 +269,8 @@ public static partial class Game
         int Get(uint n) => GolemStat(playerStats, n);
         GolemAdd(values, Stat.GlobalChanceToBlindOnHitPct, Get(Stat.MinionsPctChanceToBlindOnHit));
         GolemAdd(values, Stat.BaseChanceToPoisonOnHitPct, Get(Stat.MinionsChanceToPoisonOnHitPct));
+        // "Minions' Attacks Overwhelm X% Physical Damage Reduction": the minion's own Overwhelm, read at its hit.
+        GolemAdd(values, Stat.EnemyPhysReductionPctPenaltyVsHit, Get(Stat.MinionsAttacksOverwhelmPctPhysicalDamageReduction));
         // "Minions have X% increased Damage over Time Multiplier": the id carries the
         // minion prefix in the middle, so the strip above never reaches it.
         GolemAdd(values, Stat.DotMultiplierPlus, Get(Stat.BaseMinionDotMultiplierPlus));
