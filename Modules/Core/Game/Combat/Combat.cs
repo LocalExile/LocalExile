@@ -1619,8 +1619,6 @@ public static partial class Game
             StartVaalImmortalCall(player, session, skillId, AreaTime(player));
             return true;
         }
-        if (gem.Name is not null && vaalUse is not null && VaalAuras.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? ""))
-            return await ActivateVaalAura(player, skillId, Current);
         if (gem.Name is not null && vaalUse is not null && SkillsFor(player).EffectId(gem.Effect) is { } auraEffect
             && TimedVaalAuraBuffRows.TryGetValue(auraEffect, out ushort auraRow))
             return await ActivateTimedVaalAura(player, skillId, auraEffect, auraRow, Current);
@@ -1975,6 +1973,7 @@ public static partial class Game
     }
 
     static ushort OwnAuraBuffTag(AuraCatalog.Aura aura) =>
+        aura.EffectId == "VaalDiscipline" ? (ushort)BuffTag.VaalAura :
         StanceCatalog.SourceFamily(aura.EffectId) == StanceCatalog.BloodAndSand
             ? (ushort)BuffTag.BloodAndSand : (ushort)0;
 
@@ -1990,7 +1989,7 @@ public static partial class Game
         if (aura.SourceBuff is not null)
             yield return new(aura.BuffRow, id, aura.SkillId, AuraSource: true, DisplayState: 0, Visual: aura.SourceVisual, Tag: tag);
         yield return new(aura.BuffRow, id, aura.SkillId, U68: Buff.Seconds(duration),
-            ActiveSkill: Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null,
+            ActiveSkill: tag != (ushort)BuffTag.VaalAura && Skills.ActionHash(aura.Effect) is ushort hash ? (aura.SkillId, hash) : null,
             Visual: aura.BuffVisual, Tag: tag);
     }
 
