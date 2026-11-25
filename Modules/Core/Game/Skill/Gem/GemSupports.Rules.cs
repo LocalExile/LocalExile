@@ -475,6 +475,8 @@ public static partial class Game
             write(key, replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
+        if ((efficiency & CostEfficiency.Curse) != 0 && read(Stat.CurseSkillsCostLifeInsteadOfMana) > 0)
+            write(Stat.SkillCostLifeInsteadOfMana, 1);
         long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
             + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
             + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
