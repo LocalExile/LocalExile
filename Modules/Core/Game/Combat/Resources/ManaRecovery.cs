@@ -19,8 +19,16 @@ public static class ManaRecoveryRules
 
     static decimal ScaledCost(int supportedBase, Func<uint, int> player, double more)
     {
-        decimal scaled = decimal.Floor(Math.Max(0, supportedBase) * Math.Max(0m, 100m - player(Stat.BaseManaCostMinusPct))
-            * Math.Max(0m, 100m + player(Stat.ManaCostPlusPct) + player(Stat.BaseCostPlusPct)) / 10000m);
+        // The published cost takes a floored reduction off the base, not a floored product: base 55 with 47% less and a
+        // flat -14 publishes 16 (flooring the product gives 15), 50% less publishes 14 (13). Those samples carry no
+        // increase, so a reduction together with an increased mana cost is not measured: the increase keeps its own floor.
+        int reduction = player(Stat.BaseManaCostMinusPct);
+        decimal baseCost = Math.Max(0, supportedBase);
+        decimal reduced = reduction > 0
+            ? baseCost - decimal.Floor(baseCost * Math.Min(100, reduction) / 100m)
+            : baseCost * (100m - reduction) / 100m;
+        decimal scaled = decimal.Floor(reduced
+            * Math.Max(0m, 100m + player(Stat.ManaCostPlusPct) + player(Stat.BaseCostPlusPct)) / 100m);
         scaled = Math.Clamp(scaled, 0m, int.MaxValue);
         if (more != 1)
             scaled = (decimal)Math.Clamp(Math.Round((double)scaled * more), 0, int.MaxValue);
