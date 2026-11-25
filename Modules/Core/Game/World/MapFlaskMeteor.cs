@@ -91,9 +91,9 @@ public static partial class Game
                 BinaryPrimitives.WriteUInt32BigEndian(clip.AsSpan(6), uint.MaxValue);
                 // Retain the effect in this map for joining clients. Address queued packets to viewers in this visit.
                 area.Objects.RecordDirect(id, create, AreaDelta.Kind.Create, viewers[0], warning);
+                area.Objects.RecordDirect(id, clip, AreaDelta.Kind.World, viewers[0]);
                 foreach (var viewer in viewers)
                 {
-                    area.Objects.RecordDirect(id, clip, AreaDelta.Kind.World, viewer);
                     area.Delta.Add(id, create, warning, AreaDelta.Kind.Create, only: viewer);
                     area.Delta.Add(id, clip, only: viewer);
                 }

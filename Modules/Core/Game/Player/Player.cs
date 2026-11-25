@@ -251,12 +251,13 @@ public static partial class Game
         player.ChannelMovement = default;
         EndShieldChargeIfInterrupted(player);
         ChargesOnDeath(player);
+        ClearOwnerAttacks(player);
         ClearBloodChargesOnDeath(player);
+        ClearSteelWardOnDeath(player);
         ClearResonance(player);
         EndTimedSkillBuffs(player);
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
-        VaalAuraStates.Remove(player); // CancelOnDeath: it cannot return after resurrection.
         ClearAntiquarianOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
@@ -466,9 +467,10 @@ public static partial class Game
             {
                 lifeBasis = (int)Math.Min(cost, int.MaxValue);
                 if (player.PetrifiedBlood.Active && Read(ItemChargeCosts.ManaEfficiency) != 0
-                    && own.TryGetValue(Stat.ManaCost, out int unsplitBase))
+                    && (own.TryGetValue(Stat.ManaCost, out int unsplitBase) || Own(Stat.BaseManaCostPct) > 0))
                 {
-                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0)
+                    if (Own(Stat.ManaweaveCostEqualsPctUnreservedMana) > 0 || Own(Stat.FrostmageCostEqualsPctReservedMana) > 0
+                        || Own(Stat.BaseManaCostPct) > 0)
                         unsplitBase = Read(Stat.BaseManaCost);
                     lifeBasis = ManaRecoveryRules.Cost(unsplitBase, Read, channelled, SkillCostMore(player, own),
                         applyManaEfficiency: false);
@@ -516,18 +518,37 @@ public static partial class Game
     public static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost) =>
         PayMana(player, skillId, out cost, out lifeCost, 100);
 
-    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent, bool useSpell = true)
+    internal static bool PayMana(Player player, ushort skillId, out uint cost, out uint lifeCost, int costPercent,
+        bool useSpell = true, ChargeType? cooldownBypass = null)
     {
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
         lifeCost = 0;
         if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs,
-                out int rage, out var playerStats, costPercent)
-            || rage > 0 && !player.Rage.Spend(rage, ProjectileWorldTime(player), RageStats.Inputs(player, playerStats.GetValueOrDefault)))
+                out int rage, out var playerStats, costPercent))
         {
             cost = 0;
             return false;
         }
+        double rageAt = 0;
+        RageState.Inputs rageInputs = default;
+        if (rage > 0)
+        {
+            rageAt = ProjectileWorldTime(player);
+            rageInputs = RageStats.Inputs(player, playerStats.GetValueOrDefault);
+            if (player.Rage.Read(rageAt, rageInputs).Current < rage)
+            {
+                cost = 0;
+                return false;
+            }
+        }
+        if (cooldownBypass is { } charge && !ChargesOf(player).Spend(charge))
+        {
+            cost = 0;
+            return false;
+        }
+        if (rage > 0 && !player.Rage.Spend(rage, rageAt, rageInputs))
+            throw new InvalidOperationException("Chainbreaker Rage cost changed inside admission");
         if (es + fromEs > 0)
         {
             player.EnergyShield.Spend(es + fromEs);
@@ -1550,7 +1571,8 @@ public static partial class Game
         return atCap ? (0, before, after) : (percent, before, after);
     }
 
-    // The player's final resistance for one damage type: the passive/gear modifier plus the Kitava quest penalty.
+    // The player's final uncapped resistance for one damage type: the passive/gear modifier plus the Kitava quest
+    // penalty and scorch, then Tempered by War's 50% less Cold and Lightning resistance before capping.
     public static int Resistance(Player player, DamageType type)
     {
         int modifier = type switch
@@ -1561,7 +1583,11 @@ public static partial class Game
             DamageType.Chaos => player.Pools.ChaosResistance,
             _ => 0,
         };
-        return type == DamageType.Physical ? modifier : modifier + ResistancePenalty(player) + PlayerScorchedResistance(player, type);
+        if (type == DamageType.Physical) return modifier;
+        int total = modifier + ResistancePenalty(player) + PlayerScorchedResistance(player, type);
+        if (player.Pools.HalveColdAndLightningResistance && type is DamageType.Cold or DamageType.Lightning)
+            total /= 2;
+        return total;
     }
 
     // The per-type maximum from Character.ot's 75 plus the passive/gear maximum-resistance modifiers, hard-capped at 90.
@@ -1666,6 +1692,7 @@ public static partial class Game
             {
                 await Send(player, InstanceProtocol.DeathScreen(0x02), "0x0055 hide the death screen");
                 RestorePlayerOnResurrect(player);
+                ClearOwnerAttacks(player);
                 await GainFlaskCharges(player, int.MaxValue, "resurrected");
                 // The new area's player object is created with full life.
                 await ChangeArea(player, new PendingTransfer(player.Character.LastTown, 0, false, AtSpawn: true), "resurrect in town");

@@ -62,6 +62,7 @@ public static partial class Game
                          .Where(id => id is "AvianMightShared" or "AvianFlightShared" && !previousAvian.Contains(id)))
                 QueueTwisterGainLocked(player);
             player.AuraStatsDirty = true;
+            MarkPlayerStats(player, PlayerStatStep.VaalAura);
             player.Pools = BuildPoolsFor(player, player.Pools.Level);
             player.ApplyMovementSpeed();
             player.EnergyShield.SetMaximum(player.Pools.EnergyShield);

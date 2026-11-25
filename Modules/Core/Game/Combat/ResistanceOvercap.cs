@@ -56,8 +56,8 @@ public static class ResistanceOvercap
         if (StatOf(Stat.ElementalResistancesAreLimitedByHighestMaximumElementalResistance) != 0)
             fireMax = coldMax = lightningMax = Math.Max(fireMax, Math.Max(coldMax, lightningMax));
         bool tempered = StatOf(Stat.KeystoneTemperedByWar) != 0;
-        int coldForOvercap = (tempered ? coldRaw / 2 : coldRaw) + penalty;
-        int lightningForOvercap = (tempered ? lightningRaw / 2 : lightningRaw) + penalty;
+        int coldForOvercap = tempered ? (coldRaw + penalty) / 2 : coldRaw + penalty;
+        int lightningForOvercap = tempered ? (lightningRaw + penalty) / 2 : lightningRaw + penalty;
         var derived = Increases(coldForOvercap, coldMax, Enabled(stats, sources, ColdEvasionFlag),
             lightningForOvercap, lightningMax, Enabled(stats, sources, LightningCritFlag));
         int manaDivisor = StatOf(Stat.ManaIncreasedPerXOvercappedLightningResistanceChoirOfTheStorm);
@@ -82,9 +82,12 @@ public static class ResistanceOvercap
     public static bool IsInput(uint name) => name is ColdEvasionFlag or LightningCritFlag or ColdAndLightningResistance
         or Stat.FireAndColdDamageResistancePct or Stat.FireAndLightningDamageResistancePct
         or Stat.BaseColdDamageResistancePct or Stat.BaseLightningDamageResistancePct or Stat.BaseResistAllElementsPct
+        or Stat.BaseChaosDamageResistancePct or Stat.BaseMaximumChaosDamageResistancePct
         or Stat.ElementalResistancesAreLimitedByHighestMaximumElementalResistance or Stat.BaseMaximumFireDamageResistancePct
         or Stat.BaseMaximumColdDamageResistancePct or Stat.BaseMaximumLightningDamageResistancePct
-        or Stat.AdditionalMaximumAllResistancesPct or Stat.AdditionalMaximumAllElementalResistancesPct;
+        or Stat.AdditionalMaximumAllResistancesPct or Stat.AdditionalMaximumAllElementalResistancesPct
+        or Stat.KeystoneTemperedByWar or Stat.ManaIncreasedPerXOvercappedLightningResistanceChoirOfTheStorm
+        or Stat.EnergyShieldIncreasedByChaosResistance;
 
     /// <summary>Whether a flag stat is set in the passive and item sources.</summary>
     public static bool Enabled(StatCatalog stats, IReadOnlyDictionary<uint, int> sources, uint flag) =>

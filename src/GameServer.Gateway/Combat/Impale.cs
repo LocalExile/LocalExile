@@ -80,5 +80,15 @@ public sealed class ImpaleState
         return (reflected, applied);
     }
 
+    /// <summary>Removes the live impales and returns their count and total damage remaining across all hits.</summary>
+    public (int Count, double Reflected) Consume(double now)
+    {
+        Expire(now);
+        var remaining = (Count: _stacks.Count, Reflected: 0d);
+        foreach (var (stored, hits, _) in _stacks) remaining.Reflected += stored * hits;
+        _stacks.Clear();
+        return remaining;
+    }
+
     public void Clear() => _stacks.Clear();
 }

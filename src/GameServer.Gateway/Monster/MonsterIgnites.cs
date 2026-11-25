@@ -51,12 +51,12 @@ public sealed class MonsterIgnites
         {
             if (MonsterElementalAilments.CannotInflict("ignite", get) || get(Stat.NeverDamagingAilments) != 0) return None;
             var r = rows.ToDictionary(x => x.Stat, x => x.Value);
-            double faster = Faster(get);
+            bool attackHand = hand is "main_hand" or "off_hand";
+            double faster = Faster(get, attackHand);
             if (faster <= 0) return None;
             double Row(string bound, string kind) =>
                 r.GetValueOrDefault(Stat.Of($"{bound}_ignite_damage_to_deal_per_minute_from_{kind}_{hand}_damage")) / 60.0 * faster;
             // Shaper of Flames: "Hits always Ignite" (always_ignite). Attack and weapon tincture ignite stats apply to weapon hands only.
-            bool attackHand = hand is "main_hand" or "off_hand";
             bool tinctureWeapon = attackHand && get(Stat.TinctureApplied) != 0;
             long chance = (long)get(Stat.BaseChanceToIgnitePct) + get(Stat.ChanceToFreezeShockIgnitePct)
                 + (attackHand ? get(Stat.AttackIgniteChancePct) : 0)
@@ -81,8 +81,11 @@ public sealed class MonsterIgnites
     }
 
     /// <summary>The "deal damage faster" factor of the attacker's ignites (1 without one).</summary>
-    public static double Faster(Func<uint, int> get) =>
-        Math.Max(0, 1 + ((double)get(Stat.FasterBurnPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)) / 100.0);
+    public static double Faster(Func<uint, int> get) => Faster(get, attack: false);
+
+    static double Faster(Func<uint, int> get, bool attack) =>
+        Math.Max(0, 1 + ((double)get(Stat.FasterBurnPct) + get(Stat.DamagingAilmentsDealDamagePlusPctFaster)
+            + (attack ? get(Stat.FasterBurnFromAttacksPct) : 0)) / 100.0);
 
     /// <summary>The target's base_self_ignite_duration_-% (Fire and Ignite Resistant) on an ignite's duration.</summary>
     public static double SelfDuration(Func<uint, int> target) =>

@@ -38,7 +38,7 @@ public static partial class Game
         var skill = SkillsFor(player).FindByRow(SkillCatalog.FirstSkillId, effect, level, own.Select(s => (s.Key, s.Value)).ToArray());
         if (skill is null) return null;
         var blob = new MonsterObject(at.X, at.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData };
+            Team: 0, Skills: [skill], Stats: [(Stat.MaximumLife, (int)life)]) { LifeData = variety.LifeData, Chain = variety.Chain };
         await SendWorldBatch(player, [], admission =>
         {
             if (!RampageEffectCurrent(player, epoch)) return null;

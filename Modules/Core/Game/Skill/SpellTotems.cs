@@ -209,6 +209,8 @@ public static partial class Game
             if (player.Paused || now < totem.NextCast) continue;
             // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
             if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
+            // Focused Ballista: due, but no owner attack to spend, no attack. It spends one when due, found a target or not.
+            if (!FocusedBallistaMayAttack(player, totem)) continue;
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             bool warchief = SkillsFor(player).EffectId(gem.Effect) == VaalAncestralWarchiefEffect;

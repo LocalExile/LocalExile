@@ -197,14 +197,36 @@ public static partial class Game
         foreach (var player in zone.Recipients) RemoveZoneRecipient(zone, player);
         zone.Recipients.Clear();
         if (zone is FrostShieldZone shield)
+        {
             foreach (var monster in shield.Chilled)
                 monster.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, shield.ChillSource);
-        zone.Owner.ProjectileObjects.Remove(zone.Object);
-        if (zone.Owner is { Closed: false, LeavingArea: false } owner && ReferenceEquals(owner.Area, zone.Area))
+            shield.Chilled.Clear();
+        }
+        zone.Owner.UntrackProjectileObject(zone.Object);
+        var remove = InstanceProtocol.RemoveObject(zone.Object);
+        if (zone.Area.Driven)
+        {
+            if (zone.Area.Owned) zone.Area.Delta.RemoveSharedObject(zone.Object, remove);
+            else zone.Area.Defer(a => a.Delta.RemoveSharedObject(zone.Object, remove));
+        }
+        else if (zone.Owner is { Closed: false, LeavingArea: false } owner && ReferenceEquals(owner.Area, zone.Area))
         {
             if (CurrentGameWork)
-                ProjectilesFor(owner).WorldRecords(zone.Object, () => [InstanceProtocol.RemoveObject(zone.Object)], remove: true);
-            else owner.RetiredCombatObjects.Add(zone.Object);
+                ProjectilesFor(owner).WorldRecords(zone.Object, () => [remove], remove: true);
+            else
+            {
+                owner.RetiredCombatObjects.Add(zone.Object);
+                zone.Area.Objects.RecordDirect(zone.Object, remove, AreaDelta.Kind.Remove, owner);
+            }
+        }
+        else
+        {
+            zone.Area.Objects.RecordDirect(zone.Object, remove, AreaDelta.Kind.Remove, zone.Owner);
+            if (zone.Owner.Instance is { } instance)
+                foreach (var ally in instance.PlayersExcept(zone.Owner.Id))
+                    if (ally is { Closed: false, LeavingArea: false } && ReferenceEquals(ally.Area, zone.Area))
+                        _ = SendWorldRemoval(ally, zone.Object,
+                            still: () => ally is { Closed: false, LeavingArea: false } && ReferenceEquals(ally.Area, zone.Area));
         }
     }
 

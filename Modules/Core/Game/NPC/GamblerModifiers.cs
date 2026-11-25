@@ -33,6 +33,8 @@ public readonly record struct GamblerModifiers(int DamageExtraRolls = 0, int Ene
 
     /// <summary>Growing Accumulator's less damage applies to hits and damage over time; triple damage only to hits.</summary>
     public bool InvertsResistance(Random random) => RandomRolls.Chance(InvertElementalResistanceChance, 100, random);
+    public bool InvertsResistance(Random random, int skillChance) =>
+        RandomRolls.Chance(ActorScale.Saturate((long)InvertElementalResistanceChance + skillChance), 100, random);
     public bool UsesNinetyResistance(Random random) => RandomRolls.Chance(EnemyHitsNinetyResistanceChance, 100, random);
 
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);

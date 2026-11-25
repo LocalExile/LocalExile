@@ -5,6 +5,9 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const int GuardCooldownGroup = 10;
+    const int GuardCooldownKey = -1 - GuardCooldownGroup;
+
     public static SingleUseCooldown? CooldownFor(Player player, int effect, int level, int quality)
     {
         var skills = SkillsFor(player);
@@ -114,7 +117,7 @@ public static partial class Game
         int? shared = skills.CooldownGroup(effect, supported.Level) switch
         {
             9 => 9,   // Blink
-            10 => 10, // Guard
+            GuardCooldownGroup when !skills.IsVaal(effect) => GuardCooldownGroup,
             1 when skills.IsWarcry(effect) && GolemStat(playerStats, Stat.WarcrySkillsShareCooldowns) != 0 => 1,
             _ => null
         };
@@ -126,11 +129,16 @@ public static partial class Game
         return current with { RecoveryPercent = finalRecovery };
     }
 
-    // Dash and the supported beast companions use native cooldown groups shared by alternate/worn effect rows.
-    public static int CooldownKey(Player player, int effect, int level) =>
-        (IsDashEffect(SkillsFor(player).EffectId(effect)) || IsSummonBeastialCompanionEffect(SkillsFor(player).EffectId(effect))
-            || SkillsFor(player).EffectId(effect) is TwisterEffect or CatStealthCryEffect)
-            && SkillsFor(player).CooldownGroup(effect, level) is >= 0 and var group ? -1 - group : effect;
+    // A regular guard's cooldown is owned by the group, with the last used guard's base and recovery rate.
+    public static int CooldownKey(Player player, int effect, int level)
+    {
+        var skills = SkillsFor(player);
+        int group = skills.CooldownGroup(effect, level);
+        if (group == GuardCooldownGroup && !skills.IsVaal(effect)) return GuardCooldownKey;
+        string? id = skills.EffectId(effect);
+        return group >= 0 && (IsDashEffect(id) || IsSummonBeastialCompanionEffect(id)
+            || id is TwisterEffect or CatStealthCryEffect) ? -1 - group : effect;
+    }
 
     public static int CooldownKey(Player player, int effect, ushort skillId)
     {
@@ -139,19 +147,21 @@ public static partial class Game
     }
 
     static (ushort Skill, int Key, SingleUseCooldown Plan, SingleUseCooldownState State)[] SharedCooldownPeers(
-        Player player, int effect, int key, SingleUseCooldown cooldown, double now) => cooldown.SharedGroup is null ? []
+        Player player, int effect, int key, SingleUseCooldown cooldown, double now) =>
+        cooldown.SharedGroup is null || key == GuardCooldownKey ? []
         : GemSkillEffects(player).Where(g => g.Effect != effect)
-            .GroupBy(g => CooldownKey(player, g.Effect, g.Id)).Where(g => g.Key != key).Select(g => g.First())
-            .Select(g => (Gem: g, Plan: CooldownFor(player, g.Effect, g.Level, g.Quality)))
+            .GroupBy(g => CooldownKey(player, g.Effect, g.Id)).Where(g => g.Key != key)
+            .Select(g => (g.Key, Gem: g.FirstOrDefault(s => player.CooldownSources.GetValueOrDefault(s.Effect) == s.Id)
+                is { Name: not null } previous ? previous : g.First()))
+            .Select(p => (p.Key, p.Gem.Id, Plan: CooldownForSkill(player, p.Gem.Id)))
             .Where(p => p.Plan is { } peer && peer.SharedGroup == cooldown.SharedGroup)
-            .Select(p => (p.Gem.Id, CooldownKey(player, p.Gem.Effect, p.Gem.Id), p.Plan!.Value,
-                CooldownStateLocked(player, CooldownKey(player, p.Gem.Effect, p.Gem.Id), p.Plan.Value, now))).ToArray();
+            .Select(p => (p.Id, p.Key, p.Plan!.Value, CooldownStateLocked(player, p.Key, p.Plan.Value, now))).ToArray();
 
     static List<(SingleUseCooldownState State, int Version, ushort Skill)> SpendSharedCooldownPeers(Player player,
         int key, int effect, ushort? skill, SingleUseCooldown plan, double now,
         (ushort Skill, int Key, SingleUseCooldown Plan, SingleUseCooldownState State)[] peers)
     {
-        if (skill is ushort source) player.CooldownSources[effect] = source;
+        if (skill is ushort source) player.CooldownSources[key == GuardCooldownKey ? key : effect] = source;
         if (plan.SharedGroup is int shared) player.CooldownGroups[key] = shared;
         else player.CooldownGroups.Remove(key);
         List<(SingleUseCooldownState, int, ushort)> receipts = [];
@@ -186,7 +196,7 @@ public static partial class Game
             }
             player.SingleUseCooldowns[key] = state;
         }
-        state.Refresh(now, plan.RecoveryRate);
+        state.Refresh(now, key == GuardCooldownKey && !state.FullyRecovered ? state.Rate : plan.RecoveryRate);
         state.Capacity(plan.Uses);
         return state;
     }
@@ -231,7 +241,8 @@ public static partial class Game
             if (effectId is TwisterEffect or CatStealthCryEffect) return false;
             SingleUseCooldownState? state = null;
             StanceAdmissionPlan? stancePlan = null;
-            int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey) : effect;
+            int key = skillId is ushort requestedKey ? CooldownKey(player, effect, requestedKey)
+                : plan?.SharedGroup == GuardCooldownGroup ? GuardCooldownKey : effect;
             var sharedUses = new List<(SingleUseCooldownState State, int Version, ushort Skill)>();
             if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0 || player.Paused
                 || requestedAt is double asked && PlayerActionBlocked(player, asked, AreaTime(player), instant)
@@ -287,7 +298,8 @@ public static partial class Game
             if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
-            bool bypassed = false, cooldownReset = false, retainRetaliationUse = false;
+            ChargeType? bypass = null;
+            bool cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
             ushort? payer = reserve && vaal is null && skillId is ushort candidate && PaysOnUse(player, candidate, effect)
                 ? candidate : null;
@@ -296,6 +308,7 @@ public static partial class Game
             {
                 double now = AreaTime(player);
                 state = CooldownStateLocked(player, key, cooldown, now);
+                if (key == GuardCooldownKey && !state.Ready) return false;
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
                 state.Refresh(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
@@ -307,24 +320,33 @@ public static partial class Game
                 else if (reserve ? !state.TryUse(now, cooldown) : !state.Ready)
                 {
                     // Cooling down: a skill with a cooldown bypass is used for a charge instead (CooldownBypass).
-                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge) return false;
-                    if (reserve ? !ChargesOf(player).Spend(charge) : !ChargesOf(player).CanSpend(charge)) return false;
-                    bypassed = true;
+                    if (triggered || CooldownBypassCharge(player, effect, skillId) is not { } charge
+                        || !ChargesOf(player).CanSpend(charge)) return false;
+                    bypass = charge;
                 }
                 player.SkillReadyAt[key] = now + state.RemainingSeconds;
-                if (reserve && !bypassed && !cooldownReset)
+                if (reserve && bypass is null && !cooldownReset)
                     sharedUses = SpendSharedCooldownPeers(player, key, effect, skillId, cooldown, now, peers);
             }
             // The accepted use pays its cost now, with its cooldown use or bypass charge, as the client pays at the start of
             // the use: a later failure (mana spent in between, a cast stopped before its effect) cannot leave the use spent
-            // and unpaid, and an accepted use is never refunded. The check above ran under the same lock, so this succeeds.
+            // and unpaid, and an accepted use is never refunded. A bypass charge is committed with the quoted cost,
+            // since losing the charge may itself change that cost.
             (uint Mana, uint Life)? paid = null;
             if (payer is ushort accepted && (plan is not null || attack is not null))
             {
-                if (!PayMana(player, accepted, out uint mana, out uint life)) return false;
+                if (!PayMana(player, accepted, out uint mana, out uint life, 100, cooldownBypass: bypass)) return false;
                 paid = (mana, life);
             }
+            else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
             if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
+            // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
+            // must not change the attack already admitted by this ticket.
+            int? enduranceCharges = null;
+            if (reserve && plan is not null && skillId is ushort chargeAttack && SkillsFor(player).IsAttack(effect)
+                && Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge is var perCharge
+                && GolemStat(SupportedSkill(player, chargeAttack).Stats, perCharge) != 0)
+                enduranceCharges = EffectiveEnduranceCharges(player);
             if (!instant) CancelMeleeRepeats(player, requestedAt ?? ProjectileWorldTime(player));
             if (attack is { } swing)
                 player.NextAttackAt = AttackTiming.After(swing.At, player.NextAttackAt, swing.Seconds);
@@ -334,11 +356,12 @@ public static partial class Game
                 ? ApplyStancePlanLocked(player, receiptSkill, committedPlan, player.ActionCount, player.ProjectileEpoch)
                 : null;
             if (plan is not null || stance is not null || attack is not null) ticket = new(effect, player.ActionCount, player.ProjectileEpoch,
-                instant, reserve, bypassed ? null : state, bypassed ? 0 : state?.UseVersion ?? 0, stance)
+                instant, reserve, bypass is null ? state : null, bypass is null ? state?.UseVersion ?? 0 : 0, stance)
             {
                 SharedUses = sharedUses, Paid = paid, Attack = attack,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
+            if (ticket is not null) ticket.EnduranceChargesAfterCost = enduranceCharges;
             return true;
         }
     }
@@ -348,6 +371,12 @@ public static partial class Game
     // and 0x52e2 (base_cooldown_refresh_chance_%) for any skill with a cooldown.
     internal const uint RetaliationPreventCooldownStat = Stat.RetaliationSkillKeepUseRequirementAndPreventCooldownOnUseChancePct;
     internal const uint BaseCooldownRefreshChanceStat = Stat.BaseCooldownRefreshChancePct;
+
+    static int EffectiveEnduranceCharges(Player player)
+    {
+        var charges = ChargesOf(player);
+        return charges.Converted(ChargeType.Endurance) ? 0 : charges.Effective(ChargeType.Endurance);
+    }
 
     internal static bool CooldownResetTriggered(Player player, int effect, ushort? skillId, Random random) =>
         CooldownResetTriggered(player, effect, skillId, random, out _);
@@ -395,8 +424,11 @@ public static partial class Game
     {
         if (player.SingleUseCooldowns.Count == 0) return;
         var plans = GemSkillEffects(player).GroupBy(g => CooldownKey(player, g.Effect, g.Id)).ToDictionary(g => g.Key, g =>
-            g.Select(skill => CooldownFor(player, skill.Effect, skill.Level, skill.Quality))
-                .FirstOrDefault(plan => plan is not null));
+            g.Key == GuardCooldownKey
+                ? g.Where(skill => skill.Id == player.CooldownSources.GetValueOrDefault(GuardCooldownKey))
+                    .Select(skill => CooldownForSkill(player, skill.Id)).FirstOrDefault()
+                : g.Select(skill => CooldownFor(player, skill.Effect, skill.Level, skill.Quality))
+                    .FirstOrDefault(plan => plan is not null));
         double now = AreaTime(player);
         foreach (var (key, state) in player.SingleUseCooldowns.ToArray())
         {
@@ -404,7 +436,7 @@ public static partial class Game
             state.Refresh(now, plan?.RecoveryRate ?? state.Rate);
             if (plan is { } current) state.Capacity(current.Uses);
             player.SkillReadyAt[key] = now + state.RemainingSeconds;
-            if (plan is null) player.SingleUseCooldowns.Remove(key); // Unsupported mechanics retain the legacy path.
+            if (plan is null && key != GuardCooldownKey) player.SingleUseCooldowns.Remove(key); // Unsupported mechanics retain the legacy path.
         }
     }
 
@@ -419,7 +451,7 @@ public static partial class Game
         {
             int key = CooldownKey(player, effect, id);
             if (!player.ClientSkillIds.Contains(id) || !player.SingleUseCooldowns.TryGetValue(key, out var state)
-                || key < 0 && state.NativeSkillId != id) continue;
+                || key < 0 && key != GuardCooldownKey && state.NativeSkillId != id) continue;
             state.Refresh(now, state.Rate);
             if (!state.NeedsNativeRefresh) continue;
             updates.Add(new(id, state.Held ? state.TotalBaseMilliseconds / 1000f

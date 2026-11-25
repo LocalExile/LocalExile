@@ -1013,6 +1013,7 @@ public static partial class Game
         // A resolver kept by a later consumer may read on another thread.
         readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> read = new();
         public bool TryGetValue(string key, out long value) { read[key] = true; return values.TryGetValue(key, out value); }
+        public bool WasRead(string key) => read.ContainsKey(key);
         public long this[string key] { get { read[key] = true; return values[key]; } }
         // Every amount is always present (zero when nothing happened), so asking whether one is reads no value.
         public bool ContainsKey(string key) => values.ContainsKey(key);
@@ -1232,6 +1233,8 @@ public static partial class Game
         int MagebloodGet(uint k) => sources.GetValueOrDefault(k);
         var utilityStats = UtilityStats(player, MagebloodGet, level);
         bonus = ApplyItemUtilityFlaskBonuses(bonus, utilityStats);
+        // Set on pool builds as well as RecomputePoolsAndSpeed so new area entry activates Quartz phasing at spawn.
+        player.Phasing = UtilityFlasks.Phasing(utilityStats);
         bool noExtraCriticalDamage = EquipmentInput(Stat.NoCriticalStrikeMultiplier) != 0
             || utilityStats.Any(row => row.Stat == Stat.NoCriticalStrikeMultiplier && row.Value != 0);
         // Final movement modifiers (a trial dart's labyrinth_arrow_movement_speed_+%_final): movement_velocity_+% is the
@@ -1416,8 +1419,6 @@ public static partial class Game
         int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
         if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
             pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };
-        if (EquipmentInput(Stat.KeystoneTemperedByWar) != 0)
-            pools = pools with { ColdResistance = pools.ColdResistance / 2, LightningResistance = pools.LightningResistance / 2 };
         if (EquipmentInput(Stat.KeystoneMedvedsExchange) != 0)
             pools = pools with { Ward = (uint)(pools.Ward * 60L / 100) };
         player.Ward.SetMaximum(player.PlayerLife > 0 ? pools.Ward : 0);
@@ -1426,6 +1427,7 @@ public static partial class Game
             IgnoreAttributeRequirements = ignoreAttributeRequirements,
             EvasionBasedOnWard = EquipmentInput(Stat.KeystoneVoranasAdaption) != 0,
             ImpalesNearbyEnemies = EquipmentInput(Stat.KeystoneImpale) != 0,
+            HalveColdAndLightningResistance = EquipmentInput(Stat.KeystoneTemperedByWar) != 0,
             AccuracyAreaMorePct = areaAccuracy,
             AccuracyWeaponMorePct = weaponAccuracy,
             AccuracyChargeMorePct = chargeAccuracyMore,

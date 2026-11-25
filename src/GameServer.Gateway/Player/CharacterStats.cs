@@ -65,6 +65,7 @@ public static class CharacterStats
         public bool IgnoreAttributeRequirements { get; init; }
         public bool EvasionBasedOnWard { get; init; }
         public bool ImpalesNearbyEnemies { get; init; }
+        public bool HalveColdAndLightningResistance { get; init; }
         // Player stats that monster swings, player ticks, regeneration steps and sweeps read for every character: resolved
         // once per pool build (BuildPoolsFor), never a full stat build on those paths. 0/false: the character has none.
         public int MapTemporalChainsActionSpeedPct { get; init; }
