@@ -398,4 +398,67 @@ public class WorldOutputTests : IDisposable
             await session.OutputCompleted;
         }
     }
+
+    [Fact]
+    public async Task Attached_player_waiting_for_first_frame_defers_updates_until_first_frame_ends()
+    {
+        string save = Path.Combine(Path.GetTempPath(), $"first-frame-{Guid.NewGuid():N}.db");
+        Saves.Open(save);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        using var writer = new TcpClient();
+        var accepting = listener.AcceptTcpClientAsync();
+        await writer.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using var reader = await accepting;
+        var drain = reader.GetStream().CopyToAsync(Stream.Null);
+        var ciphers = new ConnectionCiphers(new byte[64], isClient: false);
+        var player = new Player(new(1, "first-frame-test", 300, 300, 100, 100, null, []), 1, 1)
+        {
+            PlayerLife = 1000,
+            Connection =
+            {
+                LockstepClient = true,
+                PlayerSent = true,
+                Session = new("first-frame-test", writer.GetStream(), ciphers),
+            },
+            Character = { Name = "FirstFrameTest" + Guid.NewGuid().ToString("N") },
+        };
+        player.Clock.Start();
+        var frames = player.Frames;
+
+        // Unattached players (such as direct unit tests) never wait on a first frame.
+        Assert.False(frames.WaitingFirstFrame(player));
+        int unattachedRuns = 0;
+        frames.AfterFirstFrame(player, () => unattachedRuns++);
+        Assert.Equal(1, unattachedRuns);
+
+        var inbox = new ClientInbox();
+        using var reading = new CancellationTokenSource();
+        var deferred = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            frames.Attach(player, inbox, reading);
+            Assert.True(frames.WaitingFirstFrame(player));
+            frames.AfterFirstFrame(player, () => deferred.TrySetResult());
+            Assert.False(deferred.Task.IsCompleted);
+
+            await Game.SummonsTick(player, 1);
+            Assert.False(player.Summons.Restored);
+
+            await frames.Join("first-frame-test", writer.GetStream(), ciphers, player);
+            await deferred.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(frames.WaitingFirstFrame(player));
+
+            await Game.SummonsTick(player, 1);
+            Assert.True(player.Summons.Restored);
+        }
+        finally
+        {
+            player.Closed = true;
+            await frames.Run(() => frames.Detach(player)).WaitAsync(TimeSpan.FromSeconds(5));
+            writer.Dispose();
+            await drain;
+            TestEnvironment.ReleaseSaves(save);
+        }
+    }
 }

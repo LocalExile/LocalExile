@@ -81,4 +81,22 @@ public sealed class RaisedMinionCastTests
         Assert.Single(player.Minions.OutputQueue, o => o.RemovesObject && o.WorldId == corpseId
             && o.Packet.AsSpan().SequenceEqual(InstanceProtocol.RemoveObject(corpseId)));
     }
+
+    [Fact]
+    public async Task A_spectre_raised_from_a_desecrate_corpse_queues_corpse_removal()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        ushort desecrate = f.Equip(("Desecrate", 20), ("Raise Spectre", 20))[0];
+        Assert.True(await Game.Desecrate(player, desecrate, (1000, 1000), () => true, triggered: true));
+        uint corpseId = player.Summons.Corpses.Peek();
+        var corpse = player.Area.Monsters[corpseId];
+        Assert.True(corpse.CreatedAsCorpse);
+
+        uint id = await f.Summon("RaiseSpectre", corpseId);
+        Assert.NotEqual(0u, id);
+        Assert.True(corpse.CorpseConsumed);
+        Assert.Single(player.Minions.OutputQueue, o => o.RemovesObject && o.WorldId == corpseId
+            && o.Packet.AsSpan().SequenceEqual(InstanceProtocol.RemoveObject(corpseId)));
+    }
 }
