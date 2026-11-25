@@ -280,6 +280,8 @@ public sealed class DeliriumMirrorEncounter
             }
             if (stage == MirrorStage.Active)
             {
+                if (AfflictionRuleset.FogEnvironment(true) is { } fog)
+                    await PlayerOf(player).Send(fog, "0x00df restore Delirium fog on entry");
                 await WorldOf(player).RefreshStats();
                 if (timerSeconds > 0)
                     await PlayerOf(player).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Affliction, (uint)timerSeconds),
@@ -381,7 +383,6 @@ public sealed class DeliriumMirrorEncounter
 
     async Task Activate(Player player, MirrorState state)
     {
-        bool activated = false;
         uint entityId = 0;
         byte[]? snap = null;
         await state.Gate.WaitAsync();
@@ -403,21 +404,25 @@ public sealed class DeliriumMirrorEncounter
                 entityId = state.EntityId;
                 SaveLocked(player, state);
                 snap = BuildSnapshotLocked(player, state);
-                activated = true;
+            }
+            var fog = AfflictionRuleset.FogEnvironment(true);
+            int smIdx = MirrorComponents().ToList().IndexOf("StateMachine");
+            var animation = smIdx >= 0 && entityId != 0
+                ? InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)) : null;
+            foreach (var peer in Clients(player))
+            {
+                if (fog is not null)
+                    await PlayerOf(peer).Send(fog, "0x00df blend in Delirium fog");
+                if (snap is not null)
+                    await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
+                if (animation is not null)
+                    await PlayerOf(peer).Send(animation, $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             }
         }
         finally { state.Gate.Release(); }
 
-        if (!activated) return;
-        int smIdx = MirrorComponents().ToList().IndexOf("StateMachine");
-        var animation = smIdx >= 0 && entityId != 0
-            ? InstanceEntities.StateMachineUpdate(entityId, (byte)smIdx, MirrorStates(true)) : null;
         foreach (var peer in Clients(player))
         {
-            if (snap is not null)
-                await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (mirror activated)");
-            if (animation is not null)
-                await PlayerOf(peer).Send(animation, $"0x02bc Delirium Mirror 0x{entityId:x} interacted = 1");
             await WorldOf(peer).RefreshStats();
             await PlayerOf(peer).Tell("The Delirium fog rolls across the map.");
         }
@@ -653,9 +658,12 @@ public sealed class DeliriumMirrorEncounter
         finally { state.Gate.Release(); }
 
         var hideTimer = InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Affliction);
+        var fog = AfflictionRuleset.FogEnvironment(false);
         foreach (var peer in Clients(player))
         {
             await PlayerOf(peer).Send(hideTimer, "0x0163 hide Delirium fog timer (encounter ended)");
+            if (fog is not null)
+                await PlayerOf(peer).Send(fog, "0x00df blend out Delirium fog");
             if (snap is not null)
                 await PlayerOf(peer).Send(snap, "0x02c9 ruleset AfflictionEncounterRules mode 0 (ended)");
             await WorldOf(peer).RefreshStats();

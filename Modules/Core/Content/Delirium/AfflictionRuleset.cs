@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Modules.Delirium;
 
@@ -23,6 +24,7 @@ public static class AfflictionRuleset
 
     public static ushort? TerrainPlugin { get; private set; }
     public static byte? PreloadGroup { get; private set; }
+    static ushort? FogEnvironmentRow { get; set; }
 
     /// <summary>The Rulesets row of <c>AfflictionEndGameRules</c> (row 103 / <c>0x67</c>), sent via S→C <c>0x1f</c> in Simulacrum arenas.</summary>
     public static byte? Row { get; private set; }
@@ -32,12 +34,19 @@ public static class AfflictionRuleset
         EncounterRow = FindRow("Rulesets", "AfflictionEncounterRules");
         TerrainPlugin = AreaTerrainPlugins.IdOf("AfflictionPlugin");
         PreloadGroup = FindRow("PreloadGroups", "Affliction");
+        var environment = ClientTables.TableOrEmpty("Environments").FirstOrDefault(r => r.Text("Id") == "LeagueAfflictionEncounter");
+        FogEnvironmentRow = environment.Table is not null && (uint)environment.Index <= ushort.MaxValue ? (ushort)environment.Index : null;
         Row = FindRow("Rulesets", "AfflictionEndGameRules");
     }
 
     static byte? FindRow(string table, string id) =>
         ClientTables.TableOrEmpty(table).FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= byte.MaxValue
             ? (byte)row.Index : null;
+
+    /// <summary>The map Mirror blends the encounter environment in and out with signed two-second transitions.</summary>
+    public static byte[]? FogEnvironment(bool active) => FogEnvironmentRow is { } row
+        ? new LoginWriter().U16(0x00df).U8(1).U16(row).U8(0).U32(BitConverter.SingleToUInt32Bits(active ? 2f : -2f)).ToArray()
+        : null;
 
     /// <summary>One reward tile entry (13 bytes LE): <c>AfflictionRewardTypes</c> id, bar progress, bar goal, completed count.</summary>
     public readonly record struct RewardTile(byte Type, uint Current, uint Max, uint Count);

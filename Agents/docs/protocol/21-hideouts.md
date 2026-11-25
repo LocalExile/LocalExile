@@ -748,6 +748,17 @@ inner delay, the Mirror's entity ID, and one rectangle per fog region. The Mirro
 before world entry. Crossing the Mirror set the first flag, followed by its interacted state update.
 The finished snapshot kept that flag set, set the second flag, and cleared the reward tiles.
 
+Immediately before the activation and completion snapshots, retail sent the environment update for
+`LeagueAfflictionEncounter` (`Metadata/EnvironmentSettings/LeagueAfflictionEncounter.env`). Retail 3.30 uses
+S→C `0xe5` and environment row 1198. In 3.29.3c/d the same environment is row 1193 and the update is
+S→C `0xdf`. The writer at `0x142179c50` emits a byte count followed by a big-endian row (u16), a byte
+(zero for the Mirror), and a big-endian 32-bit value. The capture contains one entry, with +2.0 on opening
+and −2.0 on closing when read as floats.
+This environment sets desaturation, the `Affliction12.dds` colour lookup and the `DeliriumRegular` music.
+The separate `AfflictionFog` entry in `MiscAnimated` references the screen-space fog and ash attachment.
+The 3.29 item table also names the Simulacrum Splinter `CurrencyAfflictionShard`. The separate Viridian
+Wildwood area is `AzmeriLeagueArea` and has its own ruleset, `AzmeriRules`.
+
 Each reward type tracks its own bar (`RewardGoal`: wave progress divided by `RewardPace`, explicit server policy) and
 completed cycle count (`x`); kills advance every bar and the wave pays all counted rewards at once when it ends, at
 each arena's measured `RewardSpot` (or the player's cell). The five arenas also use measured `StashSpot` and

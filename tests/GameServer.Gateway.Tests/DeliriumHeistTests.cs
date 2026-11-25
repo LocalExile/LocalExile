@@ -20,6 +20,8 @@ public class DeliriumHeistTests
         Assert.Equal((byte)102, AfflictionRuleset.EncounterRow);
         Assert.Equal((byte)52, AfflictionRuleset.PreloadGroup);
         Assert.Equal((byte)103, AfflictionRuleset.Row);
+        Assert.Equal(Convert.FromHexString("00DF0104A90040000000"), AfflictionRuleset.FogEnvironment(true));
+        Assert.Equal(Convert.FromHexString("00DF0104A900C0000000"), AfflictionRuleset.FogEnvironment(false));
 
         var beach = new AreaStatsRequest("Exile", "Standard", AreaTransitionCatalog.HashOf("MapWorldsBeach")!.Value, null)
         {
