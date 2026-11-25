@@ -110,7 +110,11 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
                 totem ? 0 : BearTrapDamageTaken(m, now));
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
-            if (totem) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
+            if (totem)
+            {
+                ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
+                LeechFromTotemHitLocked(player, m, damage, now, ownerStats);
+            }
             if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id);
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
