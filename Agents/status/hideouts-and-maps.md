@@ -32,7 +32,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   See [21](../docs/protocol/21-hideouts.md), Horticrafting Station.
 - Generic 3.29 maps, first slice (2026-10-27): `MapKeyTierN` items serialize their MapKey component and `/item Map
   (Tier N)` creates one; the map device accepts them and uses `MapKeys.dat` for the tier. The native hideout Atlas
-  window (S?C 0x7b kind 0x2b) shows the four starting layouts; a node click (C?S 0x00e7) selects one and Activate opens
+  window (S→C 0x7b kind 0x2b) shows the four starting layouts; a node click (C→S 0x00e7) selects one and Activate opens
   it. Every character has the epilogue quest flag `EndGameAvailable`, without which the client refuses Atlas activation
   (until Kitava earns it, only in a hideout and the maps, so the Epilogue's gates stay shut; checked offline).
   Live 2026-10-29: selecting Estuary opened Estuary; Cells is the default.
