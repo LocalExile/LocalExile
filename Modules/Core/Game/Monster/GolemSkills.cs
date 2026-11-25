@@ -281,9 +281,7 @@ public static partial class Game
             foreach (var (stat, value) in ChargeMaxima.Compute(Get)) values[stat] = value;
         if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
             values[Stat.NecromancerMinionDamagePlusPctFinal] = damageMore;
-        // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
-        // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
-        // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
+        // Ancient Skull scales from the owner's resolved Power Charge maximum, including the base and conditional sources.
         int maximumPowerChargeCrit = ActorScale.Saturate((long)Get(Stat.MinionCriticalStrikeChancePlusPctPerMaximumPowerCharge)
             * OwnerMaximumPowerCharges(playerStats));
         if (maximumPowerChargeCrit != 0)
@@ -362,7 +360,7 @@ public static partial class Game
     }
 
     static int OwnerMaximumPowerCharges(IReadOnlyDictionary<uint, int> player) =>
-        Charges.LimitsOf(ChargeType.Power, name => GolemStat(player, name)).Maximum;
+        ChargeMaxima.Of(ChargeType.Power, name => GolemStat(player, name));
 
     public static uint NativeEnergyShield(double value) => value <= 0 ? 0
         : value >= int.MaxValue ? int.MaxValue : (uint)Math.Floor(value);

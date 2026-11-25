@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class ChargeRulesTests
 {
     [Fact]
-    public void CoreChargesGainRefreshExpireAndTriggerAtTheirLimits()
+    public async Task CoreChargesGainRefreshExpireAndTriggerAtTheirLimits()
     {
         // Tulfall (+1 maximum, a Frenzy Charge and then the loss of every Power Charge on reaching the maximum), Voll's
         // Devotion (an Endurance Charge per Power Charge lost), Kingsguard (Life per Endurance Charge lost) and a 100%
@@ -49,6 +49,85 @@ public sealed class ChargeRulesTests
         session.Step(20.1, Get, () => default, alive: true, moving: false, inTown: false, rng);
         Assert.Equal(0, session.Effective(ChargeType.Frenzy));
         Assert.Equal(20.1, session.LastLost(ChargeType.Frenzy), 6);
+        await SublimeVisionAuraRaisesItsChargeLimit();
+    }
+
+    static async Task SublimeVisionAuraRaisesItsChargeLimit()
+    {
+        var catalog = new UniqueCatalog(Program.Items);
+        var definition = catalog.Find("Sublime Vision");
+        Assert.NotNull(definition);
+        var results = new List<((int Maximum, int Held, int AfterToggle) Want, (int Maximum, int Held, int AfterToggle) Got)>();
+        foreach (var (auraName, type, stat) in new[]
+        {
+            ("Determination", ChargeType.Endurance, Stat.MaximumEnduranceChargesPlusWhileAffectedByDetermination),
+            ("Discipline", ChargeType.Power, Stat.MaximumPowerChargesPlusWhileAffectedByDiscipline),
+            ("Grace", ChargeType.Frenzy, Stat.MaximumFrenzyChargesPlusWhileAffectedByGrace),
+        })
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var mod = Program.Items.Mods.ById($"SublimeVision{auraName}");
+            Assert.NotNull(mod);
+            var jewel = Assert.IsType<Item>(Enumerable.Range(1, 512).Select(seed => catalog.Create(definition, new Random(seed)))
+                .FirstOrDefault(candidate => candidate?.Mods.Any(roll => roll.Hash == mod.Hash) == true));
+            ushort skill = Assert.Single(fixture.Equip((auraName, 1)));
+            var aura = Assert.Single(Game.GemSkillEffects(player));
+            var charges = Game.ChargesOf(player);
+            var random = new Random(17);
+            var helmet = Assert.IsType<Item>(catalog.Create("Ancient Skull", new Random(17)));
+            Game.ItemsOf(player).Add(PlayerInventories.Helmet, 0, 0, helmet);
+            var minion = new GolemState.Golem(0xB0A1, null!, Game.GolemData.Find("SummonFlameGolem")!, 1);
+            int Crit(IReadOnlyDictionary<uint, int> stats) => Game.GolemModifiers(player, minion, stats)
+                .Effects[Stat.CriticalStrikeChancePlusPct];
+            async Task Toggle() => Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
+                Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
+            if (type == ChargeType.Power)
+            {
+                await Toggle();
+                var noJewel = Game.CharacterPlayerStats(player);
+                Assert.Equal(50, noJewel.GetValueOrDefault(Stat.MinionCriticalStrikeChancePlusPctPerMaximumPowerCharge));
+                Assert.Equal(3, ChargeMaxima.Of(ChargeType.Power, noJewel.GetValueOrDefault));
+                Assert.Equal(0, charges.State.Held(ChargeType.Power));
+                Assert.Equal(150, Crit(noJewel));
+                await Toggle();
+            }
+
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            Assert.Null(Game.PassiveJewelRefusal(player, slot, 0, jewel));
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel);
+            Assert.Equal(0, Game.CharacterPlayerStats(player).GetValueOrDefault(stat));
+            Assert.Equal(3, ChargeMaxima.Of(type, Game.CharacterPlayerStats(player).GetValueOrDefault));
+
+            await Toggle();
+            var active = Game.CharacterPlayerStats(player);
+            Assert.Equal(1, active.GetValueOrDefault(stat));
+            foreach (var other in Charges.Types.Where(other => other != type))
+                Assert.Equal(3, ChargeMaxima.Of(other, active.GetValueOrDefault));
+            int maximum = ChargeMaxima.Of(type, active.GetValueOrDefault);
+            Assert.Equal(0, charges.State.Held(ChargeType.Power));
+            int minionCritical = Crit(active);
+            charges.Observe(active.GetValueOrDefault);
+            double now = Game.AreaTime(player);
+            charges.Admit(now, [new ChargeEvent.Grant(type, 8, "test aura charge cap")],
+                active.GetValueOrDefault, () => default, alive: true, random);
+            int held = charges.State.Held(type);
+
+            await Toggle();
+            var off = Game.CharacterPlayerStats(player);
+            Assert.Equal(0, off.GetValueOrDefault(stat));
+            Assert.Equal(3, ChargeMaxima.Of(type, off.GetValueOrDefault));
+            charges.Observe(off.GetValueOrDefault);
+            charges.Step(Math.Max(now + .1, Game.AreaTime(player)), off.GetValueOrDefault, () => default, alive: true, moving: false, inTown: false, random);
+            int after = charges.State.Held(type);
+            int offCritical = Crit(off);
+            Console.WriteLine($"Sublime Vision {auraName}: max {maximum}, held {held}, after turning off {after}; Ancient Skull crit {minionCritical}% -> {offCritical}%");
+            Assert.Equal(type == ChargeType.Power ? 200 : 150, minionCritical);
+            Assert.Equal(150, offCritical);
+            results.Add(((4, 4, 3), (maximum, held, after)));
+        }
+        Assert.All(results, result => Assert.Equal(result.Want, result.Got));
     }
 
     [Fact]
