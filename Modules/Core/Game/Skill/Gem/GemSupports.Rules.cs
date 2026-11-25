@@ -270,7 +270,8 @@ public static partial class Game
         List<GemSupports.Candidate> candidates, IReadOnlyList<(byte Row, InventoryItem Item)> equipment,
         IReadOnlySet<uint>? inactive, bool sourceIsGem)
     {
-        int? weaponClass = null;
+        // An empty or inactive main hand attacks with the Unarmed class.
+        int? weaponClass = UnarmedClassRow;
         bool allOneHandMelee = false;
         if (candidates.Exists(c => Supports.Of(c.Effect) is { Weapons.Length: > 0 }))
         {
