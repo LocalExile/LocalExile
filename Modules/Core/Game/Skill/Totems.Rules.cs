@@ -23,6 +23,9 @@ public static partial class Game
     /// fixed 8 metres "in your presence"). The client has both from the .ot; the server's stats do not carry them.</summary>
     public const int BaseTotemsAllowed = 1, PresenceRadius = 80;
 
+    /// <summary>The MinionType.dat row (TotemMinion) a placed totem is listed under in its owner's minion roster.</summary>
+    const ushort TotemMinionType = 5;
+
     /// <summary>The totem skills that also carry an aura: Rejuvenation Totem's (BuffDefinitions 172
     /// totem_aura_life_regen, base radius 10, wiki Rejuvenation Totem) regenerates the player's Life. A totem skill that
     /// is not here still places its totem and uses its own skill (TotemUseLocked), or casts that skill through the
@@ -378,6 +381,11 @@ public static partial class Game
             placed.BonusSlots = ballista && !singleTotem ? Math.Max(0, limit - ordinaryLimit) : 0;
             if (spellTotem) BindTotemSource(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
+            // The owner's minion roster lists a placed totem, as the official servers do; the client's totem counter counts
+            // these. Written where the totem enters its state, so a cancelled placement never lists one, and in the same
+            // batch as the removal of a replaced one (TotemRecords).
+            bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(objectId, skillId, TotemMinionType)],
+                CanDetonateMines(player)));
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
             if (replaced.Count > 0)
@@ -633,6 +641,9 @@ public static partial class Game
                 player.RemoveBlocker(t.Id);
                 StopTotemChannel(t, bytes);
                 TotemChannels.Remove(t);
+                // Source 0 takes it off the roster. Repeated each frame until the body goes, so a dropped batch is repaired.
+                bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(t.Id, 0, TotemMinionType)],
+                    CanDetonateMines(player)));
             }
             player.Area.Life.Set(t.Id, AreaLife.LifePool, t.DiedAt is null ? t.Life : 0);
         }

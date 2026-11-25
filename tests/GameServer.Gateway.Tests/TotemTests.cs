@@ -220,6 +220,35 @@ public sealed class TotemTests
         Assert.Null(Game.DecoyTarget(near, now));
     }
 
+    [Fact]
+    public async Task A_placed_totem_is_listed_in_the_owners_minion_roster_until_it_dies()
+    {
+        using var f = new AnimatedAdmissionTests.Fixture();
+        using var wire = new CaptureWire();
+        var conn = f.Player;
+        conn.Connection.Session = new("totem-roster", wire.Stream, wire.ServerCiphers);
+        var gem = ItemCatalog.Create(Program.Items.Find("Decoy Totem")!);
+        var host = ItemCatalog.Create(Program.Items.Find("Driftwood Wand")!, [new(SocketColour.White, gem)], [1]);
+        var items = Game.ItemsOf(conn);
+        items.Remove(PlayerInventories.Weapon1, Assert.Single(items.Items(PlayerInventories.Weapon1)).Id);
+        items.Put(PlayerInventories.Weapon1, new(1, 0, 0, host));
+        var source = Game.GemSkillEffects(conn).Single(g => g.Name == "Decoy Totem");
+        var variety = Game.TotemVariety(conn, source.Effect);
+        Assert.NotNull(variety);
+        uint id = Assert.IsType<uint>(await Game.CreateTotem(conn, source.Id, source.Effect, source.Level, variety, (110, 100)));
+
+        // Source 0 is the same entry taking it off the roster; the removal rides with the death, before the body goes.
+        conn.Totems.KillAll(Game.AreaTime(conn));
+        byte[]? death = Game.TotemPresentation(conn);
+        Assert.NotNull(death);
+        byte[] removal = InstanceEntities.PlayerMinionsChange(conn.Id, [new(id, 0, 5)], Game.CanDetonateMines(conn));
+        Assert.True(death.AsSpan().IndexOf(removal) >= 0, "the death carries no roster removal");
+
+        byte[] sent = wire.FinishAndDecrypt();
+        byte[] listing = InstanceEntities.PlayerMinionsChange(conn.Id, [new(id, source.Id, 5)], Game.CanDetonateMines(conn));
+        Assert.True(sent.AsSpan().IndexOf(listing) >= 0, "the placement never listed the totem");
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0);
