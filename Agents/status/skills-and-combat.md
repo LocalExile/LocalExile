@@ -224,6 +224,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Molten Strike and its Zenith and Vaal versions: a melee hit that launches magma balls from the struck enemies, and
   Zenith's fifth-attack buff. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
+- Wild Strike and Extremes resolve the melee contact and the selected fire, cold or lightning follow-up. Extremes
+  inverts elemental resistance for both hits. The follow-up extent and client presentation await measurement.
 - Rain of Arrows, Blast Rain and Toxic Rain resolve individual landings; Toxic Rain pods slow, deal chaos damage
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.

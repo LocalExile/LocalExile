@@ -112,6 +112,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal bool ScourgePodsPerProjectile { get; init; }
     internal Game.SomaticShellApplications? SomaticApplications { get; init; }
     internal bool PreventsSomaticShellBreak { get; init; }
+    internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
     public UseOnce? FirstHit { get; init; }

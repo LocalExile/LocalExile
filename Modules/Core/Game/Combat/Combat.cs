@@ -2100,7 +2100,7 @@ public static partial class Game
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
                 targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted);
-        if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect))
+        if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect) || IsWildStrike(gem.Effect))
             return ScheduleProjectileStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
                 sequence, swingAt, cryExerted);
@@ -2658,6 +2658,12 @@ public static partial class Game
         sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var admittedGem = SupportedSkill(player, skillId);
         var skillStats = admittedGem.Stats;
+        if (IsWildStrike(gem.Effect) && WildStrikeElements.TryGetValue(player, out var choices)
+            && choices.TryGetValue(gem.Effect, out var strikeElement))
+        {
+            admittedGem = WildStrikeDamageSource(admittedGem, strikeElement, followup: false);
+            skillStats = admittedGem.Stats;
+        }
         // Vaal Heavy Strike's action knocks back its target on contact.
         if (SkillsFor(player).EffectId(gem.Effect) == "VaalHeavyStrike")
             skillStats = new Dictionary<uint, int>(skillStats) { [global::Stat.GlobalKnockback] = 1 };
@@ -2665,6 +2671,7 @@ public static partial class Game
         // An attack gem's share of the weapon's damage ("Deals 177.3% of base Attack Damage"): the hit below uses it.
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
+        int inversionChance = Stat(global::Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
         if (!hitPlan.CanHit)
         {
@@ -3208,7 +3215,7 @@ public static partial class Game
                     rolled = resonance.Packet;
                     (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
                         resonance.Mods, resonance.Penetration,
-                        gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                        gambler.InvertsResistance(AreaRng(player), inversionChance), AreaRng(player));
                     hitCode = HitCode(mitigated);
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);

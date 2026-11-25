@@ -22,6 +22,7 @@ public static partial class Game
         WornGrantedSkills.Grant? WornGrant = null, uint Host = 0, int Group = -1)
     {
         internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
+        internal GameServer.Core.World.DamageType? WildStrikeFollowupElement { get; init; }
     }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
@@ -799,6 +800,10 @@ public static partial class Game
         bool projectile = false, int addedChaos = 0, bool totem = false)
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
+        bool wildStrike = IsWildStrike(gem.Effect);
+        bool strikeFollowup = gem.WildStrikeFollowupElement is not null;
+        if (strikeFollowup) projectile = gem.WildStrikeFollowupElement == GameServer.Core.World.DamageType.Cold;
+        if (wildStrike && !strikeFollowup) area ??= false;
         var caster = FinalPlayerStats(player).ToDictionary(v => v.Item1, v => v.Item2);
         var skills = SkillsFor(player);
         int manaPool = ManaCostPool(player, gem);
@@ -866,6 +871,11 @@ public static partial class Game
         // A strike and the projectiles it releases each use their own damage modifiers.
         bool projectileStrike = IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect);
         if (projectileStrike) types.Remove(projectile ? 19 : 2);
+        if (wildStrike)
+        {
+            if (strikeFollowup) types.Remove(19);
+            if (!projectile) types.Remove(2);
+        }
         bool volcanicFissure = IsVolcanicFissure(gem.Effect);
         if (volcanicFissure) types.Remove(projectile ? 19 : 2);
         if (area is true) types.Add(7);
