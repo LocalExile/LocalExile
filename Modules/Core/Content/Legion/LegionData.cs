@@ -35,8 +35,9 @@ public sealed class LegionData
         public int DurationMs => Cols[2];
     }
 
-    /// <summary>A LegionRewardTypeVisuals row: its minimap icon (MinimapIcons row; the monster stat is the row + 1). The client draws the symbol by row.</summary>
-    public sealed record RewardType(int Row, int MinimapIcon);
+    /// <summary>A LegionRewardTypeVisuals row: its minimap icon (MinimapIcons row; the monster stat is the row + 1),
+    /// its MiscAnimatedKey (.ao floating symbol above clickable chests) and its scale (__col4). The client draws the symbol by row.</summary>
+    public sealed record RewardType(int Row, int MinimapIcon, int MiscAnimatedKey = -1, double Scale = 3.0);
 
     public IReadOnlyList<RewardType> RewardTypes { get; }
     public IReadOnlyList<Faction> Factions { get; }
@@ -46,9 +47,21 @@ public sealed class LegionData
     public IReadOnlyList<ChestType> ChestTypes { get; }
     public IReadOnlyList<ChestCount> ChestCounts { get; }
     public IReadOnlyList<Balance> Balances { get; }
+    /// <summary>Environments rows for LegionLeagueWorld, LegionLeagueWorldBattle and LegionLeagueWorldPostBattle (0 when absent).</summary>
+    public ushort EnvWorld { get; }
+    public ushort EnvBattle { get; }
+    public ushort EnvPostBattle { get; }
+    /// <summary>Rulesets row for LegionRules, or null when absent from client.db.</summary>
+    public byte? RulesetRow { get; }
+    /// <summary>MiscAnimated row -> AOFile path, loaded eagerly so hot-reload clears it cleanly.</summary>
+    public IReadOnlyDictionary<int, string> MiscAnimatedModels { get; }
+    /// <summary>Chests rows referenced by LegionChestTypes (row -> Id and InheritsFrom).</summary>
+    public IReadOnlyDictionary<int, (string Id, string? InheritsFrom)> ChestsByRow { get; }
+    /// <summary>Chest Id -> InheritsFrom for Legion chests (used when resolving QuestObjectTypes for openable chests).</summary>
+    public IReadOnlyDictionary<string, string?> ChestInherits { get; }
 
     static LegionData? Loaded;
-    public static LegionData Current => Loaded ??= new LegionData();
+    public static LegionData Current => Loaded ?? throw new InvalidOperationException("LegionData not loaded; call LegionModule.LoadData() first.");
     public static LegionData Reload() => Loaded = new LegionData();
     public static void Unload() => Loaded = null;
 
@@ -86,8 +99,36 @@ public sealed class LegionData
         ChestCounts = [.. ClientTables.TableOrEmpty("LegionChestCounts").Select(r => new ChestCount(r.Index,
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("MinLevel"), r.Int("__col2"), r.Int("__col3"),
             r.Int("__col4"), r.Int("__col5"), r.Int("__col7")))];
-        RewardTypes = [.. ClientTables.TableOrEmpty("LegionRewardTypeVisuals").Select(r => new RewardType(r.Index, r.IntOrNull("MinimapIconsKey") ?? -1))];
+        RewardTypes = [.. ClientTables.TableOrEmpty("LegionRewardTypeVisuals").Select(r => new RewardType(
+            r.Index, r.IntOrNull("MinimapIconsKey") ?? -1, r.IntOrNull("MiscAnimatedKey") ?? -1, r.RealOrNull("__col4") ?? 3.0))];
         Balances = [.. ClientTables.TableOrEmpty("LegionBalancePerLevel").Select(r => new Balance(r.Index, r.Int("MinLevel"),
             [.. Enumerable.Range(1, 15).Select(c => r.Int($"__col{c}"))]))];
+        var environments = ClientTables.TableOrEmpty("Environments");
+        ushort Env(string id) => environments.FirstOrDefault(r => r.Text("Id") == id) is { Table: not null } row && row.Index <= ushort.MaxValue ? (ushort)row.Index : (ushort)0;
+        EnvWorld = Env("LegionLeagueWorld");
+        EnvBattle = Env("LegionLeagueWorldBattle");
+        EnvPostBattle = Env("LegionLeagueWorldPostBattle");
+        RulesetRow = ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == "LegionRules") is { Table: not null } rr && rr.Index <= byte.MaxValue
+            ? (byte)rr.Index : null;
+        MiscAnimatedModels = ClientTables.TableOrEmpty("MiscAnimated")
+            .Where(r => r.Text("AOFile") is { Length: > 0 })
+            .ToDictionary(r => r.Index, r => r.Text("AOFile")!);
+        var chestRows = new HashSet<int>();
+        foreach (var ct in ChestTypes)
+        {
+            if (ct.Chest >= 0) chestRows.Add(ct.Chest);
+            if (ct.HardmodeChest >= 0) chestRows.Add(ct.HardmodeChest);
+        }
+        var byRow = new Dictionary<int, (string Id, string? InheritsFrom)>();
+        var inherits = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var r in ClientTables.TableOrEmpty("Chests"))
+        {
+            if (!chestRows.Contains(r.Index) || r.Text("Id") is not { Length: > 0 } cid) continue;
+            string? parent = r.Text("InheritsFrom");
+            byRow[r.Index] = (cid, parent);
+            inherits[cid] = parent;
+        }
+        ChestsByRow = byRow;
+        ChestInherits = inherits;
     }
 }

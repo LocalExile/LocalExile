@@ -8,12 +8,13 @@ namespace GameServer.Modules.Legion;
 
 /// <summary>
 /// The Timeless Monolith: the room <c>legion_monolith.arm</c> only marks a point (<see cref="LocatorType"/>), so the server
-/// creates the clickable <see cref="InitiatorType"/> there. Using it charges and shatters the monolith (its StateMachine
-/// states <c>charging</c>, then <c>shattered</c>), plays the pulse and starts the Legion timer; when the timer ends the
-/// monolith is <c>locked</c>. The army stands in stasis meanwhile: <see cref="BeginArmy"/> and
-/// <see cref="ReleaseArmy"/> are the hand-over points for it. The encounter is the instance's, kept in
-/// <c>Instance.ContentState</c>; its objects are the area's, each record sent once (LegionOutput), and a client that
-/// enters later is given them by the area as they are.
+/// creates the clickable <see cref="InitiatorType"/> and its paired <see cref="FlashLightType"/> there. Using it charges and
+/// shatters the monolith (its 7 StateMachine states and LegionFlashLight trigger), shifts the area environment (0xdf
+/// LegionLeagueWorld), plays the pulse and starts the Legion timer and LegionRules (0x2c9); when the timer ends or 90% break
+/// out, broken members wake into battle (0xdf LegionLeagueWorldBattle), broken war chests become openable chests with
+/// floating reward symbols, and after the battle clears the monolith settles through post-battle fade-out to finished.
+/// The encounter is the instance's, kept in <c>Instance.ContentState</c>; its objects are the area's, each record sent once
+/// (LegionOutput), and a client that enters later is given them by the area as they are.
 /// </summary>
 static partial class LegionMonolith
 {
@@ -29,19 +30,34 @@ static partial class LegionMonolith
         "Metadata/Terrain/Leagues/Legion/Objects/DriedLake_EncounterLocator",
     ];
     public const string InitiatorType = "Metadata/Terrain/Leagues/Legion/Objects/LegionInitiator";
+    public const string FlashLightType = "Metadata/Terrain/Leagues/Legion/Objects/LegionFlashLight";
+    const string ChestBaseType = "Metadata/Chests/LegionChests/LegionChestBase";
+    /// <summary>Official-capture base-data variable hashes: monolith -> General (0xec72e38c), flashlight -> monolith
+    /// (0x40f0fc9c, 0x7700c879), and openable chest -> primary floating reward symbol (0xf3a80181).</summary>
+    const uint GeneralPropertyKey = 0xec72e38c, FlashLightProp1 = 0x40f0fc9c, FlashLightProp2 = 0x7700c879, ChestSymbolPropertyKey = 0xf3a80181;
     /// <summary>MiscAnimated 3270 LegionMonolithPulse.</summary>
     const string PulseModel = "Metadata/Effects/Spells/monsters_effects/essence/monolith_pulse/monolith_pulse.ao";
     const string SaveKey = "Legion";
-    /// <summary>The seconds between the build-up (charging) and the shatter: the length of monolith_fx.ao's build_up clip (R10 section 1).</summary>
-    const double ChargeSeconds = 1.5;
+    /// <summary>The seconds between the build-up (charging) and the shatter: 45 frames at 30 fps (monolith_fx.ao build_up clip and official captures).</summary>
+    const double ChargeSeconds = 45.0 / 30;
+    /// <summary>Official-capture post-timer timings at 30 fps: 16 frames from freeze to battle state, 6.5 s after last woken
+    /// monster dies (capped at 120 s), 8 frames to fade out battle environment, 76 frames to fade out post-battle environment.</summary>
+    const double BattleAfterFreezeSeconds = 16.0 / 30, EndDelaySeconds = 6.5, BattleMaxSeconds = 120;
+    const double BattleEnvOutSeconds = 8.0 / 30, PostBattleEnvOutSeconds = 76.0 / 30;
     /// <summary>The cells the player may stand from the monolith to use it.</summary>
     const int Reach = 12;
     /// <summary>GUESS (live check): how long an unbroken general stands fleeing before it is removed.</summary>
     const double FleeSeconds = 2;
 
-    enum Phase { Idle, Charging, Running, Finished }
+    /// <summary>Encounter phase; numeric values 0..3 stay compatible with older ContentState saves.</summary>
+    enum Phase { Idle = 0, Charging = 1, Running = 2, Finished = 3, Frozen = 4, Battle = 5, Ending = 6 }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null, float PulseScale = 1, int FrozenDamageTakenPct = 0);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse,
+        float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null,
+        Box[]? Boxes = null, float PulseScale = 1, int FrozenDamageTakenPct = 0,
+        uint FlashLight = 0, uint GeneralId = 0, double StageAt = 0, double? ClearedAt = null,
+        bool BattleOutSent = false, uint[]? ReleasedIds = null, byte RuleStage = 0, byte RuleStep = 0,
+        bool RuleActivated = false, ushort[]? Environments = null);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -64,28 +80,72 @@ static partial class LegionMonolith
         public Box[]? Boxes = saved.Boxes;
         /// <summary>map_legion_frozen_monsters_damage_taken_+% captured at activation for the frozen army's EncounterStats.</summary>
         public int FrozenDamageTakenPct = saved.FrozenDamageTakenPct;
+        /// <summary>Paired LegionFlashLight object id triggered at the shatter.</summary>
+        public uint FlashLight = saved.FlashLight;
+        /// <summary>Spawned General's entity id, linked to the monolith via dynamic property 0xec72e38c.</summary>
+        public uint GeneralId = saved.GeneralId;
+        /// <summary>Area time when the current post-charge stage began.</summary>
+        public double StageAt = saved.StageAt;
+        /// <summary>Area time when the last woken monster died during Battle (null while any still lives).</summary>
+        public double? ClearedAt = saved.ClearedAt;
+        public bool BattleOutSent = saved.BattleOutSent;
+        /// <summary>Woken fighting monster ids tracked during Battle to detect encounter clear.</summary>
+        public uint[]? ReleasedIds = saved.ReleasedIds;
+        /// <summary>Latest LegionRules 0x2c9 stage/step and activation flag for late joiners.</summary>
+        public byte RuleStage = saved.RuleStage, RuleStep = saved.RuleStep;
+        public bool RuleActivated = saved.RuleActivated;
+        /// <summary>Active 0xdf Environments rows for late joiners.</summary>
+        public ushort[]? Environments = saved.Environments;
         /// <summary>Latest saved snapshot updated under this encounter's lock so Keep never locks another encounter.</summary>
         public Saved Snapshot { get; private set; } = saved;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale, FrozenDamageTakenPct);
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale, FrozenDamageTakenPct,
+            FlashLight, GeneralId, StageAt, ClearedAt, BattleOutSent, ReleasedIds, RuleStage, RuleStep, RuleActivated, Environments);
         public void Commit() => Snapshot = ToSaved();
     }
 
     static readonly ConditionalWeakTable<object, Encounter[]> Encounters = new();
     static readonly JsonSerializerOptions Json = new();
 
-    static QuestObjectTypes.Info? Info;
-    static StateMachineData? Defaults;
+    static QuestObjectTypes.Info? Info, FlashLightInfo, ChestBaseInfo;
+    static StateMachineData? Defaults, FlashLightDefaults, ChestBaseStates;
+    static int StateIndex = -1, InteractionIndex = -1, FlashLightAnimatedIndex = -1;
+
+    static bool FlashLightSupported =>
+        FlashLightInfo is not null && FlashLightDefaults is not null && FlashLightAnimatedIndex >= 0
+        && QuestObject.CanSerialize(FlashLightInfo.Components, true);
 
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
-    static int StateIndex;
+
+    /// <summary>Eagerly caches monolith, flashlight and chest object definitions from client.db (called on module load and in tests).</summary>
+    public static void LoadData()
+    {
+        var shared = ObjectTypes.SharedStates();
+        StateMachineData? MachineOf(string path) =>
+            ObjectTypes.All().Where(t => t.Type == path).Select(t => (ClientRow?)t.Row).FirstOrDefault() is { } row
+                ? ObjectTypes.StateMachine(row, shared) : null;
+        Info = QuestObjectTypes.Find(InitiatorType);
+        Defaults = MachineOf(InitiatorType);
+        StateIndex = Info?.Components.ToList().IndexOf("StateMachine") ?? -1;
+        InteractionIndex = Info?.Components.ToList().IndexOf("InteractionAction") ?? -1;
+        FlashLightInfo = QuestObjectTypes.Find(FlashLightType);
+        FlashLightDefaults = MachineOf(FlashLightType);
+        FlashLightAnimatedIndex = FlashLightInfo?.Components.ToList().IndexOf("Animated") ?? -1;
+        ChestBaseInfo = QuestObjectTypes.Find(ChestBaseType);
+        ChestBaseStates = MachineOf(ChestBaseType);
+    }
+
+    /// <summary>Clears cached object definitions on module unload.</summary>
+    public static void UnloadData()
+    {
+        Info = FlashLightInfo = ChestBaseInfo = null;
+        Defaults = FlashLightDefaults = ChestBaseStates = null;
+        StateIndex = InteractionIndex = FlashLightAnimatedIndex = -1;
+    }
 
     public static void Register(IModuleContext module)
     {
         string id = module.Manifest.Id;
-        Info = QuestObjectTypes.Find(InitiatorType);
-        Defaults = ObjectTypes.All().Any(t => t.Type == InitiatorType)
-            ? ObjectTypes.StateMachine(ObjectTypes.All().First(t => t.Type == InitiatorType).Row, ObjectTypes.SharedStates()) : null;
-        StateIndex = Info?.Components.ToList().IndexOf("StateMachine") ?? -1;
+        if (Info is null) LoadData();
         if (Info is null || Defaults is null || StateIndex < 0 || !QuestObject.CanSerialize(Info.Components, true))
         {
             module.Log($"the monolith's type {InitiatorType} is not in the client data or cannot be written: no monolith");
@@ -94,11 +154,12 @@ static partial class LegionMonolith
         module.Lifetime.Own(new Cleanup(() =>
         {
             foreach (var (m, _) in Holds) { m.OnNonLethalZero = null; m.EntranceGrace = true; }
-            Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters(); Models = null;
+            Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters();
         }));
         GameEvents.Drops.Add(id, drop => LegionRewards.Drops(drop));
         GameEvents.MonsterKilled.Add(id, LegionRewards.Killed);
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
+        GameEvents.EnterMessages.Add(id, player => EnterMessages(module, player));
         GameEvents.PlayerEntered.Add(id, player => Enter(module, player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
@@ -122,11 +183,15 @@ static partial class LegionMonolith
         foreach (var e in restored)
         {
             // The old module's holds were cleared on unload (leaving EntranceGrace true): re-arm holds and non-lethal floors.
-            if (e.Army is { } army && e.Phase != Phase.Finished)
+            if (e.Army is { } army && e.Phase is Phase.Idle or Phase.Charging or Phase.Running)
                 foreach (var m in army) Arm(module, player, e, m);
             // A reload during the reveal or the spawn after the shatter lost the pending steps: reveal what is still hidden.
             if (e.Phase == Phase.Running && e.Army is { } standing && standing.Where(m => !m.Revealed).ToList() is { Count: > 0 } hidden)
-                global::Game.SendAfter(player, 0, () => RevealMembers(module, player, e, hidden));
+            {
+                var inst = player.Instance;
+                global::Game.SendAfter(player, 0, () =>
+                    ResolveRunner(player, inst) is { } runner ? RevealMembers(module, runner, e, hidden) : Task.CompletedTask);
+            }
         }
         return restored;
     }
@@ -152,6 +217,33 @@ static partial class LegionMonolith
     /// and gives it to each client that joins later (AreaObjectRecords).</summary>
     static bool InArea(Player player, uint id) => player.Area.Objects.Has(id);
 
+    static bool OtherInPhases(IModuleContext module, Player player, Encounter current, Func<Phase, bool> match)
+    {
+        foreach (var other in AllOf(module, player))
+        {
+            if (ReferenceEquals(other, current)) continue;
+            Phase p;
+            lock (other) p = other.Phase;
+            if (match(p)) return true;
+        }
+        return false;
+    }
+
+    static async Task BroadcastEnvironments(Player player, string what, params (ushort Row, double Seconds)[] entries)
+    {
+        if (LegionRules.Environments(entries) is not { } packet) return;
+        foreach (var member in Members(player))
+            await PlayerOf(member).Send(packet, $"0x00df Legion environment ({what})");
+    }
+
+    /// <summary>GameEvents.EnterMessages: registers the LegionRules ruleset (0x001f) before area objects arrive for a late joiner.</summary>
+    static IEnumerable<(string Log, byte[] Message)> EnterMessages(IModuleContext module, Player player)
+    {
+        if (LegionRules.Add() is not { } add) yield break;
+        if (!AllOf(module, player).Any(e => { lock (e) return e.Phase != Phase.Finished; })) yield break;
+        yield return ("0x001f ruleset LegionRules (enter)", add);
+    }
+
     /// <summary>GameEvents.AreaPopulated: places a monolith at every Legion locator in the generated layout.</summary>
     static async Task Place(IModuleContext module, AreaPopulated area)
     {
@@ -165,12 +257,20 @@ static partial class LegionMonolith
             var locator = locators[i];
             // The room's line has no fixed height (NaN): the object then takes the terrain's.
             float? z = float.IsNaN(locator.Z) ? null : locator.Z;
-            all[i] = new Encounter(new(player.TakeObjectId(), locator.X, locator.Y, area.Level, 0, 0, 0, 0, locator.Rotation, z));
+            all[i] = new Encounter(new(player.TakeObjectId(), locator.X, locator.Y, area.Level, 0, 0, 0, 0, locator.Rotation, z,
+                FlashLight: FlashLightSupported ? player.TakeObjectId() : 0));
         }
         Encounters.Add(instance, all);
         KeepAll(player, all);   // saved first: a failure leaves no encounter that the client was not shown
+        if (LegionRules.Add() is { } add)
+            foreach (var member in Members(player)) await SendRules(member, add, "0x001f ruleset LegionRules");
+        int durationPct = global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionDurationPlusPct);
         foreach (var e in all)
         {
+            float baseSeconds = (float)(TimerMilliseconds(LegionData.Current, e.Level, durationPct) / 1000.0);
+            foreach (var member in Members(player))
+                await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, baseSeconds, stage: 0, step: 0, angle: e.Rotation),
+                    $"0x02c9 LegionRules mode 0 (monolith 0x{e.Id:x})");
             module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} placed at ({e.X}, {e.Y}) in {player.Layout.Id}");
             await Show(player, e);
         }
@@ -189,31 +289,62 @@ static partial class LegionMonolith
         }
     }
 
+    /// <summary>Builds the LegionInitiator's 7 shared states for <paramref name="phase"/> matching official captures
+    /// (obelisk_state, charging, shattered, crystal, spawn_lightning, locked, active).</summary>
     static StateMachineData StatesOf(Phase phase, Encounter? e = null)
     {
         var states = Defaults!;
-        if (phase >= Phase.Charging) states = states.Set("charging", 1);
-        if (phase >= Phase.Running) states = states.Set("shattered", 1);
-        if (phase >= Phase.Finished)
+        if (phase == Phase.Idle) return states;
+        int lightning = e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken) ? 1 : 0;
+        int chests = e?.Army is { } spawned ? spawned.Count(m => m.Chest)
+            : e?.Plan?.Factions.Sum(f => f.Chests.Length) ?? 1;
+        int crystal = Math.Clamp(chests, 1, 3);
+        return phase switch
         {
-            // The end: shattered=2 plays crystal_out.epk and death_02 and hides the minimap icon, so no crystal stays in the shattered monolith.
-            states = states.Set("shattered", 2).Set("locked", 1);
-        }
-        // The general indicator: bolts from the monolith towards the general while it stands frozen, until it breaks out (R3 section 4).
-        if (e?.Army is { } army && army.Any(m => m.Tier == 3 && !m.Chest && !m.Broken)) states = states.Set("spawn_lightning", 1);
-        return states;
+            Phase.Charging => states.Set("obelisk_state", 0).Set("charging", 1).Set("shattered", 0).Set("crystal", 0).Set("spawn_lightning", lightning).Set("locked", 1).Set("active", 1),
+            Phase.Running => states.Set("obelisk_state", 2).Set("charging", 1).Set("shattered", 1).Set("crystal", crystal).Set("spawn_lightning", lightning).Set("locked", 1).Set("active", 1),
+            Phase.Frozen => states.Set("obelisk_state", 3).Set("charging", 1).Set("shattered", 2).Set("crystal", 0).Set("spawn_lightning", 0).Set("locked", 1).Set("active", 1),
+            Phase.Battle => states.Set("obelisk_state", 4).Set("charging", 1).Set("shattered", 2).Set("crystal", 0).Set("spawn_lightning", 0).Set("locked", 1).Set("active", 0),
+            _ => states.Set("obelisk_state", 5).Set("charging", 1).Set("shattered", 2).Set("crystal", 0).Set("spawn_lightning", 0).Set("locked", 1).Set("active", 0),
+        };
     }
 
-    /// <summary>The monolith for the area, created once (the area keeps it for the players who enter later; a later call
-    /// creates it only if the first create failed), and the player's own part: its blocker before the charge and the timer
-    /// while it runs.</summary>
+    /// <summary>Builds the LegionFlashLight creation blob matching official 3.29 captures (46 bytes with default height):
+    /// two monolith-id base-data variables (0x40f0fc9c, 0x7700c879), Positioned with flags0 0x02 (parent lookup),
+    /// StateMachine (foggy), Animated 0, no tasks.</summary>
+    internal static byte[] FlashLightBlob(int x, int y, uint monolithId, float rotation = 0, float? z = null)
+    {
+        var w = new BlobWriter().U8(0).U8(2);
+        EntityVariable.Entity(FlashLightProp1, monolithId).Write(w);
+        EntityVariable.Entity(FlashLightProp2, monolithId).Write(w);
+        foreach (string c in FlashLightInfo!.Components)
+        {
+            switch (c)
+            {
+                case "Positioned":
+                    w.Positioned(x, y, rotation, fixedHeight: z is float h && !float.IsNaN(h) ? BlobWriter.FixedHeight(h) : null, flags0: 0x02);
+                    break;
+                case "StateMachine": FlashLightDefaults!.Write(w); break;
+                case "Animated": w.U8(0); break;
+                // BaseEvents: no data.
+            }
+        }
+        return w.U8(0).ToArray();
+    }
+
+    /// <summary>The monolith and its flashlight for the area, created once (the area keeps them for players who enter later),
+    /// and the player's own part: its blocker before the charge and the timer while it runs.</summary>
     static async Task Show(Player player, Encounter e)
     {
-        Phase phase; uint pulse; double endsAt;
-        lock (e) (phase, pulse, endsAt) = (e.Phase, e.Pulse, e.EndsAt);
+        Phase phase; uint pulse; double endsAt; uint generalId; uint flashLight;
+        lock (e) (phase, pulse, endsAt, generalId, flashLight) = (e.Phase, e.Pulse, e.EndsAt, e.GeneralId, e.FlashLight);
         if (!InArea(player, e.Id))
         {
-            var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model) { StateMachine = StatesOf(phase, e) };
+            var obj = new QuestObject(e.X, e.Y, Info!.Components, e.Rotation, e.Z, Info.Model)
+            {
+                StateMachine = StatesOf(phase, e),
+                EntityVariables = generalId != 0 ? new Dictionary<uint, uint> { [GeneralPropertyKey] = generalId } : new Dictionary<uint, uint>(),
+            };
             var create = InstanceEntities.CreateObject(e.Id, InstanceEntities.ObjectTypeHash(InitiatorType), obj.Blob());
             bool created = false;
             await LegionOutput.ToArea(player, async p =>
@@ -223,6 +354,16 @@ static partial class LegionMonolith
                 await global::Game.SendWorldRecord(PlayerOf(p), e.Id, InstanceProtocol.EnterWakeZone(e.Id));
             });
             if (!created) return;
+        }
+        if (flashLight != 0 && FlashLightSupported && !InArea(player, flashLight))
+        {
+            var createLight = InstanceEntities.CreateObject(flashLight, InstanceEntities.ObjectTypeHash(FlashLightType),
+                FlashLightBlob(e.X, e.Y, e.Id, e.Rotation, e.Z));
+            await LegionOutput.ToArea(player, async p =>
+            {
+                if (await global::Game.SendWorldCreate(PlayerOf(p), flashLight, createLight, $"0x02bb LegionFlashLight 0x{flashLight:x}"))
+                    await global::Game.SendWorldRecord(PlayerOf(p), flashLight, InstanceProtocol.EnterWakeZone(flashLight));
+            });
         }
         // A server-placed blocking object blocks walking until it charges (the client drops its collision then).
         // The phase may have moved on while the create was sent: a pulse is made only while the encounter still runs.
@@ -292,73 +433,225 @@ static partial class LegionMonolith
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
             double now = global::Game.AreaTime(player);
-            (e.Phase, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now + ChargeSeconds, now + ChargeSeconds + seconds);   // the timer starts at the shatter
+            (e.Phase, e.StageAt, e.ChargeEnd, e.EndsAt) = (Phase.Charging, now, now + ChargeSeconds, now + ChargeSeconds + seconds);
             Keep(player, e);
         }
         module.Log($"{PlayerOf(player).Character}: monolith activated at ({e.X}, {e.Y}), timer {seconds} s");
         module.Log($"{PlayerOf(player).Character}: {plan}");
-        await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1");
-        foreach (var member in Members(player)) await SendRules(member, LegionRules.Add(), "0x001f ruleset LegionRules");
+        if (InteractionIndex >= 0 && InArea(player, e.Id))
+            await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), e.Id,
+                InstanceEntities.ComponentUpdate(e.Id, (byte)InteractionIndex, [0]), $"0x02bc Legion monolith 0x{e.Id:x} interaction 00"));
+        await ToAll(player, e, StatesOf(Phase.Charging, e), "charging=1, locked=1, active=1");
+        foreach (var member in Members(player))
+        {
+            await SendRules(member, LegionRules.Add(), "0x001f ruleset LegionRules");
+            await SendRules(member, LegionRules.Begin(e.X, e.Y, (uint)e.Level, e.Id, 0, (float)seconds, stage: 0, step: 0, angle: e.Rotation),
+                "0x02c9 LegionRules mode 0 (sync duration)");
+        }
         foreach (var member in Members(player)) member.RemoveBlocker(e.Id);
         await BeginArmy(module, player, e);
         return true;
     }
 
-    /// <summary>GameEvents.AreaTick: the shatter after the build-up and the end of the timer for every monolith in the area.</summary>
+    /// <summary>GameEvents.AreaTick: steps every monolith through Charging -> Running -> Frozen -> Battle -> Ending -> Finished.</summary>
     static async Task Tick(IModuleContext module, Player player)
     {
         if (player.Closed || player.LeavingArea) return;
         foreach (var e in AllOf(module, player))
         {
             int step = 0;
-            uint pulse = 0;
+            uint pulse = 0, flashLight = 0;
+            bool battleOut = false, postOut = false;
             lock (e)
             {
                 if (e.Phase is Phase.Idle or Phase.Finished) continue;
                 double now = global::Game.AreaTime(player);
-                if (e.Phase == Phase.Charging && now >= e.ChargeEnd) { e.Phase = Phase.Running; pulse = player.TakeObjectId(); step = 1; }   // e.Pulse is set with its scale (RevealArmy)
-                else if (e.Phase == Phase.Running && now >= e.EndsAt) { e.Phase = Phase.Finished; pulse = e.Pulse; step = 2; }
-                if (step != 0) Keep(player, e);
+                if (e.Phase == Phase.Charging && now >= e.ChargeEnd)
+                {
+                    e.Phase = Phase.Running;
+                    e.StageAt = now;
+                    e.RuleActivated = true;
+                    e.RuleStage = 1;
+                    e.RuleStep = 2;
+                    e.Environments = LegionData.Current.EnvWorld != 0 ? [LegionData.Current.EnvWorld] : [];
+                    pulse = player.TakeObjectId();   // e.Pulse is set with its scale in RevealArmy
+                    flashLight = e.FlashLight;
+                    step = 1;
+                    Keep(player, e);
+                }
+                else if (e.Phase == Phase.Running && now >= e.EndsAt)
+                {
+                    e.Phase = Phase.Frozen;
+                    e.StageAt = now;
+                    e.RuleStage = 1;
+                    e.RuleStep = 3;
+                    pulse = e.Pulse;
+                    step = 2;
+                    Keep(player, e);
+                }
+                else if (e.Phase == Phase.Frozen && now - e.StageAt >= BattleAfterFreezeSeconds)
+                {
+                    e.Phase = Phase.Battle;
+                    e.StageAt = now;
+                    e.RuleStage = 2;
+                    e.RuleStep = 4;
+                    step = 3;
+                    Keep(player, e);
+                }
+                else if (e.Phase == Phase.Battle)
+                {
+                    int alive = 0;
+                    if (e.ReleasedIds is { Length: > 0 } ids)
+                    {
+                        foreach (uint rid in ids)
+                            if (player.Area.Monsters.TryGetValue(rid, out var rm) && !rm.Dead && rm.Life > 0) alive++;
+                    }
+                    if (alive == 0 && e.ClearedAt is null) { e.ClearedAt = now; Keep(player, e); }
+                    if ((e.ClearedAt is not null && now - e.ClearedAt >= EndDelaySeconds) || now - e.StageAt >= BattleMaxSeconds)
+                    {
+                        e.Phase = Phase.Ending;
+                        e.StageAt = now;
+                        e.BattleOutSent = false;
+                        e.RuleStage = 2;
+                        e.RuleStep = 5;
+                        var envs = new List<ushort>(2);
+                        if (LegionData.Current.EnvBattle != 0) envs.Add(LegionData.Current.EnvBattle);
+                        if (LegionData.Current.EnvPostBattle != 0) envs.Add(LegionData.Current.EnvPostBattle);
+                        e.Environments = [.. envs];
+                        step = 4;
+                        Keep(player, e);
+                    }
+                }
+                else if (e.Phase == Phase.Ending)
+                {
+                    if (now - e.StageAt >= BattleEnvOutSeconds && !e.BattleOutSent)
+                    {
+                        e.BattleOutSent = true;
+                        e.Environments = LegionData.Current.EnvPostBattle != 0 ? [LegionData.Current.EnvPostBattle] : [];
+                        battleOut = true;
+                    }
+                    if (now - e.StageAt >= PostBattleEnvOutSeconds)
+                    {
+                        e.Phase = Phase.Finished;
+                        e.Environments = [];
+                        e.ReleasedIds = null;
+                        postOut = true;
+                    }
+                    if (battleOut || postOut) { step = 5; Keep(player, e); }
+                }
             }
             if (step == 1)
             {
-                await ToAll(player, e, StatesOf(Phase.Running, e), "shattered=1");
+                if (LegionData.Current.EnvWorld != 0)
+                    await BroadcastEnvironments(player, "world", (LegionData.Current.EnvWorld, 0.5));
+                foreach (var member in Members(player))
+                {
+                    await SendRules(member, LegionRules.State(e.Id, 1, 1), "0x02c9 LegionRules state (1,1)");
+                    await SendRules(member, LegionRules.Activated(e.Id), "0x02c9 LegionRules mode 1 (activated)");
+                }
+                await ToAll(player, e, StatesOf(Phase.Running, e), "obelisk=2, shattered=1");
+                if (flashLight != 0 && FlashLightAnimatedIndex >= 0 && InArea(player, flashLight))
+                    await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), flashLight,
+                        InstanceEntities.ComponentUpdate(flashLight, (byte)FlashLightAnimatedIndex, [0]), $"0x02bc LegionFlashLight 0x{flashLight:x} Animated 00"));
                 double left = Math.Max(1, e.EndsAt - global::Game.AreaTime(player));
                 foreach (var member in Members(player))
                     await PlayerOf(member).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, SecondsShown(left)), $"0x0163 mission timer Legion: {left:0.0} s (at the shatter)");
-                foreach (var member in Members(player)) await SendRules(member, RulesBegin(player, e), "0x02c9 LegionRules mode 0 (HUD and area audio)");
                 await RevealArmy(module, player, e, pulse);   // the pulse and the reveal start at the same instant
+                foreach (var member in Members(player))
+                    await SendRules(member, LegionRules.State(e.Id, 1, 2), "0x02c9 LegionRules state (1,2)");
                 await EarlyEnd(module, player, e);   // a break-out during the charge could not end it yet
             }
             else if (step == 2) await Finish(module, player, e, pulse, "timer");
+            else if (step == 3)
+            {
+                foreach (var member in Members(player))
+                    await SendRules(member, LegionRules.State(e.Id, 2, 4), "0x02c9 LegionRules state (2,4 battle)");
+                await ToAll(player, e, StatesOf(Phase.Battle, e), "obelisk=4, active=0");
+            }
+            else if (step == 4)
+            {
+                foreach (var member in Members(player))
+                    await SendRules(member, LegionRules.State(e.Id, 2, 5), "0x02c9 LegionRules state (2,5 ending)");
+                await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
+                if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
+                    await BroadcastEnvironments(player, "post-battle", (LegionData.Current.EnvBattle, 0.0), (LegionData.Current.EnvPostBattle, 0.2));
+            }
+            else if (step == 5)
+            {
+                if (battleOut && !OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
+                    await BroadcastEnvironments(player, "battle out", (LegionData.Current.EnvBattle, -2.0), (LegionData.Current.EnvPostBattle, 0.2));
+                if (postOut && !OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle or Phase.Ending))
+                    await BroadcastEnvironments(player, "post-battle out", (LegionData.Current.EnvPostBattle, -2.0));
+            }
         }
     }
 
-    /// <summary>The end of the encounter, reached once: the caller moved the phase to Finished under the encounter's lock (the
-    /// timer in Tick, or EarlyEnd). Hides the timer (when no other monolith in the area is still running), locks the monolith and releases the army.</summary>
+    /// <summary>The end of the timer phase, reached once: the caller moved the phase from Running to Frozen under the
+    /// encounter's lock (the timer in Tick, or EarlyEnd). Hides the timer (when no other monolith is running), shifts to
+    /// Frozen/Battle (or Ending when 0 monsters woke), plays the release pulse and releases the army.</summary>
     static async Task Finish(IModuleContext module, Player player, Encounter e, uint pulse, string reason)
     {
-        bool anotherRunning = AllOf(module, player).Any(other => !ReferenceEquals(other, e) && other.Phase == Phase.Running);
-        if (!anotherRunning)
+        if (!OtherInPhases(module, player, e, p => p == Phase.Running))
             foreach (var member in Members(player))
                 await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion: hidden");
-        await ToAll(player, e, StatesOf(Phase.Finished, e), "locked=1, shattered=2");
-        foreach (var member in Members(player)) await SendRules(member, LegionRules.End(e.Id), "0x02c9 LegionRules mode 5 (finished)");
+        foreach (var member in Members(player))
+            await SendRules(member, LegionRules.State(e.Id, 1, 3), "0x02c9 LegionRules state (1,3 frozen)");
+        await ToAll(player, e, StatesOf(Phase.Frozen, e), "obelisk=3, shattered=2, locked=1");
         if (pulse != 0 && InArea(player, pulse)) await LegionOutput.Remove(player, pulse);
         // Second radial shockwave at release (00:00 / early end), matching real PoE visuals.
         if (InArea(player, e.Id))
         {
             uint releasePulse = player.TakeObjectId();
             await ShowPulse(player, e, releasePulse);
-            global::Game.SendAfter(player, PulseSeconds + 0.5, () => LegionOutput.Remove(player, releasePulse));
+            var inst = player.Instance;
+            global::Game.SendAfter(player, PulseSeconds + 0.5, () =>
+                ResolveRunner(player, inst) is { } runner ? LegionOutput.Remove(runner, releasePulse) : Task.CompletedTask);
         }
-        module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} ended ({reason})");
-        await ReleaseArmy(module, player, e, reason);
+        module.Log($"{PlayerOf(player).Character}: monolith 0x{e.Id:x} timer ended ({reason})");
+        uint[] wokenIds = await ReleaseArmy(module, player, e, reason);
+        var data = LegionData.Current;
+        double now = global::Game.AreaTime(player);
+        if (wokenIds.Length > 0)
+        {
+            lock (e)
+            {
+                e.StageAt = now;
+                e.ReleasedIds = wokenIds;
+                e.Environments = data.EnvBattle != 0 ? [data.EnvBattle] : [];
+                Keep(player, e);
+            }
+            if (!OtherInPhases(module, player, e, p => p == Phase.Running))
+            {
+                if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
+                if (data.EnvBattle != 0) await BroadcastEnvironments(player, "battle", (data.EnvBattle, 0.0));
+            }
+        }
+        else
+        {
+            lock (e)
+            {
+                e.Phase = Phase.Ending;
+                e.StageAt = now;
+                e.BattleOutSent = true;
+                e.RuleStage = 2;
+                e.RuleStep = 5;
+                e.Environments = data.EnvPostBattle != 0 ? [data.EnvPostBattle] : [];
+                Keep(player, e);
+            }
+            foreach (var member in Members(player))
+                await SendRules(member, LegionRules.State(e.Id, 2, 5), "0x02c9 LegionRules state (2,5 no woken)");
+            await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
+            if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
+            {
+                if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
+                if (data.EnvPostBattle != 0) await BroadcastEnvironments(player, "post-battle", (data.EnvPostBattle, 0.2));
+            }
+        }
     }
 
     /// <summary>After a break-out: at least 90% of the plain and elite monsters and every chest, sergeant and general broken out
-    /// ends the encounter at once (wiki). One scan of the army per break-out; the phase moves to Finished under the lock, so the
-    /// timer and this cannot both finish it.</summary>
+    /// ends the encounter at once (wiki). One scan of the army per break-out; the phase moves from Running to Frozen under the
+    /// lock, so the timer and this cannot both finish it.</summary>
     static async Task EarlyEnd(IModuleContext module, Player player, Encounter e)
     {
         uint pulse;
@@ -372,7 +665,11 @@ static partial class LegionMonolith
                 else { plain++; if (m.Broken) plainBroken++; }
             }
             if (plainBroken * 10 < plain * 9) return;
-            e.Phase = Phase.Finished; pulse = e.Pulse;
+            e.Phase = Phase.Frozen;
+            e.StageAt = global::Game.AreaTime(player);
+            e.RuleStage = 1;
+            e.RuleStep = 3;
+            pulse = e.Pulse;
             Keep(player, e);
         }
         await Finish(module, player, e, pulse, "early");
@@ -393,12 +690,12 @@ static partial class LegionMonolith
         int frozenDamageTakenPct;
         lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; frozenDamageTakenPct = e.FrozenDamageTakenPct; e.Army = []; e.Spawning = true; }
         // Each member joins e.Army as soon as it stands, so a timer that ends meanwhile (ReleaseArmy) removes it too;
-        // once the encounter is Finished a new member is refused and Spawn removes it itself.
+        // once the encounter leaves Charging/Running a new member is refused and Spawn removes it itself.
         bool Keeps(LegionStasis.Member m)
         {
             lock (e)
             {
-                if (e.Phase == Phase.Finished) return false;
+                if (e.Phase is not (Phase.Charging or Phase.Running)) return false;
                 e.Army = [.. e.Army ?? [], m];
                 Arm(module, player, e, m);
                 return true;
@@ -411,30 +708,47 @@ static partial class LegionMonolith
             lock (e) reveal = e.Phase == Phase.Running;
             if (reveal) await RevealMembers(module, player, e, [m], keep: false);
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct, e.Rotation); }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct, e.Rotation, monolithId: e.Id); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
-        lock (e) { phase = e.Phase; Keep(player, e); }
+        uint generalId = 0;
+        lock (e)
+        {
+            phase = e.Phase;
+            if (e.Army?.FirstOrDefault(m => m.Tier == 3 && !m.Chest) is { } gen)
+            {
+                e.GeneralId = gen.Id;
+                generalId = gen.Id;
+            }
+            Keep(player, e);
+        }
         await EarlyEnd(module, player, e);   // a break-out during the spawn could not end it yet
-        // The general indicator is part of the monolith's states: the bolts show where the general stands.
-        if (phase != Phase.Finished && e.Army!.Any(m => m.Tier == 3 && !m.Chest)) await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=1");
+        // Link the General to the monolith via dynamic property 0xec72e38c so spawn_lightning aims its bolts directly at the General.
+        if (generalId != 0 && InArea(player, e.Id))
+            await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), e.Id,
+                InstanceEntities.BaseDataUpdate(e.Id, [EntityVariable.Entity(GeneralPropertyKey, generalId)]),
+                $"0x02c1 Legion monolith 0x{e.Id:x} general=0x{generalId:x}"));
+        lock (e) phase = e.Phase;
+        if (phase is Phase.Charging or Phase.Running && generalId != 0)
+            await ToAll(player, e, StatesOf(phase, e), "spawn_lightning=1");
     }
 
-    /// <summary>The encounter ended (the timer or EarlyEnd). Broken-out monsters wake and fight (LegionStasis.Wake),
+    /// <summary>The timer phase ended (timer or EarlyEnd). Broken-out monsters wake and fight (LegionStasis.Wake),
     /// broken-out war chests become clickable Chest objects (SpawnBox), unbroken members are removed, and an unbroken
-    /// general flees and goes after <see cref="FleeSeconds"/>.</summary>
-    static async Task ReleaseArmy(IModuleContext module, Player player, Encounter e, string reason)
+    /// general flees and goes after <see cref="FleeSeconds"/>. Returns the woken fighting monster ids.</summary>
+    static async Task<uint[]> ReleaseArmy(IModuleContext module, Player player, Encounter e, string reason)
     {
         if (reason == "early") await BreakRemaining(module, player, e);   // the 90% rule breaks out the rest (patch 3.29.0), not removes it
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
-        if (army is not { Length: > 0 }) return;
+        if (army is not { Length: > 0 }) return [];
         var remove = new List<LegionStasis.Member>();
         var ended = new List<LegionStasis.Member>();
         var flee = new List<LegionStasis.Member>();
         var brokenChests = new List<(LegionStasis.Member Member, int X, int Y)>();
+        var wokenIds = new List<uint>();
         double now = global::Game.AreaTime(player);
-        int woken = 0, brokenCount = 0;
+        int brokenCount = 0;
         bool generalFought = false;
         foreach (var m in army)
         {
@@ -453,7 +767,9 @@ static partial class LegionMonolith
             }
             else if (broken && !m.Chest)
             {
-                if (await LegionStasis.Wake(player, m, monster, e.X, e.Y, e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null)) { woken++; generalFought |= m.Tier == 3; }
+                uint wokenId = await LegionStasis.Wake(player, m, monster, e.X, e.Y,
+                    e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null, monolithId: e.Id);
+                if (wokenId != 0) { wokenIds.Add(wokenId); generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }
             else if (m.Tier == 3 && !m.Chest) flee.Add(m);
@@ -488,24 +804,25 @@ static partial class LegionMonolith
             // The server forgets it now (no leak if the timer below is dropped, and it gives no rewards); only the client's removal waits.
             if (player.Area.Monsters.Remove(g.Id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }
             player.Instance.World.MonsterOrigins.TryRemove(g.Id, out _);
-            player.Area.Buffs.Removed(g.Id);
-            player.Area.Stats.Removed(g.Id);
-            player.Area.Life.Removed(g.Id);
+            LegionOutput.ForgetComponents(player, g.Id);
         }
         if (flee.Count > 0 && fleeViewers is { Count: > 0 })
+        {
+            var inst = player.Instance;
             global::Game.SendAfter(player, FleeSeconds, async () =>
             {
                 foreach (var viewer in fleeViewers)
                 {
-                    if (viewer.Closed || viewer.LeavingArea || !ReferenceEquals(viewer.Instance, player.Instance)) continue;
+                    if (viewer.Closed || viewer.LeavingArea || !ReferenceEquals(viewer.Instance, inst)) continue;
                     await LegionOutput.ToOne(viewer, async () =>
                     {
                         foreach (var g in flee) await global::Game.SendWorldRemoval(viewer, g.Id);
                     });
                 }
             });
+        }
         string general = flee.Count > 0 ? "fled" : generalFought ? "fought" : "none";
-        module.Log($"army released ({reason}): {brokenCount} of {army.Length} broken out ({woken} woken, {brokenChests.Count} chests), general {general}");
-        await ToAll(player, e, StatesOf(Phase.Finished, e), "spawn_lightning=0");
+        module.Log($"army released ({reason}): {brokenCount} of {army.Length} broken out ({wokenIds.Count} woken, {brokenChests.Count} chests), general {general}");
+        return [.. wokenIds];
     }
 }

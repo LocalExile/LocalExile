@@ -7,11 +7,19 @@ namespace GameServer.Modules.Legion;
 /// monolith (<see cref="LegionMonolith"/>); the army is planned in LegionArmy and spawned in LegionStasis.</summary>
 public sealed class LegionModule : IModule
 {
+    /// <summary>Loads this module's static game data eagerly (called on module load and by Gateway test setup).</summary>
+    public static void LoadData()
+    {
+        LegionData.Reload();
+        LegionMonolith.LoadData();
+    }
+
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
-        var data = LegionData.Reload();
-        module.Lifetime.Own(new Cleanup(LegionData.Unload));
+        LoadData();
+        var data = LegionData.Current;
+        module.Lifetime.Own(new Cleanup(() => { LegionMonolith.UnloadData(); LegionData.Unload(); }));
         LegionMonolith.Register(module);
         module.Log($"{data.Factions.Count} factions, {data.Ranks.Count} ranks, {data.MonsterVarieties.Count} monster varieties, {data.MonsterCounts.Count} monster counts, {data.ChestTypes.Count} chest types, {data.ChestCounts.Count} chest counts, {data.Balances.Count} balance rows");
     }

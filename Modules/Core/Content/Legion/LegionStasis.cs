@@ -114,7 +114,7 @@ static class LegionStasis
 
     /// <summary>The sequence of the next LegionBreakout action: a simple counter, never 0.</summary>
     static int sequences;
-    static ushort NextSequence() => (ushort)(Interlocked.Increment(ref sequences) % 0xffff + 1);
+    static ushort NextSequence() => (ushort)((uint)Interlocked.Increment(ref sequences) % 0xffff + 1);
 
     /// <summary>BuffDefinitions frozen_in_time, with its default visual 1082 legion_petrify; the faction visual overrides it (TimeLockVisual).</summary>
     const ushort FrozenBuff = 1311;
@@ -137,8 +137,9 @@ static class LegionStasis
 
     /// <summary>Spawns both armies of the plan hidden (action state 0); each member is handed to <paramref name="keep"/> (false: the timer ended, it is removed and spawning stops),
     /// then to <paramref name="standing"/> (outside the encounter's lock, for a reveal when the shatter has already passed).
-    /// When a general is planned and <paramref name="monolithRotation"/> is finite, the axis aligns the general's army with the monolith's forward direction so spawn_lightning points toward it.</summary>
-    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0, float monolithRotation = float.NaN)
+    /// When a general is planned and <paramref name="monolithRotation"/> is finite, the axis aligns the general's army with the monolith's forward direction.
+    /// <paramref name="monolithId"/> is written into each unit's <c>owning_initiator</c> state (with <c>present=0</c>).</summary>
+    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0, float monolithRotation = float.NaN, uint monolithId = 0)
     {
         var rng = global::Game.AreaRng(player);
         var frozenStats = FrozenStats(frozenDamageTakenPct);
@@ -165,9 +166,11 @@ static class LegionStasis
             var action = BreakoutAction(player, variety, row, sequence, Hidden, 100);
             float facing = formations[faction].Facing;
             uint id = await SpawnMonster(player, variety, areaLevel, rarity, at.X, at.Y,
+                currentAction: action, noBodyUntilReleased: true,
                 friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false, rotation: facing,
-                currentAction: action, noBodyUntilReleased: true, extraStats: RewardStats(rewards, true),
-                placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
+                extraStats: RewardStats(rewards, true),
+                placement: MonsterPlacement.Established,   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
+                shape: monolithId == 0 ? null : o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("present", 0).Set("owning_initiator", (int)monolithId) });
             if (id == 0) { skipped++; return; }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id), frozenStats);
             var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null, Facing: facing);
@@ -317,20 +320,25 @@ static class LegionStasis
 
     /// <summary>The end of the stasis for a member that broke out. The frozen monster was spawned scripted (no AI, no kit, cannot be
     /// stunned: all fixed at spawn), so it is swapped for a new ordinary monster of the same variety, rarity, cell and formation facing,
-    /// shaped with <c>breakout=1</c> and <c>activated=1</c> right in its 0x02bb create so no crystal flickers and no post-spawn state update is needed.
-    /// Returns false when the new monster could not be made (the frozen one is then left standing).</summary>
-    public static async Task<bool> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null)
+    /// shaped with <c>present=1</c>, <c>breakout=1</c>, <c>activated=1</c> and <c>owning_initiator</c> right in its 0x02bb create so no crystal flickers and no post-spawn state update is needed.
+    /// Returns the woken monster's object id, or 0 when the new monster could not be made (the frozen one is then left standing).</summary>
+    public static async Task<uint> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null, uint monolithId = 0)
     {
         var variety = monster.Variety;
-        if (variety is null) return false;
+        if (variety is null) return 0;
         var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
         float rotation = member.Facing is float f && float.IsFinite(f) ? f : (float)Math.Atan2(cx - x, -(cy - y));
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
             rotation: rotation,
             extraStats: RewardStats(member.Rewards, false),   // the icon, shown
-            shape: o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("breakout", 1).Set("activated", 1) });
-        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out _)) return false;   // the frozen one stays: the caller removes it
+            shape: o =>
+            {
+                var sm = (o.StateMachine ?? variety.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1);
+                if (monolithId != 0) sm = sm?.Set("owning_initiator", (int)monolithId);
+                return o with { StateMachine = sm };
+            });
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out _)) return 0;   // the frozen one stays: the caller removes it
         await Remove(player, [member]);
         if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
         if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
@@ -340,7 +348,7 @@ static class LegionStasis
             anyFighter = true;
             PersistFighters(player, map);
         }
-        return true;
+        return id;
     }
 
     /// <summary>Removes the members still standing from the instance and from every client in the area; returns how many.</summary>
@@ -355,20 +363,18 @@ static class LegionStasis
                 player.Instance.World.MonsterOrigins.TryRemove(member.Id, out _);
                 ids.Add(member.Id);
             }
+        if (ids.Count == 0) return 0;
         var members = LegionOutput.Members(player).ToList();
         if (members.Count == 0)
         {
-            foreach (uint id in ids)
-            {
-                player.Area.Buffs.Removed(id);
-                player.Area.Stats.Removed(id);
-                player.Area.Life.Removed(id);
-            }
+            foreach (uint id in ids) LegionOutput.ForgetComponents(player, id);
         }
         else
         {
-            foreach (uint id in ids)
-                _ = LegionOutput.ToArea(members, p => global::Game.SendWorldRemoval(p, id));   // not awaited: ~200 sends must not hold the tick
+            await LegionOutput.ToArea(members, async p =>
+            {
+                foreach (uint id in ids) await global::Game.SendWorldRemoval(p, id);
+            });
         }
         return ids.Count;
     }

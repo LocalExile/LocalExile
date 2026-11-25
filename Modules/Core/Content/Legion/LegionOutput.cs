@@ -34,6 +34,28 @@ static class LegionOutput
         return members.Count > 0;
     }
 
+    /// <summary>Clears an entity's area component records safely: Buffs is thread-safe, while Stats and Life assert
+    /// frame ownership when the area is driven, so off-frame calls defer onto the area's frame and re-check Owned.</summary>
+    public static void ForgetComponents(Player player, uint id)
+    {
+        var area = player.Area;
+        area.Buffs.Removed(id);
+        if (!area.Driven || area.Owned)
+        {
+            area.Stats.Removed(id);
+            area.Life.Removed(id);
+            return;
+        }
+        _ = player.Frames.Run(() =>
+        {
+            if (!area.Driven || area.Owned)
+            {
+                area.Stats.Removed(id);
+                area.Life.Removed(id);
+            }
+        });
+    }
+
     /// <summary>Removes an area object from every client. When no client got the removal (nobody was in the area), the area
     /// forgets the object and its component state itself, or it would give them to every player who enters later.</summary>
     public static async Task Remove(Player player, uint id)
@@ -42,9 +64,7 @@ static class LegionOutput
         if (!sent || player.Area.Objects.Has(id))
         {
             player.Area.Objects.RecordDirect(id, InstanceProtocol.RemoveObject(id), AreaDelta.Kind.Remove, player);
-            player.Area.Buffs.Removed(id);
-            player.Area.Stats.Removed(id);
-            player.Area.Life.Removed(id);
+            ForgetComponents(player, id);
         }
     }
 

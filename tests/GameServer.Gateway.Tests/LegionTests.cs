@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.Legion;
@@ -75,6 +76,22 @@ public sealed class LegionTests
         Assert.True(frozen.EntranceGrace);
         Assert.Equal((1u, false), Game.TakeDamageLocked(frozen, 50));
         Assert.Equal(1, floorHits);
+        // Capture-verified wire primitives: LegionRules 0x2c9 mode 0/1/5, 0xdf environments, LegionFlashLight (46 bytes) and chest symbols.
+        var data = LegionData.Current;
+        Assert.True(data.RulesetRow is not null && data.EnvWorld > 0 && data.EnvBattle > 0 && data.EnvPostBattle > 0);
+        byte[] mode0 = LegionRules.Begin(1234, -5678, 68, 0x00abcdefu, 0f, 15f, stage: 0, step: 0, angle: 0f)!;
+        byte[] officialMode0 = Convert.FromHexString("5e25004a0200002d040000440000000000f7070000000000000000000000000000000000007041");
+        BinaryPrimitives.WriteInt32LittleEndian(officialMode0.AsSpan(3), 1234);
+        BinaryPrimitives.WriteInt32LittleEndian(officialMode0.AsSpan(7), -5678);
+        BinaryPrimitives.WriteUInt32LittleEndian(officialMode0.AsSpan(17), 0x00abcdefu);
+        Assert.Equal(officialMode0, mode0[2..]);
+        Assert.Equal((byte[])[0x02, 0xc9, data.RulesetRow.Value, 5, 1, 0xef, 0xcd, 0xab, 0x00], LegionRules.Activated(0x00abcdefu));
+        Assert.Equal((byte[])[0x02, 0xc9, data.RulesetRow.Value, 7, 5, 0xef, 0xcd, 0xab, 0x00, 2, 4], LegionRules.State(0x00abcdefu, 2, 4));
+        byte[] envEnding = Convert.FromHexString("00df02049700000000000498003e4ccccd");
+        BinaryPrimitives.WriteUInt16BigEndian(envEnding.AsSpan(3), data.EnvBattle);
+        BinaryPrimitives.WriteUInt16BigEndian(envEnding.AsSpan(10), data.EnvPostBattle);
+        Assert.Equal(envEnding, LegionRules.Environments((data.EnvBattle, 0.0), (data.EnvPostBattle, 0.2)));
+        Assert.Equal(46, LegionMonolith.FlashLightBlob(589, 792, 0x400006fu).Length);
         }
     }
 
@@ -115,11 +132,20 @@ public sealed class LegionTests
         }
         Assert.True(sergeants > 0 && rewarded > 0 && chests > 0 && hoards > 0, "the seeds must include a War Hoard");
         Assert.True(rewarded < sergeants, "a sergeant carries a reward with a chance, not always");
-        // Table columns: faction orderliness (__col3), variety spawn weights (__col6), prop counts (__col15), HardmodeChest.
+        // Table columns: faction orderliness (__col3), variety spawn weights (__col6), prop counts (__col15), HardmodeChest and chest serialization.
         Assert.True(data.Factions.First(f => f.Id == "EternalEmpire").Orderliness >= 0.9);
         Assert.True(data.Factions.First(f => f.Id == "Karui").Orderliness < 0.9);
         Assert.Contains(data.MonsterVarieties, v => v.SpawnWeight > 1);
         Assert.All(data.MonsterVarieties.Where(v => v.MiscAnimated.Length > 0), v => Assert.NotEmpty(v.PropCounts!));
+        Assert.All(data.RewardTypes, rt => Assert.True(rt.MiscAnimatedKey >= 0 && data.MiscAnimatedModels.ContainsKey(rt.MiscAnimatedKey) && rt.Scale > 0));
+        Assert.NotEmpty(data.ChestsByRow);
+        foreach (var (_, (chestType, _)) in data.ChestsByRow)
+        {
+            var info = LegionMonolith.ResolveChestInfo(chestType);
+            Assert.NotNull(info);
+            var box = new LegionMonolith.Box(1, chestType, 100, 100, 0, null, null, false, false, [0], 0, [2u]);
+            Assert.True(LegionMonolith.BuildChestObject(box, info).Blob().Length > 30);
+        }
         // Low-level campaign monoliths never roll endgame/league symbols whose pools are empty at that level.
         for (int seed = 1; seed <= 40; seed++)
         {

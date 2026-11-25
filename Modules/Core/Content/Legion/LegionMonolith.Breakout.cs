@@ -25,10 +25,15 @@ static partial class LegionMonolith
     const int ChestRolls = 3, HoardRolls = 6;
     /// <summary>MiscAnimated 3326 LegionChestBreakoutExplode.</summary>
     const int ChestExplodeKey = 3326;
+    /// <summary>Official-capture floating height for chest reward symbols: Positioned fixedHeight (25, -195.3125f = 25 * -7.8125).</summary>
+    const uint ChestSymbolHeightSteps = 25;
+    const float ChestSymbolHeightZ = -195.3125f;
 
     /// <summary>The openable chest that a broken-out war chest became (kept in the save; its id changes when it is opened). Rewards are its
-    /// LegionRewardTypeVisuals rows; Faction is the LegionFactions ROW of its army (-1: unknown, an old save).</summary>
-    public sealed record Box(uint Id, string Type, int X, int Y, float Rotation, float? Z, string? Model, bool Hoard, bool Opened, int[]? Rewards = null, int Faction = -1);
+    /// LegionRewardTypeVisuals rows; Faction is the LegionFactions ROW of its army (-1: unknown, an old save); SymbolIds are the floating
+    /// 3D reward symbols hovering above it until opened.</summary>
+    public sealed record Box(uint Id, string Type, int X, int Y, float Rotation, float? Z, string? Model, bool Hoard, bool Opened,
+        int[]? Rewards = null, int Faction = -1, uint[]? SymbolIds = null);
 
     /// <summary>What the server keeps of one frozen member: whether it broke out (its life is the monster's own).</summary>
     sealed class Hold(Encounter e, LegionStasis.Member member)
@@ -41,14 +46,8 @@ static partial class LegionMonolith
     }
 
     static readonly ConditionalWeakTable<SpawnedMonster, Hold> Holds = new();
-    static Dictionary<int, string>? Models;
 
-    static string? ModelOf(int key)
-    {
-        Models ??= ClientTables.TableOrEmpty("MiscAnimated").Where(r => r.Text("AOFile") is { Length: > 0 })
-            .ToDictionary(r => r.Index, r => r.Text("AOFile")!);
-        return Models.GetValueOrDefault(key);
-    }
+    static string? ModelOf(int key) => LegionData.Current.MiscAnimatedModels.GetValueOrDefault(key);
 
     static Player? ResolveRunner(Player fallback, InstanceState? instance)
     {
@@ -76,7 +75,8 @@ static partial class LegionMonolith
             var runner = ResolveRunner(player, instance);
             if (runner is null) return;
             global::Game.SpreadContagionAtFloorLocked(runner, target);
-            global::Game.SendAfter(runner, 0, () => BreakOut(module, runner, hold, target));
+            global::Game.SendAfter(runner, 0, () =>
+                ResolveRunner(runner, instance) is { } live ? BreakOut(module, live, hold, target) : Task.CompletedTask);
         };
         monster.EntranceGrace = false;
     }
@@ -133,7 +133,7 @@ static partial class LegionMonolith
     }
 
     /// <summary>Breaks the monsters out: a 0x2c8 state 3 (the client plays the threshold shards, breaking_free, a general's shell break and the 3 s
-    /// ramp itself, R10), crystal off for everyone now and for players who enter later. Our own effect object of the break-out is gone.</summary>
+    /// ramp itself, R10), crystal off (present=1, breakout=1) for everyone now and for players who enter later.</summary>
     static async Task Free(IModuleContext module, Player player, Encounter e, List<(Hold Hold, SpawnedMonster Monster)> items)
     {
         items = [.. items.Where(i => !i.Monster.Dead && player.Area.Monsters.ContainsKey(i.Hold.Member.Id))];   // none that ReleaseArmy removed
@@ -152,7 +152,7 @@ static partial class LegionMonolith
             // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life/ES makes the client hide it; EntranceGrace blocks further damage.
             monster.Life = monster.MaxLife;
             global::Game.RefillMonsterEnergyShieldLocked(player.Area, id, monster);
-            var states = (monster.States ?? monster.Variety?.StateMachine)?.Set("breakout", 1);
+            var states = (monster.States ?? monster.Variety?.StateMachine)?.Set("present", 1).Set("breakout", 1);
             if (states is not null)
             {
                 monster.States = states;
@@ -182,6 +182,7 @@ static partial class LegionMonolith
     {
         if (model is null) return;
         uint id = player.TakeObjectId();
+        var instance = player.Instance;
         bool created = false;
         await LegionOutput.ToArea(player, async p =>
         {
@@ -190,8 +191,10 @@ static partial class LegionMonolith
             created = true;
             await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceProtocol.EnterWakeZone(id));
         });
-        // One area timer: it fires if the player who triggered it left, and takes the players there then.
-        if (created) global::Game.SendAfter(player, FlashSeconds, () => LegionOutput.Remove(player, id));
+        // One area timer resolving a live runner from the instance so portal-out by the activator cannot target a stale area.
+        if (created)
+            global::Game.SendAfter(player, FlashSeconds, () =>
+                ResolveRunner(player, instance) is { } runner ? LegionOutput.Remove(runner, id) : Task.CompletedTask);
     }
 
     static async Task BreakChest(IModuleContext module, Player player, Hold hold, SpawnedMonster chestMonster, int x, int y)
@@ -245,6 +248,72 @@ static partial class LegionMonolith
 
     // ---- the openable chest ----
 
+    /// <summary>Resolves a Legion chest's QuestObjectTypes.Info via its own type or its Chests.InheritsFrom base
+    /// (<c>Metadata/Chests/LegionChests/LegionChestBase</c>), allowing its empty StateMachine component.</summary>
+    internal static QuestObjectTypes.Info? ResolveChestInfo(string type)
+    {
+        var info = QuestObjectTypes.Find(type);
+        if (info is null && LegionData.Current.ChestInherits.TryGetValue(type, out var parent) && parent is not null)
+            info = QuestObjectTypes.Find(parent);
+        info ??= ChestBaseInfo;
+        return info is not null && QuestObject.CanSerialize(info.Components, ChestBaseStates is not null) ? info : null;
+    }
+
+    /// <summary>Builds the QuestObject for a Legion chest (with empty StateMachine when inherited from LegionChestBase,
+    /// minimap icon stat and primary floating reward symbol reference 0xf3a80181 while closed).</summary>
+    internal static QuestObject BuildChestObject(Box box, QuestObjectTypes.Info info) =>
+        new(box.X, box.Y, info.Components, box.Rotation, box.Z, box.Model,
+            TransitionState: (byte)(box.Opened ? info.States : 1), Opened: box.Opened)
+        {
+            StateMachine = info.Components.Contains("StateMachine") ? ChestBaseStates : null,
+            Stats = !box.Opened && LegionStasis.RewardIcon(box.Rewards) is int icon ? [(Stat.MonsterMinimapIcon, icon)] : [],
+            EntityVariables = !box.Opened && box.SymbolIds is { Length: > 0 }
+                ? new Dictionary<uint, uint> { [ChestSymbolPropertyKey] = box.SymbolIds[0] }
+                : new Dictionary<uint, uint>(),
+        };
+
+    /// <summary>The floating 3D symbol art (.ao path and scale) for each of a chest's reward rows.</summary>
+    static List<(string Ao, double Scale)> ChestSymbolsFor(int[]? rewards)
+    {
+        var list = new List<(string, double)>();
+        if (rewards is not { Length: > 0 }) return list;
+        var types = LegionData.Current.RewardTypes;
+        foreach (int row in rewards)
+        {
+            var rt = types.FirstOrDefault(r => r.Row == row);
+            if (rt is not null && ModelOf(rt.MiscAnimatedKey) is { Length: > 0 } ao)
+                list.Add((ao, rt.Scale));
+        }
+        return list;
+    }
+
+    /// <summary>Creates the floating 3D reward symbol EffectObject(s) hovering above a closed Legion chest, matching official
+    /// capture height (25, -195.3125f) and scale; War Hoards with 2-3 rewards fan them slightly apart laterally.</summary>
+    static async Task ShowChestSymbols(Player player, Box box)
+    {
+        if (box.Opened || box.SymbolIds is not { Length: > 0 } ids) return;
+        var visuals = ChestSymbolsFor(box.Rewards);
+        int count = Math.Min(ids.Length, visuals.Count);
+        for (int i = 0; i < count; i++)
+        {
+            uint symId = ids[i];
+            if (symId == 0 || InArea(player, symId)) continue;
+            int sx = count == 1 ? box.X : box.X + (int)Math.Round((i - (count - 1) / 2.0) * 5);
+            var (ao, scale) = visuals[i];
+            var effect = new EffectObject(sx, box.Y, ao)
+            {
+                Awake = true,
+                Flags0 = 0x04,
+                Scale = (float)scale,
+                AnimationWord = ChestSymbolHeightSteps,
+                AnimationValue = ChestSymbolHeightZ,
+            };
+            var create = InstanceEntities.CreateObject(symId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), effect.Blob());
+            await LegionOutput.ToArea(player, p => global::Game.SendWorldCreate(PlayerOf(p), symId, create,
+                $"0x02bb Legion chest symbol 0x{symId:x} at ({sx}, {box.Y})"));
+        }
+    }
+
     /// <summary>The chest the war chest becomes at release (the plan's Chests row, or HardmodeChest in Ruthless; the War Hoard's for a hoard), standing where it was.</summary>
     static async Task SpawnBox(IModuleContext module, Player player, Encounter e, LegionStasis.Member member, int x, int y)
     {
@@ -252,20 +321,23 @@ static partial class LegionMonolith
             ? plan.Factions[member.Faction].Chests.FirstOrDefault(c => c.WarHoard == member.WarHoard) : null;
         bool ruthless = Program.LeagueFor(player).HardMode;
         int row = planned is null ? -1 : ruthless && planned.HardmodeChest >= 0 ? planned.HardmodeChest : planned.Chest;
-        static (string Type, QuestObjectTypes.Info Info)? ResolveChest(int chestRow)
-        {
-            string? id = ClientTables.TableOrEmpty("Chests").Where(r => r.Index == chestRow).Select(r => r.Text("Id")).FirstOrDefault();
-            return id is not null && QuestObjectTypes.Find(id) is { } found && QuestObject.CanSerialize(found.Components) ? (id, found) : null;
-        }
+        static (string Type, QuestObjectTypes.Info Info)? ResolveChest(int chestRow) =>
+            LegionData.Current.ChestsByRow.TryGetValue(chestRow, out var entry) && ResolveChestInfo(entry.Id) is { } info
+                ? (entry.Id, info) : null;
         var resolved = ResolveChest(row) ?? (planned is not null && row != planned.Chest ? ResolveChest(planned.Chest) : null);
         if (resolved is not var (type, info))
         {
             module.Log($"chest row {row} cannot be shown: no chest at ({x}, {y})");
             return;
         }
-        var box = new Box(player.TakeObjectId(), type, x, y, 0, null, info.OwnModel ? null : info.Model, member.WarHoard, false, member.Rewards,
-            e.Plan is { } fp && member.Faction < fp.Factions.Length ? fp.Factions[member.Faction].Faction : -1);
+        var visuals = ChestSymbolsFor(member.Rewards);
+        uint[]? symbolIds = visuals.Count > 0 ? [.. Enumerable.Range(0, visuals.Count).Select(_ => player.TakeObjectId())] : null;
+        // Official captures send Animated = 0 (null model override) for Legion chests: the client resolves AOFiles[0] from Chests.dat.
+        var box = new Box(player.TakeObjectId(), type, x, y, 0, null, null, member.WarHoard, false, member.Rewards,
+            e.Plan is { } fp && member.Faction < fp.Factions.Length ? fp.Factions[member.Faction].Faction : -1, symbolIds);
         lock (e) { e.Boxes = [.. e.Boxes ?? [], box]; Keep(player, e); }
+        // Create the floating symbol(s) first so the chest's 0xf3a80181 reference resolves on the client immediately.
+        await ShowChestSymbols(player, box);
         if (await ShowBox(player, box, info))
             foreach (var p in Members(player)) BlockBox(p, box, info);
     }
@@ -274,13 +346,7 @@ static partial class LegionMonolith
     static async Task<bool> ShowBox(Player player, Box box, QuestObjectTypes.Info info)
     {
         if (InArea(player, box.Id)) return true;
-        var obj = new QuestObject(box.X, box.Y, info.Components, box.Rotation, box.Z, box.Model,
-            TransitionState: (byte)(box.Opened ? info.States : 1), Opened: box.Opened)
-        {
-            // The closed chest shows its first reward's icon on the minimap (the object has no Buffs: no symbol); an opened one has none.
-            Stats = !box.Opened && LegionStasis.RewardIcon(box.Rewards) is int icon ? [(Stat.MonsterMinimapIcon, icon)] : [],
-        };
-        var create = InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(box.Type), obj.Blob());
+        var create = InstanceEntities.CreateObject(box.Id, InstanceEntities.ObjectTypeHash(box.Type), BuildChestObject(box, info).Blob());
         bool created = false;
         await LegionOutput.ToArea(player, async p =>
         {
@@ -297,34 +363,42 @@ static partial class LegionMonolith
         if (info.Blocking) player.SetObjectBlocker(box.Id, box.X, box.Y, Math.Max(1, info.Size), info.ActorOrChest);
     }
 
-    /// <summary>A player who enters later: the area gives its client the chests as they are; the player's walk is blocked by them.</summary>
+    /// <summary>A player who enters later: the area gives its client the chests and floating symbols as they are; the player's walk is blocked by them.</summary>
     static async Task ShowBoxes(Player player, Encounter e)
     {
         Box[] boxes;
         lock (e) boxes = e.Boxes ?? [];
         foreach (var box in boxes)
-            if (QuestObjectTypes.Find(box.Type) is { } info && await ShowBox(player, box, info)) BlockBox(player, box, info);
+        {
+            await ShowChestSymbols(player, box);
+            if (ResolveChestInfo(box.Type) is { } info && await ShowBox(player, box, info)) BlockBox(player, box, info);
+        }
     }
 
     /// <summary>A click on one of the chests: walk up, open it once (it is created again opened under a new id, as a Chest
-    /// has no update reader) and drop its items.</summary>
+    /// has no update reader), remove its floating reward symbols and drop its items.</summary>
     static async Task<bool> OpenBox(IModuleContext module, Player player, Encounter e, uint targetId, double requestedAt)
     {
         Box? box;
         lock (e) box = e.Boxes?.FirstOrDefault(b => b.Id == targetId);
         if (box is null) return false;
-        if (box.Opened || player.Closed || player.LeavingArea || player.PlayerLife == 0 || QuestObjectTypes.Find(box.Type) is not { } info) return true;
+        if (box.Opened || player.Closed || player.LeavingArea || player.PlayerLife == 0 || ResolveChestInfo(box.Type) is not { } info) return true;
         if (!await WorldOf(player).WalkUpTo(box.X, box.Y, Math.Max(1, info.Size), requestedAt)) return true;
         Box opened;
+        uint[]? oldSymbols;
         lock (e)
         {
             int i = Array.FindIndex(e.Boxes ?? [], b => b.Id == targetId);
             if (i < 0 || e.Boxes![i].Opened) return true;
-            opened = e.Boxes[i] with { Id = player.TakeObjectId(), Opened = true };
+            oldSymbols = e.Boxes[i].SymbolIds;
+            opened = e.Boxes[i] with { Id = player.TakeObjectId(), Opened = true, SymbolIds = null };
             e.Boxes = [.. e.Boxes.Select((b, n) => n == i ? opened : b)];
             Keep(player, e);
         }
         foreach (var member in Members(player)) member.RemoveBlocker(targetId);
+        if (oldSymbols is { Length: > 0 })
+            foreach (uint symId in oldSymbols)
+                if (symId != 0 && InArea(player, symId)) await LegionOutput.Remove(player, symId);
         if (InArea(player, targetId)) await LegionOutput.Remove(player, targetId);
         if (await ShowBox(player, opened, info))
             foreach (var member in Members(player)) BlockBox(member, opened, info);
