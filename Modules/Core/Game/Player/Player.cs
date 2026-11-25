@@ -242,6 +242,7 @@ public static partial class Game
         // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
         // returns on the zero life, so nothing else clears ChannelSkill).
         WinterOrbRetire(player);
+        ClearCycloneStages(player);
         SnipeRetire(player);
         MirageWarriorsRetire(player);
         player.RetireOwnedCombat();

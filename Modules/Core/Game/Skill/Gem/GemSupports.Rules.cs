@@ -659,6 +659,8 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d);
+        if (!proxy && Get(Stat.CycloneAttackSpeedPlusPctFinalPerStage) is int cycloneSpeed and not 0)
+            more *= Math.Max(.01, 1 + cycloneSpeed * (double)CycloneStageCount(player, skillId) / 100);
         if (!proxy && gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) is int stageSpeed and not 0)
         {
             int stages = doubleStrikeStages ?? DoubleStrikeStageCount(player, AreaTime(player));

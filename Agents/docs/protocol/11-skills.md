@@ -3473,7 +3473,11 @@ Other area skills' effects read 0x4876 as well: every skill whose record has a b
 radius, the one its hit uses (`SkillRadius`). Without it Ice Nova's nova drew nothing (live 2026-10-30).
 Increased area is not increased radius: +300% area changes radius 16 → 32, +0% restores 16 without
 other modifiers. Tests cover this calculation, spell-area exclusion, explicit bases and the fallback.
-Additional melee-range/stage modifiers specific to Cyclone remain outside this initial area model.
+Ordinary Cyclone and Tumult add the granted skill's increased area per cell of extra melee strike
+range to the same area calculation. Tumult's action at `0x141d47fd0` reads the entity's current stage
+stat (0x24de) and applies the skill's radius per stage (0x24df) before the radius scale. The area publishes
+the entity stat as the stages gain or decay. The supported client places each stage's radius before the
+area multiplier, so the granted skill record projects the un-staged base.
 Live visual verification after restarting Gateway is pending.
 
 **Follow-up after live failure:** sending only 0x4875/0x4876 did not change the rendered channel.

@@ -18,6 +18,7 @@ public static partial class Game
     // Record the first paid use of a channel before asynchronous output. Under conn.Monsters.
     public static int BeginPaidChannel(Player player, ushort skill, int effect, int action, ushort sequence)
     {
+        EndCycloneStages(player, player.ChannelGeneration, AreaTime(player));
         int generation = ++player.ChannelGeneration;
         player.ChannelSkill = skill;
         player.ChannelSkillSequence = sequence;
@@ -1515,6 +1516,7 @@ public static partial class Game
                     }
                     bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
                     player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                    BeginCycloneStages(player, skillId, paymentGem, action, channelGeneration.Value, AreaTime(player));
                     if (walkChanges) player.ApplyMovementSpeed();
                     player.LastLockstepChannelAim = null;
                     player.LockstepChannelAimPending = HeldLockstepMovingChannel(player);
@@ -2478,6 +2480,7 @@ public static partial class Game
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await SnipeRelease(player, generation, action);
             if (scourge) RetireScourgeChannel(player, generation, action);
+            EndCycloneStages(player, generation, AreaTime(player));
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence);
             if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
@@ -2583,6 +2586,7 @@ public static partial class Game
             player.Walk.Order(x, y, at);
         }
         player.ChannelSkill = 0;
+        EndCycloneStages(player, player.ChannelGeneration, at);
         player.ChannelGeneration++;
         SnipeWakeChannel(player);
     }
@@ -2877,7 +2881,8 @@ public static partial class Game
             delay = AttackTiming.ContactDelay(attackSeconds, contactFraction, 0) + repeatDelay;
         }
         var shieldWaves = shieldUse?.Waves;
-        int radius = shieldWaves?.CentreRadius ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
+        bool tumultContact = channelGeneration is not null && effectId == "CycloneAltX" && radiusOverride is null;
+        int radius = tumultContact ? 0 : shieldWaves?.CentreRadius ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
             : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore * chargeRadius);
         // Ground Slam's wave: the skills whose action is the data's "DistanceScaledGroundSlam" travel forward from where
@@ -3011,7 +3016,12 @@ public static partial class Game
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
             // Queued mana output may outlast movement: resolve a channel at its current position.
-            if (channelGeneration is not null) centre = player.Walk.Position(now);
+            if (channelGeneration is not null)
+            {
+                centre = player.Walk.Position(now);
+                if (tumultContact)
+                    radius = (int)Math.Round(CycloneHitRadius(player, skillId, gem.Effect, areaStats) * radiusMore * chargeRadius);
+            }
             if (retainedAttack is null && strikeIndex == 0 && effectId == "VolcanicFissureAltX" && areaAction is { } fissureAction)
             {
                 var source = CaptureAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,

@@ -31,6 +31,7 @@ public static partial class Game
         int typed = SkillArea.TypedIncrease(Get, types);
         if (known && skills.EffectId(effect) is { } id)
         {
+            if (SkillArea.IsCyclone(id)) typed += CycloneAreaFromRange(player, own);
             if (IsHeraldAura(id)) typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);
             if (IsDischarge(id) && Get(Stat.DischargeAreaOfEffectPlusPctFinal) is int dischargeArea and not 0)
             {
