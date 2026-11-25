@@ -356,6 +356,22 @@ internal static class DeepwaterExtraction
         await SendCount(player);
     }
 
+    /// <summary>C→S 0x0114: Ctrl + click an item from the collection (inventory 114) into the open personal stash,
+    /// updating the CollectionChest quest flag and deck count when it succeeds.</summary>
+    public static async Task MoveCollectionToStash(IModuleContext module, Player player, InstanceStash.CollectionToStash request)
+    {
+        var modPlayer = PlayerOf(player);
+        if (player.ModuleWindow != CollectionWindow || !player.StashOpen)
+        {
+            module.Log($"{modPlayer.Character} <= 0x0114 collection item {request.ItemId} to stash tab {request.Tab}: refused (window or stash closed)");
+            return;
+        }
+        if (!await global::Game.MoveCollectionToStash(player, request)) return;
+        if (ItemsOf(player).Items(CollectionRow).Count == 0)
+            await SetQuestFlags(player, [DeepwaterConstants.StoredItems], on: false);
+        await SendCount(player);
+    }
+
     // ---- the capsule's buttons ----
 
     static Device? OpenCapsuleOf(Player player, DeepwaterRun run)

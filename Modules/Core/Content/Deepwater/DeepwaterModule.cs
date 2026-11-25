@@ -215,6 +215,13 @@ public sealed partial class DeepwaterModule : IModule
             await DeepwaterExtraction.TakeFromCollection(module, player, InstanceItems.ReadCollectionTake(bytes));
             return true;
         });
+        // C→S 0x0114: Ctrl + click an item from the Loot window (inventory 114) directly into the open personal stash.
+        GameEvents.Packet(InstanceStash.CollectionToStashId).Add(id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceStash.CollectionToStashLength) return false;
+            await DeepwaterExtraction.MoveCollectionToStash(module, player, InstanceStash.ReadCollectionToStash(bytes));
+            return true;
+        });
         GameEvents.AreaTick.Add(id, GameEvents.Always(async (player, _) =>
         {
             await DeepwaterBuffs.Tick(module, player);

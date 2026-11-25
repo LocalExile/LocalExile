@@ -55,11 +55,13 @@ public static class InstanceProtocol
     /// </summary>
     /// <remarks>Flag bit 0 (+0x78) is the active weapon set: set = the second (Weapon2 / Offhand2). The handler copies it
     /// to the session's +0xcd31 (the dispatcher's r13 is the session + 8, so its "[r13+0xcd29]"), as S→C 0xde does.</remarks>
-    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false, byte frameMs = 0)
+    public static byte[] EnterArea(IReadOnlyList<InstanceStash.Tab>? stash = null, bool secondWeaponSet = false,
+        byte frameMs = 0, IReadOnlyList<InstanceStash.Tab>? tradeStash = null)
     {
         var w = new LoginWriter().U16(EnterAreaId);
         InstanceStash.WriteTabs(w, stash ?? []);
-        return w.U16(0).U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
+        InstanceStash.WriteTabs(w, tradeStash ?? []);
+        return w.U16(0).WStr("").Bytes([(byte)(secondWeaponSet ? 0x01 : 0), 0, 0]).U8(frameMs).U8(0).ToArray();
     }
 
     /// <summary>C→S 0xdd (3 bytes, built by 0x14216faa0): swap the weapon set. u8: the set wanted (1 the second, 0 the
@@ -337,7 +339,47 @@ public static class InstanceProtocol
         return w.ToArray();
     }
 
-    public const ushort ActionResultFlagId = 0x1b0;
+    public const ushort FreezeActionsId = 0x00bb, ActionLockoutId = 0x00bc, PlaySoundEffectId = 0x01c9;
+
+    /// <summary>
+    /// S→C 0x00bb <c>FreezeActions</c> (class <c>0x1435e6868</c>, reader <c>0x1421a9480</c>, dispatcher case 0x31
+    /// <c>0x142153e58..0x142153f1e</c>): 1-byte bitfield (bit 0 = frozen → world +0x110, bit 1 = notify).
+    /// </summary>
+    public static byte[] FreezeActions(bool frozen, bool notify = false) =>
+        new LoginWriter().U16(FreezeActionsId).U8((byte)((frozen ? 1 : 0) | (notify ? 2 : 0))).ToArray();
+
+    /// <summary>
+    /// S→C 0x00bc <c>ActionLockout</c> (class <c>0x1435e7380</c>, reader <c>0x1421a95d0</c>, dispatcher case 0x32
+    /// <c>0x142153f23..0x142153f7f</c>): u8 active; when non-zero, followed by u8 lockout duration in seconds.
+    /// </summary>
+    public static byte[] ActionLockout(bool active, byte durationSeconds = 0)
+    {
+        var w = new LoginWriter().U16(ActionLockoutId).U8(active ? (byte)1 : (byte)0);
+        if (active) w.U8(durationSeconds);
+        return w.ToArray();
+    }
+
+    /// <summary>
+    /// S→C 0x01c9 <c>PlaySoundEffect</c> (class <c>0x1435e6788</c>, reader <c>0x1421afa00</c>, dispatcher case 0x82
+    /// <c>0x142152628..0x1421527e6</c>): u32 BE entityId (0 for 2D / non-positional), u16 BE SoundEffects row,
+    /// u16 BE param (10 bytes total).
+    /// </summary>
+    public static byte[] PlaySoundEffect(uint entityId, ushort soundEffectRow, ushort param = 0) =>
+        new LoginWriter().U16(PlaySoundEffectId).U32(entityId).U16(soundEffectRow).U16(param).ToArray();
+
+    public const ushort ActionResultFlagId = 0x1b0, ActionUpdateId = 0x2c8;
+
+    /// <summary>
+    /// S→C 0x2c8 <c>InstanceClientActionUpdate</c> (world group, class <c>0x1435ccb78</c>, reader <c>0x141fe54d0</c>,
+    /// Actor dispatch <c>0x14219be04</c>): 10-byte world header, u16 BE <paramref name="actionTypeHash"/> (+0x38 →
+    /// action +0x118 <c>ActionTypes.HASH16</c>), u16 BE <paramref name="skillId"/> (+0x3a → skill +0x40), u16 BE
+    /// <paramref name="actionSequence"/> (+0x3c → action +0x11a), u8 <paramref name="detachId"/> (+0x3e → action
+    /// +0x11c), then blob16 class-specific little-endian payload passed to the action's virtual slot +0x300 reader.
+    /// </summary>
+    public static byte[] ActionUpdate(uint entityId, ushort actionTypeHash, ushort skillId, ushort actionSequence,
+        byte[] data, byte detachId = 0, uint orderKey = 0, ushort checkpoint = 0) =>
+        new LoginWriter().U16(ActionUpdateId).U32(entityId).U32(orderKey).U16(checkpoint)
+            .U16(actionTypeHash).U16(skillId).U16(actionSequence).U8(detachId).Blob(data).ToArray();
 
     /// <summary>
     /// S→C 0x1b0 (world group, reader 0x141fe4440, writer 0x141fe43f0; Actor handler 0x14219bc1a → 0x141e974d0):
@@ -769,10 +811,13 @@ public static class InstanceProtocol
             case InstanceSocial.FriendAddId: return InstanceSocial.MeasureFriendAddLength(data, out length);
             // 2 + WStr (writer 0x141f98140).
             case InstanceSocial.PartyInviteId or InstanceSocial.PartyKickId or InstanceSocial.PartyTravelId
-                or 0x0097 or InstanceSocial.SocialStatusId or 0x0140 or 0x0141 or 0x0145 or 0x014d or 0x014e or 0x014f or InstanceSocial.DuelChallengeId:
+                or 0x0097 or InstanceSocial.SocialStatusId
+                or InstanceGuilds.CreateId or InstanceGuilds.InviteId or InstanceGuilds.RemoveMemberId
+                or InstanceGuilds.SetStatusId or InstanceGuilds.RenameId or InstanceGuilds.SetTagId
+                or InstanceSocial.DuelChallengeId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 0, out length);
             // 2 + WStr + u8 (writer 0x141f9baf0).
-            case InstanceSocial.PublicPartyId or 0x0144 or InstanceSocial.HideoutInviteId:
+            case InstanceSocial.PublicPartyId or InstanceGuilds.SetMemberRankId or InstanceSocial.HideoutInviteId:
                 return MeasureWStrMessage(data, prefixBytes: 2, suffixBytes: 1, out length);
             // 2 + u8 + WStr (Atlas tree rename, writer 0x141fa5e60).
             case InstanceEntities.AtlasTreeRenameId:
@@ -781,10 +826,10 @@ public static class InstanceProtocol
             case 0x0081 or 0x0280:
                 return MeasureTwoWStrMessage(data, suffixBytes: 0, out length);
             // 2 + WStr + WStr + u32 + u8 (shop buy, writer 0x141fa1160).
-            case 0x012c:
+            case InstanceShop.BuyId:
                 return MeasureTwoWStrMessage(data, suffixBytes: 5, out length);
             // u16 id + 4 narrow UTF-8 strings (each u16 BE len + bytes; shop delivery quote/order, writer 0x141fa1600).
-            case 0x0130 or 0x0138:
+            case InstanceShop.ShippingQuoteRequestId or InstanceShop.PlaceOrderId:
                 return MeasureFourNarrowStrMessage(data, out length);
             // u16 id, u8 flags, optional u32 when bit 0 is clear (writer 0x141fa1b30, main frame loop 0x140d551f0).
             case 0x0158:
@@ -796,7 +841,7 @@ public static class InstanceProtocol
             case 0x0281:
                 return MeasureTwoBlob16(data, out length);
             // u16 id, u32 BE, u16 BE n, n * u32 BE (salvage box open, writer 0x141fa3bf0 → 0x141faa4a0).
-            case 0x026e:
+            case InstanceShop.OpenSalvageBoxId:
                 return MeasureSalvageBox(data, out length);
             // u16 id, u8 count, count * u8 (Heist sign contract, writer 0x141fa3d30 → 0x141fab790).
             case 0x0279:
@@ -813,6 +858,9 @@ public static class InstanceProtocol
             // u16 id, u8 ruleset, CompactUInt(len), len bytes (ruleset message, writer 0x141fa7c10 / reader 0x141fa7ca0).
             case InstanceRulesets.ActionId:
                 return InstanceRulesets.MeasureActionLength(data, out length);
+            // u16 id, u16 hideoutHash, u16 musicHash, u8 environment, u16 count, count * 11B (writer 0x141fa3630 → 0x141fab3f0).
+            case InstanceHideoutEditing.LayoutId:
+                return InstanceHideoutEditing.MeasureLayoutLength(data, out length);
             // Custom mod envelope (non-retail): u16 BE 0xF7E0, u32 BE payloadLen (<= ModEnvelopeMaxPayload), payload bytes.
             case ModEnvelopeId:
                 return MeasureModEnvelope(data, out length);
@@ -1030,30 +1078,44 @@ public sealed record AreaInstance(uint InstanceId, ushort AreaHash, uint Seed, b
     byte B1e = 3, byte B20 = 0, byte B1f = 2, byte B24 = 0x23, byte B1d = 0, byte B28 = 0x3c,
     IReadOnlyDictionary<uint, int>? LeagueStats = null, byte[]? TerrainData = null,
     IReadOnlyList<byte>? AchievementSets = null, bool HideoutPermissions = false, ushort? ReturnAreaHash = null,
-    IReadOnlyDictionary<uint, int>? DisplayStats = null)
+    IReadOnlyDictionary<uint, int>? DisplayStats = null, IReadOnlyList<byte>? Rulesets = null,
+    IReadOnlyList<byte>? PreloadGroups = null)
 {
     public byte[] Encode()
     {
         bool hasStats = LeagueStats is { Count: > 0 } || DisplayStats is { Count: > 0 };
         bool hasReturnArea = ReturnAreaHash is > 0;
+        bool hasRulesets = Rulesets is { Count: > 0 };
         var writer = new LoginWriter()
             .U16(InstanceProtocol.AreaInstanceId).U32(InstanceId).U16(AreaHash).WStr(Text).U32(Seed)
             .U8(B1e).U8(B20).U8(B1f).U8(B24)
             .Bytes([
                 (byte)((hasStats ? 0x40 : 0) | (hasReturnArea ? 0x08 : 0)),
-                (byte)((TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
+                (byte)((hasRulesets ? 1 : 0) | (TerrainData is null ? 0 : 4) | (HideoutPermissions ? 0x80 : 0)),
                 0,
             ])
             .U8(Level).U8(B1d).U8(B28);
         if (hasReturnArea) writer.U16(ReturnAreaHash!.Value);
-        writer.U16(0)  // vec16<u32> +0x68
-              .U16(0); // vec16<u8> +0x80
+        writer.U16(0); // vec16<u32> +0x68
+        if (PreloadGroups is { Count: > ushort.MaxValue }) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+        writer.U16((ushort)(PreloadGroups?.Count ?? 0));
+        foreach (byte row in PreloadGroups ?? [])
+        {
+            if (row == byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(PreloadGroups));
+            writer.U8((byte)(row + 1));
+        }
         // +0x50 becomes instance +0xc418. The shared achievements/league-upgrades TabControl
         // stays hidden when this list is empty, even when the Delve child tab exists.
         if (AchievementSets is { Count: > byte.MaxValue }) throw new ArgumentOutOfRangeException(nameof(AchievementSets));
         writer.U8((byte)(AchievementSets?.Count ?? 0));
         foreach (byte set in AchievementSets ?? []) writer.U8(set);
         writer.U16(0); // vec16<u16> +0xe0
+        if (hasRulesets)
+        {
+            if (Rulesets!.Count > byte.MaxValue) throw new ArgumentOutOfRangeException(nameof(Rulesets));
+            writer.U8((byte)Rulesets.Count);
+            foreach (byte row in Rulesets) writer.U8(row);
+        }
         if (hasStats)
         {
             var first = LeagueStats ?? new Dictionary<uint, int>();

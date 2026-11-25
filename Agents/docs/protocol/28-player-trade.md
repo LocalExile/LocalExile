@@ -177,6 +177,21 @@ Ignored accounts are blocked from local/party/whisper chat, party invites, trade
 challenges. `C→S 0x179` notifies an online player and records visit permission for `C→S 0x17a`; `C→S 0x155` forwards
 `S→C 0x157` to the target. Friend notes remain separate follow-up work.
 
+## 7. Guilds (`0x0140`–`0x014f`)
+
+- **Member ranks** (`0x140ab95b9`, `ClientStrings` 724–727, 6329): `0 = Invited`, `1 = Member`, `2 = Officer`,
+  `3 = Leader`, `4 = Initiate`.
+- **`GuildDetails` wire order** (`0x140a46ea0..0x140a470e0`): `WStr Name`, `WStr Tag`, `WStr Status`, `RawU64 CreatedAt`.
+- **C→S**: `0x0140` Create (`WStr`), `0x0141` Invite (`WStr`), `0x0142` Accept (`u16 BE idx`), `0x0143` Decline
+  (`u16 BE idx`), `0x0144` SetMemberRank (`WStr account, u8 rank`), `0x0145` Leave/Kick (`WStr account`), `0x014d`
+  SetStatus (`WStr`), `0x014e` Rename (`WStr`), `0x014f` SetTag (`WStr`).
+- **S→C**: `0x0146` Invite (`u16 BE idx`, `GuildDetails`, `WStr inviter`), `0x0147` InviteExpired (`u16 BE idx`),
+  `0x0148` Info (`GuildDetails`, `u16 BE count`, `count × (WStr account, RawU64 joinedAt, u8 rank)`), `0x0149` Left (2 B),
+  `0x014a` MemberUpsert (`WStr account, RawU64 joinedAt, u8 rank`), `0x014b` MemberRemove (`WStr account`), `0x014c`
+  DetailsChanged (`GuildDetails`).
+- Guild chat (`&` channel) routes to online guild members in `ChatModule.cs`; guild hideouts use `0x7b` `0x22` arg 1,
+  `C→S 0x1f2` bit `0x10` → `S→C 0x1f5` guild bit, `C→S 0x254` bit 15, and `PlayerObject.Hideout2`.
+
 ## Open
 
 - Party: Decline and promoting members, the party panel's other fields

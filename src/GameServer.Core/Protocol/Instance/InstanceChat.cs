@@ -91,11 +91,11 @@ public static class InstanceChat
     /// panel 0x14017a270 / 0x14017a670): one line in the chat panel. wstr sender (its first character picks the channel),
     /// wstr text, wstr guild tag, u16 flags (bit 8 sends it to +0xd78 instead, bit 3 adds a field), u8, u8, 8 bytes, u8,
     /// u8 n + n linked items, in the order of the text. An empty sender and zeros print the text alone. Live 2026-10-20.</summary>
-    public static byte[] ChatLine(string text, string sender = "", ushort flags = 0, IReadOnlyList<ChatLineItem>? items = null)
+    public static byte[] ChatLine(string text, string sender = "", ushort flags = 0, IReadOnlyList<ChatLineItem>? items = null, string guildTag = "")
     {
         if ((flags & 0x0008) != 0)
             throw new ArgumentOutOfRangeException(nameof(flags), "S→C 0x17 bit 0x0008 requires a trailing field not serialized by ChatLine.");
-        var w = new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr("").U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8((byte)(items?.Count ?? 0));
+        var w = new LoginWriter().U16(ChatLineId).WStr(sender).WStr(text).WStr(guildTag).U16(flags).U8(0).U8(0).RawU64(0).U8(0).U8((byte)(items?.Count ?? 0));
         foreach (var item in items ?? []) w.U32(item.At).Bytes(item.Wire);
         return w.ToArray();
     }
@@ -154,6 +154,7 @@ public static class InstanceChat
         TypedChannel.Global => "#" + name,
         TypedChannel.Trade => "$" + name,
         TypedChannel.Party => "%" + name,
+        TypedChannel.Guild => "&" + name,
         _ => name,
     };
 

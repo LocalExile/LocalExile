@@ -310,6 +310,7 @@ public static partial class Game
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
+                (int X, int Y) moveLanding = default;
                 void StartAction()
                 {
                     bool lockstep = player.Connection.LockstepClient;
@@ -335,6 +336,7 @@ public static partial class Game
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);
+                        moveLanding = landing;
                         movedByCast = landing != (px, py);
                     }
                     player.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -431,6 +433,10 @@ public static partial class Game
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
                 }
                 if (flicker) await GrantFlickerSpeed(player, use.SkillId);
+                if (cast && gem.Name is not null && movedByCast && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                    await SendWorldRecord(player, player.Id,
+                        FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Slot, (px, py), moveLanding),
+                        $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
@@ -669,7 +675,7 @@ public static partial class Game
             else if (id == InstanceItems.SplitStackId)
                 await SplitStack(player, InstanceItems.ReadSplitStack(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseItemClickId)
-                await UseItem(player, InstanceItems.ReadUseItemClick(bytes), Convert.ToHexString(bytes));
+                await UseItem(player, InstanceItems.ReadUseItemClick(bytes), Convert.ToHexString(bytes), sendResult: true);
             else if (id == InstanceItems.UseItemId)
                 await UseItem(player, InstanceItems.ReadUseItem(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseFlaskId)
@@ -697,7 +703,9 @@ public static partial class Game
                     again.TargetInventoryId, again.TargetId), Convert.ToHexString(bytes));
             }
             else if (id == InstanceItems.InventoryRequestId)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryRequest(bytes));
+            else if (id == InstanceItems.InventoryQuickMoveId)
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryQuickMove(bytes));
             else if (id == InstanceSkinTransfers.BindId)
                 await NativeSkinTransfer(player, InstanceSkinTransfers.ReadBind(bytes));
             else if (id == InstanceSkinTransfers.ReclaimId)
@@ -753,12 +761,24 @@ public static partial class Game
             }
             else if (id == InstanceStash.ReorderTabsId)
             {
-                // The tab buttons' order, kept with the stash (personal or guild by kind) and sent back in the tab lists.
+                // The tab buttons' order, kept with the stash (personal, guild or trade by kind) and sent back in the tab lists.
                 var (kind, order) = InstanceStash.ReadReorderTabs(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                var target = kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
                 int moved = target.SetPositions(order);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cc stash {kind} tab order: {string.Join(", ", order.Select(o => $"{o.Index}->{o.Position}"))} ({moved} moved, saved)");
+                if (kind == InstanceStash.Guild && moved > 0)
+                {
+                    foreach (var peer in GameEvents.ResolveGuildPeers(player))
+                    {
+                        if (peer is not { Controlled: false, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }) continue;
+                        try
+                        {
+                            await outbox(InstanceStash.EncodeReorderTabs(InstanceStash.Guild, order),
+                                $"0x00cc broadcast guild stash tab order ({order.Count} tab(s))");
+                        }
+                        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    }
+                }
             }
             else if (InstanceProtocol.IsChannelUpdate(id))
             {
@@ -776,7 +796,14 @@ public static partial class Game
                 }
             }
             else if (id == InstanceProtocol.ChannelEndId)
+            {
+                bool hadChannel = player.ChannelSkill != 0;
+                int channelGen = player.ChannelGeneration;
+                ushort endedSequence = player.ChannelSkillSequence;
                 ChannelReleased(player, player.ClockAt(readAt));
+                if (hadChannel && !player.Connection.LockstepClient)
+                    await EmitPredictiveChannelFinished(player, channelGen, endedSequence);
+            }
             else if (id == InstanceProtocol.RetargetActionId)
                 await RetargetAction(player, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
@@ -826,35 +853,51 @@ public static partial class Game
             }
             else if (id == InstanceStash.RenameTabId)
             {
-                // A premium tab renamed in the tab settings; kept with the stash (personal or guild), account-wide.
+                // A premium tab renamed in the tab settings; kept with the stash (personal, guild or trade), account-wide.
                 var (kind, tab, name) = InstanceStash.ReadRenameTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).Rename(tab, name);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.Rename(tab, name);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cd stash {kind} tab {tab} renamed \"{name}\": {(done ? "saved" : "refused")}");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceStash.ColourTabId)
             {
                 var (kind, tab, colour) = InstanceStash.ReadColourTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).SetColour(tab, colour);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.SetColour(tab, colour);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00ce stash {kind} tab {tab} colour 0x{colour:x8}: {(done ? "saved" : "refused")} ({Convert.ToHexString(bytes)})");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceStash.PublicTabId)
             {
                 var (kind, tab, isPublic) = InstanceStash.ReadPublicTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).SetPublic(tab, isPublic);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.SetPublic(tab, isPublic);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cf stash {kind} tab {tab} public={(isPublic ? "on" : "off")}: {(done ? "saved" : "refused")}");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceItems.SetItemNoteId)
             {
-                if (!player.StashOpen && !player.GuildStashOpen) continue;
+                if (!player.StashOpen && !player.GuildStashOpen && !player.TradeStashOpen) continue;
                 var req = InstanceItems.ReadSetItemNote(bytes);
+                // C→S 0x01a1 with Flag == true (bit 31 set, sender 0x1402fbbf0): pricing an unpriced held cursor item
+                // before C→S 0x002a places it into an async-trade merchant tab (non-SSF, trade stash open only).
+                if (req.Flag && player.TradeStashOpen && !player.Character.Ssf)
+                {
+                    var inv = ItemsOf(player);
+                    if (inv.SetItemNote(PlayerInventories.Cursor, req.ItemId, req.Note) is { } updatedCursor)
+                    {
+                        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01a1 cursor item {req.ItemId} note \"{req.Note}\": saved");
+                        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                            inv.NextRevision(PlayerInventories.Cursor), [updatedCursor.Id], [updatedCursor]),
+                            $"0x00bf cursor: item {updatedCursor.Id} note updated");
+                        continue;
+                    }
+                }
                 AccountStash? targetStash = null;
-                if (player.StashOpen && PersonalStashOf(player) is var personal && personal.TabOf(req.InventoryId) is int)
+                if (player.TradeStashOpen && !player.Character.Ssf && TradeStashOf(player) is var trade && trade.TabOf(req.InventoryId) is int)
+                    targetStash = trade;
+                else if (player.StashOpen && PersonalStashOf(player) is var personal && personal.TabOf(req.InventoryId) is int)
                     targetStash = personal;
                 else if (player.GuildStashOpen && !player.Character.Ssf && GuildStashOf(player) is var guild && guild.TabOf(req.InventoryId) is int)
                     targetStash = guild;
@@ -867,8 +910,16 @@ public static partial class Game
                             $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
                 }
             }
+            else if (id == InstanceAsyncTrade.RequestHistoryId)
+                await SendAsyncTradeHistory(player);
+            else if (id == InstanceAsyncTrade.TakeEarningsId)
+                await TakeAsyncTradeEarnings(player, InstanceAsyncTrade.ReadTakeEarnings(bytes));
             else if (id == InstanceStash.MoveToTabId)
                 await MoveToStash(player, InstanceStash.ReadMoveToTab(bytes));
+            else if (id == InstanceStash.QuickPlaceInTabId)
+                await QuickPlaceInStash(player, InstanceStash.ReadQuickPlaceInTab(bytes));
+            else if (id == InstanceStash.SubTabClickId)
+                await SubTabClickInStash(player, InstanceStash.ReadSubTabClick(bytes));
             else if (id == InstanceStash.MoveToAffinityTabId)
                 await MoveToAffinityTab(player, InstanceStash.ReadMoveToAffinityTab(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceStash.SetAffinitiesId)
@@ -878,7 +929,7 @@ public static partial class Game
                 var move = InstanceStash.ReadTakeFromTab(bytes);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e3 take item {move.ItemId} from stash tab {move.Tab} " +
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
-                await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0);
+                await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0, kind: move.Kind);
             }
             else if (id == InstanceStash.TakeBlightOilId)
             {
@@ -901,17 +952,19 @@ public static partial class Game
             {
                 // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.
                 var (kind, tab, folder) = InstanceStash.ReadMoveTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                int? done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).MoveToFolder(tab, folder);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                int? done = target.MoveToFolder(tab, folder);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
                     (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
                 await SendTabListAgain(player, kind);
+                if (kind == InstanceStash.Personal && done is int newFolder && folder == tab && newFolder != ushort.MaxValue)
+                    await SendPersonalStashTabId(player, (ushort)newFolder, $"{newFolder + 1:x8}");
             }
             else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
             {
                 var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).DeleteFolder(folder);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.DeleteFolder(folder);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d2 stash {kind} folder {folder} deleted: {(done ? "its tabs moved out" : "refused")}");
                 await SendTabListAgain(player, kind);
             }

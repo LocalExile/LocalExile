@@ -623,14 +623,19 @@ public static partial class Game
 
     public static async Task SelectHideout(Player player, (int Row, bool Guild) selected)
     {
-        if (selected.Guild || player.PendingTransfer is not null) return;
+        if (player.PendingTransfer is not null) return;
+        if (selected.Guild)
+        {
+            await GameEvents.RunGuildHideoutSelected(player, selected.Row);
+            return;
+        }
         var hideout = HideoutCatalog.Hideouts.FirstOrDefault(h => h.Row == selected.Row);
         if (hideout is null) return;
         SelectAccountHideout(player, hideout.AreaId);
         player.TalkingTo = 0;
         player.InNpcTalk = false;
         await Send(player, InstanceNpcs.Talk(0), "0x0084 close hideout dialogue");
-        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, 0),
+        await SendWorldRecord(player, player.Id, InstanceEntities.PlayerHideoutsUpdate(player.Id, hideout.Hash16, GameEvents.ResolveGuildHideoutHash(player) ?? 0),
             $"0x02bc selected personal hideout: {hideout.Name}");
         Console.WriteLine($"[gateway] {CharacterName(player)} selected hideout row {hideout.Row}: {hideout.AreaId}");
         await WarpToHideout(player, "Helena: Select Hideout");
