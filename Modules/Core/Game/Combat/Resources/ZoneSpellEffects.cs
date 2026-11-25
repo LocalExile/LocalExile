@@ -241,7 +241,8 @@ public static partial class Game
         {
             if (!Chills(monster)) continue;
             monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, zone.ChillSource, Math.Min(.3, zone.Until - now), now,
-                zone.ColdStats.GetValueOrDefault, key => monster.Effects[key]);
+                zone.ColdStats.GetValueOrDefault, key => monster.Effects[key], stated: null,
+                coldTakenFromChill: zone.ColdStats.GetValueOrDefault(Stat.KeystoneColdPurist) != 0);
             zone.Chilled.Add(monster);
         }
     }

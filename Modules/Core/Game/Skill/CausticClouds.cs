@@ -254,7 +254,8 @@ public static partial class Game
                         monster.Ailments.ApplyAura(MonsterElementalAilments.Kind.Chill, ground.ChillSource, chillLeft, at,
                             key => chill.GetValueOrDefault(key), key => monster.Effects[key],
                             chill.GetValueOrDefault(Stat.ChilledGroundBaseMagnitudeOverride) is > 0 and var magnitude
-                                ? magnitude : null);
+                                ? magnitude : null,
+                            coldTakenFromChill: chill.GetValueOrDefault(Stat.KeystoneColdPurist) != 0);
                         ground.Chilled.Add(monster);
                     }
                     if (ground.Dps <= 0) continue;
