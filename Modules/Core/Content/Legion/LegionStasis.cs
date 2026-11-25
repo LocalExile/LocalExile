@@ -94,11 +94,20 @@ static class LegionStasis
         "Karui" => 1099, "Maraketh" or "Faridun" => 1100, "Vaal" => 1101, "Templar" => 1102, "EternalEmpire" => 1103, _ => null,
     };
 
+    /// <summary>EncounterStats carried by frozen army members: knockback immunity plus any map_legion_frozen_monsters_damage_taken_+%
+    /// (mirrors BuffDefinitions 1311 frozen_in_time). Shared dictionary when the modifier is 0.</summary>
+    static readonly IReadOnlyDictionary<uint, int> BaseFrozenStats = new Dictionary<uint, int> { [Stat.CannotBeKnockedBack] = 1 };
+
+    public static IReadOnlyDictionary<uint, int> FrozenStats(int damageTakenPct) =>
+        damageTakenPct == 0 ? BaseFrozenStats
+            : new Dictionary<uint, int> { [Stat.CannotBeKnockedBack] = 1, [Stat.BaseDamageTakenPlusPct] = damageTakenPct };
+
     /// <summary>Spawns both armies of the plan hidden (action state 0); each member is handed to <paramref name="keep"/> (false: the timer ended, it is removed and spawning stops),
     /// then to <paramref name="standing"/> (outside the encounter's lock, for a reveal when the shatter has already passed).</summary>
-    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing)
+    public static async Task Spawn(IModuleContext module, Player player, LegionArmy.ArmyPlan plan, int cx, int cy, int level, Func<Member, bool> keep, Func<Member, Task> standing, int frozenDamageTakenPct = 0)
     {
         var rng = global::Game.AreaRng(player);
+        var frozenStats = FrozenStats(frozenDamageTakenPct);
         double axis = rng.NextDouble() * Math.PI * 2;
         // The formations (LegionFormation.cs): the block of each army from its member count and its bodies' size.
         var formations = plan.Factions.Select((f, i) => new LegionFormation(player, rng, cx, cy, axis, i, f,
@@ -122,7 +131,7 @@ static class LegionStasis
                 currentAction: action, noBodyUntilReleased: true, extraStats: RewardStats(rewards, true),
                 placement: MonsterPlacement.Established);   // the formation checked the spot (walkable, clear of the others): no nearest-clear search that could stack two
             if (id == 0) { skipped++; return; }
-            ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id));
+            ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id), frozenStats);
             var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null);
             if (!keep(member)) { stopped = true; await Remove(player, [member]); return; }
             await standing(member);
@@ -208,17 +217,15 @@ static class LegionStasis
         player.Instance.World.MonsterOrigins[id] = origin with { Object = origin.Object with { CurrentAction = action with { Payload = payload } } };
     }
 
-    /// <summary>The stasis of one spawned monster: held like the Essence's encased previews (EssenceEncased.cs).</summary>
-    static async Task<ushort> Freeze(Player player, uint id, string variety, ushort? visual)
+    /// <summary>The stasis of one spawned monster: held scripted with EntranceGrace until RevealMembers arms its non-lethal
+    /// combat floor and clears EntranceGrace; EncounterStats supplies knockback immunity and frozen damage taken.</summary>
+    static async Task<ushort> Freeze(Player player, uint id, string variety, ushort? visual, IReadOnlyDictionary<uint, int> frozenStats)
     {
-        // No EncounterStats[BaseCannotBeDamaged]: the break-out counts hits through GameEvents.OutgoingDamage (LegionMonolith.Breakout.cs).
-        // EntranceGrace makes the monster Invulnerable: damage over time and auras end in TakeDamageLocked, which then takes no life.
-        // Only the player's own direct hits reach OutgoingDamage and count; totems, brands, traps, mines and minions drop the hit earlier.
-        // No AI, no attack, no hits while hidden (user requirement): Attack null, Aggro false, BusyUntil never, and the break-out ignores a member until its reveal.
         if (player.Area.Monsters.TryGetValue(id, out var monster))
         {
             monster.NoRewards = true; monster.Attack = null; monster.Aggro = false; monster.EntranceGrace = true;
             monster.BusyUntil = double.PositiveInfinity;
+            monster.EncounterStats = frozenStats;
         }
         ushort buff = player.NextBuff++;
         if (SendFreezeBuff) await LegionOutput.ToArea(player, p => SendStasis(p, id, buff, variety, true, visual));

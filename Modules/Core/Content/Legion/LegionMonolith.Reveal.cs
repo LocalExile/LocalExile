@@ -53,7 +53,7 @@ static partial class LegionMonolith
             async Task Run()
             {
                 lock (e) { if (e.Phase != Phase.Running) return; }   // the encounter ended meanwhile
-                await RevealMembers(player, e, members);
+                await RevealMembers(module, player, e, members);
                 module.Log($"reveal step {k} at +{(global::Game.AreaTime(player) - now):0.00}s: {members.Count} members");
             }
             if (delay <= 0) await Run();
@@ -62,16 +62,19 @@ static partial class LegionMonolith
         module.Log($"army reveal: {distances.Count} members in {steps.Count} steps over {PulseSeconds} s, pulse scale {scale:0.00} (farthest {farthest:0.0} cells)");
     }
 
-    /// <summary>Reveals members (once each): the body is theirs again, hits count (the break-out handler), and every client gets the 0x2c8 state 2; the origin stays in state 0 for a joiner (LegionStasis.Present).</summary>
-    static async Task RevealMembers(Player player, Encounter e, IReadOnlyList<LegionStasis.Member> members, bool keep = true)
+    /// <summary>Reveals members (once each): the body is theirs again, the non-lethal combat floor is armed so all damage
+    /// sources count, and every client gets the 0x2c8 state 2; the origin stays in state 0 for a joiner (LegionStasis.Present).</summary>
+    static async Task RevealMembers(IModuleContext module, Player player, Encounter e, IReadOnlyList<LegionStasis.Member> members, bool keep = true)
     {
         if (player.Instance is null) return;
         var done = new List<LegionStasis.Member>(members.Count);
         foreach (var m in members)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var hold)) continue;
-            lock (hold) { if (hold.Revealed) continue; hold.Revealed = true; }
+            bool broken;
+            lock (hold) { if (hold.Revealed) continue; hold.Revealed = true; broken = hold.Broken; }
             monster.NonBlocking = false;
+            if (!broken) ArmFloor(module, player, hold, monster);
             // The origin stays in state 0: a joiner is created hidden and gets the 0 -> 2 change as a 0x2c8 (LegionStasis.Present), as live viewers did.
             done.Add(m);
         }

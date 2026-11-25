@@ -7,11 +7,12 @@ using GameServer.Modding;
 namespace GameServer.Modules.Legion;
 
 /// <summary>
-/// Damage on a frozen army member and its break-out. A hit on a member lowers its life (the area writes it to the
-/// clients' life bars) and is zeroed so nothing else is dealt; when it would reach 0 it is refilled and the member
-/// breaks out: its crystal goes (StateMachine <c>breakout</c> 1), the frozen buff ends and the faction's effect plays. It stays
-/// where it stands, still without AI, until the encounter ends (ReleaseArmy wakes it). A war chest that breaks out frees the
-/// tier 0 and 1 monsters near it and becomes an openable chest object.
+/// Damage on a frozen army member and its break-out. While revealed and unbroken, a frozen member takes normal combat damage
+/// (hits, crits, resistances, armour, energy shield, damage over time, minions, totems, brands, traps, mines, culling strike)
+/// with a non-lethal life floor (<see cref="SpawnedMonster.OnNonLethalZero"/>): when damage would drop life to 0, life stops
+/// at 1, Contagion spreads if active, EntranceGrace re-engages so no further hits apply, and BreakOut sends state 3 (shards,
+/// breaking_free, 3 s ramp) and refills life/ES so the client hides the bar. It stays where it stands, still without AI,
+/// until the encounter ends (ReleaseArmy wakes it).
 /// </summary>
 static partial class LegionMonolith
 {
@@ -40,7 +41,6 @@ static partial class LegionMonolith
     }
 
     static readonly ConditionalWeakTable<SpawnedMonster, Hold> Holds = new();
-    static volatile bool anyHold;
     static Dictionary<int, string>? Models;
 
     static string? ModelOf(int key)
@@ -50,54 +50,73 @@ static partial class LegionMonolith
         return Models.GetValueOrDefault(key);
     }
 
-    /// <summary>A member just spawned frozen: from now its hits lower its life. Ignite, poison, bleed and the other life takers
-    /// end in TakeDamageLocked, which does nothing while the monster is Invulnerable: LegionStasis.Freeze sets EntranceGrace.</summary>
-    static void Arm(Player player, Encounter e, LegionStasis.Member member)
+    static Player? ResolveRunner(Player fallback, InstanceState? instance)
     {
-        if (!player.Area.Monsters.TryGetValue(member.Id, out var monster)) return;
-        // TryAdd: a hold that already exists is kept, as it may be mid break-out (two restores in Of() can run at once).
-        Holds.TryAdd(monster, new Hold(e, member) { Broken = member.Broken, Revealed = member.Revealed });
-        anyHold = true;
+        if (!fallback.Closed && !fallback.LeavingArea && ReferenceEquals(fallback.Instance, instance)) return fallback;
+        if (instance is null) return null;
+        foreach (var p in instance.PlayersExcept(0))
+            if (!p.Closed && !p.LeavingArea && ReferenceEquals(p.Instance, instance)) return p;
+        return null;
     }
 
-    /// <summary>GameEvents.OutgoingDamage (per hit): the common path is a flag and one table lookup, no allocation. A hit on a
-    /// member of the army lowers its life (not below 1) and is zeroed, also after the member broke out, until the timer ends.</summary>
-    static DamagePacket Hit(IModuleContext module, Player player, SpawnedMonster target, DamagePacket rolled)
+    /// <summary>Arms the non-lethal floor and clears EntranceGrace so every combat damage path (hits, DoTs, minions, totems,
+    /// traps, mines, brands, culling strike) can damage this revealed frozen member and break it out at 1 life.</summary>
+    static void ArmFloor(IModuleContext module, Player player, Hold hold, SpawnedMonster monster)
     {
-        if (!anyHold || !Holds.TryGetValue(target, out var hold)) return rolled;
-        if (!hold.Revealed) return DamagePacket.Empty;   // still in action state 0: hidden, no body, no hits
-        bool breaks = false;
-        lock (hold)
+        var instance = player.Instance;
+        monster.OnNonLethalZero = target =>
         {
-            if (!hold.Broken)
+            lock (hold)
             {
-                // GUESS: the damage is the rolled hit before resistances and crit, and map_legion_frozen_monsters_damage_taken_+%
-                // is ignored. Setting Life marks it for the area's life write (AreaLife), which sends it to every client.
-                // Damage over time is not counted: EntranceGrace makes TakeDamageLocked ignore it.
-                double total = 0;
-                for (int i = 0; i < 5; i++) total += rolled[(DamageType)i].Average;
-                if (total >= target.Life) { target.Life = 1; hold.Broken = breaks = true; }
-                else if (total >= 1) target.Life -= (uint)total;
+                if (hold.Broken) return;
+                hold.Broken = true;
             }
-        }
-        if (breaks) global::Game.SendAfter(player, 0, () => BreakOut(module, player, hold, target));
-        return DamagePacket.Empty;
+            target.OnNonLethalZero = null;
+            target.EntranceGrace = true;
+            var runner = ResolveRunner(player, instance);
+            if (runner is null) return;
+            global::Game.SpreadContagionAtFloorLocked(runner, target);
+            global::Game.SendAfter(runner, 0, () => BreakOut(module, runner, hold, target));
+        };
+        monster.EntranceGrace = false;
+    }
+
+    /// <summary>Registers a frozen member's hold. Hidden and already-broken members stay under EntranceGrace; revealed unbroken
+    /// members (e.g. restored after a module reload) get their non-lethal floor armed immediately.</summary>
+    static void Arm(IModuleContext module, Player player, Encounter e, LegionStasis.Member member)
+    {
+        if (!player.Area.Monsters.TryGetValue(member.Id, out var monster)) return;
+        // GetValue keeps an existing hold if two restores race.
+        var hold = Holds.GetValue(monster, _ => new Hold(e, member) { Broken = member.Broken, Revealed = member.Revealed });
+        monster.EncounterStats = LegionStasis.FrozenStats(e.FrozenDamageTakenPct);
+        if (hold.Revealed && !hold.Broken) ArmFloor(module, player, hold, monster);
+        else { monster.OnNonLethalZero = null; monster.EntranceGrace = true; }
     }
 
     static async Task BreakOut(IModuleContext module, Player player, Hold hold, SpawnedMonster monster)
     {
-        // The break-out is queued as a frame task; if it fails or the hitter left, the member can break out on a later hit.
+        // The break-out is queued as a frame task; if it fails or the runner left, re-arm so a later hit/tick can break it out.
         bool done = false;
         try
         {
-            if (player.Instance is null || player.Closed || player.LeavingArea || monster.Dead) return;
-            var (x, y) = monster.Walk.Position(global::Game.AreaTime(player));
-            if (hold.Member.Chest) await BreakChest(module, player, hold, x, y);
-            else await Free(player, hold.E, [(hold, monster)]);
+            var runner = ResolveRunner(player, player.Instance);
+            if (runner is null || monster.Dead) return;
+            var (x, y) = monster.Walk.Position(global::Game.AreaTime(runner));
+            if (hold.Member.Chest) await BreakChest(module, runner, hold, x, y);
+            else await Free(module, runner, hold.E, [(hold, monster)]);
             done = true;
-            await EarlyEnd(module, player, hold.E);   // once per break-out, not per hit
+            await EarlyEnd(module, runner, hold.E);   // once per break-out, not per hit
         }
-        finally { if (!done) lock (hold) hold.Broken = false; }
+        finally
+        {
+            if (!done)
+            {
+                bool revealed;
+                lock (hold) { hold.Broken = false; revealed = hold.Revealed; }
+                if (revealed && !monster.Dead && ResolveRunner(player, player.Instance) is { } runner)
+                    ArmFloor(module, runner, hold, monster);
+            }
+        }
     }
 
     /// <summary>The saved members are marked broken; true when one of them was an unbroken general (its bolts go out).</summary>
@@ -115,21 +134,24 @@ static partial class LegionMonolith
 
     /// <summary>Breaks the monsters out: a 0x2c8 state 3 (the client plays the threshold shards, breaking_free, a general's shell break and the 3 s
     /// ramp itself, R10), crystal off for everyone now and for players who enter later. Our own effect object of the break-out is gone.</summary>
-    static async Task Free(Player player, Encounter e, List<(Hold Hold, SpawnedMonster Monster)> items)
+    static async Task Free(IModuleContext module, Player player, Encounter e, List<(Hold Hold, SpawnedMonster Monster)> items)
     {
         items = [.. items.Where(i => !i.Monster.Dead && player.Area.Monsters.ContainsKey(i.Hold.Member.Id))];   // none that ReleaseArmy removed
         if (items.Count == 0) return;
         bool general = MarkBroken(player, e, [.. items.Select(i => i.Hold.Member.Id)]);
         // A member the reveal has not reached yet (a chest broke within the reveal's 0.8 s) is shown first: state 3 follows 2.
-        await RevealMembers(player, e, [.. items.Where(i => !i.Hold.Revealed).Select(i => i.Hold.Member)]);
+        await RevealMembers(module, player, e, [.. items.Where(i => !i.Hold.Revealed).Select(i => i.Hold.Member)]);
         foreach (var (hold, monster) in items)
         {
             uint id = hold.Member.Id;
+            monster.OnNonLethalZero = null;
+            monster.EntranceGrace = true;
             // The break-out carries the life percent the client reads its threshold shards from; 1 at least, as the last hit left 1 life.
             uint percent = (uint)Math.Max(1, (long)monster.Life * 100 / Math.Max(1, monster.MaxLife));
             LegionStasis.SetOriginState(player, id, LegionStasis.BreakingOut);
-            // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life makes the client hide it; later hits stay zeroed.
+            // Seen in the live test: the life bar must not stay near 0 after the break-out. Full life/ES makes the client hide it; EntranceGrace blocks further damage.
             monster.Life = monster.MaxLife;
+            global::Game.RefillMonsterEnergyShieldLocked(player.Area, id, monster);
             var states = (monster.States ?? monster.Variety?.StateMachine)?.Set("breakout", 1);
             if (states is not null)
             {
@@ -188,19 +210,21 @@ static partial class LegionMonolith
             var (mx, my) = monster.Walk.Position(now);
             if (Math.Abs(mx - x) > radius || Math.Abs(my - y) > radius) continue;   // a square query (0x141c496f0)
             lock (h) { if (h.Broken) continue; h.Broken = true; }
+            monster.OnNonLethalZero = null;
+            monster.EntranceGrace = true;
             near.Add((h, monster));
         }
         MarkBroken(player, e, [chest.Id]);
         await Flash(player, ModelOf(ChestExplodeKey), x, y);
         await LegionStasis.Remove(player, [chest]);
         await SpawnBox(module, player, e, chest, x, y);
-        await Free(player, e, near);
+        await Free(module, player, e, near);
         module.Log($"chest broke out at ({x}, {y}), freed {near.Count}");
     }
 
     /// <summary>The early end: every member still frozen breaks out as a hit would break it (the 0x2c8 state 3, the crystal off), so ReleaseArmy then wakes it.
     /// The rule only ends the encounter when every chest, sergeant and general is out already, so what is left is plain and elite soldiers.</summary>
-    static async Task BreakRemaining(Player player, Encounter e)
+    static async Task BreakRemaining(IModuleContext module, Player player, Encounter e)
     {
         LegionStasis.Member[] army;
         lock (e) army = e.Army ?? [];
@@ -211,12 +235,14 @@ static partial class LegionMonolith
             if (m.Broken || m.Chest || !player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var hold)) continue;
             bool queued;
             lock (hold) { queued = hold.Broken; hold.Broken = true; }
+            monster.OnNonLethalZero = null;
+            monster.EntranceGrace = true;
             // A hit already broke it and queued its BreakOut, which has not marked the saved member yet: mark it here, or the release would take it for
             // unbroken and remove it. The queued BreakOut then finds the member gone or sends its state 3 itself, so it is not freed twice.
             if (queued) inFlight.Add(m.Id); else left.Add((hold, monster));
         }
         if (inFlight.Count > 0) MarkBroken(player, e, inFlight);
-        await Free(player, e, left);
+        await Free(module, player, e, left);
     }
 
     // ---- the openable chest ----

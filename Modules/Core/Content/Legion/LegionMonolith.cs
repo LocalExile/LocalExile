@@ -41,7 +41,7 @@ static partial class LegionMonolith
 
     enum Phase { Idle, Charging, Running, Finished }
 
-    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null, float PulseScale = 1);
+    sealed record Saved(uint Id, int X, int Y, int Level, int Phase, double ChargeEnd, double EndsAt, uint Pulse, float Rotation = 0, float? Z = null, LegionArmy.ArmyPlan? Plan = null, LegionStasis.Member[]? Army = null, Box[]? Boxes = null, float PulseScale = 1, int FrozenDamageTakenPct = 0);
 
     /// <summary>The instance's encounter. Fields change under the object's lock.</summary>
     sealed class Encounter(Saved saved)
@@ -62,7 +62,9 @@ static partial class LegionMonolith
         public bool Spawning;
         /// <summary>The chests the war chests became (kept in the save).</summary>
         public Box[]? Boxes = saved.Boxes;
-        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale);
+        /// <summary>map_legion_frozen_monsters_damage_taken_+% captured at activation for the frozen army's EncounterStats.</summary>
+        public int FrozenDamageTakenPct = saved.FrozenDamageTakenPct;
+        public Saved ToSaved() => new(Id, X, Y, Level, (int)Phase, ChargeEnd, EndsAt, Pulse, Rotation, Z, Plan, Army, Boxes, PulseScale, FrozenDamageTakenPct);
     }
 
     static readonly ConditionalWeakTable<object, Encounter> Encounters = new();
@@ -86,19 +88,22 @@ static partial class LegionMonolith
             module.Log($"the monolith's type {InitiatorType} is not in the client data or cannot be written: no monolith");
             return;
         }
-        module.Lifetime.Own(new Cleanup(() => { Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters(); anyHold = false; Models = null; }));
-        GameEvents.OutgoingDamage.Add(id, (player, _, target, rolled) => Hit(module, player, target, rolled));
+        module.Lifetime.Own(new Cleanup(() =>
+        {
+            foreach (var (m, _) in Holds) { m.OnNonLethalZero = null; m.EntranceGrace = true; }
+            Encounters.Clear(); Holds.Clear(); LegionStasis.ClearFighters(); Models = null;
+        }));
         GameEvents.Drops.Add(id, drop => LegionRewards.Drops(drop));
         GameEvents.MonsterKilled.Add(id, LegionRewards.Killed);
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
-        GameEvents.PlayerEntered.Add(id, player => Enter(player));
+        GameEvents.PlayerEntered.Add(id, player => Enter(module, player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
     }
 
     static bool HasLocator(Player player) => player.Layout.Level?.RoomObjects.Any(o => LocatorTypes.Contains(o.Type)) == true;
 
-    static Encounter? Of(Player player)
+    static Encounter? Of(IModuleContext module, Player player)
     {
         if (player.Instance is not { } instance) return null;
         if (Encounters.TryGetValue(instance, out var e)) return e;
@@ -107,12 +112,12 @@ static partial class LegionMonolith
         var saved = JsonSerializer.Deserialize<Saved>(text, Json);
         if (saved is null) return null;
         var restored = Encounters.GetValue(instance, _ => new Encounter(saved));
-        // The old module's holds are gone but its members keep EntranceGrace: hold them again (their life is kept).
+        // The old module's holds were cleared on unload (leaving EntranceGrace true): re-arm holds and non-lethal floors.
         if (restored.Army is { } army && restored.Phase != Phase.Finished)
-            foreach (var m in army) Arm(player, restored, m);
+            foreach (var m in army) Arm(module, player, restored, m);
         // A reload during the reveal or the spawn after the shatter lost the pending steps: reveal what is still hidden.
         if (restored.Phase == Phase.Running && restored.Army is { } standing && standing.Where(m => !m.Revealed).ToList() is { Count: > 0 } hidden)
-            global::Game.SendAfter(player, 0, () => RevealMembers(player, restored, hidden));
+            global::Game.SendAfter(player, 0, () => RevealMembers(module, player, restored, hidden));
         return restored;
     }
 
@@ -129,7 +134,7 @@ static partial class LegionMonolith
     static async Task Place(IModuleContext module, AreaPopulated area)
     {
         var player = area.Player;
-        if (player.Instance is not { } instance || Of(player) is not null) return;
+        if (player.Instance is not { } instance || Of(module, player) is not null) return;
         if (player.Layout.Level?.RoomObjects.FirstOrDefault(o => LocatorTypes.Contains(o.Type)) is not { } locator) return;
         // The room's line has no fixed height (NaN): the object then takes the terrain's.
         float? z = float.IsNaN(locator.Z) ? null : locator.Z;
@@ -142,9 +147,9 @@ static partial class LegionMonolith
 
     /// <summary>GameEvents.PlayerEntered: a later player, or a returning one. The area gives its client the monolith, the pulse,
     /// the chests and the army as they are; the army's stasis, which the area does not keep, is sent to that player alone.</summary>
-    static async Task Enter(Player player)
+    static async Task Enter(IModuleContext module, Player player)
     {
-        if (Of(player) is not { } e) return;
+        if (Of(module, player) is not { } e) return;
         await Show(player, e);
         await ShowRules(player, e);
         await LegionStasis.Present(player, e.Army, e.Plan);
@@ -228,7 +233,7 @@ static partial class LegionMonolith
 
     static async Task<bool> Use(IModuleContext module, Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (Of(player) is not { } e) return false;
+        if (Of(module, player) is not { } e) return false;
         if (use.TargetId != e.Id) return await OpenBox(module, player, e, use.TargetId, requestedAt);
         if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
         lock (e) if (e.Phase != Phase.Idle) return true;
@@ -242,6 +247,7 @@ static partial class LegionMonolith
             // TODO(phase 4): the other map_legion_* stats (monster counts, chests, factions) are read with the atlas.
             var stats = global::Game.AreaLeagueStats(player);
             int percent = stats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
+            e.FrozenDamageTakenPct = stats.GetValueOrDefault(Stat.MapLegionFrozenMonstersDamageTakenPlusPct);
             seconds = TimerMilliseconds(LegionData.Current, e.Level, percent) / 1000.0;
             e.Plan = LegionArmy.Plan(LegionData.Current, e.Level, player.Layout.Id, stats, global::Game.AreaRng(player));
             plan = LegionArmy.Summary(e.Plan);
@@ -262,7 +268,7 @@ static partial class LegionMonolith
     /// room run it, and an idle or finished encounter returns at its first check.</summary>
     static async Task Tick(IModuleContext module, Player player)
     {
-        if (Of(player) is not { } e || player.Closed || player.LeavingArea) return;
+        if (Of(module, player) is not { } e || player.Closed || player.LeavingArea) return;
         int step = 0;
         uint pulse = 0;
         lock (e)
@@ -332,9 +338,10 @@ static partial class LegionMonolith
     /// <summary>The monolith was used and the timer runs: the two armies stand up frozen around it (LegionStasis.cs).</summary>
     static async Task BeginArmy(IModuleContext module, Player player)
     {
-        if (Of(player) is not { } e) return;
+        if (Of(module, player) is not { } e) return;
         LegionArmy.ArmyPlan? plan;
-        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; e.Army = []; e.Spawning = true; }
+        int frozenDamageTakenPct;
+        lock (e) { if (e.Army is not null || e.Plan is null) return; plan = e.Plan; frozenDamageTakenPct = e.FrozenDamageTakenPct; e.Army = []; e.Spawning = true; }
         // Each member joins e.Army as soon as it stands, so a timer that ends meanwhile (ReleaseArmy) removes it too;
         // once the encounter is Finished a new member is refused and Spawn removes it itself.
         bool Keeps(LegionStasis.Member m)
@@ -343,7 +350,7 @@ static partial class LegionMonolith
             {
                 if (e.Phase == Phase.Finished) return false;
                 e.Army = [.. e.Army ?? [], m];
-                Arm(player, e, m);
+                Arm(module, player, e, m);
                 return true;
             }
         }
@@ -352,9 +359,9 @@ static partial class LegionMonolith
         {
             bool reveal;
             lock (e) reveal = e.Phase == Phase.Running;
-            if (reveal) await RevealMembers(player, e, [m], keep: false);
+            if (reveal) await RevealMembers(module, player, e, [m], keep: false);
         }
-        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing); }
+        try { await LegionStasis.Spawn(module, player, plan, e.X, e.Y, e.Level, Keeps, Standing, frozenDamageTakenPct); }
         finally { lock (e) e.Spawning = false; }
         Phase phase;
         lock (e) { phase = e.Phase; Keep(player, e); }
@@ -368,8 +375,8 @@ static partial class LegionMonolith
     /// Chests that were opened or are openable are objects, not members, and stay.</summary>
     static async Task ReleaseArmy(IModuleContext module, Player player, string reason)
     {
-        if (Of(player) is not { } e) return;
-        if (reason == "early") await BreakRemaining(player, e);   // the 90% rule breaks out the rest (patch 3.29.0), not removes it
+        if (Of(module, player) is not { } e) return;
+        if (reason == "early") await BreakRemaining(module, player, e);   // the 90% rule breaks out the rest (patch 3.29.0), not removes it
         LegionStasis.Member[]? army;
         lock (e) { army = e.Army; e.Army = []; Keep(player, e); }
         if (army is not { Length: > 0 }) return;
@@ -381,9 +388,11 @@ static partial class LegionMonolith
         foreach (var m in army)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead) continue;
+            monster.OnNonLethalZero = null;
+            monster.EntranceGrace = true;
+            Holds.Remove(monster);
             if (m.Broken && !m.Chest)
             {
-                Holds.Remove(monster);   // its hits count again
                 if (await LegionStasis.Wake(player, m, monster, e.X, e.Y, e.Plan is { } wp && m.Faction < wp.Factions.Length ? wp.Factions[m.Faction].Id : null)) { woken++; generalFought |= m.Tier == 3; }
                 else remove.Add(m);   // no replacement could be made: it goes like an unbroken one
             }
