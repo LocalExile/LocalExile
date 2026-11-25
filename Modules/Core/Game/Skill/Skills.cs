@@ -481,6 +481,8 @@ public static partial class Game
             // SpikeSlam's timer only auto-detonates skill behaviour 2 (Earthshatter of Fragility).
             if (skills.ActionHash(effect) is LeapSlam.Action or EarthshatterFissures.Action || gatheringLightning)
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
+            bool perforate = skills.ActionHash(effect) == PerforateAction;
+            if (perforate) PublishPerforateStats(player, skills, effect, stats);
             if (gatheringLightning)
                 stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
@@ -599,11 +601,14 @@ public static partial class Game
                 bool spellArea = SkillsFor(player).IsSpell(effect) && !SkillsFor(player).IsAttack(effect);
                 var areaStats = SkillAreaStats(player, own, effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
-                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(effect), AreaGet);
+                bool sand = perforate && PerforateSand(player, effect);
+                int baseRadius = perforate ? PerforateBaseRadius(sand, skills.BehaviourVariation(effect) == 3)
+                    : SkillArea.BaseRadius(skills.EffectId(effect), AreaGet);
+                double areaMore = sand ? PerforateSandAreaMore(AreaGet) : 1;
                 if (Stat.ActiveSkillAreaOfEffectRadius is var finalRadius)
-                    stats[finalRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea);
+                    stats[finalRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea, areaMore);
                 if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey)
-                    stats[scaleKey] = SkillArea.RadiusPercent(AreaGet, spellArea);
+                    stats[scaleKey] = SkillArea.RadiusPercent(AreaGet, spellArea, areaMore);
                 if (Stat.SkillAreaOfEffectPlusPct is var areaKey)
                     stats[areaKey] = SkillArea.Increased(AreaGet, spellArea);
             }
@@ -631,6 +636,7 @@ public static partial class Game
                 // Reap's more damage per Blood Charge held scales the hit itself, as AreaSkillHit does, so the damage
                 // ranges, the ailment rows and the per-use/per-second rows agree.
                 double bloodMore = BloodChargeDamageMore(player, name => name is var k ? own.GetValueOrDefault(k) : 0);
+                if (perforate && !PerforateSand(player, effect)) bloodMore *= PerforateBloodDamageMore(Get);
                 // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
                 // AttackTime at the off hand's speed, without the main weapon's local attack speed.
                 var shieldWeapon = ShieldWeapon(player, id);

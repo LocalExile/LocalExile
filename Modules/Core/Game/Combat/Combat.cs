@@ -3026,6 +3026,12 @@ public static partial class Game
                     shatteringCritical = alwaysCrit;
                 }
             }
+            if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)
+            {
+                SchedulePerforateLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
+                    criticalRoll, radiusMore, damageMore, ruthless, cryExerted == true, now);
+                return;
+            }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
             // Queued mana output may outlast movement: resolve a channel at its current position.

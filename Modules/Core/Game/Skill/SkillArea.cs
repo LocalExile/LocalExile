@@ -67,8 +67,10 @@ public static class SkillArea
         get(Stat.BaseSkillAreaOfEffectPlusPct) + get(Stat.SkillAreaOfEffectPlusPct) + (spell ? get(Stat.SpellAreaOfEffectPlusPct) : 0);
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
-    public static int RadiusPercent(Func<uint, int> get, bool spell) =>
-        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
+    public static int RadiusPercent(Func<uint, int> get, bool spell) => RadiusPercent(get, spell, 1);
+
+    internal static int RadiusPercent(Func<uint, int> get, bool spell, double areaMore) =>
+        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore))
             * Math.Max(0L, 100L + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist
