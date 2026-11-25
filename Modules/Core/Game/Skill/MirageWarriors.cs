@@ -603,10 +603,10 @@ public static partial class Game
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
-                    var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
+                    var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: true, now, resMods, pen,
                         hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage, takenRules);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, 1).Damage;
                     var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);

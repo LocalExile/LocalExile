@@ -962,19 +962,21 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+            bool ownHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage;
+            int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
                 resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
-                additionalTakenPct: additionalTaken);
+                additionalTakenPct: additionalTaken, additionalElementalTakenPct: witheredElemental);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
             int directDamage = damage;
-            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
-                additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
+            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage, takenRules);
             bool immune = target.Invulnerable;
             if (shot.FromMine)
-                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id, takenRules);
             else if (!shot.FromTrapOrMine)
-                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                LeechOnHitTargetLocked(Player, target,
+                    MonsterTakenComponents(target, mitigated, shot.Spell, at, takenRules), damage,
                     shot.Leech, contact.Target.Id);
             if (!immune)
             {
@@ -1049,8 +1051,7 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea, sourceEffect: shot.Effect,
-                    ownHit: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage);
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);

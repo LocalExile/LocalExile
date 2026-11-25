@@ -250,12 +250,16 @@ public static partial class Game
         bool ignorePhysicalReduction = false, Random? random = null)
         => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction, random);
 
+    static int MonsterTakesMitigated(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int additionalElementalTakenPct, bool ignorePhysicalReduction = false, Random? random = null)
+        => MonsterTakesMitigatedCore(m, mitigated, spell, now, 0, ignorePhysicalReduction, random, additionalElementalTakenPct);
+
     public static int MonsterTakesTrapOrMineHit(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
         Random? random = null, bool ignorePhysicalReduction = false)
         => MonsterTakesMitigatedCore(m, mitigated, spell, now, BearTrapDamageTaken(m, now), ignorePhysicalReduction, random);
 
     static int MonsterTakesMitigatedCore(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int additionalTakenPct, bool ignorePhysicalReduction, Random? random)
+        int additionalTakenPct, bool ignorePhysicalReduction, Random? random, int additionalElementalTakenPct = 0)
     {
         // The shrine aura's base_cannot_be_damaged (MonsterAuraEffect, temporary stats by name): the Divine shrine's
         // monsters cannot be damaged while it is unclaimed, as the row's own buff promises.
@@ -271,19 +275,14 @@ public static partial class Game
         // The player's debuffs on it add to its own increased damage taken (MonsterDamageTaken): his enemy auras' elemental
         // increase on fire, cold and lightning only, his Withered on chaos only, and Pride's more Physical Damage on the
         // physical part.
-        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
         double chaosDamage = mitigated[DamageType.Chaos].Min;
-        double witheredPct = chaosDamage > 0 ? WitheredTaken(m, now) : 0;
-        double withered = witheredPct == 0 ? 0 : chaosDamage * (MonsterDamageTaken(m, spell, now,
-            elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct + witheredPct) - factor);
+        var (factor, elementalFactor, chaosFactor) = HitTakenFactors(m, spell, now, additionalTakenPct,
+            additionalElementalTakenPct, chaosDamage > 0);
+        double withered = chaosDamage * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
         // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
         // physical part only, never to the elemental share's fallback factor.
-        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
-            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
-            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+        double physicalFactor = PhysicalHitTakenFactor(m, e, now);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
         double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
             + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
@@ -299,11 +298,17 @@ public static partial class Game
         return (int)Math.Round(damage);
     }
 
+    readonly record struct HitTakenRules(int General, int Elemental, bool IgnorePhysicalReduction);
+
     /// <summary>Computes the explicit chaos-damage portion of <paramref name="finalDamage"/> (after crits, suppression,
     /// and global multipliers, before physical Impale reflection) so <see cref="AbsorbMonsterEnergyShieldLocked"/> lets
     /// chaos bypass monster Energy Shield without any mutable side-channel state.</summary>
     public static int MonsterHitChaosDamage(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
-        int finalDamage, int additionalTakenPct = 0, bool ignorePhysicalReduction = false)
+        int finalDamage, int additionalTakenPct = 0, bool ignorePhysicalReduction = false) =>
+        MonsterHitChaosDamage(m, mitigated, spell, now, finalDamage, new HitTakenRules(additionalTakenPct, 0, ignorePhysicalReduction));
+
+    static int MonsterHitChaosDamage(SpawnedMonster m, DamagePacket mitigated, bool spell, double now,
+        int finalDamage, HitTakenRules rules)
     {
         double rawChaos = mitigated[DamageType.Chaos].Min;
         if (finalDamage <= 0 || rawChaos <= 0 || m.Effects[Stat.BaseCannotBeDamaged] > 0) return 0;
@@ -311,22 +316,14 @@ public static partial class Game
         double physical = mitigated[DamageType.Physical].Min;
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physical,
             e.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
-        if (ignorePhysicalReduction && physReduction > 0) physReduction = 0;
+        if (rules.IgnorePhysicalReduction && physReduction > 0) physReduction = 0;
         double physicalTaken = physical * Math.Max(0, 1 - physReduction / 100.0)
             * (1 + MaimedPhysicalTaken(m, now) / 100.0);
         double total = mitigated.MinTotal - physical + physicalTaken;
-        double factor = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double witheredPct = WitheredTaken(m, now);
-        double chaosFactor = witheredPct == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
-                increasedPct: additionalTakenPct + witheredPct);
+        var (factor, elementalFactor, chaosFactor) = HitTakenFactors(m, spell, now, rules.General, rules.Elemental, hasChaos: true);
         double withered = rawChaos * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        double elementalFactor = m.TakenFromPlayer.Elemental == 0 ? factor
-            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false, increasedPct: additionalTakenPct);
-        double physicalFactor = (1 + Math.Max(0, m.PridePhysicalMore) / 100.0)
-            * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
-            * (1 + e[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+        double physicalFactor = PhysicalHitTakenFactor(m, e, now);
         double typed = mitigated[DamageType.Fire].Min * ElementalHitTakenPercent(e, m, DamageType.Fire, now)
             + mitigated[DamageType.Cold].Min * ElementalHitTakenPercent(e, m, DamageType.Cold, now)
             + mitigated[DamageType.Lightning].Min * ElementalHitTakenPercent(e, m, DamageType.Lightning, now);
@@ -336,6 +333,24 @@ public static partial class Game
         double chaosTaken = rawChaos * chaosFactor;
         return Math.Clamp((int)Math.Round(finalDamage * Math.Clamp(chaosTaken / totalTaken, 0.0, 1.0)), 0, finalDamage);
     }
+
+    static (double Common, double Elemental, double Chaos) HitTakenFactors(SpawnedMonster m, bool spell, double now,
+        int additionalTakenPct, int additionalElementalTakenPct, bool hasChaos)
+    {
+        double common = MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
+            increasedPct: additionalTakenPct);
+        double elemental = m.TakenFromPlayer.Elemental == 0 && additionalElementalTakenPct == 0 ? common
+            : MonsterDamageTaken(m, spell, now, elemental: true, hit: true, chaos: false,
+                increasedPct: (double)additionalTakenPct + additionalElementalTakenPct);
+        double withered = hasChaos ? WitheredTaken(m, now) : 0;
+        double chaos = withered == 0 ? common : MonsterDamageTaken(m, spell, now, elemental: false, hit: true, chaos: false,
+            increasedPct: additionalTakenPct + withered);
+        return (common, elemental, chaos);
+    }
+
+    static double PhysicalHitTakenFactor(SpawnedMonster m, MonsterModEffects effects, double now) =>
+        (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
+        * (1 + effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
@@ -348,12 +363,32 @@ public static partial class Game
     public static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
         double now = double.NaN)
     {
+        var effects = m.Effects;
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, mitigated[DamageType.Physical].Min,
-            m.Effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
+            effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
         return mitigated.Select((type, range) => range.Scale(type == DamageType.Physical
             ? Math.Max(0, 1 - physReduction / 100.0)
                 * (1 + MaimedPhysicalTaken(m, now) / 100.0) : 1))
-            .Scale(m.Effects.DamageTaken(spell) * MonsterToughnessFactor(m.Effects));
+            .Scale(effects.DamageTaken(spell) * MonsterToughnessFactor(effects));
+    }
+
+    static DamagePacket MonsterTakenComponents(SpawnedMonster m, DamagePacket mitigated, bool spell,
+        double now, HitTakenRules rules)
+    {
+        var effects = m.Effects;
+        double physReduction = HitMitigation.PhysicalReduction(Monsters, m, mitigated[DamageType.Physical].Min,
+            effects.PhysicalReduction - CrushReduction(m, now), MonsterArmourEnabled);
+        if (rules.IgnorePhysicalReduction && physReduction > 0) physReduction = 0;
+        var (common, elemental, chaos) = HitTakenFactors(m, spell, now, rules.General,
+            rules.Elemental, !mitigated[DamageType.Chaos].IsZero);
+        double physical = common * PhysicalHitTakenFactor(m, effects, now) * Math.Max(0, 1 - physReduction / 100.0)
+            * (1 + MaimedPhysicalTaken(m, now) / 100.0);
+        return mitigated.Select((type, range) => range.Scale(type switch
+        {
+            DamageType.Physical => physical,
+            DamageType.Chaos => chaos,
+            _ => elemental * (1 + ElementalHitTakenPercent(effects, m, type, now) / 100.0),
+        }));
     }
 
     /// <summary>The player's base_self_critical_strike_multiplier_-% (critical strikes against them deal less extra damage).</summary>

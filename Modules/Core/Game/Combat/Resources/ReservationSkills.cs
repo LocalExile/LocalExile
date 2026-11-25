@@ -258,8 +258,12 @@ public static partial class Game
                 var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                     Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)),
                     elementalUsesLowestResistance: Player(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
-                if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player),
+                    additionalElementalTakenPct: witheredElemental);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage,
+                    new HitTakenRules(0, witheredElemental, false));
+                if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {

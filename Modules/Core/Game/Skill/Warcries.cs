@@ -433,8 +433,10 @@ public static partial class Game
                 {
                     var rng = AreaRng(player);
                     var resisted = MitigateMonsterHit(m, hit.Roll(rng), now, penetration, cannotPenetrate, lowestElemental);
-                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng);
-                    int chaosDamage = MonsterHitChaosDamage(m, resisted, false, now, damage);
+                    int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, witherElementalPerStack);
+                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng, additionalElementalTakenPct: witheredElemental);
+                    int chaosDamage = MonsterHitChaosDamage(m, resisted, false, now, damage,
+                        new HitTakenRules(0, witheredElemental, false));
                     if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {

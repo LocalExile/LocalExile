@@ -377,14 +377,15 @@ public static partial class Game
                 int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;
-                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                var (damage, resistance, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: true, now,
                     resonance.Mods, resonance.Penetration,
-                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
-                var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
+                var taken = MonsterTakenComponents(m, mitigated, spell: false, now, takenRules);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage, takenRules);
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                     sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),

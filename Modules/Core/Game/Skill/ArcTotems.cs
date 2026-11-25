@@ -105,19 +105,18 @@ public static partial class Game
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
             rolled = hitRolls.ForCriticalStrike(crit, caster, skill.Stats).ApplyDamageMultiplier(rolled, AreaRng(player));
-            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, crit, false, now, resistance, penetration,
                 hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
             if (crit) damage = DamageModel.CriticalDamage(damage,
                 CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, caster, skill.Stats));
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
-                totem ? 0 : BearTrapDamageTaken(m, now));
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage, takenRules);
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
             if (totem)
             {
                 ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
                 LeechFromTotemHitLocked(player, m, damage, now, ownerStats);
             }
-            if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id);
+            if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id, takenRules);
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),

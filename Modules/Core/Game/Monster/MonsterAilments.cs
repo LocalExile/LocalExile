@@ -470,7 +470,8 @@ public static partial class Game
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure, skillExposure);
         int WitherStat(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name)
             + (preCursed && name == Stat.WitheredOnHitFor2SecondsPctChance ? witherAgainstCursed : 0));
-        WitherOnHitLocked(m, WitherStat, now, AreaRng(player));
+        uint? witherSource = (ownHit ?? playerHit) ? player.Id : null;
+        WitherOnHitLocked(m, WitherStat, now, AreaRng(player), witherSource);
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,

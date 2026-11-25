@@ -626,12 +626,13 @@ public static partial class Game
                     CriticalHitMultiplier(weaponMultiplier, playerStats, ownPenetration), m, weapon.LocalSources);
                 double at = ProjectileWorldTime(player);
                 int criticalMultiplier = CriticalMultiplierOn(m, sourceCriticalMultiplier, at, playerStats, ownPenetration);
-                (damage, resistance, var mitigated) = MonsterHitDamage(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
-                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, at, playerStats);
+                (damage, resistance, var mitigated, var takenRules) = ResolveMonsterHit(m, ownRolled, critical, attack: true, at, resistanceMods, pen,
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
                 hitCode = HitCode(mitigated);
                 if (critical) damage = DamageModel.CriticalDamage(damage, criticalMultiplier);
-                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage);
-                LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at), damage,
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, at, damage, takenRules);
+                LeechOnHitTargetLocked(player, m, MonsterTakenComponents(m, mitigated, spell: false, at, takenRules), damage,
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
                     sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
@@ -3503,11 +3504,13 @@ public static partial class Game
                     // resolver excludes triggered skills from these supports.
                     var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, at);
                     rolled = resonance.Packet;
-                    (damage, resistance, var mitigated) = MonsterHitDamage(m, rolled, critical, attack: !spell, at,
+                    int witheredElemental = WitheredElementalHitTaken(m, player.Id, at, playerStats);
+                    (damage, resistance, var mitigated, var takenRules) = ResolveMonsterHit(m, rolled, critical, attack: !spell, at,
                         resonance.Mods, resonance.Penetration,
-                        hitRolls.InvertsResistance(AreaRng(player), inversionChance), AreaRng(player));
+                        hitRolls.InvertsResistance(AreaRng(player), inversionChance), AreaRng(player),
+                        additionalElementalTakenPct: witheredElemental);
                     hitCode = HitCode(mitigated);
-                    var taken = MonsterTakenComponents(m, mitigated, spell, at);
+                    var taken = MonsterTakenComponents(m, mitigated, spell, at, takenRules);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     double more = (infernalBlast is null ? damageMore : 1) * bloodMore;
                     int perChill = GolemStat(skillStats, global::Stat.FrostblinkDamagePlusPctFinalPer5PctChillEffectOnTarget);
@@ -3520,7 +3523,7 @@ public static partial class Game
                         more *= Math.Max(0, 1 + GolemStat(skillStats, global::Stat.TriggerBrandSupportHitDamagePlusPctFinalVsBrandedEnemy) / 100.0);
                     if (splashMore.TryGetValue(id, out double splashScale)) more *= splashScale;
                     if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage);
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, at, damage, takenRules);
                     LeechOnHitTargetLocked(player, m, taken, damage, leech!, id);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
@@ -3959,8 +3962,8 @@ public static partial class Game
     public static (int Damage, string? Resistance) MonsterDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, HitResistances.Mods mods, Penetration.PerType pen, out DamagePacket taken, bool invertElemental = false)
     {
-        var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack, double.NaN, mods, pen, invertElemental);
-        taken = MonsterTakenComponents(m, mitigated, spell: !attack);
+        var (damage, resistance, mitigated, rules) = ResolveMonsterHit(m, rolled, critical, attack, double.NaN, mods, pen, invertElemental);
+        taken = MonsterTakenComponents(m, mitigated, spell: !attack, double.NaN, rules);
         return (damage, resistance);
     }
 
@@ -3969,6 +3972,16 @@ public static partial class Game
     public static (int Damage, string? Resistance, DamagePacket Mitigated) MonsterHitDamage(SpawnedMonster m, DamagePacket rolled,
         bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
         bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0)
+    {
+        var (damage, resistance, mitigated, _) = ResolveMonsterHit(m, rolled, critical, attack, now,
+            mods, pen, invertElemental, random, trapOrMine, additionalTakenPct);
+        return (damage, resistance, mitigated);
+    }
+
+    static (int Damage, string? Resistance, DamagePacket Mitigated, HitTakenRules Rules) ResolveMonsterHit(
+        SpawnedMonster m, DamagePacket rolled, bool critical, bool attack, double now, HitResistances.Mods mods, Penetration.PerType pen = default,
+        bool invertElemental = false, Random? random = null, bool trapOrMine = false, int additionalTakenPct = 0,
+        int additionalElementalTakenPct = 0)
     {
         var described = new List<string>();
         mods = ImpurityHitMods(m, now, mods);
@@ -4003,9 +4016,10 @@ public static partial class Game
         bool ignorePhys = mods.IgnorePhysicalReduction || (rolled[DamageType.Physical].Max > 0
             && GameServer.Core.World.RandomRolls.Chance(ignorePhysicalChance, 100, random ?? Random.Shared));
         int takenPct = additionalTakenPct + (trapOrMine ? BearTrapDamageTaken(m, now) : 0);
-        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random);
+        int damage = MonsterTakesMitigatedCore(m, mitigated, spell: !attack, now, takenPct, ignorePhys, random, additionalElementalTakenPct);
         return (damage,
-            described.Count > 0 ? string.Join(", ", described) : null, mitigated);
+            described.Count > 0 ? string.Join(", ", described) : null, mitigated,
+            new(takenPct, additionalElementalTakenPct, ignorePhys));
     }
 
     public static HitResistances.Mods HitResistMods(IReadOnlyDictionary<uint, int> player,

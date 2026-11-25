@@ -338,15 +338,21 @@ public static partial class Game
     }
 
     // A hit that landed on a living monster, in the area's frame: one more Withered stack, with withered_effect_+%.
-    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random)
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random) =>
+        WitherOnHitLocked(m, get, now, random, null);
+
+    public static void WitherOnHitLocked(SpawnedMonster m, Func<uint, int> get, double now, Random random, uint? source)
     {
         if (m.Mods.Effects[Stat.ImmuneToWither] > 0 || WitherRoll(get, random) is not (> 0 and var seconds)) return;
-        ApplyWitherStacksLocked(m, 1, seconds, get, now);
+        ApplyWitherStacksLocked(m, 1, seconds, get, now, source);
     }
 
     // Adds <paramref name="stacks"/> Withered stacks with already-scaled duration <paramref name="seconds"/>
     // (capped at WitheredMaxStacks = 15, replacing the earliest-ending stack).
-    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now)
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now) =>
+        ApplyWitherStacksLocked(m, stacks, seconds, get, now, null);
+
+    public static void ApplyWitherStacksLocked(SpawnedMonster m, int stacks, double seconds, Func<uint, int> get, double now, uint? source)
     {
         if (stacks <= 0 || seconds <= 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return;
         double pct = WitheredPct * Math.Max(0, 1 + get(Stat.WitheredEffectPlusPct) / 100.0);
@@ -354,7 +360,7 @@ public static partial class Game
         for (int i = 0; i < stacks; i++)
         {
             if (m.Withered.Count >= WitheredMaxStacks) m.Withered.Remove(m.Withered.MinBy(s => s.Until));
-            m.Withered.Add((now + seconds, pct));
+            m.Withered.Add((now + seconds, pct, source));
         }
         m.PresentationChanged?.Invoke();
     }
@@ -362,16 +368,28 @@ public static partial class Game
     /// <summary>The increased chaos damage from active Withered stacks at <paramref name="now"/>.</summary>
     public static double WitheredTaken(SpawnedMonster m, double now) => ReadWithered(m, now).Taken;
 
+    static int WitheredElementalHitTaken(SpawnedMonster m, uint source, double now, IReadOnlyDictionary<uint, int> stats) =>
+        WitheredElementalHitTaken(m, source, now,
+            stats.GetValueOrDefault(Stat.EnemiesWitheredByYouTakePlusPctIncreasedElementalDamageFromYourHits));
+
+    static int WitheredElementalHitTaken(SpawnedMonster m, uint source, double now, int perStack)
+    {
+        if (perStack == 0 || m.Mods.Effects[Stat.ImmuneToWither] > 0) return 0;
+        return ActorScale.Saturate((long)perStack * ReadWithered(m, now, source).Own);
+    }
+
     // A Withering pod contributes once while an enemy is in its radius. It shares the timed stacks' cap, and
     // leaving removes that pod immediately without changing any of the Withered stacks from hits or other skills.
-    static (int Count, double Taken, double Until, double DisplayPct) ReadWithered(SpawnedMonster m, double now)
+    static (int Count, double Taken, double Until, double DisplayPct, int Own) ReadWithered(SpawnedMonster m, double now,
+        uint? source = null)
     {
-        int count = 0;
+        int count = 0, own = 0;
         double taken = 0, latest = 0, display = 0;
-        foreach (var (until, pct) in m.Withered)
+        foreach (var (until, pct, owner) in m.Withered)
         {
             if (until <= now) continue;
             count++;
+            if (source is uint id && owner == id) own++;
             taken += pct;
             latest = Math.Max(latest, until);
             display = pct;
@@ -382,12 +400,13 @@ public static partial class Game
                 {
                     if (pod.Withered is not double pct || pod.Until <= now) continue;
                     count++;
+                    if (source is uint id && pod.Source == id) own++;
                     taken += pct;
                     latest = Math.Max(latest, pod.Until);
                     display = pct;
                     if (count == WitheredMaxStacks) break;
                 }
-        return (count, taken, latest, display);
+        return (count, taken, latest, display, own);
     }
 
     /// <summary>The increased damage a hit takes from them at <paramref name="now"/>: Intimidate's on an attack, Unnerve's

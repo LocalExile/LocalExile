@@ -108,11 +108,14 @@ public static partial class Game
                         var (resistanceType, value) = ElementalHitResistance(target, type, penetration, now, strike, defenses, elemental);
                         return range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(resistanceType, value, strike, defenses, invert) / 100));
                     });
-                    int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
+                    int witheredElemental = WitheredElementalHitTaken(target, player.Id, now, playerStats);
+                    int damage = MonsterTakesMitigated(target, mitigated, spell: false, now, additionalElementalTakenPct: witheredElemental);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
                             playerStats), playerStats));
-                    if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, false, now, damage), playerStats: playerStats) is not { } hit) continue;
+                    int chaosDamage = MonsterHitChaosDamage(target, mitigated, false, now, damage,
+                        new HitTakenRules(0, witheredElemental, false));
+                    if (ApplyTypedMonsterHitLocked(player, target, damage, chaosDamage, playerStats: playerStats) is not { } hit) continue;
                     if (hit.StageStarts)
                     {
                         CommitBossStage(player, id, target, now);

@@ -389,10 +389,11 @@ public static partial class Game
                 var rolled = (hitRolls with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, AreaRng(player));
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(player);
-                var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
-                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, hitAt, playerStats);
+                var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, hitAt, mods, pen,
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
-                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage, takenRules);
                 var stun = OwnerStun(player, skill.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);
                 var applied = ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage);
                 if (applied is { StageStarts: true } staged)

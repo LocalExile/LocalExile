@@ -621,12 +621,12 @@ public static partial class Game
     }
 
     static void LeechPlacedMineHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated, bool spell,
-        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0)
+        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0, HitTakenRules rules = default)
     {
         int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
         if (coefficient <= 0) return;
         var life = DamagePacket.Empty.Select((_, _) => new(coefficient, coefficient));
-        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
+        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now, rules), damage,
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
     }
 
@@ -906,9 +906,10 @@ public static partial class Game
             int damage;
             bool critical = Critical(id);
             rolled = hitRolls.ForCriticalStrike(critical, owner, placed.Own).ApplyDamageMultiplier(rolled, AreaRng(player));
+            HitTakenRules takenRules;
             if (hexblast)
             {
-                (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, mods, penetration,
+                (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack, now, mods, penetration,
                     HitRollsFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
             }
             else
@@ -918,12 +919,13 @@ public static partial class Game
                         GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)),
                     elementalUsesLowestResistance: playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
+                takenRules = new(BearTrapDamageTaken(m, now), 0, false);
             }
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, takenRules);
             if (placed.Mine)
-                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
+                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner, rules: takenRules);
             if (killingBlowImpale > 0)
             {
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, multiplier) / 100d : 1);

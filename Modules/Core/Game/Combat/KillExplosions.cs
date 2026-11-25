@@ -230,7 +230,9 @@ public static partial class Game
                 var mitigated = MitigateMonsterHit(m, elementalPacket, now, elementalPenetration,
                     playerStats.GetValueOrDefault(Stat.CannotPenetrateOrIgnoreElementalResistances),
                     playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
-                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now));
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                damage = (int)Math.Min(int.MaxValue, (long)damage + MonsterTakesMitigated(m, mitigated, false, now,
+                    additionalElementalTakenPct: witheredElemental));
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, bypass, allyAt: at) is not { } hit) continue;
             hits.Add((id, m, hit));

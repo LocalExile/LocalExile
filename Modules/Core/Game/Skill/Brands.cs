@@ -1625,23 +1625,24 @@ public static partial class Game
             };
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
-        var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null);
+        int witheredElemental = placement is null ? WitheredElementalHitTaken(m, player.Id, now, playerStats) : 0;
+        var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, now, resistMods, pen,
+            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null,
+            additionalElementalTakenPct: witheredElemental);
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 
         if (placement is null)
         {
-            var taken = MonsterTakenComponents(m, mitigated, spell: true, now);
+            var taken = MonsterTakenComponents(m, mitigated, spell: true, now, takenRules);
             var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
             LeechOnHitLocked(player, m, taken, damage, leech);
         }
         else if (placement.Device.Mine)
-            LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, playerStats, monsterId);
+            LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, playerStats, monsterId, takenRules);
 
         var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
-        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
-            placement is null ? 0 : BearTrapDamageTaken(m, now));
+        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage, takenRules);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placement?.Device.At,
                 cull: placement is null ? Cull.Of(playerStats, gem.Stats, critical, spell: true) : default, cullPlayer: playerStats,
                 chaosDamage: chaosDamage)
