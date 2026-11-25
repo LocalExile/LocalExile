@@ -15,6 +15,7 @@ public static partial class Game
         (Stat.LocalUniqueFlaskAvoidChillPctWhileHealing, Stat.BaseAvoidChillPct, false),
         (Stat.LocalUniqueFlaskAvoidFreezePctWhileHealing, Stat.BaseAvoidFreezePct, false),
         (Stat.LocalNoCriticalStrikeMultiplierDuringFlaskEffect, Stat.NoCriticalStrikeMultiplier, true),
+        (Stat.LocalFlaskCullingStrikeDuringFlaskEffect, Stat.KillEnemyOnHitIfUnder10PctLife, true),
         (Stat.LocalUniqueFlaskVaalSkillDamagePlusPctDuringFlaskEffect, Stat.VaalSkillDamagePlusPct, false),
         (Stat.LocalUniqueFlaskVaalSkillCriticalStrikeChancePlusPctDuringFlaskEffect, Stat.VaalSkillCriticalStrikeChancePlusPct, false),
         (WiseOakPenetration, WiseOakPenetration, false),

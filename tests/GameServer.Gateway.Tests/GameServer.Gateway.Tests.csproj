@@ -45,5 +45,6 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
     <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>

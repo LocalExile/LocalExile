@@ -218,6 +218,76 @@ public sealed class TriggeredSummonTests
             Program.Outgoing = outgoing;
         }
     }
+
+    [Fact]
+    public async Task Crafted_trigger_wand_greys_out_skills_and_triggers_desecrate_offering_convocation_round_robin()
+    {
+        using var f = new Fixture();
+        var wandMod = Program.Items.Mods.ById("JunMaster2TriggerSocketedSpellOnSkillUse1")!;
+        Item Gem(string name)
+        {
+            var type = Program.Items.FindGem(name)!.Value;
+            return ItemCatalog.Create(type.Type) with { GemVariant = type.Variant.Index,
+                GemExperience = Program.Items.Gem(type.Type)!.ExperienceFor(20) };
+        }
+        var wand = ItemCatalog.Create(Program.Items.Find("Prophecy Wand")!) with
+        {
+            Mods = [wandMod.Roll(ModSection.Explicit, new Random(1))],
+            Sockets = new[] { "Desecrate", "Flesh Offering", "Convocation" }
+                .Select(n => new ItemSocket(SocketColour.White, Gem(n))).ToArray(),
+            Links = [1, 1, 1],
+        };
+        uint existingWeaponId = Game.ItemsOf(f.Player).Items(PlayerInventories.Weapon1).Single().Id;
+        Game.ItemsOf(f.Player).Change(PlayerInventories.Weapon1, existingWeaponId, _ => wand);
+        // Equip an active skill in another slot (boots) to trigger the crafted weapon spells on skill use.
+        var boots = ItemCatalog.Create(Program.Items.Find("Iron Greaves")!) with
+        {
+            Sockets = [new ItemSocket(SocketColour.Blue, Gem("Arc"))],
+            Links = [1],
+        };
+        Game.ItemsOf(f.Player).Put(PlayerInventories.Boots, new(2, 0, 0, boots));
+
+        var skills = Game.PlayerSkills(f.Player);
+        var gemMap = Game.GemSkillEffects(f.Player).ToDictionary(g => Program.Skills.EffectId(g.Effect)!, g => g);
+
+        string convocationEffect = gemMap.ContainsKey("Convocation") ? "Convocation" : "ConvocationOld";
+        foreach (string triggered in new[] { "Desecrate", "FleshOffering", convocationEffect })
+        {
+            var entry = gemMap[triggered];
+            var gs = skills.Single(s => s.Id == entry.Id);
+            var stats = gs.Stats!.ToDictionary(kv => kv.Key, kv => kv.Value);
+            Assert.Equal(1, stats[Stat.SpellHasTriggerFromCraftedItemMod]);
+            Assert.Equal(1, stats[Stat.SpellUncastableIfTriggerable]);
+            Assert.Equal(1, stats[OwnAuraRestriction.SkillDisabled]);
+            Assert.NotNull(Game.GemSkillInstanceDisabled(f.Player, entry.Effect, entry.Id));
+        }
+
+        // 3 consecutive active skill uses within 1s trigger Desecrate -> Flesh Offering -> Convocation round-robin
+        // (each spell keeps its own 8s cooldown instead of a global 8s block).
+        f.Player.ProjectileRuntime = f.Session;
+        f.Player.PlayerMana = 1000;
+        var arc = gemMap["Arc"];
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.0);
+        await Drain(f.Session);
+        Assert.Equal(5, f.Player.Summons.Corpses.Count);
+
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.2);
+        await Drain(f.Session);
+        Assert.Contains(f.Player.Summons.Offerings, o => o.Effect == "FleshOffering");
+        Assert.Contains(f.Player.Area.Monsters.Values, m => m.CorpseConsumed);
+
+        uint manaBeforeConvocation = f.Player.PlayerMana;
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.4);
+        await Drain(f.Session);
+        Assert.True(f.Player.PlayerMana < manaBeforeConvocation, "Convocation should trigger on the 3rd use within 1s");
+
+        // A 4th use while all three are on their individual 8s cooldowns triggers nothing.
+        uint manaAfterAllThree = f.Player.PlayerMana;
+        Game.RecordAcceptedGemUseAt(f.Player, arc.Effect, (120, 100), 100.6);
+        await Drain(f.Session);
+        Assert.Equal(manaAfterAllThree, f.Player.PlayerMana);
+    }
+
     internal sealed class Fixture : IDisposable
     {
         readonly string save = Path.Combine(Path.GetTempPath(), $"animated-admission-{Guid.NewGuid():N}.db");

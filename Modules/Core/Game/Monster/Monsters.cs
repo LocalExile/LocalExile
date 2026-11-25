@@ -21,6 +21,18 @@ public static partial class Game
     static int NativeMonsterStat(IReadOnlyDictionary<uint, int>? stats, uint key) =>
         stats is not null ? stats.GetValueOrDefault(key) : 0;
 
+    /// <summary>The distance (cells) at which a monster first notices a player: its variety's MinAgroRange when that
+    /// is a real notice distance (0 &lt; Min &lt;= the monster's AggroRange), else its AggroRange. Official captures: zombies
+    /// with a MinAgroRange of 40 first move towards the player at 36.6-39.9 cells.</summary>
+    public static int MonsterNoticeRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? min : m.AggroRange;
+
+    /// <summary>The player distance (cells) past which a chasing monster lets go: its AggroRange (MaxAgroRange) when
+    /// its variety has a real notice distance, else twice its AggroRange. Official captures: no chase is re-issued past
+    /// MaxAgroRange (106-108 cells).</summary>
+    public static int MonsterLeashRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? m.AggroRange : 2 * m.AggroRange;
+
     /// <summary>Ranged spell engagement reach in cells: scales a 60-cell base by native
     /// <c>spell_maximum_action_distance_+%</c> and caps unmodified spells to on-screen range (40 cells for projectiles
     /// like bow monsters, 28 cells for non-projectile area spells like BatScreech), instead of firing across the full
@@ -310,13 +322,36 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
-    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    // The area's type set is shared. Every existing viewer needs the registration before
+    // an ordinary spawn or a restored summon publishes a create using that type.
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level,
+        Func<bool>? ownedCurrent = null)
     {
         if (player.MonsterTypes.Contains((variety.Row, level))) return;
-        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
-            CurrentGameWork && !player.Closed && !player.LeavingArea
-                && player.MonsterTypes.Add((variety.Row, level))
-                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+        string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
+        if (player.Area.Owned)
+        {
+            if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                && (ownedCurrent is null || ownedCurrent()))
+                await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
+        }
+        else
+        {
+            byte[]? typeBytes = null;
+            await Send(player, [], typeLog, atGate: () =>
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea
+                    || (ownedCurrent is not null && !ownedCurrent())
+                    || !player.MonsterTypes.Add((variety.Row, level)))
+                    return null;
+                typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
+                return typeBytes.ToArray();
+            });
+            if (typeBytes is not null)
+                foreach (var peer in player.Frames.Players())
+                    if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
+                        await Send(peer, typeBytes.ToArray(), typeLog);
+        }
     }
 
     public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
@@ -642,33 +677,7 @@ public static partial class Game
             // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
             // In the area's frame, register via Area.Delta (Kind.Message, WorldOrder.First) so every party member
             // receives 0x0020 before the 0x02bb create (WorldOrder.Last) in the same frame.
-            if (!player.MonsterTypes.Contains((variety.Row, level)))
-            {
-                string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
-                if (player.Area.Owned)
-                {
-                    if (CurrentGameWork && !player.Closed && !player.LeavingArea
-                        && (ownedCurrent is null || ownedCurrent()))
-                        await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
-                }
-                else
-                {
-                    byte[]? typeBytes = null;
-                    await Send(player, [], typeLog, atGate: () =>
-                    {
-                        if (!CurrentGameWork || player.Closed || player.LeavingArea
-                            || (ownedCurrent is not null && !ownedCurrent())
-                            || !player.MonsterTypes.Add((variety.Row, level)))
-                            return null;
-                        typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
-                        return typeBytes.ToArray();
-                    });
-                    if (typeBytes is not null)
-                        foreach (var peer in player.Frames.Players())
-                            if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
-                                await Send(peer, typeBytes.ToArray(), typeLog);
-                }
-            }
+            await EnsureMonsterTypeSent(player, variety, level, ownedCurrent);
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
@@ -1118,7 +1127,7 @@ public static partial class Game
                     Player? reaggroTarget = null;
                     if (homeDist <= reaggroAnchorCap)
                     {
-                        double bestDist = m.AggroRange;
+                        double bestDist = MonsterNoticeRange(m);
                         foreach (var peer in player.Frames.Players())
                         {
                             if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
@@ -1176,7 +1185,7 @@ public static partial class Game
                     if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
                     m.Attack = chosen;
                 }
-                if (!m.Aggro && d <= m.AggroRange)
+                if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
@@ -1190,10 +1199,10 @@ public static partial class Game
                     plan.BossBars.Add((id, m));
                 }
                 // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
-                // Retail leash: break pursuit when the player pulls beyond 2 × AggroRange OR when an ordinary monster is
-                // dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
+                // Retail leash: break pursuit when the player pulls beyond MonsterLeashRange OR when an ordinary monster
+                // is dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
                 else if (decoy is null && m.Aggro && !m.Fleeing && !player.Minions.Owns(id) && !m.TemporarilyAllied
-                    && (d > 2 * m.AggroRange || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
+                    && (d > MonsterLeashRange(m) || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
                 {
                     m.Aggro = false;
                     m.Target = null;
@@ -2419,6 +2428,13 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
+        if (a.Summon is null && BossKits.EffectOf(m, a) is int channelEffect && SkillsFor(player).IsChannelled(channelEffect))
+        {
+            double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
+            SendAfter(player, remaining, () => MonsterActionCurrent(player, id, m, action)
+                ? SendWorldRecord(player, id, InstanceProtocol.ChannelFinished(id, seq), $"0x01ae monster 0x{id:x} channel 0x{seq:x4} ended")
+                : Task.CompletedTask);
+        }
 // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
         if (a.NoContact) return true;

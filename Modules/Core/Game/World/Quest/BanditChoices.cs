@@ -95,14 +95,14 @@ public static class BanditChoices
     // Right-click consumption of a Book of Reform (C→S 0x58): validates quest completion, differing choice, and at least
     // one unallocated passive point when leaving Eramir (QSR 8 grants +1 passive point dynamically via a2q7-QuestRewardTaken),
     // then atomically consumes the book, swaps the bandit reward quest flag, refreshes stats/passives, and persists the save.
-    public static async Task UseBookOfReform(Player player, PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
+    public static async Task<bool> UseBookOfReform(Player player, PlayerInventories items, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
-        if (!BookOfReformTargets.TryGetValue(type.Id, out var target)) return;
+        if (!BookOfReformTargets.TryGetValue(type.Id, out var target)) return false;
         await player.Character.QuestGate.WaitAsync();
         try
         {
             if (player.Closed || player.LeavingArea || player.PendingTransfer is not null
-                || player.PlayerLife == 0 || HardcoreProgressBlocked(player)) return;
+                || player.PlayerLife == 0 || HardcoreProgressBlocked(player)) return false;
             string character = CharacterName(player);
             var (taken, cleared, error) = Saves.Atomically<(PlayerInventories.Consumption? Taken, string[] Cleared, string? Error)>(() =>
             {
@@ -134,7 +134,7 @@ public static class BanditChoices
             {
                 if (error is not null)
                     await Send(player, InstanceChat.ChatLine(error), $"0x0017 Book of Reform refused: {error}");
-                return;
+                return false;
             }
             uint inventoryId = PlayerInventories.InventoryId(row);
             await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
@@ -153,6 +153,7 @@ public static class BanditChoices
             await PublishQuestFlags(player, commit, on: true);
             await Send(player, InstanceChat.ChatLine($"You have changed your bandit favour to {target.Name}."),
                 $"0x0017 Book of Reform applied: {target.Name}");
+            return true;
         }
         finally { player.Character.QuestGate.Release(); }
     }

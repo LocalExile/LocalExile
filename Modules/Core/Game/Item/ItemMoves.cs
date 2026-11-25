@@ -56,6 +56,25 @@ public static class ItemMoves
     });
 
     /// <summary>
+    /// One oil from a blight tab stack into the first free input cell beside the anoint cell (Ctrl + click, C→S 0xf5, while
+    /// the anoint cell holds an item: <see cref="AccountStash.AnointInputFor"/>), with a new id.
+    /// Null (nothing changes) when the inputs don't apply; <paramref name="full"/> when they apply but are all taken.
+    /// </summary>
+    public static Transfer? StashToAnointInput(AccountStash stash, int tab, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out bool full)
+    {
+        bool isFull = false;
+        var result = Saves.Atomically(() =>
+        {
+            if (stash.MoveToAnointInput(tab, itemId, shapeOf, out isFull) is not var (placed, left)) return null;
+            stash.SetLastTab(tab);
+            return new Transfer(Main, 0, null, tab, [], [placed], [], [], itemId, left);
+        });
+        full = isFull;
+        return result;
+    }
+
+    /// <summary>
     /// An item out of whichever inventory holds it into a stash tab (Ctrl + click: C→S 0xe0 into the shown tab, 0xe1 into
     /// the tab of its affinity): a stack onto the tab's stacks of its type first, then into free cells (a slotted tab: its
     /// own slot), and what doesn't fit stays in the inventory; any other item into the first free cell (or its slot) with a
@@ -95,6 +114,83 @@ public static class ItemMoves
         why = result is null && reason == "" ? "refused" : reason;
         return result;
     }
+
+    /// <summary>
+    /// Quick-places the cursor item into a specialty/Unique/Map stash tab (C→S 0x00e2): routes Unique and Map tabs to
+    /// their destination child page, merges stackable items onto existing stacks first, or places non-stackables in the
+    /// first matching free cell. Null with reason when refused (nothing changes).
+    /// </summary>
+    public static Transfer? HeldQuickToStash(AccountStash stash, PlayerInventories items, int tab, uint itemId,
+        Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        string reason = "";
+        var result = Saves.Atomically(() =>
+        {
+            if (tab < 0 || tab >= stash.Count) { reason = "no such tab"; return null; }
+            if (items.Items(Cursor) is not [var held, ..]) { reason = "nothing held"; return null; }
+            if (itemId != 0 && held.Id != itemId) { reason = "cursor item mismatch"; return null; }
+            if (shapeOf(held.Item) is not { } shape) { reason = "unknown item type"; return null; }
+            int destination = stash.UniqueDestination(tab, held.Item);
+            if (destination < 0) { reason = "the item has no collection slot"; return null; }
+            destination = stash.MapDestination(destination, held.Item, shapeOf);
+            if (!stash.Holds(destination, held.Item)) { reason = $"the {stash.TypeOf(destination)} tab doesn't hold that item"; return null; }
+            if (shape.MaxStack > 1 || held.Item.Components.Contains("Stack"))
+            {
+                if (stash.AddStacked(destination, held.Item, shapeOf, out reason) is not { } stacked) return null;
+                if (stacked.Left == held.Item.StackSize) { reason = "the tab is full"; return null; }
+                var left = stacked.Left == 0 ? null : items.SetStackSize(Cursor, held.Id, stacked.Left);
+                if (stacked.Left == 0) items.Remove(Cursor, held.Id);
+                stash.SetLastTab(destination);
+                return new Transfer(Cursor, held.Id, left, destination, stacked.Changed, stacked.Added, [], []);
+            }
+            if (stash.CellFor(destination, held.Item, shapeOf) is not { } cell) { reason = "the tab is full"; return null; }
+            var removed = items.Remove(Cursor, held.Id)!;
+            if (stash.Place(destination, cell.X, cell.Y, removed, shapeOf, out reason) is not var (placed, _))
+                throw new InvalidOperationException($"stash tab {destination} refused cursor item {held.Id} at its free cell: {reason}");
+            stash.SetLastTab(destination);
+            return new Transfer(Cursor, held.Id, null, destination, [], [placed], [], []);
+        });
+        why = result is null && reason == "" ? "refused" : reason;
+        return result;
+    }
+
+    /// <summary>Quick-moves a Heist equipment item between carried inventory (main/expanded) and one of the nine Heist NPC
+    /// equipment rows (rows 45..53, kind 0x22; C→S 0x00fd and controller C→S 0x002d).</summary>
+    public static BenchMove? MoveHeistNpcEquipment(PlayerInventories items, byte slot, uint itemId, bool intoTarget,
+        bool fromExpanded, Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+    {
+        if (slot >= PlayerInventories.HeistNpcEquipmentCount) return null;
+        byte targetRow = (byte)(PlayerInventories.HeistNpcEquipmentFirst + slot);
+        byte from;
+        if (intoTarget)
+        {
+            byte preferred = fromExpanded ? PlayerInventories.ExpandedInventory : Main;
+            if (items.Items(preferred).Any(i => i.Id == itemId)) from = preferred;
+            else if (items.RowOf(itemId) is byte src && src is Main or PlayerInventories.ExpandedInventory) from = src;
+            else return null;
+        }
+        else from = targetRow;
+        byte to = intoTarget ? targetRow : Main;
+        if (items.Items(from).FirstOrDefault(i => i.Id == itemId) is not { } item || shapeOf(item.Item) is not { } shape) return null;
+        if (intoTarget)
+        {
+            byte? slotX = shape.Class switch
+            {
+                "HeistEquipmentTool" => 0,
+                "HeistEquipmentWeapon" => 2,
+                "HeistEquipmentUtility" => 4,
+                "HeistEquipmentReward" => 6,
+                _ => null,
+            };
+            if (slotX is not byte x) return null;
+            bool occupied = items.Items(to).Any(i => shapeOf(i.Item) is { } s && i.X < x + shape.Width && x < i.X + s.Width && i.Y < shape.Height);
+            if (occupied || items.Remove(from, itemId) is not { } taken) return null;
+            return new(from, to, items.Put(to, taken with { X = x, Y = 0 }));
+        }
+        if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
+            || items.Remove(from, itemId) is not { } outItem) return null;
+        return new(from, to, items.Put(to, outItem with { X = cell.X, Y = cell.Y }));
+    });
 
     /// <summary>A price paid: what it took from the main inventory's stacks and from the stash's (either may be null).</summary>
     public sealed record Price(PlayerInventories.Payment? Inventory, AccountStash.Payment? Stash);

@@ -21,9 +21,12 @@ public static class AtlasProgress
     }
 
     public sealed record Node(int Row, string Id, ushort Hash16, string Name, IReadOnlySet<string> Areas, IReadOnlySet<string> Bosses,
-        IReadOnlySet<string> FinalBosses);
+        IReadOnlySet<string> FinalBosses, IReadOnlySet<ushort> AreaHashes)
+    {
+        public bool IsNormalMap { get; init; }
+    }
 
-    const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted";
+    const string CompletedKey = "completed", BonusKey = "atlas.bonusCompleted", ScryKeyPrefix = "atlas.scry.";
 
     /// <summary>The masks' rows: the client reads 22 bytes and keeps rows below 170 (the Atlas's maps; later rows are
     /// RandomContent nodes).</summary>
@@ -39,6 +42,11 @@ public static class AtlasProgress
 
     public static Node? Find(string idOrName) => Maps.FirstOrDefault(n =>
         n.Id.Equals(idOrName, StringComparison.OrdinalIgnoreCase) || n.Name.Equals(idOrName, StringComparison.OrdinalIgnoreCase));
+
+    public static Node? FindByHash16(ushort hash16) => Maps.FirstOrDefault(n => n.Hash16 == hash16);
+
+    public static Node? FindByAreaHash16(ushort areaHash16) =>
+        Maps.FirstOrDefault(n => n.AreaHashes.Contains(areaHash16)) ?? FindByHash16(areaHash16);
 
     public static Node? OfArea(string areaId) => Maps.FirstOrDefault(n => n.Areas.Contains(areaId));
 
@@ -97,13 +105,85 @@ public static class AtlasProgress
         return ids.Count == before ? null : string.Join(',', ids.Order(StringComparer.Ordinal));
     });
 
-    public static bool Reset(ISavedData data)
+    public static bool Reset(ISavedData data) => Saves.Atomically(() =>
     {
         PreserveExistingCredit(data);
         bool clearedMaps = data.Change(CompletedKey, old => string.IsNullOrEmpty(old) ? null : "");
         bool clearedBonuses = data.Change(BonusKey, old => string.IsNullOrEmpty(old) ? null : "");
-        return clearedMaps || clearedBonuses;
+        bool clearedLinks = ScryLinks(data).Count > 0 && data.Change("atlas.scryLinks", _ => "{}");
+        return clearedMaps || clearedBonuses || clearedLinks;
+    });
+
+    public static bool Uncomplete(ISavedData data, Node node)
+    {
+        PreserveExistingCredit(data);
+        bool RemoveFrom(string key) => data.Change(key, old =>
+        {
+            var ids = ReadIds(old);
+            if (!ids.Remove(node.Id)) return null;
+            return string.Join(',', ids.Order(StringComparer.Ordinal));
+        });
+        bool removedCompleted = RemoveFrom(CompletedKey);
+        bool removedBonus = RemoveFrom(BonusKey);
+        return removedCompleted || removedBonus;
     }
+
+    // Published review builds stored each donor's destination separately. Import those links once.
+    static Dictionary<string, string> ScryLinks(ISavedData data)
+    {
+        const string key = "atlas.scryLinks";
+        string? json = data.Get(key);
+        if (json is not null) return JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];
+        var links = new Dictionary<string, string>();
+        foreach (var node in Maps)
+            if (data.Get(ScryKeyPrefix + node.Id) is { Length: > 0 } destination)
+                links[node.Id] = destination;
+        data.Change(key, _ => JsonSerializer.Serialize(links));
+        return links;
+    }
+
+    public static bool SetScry(ISavedData data, Node from, Node to) => Saves.Atomically(() =>
+    {
+        var links = ScryLinks(data);
+        if (links.GetValueOrDefault(from.Id) == to.Id) return false;
+        foreach (var key in links.Where(pair => pair.Key == to.Id || pair.Value == from.Id || pair.Value == to.Id)
+            .Select(pair => pair.Key).ToArray())
+            links.Remove(key);
+        links[from.Id] = to.Id;
+        data.Change("atlas.scryLinks", _ => JsonSerializer.Serialize(links));
+        return true;
+    });
+
+    public static bool RemoveScry(ISavedData data, Node node) => Saves.Atomically(() =>
+    {
+        var links = ScryLinks(data);
+        var donor = links.ContainsKey(node.Id) ? node.Id : links.FirstOrDefault(p => p.Value == node.Id).Key;
+        if (donor is null) return false;
+        links.Remove(donor);
+        data.Change("atlas.scryLinks", _ => JsonSerializer.Serialize(links));
+        return true;
+    });
+
+    public static IReadOnlyList<(ushort From, ushort To)> ScryPairs(ISavedData data) => Saves.Atomically(() =>
+        ScryLinks(data).Select(pair => (From: Find(pair.Key), To: Find(pair.Value)))
+            .Where(pair => pair.From is not null && pair.To is not null)
+            .Select(pair => (pair.From!.Hash16, pair.To!.Hash16)).ToArray());
+
+    public static string? ScryTarget(ISavedData data, Node from) =>
+        Saves.Atomically(() => ScryLinks(data).GetValueOrDefault(from.Id));
+
+    public static void ApplyScry(MapOpening request)
+    {
+        if (request.Opening is not { Area.UsesAtlas: true } opening || OfArea(opening.Area.Id) is not { } target) return;
+        var data = Program.WorldOf(Program.PlayerOf(request.Player)).CharacterData;
+        string? donor = Saves.Atomically(() => ScryLinks(data).FirstOrDefault(p => p.Value == target.Id).Key);
+        if (donor is not null && Find(donor)?.Areas.FirstOrDefault() is { } sourceArea)
+            request.Opening = opening with { Area = opening.Area with { DivinationCardArea = sourceArea } };
+    }
+
+    /// <summary>S→C 0x01a5: incremental Voidstone T16 region-mask delta for one socketed/unsocketed slot (0..3).</summary>
+    public static byte[] VoidstoneDeltaMessage(int slot, bool socketed) =>
+        InstanceMapDevice.AtlasVoidstoneDelta((byte)RegionBit(slot), socketed);
 
     /// <summary>S→C 0x1a3 +0x70 bit for a Voidstone slot: the client tests AtlasNode.Region, not AtlasVoidstoneSlots
     /// order. Maven (slot 0) sits in region 2, Elder (1) in 1, Tangled (2) in 3, Cleansing Fire (3) in 0. Sending
@@ -138,7 +218,7 @@ public static class AtlasProgress
     }
 
     /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
-    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of u16 pairs, 0 here) and the
+    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of scrying map pairs) and the
     /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask carries saved completed maps
     /// (+0xd030: clears fog and opens connected maps, +0x9ca), and the second carries bonus-completed maps (+0xd070:
     /// draws the bonus completion frame +0x9cb/+0x9ce and drives the bonus counter). Uncompleted maps stay fogged
@@ -147,7 +227,7 @@ public static class AtlasProgress
         FullMessage(completed, completed, voidstones, awakening);
 
     public static byte[] FullMessage(IReadOnlySet<string> completed, IReadOnlySet<string> bonusCompleted,
-        byte voidstones = 0, byte awakening = 0)
+        byte voidstones = 0, byte awakening = 0, IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
@@ -156,7 +236,17 @@ public static class AtlasProgress
             if (completed.Contains(node.Id)) SetBit(revealed, node.Row);
             if (bonusCompleted.Contains(node.Id)) SetBit(done, node.Row);
         }
-        return [0x01, 0xa3, awakening, 0, voidstones, 0x03, 0, .. revealed, .. done];
+        return AtlasState(awakening, voidstones, 3, scryPairs ?? []).Bytes(revealed).Bytes(done).ToArray();
+    }
+
+    // The pair list is always present, including when no completion-mask section is being replaced.
+    internal static GameServer.Core.Protocol.Login.LoginWriter AtlasState(byte awakening, byte voidstones, byte sections,
+        IReadOnlyList<(ushort From, ushort To)> pairs)
+    {
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(0x01a3).U8(awakening).U8(0).U8(voidstones)
+            .U8(sections).U8(checked((byte)pairs.Count));
+        foreach (var (from, to) in pairs) w.U16(from).U16(to);
+        return w;
     }
 
     /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 ×2 (unknown, 0), u8 flags (bit 1: also the second set, bonus).</summary>
@@ -166,10 +256,11 @@ public static class AtlasProgress
     static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Load(string folder)
     {
         if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return ([], new HashSet<int>());
-        var areaRows = new List<(string Id, string Name, int[] Bosses)>();
+        var areaRows = new List<(string Id, string Name, ushort Hash16, int[] Bosses)>();
         var a = ClientTables.Table("WorldAreas");
         foreach (var row in a)
             areaRows.Add((row.Text("Id") ?? "", row.Text("Name") ?? "",
+                (ushort)(row.IntOrNull("HASH16") ?? 0),
                 [.. row.Ints("Bosses_MonsterVarietiesKeys")]));
         var byRow = new Dictionary<int, (string Id, ushort Hash16, string Name, HashSet<int> Areas)>();
         void Add(int r, string id, ushort hash, string name, IEnumerable<int> areaIndexes)
@@ -181,10 +272,10 @@ public static class AtlasProgress
                 if (i >= 0 && i < areaRows.Count) cur.Areas.Add(i);
         }
         var onAtlas = new HashSet<int>();
-        var n = ClientTables.Table("AtlasNode");
+        var nTable = ClientTables.Table("AtlasNode");
         {
             int index = 0;
-            var atlas = n.ToList();
+            var atlas = nTable.ToList();
             foreach (var row in atlas)
             {
                 int r = index++;
@@ -235,7 +326,9 @@ public static class AtlasProgress
                 .Select(list => Variety(list[^1])).Where(id => id.Length > 0).ToHashSet(StringComparer.Ordinal);
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
-                bosses, finals.Count > 0 ? finals : bosses);
+                bosses, finals.Count > 0 ? finals : bosses,
+                n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet())
+                { IsNormalMap = nTable[kv.Key].Bool("IsNormalMap") };
         })], onAtlas);
     }
 }

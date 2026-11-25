@@ -248,11 +248,18 @@ internal static class Act6To8Driver
         boss.SwingGeneration = null;
         boss.BusyUntil = now + Math.Max(0.35, duration);
         ushort skillId = SkillIdFor(boss, effect);
+        ushort seq = 0;
         bool sent = await SendMonsterAction(runner, id, boss, gen, () =>
         {
             var here = boss.Walk.Position(AreaTime(runner));
-            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, runner.NextActionSequence(), 0x0408);
+            seq = runner.NextActionSequence();
+            return InstanceProtocol.ActionStarted(id, here.X, here.Y, target.X, target.Y, skillId, seq, 0x0408);
         }, log);
+        if (sent && SkillsFor(runner).IsChannelled(effect))
+            SendAfter(runner, Math.Max(0.35, duration), () =>
+                !boss.Dead && boss.ActionGeneration == gen
+                    ? SendWorldRecord(runner, id, InstanceProtocol.ChannelFinished(id, seq), $"0x01ae boss 0x{id:x} channel 0x{seq:x4} ended")
+                    : Task.CompletedTask);
         return sent ? gen : null;
     }
 

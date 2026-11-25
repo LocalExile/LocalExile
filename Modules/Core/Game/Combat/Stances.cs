@@ -82,12 +82,11 @@ public static partial class Game
             : player.Auras.Values.Select(a => a.SkillId == skillId ? aura
                 : StanceCatalog.IsStance(a.EffectId) ? StanceSelection(a, selected) : a).ToArray();
         aura = proposedAuras.Single(a => a.SkillId == skillId);
-        int currentMana = AuraCatalog.RequiredMana(player.Pools, player.Auras.Values)
-            + PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
-            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
-        int proposedMana = AuraCatalog.RequiredMana(player.Pools, proposedAuras)
-            + PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
-            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
+        long otherMana = (long)PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
+            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false)
+            + CooldownTriggerReservation(player, life: false);
+        long currentMana = AuraCatalog.RequiredMana(player.Pools, player.Auras.Values) + otherMana;
+        long proposedMana = AuraCatalog.RequiredMana(player.Pools, proposedAuras) + otherMana;
         var currentLife = LifeReservationFor(player, player.Auras.Values);
         var proposedLife = LifeReservationFor(player, proposedAuras);
         long additionalMana = Math.Max(0L, (long)proposedMana - currentMana);
