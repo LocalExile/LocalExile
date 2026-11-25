@@ -177,9 +177,10 @@ So:
    (picked at random when several rooms with one are placed) takes every boss still left, side by side: The Den (Act 7)
    has The Great White Bones with The Bone Sculptor, The Solaris Temple Level 1 both seals, The Toxic Conduits its five
    Lingering Aberrations. Before, a plain point took one boss at random (The Ashen Fields: Greust one time in four)
-   and every placed plain room took one more. A boss whose point is off the walk map (Kitava in his pit, Arakaali in
-   her web, Doedre the Vile at her cauldron) stands on the nearest free walkable cell within 60 cells; before, it was
-   silently left out. A boss's **later form** is not placed with the area (`AreaPopulation.LaterForms`, marked
+   and every placed plain room took one more. A boss whose point is off the walk map (Arakaali in her web, Doedre
+   the Vile at her cauldron) stands on the nearest free walkable cell within 60 cells. Campaign Kitava's immobile
+   bodies use the original pit point and angle for both model and scripted attacks. A boss's **later form** is not
+   placed with the area (`AreaPopulation.LaterForms`, marked
    `AreaPacks.Absent`): a later Bosses row with an earlier row's name whose Id is that row's Id + "2" (Prisoner's
    Gate's Abberath2 at `mapboss2WG`, The Oasis's Shakari2 at `mapboss2`, The Harvest's MalachaiBoss2 at `mapboss2`: the
    official fight brings it when the first form flees or falls; bosses that only share a name, The Mud Flats' Forgotten

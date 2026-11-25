@@ -11,8 +11,7 @@ static partial class KitavaActTen
     const string PreSin = "Metadata/NPC/Act10/SinTrough", PreInnocence = "Metadata/NPC/Act10/InnocenceTrough";
     internal const string Started = "SinPreKitavaTalk", Talked = "SinOnKitavaDead";
     static readonly Store<InstanceState, Fight> Fights = new();
-    static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
-    internal sealed record Anchor(int X, int Y, float Rotation);
+    static readonly RuleTable<AreaLayout, AreaPopulation.RoomPoint?> Anchors = new();
     internal static bool IsBody(MonsterCatalog.Variety? v) => v?.Id == Body;
     internal static bool IsActor(MonsterCatalog.Variety? v) => v?.Id is Body or Heart or Sin or Innocence;
     internal static LifePhaseGate? Phases(MonsterCatalog.Variety v) => v.Id is Body or Heart ? new([66, 33, 1]) : null;
@@ -72,11 +71,10 @@ static partial class KitavaActTen
         if (c.Layout.Id != Area || t.SourceType != PortalType) return null;
         return c.Instance.HasState(Flag("Won")) && c.Character.HasQuestFlag(Talked);
     }
-    static Anchor AnchorOf(Player c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
+    internal static AreaPopulation.RoomPoint? FixedAnchor(Player c) => Anchors.GetValue(c.Layout, _ =>
     {
-        if (c.LaterFormPoints.TryGetValue(Body, out var supplied)) return new(supplied.X, supplied.Y, 0);
-        var at = AreaPopulation.LoadPoints(Area, c.Seed, []).FirstOrDefault(p => p.Name == "force:mapboss");
-        return at is null ? new(fallback.X, fallback.Y, 0) : new(at.X, at.Y, at.Angle);
+        if (c.LaterFormPoints.TryGetValue(Body, out var supplied)) return new("force:mapboss", supplied.X, supplied.Y);
+        return AreaPopulation.LoadPoints(Area, c.Seed, []).FirstOrDefault(p => p.Name == "force:mapboss");
     });
     public static async Task Tick(Player c)
     {
@@ -111,7 +109,7 @@ static partial class KitavaActTen
         readonly uint id;
         readonly SpawnedMonster body;
         readonly GameArea area;
-        readonly Anchor anchor;
+        readonly AreaPopulation.RoomPoint anchor;
         readonly (int X, int Y) heartAt, sinAt, innocenceAt;
         uint heartId, sinId, innocenceId;
         SpawnedMonster? heart;
@@ -125,7 +123,8 @@ static partial class KitavaActTen
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
             id = objectId; body = monster; area = c.Area; body.LifePhases ??= Phases(monster.Variety!);
-            anchor = AnchorOf(c, body.Walk.Position(AreaTime(c)));
+            var (x, y) = body.Walk.Position(AreaTime(c));
+            anchor = FixedAnchor(c) ?? new("force:mapboss", x, y);
             heartAt = c.Layout.Near((anchor.X, anchor.Y - 48));
             (int X, int Y) AllyPoint(string type, int x) => c.Layout.Level?.RoomObjects.FirstOrDefault(p => p.Type == type) is { } p
                 ? (p.X, p.Y) : c.Layout.Near((anchor.X + x, anchor.Y - 70));
@@ -214,7 +213,7 @@ static partial class KitavaActTen
         {
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing Kitava ally");
             uint obj = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
-                at.X, at.Y, friendly: true, rotation: anchor.Rotation, scripted: true, instanceOwned: true);
+                at.X, at.Y, friendly: true, rotation: anchor.Angle, scripted: true, instanceOwned: true);
             if (obj == 0) throw new InvalidOperationException("Unsupported Kitava ally");
             var m = c.Area.Monsters[obj]; m.SummonerId = id; m.EntranceGrace = true;
             return obj;
@@ -279,7 +278,7 @@ static partial class KitavaActTen
                 if (heart is null)
                 {
                     heartId = await SpawnMonster(c, Monsters.Find(Heart)!, body.Level,
-                        MonsterRarity.Unique, heartAt.X, heartAt.Y, rotation: anchor.Rotation, scripted: true);
+                        MonsterRarity.Unique, heartAt.X, heartAt.Y, rotation: anchor.Angle, scripted: true);
                     if (heartId == 0) throw new InvalidOperationException("Unsupported final Kitava heart");
                     heart = c.Area.Monsters[heartId]; heart.SummonerId = id; heart.LifePhases ??= Phases(heart.Variety!);
                     for (int i = 0; i < Round; i++) { heart.Life = (uint)((ulong)heart.MaxLife * (uint)heart.LifePhases!.NextPercent / 100); heart.LifePhases.Begin(heart.Life, heart.MaxLife); heart.LifePhases.Finish(); }
