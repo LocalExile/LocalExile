@@ -50,14 +50,11 @@ bench.
 
 ### Legion: live-client tuning and Enshrouding Crystals
 
-- **Known:** Timeless Monoliths, stasis break-out, war chests, rewards, all 3.29/legacy Legion Scarabs, Atlas passives
-  (including `Timeless Conflict`), and the Domain of Timeless Conflict (2-5 normal/Unrelenting emblems, endless armies,
-  revival resets, Timeless Jewels and `Stasis Prison` burst) are implemented ([Legion](../docs/game/legion.md)).
-- **Start:** live-client verification and tuning of count, chest, rank, reward and Domain pacing numbers (plus
-  `Timeless Conflict` alert-bar `0x2c9` updates), and the `LegionCocoonCrystal` item-insertion UI window for Enshrouding
-  Crystals.
-- **Done when:** map monoliths, Scarab/Atlas modifiers, the Domain of Timeless Conflict and Enshrouding Crystals are
-  verified against the real client.
+- **Known:** the monolith, rewards, scarabs, Atlas passives and the Domain of Timeless Conflict are built
+  ([Legion](../docs/game/legion.md)); none is checked in the client yet.
+- **Start:** live check and tuning of the count, chest, rank, reward and Domain numbers (all guesses), the
+  Timeless Conflict alert bar (`0x2c9`), and the `LegionCocoonCrystal` window for Enshrouding Crystals.
+- **Done when:** the monoliths, scarabs, Domain and crystals match the real client.
 
 ### Hideouts: decorations, editing and the map device
 
