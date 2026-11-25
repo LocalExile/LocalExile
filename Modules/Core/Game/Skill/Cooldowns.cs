@@ -141,11 +141,12 @@ public static partial class Game
     static (ushort Skill, int Key, SingleUseCooldown Plan, SingleUseCooldownState State)[] SharedCooldownPeers(
         Player player, int effect, int key, SingleUseCooldown cooldown, double now) => cooldown.SharedGroup is null ? []
         : GemSkillEffects(player).Where(g => g.Effect != effect)
-            .GroupBy(g => CooldownKey(player, g.Effect, g.Id)).Where(g => g.Key != key).Select(g => g.First())
-            .Select(g => (Gem: g, Plan: CooldownFor(player, g.Effect, g.Level, g.Quality)))
+            .GroupBy(g => CooldownKey(player, g.Effect, g.Id)).Where(g => g.Key != key)
+            .Select(g => (g.Key, Gem: g.FirstOrDefault(s => player.CooldownSources.GetValueOrDefault(s.Effect) == s.Id)
+                is { Name: not null } previous ? previous : g.First()))
+            .Select(p => (p.Key, p.Gem.Id, Plan: CooldownForSkill(player, p.Gem.Id)))
             .Where(p => p.Plan is { } peer && peer.SharedGroup == cooldown.SharedGroup)
-            .Select(p => (p.Gem.Id, CooldownKey(player, p.Gem.Effect, p.Gem.Id), p.Plan!.Value,
-                CooldownStateLocked(player, CooldownKey(player, p.Gem.Effect, p.Gem.Id), p.Plan.Value, now))).ToArray();
+            .Select(p => (p.Id, p.Key, p.Plan!.Value, CooldownStateLocked(player, p.Key, p.Plan.Value, now))).ToArray();
 
     static List<(SingleUseCooldownState State, int Version, ushort Skill)> SpendSharedCooldownPeers(Player player,
         int key, int effect, ushort? skill, SingleUseCooldown plan, double now,

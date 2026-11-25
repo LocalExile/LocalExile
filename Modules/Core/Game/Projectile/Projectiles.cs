@@ -484,6 +484,20 @@ public static partial class Game
             openWorld = group;
         }
 
+        /// <summary>The life a queued 0x1b1 would give a monster the server has already killed, and so must not be written:
+        /// null for every other record. When two totems' arrows hit one monster in the same frame, the frame can carry
+        /// the killing hit's life 0 before the earlier hit's life. The client's monster then lives on with the sliver
+        /// that older life left it while the server has it dead, and the totems skip it from then on (their target
+        /// search takes Life &gt; 0), so nothing hits it again. Only Dead counts: a kill sets it with Life 0, while a
+        /// living monster can sit at Life 0 for a moment (a boss between phases) and must keep its records.</summary>
+        public static uint? RevivingLife(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, byte[] record)
+        {
+            if (record.Length < 21 || BinaryPrimitives.ReadUInt16BigEndian(record) != InstanceProtocol.LifeUpdateId
+                || record[20] != 0) return null;
+            uint life = BinaryPrimitives.ReadUInt32BigEndian(record.AsSpan(12));
+            return life > 0 && monsters.TryGetValue(id, out var m) && m.Dead ? life : null;
+        }
+
         async Task SendWorldGroup(List<(uint Id, Func<byte[][]?> Snapshot, string? Log)> group)
         {
             if (ReferenceEquals(openWorld?.Items, group)) openWorld = null;
@@ -508,7 +522,13 @@ public static partial class Game
                     foreach (var (id, snapshot, log) in group)
                         if (targets.TryGetValue(id, out var target) && snapshot() is { } bytes)
                             foreach (var record in bytes)
-                                if (record.Length > 0) records.Add(PresentedRecord(target, record, log));
+                                if (record.Length > 0)
+                                {
+                                    if (RevivingLife(Player.Area.Monsters, id, record) is { } stale)
+                                        Console.WriteLine($"[gateway] {Player.Connection.Remote} 0x01b1 monster 0x{id:x} life {stale} dropped: "
+                                            + $"the server killed it before this frame's write (order key 0x{BinaryPrimitives.ReadUInt32BigEndian(record.AsSpan(6)):x8})");
+                                    else records.Add(PresentedRecord(target, record, log));
+                                }
                     return records.Count == 0 ? null : new([.. records]);
                 });
                 // Admitted, or projected with nothing to send: done. Refused before its projection (a target not ready at
@@ -529,7 +549,19 @@ public static partial class Game
                 {
                     if (!Active || Player.Paused) return null;
                     completed = true;
-                    return snapshot();
+                    if (snapshot() is not { } records) return null;
+                    if (create || remove) return records;
+                    List<byte[]>? kept = null;
+                    for (int i = 0; i < records.Length; i++)
+                        if (RevivingLife(Player.Area.Monsters, id, records[i]) is { } stale)
+                        {
+                            Console.WriteLine($"[gateway] {Player.Connection.Remote} 0x01b1 monster 0x{id:x} life {stale} dropped: "
+                                + $"the server killed it before this frame's write (order key 0x{BinaryPrimitives.ReadUInt32BigEndian(records[i].AsSpan(6)):x8})");
+                            kept ??= [.. records[..i]];
+                        }
+                        else kept?.Add(records[i]);
+                    if (kept is { Count: 0 }) return null;
+                    return kept is null ? records : [.. kept];
                 }
                 if (create)
                     await SendWorldCreate(Player, id, () => Project() is { } records ? records.Single() : null,
