@@ -893,7 +893,8 @@ public static partial class Game
         int chargeBonus = gem.Name is null ? 0 : ShieldChargeBonusPct(player, use.SkillId, gem.Effect);
         bool shieldCharge = chargeBonus != 0;
         bool immediateAttack = gem.Name is not null && !thrown && !IsTotemSkill(player, use.SkillId)
-            && SkillsFor(player).IsAttack(gem.Effect) && (!SkillsFor(player).IsMovement(gem.Effect) || shieldCharge);
+            && SkillsFor(player).IsAttack(gem.Effect) && (!SkillsFor(player).IsMovement(gem.Effect)
+                || shieldCharge || IsConsecratedPath(SkillsFor(player).EffectId(gem.Effect)));
         if (immediateAttack && !AttackReady(player, use.SkillId, gem.Effect, gem.Level, out double immediateAttackSeconds, use.Sequence))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{use.SkillId:x4} {gem.Name} on 0x{use.TargetId:x}: ignored, the previous attack is still running (attack time {immediateAttackSeconds:0.00} s) (t={AreaTime(player):0.000})");
@@ -2848,6 +2849,7 @@ public static partial class Game
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
         bool pestilentStrike = IsPestilentStrike(effectId);
+        bool holyPath = !spell && !immediate && strikeIndex == 0 && IsConsecratedPath(effectId);
         double phaseDamageMore = divineBlast && immediate && scheduledSession is not null
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d)
             : infernalBlast is not null ? damageMore : 1;
@@ -2892,6 +2894,14 @@ public static partial class Game
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
+        ConsecratedPathUse holyPathUse = default;
+        if (holyPath)
+        {
+            using (ProjectileMutation(player, advance: scheduledSession is null))
+                holyPathUse = PlanConsecratedPath(player, from, to, targetId, radius,
+                    Stat(global::Stat.HolyPathTeleportRangePlusPct), ProjectileWorldTime(player));
+            centre = holyPathUse.Impact;
+        }
         if (divineBlast) centre = to;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
@@ -2937,6 +2947,8 @@ public static partial class Game
             await WhilePaused(player);
             if (Replaced() || player.Closed || !Current()) return;
         }
+        if (holyPath && holyPathUse.Landing != from
+            && !await CommitTravelLanding(player, holyPathUse.Landing, Current)) return;
         int addedChaos;
         int glacialFreezeMore = 0;
         bool shatteringCritical = false;
@@ -2970,6 +2982,7 @@ public static partial class Game
         {
             double now = ProjectileWorldTime(player);
             if (!Current() || sacrifice is { Current: false }) return;
+            if (holyPath) CreateConsecratedPathGroundLocked(player, centre, skillStats, now);
             addedChaos = sacrifice?.AddedChaos() ?? 0;
             // A freeze or stun that landed after this stage was paid interrupts it before the sweep.
             if (channelGeneration is not null
@@ -3413,6 +3426,10 @@ public static partial class Game
                     if (waveCloseDamage != 0 && victim < reach.Length)
                         contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
                             reach[victim] * GroundSlamWave.CellsPerSecond, waveLength, waveCloseDamage));
+                    else if (holyPath)
+                        contactHit = contactHit.Scale(GroundSlamWave.CloseHitMultiplier(
+                            Dist(holyPathUse.Landing, m.Walk.Position(ProjectileWorldTime(player))), radius,
+                            Stat(global::Stat.GroundslamDamageToCloseTargetsPlusPctFinal)));
                     else if (vaalSlam)
                     {
                         double distance = vaalWave && victim < reach.Length
@@ -3724,6 +3741,7 @@ public static partial class Game
             if (scheduledSession is { } scheduled)
                 CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player));
             else await MonsterKilled(player, deadId, dead);
+        if (holyPath) await PublishFlaskChanges(player);
         // The wave reports its own shape (the tunables to calibrate, GroundSlamWave) instead of the circle; a gem melee
         // attack reports the clip its contact came from (GemAttackContactDelay), which the live check can compare with the
         // client's animation.

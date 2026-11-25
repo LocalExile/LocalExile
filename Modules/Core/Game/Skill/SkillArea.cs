@@ -23,6 +23,7 @@ public static class SkillArea
         effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" ? 18
+            : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
