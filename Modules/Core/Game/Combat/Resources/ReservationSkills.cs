@@ -262,7 +262,7 @@ public static partial class Game
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (thunder) own[Stat.NeverShock] = 1;
                     AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, 100, playerStats, own, now,
-                        AreaRng(player), poison: profile.Poison,
+                        AreaRng(player), sourceEffect: skill.Effect, poison: profile.Poison,
                         blind: BlindHitInput.Capture(playerStats, own));
                     if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, now) is { } packets)

@@ -423,7 +423,7 @@ public static partial class Game
                     CaptureAttackKillExplosionLocked(m, playerStats);
                 }
                 AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
-                    AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
+                    AreaRng(player), sourceEffect: gem.Effect, reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(playerStats, skillStats),
                     attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
                 List<byte[]>? ignited = null, bled = null;

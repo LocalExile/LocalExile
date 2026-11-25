@@ -188,11 +188,15 @@ public static partial class Game
     /// inflicts its own; inflict_all_exposure_on_hit, base_inflict_{element}_exposure_on_hit_%_chance and, for a hit with
     /// that damage, chance_to_inflict_{element}_exposure_on_hit_with_{element}_damage_% inflict the default -10%. The
     /// stronger one counts (<see cref="InflictedExposure"/>).</summary>
-    public static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random)
+    public static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random) =>
+        ExposureRoll(get, type, withType, random, 0);
+
+    static int ExposureRoll(Func<uint, int> get, DamageType type, bool withType, Random random, int skillChance)
     {
         string e = type.ToString().ToLowerInvariant();
-        bool rolled = get(Stat.InflictAllExposureOnHit) != 0 || RandomRolls.Chance(get(Stat.Of($"base_inflict_{e}_exposure_on_hit_%_chance"))
-            + (withType ? get(Stat.Of($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%")) : 0), 100, random);
+        int chance = ActorScale.Saturate((long)get(Stat.Of($"base_inflict_{e}_exposure_on_hit_%_chance")) + skillChance
+            + (withType ? get(Stat.Of($"chance_to_inflict_{e}_exposure_on_hit_with_{e}_damage_%")) : 0));
+        bool rolled = get(Stat.InflictAllExposureOnHit) != 0 || RandomRolls.Chance(chance, 100, random);
         int magnitude = Math.Min(rolled ? DefaultExposure : 0, get(Stat.Of($"{e}_exposure_on_hit_magnitude")));
         return magnitude >= 0 ? 0 : InflictedExposure(get, type, magnitude);
     }
@@ -217,12 +221,16 @@ public static partial class Game
         ExposureOnHitLocked(m, get, mitigated, now, random, null);
 
     static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random,
-        int? dominantElement)
+        int? dominantElement, (int Fire, int Cold, int Lightning) skill = default)
     {
         if (m.Effects[Stat.ImmuneToExposure] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
-            if (ExposureRoll(get, ExposureTypes[i], mitigated[ExposureTypes[i]].Max > 0, random) is < 0 and var magnitude)
+        {
+            var type = ExposureTypes[i];
+            int chance = type switch { DamageType.Fire => skill.Fire, DamageType.Cold => skill.Cold, _ => skill.Lightning };
+            if (ExposureRoll(get, type, mitigated[type].Max > 0, random, chance) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
+        }
         int strongestExposure = get(Stat.PurgeExposeResistPctMatchingHighestElementDamage);
         if (strongestExposure < 0)
         {

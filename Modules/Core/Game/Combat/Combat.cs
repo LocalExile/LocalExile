@@ -3627,7 +3627,7 @@ public static partial class Game
                             if (!spell && SkillsFor(player).IsAttack(gem.Effect)) CaptureAttackKillExplosionLocked(m, playerStats);
                         }
                         AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, multiplier, playerStats, ailmentSkillStats!, at,
-                            AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
+                            AreaRng(player), sourceEffect: gem.Effect, reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: cascadePush == default ? (IsLeapSlam(player, gem.Effect) ? centre : null)
                                 : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),

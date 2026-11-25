@@ -309,11 +309,21 @@ public static partial class Game
 
     static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
+        double now, Random random, int sourceEffect, AttackAilmentGains attackGains = default,
+        List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
+        ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
+            now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
+            attackerSize, attackerHasReversedStat, sourceEffect: sourceEffect);
+
+    static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+        bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, bool projectileDamage, int projectileFreezeChance,
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0)
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -433,7 +443,20 @@ public static partial class Game
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
-        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure);
+        int ExposureChance(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name));
+        var skillExposure = (Fire: ExposureChance(Stat.FireSkillChanceToInflictFireExposurePct),
+            Cold: ExposureChance(Stat.ColdSkillChanceToInflictColdExposurePct),
+            Lightning: ExposureChance(Stat.LightningSkillChanceToInflictLightningExposurePct));
+        if (sourceEffect < 0 && sourceSkill == 0) skillExposure = default;
+        else if (skillExposure != default)
+        {
+            var catalog = SkillsFor(player);
+            int effect = sourceEffect >= 0 ? sourceEffect : SupportedSkill(player, sourceSkill).Effect;
+            if (!catalog.HasType(effect, "Fire")) skillExposure.Fire = 0;
+            if (!catalog.HasType(effect, "Cold")) skillExposure.Cold = 0;
+            if (!catalog.HasType(effect, "Lightning")) skillExposure.Lightning = 0;
+        }
+        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure, skillExposure);
         int WitherStat(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name)
             + (preCursed && name == Stat.WitheredOnHitFor2SecondsPctChance ? witherAgainstCursed : 0));
         WitherOnHitLocked(m, WitherStat, now, AreaRng(player));

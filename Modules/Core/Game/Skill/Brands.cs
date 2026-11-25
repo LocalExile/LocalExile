@@ -1650,7 +1650,8 @@ public static partial class Game
                 poison = poison with { Min = poison.Min * ailmentMore, Max = poison.Max * ailmentMore,
                     CriticalMin = poison.CriticalMin * ailmentMore, CriticalMax = poison.CriticalMax * ailmentMore };
             AilmentsOnHitLocked(player, monsterId, m, mitigated, spell: true, critical, critMult, playerStats, gem.Stats, now,
-                AreaRng(player), poison: poison, sourceSkill: skillId, blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: placement is null);
+                AreaRng(player), sourceEffect: gem.Effect, poison: poison, sourceSkill: skillId,
+                blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: placement is null);
             var ignite = SupportedIgnite(player, skillId, spell: true, playerStats, additionalIncreased: vsBlinded, capturedInputs: inputs);
             if (ignite.Max > 0)
             {

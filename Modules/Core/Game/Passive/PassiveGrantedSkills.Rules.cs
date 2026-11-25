@@ -402,7 +402,8 @@ public static partial class Game
                 }
                 if (applied is not null)
                     AilmentsOnHitLocked(player, id, m, mitigated, spell: true, critical, multiplier, playerStats, own, hitAt,
-                        AreaRng(player), reflected, poison: profile.Poison, blind: BlindHitInput.Capture(playerStats, own));
+                        AreaRng(player), sourceEffect: skill.Effect, reflected: reflected, poison: profile.Poison,
+                        blind: BlindHitInput.Capture(playerStats, own));
                 if (applied is not null && !rageGranted) rageGranted = RageOnHitLocked(player, attack: false, melee: false, critical, own);
                 if (applied is not null && m.Life > 0 && rolled[DamageType.Fire].Max > 0)
                     foreach (var packet in IgniteOnHitLocked(player, id, m, profile.Ignite, critical, hitAt) ?? [])
