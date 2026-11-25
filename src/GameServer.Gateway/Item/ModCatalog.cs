@@ -41,6 +41,7 @@ public sealed class ModCatalog
         IReadOnlyList<ModStat> Stats)
     {
         public ModRangeProvider? Ranges { get; init; }
+        public int MaxLevel { get; init; } = 100;
         public IReadOnlyList<int> Families { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> SpawnWeights { get; init; } = [];
         public IReadOnlyList<(string Tag, int Weight)> GenerationWeights { get; init; } = [];
@@ -171,6 +172,7 @@ public sealed class ModCatalog
                 r.Int("Level"), modStats)
             {
                 Ranges = ranges,
+                MaxLevel = r.IntOrNull("MaxLevel") is int max && max > 0 ? max : 100,
                 Families = [.. r.Ints("Families")],
                 SpawnWeights = Weights(r, "SpawnWeight_TagsKeys", "SpawnWeight_Values"),
                 GenerationWeights = Weights(r, "GenerationWeight_TagsKeys", "GenerationWeight_Values"),
