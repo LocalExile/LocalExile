@@ -135,9 +135,8 @@ static class LegionStasis
             var faction = plan.Factions[f];
             foreach (var squad in faction.Squads.OrderByDescending(q => q.Tier))   // the general first: its rear-centre spot is still free
             {
-                // A GUESS to confirm in the live check: elite Magic, sergeant Rare; the general is Unique through its MonsterMapBoss mod.
-                var rarity = squad.Tier switch { 1 => MonsterRarity.Magic, 2 => MonsterRarity.Rare, 3 => MonsterRarity.Unique, _ => MonsterRarity.Normal };
-                for (int i = 0; i < squad.Count; i++) await Add(f, squad.Monster, rarity, squad.Tier, false, false, squad.FromPct, squad.ToPct, squad.Rewards is { } r && i < r.Length ? r[i] : null);
+                // The rarity is rolled in the plan from the LegionRanks weights (a GUESS: soldiers mostly Normal, elites some Magic, sergeants Rare, the general Unique); an old save has none: by tier.
+                for (int i = 0; i < squad.Count; i++) await Add(f, squad.Monster, (MonsterRarity)(squad.Rarities is { } rs && i < rs.Length ? rs[i] : LegionArmy.TierRarity(squad.Tier)), squad.Tier, false, false, squad.FromPct, squad.ToPct, squad.Rewards is { } r && i < r.Length ? r[i] : null);
             }
             foreach (var chest in faction.Chests)
                 await Add(f, chest.Monster, MonsterRarity.Normal, 0, true, chest.WarHoard, chest.FromPct, chest.ToPct, chest.Rewards);

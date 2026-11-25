@@ -94,6 +94,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
 - The campaign monoliths (The Climb, The Dried Lake) bring `CampaignArmyScale` = 0.5 of the planned normal and elite monsters (at least 1 per squad; sergeants, the general and chests unchanged). A guess from memory.
 - Only the player's own direct hits count: each lowers the frozen monster's life and its life bar, and at 0 it breaks out and its life is refilled (the bar goes). Damage over time does not count (the frozen buff makes the monster invulnerable, and no general hook lowers an invulnerable monster's life).
   Totems, brands, traps, mines and minions do not count yet.
+- Each monster's rarity is rolled in the plan from the `LegionRanks` rank row's col1..col4 as Normal/Magic/Rare/Unique weights (soldiers 90/10, elites 75/25, sergeants Rare, the general Unique); the meaning of the columns is a guess.
 - A broken war chest breaks out the non-sergeant, non-general monsters near it and becomes an openable chest.
 - The encounter ends at the timer, or early at 90% of the plain and elite monsters broken plus every chest, sergeant and general; the early end breaks out every monster still frozen (patch 3.29.0), which then fights.
   At either end each broken member is swapped for a new fighting monster; at the timer the others vanish and an unbroken general flees.
@@ -107,6 +108,7 @@ The ruleset `LegionRules` (Rulesets 94) reads the same duration from the S->C 0x
   (`0x142191100`), and stat 10006 `monster_hide_minimap_icon` non-zero hides it (`0x142191200`), so the server creates the member with both and sets 10006 to 0 at the reveal.
 - The opened chest object has no Buffs component, so it shows only the icon. No client table links a reward type to items: what a type drops is the server's own
   (`LegionRewards.cs`, the row -> kind table). Incubators (row 17) no longer drop in 3.29, and row 11 repeats row 10 (Essences): neither is rolled.
+- A sergeant's reward chance is the level's `LegionBalancePerLevel` `__col1` (100 to level 9, down to 50 from level 41) plus stat 13951; what that column means is a guess.
 - Every chance and count of the rewards (who carries one, how many, items per reward, splinters, the general's crystal, the pool weights) is a
   guess, a named constant in `LegionArmy.cs` and `LegionRewards.cs`. Splinters come only from sergeants, chests and the general, never normal soldiers. A map general drops no Timeless Jewel (`GeneralJewelPermille` is 0): they come from the Domain of Timeless Conflict.
 - 100 splinters become an emblem through the generic `FullStack` row of the item, with no Legion code.
