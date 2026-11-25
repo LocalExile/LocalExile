@@ -132,6 +132,8 @@ public static class PlayerHitDamage
         * Math.Max(0, 1 + get(Stat.SpellDamagePlusPctFinalFromArcaneSurge) / 100.0)
         // Pain Attunement: "30% more Spell Damage when on Low Life".
         * (get(Stat.KeystonePainAttunement) != 0 && get(Stat.OnLowLife) != 0 ? 1.3 : 1)
+        // Inner Conviction: "3% more Spell Damage per Power Charge" (the keystone's reminder text).
+        * (get(Stat.KeystoneQuietMight) != 0 ? 1 + 0.03 * Math.Max(0, get(Stat.CurrentPowerCharges)) : 1)
         * ((history & DamageTypeHistory.Lightning) != 0
             ? Math.Max(0, 1 + get(Stat.WrathAuraSpellLightningDamagePlusPctFinal) / 100.0) : 1);
 

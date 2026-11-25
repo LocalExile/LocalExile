@@ -289,6 +289,12 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
             Lost(gain.Type, expected[(int)gain.Type] - State.Held(gain.Type), now, rng, log);
             return;
         }
+        // Inner Conviction: "Gain Power Charges instead of Frenzy Charges".
+        if (gain.Type == ChargeType.Frenzy && Observed(Stat.KeystoneQuietMight) != 0)
+        {
+            Apply(gain with { Type = ChargeType.Power }, now, rng, log);
+            return;
+        }
         // A loss made outside the session since it last settled counts before this gain hides it.
         if (State.Held(gain.Type) < expected[(int)gain.Type])
             Lost(gain.Type, expected[(int)gain.Type] - State.Held(gain.Type), now, rng, log);
