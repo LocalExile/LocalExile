@@ -1108,6 +1108,13 @@ public static partial class Game
                 ColdMaxResistance = bonus.ColdMaxResistance - 15,
                 LightningMaxResistance = bonus.LightningMaxResistance - 15,
             };
+        // "Your Maximum Resistances are #%" (Loreweave): the four maximums are that number, whatever else adds to them
+        // here. A temporary aura's own maximum resistance is still added afterwards.
+        if (EquipmentInput(Stat.OverrideMaximumDamageResistancePct) is int fixedMaximum and > 0)
+        {
+            int offset = fixedMaximum - GameServer.Core.World.DamageModel.DefaultMaxResistance;
+            bonus = bonus with { FireMaxResistance = offset, ColdMaxResistance = offset, LightningMaxResistance = offset, ChaosMaxResistance = offset };
+        }
         int EquipmentInput(uint key) => sources.GetValueOrDefault(key);
         var gear = EquippedBaseDefences(player, EquipmentInput);
         var slots = EquippedArmourDefences(player, EquipmentInput).ToArray();
