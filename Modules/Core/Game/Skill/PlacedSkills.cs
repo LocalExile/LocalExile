@@ -621,6 +621,8 @@ public static partial class Game
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
     }
 
+    static bool LightningTrapEffect(string? effect) => effect is "LightningTrap" or "LightningTrapAltX" or "LightningTrapRoyale";
+
     static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now,
         KeyValuePair<uint, SpawnedMonster> triggeringEnemy, WorldRecordBuilder bytes)
     {
@@ -654,9 +656,11 @@ public static partial class Game
         if (projectile)
         {
             var ownerAt = player.Walk.Position(now);
-            aim = locusAim
-                ? ownerAt
-                : PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
+            if (locusAim) aim = ownerAt;
+            else if (LightningTrapEffect(effect) && triggeringEnemy.Value is { } enemy)
+                aim = PlacedProjectileAim(placed.At, ownerAt, [enemy.Walk.Position(now)], AreaRng(player));
+            else
+                aim = PlacedProjectileAim(placed.At, ownerAt, player.Area.MonstersNear(placed.At, 60)
                     .Where(m => m.Value is { Hostile: true, Dead: false, Life: > 0 }).Select(m => m.Value.Walk.Position(now)), AreaRng(player));
         }
         else if (rainSkill)
@@ -1079,7 +1083,7 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect));
+                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect) || LightningTrapEffect(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null
