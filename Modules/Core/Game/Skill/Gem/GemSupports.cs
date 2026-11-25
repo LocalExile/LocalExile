@@ -58,12 +58,10 @@ public sealed class GemSupports
             var grants = mod.GrantedEffectLevels.Where(row => row >= 0 && row < _grantedLevels.Length)
                 .Select(row => _grantedLevels[row])
                 .Where(row => Of(row.Effect) is { Support: true }).ToArray();
-            // A developer can change a displayed support level with /mod set. Ordinary support mods have one
-            // level stat even when the mod also grants a secondary active effect. Non-level pseudo-supports
-            // (for example socketed attack damage) retain their native fixed granted-effect row.
+            // A developer can change a numeric support level with /mod set. Fixed-level display flags encode
+            // the level in their stat name and keep the native granted-effect level, as do non-level pseudo-supports.
             var levelStats = mod.Stats.Select((stat, index) => (stat.Id, Index: index))
-                .Where(s => Stats.Name(s.Id).StartsWith("local_display_", StringComparison.Ordinal)
-                    && Stats.Name(s.Id).Contains("level", StringComparison.Ordinal) && s.Index < itemMod.Values.Count).ToArray();
+                .Where(s => s.Index < itemMod.Values.Count && IsVariableSupportLevel(Stats.Name(s.Id))).ToArray();
             foreach (var grant in grants)
             {
                 int level = grant.Level;
@@ -86,6 +84,14 @@ public sealed class GemSupports
                     yield return new(effect, itemMod.Values[at], 0, source++);
             }
         }
+    }
+
+    static bool IsVariableSupportLevel(string name)
+    {
+        const string fixedPrefix = "local_display_supported_by_level_";
+        return name.StartsWith("local_display_", StringComparison.Ordinal) && name.Contains("level", StringComparison.Ordinal)
+            && !(name.Length > fixedPrefix.Length && name.StartsWith(fixedPrefix, StringComparison.Ordinal)
+                && char.IsAsciiDigit(name[fixedPrefix.Length]));
     }
 
     const string RandomSupportIndex = "local_random_support_gem_index", RandomSupportLevel = "local_random_support_gem_level";

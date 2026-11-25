@@ -1,4 +1,5 @@
 using GameServer.Core.Projectiles;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -52,8 +53,59 @@ public sealed class SupportIntensityTests
             Assert.Equal(1, Game.SupportedSkill(player, skillId).Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity));
             Assert.True(await Game.CastGemSkill(player, skillId, (170, 100), (170, 100)));
             Assert.Equal(perStack, Modifier());
+            AmplificationRodSupports(fixture);
         }
         finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    static void AmplificationRodSupports(TriggeredSummonTests.Fixture fixture)
+    {
+        var player = fixture.Player;
+        var items = Game.ItemsOf(player);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        var rod = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Amplification Rod", new Random(17)));
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => rod);
+        fixture.Equip(("Ball Lightning", 20), ("Faster Casting Support", 20), ("Arc", 20));
+        var linked = Assert.Single(items.Items(PlayerInventories.Weapon1)).Item with { Links = [2, 1] };
+        var novaType = Program.Items.FindGem("Ice Nova")!.Value;
+        items.Add(PlayerInventories.BodyArmour, 0, 0, ItemCatalog.Create(Program.Items.Find("Simple Robe")!) with
+        {
+            Sockets = [new(SocketColour.White, ItemCatalog.Create(novaType.Type) with { GemVariant = novaType.Variant.Index }),
+                linked.Sockets[1]],
+            Links = [2],
+        });
+
+        const string echo = "Spell Echo Support", intensity = "Intensify Support";
+        const string destruction = "Controlled Destruction Support", faster = "Faster Casting Support";
+        int Rank(string skill, string support)
+        {
+            int effect = Program.Items.FindGem(support)!.Value.Variant.Effect;
+            ushort id = Game.GemSkillEffects(player).Single(g => g.Name == skill).Id;
+            return Game.SupportedSkill(player, id).Supports.SingleOrDefault(s => s.Effect.Row == effect)?.Gem.Level ?? 0;
+        }
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => linked with { Mods = [] });
+        Assert.Equal((0, 0, 0, 20), (Rank("Ball Lightning", echo), Rank("Ball Lightning", intensity),
+            Rank("Ball Lightning", destruction), Rank("Ball Lightning", faster)));
+        Assert.Equal(0, Rank("Arc", echo));
+
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => linked);
+        var fixedRanks = (Rank("Ball Lightning", echo), Rank("Ball Lightning", intensity), Rank("Ball Lightning", destruction));
+        int arcEcho = Rank("Arc", echo);
+        Assert.Equal((0, 0, 0, 20), (Rank("Ice Nova", echo), Rank("Ice Nova", intensity),
+            Rank("Ice Nova", destruction), Rank("Ice Nova", faster)));
+
+        var levelMod = Program.Items.Mods.All.First(mod =>
+            mod.GrantedEffectLevels.Count > 0 && mod.Stats.Any(stat => stat.Id == Stat.LocalDisplaySocketedGemsGetFasterCastLevel));
+        items.Change(PlayerInventories.Weapon1, host.Id, _ => linked with
+        {
+            Mods = [new ItemMod(ModSection.Explicit, levelMod.Hash, levelMod.Stats.Select(stat =>
+                stat.Id == Stat.LocalDisplaySocketedGemsGetFasterCastLevel ? 7 : stat.Min).ToArray())],
+        });
+        int variableLevel = Rank("Arc", faster);
+        Console.WriteLine($"Amplification Rod: Ball Lightning {fixedRanks}, Arc echo {arcEcho}, variable Faster Casting {variableLevel}");
+        Assert.Equal((10, 10, 10), fixedRanks);
+        Assert.Equal(10, arcEcho);
+        Assert.Equal(7, variableLevel);
     }
 
     [Fact]
