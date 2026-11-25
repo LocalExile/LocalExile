@@ -67,7 +67,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
   corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
-  renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91 replies are wired.
+  renaming (C→S 0x2a7 / S→C 0x3c), free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
+  Scrying Orbs carry their source map into the Atlas. Applying one changes the destination map’s divination-card pool. An Orb of Scouring clears the link.
+  Incremental Voidstone deltas (0x1a5),
+  Primordial Altar HUD ruleset 99 (0x1f/0x2c9), and 0x18/0x1d5 Atlas notifications are wired (live check pending).
   Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
   and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
@@ -129,7 +132,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
 - Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
 - Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
-- Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
+- Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
 - Channel and Waterways use walkable arrival and portal anchors on generated layouts.
@@ -299,7 +303,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   combat affixes, Soul Eater, free lanterns, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure
   Anchors, minibosses, rare-monster drops and post-roll drop conversions.
   Not applied: Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy barrel
-  clusters, highly fishy, and the Active Voyage window (0x72).
+  clusters, and highly fishy.
+  The Active Voyage window (0x7b kind 0x72) and Bathysphere descent countdown (0x162) are wired (live check pending).
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
@@ -417,6 +422,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
     DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
     Mine windows follow chart-cell origins so the underground position arrow follows the occupied checkpoint.
+    Live Azurite (0x227), chart delta (0x22c), and confirmed route echo (0x242) updates are wired (live check pending).
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).
