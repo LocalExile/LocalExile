@@ -58,9 +58,11 @@ public static partial class Game
                 {
                     var at = player.Area.Monsters[victim].Walk.Position(now);
                     double more = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
-                    _ = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: 0xffff,
+                    var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: 0xffff,
                         radiusOverride: 1, damageMore: more, criticalRoll: critical, sacrifice: sacrifice,
                         triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim);
+                    if (!task.IsCompleted) throw new InvalidOperationException("Scheduled triggered Arc hit must not yield.");
+                    task.GetAwaiter().GetResult();
                 });
         });
     }

@@ -85,6 +85,8 @@ public static partial class Game
                 Enqueue(async () =>
                 {
                     if (!Player.ProjectileActive(epoch)) return;
+                    if (shield != Player.EnergyShield.Current)
+                        await SendPlayerEnergyShield(Player);
                     if (life != Player.PlayerLife)
                         await SendWorldRecord(Player, Player.Id, PlayerLifeUpdate(Player), "life after Forbidden Rite");
                     await SendPlayerMana(Player, "resources after Forbidden Rite");

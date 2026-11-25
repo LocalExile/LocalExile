@@ -95,10 +95,12 @@ public static partial class Game
             void Hit((int X, int Y) at, int radius, double atTime, double stageMore = 1, int extraCriticalIncrease = 0)
             {
                 using var scope = intensity is null ? null : new IntensityScope(intensity);
-                _ = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
+                var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
                     radiusOverride: radius, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Current,
                     scheduledSession: this, repeat: repeat, damageMore: more * stageMore,
                     extraCriticalIncrease: extraCriticalIncrease);
+                if (!task.IsCompleted) throw new InvalidOperationException("Scheduled timed area spell hit must not yield.");
+                task.GetAwaiter().GetResult();
             }
         }
     }
