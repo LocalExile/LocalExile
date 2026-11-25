@@ -986,6 +986,23 @@ public static class AreaPopulation
         return packs[^1].Pack;
     }
 
+    // One population event is shared by all its league callbacks. Its immutable candidate cells can
+    // be reused for each placement. Each roll still uses its own taken cells and random sequence.
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<AreaPopulated, EncounterSites> PopulationSites = new();
+
+    public static (int X, int Y)? EncounterSpot(AreaPopulated area, IReadOnlyList<(int X, int Y)> taken, Random rng)
+    {
+        var sites = PopulationSites.GetValue(area, static population =>
+        {
+            var layout = population.Player.Layout;
+            return FindEncounterSites(layout.GridW, layout.GridH, layout.Walkable!, (layout.SpawnX, layout.SpawnY),
+                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))]);
+        });
+        return PickEncounterSpot(sites, taken, rng, 20);
+    }
+
+    sealed record EncounterSites(List<(int X, int Y)> Candidates, List<(int X, int Y)> NearArrival);
+
     /// <summary>Where a league encounter stands: a cell as deep in the walk map as a pack centre, as far from the
     /// arrival and the area transitions as the packs keep, and <paramref name="spacing"/> from every taken cell (the
     /// placed monsters, other encounters). With no such cell the taken cells are ignored; null when the area has no
@@ -993,24 +1010,28 @@ public static class AreaPopulation
     public static (int X, int Y)? EncounterSpot(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
         IReadOnlyList<(int X, int Y)> transitions, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing = 20)
     {
+        return PickEncounterSpot(FindEncounterSites(w, h, walkable, arrival, transitions), taken, rng, spacing);
+    }
+
+    static EncounterSites FindEncounterSites(int w, int h, Func<int, int, bool> walkable, (int X, int Y) arrival,
+        IReadOnlyList<(int X, int Y)> transitions)
+    {
         var cells = new bool[w * h];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
                 cells[y * w + x] = walkable(x, y);
         var depth = Depth(w, h, cells);
-        // Game_ENCOUNTERS_AT_ARRIVAL=1, for testing: the walkable cell nearest a point 12 cells from the arrival.
+        var nearArrival = new List<(int X, int Y)>();
         if (Environment.GetEnvironmentVariable("Game_ENCOUNTERS_AT_ARRIVAL") == "1")
         {
-            (int X, int Y)? best = null;
-            long bestDistance = long.MaxValue;
             for (int y = Math.Max(0, arrival.Y - 40); y < Math.Min(h, arrival.Y + 40); y++)
                 for (int x = Math.Max(0, arrival.X - 40); x < Math.Min(w, arrival.X + 40); x++)
-                {
-                    if (depth[y * w + x] < 2) continue;
-                    long dx = x - (arrival.X + 12), dy = y - arrival.Y, d = dx * dx + dy * dy;
-                    if (d < bestDistance && !taken.Contains((x, y))) (best, bestDistance) = ((x, y), d);
-                }
-            if (best is not null) return best;
+                    if (depth[y * w + x] >= 2) nearArrival.Add((x, y));
+            nearArrival = [.. nearArrival.OrderBy(cell =>
+            {
+                long dx = cell.X - (arrival.X + 12), dy = cell.Y - arrival.Y;
+                return dx * dx + dy * dy;
+            })];
         }
         var candidates = new List<(int X, int Y)>();
         for (int y = 0; y < h; y += 3)
@@ -1018,7 +1039,15 @@ public static class AreaPopulation
                 if (depth[y * w + x] >= CentreDepth && !Near((x, y), arrival, SpawnClearance)
                     && !transitions.Any(t => Near((x, y), t, TransitionClearance)))
                     candidates.Add((x, y));
-        if (candidates.Count == 0) return null;
+        return new(candidates, nearArrival);
+    }
+
+    static (int X, int Y)? PickEncounterSpot(EncounterSites sites, IReadOnlyList<(int X, int Y)> taken, Random rng, int spacing)
+    {
+        foreach (var cell in sites.NearArrival)
+            if (!taken.Contains(cell)) return cell;
+        if (sites.Candidates.Count == 0) return null;
+        var candidates = new List<(int X, int Y)>(sites.Candidates);
         Shuffle(candidates, rng);
         var takenGrid = new SpatialPoints(spacing);
         foreach (var t in taken) takenGrid.Add(t);

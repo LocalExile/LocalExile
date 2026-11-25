@@ -321,10 +321,15 @@ public static partial class Game
             + per15Evasion * Own(Stat.OffHandMinimumAddedColdDamagePer15ShieldEvasion);
         int coldMax = Own(Stat.OffHandLocalMaximumAddedColdDamage)
             + per15Evasion * Own(Stat.OffHandMaximumAddedColdDamagePer15ShieldEvasion);
-        return coldMax <= 0 ? weapon : weapon with
+        int fireMin = ActorScale.Saturate(Own(Stat.OffHandLocalMinimumAddedFireDamage)
+            + per15Armour * Own(Stat.OffHandMinimumAddedFireDamagePer15ShieldArmour));
+        int fireMax = ActorScale.Saturate(Own(Stat.OffHandLocalMaximumAddedFireDamage)
+            + per15Armour * Own(Stat.OffHandMaximumAddedFireDamagePer15ShieldArmour));
+        return coldMax <= 0 && fireMax <= 0 ? weapon : weapon with
         {
             LocalDamage = DamagePacket.Of(DamageType.Physical, min, Math.Max(min, max))
-                .Add(DamageType.Cold, new(coldMin, Math.Max(coldMin, coldMax))),
+                .Add(DamageType.Cold, new(coldMin, Math.Max(coldMin, coldMax)))
+                .Add(DamageType.Fire, new(fireMin, Math.Max(fireMin, fireMax))),
         };
     }
 

@@ -25,6 +25,11 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
     public ushort TerrainPlugin { get; init; }
     public string? TerrainPluginId { get; init; }
 
+    /// <summary>The TerrainPlugins Id of a u16 plugin id (<c>__col1</c>), null for none: how a plugin state 0x1d lists is
+    /// told apart (<see cref="LevelGenerator.LeaguePluginFeature"/>). <see cref="Load"/> reads it from the game's
+    /// TerrainPlugins when the pack has it.</summary>
+    public Func<ushort, string?>? PluginName { get; init; }
+
     /// <summary>An area stat the server sends in 0x1d (1-based Stats ids), 0 when absent: what the generator reads through
     /// world +0x120's lookup (<c>0x142050dc0</c> and the league rolls). Without <see cref="Stats"/> every one is 0.</summary>
     public int Stat(int id) => Stats is { } s && s.TryGetValue(id, out int v) ? v : 0;
@@ -54,7 +59,8 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
         int plugin = areas.Ref(row, 0x1fc);
         // An older game pack has no TerrainPlugins: the area then counts as having none, which only the plugins whose
         // generation is ported (PortsPlugin) need.
-        var plugins = plugin >= 0 && read("Data/TerrainPlugins.datc64") is { } pluginData ? new RawDat(pluginData) : null;
+        var allPlugins = read("Data/TerrainPlugins.datc64") is { } pluginData ? new RawDat(pluginData) : null;
+        var plugins = plugin >= 0 ? allPlugins : null;
         return new AreaInfo(areaId, areas.Bool(row, 0x14), tops, areas.Bool(row, 0x14e), areas.U16(row, 0x2a), areas.Bool(row, 0xe4),
             areas.I32(row, 0x1e4), level, chance, hideout < 0 ? null : (hideouts.Bool(hideout, 0x42), hideouts.I32(hideout, 0x43)),
             i => (leagues.I32(i, 0x8a), leagues.Bool(i, 0x8e), leagues.Bool(i, 0xa0)),
@@ -65,6 +71,8 @@ public sealed record AreaInfo(string Id, bool IsTown, IReadOnlyList<TopologyInfo
         {
             TerrainPlugin = plugins is null ? (ushort)0 : (ushort)plugins.I32(plugin, 8),
             TerrainPluginId = plugins?.String(plugin, 0),
+            PluginName = allPlugins is null ? null
+                : id => allPlugins.Find(r => (ushort)allPlugins.I32(r, 8) == id) is var found and >= 0 ? allPlugins.String(found, 0) : null,
         };
     }
 }
@@ -108,6 +116,24 @@ public static class LevelGenerator
     /// <summary>The terrain plugins (TerrainPlugins Id) whose generation is ported, so a state for them can be sent.</summary>
     public static bool PortsPlugin(string? pluginId) => pluginId == DeepwaterGeneration.PluginId;
 
+    /// <summary>
+    /// The <c>ExtraTerrainFeatures</c> row a listed terrain plugin that is not the area's own pushes for its state, or
+    /// null when that plugin's or that state's generation is not ported. The client creates every plugin 0x1d's extra
+    /// data lists with its state (<c>0x141eca930</c>), and the extra terrain feature pass asks each one for its rows
+    /// before it rolls anything, with no draw (<see cref="ExtraTerrainFeatures.Roll"/>).
+    /// <para>
+    /// Ported: ExpeditionPlugin (<c>0x141f36940</c>), whose two-byte state carries the ExpeditionFactions row in byte 0
+    /// above bit 1; with bits 0 and 1 clear it pushes <c>ExpeditionEncounter</c>, the encounter room
+    /// (<c>Metadata/Terrain/Leagues/Expedition/encounter.arm</c>). The official 0x1d of an Expedition map sends
+    /// <c>04 00</c> (Faction2, the encounter row).
+    /// </para>
+    /// </summary>
+    public static string? LeaguePluginFeature(string? pluginId, ReadOnlySpan<byte> state) => pluginId switch
+    {
+        "ExpeditionPlugin" when state.Length >= 2 && (state[0] & 0x03) == 0 && state[0] >> 2 < 4 => "ExpeditionEncounter",
+        _ => null,
+    };
+
     // The ordinary Mirror uses the default Affliction terrain variant and leaves the underlying tiles unchanged.
     public static bool SupportsPluginState(ushort id, ReadOnlySpan<byte> state, ushort? areaPlugin, string? areaPluginName) =>
         id == 0x0871 ? state is [0] : id == areaPlugin && PortsPlugin(areaPluginName);
@@ -116,19 +142,24 @@ public static class LevelGenerator
     /// log when generation stops at a part that is not ported, <paramref name="notes"/> to keep its notes and
     /// <paramref name="onStage"/> to see a tile graph at the stage boundaries the client trace records.
     /// <paramref name="pluginStates"/>: the terrain plugin states 0x1d's extra data sends (TerrainPlugins <c>__col1</c> →
-    /// bytes). The client creates a plugin per state, then the area's own with an empty state (<c>0x141eca930</c>); only
-    /// the area's own ported plugin and the optional fog grid are supported.</summary>
+    /// bytes). The client creates a plugin per state, then the area's own with an empty state (<c>0x141eca930</c>): the
+    /// area's own plugin, when ported, builds its part from its state, and the ordinary Mirror's default state is kept
+    /// (<see cref="SupportsPluginState"/>); another listed plugin adds its extra terrain feature row
+    /// (<see cref="LeaguePluginFeature"/>).</summary>
     public static GenerationResult Generate(TerrainCache files, AreaInfo area, uint seed, int topologyVariant = 60, LevelRandom? rng = null,
         List<string>? notes = null, Action<string, TileGraph>? onStage = null, LabyrinthNodeKey? labyrinthNode = null,
         byte[]? delveTerrain = null, IReadOnlyDictionary<ushort, byte[]>? pluginStates = null)
     {
-        if (pluginStates is not null)
-            foreach (var (id, state) in pluginStates)
-                if (!SupportsPluginState(id, state, area.TerrainPlugin, area.TerrainPluginId))
-                    throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
+        var pluginRows = new List<string>();
+        foreach (var (id, state) in pluginStates ?? new Dictionary<ushort, byte[]>())
+        {
+            if (SupportsPluginState(id, state, area.TerrainPlugin, area.TerrainPluginId)) continue;
+            if (id != area.TerrainPlugin && LeaguePluginFeature(area.PluginName?.Invoke(id), state) is { } row) { pluginRows.Add(row); continue; }
+            throw new NotSupportedException($"{area.Id}: terrain plugin {id}'s state is not ported (the area's plugin is {area.TerrainPluginId ?? "none"})");
+        }
         rng ??= new LevelRandom(seed, area.RandomnessDisabled) { Log = [] };
         notes ??= [];
-        var features = ExtraTerrainFeatures.Roll(area, rng);
+        var features = ExtraTerrainFeatures.Roll(area, rng, pluginRows);
         if (features.Count > 0) notes.Add("extra terrain features: " + string.Join(", ", features.Select(f => $"{f.Name} x{f.Count}")));
 
         // 0x14204d4b0 → 0x14202e270: the area's topologies of this variant, else those of 60, else of 1.

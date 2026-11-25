@@ -11,6 +11,49 @@ public static class InstanceRulesets
 {
     public const ushort DataId = 0x2c9, ActionId = 0x2ca;
 
+    /// <summary><c>Rulesets.dat</c> row 99 (<c>AtlasPrimordialBossInfluenceRules</c>): drives
+    /// <c>atlas_primordial_influence_hud_display</c> (<c>0x140da2910</c>) via S→C 0x2c9 sub-id 0 (<c>0x141750170</c>).</summary>
+    public const byte PrimordialInfluenceRulesetRow = 99;
+
+    /// <summary>One active Eldritch Altar mod in <see cref="PrimordialAltarHud"/>: its <c>Mods.dat</c> <c>HASH16</c>
+    /// (u16 LE) followed by one signed <see cref="InstanceProtocol.CompactInt"/> per non-null stat on that row
+    /// (read by <c>0x142436e50</c> + <c>0x141e4c7e0</c>).</summary>
+    public readonly record struct PrimordialAltarMod(ushort ModHash16, IReadOnlyList<int> StatValues);
+
+    /// <summary>S→C 0x2c9 payload for ruleset 99 (<c>AtlasPrimordialBossInfluenceRules</c>, reader <c>0x141750170</c>):
+    /// <c>u8 0</c> (sub-id 0) followed by six <c>(u8 count, count × PrimordialAltarMod)</c> lists in client offset order
+    /// (<c>+0x158</c>..+<c>0x1d0</c>): player upsides/downsides, eldritch minion upsides/downsides, map boss upsides/downsides.</summary>
+    public static byte[] PrimordialAltarHud(
+        IReadOnlyList<PrimordialAltarMod> playerUpsides,
+        IReadOnlyList<PrimordialAltarMod> playerDownsides,
+        IReadOnlyList<PrimordialAltarMod> minionUpsides,
+        IReadOnlyList<PrimordialAltarMod> minionDownsides,
+        IReadOnlyList<PrimordialAltarMod> bossUpsides,
+        IReadOnlyList<PrimordialAltarMod> bossDownsides)
+    {
+        var w = new BlobWriter().U8(0);
+        WritePrimordialModList(w, playerUpsides);
+        WritePrimordialModList(w, playerDownsides);
+        WritePrimordialModList(w, minionUpsides);
+        WritePrimordialModList(w, minionDownsides);
+        WritePrimordialModList(w, bossUpsides);
+        WritePrimordialModList(w, bossDownsides);
+        return Data(PrimordialInfluenceRulesetRow, w.ToArray());
+    }
+
+    static void WritePrimordialModList(BlobWriter w, IReadOnlyList<PrimordialAltarMod> mods)
+    {
+        int count = Math.Min(mods.Count, byte.MaxValue);
+        w.U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var m = mods[i];
+            w.U16(m.ModHash16);
+            foreach (int value in m.StatValues)
+                w.CompactI(value);
+        }
+    }
+
     /// <summary>S→C 0x2c9: data for the ruleset of this Rulesets row.</summary>
     public static byte[] Data(byte row, ReadOnlySpan<byte> payload)
     {
