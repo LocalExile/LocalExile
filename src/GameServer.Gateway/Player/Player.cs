@@ -365,8 +365,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
 
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
-    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
-    public bool NonBlocking { get; init; }
+    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
+    /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
+    public bool NonBlocking { get; set; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -402,6 +403,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>An encounter's own entrance: hits do nothing and no chill, freeze or shock lands until its script clears it
     /// (Izaro rising on his elevator; live, the ailments landed while hits did nothing).</summary>
     public bool EntranceGrace { get => Ailments.Grace; set => Ailments.Grace = value; }
+    /// <summary>Optional non-lethal life floor owned by an encounter controller: when damage would reduce life to 0,
+    /// life stops at 1 and this callback runs synchronously in the area's frame instead of killing the monster.</summary>
+    public Action<SpawnedMonster>? OnNonLethalZero;
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
     public bool DamageImmune;
     public bool Invulnerable => DamageImmune || KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;

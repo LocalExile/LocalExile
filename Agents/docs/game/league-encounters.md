@@ -31,6 +31,7 @@ or `Next(100)` below it.
 The level generator rolls only the mechanics that change the terrain (shrines, Legion, Blight, Breach, Harvest, Settlers:
 [re/011](../re/011-level-generation.md) §3b). The others are the official server's, which is taken to use the same
 function. Ours rolls them with its own generator after the packs (`AreaPopulated`), so a kept instance keeps what it rolled.
+The Legion encounter that follows the Legion roll is in [Legion](legion.md).
 
 Campaign and map defaults: Anarchy 5%, Torment 30% (then 12%), Essence 13% (then 10%), Ambush (strongboxes) 51% (then
 18%), shrines 20% (then 10%). Maps: Torment 24/16, Essence 10/8, Ambush 43/12, shrines 16/8. The Twilight Strand and The
