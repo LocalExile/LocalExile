@@ -79,6 +79,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
   Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
+- Rashkaldor's Patience shortens inflicted ignite and chill through the elemental ailment duration modifier.
+- Recovery when the player ignites an enemy includes Xoph's Nurture.
 - Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.
   Two-handed melee and mace stun modifiers, and doubled stun duration, apply on qualifying hits.
 
@@ -86,6 +88,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
+- Equipment flask-use modifiers remove their specified ailments after the flask spends charges.
+- Sublime Vision's Purity variants shift eligible elemental hits and ground damage before resistance.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
 - Selected worn skills and Cat/Avian/Spider/Crab owners (#504). Docs: [11](../docs/protocol/11-skills.md).
@@ -134,7 +138,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Lifetap Support and Blood Magic publish converted wire `life_cost` / `life_cost_per_minute` (zeroing wire mana cost)
   so the client spends Life only; Blood Magic also removes all Mana, gives 10% more maximum Life and reserves Life
   instead of Mana. Docs: [25](../docs/protocol/25-gem-supports.md).
-- Movement, travel and stance skill cooldowns read their recovery stats. Spell and curse costs read their efficiency.
+- Movement, travel and stance skill cooldowns read their recovery stats.
+  Spell, curse and mark costs read their respective efficiency stats for display and payment.
   Mark waivers, Cannibalistic Rite, the Covenant and Rathpith Globe use the server's resource admission.
 - Vile Reinvigoration grants Energy Shield regeneration during the recent-kill window (checked offline).
 - Energy Shield skill costs (Energy Blade, Wild Strike of Extremes, Replica Covenant) and Eldritch Battery: costs paid

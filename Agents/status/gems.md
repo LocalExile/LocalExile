@@ -89,6 +89,7 @@ Nothing yet.
   Flight and arming times and the native multi-throw patterns remain open.
   Item-granted supports join the same compatibility, duplicate resolution, calculations and native badge records
   for gems in their source item, independently of links; automated tests cover their addition and removal.
+  Fixed-level item grants preserve the stated support level, including Amplification Rod's level 10 supports.
   Every third Ruthless-supported use is a Ruthless Blow ([25](../docs/protocol/25-gem-supports.md)).
   Trinity and Unholy Trinity keep separate timed counters for eligible owner hits, with damage and resistance
   bonuses from the lowest counter ([25](../docs/protocol/25-gem-supports.md)).
@@ -210,6 +211,8 @@ Nothing yet.
   quest levels and `/add_xp` give the gems nothing), sent with the kill as 0x00bf item changes, each item once, so the
   XP bars follow, and saved with the character (`GainGemExperience`, `PlayerInventories.ChangeSocketedGems`;
   [19](../docs/protocol/19-gems.md) §1).
+  Corrupted gem experience and local blue-socket experience add to the gem's share before its level cap.
+  Bonus gains use one authoritative item replacement for each changed inventory row.
   A kill's share stops one point below the next threshold, where the client shows the "+": it does not level a gem by
   itself (checked live 2026-10-23; rechecked 2026-11-09: a level-4 Fireball stopped at 8598 and levelled only when the
   click sent it to 8599).
