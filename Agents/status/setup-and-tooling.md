@@ -114,6 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   load context of its own per version and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
   applies that file when a launcher rewrites it).
+  Packages: a mod's folder with `Leagues/` and `Modules/` adds them to the repository's at start; modules declare
+  `conflicts` and `only`, a league the `mods` it takes (`PackageTests`). Not tried with the client.
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
   Settings: a mod's or module's `settings.json` declares what can be tuned (ten types, defaults, limits); the user's values
