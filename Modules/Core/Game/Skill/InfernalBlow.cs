@@ -172,9 +172,11 @@ public static partial class Game
                 MonsterHitChaosDamage(enemy, resisted, spell: false, now, damage), allyAt: at) is not { } hit)
                 continue;
             if (hit.StageStarts) CommitBossStage(player, id, enemy, now);
+            if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
                 $"Infernal Blow corpse explosion target=0x{id:x} damage={damage} life={hit.Life}/{enemy.MaxLife}");
             if (hit.Life == 0) CommitProjectileKill(session, id, enemy, session.Runtime.Now, AreaRng(player));
+            if (enemy.ThresholdReached) session.Enqueue(() => QuestThreshold(player, id, enemy));
         }
     }
 

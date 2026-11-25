@@ -68,6 +68,44 @@ public static partial class Game
             PlaceDamageGround(Vector(placed.At), radius, duration, DamageType.Cold, dps, Runtime.Now, chillStats: area);
         }
 
+        internal void ReleaseVortexProjection((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+            (int X, int Y) origin, (int X, int Y) aim, IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> caster,
+            SkillCriticalRoll? critical, SacrificeUse sacrifice, Func<bool> current, ushort sequence, int repeat,
+            double damageMore, SpawnedMonster? brandedTarget)
+        {
+            var area = SkillAreaStats(Player, own, gem.Effect, caster);
+            int Get(uint key) => area.GetValueOrDefault(key);
+            int Own(uint key) => own.GetValueOrDefault(key);
+            int Caster(uint key) => caster.GetValueOrDefault(key);
+            double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Caster, Own);
+            double dps = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(
+                new(DamageType.Cold, ColdGroundDps(Get, Own, spell: true, mine: false, trap: false), duration)).DamagePerSecond;
+            int radius = SkillRadius(Player, own, spell: true, gem.Effect);
+            int groundRadius = SkillArea.Radius(Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), Get, spell: true);
+            int maximum = Own(Stat.FrostBoltNovaNumberOfFrostBoltsToDetonate);
+            var bolts = Runtime.Projectiles.Where(p => p.Use.Owner.Id == Player.Id
+                    && p.Use.Payload is ProjectileOffense { ActualCaster: null, FromTotem: false, FromTrapOrMine: false } shot
+                    && SkillsFor(Player).EffectId(shot.Effect) is "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale")
+                .Select(p => (p.Id, At: ((int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y))))
+                .Where(p => Dist(aim, p.At) <= Math.Max(60, radius + 30))
+                .OrderBy(p => Dist(aim, p.At)).ThenBy(p => p.Id).Take(maximum).ToArray();
+            if (bolts.Length == 0) { At(origin, 1, 1); return; }
+            double radiusMore = SkillArea.RadiusMultiplier(Own(Stat.ActiveSkillAreaOfEffectPlusPctFinalWhenCastOnFrostbolt));
+            double boltMore = Math.Max(0, 1 + Own(Stat.ActiveSkillIfUsedThroughFrostboltDamagePlusPctFinal) / 100d);
+            foreach (var bolt in bolts)
+                if (Runtime.Consume(bolt.Id)) At(bolt.At, radiusMore, boltMore);
+
+            void At((int X, int Y) centre, double areaMore, double more)
+            {
+                int hitRadius = (int)Math.Floor(radius * areaMore);
+                int dotRadius = (int)Math.Floor(groundRadius * areaMore);
+                Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centre, centre, immediate: true, sequence: sequence,
+                    repeat: repeat, damageMore: damageMore * more, radiusOverride: hitRadius, criticalRoll: critical,
+                    sacrifice: sacrifice, triggeredCurrent: current, brandedTarget: brandedTarget));
+                PlaceDamageGround(Vector(centre), dotRadius, duration, DamageType.Cold, dps * damageMore * more, Runtime.Now, chillStats: area);
+            }
+        }
+
         void PlaceCreepingGround(ProjectileVector centre, int radius, double duration, double dps,
             IReadOnlyDictionary<uint, int> chill, GroundMovement movement)
         {

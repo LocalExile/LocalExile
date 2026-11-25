@@ -5,7 +5,7 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
-    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) == "LightningStrike";
+    internal static bool IsLightningStrike(int effect) => Skills.EffectId(effect) is "LightningStrike" or "LightningStrikeAltX";
 
     // Strike projectiles release at the contact keyframe of each swing in the same paid use.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
@@ -21,6 +21,7 @@ static partial class Game
         int action = player.ActionCount;
         var stats = SupportedSkill(player, skillId).Stats;
         bool frostBlades = IsFrostBlades(gem.Effect);
+        bool wildStrike = IsWildStrike(gem.Effect);
         double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
@@ -30,7 +31,10 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || player.ActionCount == action), () =>
-                frostBlades
+                wildStrike
+                    ? ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless)
+                    : frostBlades
                     ? ReleaseFrostBlades(player, session, skillId, gem, from, aim, targetId,
                         criticalRoll, sequence, index, cryExerted, ruthless)
                     : ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
@@ -96,7 +100,7 @@ static partial class Game
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
         MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
-        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null)
+        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null, bool actionHit = true)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -106,19 +110,25 @@ static partial class Game
             double until = monster.FlinchUntil;
             session.Packet(() => TakeHitPacket(player, id, monster, until, now));
         }
-        var playerAt = player.Walk.Position(now);
         var target = monster.Walk.Position(now);
-        var order = HitOrder(player, player.Id);
-        ushort flags = (ushort)(0x4201 | (critical ? 0x20 : 0));
-        byte kind = 3, angle = HitAngle(target.X - playerAt.X, target.Y - playerAt.Y);
-        ApplyNativeKnockback(knockback ?? TakeNativeKnockbackLocked(monster), ref flags, ref kind, ref angle,
-            out ushort u3c, out ushort u3e);
-        // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
-        session.World(player.Id, InstanceProtocol.ActionHit(player.Id, sequence, id, flags: flags,
-            kind: kind, code: hitCode, angle: angle, u3c: u3c, u3e: u3e,
-            orderKey: order.Key, checkpoint: order.Hit));
-        session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
-            $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+        if (actionHit)
+        {
+            var playerAt = player.Walk.Position(now);
+            var order = HitOrder(player, player.Id);
+            ushort flags = (ushort)(0x4201 | (critical ? 0x20 : 0));
+            byte kind = 3, angle = HitAngle(target.X - playerAt.X, target.Y - playerAt.Y);
+            ApplyNativeKnockback(knockback ?? TakeNativeKnockbackLocked(monster), ref flags, ref kind, ref angle,
+                out ushort u3c, out ushort u3e);
+            // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
+            session.World(player.Id, InstanceProtocol.ActionHit(player.Id, sequence, id, flags: flags,
+                kind: kind, code: hitCode, angle: angle, u3c: u3c, u3e: u3e,
+                orderKey: order.Key, checkpoint: order.Hit));
+            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
+                $"{label} melee t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
+        }
+        else
+            session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
+                $"{label} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
         if (critical)
         {
             CommitProjectileCritFlasks(session, now, AreaRng(player));
