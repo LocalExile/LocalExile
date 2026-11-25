@@ -68,7 +68,19 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
     // occur during stat rebuilding, and unsupported families, revisions or classes contribute nothing.
     public IReadOnlyList<(uint Key, int Value)> NodeStats(AscendancyCatalog.Definition definition, ushort node,
         IReadOnlyList<(uint Key, int Value)> modeStats) =>
-        Supports(definition.Identity) && definition.Nodes.ContainsKey(node) ? modeStats : [];
+        Supports(definition.Identity) && definition.Nodes.ContainsKey(node) ? InGameTerms(modeStats) : [];
+
+    // "+# to Maximum Power and Frenzy Charges" is a stat of this family's nodes alone. The game's rules take it as the
+    // two maximums it is; the other stats pass as they are (the same list when nothing is rewritten).
+    static IReadOnlyList<(uint Key, int Value)> InGameTerms(IReadOnlyList<(uint Key, int Value)> stats)
+    {
+        if (!stats.Any(s => s.Key == Stat.MaximumPowerAndFrenzyChargesPlus)) return stats;
+        var result = new List<(uint Key, int Value)>(stats.Count + 1);
+        foreach (var (key, value) in stats)
+            if (key == Stat.MaximumPowerAndFrenzyChargesPlus) { result.Add((Stat.MaxFrenzyCharges, value)); result.Add((Stat.MaxPowerCharges, value)); }
+            else result.Add((key, value));
+        return result;
+    }
 
     static PhreciaClass? Find(AscendancyIdentity identity) =>
         ImplementedClasses.FirstOrDefault(implementation => implementation.Matches(identity));

@@ -2457,7 +2457,7 @@ public static partial class Game
             await MonsterContact(player, id, m, action, begunSeq, a);
             return false;
         }
-        // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
+        // Its attack time now: a chill slows it by its action speed, Soul of Gruthkul's upgrade by the player's attacker slow.
         // A King skill carries its own cast time. Predictive keeps its existing sequence selection;
         // lockstep assigns the actor's sequence when the send gate admits the action below.
         double seconds;
@@ -3303,7 +3303,7 @@ public static partial class Game
 
     public const uint AttackerSlow = Stat.EnemiesThatHitYouWithAttackRecentlyAttackSpeedPlusPct;
 
-    // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
+    // A monster's attack time now. Soul of Gruthkul's upgrade: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
     public static double MonsterSwingSeconds(Player player, SpawnedMonster m, double now)
     {
