@@ -412,12 +412,13 @@ public static partial class Game
     // cost is the whole Mana cost; fromEs the part of it Eldritch Battery pays from Energy Shield ("Spend Energy Shield
     // before Mana for Skill Mana Costs"), after the skill's own Energy Shield cost (es).
     static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
-        out uint es, out uint fromEs, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
+        out uint es, out uint fromEs, out int rage, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
     {
         cost = 0;
         life = 0;
         es = 0;
         fromEs = 0;
+        rage = 0;
         playerStats = new Dictionary<uint, int>();
         if (CombatLifetime is not null && !CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
             return false;
@@ -477,13 +478,17 @@ public static partial class Game
         life = (int)Math.Min(int.MaxValue, (long)nativeLife + convertedLife + petrifiedLife);
         if (Read(Stat.NoManaCost) != 0) cost = 0;
         es = (uint)Math.Max(0, Read(Stat.EsCost));
+        rage = ChainbreakerRageCost(Read);
         if (costPercent != 100)
         {
             cost = (uint)((long)cost * costPercent / 100);
             life = (int)((long)life * costPercent / 100);
             es = (uint)((long)es * costPercent / 100);
+            rage = (int)((long)rage * costPercent / 100);
         }
-        if (es > player.EnergyShield.Current) return false;
+        if (es > player.EnergyShield.Current
+            || rage > 0 && player.Rage.Read(ProjectileWorldTime(player), RageStats.Inputs(player, Read)).Current < rage)
+            return false;
         bool Has(uint name) => Read(name) != 0;
         if (Has(Stat.VirtualSpendEnergyShieldForCostsBeforeMana) || Has(Stat.KeystoneEldritchBattery))
             fromEs = Math.Min(cost, player.EnergyShield.Current - es);
@@ -495,7 +500,7 @@ public static partial class Game
     public static bool CanPaySkillCost(Player player, ushort skillId)
     {
         var own = SupportedSkill(player, skillId).Stats;
-        return SkillCostLocked(player, skillId, own, out _, out _, out _, out _, out _);
+        return SkillCostLocked(player, skillId, own, out _, out _, out _, out _, out _, out _);
     }
 
     // A gem skill's mana cost at the gem's level (its mana_cost stat), paid when the cast starts, plus Petrified
@@ -512,7 +517,9 @@ public static partial class Game
         var supported = SupportedSkill(player, skillId);
         var own = supported.Stats;
         lifeCost = 0;
-        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs, out var playerStats, costPercent))
+        if (!SkillCostLocked(player, skillId, own, out uint manaCost, out int life, out uint es, out uint fromEs,
+                out int rage, out var playerStats, costPercent)
+            || rage > 0 && !player.Rage.Spend(rage, ProjectileWorldTime(player), RageStats.Inputs(player, playerStats.GetValueOrDefault)))
         {
             cost = 0;
             return false;

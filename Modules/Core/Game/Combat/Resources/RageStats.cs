@@ -21,6 +21,18 @@ public static class RageStats
         GainOnMeleeCritical: get(Stat.GainXRageOnMeleeCrit), GainWhenHit: get(Stat.GainXRageWhenHit),
         LossRatePercent: get(Stat.RageDecaySpeedPlusPct), RegenerationPerMinute: get(Stat.BaseRageRegenerationPerMinute));
 
+    public static RageState.Inputs Inputs(Player player, Func<uint, int> get)
+    {
+        var inputs = Inputs(get);
+        int divisor = get(Stat.Regenerate1RagePerXManaRegeneration);
+        if (divisor <= 0 || get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.CannotLeechOrRegenerateMana) != 0)
+            return inputs;
+        return inputs with
+        {
+            NonDelayingRegenerationPerMinute = Math.Max(0, PanelStats.GrossManaRegenerationPerMinute(get, player.Pools.Mana) / divisor),
+        };
+    }
+
     /// <summary>
     /// Expands the verified item coefficients once from the authoritative effective Rage into the exact stats their
     /// existing consumers read. The axe-qualified source is already removed by StatConditions when no active axe is

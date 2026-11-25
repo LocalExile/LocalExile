@@ -777,6 +777,8 @@ public static partial class Game
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
+            else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)
+                stats[Stat.RageCost] = ActorScale.Saturate((long)stats.GetValueOrDefault(Stat.RageCost) + rageCost);
             // Native CanStart reads final limits, not the base inputs in the gem's stat set.
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }

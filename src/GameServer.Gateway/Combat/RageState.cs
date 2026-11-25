@@ -10,6 +10,8 @@ public sealed class RageState
         int GainOnMeleeHit = 0, int GainOnAttackCritical = 0, int GainOnMeleeCritical = 0, int GainWhenHit = 0,
         int LossRatePercent = 0, int RegenerationPerMinute = 0)
     {
+        public double NonDelayingRegenerationPerMinute { get; init; }
+
         public int Maximum
         {
             get
@@ -41,11 +43,16 @@ public sealed class RageState
     // regeneration keeps a full bar full). Official behavior for capped discrete gains is still unverified.
     public const int PolicyVersion = 2;
     public sealed record Carried(int Current, double? ActivityAge, double? HitAge, double LossProgress, Inputs Previous,
-        double RegenProgress = 0);
+        double RegenProgress = 0)
+    {
+        public double NonDelayingRegenProgress { get; init; }
+    }
+
     int current;
     double? advancedAt, activityAt, hitGainAt;
     double lossProgress;
     double regenProgress;
+    double nonDelayingRegenProgress;
     Inputs previous;
 
     /// <summary>A gain, payment, enemy hit or clear changed the bar or when it next changes (the stat steps that read it run again).</summary>
@@ -57,15 +64,22 @@ public sealed class RageState
     {
         if (advancedAt is not double last) return null;
         double? next = null;
-        if (!previous.NoInherentLoss && current > 0 && activityAt is double active && previous.LossPerSecond > 0)
-            next = Math.Max(last, active + previous.LossDelaySeconds) + Math.Max(0, 1 - lossProgress) / previous.LossPerSecond;
+        if (!previous.NoInherentLoss && current > 0 && previous.LossPerSecond > 0)
+            next = LossStarts(last) + Math.Max(0, 1 - lossProgress) / previous.LossPerSecond;
         if (previous.RegenerationPerMinute > 0 && !previous.CannotGain && current < previous.Maximum)
         {
             double regen = last + Math.Max(0, 1 - regenProgress) * 60 / previous.RegenerationPerMinute;
             next = next is double n ? Math.Min(n, regen) : regen;
         }
+        if (previous.NonDelayingRegenerationPerMinute > 0 && !previous.CannotGain && current < previous.Maximum)
+        {
+            double regen = last + Math.Max(0, 1 - nonDelayingRegenProgress) * 60 / previous.NonDelayingRegenerationPerMinute;
+            next = next is double n ? Math.Min(n, regen) : regen;
+        }
         return next;
     }
+
+    double LossStarts(double last) => activityAt is double active ? Math.Max(last, active + previous.LossDelaySeconds) : last;
 
     public Value Read(double now, Inputs inputs)
     {
@@ -150,9 +164,9 @@ public sealed class RageState
         if (advancedAt is double last)
         {
             now = Math.Max(last, now);
-            if (!previous.NoInherentLoss && current > 0 && activityAt is double active)
+            if (!previous.NoInherentLoss && current > 0)
             {
-                double from = Math.Max(last, active + previous.LossDelaySeconds);
+                double from = LossStarts(last);
                 if (now > from)
                 {
                     double units = lossProgress + (now - from) * previous.LossPerSecond;
@@ -179,6 +193,13 @@ public sealed class RageState
                 // on every accepted contact and every full stat snapshot, not only on the 250 ms ticker).
                 if (added > 0 || inputs.Maximum > 0 && current >= inputs.Maximum) Activity(now);
             }
+            if (now > last && previous.NonDelayingRegenerationPerMinute > 0 && !previous.CannotGain)
+            {
+                double gain = nonDelayingRegenProgress + (now - last) * previous.NonDelayingRegenerationPerMinute / 60;
+                double whole = Math.Floor(gain + 1e-9);
+                current += (int)Math.Min(whole, Math.Max(0, inputs.Maximum - current));
+                nonDelayingRegenProgress = current >= inputs.Maximum ? 0 : gain - whole;
+            }
         }
         current = Math.Min(current, inputs.Maximum);
         previous = inputs;
@@ -192,7 +213,7 @@ public sealed class RageState
         current = 0;
         advancedAt = activityAt = hitGainAt = null;
         lossProgress = 0;
-        regenProgress = 0;
+        regenProgress = nonDelayingRegenProgress = 0;
         previous = default;
         if (had) Changed?.Invoke();
     }
@@ -201,7 +222,8 @@ public sealed class RageState
     {
         now = Advance(now, inputs);
         var carried = new Carried(current, activityAt is double activity ? now - activity : null,
-            hitGainAt is double hit ? now - hit : null, lossProgress, previous, regenProgress);
+            hitGainAt is double hit ? now - hit : null, lossProgress, previous, regenProgress)
+        { NonDelayingRegenProgress = nonDelayingRegenProgress };
         Clear();
         return carried;
     }
@@ -214,6 +236,7 @@ public sealed class RageState
         hitGainAt = carried.HitAge is double hit ? now - hit : null;
         lossProgress = carried.LossProgress;
         regenProgress = carried.RegenProgress;
+        nonDelayingRegenProgress = carried.NonDelayingRegenProgress;
         previous = carried.Previous;
         advancedAt = now;
         Changed?.Invoke();

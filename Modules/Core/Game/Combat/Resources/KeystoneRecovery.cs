@@ -16,7 +16,17 @@ public static partial class Game
         if (stats.GetValueOrDefault(Stat.KeystoneSoulTether) != 0)
             stats[Stat.NoEnergyShieldRechargeOrRegeneration] = 1;
         if (stats.GetValueOrDefault(Stat.KeystoneFocusedRage) != 0)
+        {
+            if (stats.GetValueOrDefault(Stat.NoManaRegeneration) == 0)
+                stats.TryAdd(Stat.Regenerate1RagePerXManaRegeneration, 25);
             stats[Stat.NoManaRegeneration] = 1;
+        }
+    }
+
+    static int ChainbreakerRageCost(Func<uint, int> get)
+    {
+        return get(Stat.KeystoneFocusedRage) != 0 && get(Stat.NoCost) == 0 && get(Stat.VirtualNoCost) == 0
+            && get(Stat.SkillNoCostOrReservation) == 0 ? 3 : 0;
     }
 
     static double LifeRegenerationKeystoneFactor(Func<uint, int> get) =>
