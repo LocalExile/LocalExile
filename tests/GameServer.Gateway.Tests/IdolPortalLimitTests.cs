@@ -29,15 +29,19 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
         var idol = uniques.Create(definition, new Random(71))! with { Identified = true };
         Assert.Equal(1, ItemModStats.Sum([idol], Program.Items.Mods)[Stat.MapPortalLimit]);
 
-        var control = await OpenAndClick(equipIdol: false, idol, league);
-        var equipped = await OpenAndClick(equipIdol: true, idol, league);
+        var control = await OpenAndClick(equipIdol: false, idol, league, oneAtATime: false);
+        var equipped = await OpenAndClick(equipIdol: true, idol, league, oneAtATime: false);
+        var singleDisplay = await OpenAndClick(equipIdol: false, idol, league, oneAtATime: true);
+        var singleDisplayWithIdol = await OpenAndClick(equipIdol: true, idol, league, oneAtATime: true);
 
         Assert.Equal((0, 6, 6, 5, true), control);
         Assert.Equal((1, 1, 1, 0, false), equipped);
+        Assert.Equal((0, 6, 1, 5, true), singleDisplay);
+        Assert.Equal((1, 1, 1, 0, false), singleDisplayWithIdol);
     }
 
     async Task<(int Limit, int Opened, int Published, int Left, bool CanUseSecond)> OpenAndClick(
-        bool equipIdol, Item idol, LeagueRuntime league)
+        bool equipIdol, Item idol, LeagueRuntime league, bool oneAtATime)
     {
         using var fixture = new TriggeredSummonTests.Fixture();
         string owner = fixture.Player.Character.Name!;
@@ -48,13 +52,25 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
         {
             Character = { Name = owner },
             Instance = new(),
-            InstanceNumber = equipIdol ? 39002u : 39001u,
+            InstanceNumber = 39001u + (equipIdol ? 1u : 0u) + (oneAtATime ? 2u : 0u),
             InstanceOwner = owner,
             LeagueModule = league,
             PlayerLife = 1000,
             Connection = { PlayerSent = true, Session = new("idol replay", fixture.Stream, fixture.Ciphers) },
         };
-        player.HideoutDoodads[60] = new("Map Device", 0, null, null, 100, 100, 0, 0);
+        const uint atzoatl = 3802575025;
+        var template = Assert.IsType<HideoutCatalog.Doodad>(Game.HideoutFurniture(player)?.Device);
+        var device = template with { X = 100, Y = 100 };
+        if (oneAtATime)
+        {
+            var variant = HideoutCatalog.DoodadByHash(atzoatl);
+            Assert.NotNull(variant);
+            device = device with { Hash = atzoatl, Type = variant.Value.Type, Model = variant.Value.Models?.FirstOrDefault(), Variation = 0 };
+        }
+        Assert.True(HideoutCatalog.IsPlaced(device));
+        Assert.Equal(oneAtATime, Game.HideoutNextPortalMs(device) is > 0);
+        player.HideoutDoodads[60] = device;
+        Assert.NotNull(Game.MapDeviceHere(player));
         CharacterSaves.SetAtlasLayout(owner, Layout);
         var items = Game.ItemsOf(player);
         if (equipIdol)
@@ -81,7 +97,7 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
             await clock.Published.Task.WaitAsync(TimeSpan.FromSeconds(10));
             KeyValuePair<uint, (int X, int Y, int Index)>[] published;
             lock (player.MapPortals) published = [.. player.MapPortals.OrderBy(pair => pair.Value.Index)];
-            Assert.Equal(run.Left.Order(), published.Select(pair => pair.Value.Index));
+            Assert.Equal(run.Left.Order().Take(oneAtATime ? 1 : run.PortalsLeft), published.Select(pair => pair.Value.Index));
             var first = published[0];
             player.Walk.Teleport(first.Value.X, first.Value.Y, Game.AreaTime(player));
             Assert.True(await GameEvents.AnyObjectUse(player,
@@ -96,7 +112,7 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
             int limit = run.Mods.Get(Stat.MapPortalLimit);
             output.WriteLine("IDOL_PORTALS " + JsonSerializer.Serialize(new
             {
-                equipIdol, limit, opened = run.PortalsLeft, published = published.Length, left, canUseSecond,
+                equipIdol, oneAtATime, limit, opened = run.PortalsLeft, published = published.Length, left, canUseSecond,
                 publishedSlots = published.Select(pair => pair.Value.Index), utc = DateTimeOffset.UtcNow,
             }));
             return (limit, run.PortalsLeft, published.Length, left, canUseSecond);
