@@ -613,9 +613,13 @@ public static partial class Game
     {
         int Total(uint stat) => ActorScale.Saturate((long)playerStat(stat) + own(stat));
         var skills = SkillsFor(player);
+        int ElementSpeed(string type, uint stat) => Total(stat) is int value and not 0 && skills.HasType(effect, type) ? value : 0;
         return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
+            + ElementSpeed("Fire", Stat.CastSpeedForFireSkillsPlusPct)
+            + ElementSpeed("Cold", Stat.CastSpeedForColdSkillsPlusPct)
+            + ElementSpeed("Lightning", Stat.CastSpeedForLightningSkillsPlusPct)
             + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0)
             + TaggedAttackAndCastSpeedPct(skills, effect, playerStat, own);
     }
