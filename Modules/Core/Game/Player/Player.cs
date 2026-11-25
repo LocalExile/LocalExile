@@ -243,6 +243,7 @@ public static partial class Game
         // returns on the zero life, so nothing else clears ChannelSkill).
         WinterOrbRetire(player);
         ClearCycloneStages(player);
+        ClearReaveStages(player);
         SnipeRetire(player);
         RetireBladeFlurry(player, player.ChannelGeneration);
         MirageWarriorsRetire(player);

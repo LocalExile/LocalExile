@@ -522,7 +522,7 @@ public static partial class Game
         if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).IsMelee(gem.Effect)
             || SkillsFor(player).IsChannelled(gem.Effect)
             || Stat(global::Stat.DisableAttackRepeats) != 0 || Stat(global::Stat.DisableSkillRepeats) != 0) return 0;
-        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep")
+        if (SkillsFor(player).EffectId(gem.Effect) is "VaalSweep" or VaalReaveEffect)
             return Math.Clamp(gem.Stats.GetValueOrDefault(global::Stat.BaseAttackRepeatCount), 0, 64);
         return Math.Clamp(global::Stat.BaseMeleeAttackRepeatCount is var key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);

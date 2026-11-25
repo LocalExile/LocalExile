@@ -2253,6 +2253,8 @@ public static partial class Game
             }
             await Task.WhenAll(jobs);
         }
+        if (SkillsFor(player).EffectId(gem.Effect) == VaalReaveEffect)
+            StartVaalReave(player, supported.Stats);
         double sealGap = seals == 0 ? 0 : (CastMs(player, gem.Effect, skillId) ?? 0) / 10000d;
         for (int release = 0; release <= Math.Max(spellRepeats, meleeRepeats) + seals; release++)
         {
@@ -2945,6 +2947,8 @@ public static partial class Game
             areaStats = new Dictionary<uint, int>(skillStats) { [SkillArea.BaseIncreased] = skillStats.GetValueOrDefault(SkillArea.BaseIncreased) + perRepeat * repeat };
         var effectId = SkillsFor(player).EffectId(gem.Effect);
         bool divineBlast = effectId is "DivineBlast" or "DivineBlastAltX";
+        bool reave = IsReave(effectId);
+        int openingReaveStages = reave && repeat == 0 ? ReaveStages(player) : 0;
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
         bool pestilentStrike = IsPestilentStrike(effectId);
@@ -3071,6 +3075,8 @@ public static partial class Game
         double frostboltMore = 1;
         bool hexblast = IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect));
         bool hexblastExpanded = false;
+        bool reaveGained = false;
+        ReaveArc? reaveArc = null;
         bool elementalHit = !spell && Stat(global::Stat.ElementalHitNoDamageOfUnchosenElementalType) != 0;
         int element = 3, elementalHitContacts = 0;
         int elementalHitPerAilment = elementalHit ? Stat(global::Stat.ElementalHitDamagePlusPctFinalPerEnemyElementalAilment) : 0;
@@ -3154,6 +3160,23 @@ public static partial class Game
                     damageMore *= slam.HitFactor;
                 }
             }
+            if (reave)
+            {
+                int stages = repeat == 0 ? openingReaveStages : ReaveStages(player);
+                var reaveStats = SkillAreaStats(player, skillStats, gem.Effect);
+                double stageMore = 1 + Stat(global::Stat.ReaveAreaOfEffectPlusPctFinalPerStage) * stages / 100d;
+                // The client scans from one body radius behind the player (FUN_141bdd210),
+                // with a 22-cell basis before gem levels and area modifiers (FUN_141bd9540).
+                radius = (int)Math.Floor(SkillArea.Radius(22, key => reaveStats.GetValueOrDefault(key),
+                    spell: false, stageMore) * radiusMore);
+                reaveArc = ReaveArea(player.Walk.Position(now), to, radius, Stat(global::Stat.ReaveRotationOnRepeat), repeat);
+                centre = reaveArc.Value.Origin;
+                if (Stat(global::Stat.SkillConvertPctPhysicalDamageToRandomElement) is int conversion and > 0)
+                {
+                    admittedGem = ReaveConversion(player, admittedGem, conversion);
+                    skillStats = admittedGem.Stats;
+                }
+            }
             double reachLimit = wave ? waveLength : radius;
             // Ice Nova of Frostbolts expands from up to N active player Frostbolt projectiles near the aimed point,
             // with its native damage multiplier, instead of only expanding once around the caster.
@@ -3175,20 +3198,24 @@ public static partial class Game
                     frostboltMore = Math.Max(0, 1 + Stat(global::Stat.IceNovaDamageWhenCastOnFrostboltPlusPctFinal) / 100.0);
                 }
             }
+            bool shapeUsesNearby = boneshatter is not null || lacerate is not null
+                || cleave is not null || reaveArc is not null || nearbyOnly;
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
                 (contactTargets is null
-                    ? (boneshatter is not null || lacerate is not null || cleave is not null || nearbyOnly
-                        ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
+                    ? (shapeUsesNearby ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
                     : contactTargets.Select(id => new KeyValuePair<uint, SpawnedMonster>(id, player.Area.Monsters.GetValueOrDefault(id)!))
                         .Where(entry => entry.Value is not null))
                 .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && (contactTargets is not null || shieldWaves is not null || lacerate is not null || cleave is not null || e.Distance <= reachLimit)
+                    && (e.Distance <= reachLimit || contactTargets is not null || shieldWaves is not null
+                        || lacerate is not null || cleave is not null || reaveArc is not null)
                     && (lacerate is null || !e.Value.WorldHidden && lacerate.Waves.Covers(lacerate.Phase, e.At, LivingCollision.Size(e.Value)))
                     && (cleave is not { } arc || !e.Value.WorldHidden
-                        && arc.Covers(e.At, e.Distance, LivingCollision.Size(e.Value)) && CleaveSight(player, c, e.At))
+                        && arc.Covers(e.At, e.Distance, LivingCollision.Size(e.Value)) && MeleeArcSight(player, c, e.At))
+                    && (reaveArc is not { } sweep || !e.Value.WorldHidden && sweep.Covers(e.At, LivingCollision.Size(e.Value))
+                        && MeleeArcSight(player, sweep.Origin, e.At))
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
@@ -3912,6 +3939,11 @@ public static partial class Game
                 if (applied is not { } hit) continue;
                 if (!wildStrike || !splashMore.ContainsKey(id)) onHit?.Invoke(id);
                 if (onDirectHit is not null && !splashMore.ContainsKey(id)) onDirectHit(id);
+                if (reave && !reaveGained && !splashMore.ContainsKey(id))
+                {
+                    reaveGained = true;
+                    GainReaveStage(player, Stat);
+                }
                 if (boneshatter is { Pulse: false } traumaStrike && !splashMore.ContainsKey(id))
                 {
                     traumaStrike.DirectHits.Add(id);

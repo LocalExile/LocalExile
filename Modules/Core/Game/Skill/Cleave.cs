@@ -34,7 +34,7 @@ public static partial class Game
             && (target.X - Origin.X) * Direction.X + (target.Y - Origin.Y) * Direction.Y >= 0;
     }
 
-    static bool CleaveSight(Player player, (int X, int Y) origin, (int X, int Y) target) =>
+    static bool MeleeArcSight(Player player, (int X, int Y) origin, (int X, int Y) target) =>
         player.Layout?.Sight is not { } sight || !ClientPathfinder.LineBelow(target, origin, sight, 1);
 
     static int CleaveRadius(Player player, int effect, IReadOnlyDictionary<uint, int> own,
@@ -50,7 +50,7 @@ public static partial class Game
                 if (monster is not { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false }) continue;
                 var position = monster.Walk.Position(now);
                 if (Dist(origin, position) > CleaveNearbyRadius + Math.Max(0, LivingCollision.Size(monster))
-                    || !CleaveSight(player, origin, position)) continue;
+                    || !MeleeArcSight(player, origin, position)) continue;
                 nearby = (int)Math.Min(CleaveNearbyBonusLimit, (long)nearby + perEnemy);
                 if (nearby == CleaveNearbyBonusLimit) break;
             }
