@@ -74,6 +74,7 @@ public sealed class MercenaryTests
             Assert.NotEqual(0, created.MercenaryBuild);
             await GameEvents.RunPlayerEntered(peer.Player);
             Assert.True(peer.Player.Npcs.ContainsKey(placed.Body));
+            Assert.Equal(Math.Clamp(met.Variety!.ObjectSize - 1, 0, 127), Game.NpcInteractionSize(peer.Player.Npcs[placed.Body]));
 
             // The press, then the panel's duel choice; the countdown runs on the area's frames.
             Assert.True(await GameEvents.AnyNpcTalk(peer.Player, placed.Body, peer.Player.Npcs[placed.Body]));
