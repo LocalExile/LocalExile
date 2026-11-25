@@ -545,4 +545,21 @@ if (OPTIONS.mimalloc && Object.keys(OPTIONS.mimalloc).length) {
   }, 20000);
 }
 
+// Lockstep simulation speedup (OPTIONS.simSpeed > 1, paired with Gateway Game_SIM_SPEED):
+// World::Update (0x14218a2a0) advances lockstep worlds only on queued S->C 0x2b7 frames, multiplying frame dt by
+// world +0x98c (natively clamped 1.0..5.0 based on queue depth). Raising the floor of +0x98c to simSpeed lets the
+// client drain queued server frames above 5x (and without the 60-frame ramp-up) while staying strictly locked to the
+// server's 0x2b7 cadence.
+if (OPTIONS.simSpeed && OPTIONS.simSpeed > 1) {
+  const worldUpdate = checked('worldUpdate', '0x14218a2a0', '48895c241848896c242056574157');
+  const simSpeed = Number(OPTIONS.simSpeed);
+  Interceptor.attach(worldUpdate, {onEnter(args) {
+    const world = args[0];
+    if (world.add(0x984).readU8() === 0) return;  // predictive mode: untouched
+    const ratePtr = world.add(0x98c);
+    if (ratePtr.readFloat() < simSpeed) ratePtr.writeFloat(simSpeed);
+  }});
+  log(`lockstep sim speed floor -> ${simSpeed}x`);
+}
+
 rpc.exports.ready = () => ({pid: Process.id, options: OPTIONS});

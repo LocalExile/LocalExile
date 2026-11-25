@@ -99,13 +99,13 @@ public sealed class AreaFrames
 
     readonly FrameContext context;
 
-    public AreaFrames(Func<Stopwatch> clock)
+    public AreaFrames(Func<SimulationClock> clock)
     {
         this.clock = clock;
         context = new(this);
     }
 
-    readonly Func<Stopwatch> clock;
+    readonly Func<SimulationClock> clock;
 
     /// <summary>One frame's costs: the step's loops run on the driver (StepMs), the wait for the ones that went on
     /// asynchronously (SettleMs), and the members' frame writes (WriteMs, Records, Bytes). RoleMs[r] is how long the loops of
@@ -444,10 +444,15 @@ public sealed class AreaFrames
 
     // ---- the driver ----
 
+    /// <summary>Wall-clock wait (ms) for <paramref name="simWaitSeconds"/> of simulation time at <paramref name="speed"/>.</summary>
+    public static double WallWaitMs(double simWaitSeconds, double speed) =>
+        simWaitSeconds <= 0 ? 0 : simWaitSeconds * 1000.0 / Math.Max(0.1, speed);
+
     async Task Drive(long generation)
     {
         double frame = Program.FrameMs / 1000d;
         var watch = clock();
+        double speed = watch.Speed;
         double next = Math.Ceiling(watch.Elapsed.TotalSeconds / frame) * frame;
         long pausedStep = 0;
         try
@@ -466,8 +471,8 @@ public sealed class AreaFrames
                         continue;
                     }
                     if (paused.Player.Connection.LockstepClient) await Pumping(Guard(paused, async () => { await EndPausedFrame(paused.Player); return true; }));
-                    await Task.Delay(Math.Max(1, Program.FrameMs / 3));
-                    if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds >= Program.FrameMs)
+                    await Task.Delay(Math.Max(1, (int)Math.Ceiling(Program.FrameMs / (3.0 * speed))));
+                    if (Stopwatch.GetElapsedTime(pausedStep).TotalMilliseconds * speed >= Program.FrameMs)
                     {
                         pausedStep = Stopwatch.GetTimestamp();
                         // Keep AreaFrames.Time pinned to the last frame boundary while paused so walkers never step
@@ -481,7 +486,17 @@ public sealed class AreaFrames
                 // Woken at the next frame end, on the Gateway's 1 ms timer (WindowsTimerResolution): a poll of a third of a
                 // frame landed just before a boundary often enough to send frames 22 and 44 ms apart.
                 double wait = next - watch.Elapsed.TotalSeconds;
-                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                if (wait > 0)
+                {
+                    if (speed == 1.0)
+                        await Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(wait * 1000)));
+                    else
+                    {
+                        double wallMs = WallWaitMs(wait, speed);
+                        if (wallMs >= 1.0) await Task.Delay(TimeSpan.FromMilliseconds(Math.Floor(wallMs)));
+                        else await Task.Yield();
+                    }
+                }
                 double now = watch.Elapsed.TotalSeconds;
                 if (now < next) continue;
                 // A frame missed by a late timer goes out now; each one ends after the loops stepped at its start ran.

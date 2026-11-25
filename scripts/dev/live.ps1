@@ -235,6 +235,10 @@ function Start-SessionLauncher([string]$session, [string]$folder, [string]$recor
     # CPU copies left uncommitted (Agents/docs/dev/headless-client.md §6).
     $arguments += if ($nullifier) { @('--renderer', 'null', '--trim-seconds', '10', '--mimalloc', 'purge_delay=0',
         '--mimalloc', 'arena_purge_mult=1', '--lazy-null-buffers', '8') } else { @('--renderer', 'configured') }
+    # Game_SIM_SPEED > 1: pair the session client's lockstep catch-up floor with the Gateway's scaled clock.
+    if ("$env:Game_SIM_SPEED".Trim() -and ([double]::TryParse("$env:Game_SIM_SPEED".Trim(), [Globalization.NumberStyles]::Float, [Globalization.CultureInfo]::InvariantCulture, [ref]$script:simSpeedVal)) -and $script:simSpeedVal -gt 1) {
+        $arguments += @('--sim-speed', "$env:Game_SIM_SPEED".Trim())
+    }
     # Game_NULLIFIER_ARGS: extra launcher options (space-separated, no spaces inside one), e.g. a diagnostic --probe.
     if ("$env:Game_NULLIFIER_ARGS".Trim()) { $arguments += @("$env:Game_NULLIFIER_ARGS".Trim() -split '\s+') }
     $log = Join-Path $out "nullifier-$session.log"; $err = Join-Path $out "nullifier-$session.err"

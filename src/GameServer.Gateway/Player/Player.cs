@@ -903,8 +903,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     /// <summary>Optional return area WorldAreas HASH16 emitted in S→C 0x1d (flags byte 0 bit 0x08), set by a module during AreaHeader.</summary>
     public ushort? ReturnAreaHash;
     /// <summary>The instance's game time (InstanceWorld.Clock), shared with everyone in it.</summary>
-    public System.Diagnostics.Stopwatch Clock => Instance?.World.Clock ?? ownClock;
-    readonly System.Diagnostics.Stopwatch ownClock = System.Diagnostics.Stopwatch.StartNew();
+    public SimulationClock Clock => Instance?.World.Clock ?? ownClock;
+    readonly SimulationClock ownClock = SimulationClock.StartNew();
     // The Escape menu's pause (C→S 0x1d4) stops the Clock: walks, cooldowns and flask effects stand still meanwhile.
     public bool Paused => !Clock.IsRunning;
     // A module-owned pause (the Survivors reward window) that must survive the client's own C→S 0x1d4 unpause: while
@@ -1045,7 +1045,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double ClockAt(long timestamp)
     {
         double now = Clock.Elapsed.TotalSeconds;
-        double at = timestamp == 0 || Paused ? now : Math.Max(0, now - System.Diagnostics.Stopwatch.GetElapsedTime(timestamp).TotalSeconds);
+        double at = timestamp == 0 || Paused ? now : Math.Max(0, now - System.Diagnostics.Stopwatch.GetElapsedTime(timestamp).TotalSeconds * Clock.Speed);
         // A buffered input cannot rewrite motion in history already consumed by projectile collision.
         return Math.Max(at, ProjectileRuntimeState?.NowTicks / 120000d ?? 0);
     }

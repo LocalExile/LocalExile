@@ -43,7 +43,7 @@ public static class LesserShrines
     sealed class State
     {
         public readonly LesserShrineTrigger Trigger = new();
-        public Stopwatch? Clock;
+        public SimulationClock? Clock;
         public ItemCatalog? CachedCatalog;
         public SkillCatalog? CachedSkills;
         public (uint Id, Item Item)[]? CachedActiveItems;

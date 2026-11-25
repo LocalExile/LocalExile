@@ -21,7 +21,7 @@ public sealed class InstanceWorld
 
     /// <summary>The instance's game time: walks, cooldowns and timers of everyone in it. Pausing stops it, so a connection
     /// pauses only when it is alone here (Connection.SetPaused).</summary>
-    public readonly System.Diagnostics.Stopwatch Clock = System.Diagnostics.Stopwatch.StartNew();
+    public readonly SimulationClock Clock = SimulationClock.StartNew();
 
     /// <summary>The instance's frames: one driver ends every connection's frames and steps every connection's loops on the
     /// Clock's grid, while someone is here (AreaFrames).</summary>
