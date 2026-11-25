@@ -26,8 +26,8 @@ static partial class Game
             if (!player.Paused && AreaTime(player) >= release)
             {
                 if (effect == "SignalPrey") return SignalPreyLocked(player, source, gem, aim, target, release);
-                if (recall) RecallMinionsLocked(player, gem, release);
-                else StartOfferingLocked(player, source, gem, effect!, aim, target, release);
+                if (!recall) return StartOfferingLocked(player, source, gem, effect!, aim, target, release);
+                RecallMinionsLocked(player, gem, release);
                 return true;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
