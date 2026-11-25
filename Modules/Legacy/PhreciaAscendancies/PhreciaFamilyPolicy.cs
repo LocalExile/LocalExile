@@ -33,7 +33,22 @@ internal sealed class PhreciaFamilyPolicy : IAscendancyFamilyPolicy
     static readonly IReadOnlyDictionary<uint, int> GraphSelector =
         new Dictionary<uint, int> { [21146] = 1 }.ToFrozenDictionary();
 
-    public AscendancyFamily Family => AscendancyFamily.Phrecia;
+    /// <summary>The family: its name is what a save keeps.</summary>
+    internal static readonly AscendancyFamily Phrecia = AscendancyFamilies.Named("Phrecia");
+    /// <summary>The family's passive graph in passive_graphs, and the Ascendancy column with its classes' names.</summary>
+    const string GraphName = "phrecia", NameColumn = "LeagueName";
+
+    public AscendancyFamily Family => Phrecia;
+
+    public AscendancyTree Tree { get; } = LoadTree();
+
+    static AscendancyTree LoadTree()
+    {
+        if (!PassiveGraphs.Available || PassiveGraphs.Graph(GraphName) is null
+            || !new[] { "Characters", "Ascendancy", "PassiveSkills" }.All(GameServer.Core.ClientTables.Has)) return new([], []);
+        var links = PassiveGraphs.Links(GraphName);
+        return new(AscendancyCatalog.Build(Phrecia, NameColumn, links), links);
+    }
 
     // Choice listing must not open the archive or start a decoder. Installed bytes are checked only on admission.
     public bool Supports(AscendancyIdentity identity) => Find(identity) is { Enabled: true };

@@ -1432,8 +1432,7 @@ public static partial class Game
     {
         if (!string.IsNullOrEmpty(ascendancyId) && Ascendancies is { } catalog)
         {
-            AscendancyFamily? family = Enum.TryParse<AscendancyFamily>(ascendancyFamily, ignoreCase: true, out var parsed)
-                && Enum.IsDefined(parsed) ? parsed : null;
+            AscendancyFamily? family = string.IsNullOrEmpty(ascendancyFamily) ? null : AscendancyFamilies.Named(ascendancyFamily);
             if (catalog.Definitions.FirstOrDefault(d => d.BaseClass == (byte)baseClass
                 && (family is null || d.Identity.Family == family)
                 && d.Identity.Id.Equals(ascendancyId, StringComparison.OrdinalIgnoreCase)) is { } asc)

@@ -20,7 +20,12 @@ public sealed class OrdinaryPassiveRules
     sealed record Node(bool IsAscendancy, bool IsMastery, bool RequiresExpansion,
         IReadOnlyList<byte> Starts, byte? GrantedStart);
     sealed record Data(IReadOnlyDictionary<ushort, Node> Nodes, IReadOnlyDictionary<byte, ushort> Starts,
-        IReadOnlyDictionary<AscendancyFamily, Dictionary<ushort, HashSet<ushort>>> Graphs);
+        Dictionary<ushort, HashSet<ushort>> Graph)
+    {
+        /// <summary>The family's passive graph: the ordinary one, or the one its loaded module supplies.</summary>
+        public bool TryGraph(AscendancyFamily family, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Dictionary<ushort, HashSet<ushort>>? graph) =>
+            (graph = family == AscendancyFamily.Normal ? Graph : AscendancyPolicies.Tree(family)?.Links) is not null;
+    }
 
     readonly Data? _data;
 
@@ -30,7 +35,7 @@ public sealed class OrdinaryPassiveRules
     /// <summary>The direct neighbours of an ordinary passive in the selected client graph, for tattoo adjacency
     /// requirements such as the Makanga tattoos' <c>RequiresAdjacent</c>/<c>MaxAdjacent</c>.</summary>
     public IReadOnlyCollection<ushort> Adjacent(ushort node, AscendancyFamily family) =>
-        _data is { } data && data.Graphs.TryGetValue(family, out var graph) && graph.TryGetValue(node, out var set)
+        _data is { } data && data.TryGraph(family, out var graph) && graph.TryGetValue(node, out var set)
             ? set : [];
 
     /// <summary>The unallocated ordinary passives next to the class start or an allocated passive, ascending: what one more
@@ -38,7 +43,7 @@ public sealed class OrdinaryPassiveRules
     /// starts, ascendancy, mastery and expansion nodes are not offered.</summary>
     public IReadOnlyList<ushort> Frontier(byte baseClass, AscendancyFamily family, IReadOnlyCollection<ushort> allocated)
     {
-        if (_data is not { } data || !data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
+        if (_data is not { } data || !data.TryGraph(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start)
             || !graph.ContainsKey(start)) return [];
         var have = allocated.ToHashSet();
         var result = new SortedSet<ushort>();
@@ -68,7 +73,7 @@ public sealed class OrdinaryPassiveRules
         if (requested.Length == 0) return;
         var data = _data ?? throw new AscendancyRuleException(
             "Passive graph data is missing; run scripts/dev/extract-data.ps1");
-        if (!data.Graphs.TryGetValue(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
+        if (!data.TryGraph(family, out var graph) || !data.Starts.TryGetValue(baseClass, out ushort start) ||
             !graph.ContainsKey(start))
             throw new AscendancyRuleException($"No ordinary passive start for class {baseClass} in the {family} client graph");
 
@@ -139,7 +144,7 @@ public sealed class OrdinaryPassiveRules
         const string passivePath = "PassiveSkills";
         if (!PassiveGraphs.Available || !new[] { passivePath, "Characters", "Stats" }.All(ClientTables.Has)) return null;
         PassiveGraphs.RequireRevision(AscendancyCatalog.Revision, "passive");
-        var links = Enum.GetValues<AscendancyFamily>().ToDictionary(f => f, PassiveGraphs.Links);
+        var links = PassiveGraphs.Links(AscendancyCatalog.NormalGraph);
         byte[] classes = ClientTables.Table("Characters")
             .Select(r => checked((byte)r.Int("IntegerId"))).ToArray();
         int grantStat = Array.FindIndex(ClientTables.Table("Stats").ToArray(),

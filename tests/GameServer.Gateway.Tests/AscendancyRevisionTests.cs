@@ -5,7 +5,7 @@ public sealed class AscendancyRevisionTests
     {
         Assert.Equal("3.29.3c", AscendancyCatalog.Revision);
         Assert.False(AscendancyCatalog.IsKnownRevision("future"));
-        var saved = new AscendancyIdentity(AscendancyFamily.Phrecia, "Gladiator", "3.29.3b");
+        var saved = new AscendancyIdentity(AscendancyFamilies.Named("Phrecia"), "Gladiator", "3.29.3b");
         var current = saved with { Revision = "3.29.3c" };
         Assert.True(AscendancyCatalog.SameChoice(saved, current));
         Assert.False(AscendancyCatalog.SameChoice(saved, current with { Id = "Chieftain" }));
