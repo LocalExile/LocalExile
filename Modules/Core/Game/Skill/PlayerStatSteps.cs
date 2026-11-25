@@ -253,11 +253,7 @@ public static partial class Game
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
         });
         Step(PlayerStatStep.VaalPrevention, (player, stats, _) => WithVaalPrevention(player, stats));
-        Step(PlayerStatStep.VaalAura, (player, stats, _) =>
-        {
-            WithVaalAura(player, stats);
-            WithTemporaryAuraStats(player, stats);
-        });
+        Step(PlayerStatStep.VaalAura, (player, stats, _) => WithTemporaryAuraStats(player, stats));
         Step(PlayerStatStep.SpiritLeadership, (player, stats, _) => AddSpiritLeadershipStats(player, stats));
         Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
         Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
