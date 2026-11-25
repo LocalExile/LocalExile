@@ -204,6 +204,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 - The twelve Harbinger uniques: the Harbinger's own skill is used for the wearer on its cooldown while the item is
   worn (Arcane Surge, action speed, the Focus, Directions and Brutality buffs with their icons, Storms' chill and
   shock arcs). The Harbinger itself is not made and the hand-cast skill does nothing. Offline tests only.
+- Damage returned to attackers: "Reflects # Damage to Melee Attackers", "Reflects # Damage to Attackers on Block" and
+  "#% of Melee Physical Damage taken reflected to Attacker" (Bramblejack, Wall of Brambles, The Anvil, The Blood
+  Thorn, Veil of the Night; the map modifier for players too). The monster mitigates it; it is not a hit of the
+  character's. Queen of the Forest's movement speed per evasion and Razor of the Seventh Sun's melee physical damage
+  against ignited enemies. Offline tests only.
 - Keystones from items and cluster jewels: Inner Conviction (3% more Spell Damage per Power Charge, Power Charges
   instead of Frenzy Charges) and Kineticism (attack projectiles always bleed, maim and knock back; projectiles cannot
   pierce, fork or chain). Prospero's Protection's doubled shield armour; Maligaro's Virtuosity's 300% multiplier on

@@ -1458,6 +1458,11 @@ public static partial class Game
                 Ward = (uint)Math.Min(uint.MaxValue, Scale(pools.Ward)),
             };
         }
+        // "1% increased Movement Speed per # Evasion Rating, up to 75%" (Queen of the Forest): from the finished evasion
+        // rating, so it is added here and not with the other increases (a slow's "less" does not scale this part).
+        if (EquipmentInput(Stat.MovementVelocityPlus1PctPerXEvasionRating) is int perEvasion and > 0
+            && pools.MovementVelocityPct > -100 && EquipmentInput(Stat.MovementSpeedIsPctOfBase) <= 0)
+            pools = pools with { MovementVelocityPct = pools.MovementVelocityPct + (int)Math.Min(75, pools.Evasion / perEvasion) };
         int shieldEqualsLife = EquipmentInput(Stat.MaximumEnergyShieldIsXPctOfMaximumLife);
         if (!bonus.NoEnergyShield && shieldEqualsLife > 0)
             pools = pools with { EnergyShield = (uint)Math.Min(int.MaxValue, (long)pools.Life * shieldEqualsLife / 100) };

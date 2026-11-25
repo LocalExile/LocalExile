@@ -10,7 +10,10 @@ public static partial class Game
 
     const uint FireVsBleeding = Stat.FireDamagePlusPctVsBleedingEnemies;
 
+    // "#% increased Melee Physical Damage against Ignited Enemies" (Razor of the Seventh Sun).
+    const uint MeleePhysicalVsIgnited = Stat.MeleePhysicalDamagePlusPctVsIgnitedEnemies;
     static bool HasTypedTargetDamage(Func<uint, int> get) => get(PhysicalVsIgnited) != 0 || get(FireVsBleeding) != 0
+        || get(MeleePhysicalVsIgnited) != 0
         || get(DamageVsLowLifePerFrenzy) != 0
         || get(Stat.TinctureApplied) != 0 && get(TinctureDamageVsLowLife) != 0;
 
@@ -198,10 +201,13 @@ public static partial class Game
         bool attack = true) =>
         ActorScale.Saturate((long)get(name) + (name == Stat.PhysicalDamagePlusPct && ignited ? get(PhysicalVsIgnited) : 0)
             + (name == Stat.FireDamagePlusPct && bleeding ? get(FireVsBleeding) : 0)
+            + (name == Stat.MeleePhysicalDamagePlusPct && ignited ? get(MeleePhysicalVsIgnited) : 0)
             + (name == Stat.DamagePlusPct && lowLife
                 ? (long)Math.Max(0, get(Stat.CurrentFrenzyCharges)) * get(DamageVsLowLifePerFrenzy)
                     + (attack && get(Stat.TinctureApplied) != 0 ? get(TinctureDamageVsLowLife) : 0)
                 : 0));
+
+    static readonly uint[] TypedTargetNames = [Stat.PhysicalDamagePlusPct, Stat.FireDamagePlusPct, Stat.DamagePlusPct, Stat.MeleePhysicalDamagePlusPct];
 
     static IReadOnlyDictionary<uint, int> TypedTargetDamageStats(IReadOnlyDictionary<uint, int> stats,
         bool ignited, bool bleeding, bool lowLife = false, bool attack = true)
@@ -209,7 +215,7 @@ public static partial class Game
         int Get(uint name) => GolemStat(stats, name);
         if (!HasTypedTargetDamage(Get) || !ignited && !bleeding && !lowLife) return stats;
         var result = new Dictionary<uint, int>(stats);
-        foreach (uint name in new[] { Stat.PhysicalDamagePlusPct, Stat.FireDamagePlusPct, Stat.DamagePlusPct })
+        foreach (uint name in TypedTargetNames)
             result[name] = TypedTargetDamageStat(Get, name, ignited, bleeding, lowLife, attack);
         return result;
     }
