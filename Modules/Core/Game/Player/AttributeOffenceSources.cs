@@ -31,7 +31,6 @@ public static class AttributeOffenceSources
     [
         (Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Dex, Stat.NumberOfAdditionalMinesToPlace, 1, 800),
         (Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Int, Stat.NumberOfAdditionalMinesToPlace, 2, 800),
-        (Stat.PoisonDamagePlusPctWithOver300Dexterity, Stat.BasePoisonDamagePlusPct, 1, 300),
         (Stat.ResistAllElementsPctWith200OrMoreStrength, Stat.BaseResistAllElementsPct, 0, 200),
         (Stat.CriticalStrikeChancePlusPctWithAtLeast200Int, Stat.CriticalStrikeChancePlusPct, 2, 200),
     ];

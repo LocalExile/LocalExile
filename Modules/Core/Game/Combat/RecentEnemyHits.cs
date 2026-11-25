@@ -34,8 +34,14 @@ public static partial class Game
         // The caller captures membership before ALL stat readers, which may prune a later clock boundary.
         int Get(uint key) => stats.GetValueOrDefault(key);
         int chance = RecentEnemyHits.Chance(priorContacts, Get(RecentEnemyHits.PerHit), Get(RecentEnemyHits.GenericChance));
-        return RecentEnemyHits.Resolve(player.Pools.Armour, chance, relevant, player.IncomingHitRandom);
+        int armour = HitArmour(player, player.Pools.Armour, stats);
+        return RecentEnemyHits.Resolve(armour, chance, relevant, player.IncomingHitRandom);
     }
+
+    static int HitArmour(Player player, int ordinary, IReadOnlyDictionary<uint, int> stats)
+        => stats.GetValueOrDefault(Stat.KeystoneVoranasAdaption) == 0 ? ordinary : WardDefenceRating(player);
+
+    static int WardDefenceRating(Player player) => ActorScale.Saturate(2L * player.Pools.Ward);
 
     // A stat presentation (the RecentHits step times the expiry). Sample inside the shared send gate, including when
     // a queued refresh crosses a contact, death, modifier change or exact expiry boundary.

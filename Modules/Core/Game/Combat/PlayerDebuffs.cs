@@ -57,6 +57,9 @@ public static partial class Game
         return ReferenceEquals(set.Area, player.Layout) && set.Active.Any(d => d.Row == row && d.Until > now);
     }
 
+    static readonly IReadOnlyDictionary<ushort, KeyValuePair<string, CurseCatalog.Definition>> PlayerCurseRows =
+        CurseCatalog.All.GroupBy(curse => curse.Value.Buff).ToDictionary(group => group.Key, group => group.First());
+
     static async Task ApplyPlayerDebuff(Player player, ushort row, uint caster, IReadOnlyDictionary<uint, int> stats,
         double seconds, object? holder)
     {
@@ -64,9 +67,11 @@ public static partial class Game
         if (row == MaimedBuffRow && PlayerAvoidsMaim(PlayerStatValues(player).GetValueOrDefault, AreaRng(player)))
             return;
         double now = AreaTime(player);
-        if (holder is null && row != 0 && caster != 0
-            && PlayerStat(player, Stat.ReflectHexesChancePct) is int reflectChance and > 0
-            && CurseCatalog.All.FirstOrDefault(kv => !kv.Value.Mark && kv.Value.Buff == row) is { Key: { } hexEffect }
+        bool curse = PlayerCurseRows.TryGetValue(row, out var definition);
+        bool exposure = Array.IndexOf(ExposureBuffRows, row) >= 0;
+        var defence = curse || exposure ? PlayerStatValues(player) : null;
+        if (holder is null && caster != 0 && curse && !definition.Value.Mark && defence is not null
+            && defence.GetValueOrDefault(Stat.ReflectHexesChancePct) is > 0 and var reflectChance
             && RandomRolls.Chance(reflectChance, 100, AreaRng(player)))
         {
             var reflected = new Dictionary<uint, int>(stats);
@@ -77,11 +82,14 @@ public static partial class Game
                 if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Layout, layout)) return;
                 if (area.Monsters.TryGetValue(caster, out var casterMonster)
                     && casterMonster is { Dead: false, Life: > 0, Hostile: true })
-                    ApplyCurseDataLocked(player, casterMonster, 0, hexEffect, reflected, AreaTime(player), false, CharacterPlayerStats(player));
+                    ApplyCurseDataLocked(player, casterMonster, 0, definition.Key, reflected, AreaTime(player), false, CharacterPlayerStats(player));
             }
             if (player.Frames.Running) InArea(player, Reflect);
             else Reflect(player.Area);
         }
+        if (defence is not null && (exposure && defence.GetValueOrDefault(Stat.ImmuneToExposure) != 0
+            || curse && (CurseImmunity(defence.GetValueOrDefault) || player.FlaskGrounds.CurseImmune || WitchbaneImmunityActive(player, now))))
+            return;
         var set = DebuffsOf.GetValue(player, _ => new());
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
@@ -122,22 +130,48 @@ public static partial class Game
         await RefreshDebuffedPlayer(player);
     }
 
+    sealed record ChannelCurseRemoval(int Generation, double At);
+    static readonly Store<Player, ChannelCurseRemoval> ChannelCurseRemovals = new();
+
+    static void ArmChannelCurseRemoval(Player player, int generation, double now)
+    {
+        ChannelCurseRemovals.Remove(player);
+        if (CombatLifetime is { IsActive: true }
+            && PlayerStatValues(player).GetValueOrDefault(Stat.RemoveXCursesAfterChannellingFor2Seconds) > 0)
+            ChannelCurseRemovals.Add(player, new(generation, now + 2));
+    }
+
+    static int DueChannelCurseRemoval(Player player, double now)
+    {
+        if (!ChannelCurseRemovals.TryGetValue(player, out var removal) || now < removal.At) return 0;
+        ChannelCurseRemovals.Remove(player);
+        return player.PaidChannel is { } payment && payment.Generation == removal.Generation && PaidChannelCurrent(player, payment)
+            ? PlayerStatValues(player).GetValueOrDefault(Stat.RemoveXCursesAfterChannellingFor2Seconds) : 0;
+    }
+
     /// <summary>Each AI step: the debuffs whose time is up end; after an area change the old area's are dropped (the new
     /// instance has none of their looks to remove).</summary>
     static async Task PlayerDebuffsTick(Player player)
     {
-        if (!DebuffsOf.TryGetValue(player, out var set)) return;
-        List<PlayerDebuff> gone = [];
-        bool areaChanged;
-        if (set.Active.Count == 0) return;
-        areaChanged = !ReferenceEquals(set.Area, player.Layout);
         double now = AreaTime(player);
+        int removeCurses = DueChannelCurseRemoval(player, now);
+        if (!DebuffsOf.TryGetValue(player, out var set) || set.Active.Count == 0) return;
+        List<PlayerDebuff> gone = [];
+        bool areaChanged = !ReferenceEquals(set.Area, player.Layout);
         foreach (var d in set.Active.Where(d => areaChanged || d.Until <= now).ToArray())
         {
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
         }
         if (areaChanged) set.Area = player.Layout;
+        else if (removeCurses > 0)
+        {
+            // Persistent sources keep their own conditions; this dispels applied, timed curses.
+            PlayerDebuff[] curses = [.. set.Active.Where(debuff => debuff.Holder is null && PlayerCurseRows.ContainsKey(debuff.Row))
+                .Take(removeCurses)];
+            foreach (var curse in curses) set.Active.Remove(curse);
+            gone.AddRange(curses);
+        }
         // The resistances the degeneration is less of can change with anything else the player has.
         player.Degens[set] = DebuffDegenLocked(player);
         if (gone.Count == 0 && !areaChanged) return;

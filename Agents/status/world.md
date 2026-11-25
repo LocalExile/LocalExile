@@ -7,7 +7,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Map entry and re-entry report the level of the instance to the client.
 
-- Rotting Core: organ portals, Black Heart and the blood passage to Lilly work ([Act 9](../docs/game/campaign/act9.md)).
+- Rotting Core: organ portals and Black Heart work; the blood passage brings players and shared arena loot to Lilly
+  ([Act 9](../docs/game/campaign/act9.md)).
 - Instance connection: opening, encryption switch (0x11), framing, dispatcher.
   Code: `GameServer.Gateway`, `GameServer.Core/Protocol/Instance`.
   Docs: [02](../docs/protocol/02-instance-connection.md).
@@ -380,6 +381,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   skills beyond attacks (Discharge, tar, death novas) and the room exits (a run) are not built.
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
+
+- Breach: maps roll Unstable Breaches; a touch opens the arena and the wave. Hive, boss and rewards are pending.
 
 ## Not working yet
 

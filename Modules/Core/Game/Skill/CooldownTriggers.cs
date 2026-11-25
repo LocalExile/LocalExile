@@ -187,7 +187,7 @@ public static partial class Game
         ushort skillId, SupportedGem gem, double now)
     {
         if (CooldownForSkill(player, skillId) is not { } cooldown
-            || (TriggerGuardSpell(player, gem) && !TriggerGuardReady(player, now))
+            || (TriggerGuardSpell(player, gem) && !GuardAvailableForTrigger(player, now))
             || GemSkillInstanceDisabled(player, gem.Effect, skillId, triggered: true) is not null
             || now < LinkedTriggersOf(player).ReadyAt.GetValueOrDefault(gem.Effect)) return;
         int epoch = player.ProjectileEpoch;

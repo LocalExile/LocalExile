@@ -23,6 +23,17 @@ public static partial class Game
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IReadOnlyDictionary<uint, int>, MapMods> MapModsByStats = new();
 
+    const ushort MarkedForDeathBuffRow = 2431;
+    static readonly IReadOnlyDictionary<uint, int> MarkedForDeathStats =
+        new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 50 };
+
+    static int MapDeathMarkDuration(Player player, SpawnedMonster monster) =>
+        monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique
+            ? MapModsOf(player)?.Get(Stat.MapPlayerDeathMarkOnRareUniqueKillMs) ?? 0 : 0;
+
+    static Task ApplyMapDeathMarkOnKill(Player player, int milliseconds) =>
+        AddPlayerDebuff(player, MarkedForDeathBuffRow, player.Id, MarkedForDeathStats, milliseconds / 1000d);
+
     static void AddMapMinionActionStats(MapMods? map, Dictionary<uint, int> stats)
     {
         if (map is null) return;
@@ -106,13 +117,21 @@ public static partial class Game
         if (mods.Get(Stat.MapMonsterActionSpeedCannotBeReducedBelowBase) != 0)
             extra[Stat.ActionSpeedCannotBeReducedBelowBase] = 1;
         Gain(Stat.MapMonsterDebuffTimePassedPlusPct, Stat.DebuffTimePassedPlusPct);
+        Gain(Stat.MapMonstersAddFrenzyChargeOnHitPct, Stat.AddFrenzyChargeOnSkillHitPct);
+        Gain(Stat.MapMonstersAddPowerChargeOnHitPct, Stat.AddPowerChargeOnSkillHitPct);
+        Gain(Stat.MapMonsterChanceToGainEnduranceChargeWhenHitPct, Stat.ChanceToGainEnduranceChargeWhenHitPct);
+        Gain(Stat.MapMonsterMaximumEnduranceCharges, Stat.MapMonsterMaximumEnduranceCharges);
+        Gain(Stat.MapMonsterMaximumFrenzyCharges, Stat.MapMonsterMaximumFrenzyCharges);
+        Gain(Stat.MapMonsterMaximumPowerCharges, Stat.MapMonsterMaximumPowerCharges);
         Gain(Stat.MapMonstersAdditionalPhysicalDamageReduction, Stat.BaseAdditionalPhysicalDamageReductionPct);
+        Gain(Stat.MapMonstersMaximumLifePctToAddToMaximumEnergyShield, Stat.MaximumLifePctToAddAsMaximumEnergyShield);
         Gain(Stat.MapMonstersBaseBlockPct, Stat.MonsterBaseBlockPct);
         Gain(Stat.MapMonstersAdditionalElementalResistance, Stat.BaseResistAllElementsPct);
         Gain(Stat.MapMonstersAdditionalChaosResistance, Stat.BaseChaosDamageResistancePct);
         Gain(Stat.MapMonstersSpellSuppressionChancePct, Stat.BaseSpellSuppressionChancePct);
         if (mods.Get(Stat.MapMonstersAreHexproof) != 0)
             extra[Stat.Hexproof] = 1;
+        Gain(Stat.MapMonsterCurseEffectOnSelfPlusPct, Stat.CurseEffectOnSelfPlusPct);
         Gain(Stat.MapMonstersCurseEffectOnSelfPlusPctFinal, Stat.MapMonstersCurseEffectOnSelfPlusPctFinal);
         Gain(Stat.MapMonstersChanceToBlindOnHitPct, Stat.GlobalChanceToBlindOnHitPct);
         Gain(Stat.MapMonstersCriticalStrikeChancePlusPct, Stat.CriticalStrikeChancePlusPct);
@@ -127,8 +146,16 @@ public static partial class Game
         if (mods.Get(Stat.MapMonstersPoisonOnHit) != 0)
             extra[Stat.BaseChanceToPoisonOnHitPct] =
                 extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
+        Gain(Stat.MapMonstersChanceToImpalePct, Stat.MapMonstersChanceToImpalePct);
+        Gain(Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs, Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs);
         Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
         Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToIgnitePct);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToFreezePct);
+        Gain(Stat.MapMonstersPctChanceToInflictStatusAilments, Stat.BaseChanceToShockPct);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanIgnite);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanFreeze);
+        Gain(Stat.MapMonsterAllDamageCanIgniteFreezeShock, Stat.AllDamageCanShock);
         // The pairs the fx tables add (area modifiers no code read before), while the effect rules are on.
         if (EffectRules.Enabled)
             foreach (var (map, monster, scale) in TableMonsterPairs())

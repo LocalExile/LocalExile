@@ -173,6 +173,7 @@ public static partial class Game
             {
                 if (!PlayerActionCurrent(player, action)) return;
                 player.Walk.Teleport(tx, ty, ProjectileWorldTime(player));
+                ShakariEncounter.RememberGateCheckpoint(player, transition, (tx, ty));
             }
             await SendTransitionFade(player, (tx, ty), $"the gate 0x{use.TargetId:x}");
             if (await SendWorldRecord(player, player.Id, () => InstanceProtocol.Teleport(player.Id, tx, ty),
@@ -471,6 +472,8 @@ public static partial class Game
         string[] endgame;
         endgame = [.. Quests.EndgameOnly.Where(player.Character.UnearnedQuestFlags.Contains)];
         if (endgame.Length > 0 && (inHideout || MapDevices.IsMapArea(player.Layout.Hash))) own.UnionWith(endgame);
+        // What a module grants for this area alone (GameEvents.AreaQuestFlags): the client has it while it is here.
+        if (GameEvents.RunAreaQuestFlags(player) is { } granted) own.UnionWith(granted);
         lock (player.Character.Waypoints)
             return [.. WaypointCatalog.Areas.Entries.Where(e => player.Character.Waypoints.Contains(e.Id)).SelectMany(e => e.AccessFlags ?? [])
                 .Concat(player.Character.Visited.Concat(player.Character.Waypoints).SelectMany(id => WaypointCatalog.Visits.For(id)))
@@ -619,7 +622,18 @@ public static partial class Game
 
     public static HideoutScene? HideoutFurniture(Player player) => player.Furniture ??=
         HideoutCatalog.ByArea(player.Layout.Hash) is { } hideout && HideoutCatalog.Default is { } fallback
-            ? HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player)) : null;
+            ? WithMapDevice(player, HideoutEditing.Apply(HideoutScene.Build(hideout, fallback, player.Layout.Walkable), SavedHideoutPlacements(player))) : null;
+
+    // The map device variant the owner placed from the Decorations panel, at the device's saved place (one saved before
+    // the server refused its type keeps the template's device).
+    static HideoutScene WithMapDevice(Player player, HideoutScene scene)
+    {
+        if (AccountMapDevice(player) is not { } d || HideoutCatalog.DoodadByHash(d.Hash) is not ({ } type, var models)
+            || !ServableMapDevice(type)) return scene;
+        string? model = models is { Length: > 0 } ? models[Math.Clamp((int)d.Variation, 0, models.Length - 1)] : null;
+        return scene with { Device = scene.Device with { Name = "Map Device", Hash = d.Hash, Type = type, Model = model,
+            Variation = d.Variation, CollisionRadius = HideoutCatalog.CollisionRadius(model) } };
+    }
 
     public static async Task SelectHideout(Player player, (int Row, bool Guild) selected)
     {

@@ -74,12 +74,19 @@ public static partial class Game
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
                 handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
+        if (Get(Stat.KeystoneLightningPurist) != 0)
+        {
+            captured = captured with { Hit = ApplyRoilingTempest(captured.Hit, Get) };
+            if (blindedCapture is not null)
+                blindedCapture = blindedCapture with { Hit = ApplyRoilingTempest(blindedCapture.Hit, Get) };
+        }
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = SupportedAttackDamage.WithWeaponGains(
             DamageStats.Conversion(character, Stats, attack: true), sourceWeapon, Get);
-        var ailmentRows = AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get);
+        var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false) { WeaponStats = sourceWeapon.LocalSources };
+        var ailmentRows = AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
-            : AilmentPanelStats.Compute(new("main_hand", Spell: false), raw, conversion, Get, additionalBlindedIncreased);
+            : AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get, additionalBlindedIncreased);
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
@@ -88,7 +95,8 @@ public static partial class Game
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
             Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
-                && !HasContactDamage(Get) && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
+                && !HasContactDamage(Get) && !HasLocalTargetDamage(sourceWeapon.LocalSources)
+                && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
                 new Dictionary<uint, int>(character), true, false, false, true, [], new HashSet<int> { 0, 2 }, 1,
                 WieldingWand: sourceWeapon.WieldingWand, Volatile: false,
@@ -103,13 +111,13 @@ public static partial class Game
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
-            Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
+            Ignite = VoraciousFlame(MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get), Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources,
                 projectileAttack: true),
             Bleed = BleedSettings(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                 projectileAttack: true),
             VsBlinded = blindedCapture is null || blindedRows is null ? null : new(blindedCapture.Hit, null,
-                MonsterIgnites.Settings.From(blindedRows, "main_hand", Get),
+                VoraciousFlame(MonsterIgnites.Settings.From(blindedRows, "main_hand", Get), Get),
                 BleedSettings(blindedRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                     projectileAttack: true),
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,

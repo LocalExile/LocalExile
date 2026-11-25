@@ -114,6 +114,7 @@ public static partial class Game
                 bool current = player.Area.Monsters.TryGetValue(minion.Id, out var held) && ReferenceEquals(held, m);
                 if (current && keep && !m.Dead && m.Life > 0 && now < minion.Until) continue;
                 player.Minions.Remove(minion.Id);
+                MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
                 if (minion.OwnerAura is { SharesWithAllies: true }) ClearSharedMinionAuras(player, minion.Id);
                 else DropZones(player, minion.Id, MinionAuraZones);
                 if (minion.OwnerBuff != 0)
@@ -265,6 +266,7 @@ public static partial class Game
                 {
                     Until = now + seconds, OwnerAura = aura, Explodes = new(element, lifePct, RelicExplosionRadius), Teleports = teleports,
                 });
+                MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
             }, ownedCurrent: () => player.PlayerLife > 0 && player.Minions.PendingRelics > 0
                 && RelicTriggerOf(player) is not null && CanHaveOtherMinions(player)
                 && DarkMonarchAllows("ElementalRelic", StatSourceValues(player)));

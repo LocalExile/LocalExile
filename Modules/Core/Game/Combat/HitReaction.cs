@@ -13,6 +13,7 @@ public readonly record struct StunHit(double Damage, int ThresholdReductionPct =
     public int DoubleDurationChance { get; init; }
     public int FinalDurationPct { get; init; }
     public Action? OnStun { get; init; }
+    public Action<double>? OnStunDuration { get; init; }
 }
 
 /// <summary>
@@ -77,6 +78,7 @@ public static class HitReaction
         }
         double seconds = Seconds(hit, m);
         if (RandomRolls.Chance(hit.DoubleDurationChance, 100, random)) seconds *= 2;
+        hit.OnStunDuration?.Invoke(seconds);
         double nextUntil = now + seconds;
         // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,
         // rather than silently dropping consecutive hit reactions while the monster is still recovering.

@@ -31,6 +31,7 @@ or `Next(100)` below it.
 The level generator rolls only the mechanics that change the terrain (shrines, Legion, Blight, Breach, Harvest, Settlers:
 [re/011](../re/011-level-generation.md) §3b). The others are the official server's, which is taken to use the same
 function. Ours rolls them with its own generator after the packs (`AreaPopulated`), so a kept instance keeps what it rolled.
+The Legion encounter that follows the Legion roll is in [Legion](legion.md).
 
 Campaign and map defaults: Anarchy 5%, Torment 30% (then 12%), Essence 13% (then 10%), Ambush (strongboxes) 51% (then
 18%), shrines 20% (then 10%). Maps: Torment 24/16, Essence 10/8, Ambush 43/12, shrines 16/8. The Twilight Strand and The
@@ -60,5 +61,37 @@ data. Cremation's geyser (CorpseErruption, 3.29.3c 0x141adbae0) drops each proje
 of 10 to twice the skill's radius from the geyser; it does not aim at anyone. Its projectile is a child action's
 (vtable +0x540, 0x141310400), the `...Gore` row when `monster_projectile_variation` is set; the base row is unresolved.
 
+## Abyss
+
+From two official captures (a level 61 and a level 45 area, 72 crack creates). The pieces stand on a lattice of 125 world
+units (11.5 cells; a cell is 250/23 units): the pit (`AbyssFinalNodeBase`) and each crack (`AbyssCrack`) carry the lattice
+point in world units in Positioned (flag 0x40) and their MiscAnimated shape row in Animated (0x03 + u32). The client's
+pieces were created one by one as the player walked up, at about 250 cells. An arm's first piece is two steps from the pit;
+the pit's shape (`AbyssPitOne/Two/Three...`) names the directions its arms leave in. A crack is created open (Transitionable
+8 with the 0x80 first-sight bit) and closes 9, 10, 11 one step every 16 frames from its far end; the pit is created closed
+(1), opens (2) once the arms are closed and their 25 monsters dead, and is done (4) after the wave of 10-12. The plinth's two
+properties (`0x40f0fc9c`, `0x7700c879`) carry the pit's id; the reward chest (`LeagueAbyss/FinalChestRareJewellery`, the
+pit's cell) carries the area level in its Chest component and is ready 91 frames on (component 6 = 1, Transitionable 2).
+Its open starts with S->C 0x1bd: chest, player, `9002`, `01 00 00`, player, then component 5 = `08 00 00 00` and
+Transitionable 3, and drops 4 items (its row's `chest_item_quantity_+%` is 300). The captures never send `0x1f` AbyssRules.
+The encounter belongs to the instance; the area's object records give a late joiner the pieces. Walking on a crack did not
+start an arm; kills of monsters created 62 to 85 cells from a piece did, one created 91 away did not.
+
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
+
+## Mercenaries (CoreLeagues row 28)
+
+A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in
+a map area, 0 in towns and the campaign's other areas). `LeagueChances.Count` returns 0 for the row (it is "not rolled"), so
+`Mercenary` reads `ChanceOf` as the Delve sulphite does and adds the map's stats: `map_mercenary_league` forces it,
+`map_disable_mercenary` and `map_disable_mercenary_from_chance` remove it, `map_mercenary_additional_chance_%` and
+`map_mercenary_chance_+%` add to and scale the chance. The stat ids are the CoreLeagues columns' stored values plus one.
+Of 221 official areas, 23 carry the Mercenaries rulesets; four of the five map ones hold exactly one mercenary, a unique
+at the area's monster level.
+
+The mercenary is the instance's. It waits friendly and scripted (team 70, `encounter_state` 1), a click opens the panel,
+the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54 frames, the friendly one is replaced by a
+hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
+mercenary is placed or a player enters. Not built: the build's own skills, the hire following and fighting for the player,
+the duel opponent's drops, and the header listing of the two rulesets.

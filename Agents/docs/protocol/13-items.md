@@ -1168,26 +1168,47 @@ foreseeing item; 0x2a0 status 0 shows the preview, any non-zero status plays `Hi
 preview/commit identity and all refusal/persistence rules are covered by the Gateway tests. See
 [the evidence](../re/hinekora-lock.md).
 
-### Vaal Orb and corruption (2026-10-21, verified live)
+### Vaal Orb and corruption (2026-10-21, verified live; 3.29 retail parity updated 2026-11-24)
 
 **Corrupted** is bit 0 of the Base component's u8 `+0xc7` (the second u8 after the visual identity): the client's
 crafting checks read it ("input_is_corrupted" at `0x141d6c4f4`, `test byte ptr [base+0xc7], 1`). `Item.Corrupted` writes
-it and is saved with the item. A corrupted item takes no currency but a Scroll of Wisdom (there is no corrupted
-currency yet), and nothing removes corruption.
+it and is saved with the item. A corrupted item takes only a Scroll of Wisdom, Tainted currency, or socket crafting
+bench recipes (at an added Vaal Orb cost); nothing removes corruption.
 
-`CurrencyCorrupt`, same handler (0x71, 0x72 with Shift). For gems, the server chooses one of four outcomes with equal
-weight: corruption alone, one level up or down, 1–10 quality up or down (bounded to 0–23), or conversion to a
-matching Vaal variant. `SkillGems.VaalVariant_BaseItemTypesKey` links the base, and the Vaal variant's second
-granted effect identifies the original skill. A conversion with no matching variant only corrupts the gem.
-Experience `-1` represents one level above the normal cap.
+`CurrencyCorrupt` (`VaalCorruption.Apply` in `Modules/Core/Game/Item/VaalCorruption.cs`), same handler (`0x71`, `0x72`
+with Shift, and Hinekora's Lock `0x29d`/`0x2a0` foresight via `CurrencyResult`). Already-corrupted, mirrored, vestigial,
+unmodifiable, unidentified (non-gem) and non-corruptible bases (including Tinctures, whose `ItemClasses.CanBeCorrupted`
+is 0) are refused before spending. `CurrencyMoreCorrupt` and `CurrencyIncursionCorrupt1` remain separate via
+`CurrencyEffects.TryAction`.
 
-For equipment, `ItemRolls.Vaal` uses a local outcome table for a modifiable weapon, armour piece or jewellery
-(ring, amulet, belt) that is neither unique, corrupted nor mirrored.
-A normal or magic item becomes rare with 4-6 new affixes and a rare name. A rare item has 1, 2, 3 or 4 random affixes
-replaced (20% each), 5 (10%) or all of them rerolled (10%: 4-6, new name) (`ItemRolls.ReplaceAffixes`: the replaced
-ones come back through `AddAffix`, at most three of each kind, so the count stays).
-Unknown/unsupported or `Unmodifiable` bases and empty pools are refused before spending.
-Official CoE Vaal outcomes are separate work; see [the admission check and boundary](../re/vaal-coe.md).
+- **Gems** (active and support): four equal outcomes — no change, one level up or down (`-1` experience represents one
+  level over the cap), 1–10 quality up or down (clamped 0–23), or conversion to the matching Vaal variant via
+  `SkillGems.VaalVariant_BaseItemTypesKey` (keeping a transfigured base skill, level, quality and flags; no-change when
+  none exists).
+- **Equipment** (weapons, armour, shields, quivers, rings, amulets, belts, fishing rods — normal, magic, rare and
+  unique): four equal outcomes — no change; 3.29 socket colour corruption (one random white socket turns coloured;
+  fizzles to no-change when none exist, giving socketless gear an effective 50% no-change rate); a weighted
+  `GenerationType = 5` (`Domain = 1`, `Level <= ilvl <= MaxLevel`) corrupted implicit (replacing one random existing
+  implicit when Eldritch implicits are present, otherwise replacing implicits); or bricking into a 6-affix corrupted
+  rare (respecting base affix caps, preserving fractured mods, restoring base artwork and clearing unique hidden mods,
+  with freshly rolled sockets/links and a 1/36 chance for maximum sockets fully linked when no gems are socketed).
+- **Maps and MapKeys** (normal, magic, rare and unique): non-unique maps roll four equal outcomes — no change;
+  unidentified preserving existing mods (normal maps stay identified); an 8-mod corrupted rare (4 prefixes, 4 suffixes;
+  awards `CorruptMap8Mods`); or a rerolled 4–6 mod corrupted rare upgraded by +1 tier (`MapKeyTier1..15` -> `+1`,
+  `MapKeyTier16` -> `MapKeyVaalTemple` with its Vaal Vessels implicit; matching legacy `MapWorlds*` upgrades). Unique
+  maps roll no change (50%), unidentified preserving unique mods (25%), or brick to a 4–6 mod rare on the same base
+  (25%).
+- **Jewels** (standard Crimson/Viridian/Cobalt, Prismatic, Timeless, Abyss, Cluster and unique): four equal outcomes —
+  no change; a weighted `GenerationType = 5` corrupted implicit (`Domain = 10` for `Jewel` including Cluster Jewels,
+  `Domain = 13` for `AbyssJewel`, preserving Cluster enchantments); brick to a 3–4 affix corrupted rare (preserving
+  fractured mods and Cluster enchantments, rolling base Cluster enchantments if bricked from a unique Cluster Jewel);
+  or transformation into a weighted corruption-exclusive unique jewel of the same base (Crimson/Viridian/Cobalt only,
+  excluding pinnacle boss, Simulacrum, Heist and recipe uniques, awarding `CorruptToCorruptUniqueJewel`; Abyss,
+  Cluster, Prismatic and Timeless jewels fall back to no-change).
+- **Flasks** (life, mana, hybrid, utility — normal, magic and unique): corrupts the flask and shifts quality by -10% to
+  +10% (clamped 0–40%, allowing 20% flasks to reach up to 30%).
+
+See [the admission check and CoE notes](../re/vaal-coe.md).
 
 ### Eldritch Ichors and Embers (2026-10-30)
 

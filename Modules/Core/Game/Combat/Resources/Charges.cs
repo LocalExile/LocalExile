@@ -24,7 +24,15 @@ public static partial class Game
             ChargeType.Power => StatConditions.GainedPowerCharge,
             _ => StatConditions.GainedEnduranceCharge,
         }, at), () => ResourceEffectsTime(player), (from, until) => player.Walk.MovingSeconds(from, until))
-        { Ruled = stat => EffectRules.LiveFor(player, stat) });
+        {
+            Ruled = stat => EffectRules.LiveFor(player, stat),
+            OnslaughtFromFrenzy = (at, seconds) =>
+            {
+                if (player.PlayerLife == 0 || !KillOnslaughtOf(player).Gain(at, seconds)) return;
+                MarkPlayerStats(player, PlayerStatStep.Onslaught);
+                PresentStats(player);
+            }
+        });
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SkillCatalog, System.Collections.Concurrent.ConcurrentDictionary<(int Effect, int Level, int Quality), Func<uint, int>>> ChargeHitSkillStats = new();
 
@@ -288,7 +296,10 @@ public static partial class Game
         int tukohamaPerSec = Get(Stat.WhileStationaryGainAdditionalPhysicalDamageReductionPct);
         if (tukohamaPerSec > 0 && !player.Walk.Moving(now) && double.IsFinite(player.StationarySince))
             pantheonPhysical += Math.Min(9L, (long)Math.Min(3, (int)Math.Floor(Math.Max(0, now - player.StationarySince))) * tukohamaPerSec);
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction + pantheonPhysical), reduction.Elemental);
+        int leechReduction = Get(Stat.KeystoneStrengthOfBlood) != 0
+            ? LeechOf(player).StrengthOfBloodReduction(ProjectileWorldTime(player)) : 0;
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)
+            + minionReduction + pantheonPhysical + leechReduction), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through
@@ -320,17 +331,24 @@ public static partial class Game
     // and the increased damage taken with the shock's. Fortification is the caller's, so a hit with several parts can
     // apply it once to its totals as a monster's hit does.
     public static int TakenAfterResistance(Player player, DamageType type, int resisted, int effectiveArmour,
-        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell)
+        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell) =>
+        TakenAfterResistance(player, type, resisted, effectiveArmour, stats, attack, ranged, spell, additionalIncreased: 0);
+
+    static int TakenAfterResistance(Player player, DamageType type, int resisted, int effectiveArmour,
+        IReadOnlyDictionary<uint, int> stats, bool attack, bool ranged, bool spell, int additionalIncreased)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int increased = PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell);
+        int increased = ActorScale.Saturate((long)PlayerDamageTaken.IncreasedPct(type, melee: attack && !ranged, Get, spell: spell)
+            + additionalIncreased);
         var reduction = PlayerDamageReduction(player, stats);
         int value = Math.Max(0, PlayerHitMitigation.AfterResistance(player.Pools, type, resisted,
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
         if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
-        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(AreaTime(player), increased));
+        double now = AreaTime(player);
+        return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
+            * WindDancerHitFactor(player, attack, now, stats));
     }
 
     // A warcry (CastGemSkill), when its cast is over: it taunts the hostile monsters within its radius (wiki Warcry: every
@@ -586,8 +604,8 @@ public static partial class Game
         await SendPlayerStatSnapshot(player,
             () =>
             {
-                var batches = PlayerSkillsBatchesIfChanged(player, skills);
-                skillsSent = batches.Length > 0;
+                var batches = PlayerSkillsBatchesIfChanged(player, skills, out bool wholeList);
+                skillsSent = wholeList;   // 0x1b4 records replace no skill record, so no skill-bar restore is due
                 return batches;
             },
             $"0x02bc player Actor: {skills.Count} skill(s), charge stats");

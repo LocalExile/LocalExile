@@ -363,8 +363,11 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        string? who = null)
+        string? who = null, bool areaHit = false, int glacialFreezeMore = 0)
     {
+        const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
+        int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
+            ? HighestElementalDamageTaken(m, mitigated, now) : null;
         // The one hit event (HitLanded). who: the site's own word for a totem, trap or mine; otherwise the character's,
         // or a trap's for a site that only says the hit is not the character's.
         HitLandedLocked(player, m, critical, spell, skill, who ?? (playerHit ? CombatActors.Self : CombatActors.Trap), sourceSkill, now,
@@ -380,11 +383,14 @@ public static partial class Game
         bool criticalProjectileKnockback = critical && projectileDamage
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
+        if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
+            criticalProjectileKnockback = false;
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
             attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat,
             // Kineticism: "Attack Projectiles always inflict Bleeding and Maim, and Knock Back Enemies".
             guaranteed: criticalProjectileKnockback
-                || projectileDamage && !spell && playerStats.GetValueOrDefault(Stat.KeystoneBarbedTips) != 0);
+                || projectileDamage && !spell && playerStats.GetValueOrDefault(Stat.KeystoneBarbedTips) != 0,
+            area: areaHit);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
@@ -441,7 +447,8 @@ public static partial class Game
             ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
             : m.MaxLife;
         var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
-            AilmentArea(Player, Skill, spell));
+            AilmentArea(Player, Skill, spell), coldTakenFromChill: Player(Stat.KeystoneColdPurist) != 0,
+            freezeDamageMultiplier: Math.Max(0, 1 + glacialFreezeMore / 100.0));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)
@@ -481,7 +488,8 @@ public static partial class Game
         // Blind's three chances are one rule's sum: live for any of them, it rolls for the hit.
         if (!EffectRules.LiveFor(player, Stat.GlobalChanceToBlindOnHitPct))
             InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
-        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), stat => EffectRules.LiveFor(player, stat));
+        ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), stat => EffectRules.LiveFor(player, stat),
+            dominantExposure);
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player), stat => EffectRules.LiveFor(player, stat));
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;

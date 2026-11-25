@@ -74,7 +74,7 @@ public static partial class Game
         public readonly SupportedGem Supported;
         public readonly bool Channelled;
         double costMore = double.NaN;
-        int manaCostPool = -1;
+        (int Support, uint Maximum) manaCostPool = (-1, 0);
         IReadOnlyDictionary<uint, int> costStats;
         object? mapMods;
         IReadOnlyDictionary<uint, int> player = new Dictionary<uint, int>(), areaPlayer = new Dictionary<uint, int>();
@@ -121,11 +121,12 @@ public static partial class Game
         {
             (player, areaPlayer) = (playerStats, areaPlayerStats);
             if (cost != costMore) { costMore = cost; graph.MarkRule(merge); }
-            int nextPool = ManaCostPool(owner, Supported);
+            var nextPool = (Support: ManaCostPool(owner, Supported),
+                Maximum: Supported.Stats.GetValueOrDefault(Stat.BaseManaCostPct) > 0 ? owner.Pools.Mana : 0u);
             if (manaCostPool != nextPool)
             {
                 manaCostPool = nextPool;
-                costStats = WithManaPoolCost(owner, Supported, Supported.Stats, nextPool);
+                costStats = WithManaPoolCost(owner, Supported, Supported.Stats, nextPool.Support);
                 graph.MarkRule(merge);
                 graph.MarkRule(area);
                 graph.MarkRule(timing);

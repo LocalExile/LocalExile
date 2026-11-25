@@ -80,13 +80,21 @@ public static partial class MapStrongboxes
             var box = area.Boxes![target.Index];
             // A box is used from nearby: an open, living player within the object's interaction reach of it (the client
             // enforces its own; this refuses a use that cannot be a click on the box).
-            if (player.Closed || player.LeavingArea || player.PlayerLife == 0
-                || !PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (box.X, box.Y), 10)) return true;
+            if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return true;
+            if (!PlayerWalk.InWalkUpRange(player.Walk.Position(AreaTime(player)), (box.X, box.Y), 20))
+            {
+                Console.WriteLine(Log("too far from the strongbox"));
+                return true;
+            }
             if (StrongboxCatalog.Find(box.Type) is not { } type) return true;
             var (changed, refusal) = Change(ItemsFor(player).Mods, type, box, currency?.Id, AreaLevel(player), AreaMods(player), AreaRng(player));
             if (changed is null)
             {
                 Console.WriteLine(Log($"{currency?.Name ?? $"0x{used.Item.TypeHash:x8}"} refused: {refusal}"));
+                ushort error = box.Corrupted ? InstanceItems.ItemErrorTargetCorrupted : (ushort)0x04D7;
+                string reason = GameServer.Core.ClientTables.TableOrNull("ClientStrings")?.Row(error - 1)?.TextOrNull("Text") is { Length: > 0 } known
+                    ? known : refusal ?? "The operation could not be completed.";
+                await Send(player, InstanceChat.ChatLine($"Failed to apply item: {reason}"), $"0x0017 \"{reason}\"");
                 return true;
             }
             // Consume one orb from whichever source holds it; only then commit the box.
@@ -137,8 +145,8 @@ public static partial class MapStrongboxes
         if (index < 0) return;
         var mods = box.Mods.Length > 0 ? [.. type.Mods, .. box.Explicits] : type.Mods;
         var w = new BlobWriter();
-        if (mods.Count == 0 && box.Rarity == 0) w.U16(0).U8(0).U8(0);
-        else { MagicProperties.Write(w, box.Rarity, true, mods); w.U8(0); }
+        if (mods.Count == 0 && box.Rarity == 0 && !box.Corrupted) w.U16(0).U8(0).U8(0);
+        else { MagicProperties.Write(w, box.Rarity, true, mods); w.U8((byte)(box.Corrupted ? 1 : 0)); }
         await SendWorldRecord(player, box.Id, InstanceEntities.ComponentUpdate(box.Id, (byte)index, w.ToArray()),
             $"strongbox 0x{box.Id:x} mods updated in place: {Label(player, box)}");
     }

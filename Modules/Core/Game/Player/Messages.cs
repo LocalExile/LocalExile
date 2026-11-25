@@ -186,6 +186,7 @@ public static partial class Game
                 {
                     double duration = DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player));
                     if (!TryBeginRangedAttack(player, at, duration, use.SkillId, use.Slot, out var shot)) continue;
+                    NotePlayerAttack(player);
                     int projectileEpoch;
                     projectileEpoch = player.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
@@ -377,8 +378,11 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                        {
+                            NotePlayerAttack(player);
                             player.NextAttackAt = AttackTiming.After(LockstepScheduledAt(player, at), player.NextAttackAt,
                                 Math.Max(TickSeconds, DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player)) / PlayerActionFactor(player)));
+                        }
                     }
                 }
                 Mark("begin");
@@ -1107,26 +1111,22 @@ public static partial class Game
             }
             else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
             {
-                // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
+                // C→S 0x29d: Hinekora's Lock single-item preview request (20 bytes).
                 var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
-                // The currency and the target can each be in a stash tab, as for 0x71 (Locate).
-                var items = ItemsOf(player);
-                var stash = StashOf(player);
-                var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);
-                var (targetSpot, target) = Locate(items, stash, req.TargetInventory, req.TargetId);
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
-                    && !(usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
-                    && !RefusedOnWorn(player, currency.Item, targetSpot)
-                    ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
-                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
-                    : null;
-                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
-                player.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,
-                    target?.Item.ForeseeSeed ?? 0, preview);
-                await Send(player, InstanceItems.CurrencyApplicationForesightResult(
-                    req.Key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
-                    preview is null ? [] : [preview]),
-                    $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
+                await SendSingleForesightPreview(player, req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId);
+            }
+            else if (id == InstanceItems.DualCurrencyApplicationForesightRequestId)
+            {
+                // C→S 0x29e: Hinekora's Lock dual-item preview request (28 bytes).
+                var req = InstanceItems.ReadDualCurrencyApplicationForesightRequest(bytes);
+                await SendDualForesightPreview(player, req);
+            }
+            else if (id == InstanceItems.CurrencyTypeApplicationForesightRequestId)
+            {
+                // C→S 0x29f: Hinekora's Lock Shift-repeat/type preview request (25 bytes).
+                var req = InstanceItems.ReadCurrencyTypeApplicationForesightRequest(bytes);
+                var (currencyInv, currencyId) = LocateCurrencyStackByType(player, req.CurrencyTypeHash, req.CurrencyInventory);
+                await SendSingleForesightPreview(player, req.Key, currencyInv, currencyId, req.TargetInventory, req.TargetId);
             }
         }
         if (player.Closed || player.LeavingArea) return;
@@ -1166,6 +1166,93 @@ public static partial class Game
             // Unframed messages have the hooks too.
             if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(player, uid, unknown);
         }
+    }
+
+    static Item? ComputeForesightPreview(Player player, ItemMoves.Spot usedSpot, InventoryItem? currency, ItemMoves.Spot targetSpot, InventoryItem? target, AccountStash stash)
+    {
+        if (currency is null || target is null || !target.Item.Foreseeing) return null;
+        if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab)) return null;
+        if (RefusedOnWorn(player, currency.Item, targetSpot)) return null;
+        Item? raw = CurrencyResult(player, target.Item, currency.Item.TypeHash,
+            ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash));
+        return raw is null ? null : ItemRolls.ClearForesee(raw);
+    }
+
+    public static (uint InventoryId, uint ItemId) LocateCurrencyStackByType(Player player, uint typeHash, uint preferredInventoryId)
+    {
+        if (player.Closed || player.LeavingArea) return (0, 0);
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        bool stashAllowed = player.StashOpen || player.GuildStashOpen;
+        bool expandedAllowed = ExpandedInventoryGranted(player);
+        if (preferredInventoryId != 0)
+        {
+            if (stash.TabOf(preferredInventoryId) is int prefTab)
+            {
+                if (stashAllowed && !stash.IsPublic(prefTab)
+                    && stash.Inventory(prefTab).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefStashHit)
+                    return (preferredInventoryId, prefStashHit.Id);
+            }
+            else if (PlayerInventories.Row(preferredInventoryId) is byte prefRow
+                && (prefRow == PlayerInventories.MainInventory || (expandedAllowed && prefRow == PlayerInventories.ExpandedInventory))
+                && items.Items(prefRow).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefInvHit)
+                return (preferredInventoryId, prefInvHit.Id);
+        }
+        byte[] rows = expandedAllowed
+            ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory]
+            : [PlayerInventories.MainInventory];
+        foreach (byte row in rows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
+                return (PlayerInventories.InventoryId(row), hit.Id);
+        if (stashAllowed)
+            for (int t = 0; t < stash.Count; t++)
+                if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
+                    return (stash.InventoryOf(t), hit.Id);
+        return (0, 0);
+    }
+
+    static async Task SendSingleForesightPreview(Player player, ushort key, uint currencyInventory, uint currencyId,
+        uint targetInventory, uint targetId)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var (usedSpot, currency) = currencyId != 0 ? Locate(items, stash, currencyInventory, currencyId) : default;
+        var (targetSpot, target) = Locate(items, stash, targetInventory, targetId);
+        Item? preview = ComputeForesightPreview(player, usedSpot, currency, targetSpot, target, stash);
+        player.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
+            target?.Item.ForeseeSeed ?? 0, preview);
+        await Send(player, InstanceItems.CurrencyApplicationForesightResult(
+            key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+            preview is null ? [] : [preview]),
+            $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
+    }
+
+    static async Task SendDualForesightPreview(Player player, InstanceItems.DualCurrencyApplicationForesightRequest req)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);
+        var (firstSpot, first) = Locate(items, stash, req.FirstTargetInventory, req.FirstTargetId);
+        var (secondSpot, second) = Locate(items, stash, req.SecondTargetInventory, req.SecondTargetId);
+        var previews = new List<Item>(2);
+        Item? firstPreview = ComputeForesightPreview(player, usedSpot, currency, firstSpot, first, stash);
+        if (firstPreview is not null) previews.Add(firstPreview);
+        if (req.SecondTargetId != 0 && (req.SecondTargetId != req.FirstTargetId || req.SecondTargetInventory != req.FirstTargetInventory))
+        {
+            Item? secondPreview = ComputeForesightPreview(player, usedSpot, currency, secondSpot, second, stash);
+            if (secondPreview is not null) previews.Add(secondPreview);
+        }
+        Item? primary = firstPreview ?? previews.FirstOrDefault();
+        InventoryItem? primaryTarget = firstPreview is not null ? first : second;
+        uint primaryInv = firstPreview is not null ? req.FirstTargetInventory : req.SecondTargetInventory;
+        uint primaryId = firstPreview is not null ? req.FirstTargetId : req.SecondTargetId;
+        player.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, primaryInv, primaryId,
+            primaryTarget?.Item.ForeseeSeed ?? 0, primary);
+        await Send(player, InstanceItems.CurrencyApplicationForesightResult(
+            req.Key, previews.Count == 0 ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0, previews),
+            $"0x02a0 dual foresight preview key {req.Key} for items {req.FirstTargetId}/{req.SecondTargetId}: {(previews.Count == 0 ? "refused" : $"{previews.Count} preview(s)")}");
     }
 
     static async Task FinishCharacterSelectExit(Player player)

@@ -58,6 +58,7 @@ public static partial class Game
                 foreach (var minion in FlaskMinions(player, raisedOnly: true))
                     ApplyMinionUtilityFlaskLocked(player, minion, flask, type, utility, local, Get, now);
             FlaskToLinkedTargetsLocked(player, flask.Item, local, utility, Get);
+            QueueMapFlaskMeteor(player, now);
             if (Get(Stat.CannotBeAffectedByFlasks) != 0)
             {
                 TryGrantAlchemistsGenius(player);
