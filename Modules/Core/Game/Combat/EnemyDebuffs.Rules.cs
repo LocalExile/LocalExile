@@ -106,7 +106,8 @@ public static partial class Game
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
         int FleshRadius, int FleshPhysical, int? LightningEquals, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
-        IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
+        IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
+        IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
         DebuffSteps steps)
@@ -186,7 +187,7 @@ public static partial class Game
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
             player.EnemyDebuffs.TauntedDamageTakenPct, perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
-            impurities, hash.ToHashCode());
+            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -216,7 +217,7 @@ public static partial class Game
             var counts = new int[2];
             foreach (uint id in ids)
                 if (player.Area.Monsters.TryGetValue(id, out var m)) StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
-            ReconcileBlinds(player, now, scope.CursedCorpses, counts);
+            ReconcileBlinds(player, now, scope.CursedCorpses, scope.MarkBlind, counts);
             if (counts[0] + counts[1] > 0)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} enemy debuffs: {counts[0]} added, {counts[1]} removed (t={now:0.000})");
             return bytes.Count == 0 ? null : [.. bytes];
@@ -372,7 +373,7 @@ public static partial class Game
             m.FleshRadius), MidpointRounding.AwayFromZero);
 
     // The blind auras: the hostile monsters in their zones that can be blinded.
-    static void ReconcileBlinds(Player player, double now, IReadOnlyList<uint> cursedCorpses, int[] counts)
+    static void ReconcileBlinds(Player player, double now, IReadOnlyList<uint> cursedCorpses, bool markBlind, int[] counts)
     {
         bool alive = player.PlayerLife > 0;
         HashSet<uint> Inside(uint zone) => !alive ? [] : ZoneMembers(player, player.Id, EnemyAuraZones, zone).Select(e => e.Value)
@@ -382,6 +383,20 @@ public static partial class Game
             foreach (var target in ZoneMembers(player, player.Id, ZoneKind.CursedCorpses, corpse))
                 if (player.Area.Monsters.GetValueOrDefault(target.Value) is { } enemy && enemy.Effects[Stat.CannotBeBlinded] == 0)
                     blindedByAura.Add(target.Value);
+        if (markBlind)
+        {
+            // The native mastery exposes the predicate only. Use the existing nearby blind reach for its moving centre.
+            const int radius = 35;
+            foreach (var (id, marked) in player.Area.Monsters)
+                if (marked is { Hostile: true, Dead: false, Life: > 0 } && marked.Curses.HasMark(player.Id, now))
+                {
+                    var centre = marked.Walk.Position(now);
+                    foreach (var target in player.Area.MonstersNear(centre, radius))
+                        if (target.Key != id && target.Value is { Hostile: true, Dead: false, Life: > 0, OwnerId: null } enemy
+                            && enemy.Effects[Stat.CannotBeBlinded] == 0 && Dist(centre, enemy.Walk.Position(now)) <= radius)
+                            blindedByAura.Add(target.Key);
+                }
+        }
         foreach (var (id, _, blinded) in player.BlindAura.Reconcile(blindedByAura, player.Area.Monsters.ContainsKey, () => 1))
         {
             if (blinded) player.Area.Buffs.Set(id, new(FlaskGrounds.BlindedBuffRow, player.Id, Tag: (ushort)BuffTag.BlindAura));
