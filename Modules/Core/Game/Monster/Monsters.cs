@@ -664,7 +664,7 @@ public static partial class Game
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Chain = variety.Chain, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(player, variety),
             AnimationSeed = animationSeed,
