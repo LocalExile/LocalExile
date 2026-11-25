@@ -137,7 +137,7 @@ with `AtlasMapCompletedFrame` by `0x14079a890`) when it is in +0xd070, and that 
 instance + 8, so its +0xd068 is +0xd070:
 
 - **S→C 0x1a3** (case 0x7f `0x142157401`, read `0x1421b02e0`), the whole state: u8 → +0xc400, u8 → +0xc401, u8 → +0xd0f0
-  (unknown, 0), u8 sections, u8 n × (u16, u16) (→ +0xd0a8, unknown; 0), then by section bit: 0x1 22 bytes → +0xd030,
+  (unknown, 0), u8 sections, u8 count and pairs of big-endian WorldAreas HASH16 values (scrying connections), then by section bit: 0x1 22 bytes → +0xd030,
   0x2 22 bytes → +0xd070 (`0x14215ca00`: bit r of byte r / 8 is AtlasNode row r; rows from 170 are ignored, the
   RandomContent nodes), 0x4 a WorldAreas list → +0xcff0, 0x8 and 0x10 further lists (see the schema). A section that is
   sent replaces its set.
@@ -605,6 +605,37 @@ Real-client verification sent the locker interaction and observed the native han
 Heist window visible (flag 0x800 at +0x1e8) and its open marker set (+0x338), while the client remained in game.
 Tests cover placement across exported templates, editor restoration, native component order and the open message.
 
+### Heist planning, rogue state, PlanningNPCs, and alert HUD
+
+Rogue Harbour screens open via S→C `0x7b` kinds `0x34` (`HeistMission`), `0x35` (`HeistBlueprint`, arg1 = revealer row
+`0` Whakano / `1` Gianna / `2` Niles or `3` Adiyah planning, arg2 = `-1`), and `0x36` (`HeistNPCInventory`, arg1 =
+rogue row `0..8`). Player inventories: row `44` (`HeistContractMission`), rows `45..53` (`HeistNpcEquipment1..9`), row
+`55` (`HeistBlueprintMission`), and row `56` (`HeistStorage1`). Nine `Metadata/NPC/League/Heist/PlanningNPC` entities
+stand in `ops_1.arm` around the planning table with each rogue's `HeistNPCs.AOFile`. Their object type sets
+`BaseEvents.client_only` and `no_serialise`. The client creates them from the room. Rogue
+unlock league quest flags are `739..744` (`HeistNPCs.__col10`; `736` = `HeistVisitedHub`).
+
+Verified wire layouts in 3.29.3c/d `Client/Game.exe`:
+
+- **S→C `0x027c`** (case `0xd1`, reader `0x1421b4e20`, 150 B = 2 B id + 148 B body): `u8 hasRunnableContract` (`+0x00`),
+  `9 × 4 × u32 BE` rogue job XP (`+0x04..+0x93`), then trailing reveals in wire order `u8 whakano` (`+0x01`),
+  `u8 niles` (`+0x03`), `u8 gianna` (`+0x02`).
+- **S→C `0x023b`** (case `0xb2`, reader `0x141fa3f70`, 5 B): `u8 wingIndex`, `u8 roomTarget` (`0xff` wing, `0xfe`
+  escape route, else room index), `u8 revealerRow`.
+- **S→C `0x0164`** (case `0x6b`, reader `0x1421aeb30`, 7 B): `u32 BE value`, `u8 kind`. Kind `2` fires instance
+  `+0x4ff8` → PC HUD `+0xce8` (`0x140dcc7b0`) → `0x1404c38d0` (Heist alert bar float clamped to `[0, 1]`). Lockdown
+  countdown uses S→C `0x0163` with `timerType == 8` (`0x1404c3ad0`; [30](30-hud-signals-and-timers.md) §2).
+- **C→S `0x0279`** (sign contract, `3 + n` B): `u8 n`, `n × u8` rogue row (`0xff` empty).
+- **C→S `0x027d`** (reveal blueprint, 5 B): `u8 wingIndex`, `u8 roomTarget`, `u8 revealerRow`.
+- **C→S `0x027e`** (confirm blueprint plans, 2 B): empty payload.
+- **C→S `0x027f`** (assign wing crew, `4 + n` B): `u8 wingIndex`, `u8 n`, `n × u8` rogue row (`0xff` empty).
+- Heist biome `.dgr` graphs (`HeistBunker*`–`HeistMansion*`) have `Nodes: 0, Edges: 0` and depend on the unported
+  `HeistPlugin` terrain plugin, so `0x0279` / `0x027e` keep contracts and Markers rather than opening broken portals.
+- **HeistContract** item component (writer `0x1424ac540`, reader `0x1424ac770`): `u32 LE` seed,
+  `u8` area level, `u8` `HeistObjectives` row, `u8` job count, `u8` NPC count, `jobCount × (u8 HeistJobs row, u8 level)`,
+  `npcCount × u8 HeistNPCs row`. Adiyah's `EndlessHeistContracts` option (`NPCTalkCategory` row 39, `NPCShop` row 37)
+  and contract drops/execution await `HeistContract` item save support and `HeistPlugin` terrain generation.
+
 ### Horticrafting Station (recipe browser and execution)
 
 HideoutScene places `Metadata/MiscellaneousObjects/Harvest/CraftingSilo_Hideout` beside the ordinary bench on clear floor in every selected hideout. The object has Positioned (blocking size 8), BaseEvents, Animated, MinimapIcon and InteractionAction, with no HideoutDoodad or StateMachine payload. Its built-in Animated model is harvest_workbench.ao. The Gateway registers a blocker and handles its 0x24 interaction separately from the ordinary bench.
@@ -696,6 +727,44 @@ The Delirium reward HUD is driven natively by ruleset `AfflictionEndGameRules` (
   `{u8 type, u32 current, u32 max, u32 count}` (`0x141fbacc0` → `0x142172a00` → instance `+0xda58` → HUD listener
   `0x1403341a0`). Sending `count = 0` clears and hides the HUD when a wave ends.
 - **Mode `0`** carries fog state alongside the same reward-tile stream.
+
+Map Delirium Mirrors (`Metadata/MiscellaneousObjects/Affliction/AfflictionInitiator`, `StateMachine` `"interacted"`)
+use `AfflictionEncounterRules` (`Rulesets` row 102 / `0x66`, ctor `0x141742140`, slot 8 S→C
+`0x2c9` reader `0x1417442e0`) and skip/end button C→S `0x0260` (2 B, senders `0x140deb800` / `0x142172b40`):
+
+- **Mode `0`** (snapshot): `u8 0`, `u8 active`, `u8 ended`, `f32 LE outerElapsed`, `f32 LE innerElapsed`,
+  `f32 LE innerDelay` (`+inf` = `0x7f800000` from `0x14015a9b0` until dissipating), `f32 LE pauseTimer`, `u8 paused`,
+  `i32 LE mirrorX`, `i32 LE mirrorY`, `u32 LE mirrorEntityId`, `u8 regionCount`, `regionCount × 28 B LE`
+  (`i32 minX, minY, maxX, maxY, originX, originY, f32 distOffset`), then the `0x141fbacc0` reward-tile stream.
+- **Mode `1`** (reward tiles): identical to `AfflictionEndGameRules` mode 1.
+- **Mode `2`** (pause update, `0x141744680`): `u8 2`, `f32 LE pauseTimer`, `u8 paused`.
+- Out-of-fog 5 s countdown uses S→C `0x0163` with `MissionTimerType.Affliction` (`7`).
+
+In a retail 3.30 Malformation map the area header listed rulesets 102, 143, 155 and 162, and the terrain header
+included the ordinary Affliction plugin (2161, state byte zero). The map also requested preload group 53 (Affliction).
+A Malformation map without a Mirror omitted 53 and row 102 while retaining rulesets 143, 155 and 162.
+The initial snapshot arrived before world entry with both flags clear, both elapsed times at −1.8 seconds, an infinite
+inner delay, the Mirror's entity ID, and one rectangle per fog region. The Mirror's awake create followed it
+before world entry. Crossing the Mirror set the first flag, followed by its interacted state update.
+The finished snapshot kept that flag set, set the second flag, and cleared the reward tiles.
+
+The client animates both normal fog edges from `AfflictionBalancePerLevel`. On a level-68 map the leading
+edge slows from 150 to 44 cells per second during its first seven seconds. The trailing edge starts after
+20 seconds at one cell per second and accelerates at 0.38 cells per second squared before area modifiers.
+The third float remains positive infinity while both edges travel. A finite value tells the renderer to
+accelerate dissipation by a factor of 2,000 after that time (`0x141fbab50`). Sending 25 at 25 seconds
+made both rendered radii coincide two seconds later on Beach, while the server still considered the encounter active.
+
+Immediately before the activation and completion snapshots, retail sent the environment update for
+`LeagueAfflictionEncounter` (`Metadata/EnvironmentSettings/LeagueAfflictionEncounter.env`). Retail 3.30 uses
+S→C `0xe5` and environment row 1198. In 3.29.3c/d the same environment is row 1193 and the update is
+S→C `0xdf`. The writer at `0x142179c50` emits a byte count followed by a big-endian row (u16), a byte
+(zero for the Mirror), and a big-endian 32-bit value. The capture contains one entry, with +2.0 on opening
+and −2.0 on closing when read as floats.
+This environment sets desaturation, the `Affliction12.dds` colour lookup and the `DeliriumRegular` music.
+The separate `AfflictionFog` entry in `MiscAnimated` references the screen-space fog and ash attachment.
+The 3.29 item table also names the Simulacrum Splinter `CurrencyAfflictionShard`. The separate Viridian
+Wildwood area is `AzmeriLeagueArea` and has its own ruleset, `AzmeriRules`.
 
 Each reward type tracks its own bar (`RewardGoal`: wave progress divided by `RewardPace`, explicit server policy) and
 completed cycle count (`x`); kills advance every bar and the wave pays all counted rewards at once when it ends, at
@@ -924,4 +993,14 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   - `C→S 0x2b1` (4 bytes, writer `0x141f9a380`, sender `0x140c40b80`): `u8 flags`, `u8 uiKind` (`0x33` crafting bench);
     clears the open bench state and removes the bench balance inventory view.
   - Flipping a `RecipeUnlockDisplay.RecipeId` league quest flag bit `0 → 1` via `PlayerLeagueQuestFlagsUpdate` triggers
-    the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`).
+    the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`), paired with `S→C 0x01d6` (`Mods.HASH32`).
+- **Atlas endgame deltas, Scrying, Primordial Altar HUD, Vault Pass, and Delve live sync (3.29.3c).**
+  - `S→C 0x01a5` (4 bytes, read `0x1421b09f0`): `u8 regionIndex`, `u8 upgraded` toggles one Voidstone T16 quadrant bit incrementally.
+  - `S→C 0x7b` kind `0x13` (`0x14216a456` → `0x140dcb750`: `a = 1`, `b = sourceObjectId`) opens the Atlas in Scrying mode; `C→S 0x01a7` (10 bytes: `u16 BE fromAreaHash`, `u16 BE toAreaHash`, `u32 BE objectId`) sets the destination map to use the source map’s divination-card pool.
+  - `C→S 0x0075` (12 bytes: `u32 BE inventoryId`, `u32 BE itemId`, `u16 BE nodeHash16`) and `C→S 0x0076` (17 bytes: `u32 BE typeHash`, `u32 BE inventoryId`, `u16 BE tabIndex`, `u16 BE subIndex`, `u8 flags`, `u16 BE nodeHash16`) apply currency items to Atlas nodes.
+    The 3.29.3d client sends `0x0075` for a carried Scrying Orb and for consecutive applications from a carried Orb of Scouring stack while Shift is held. The type-based form has no individual Scrying Orb origin.
+    The ScryingOrb item component carries its source WorldAreas HASH16 as a little-endian u16 (reader `0x14250a320`). The destination comes from the Atlas click. An Orb of Scouring removes the connection from either endpoint.
+  - `Rulesets.dat` row `99` (`AtlasPrimordialBossInfluenceRules`, `0x141750170` / `0x141e4c7e0`): `S→C 0x001f` + `S→C 0x02c9` sub-id `0` carries 6 lists of `(u8 count, count × (u16 LE Mods.HASH16, compact-int stat values))` for the Primordial Altar HUD tracker.
+  - `S→C 0x012a` (read `0x1421ad220`): `u16 BE mapCompletionCount`, `WStr passId`, `u8 purchased`, `u8 active`, `u8 trackFlags`, `u64 LE unlockedMask`, `u64 LE claimedMask`, `u8 hasUnclaimedRewards` (Atlas Vault Pass).
+  - Delve live updates: `S→C 0x0227` (6 bytes: `u32 BE azurite`), `S→C 0x022c` (`u16 BE count`, `count × 4×i32 BE` chart delta), `S→C 0x0242` (`u8 count`, `count × 4×i32 BE` confirmed Crawler route echo after `C→S 0x0241`).
+  - Labyrinth Divine Font (`LabyrinthBlessingBench`): `S→C 0x0246` (read `0x1421b43b0`: `u8 count`, `count × u16 BE LabyrinthCraftOptions.HASH16`, `u8 remainingUses`), `S→C 0x02a2` (read `0x141fa8860`: `u64 LE count`, `count × item.Wire()`), `C→S 0x0247` (`u16 BE optionHash16`), `C→S 0x0245` (`u8`), `C→S 0x02a3` (`u8 index`); gem slot is `StrMasterCrafting` (inventory row 16, `0x140bcbd36`).

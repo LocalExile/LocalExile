@@ -271,6 +271,85 @@ public sealed class HarvestCropRotationTests
         }
     }
 
+    [Fact]
+    public async Task SacredGrove_multiplayer_enter_keeps_grove_objects_per_viewer_after_ruleset()
+    {
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        using var module = new HarvestModule();
+        using var context = new HarvestTestContext();
+        await using var wire1 = new CaptureWire();
+        await using var wire2 = new CaptureWire();
+        var player1 = NewConn(layout, instance, seed: 11, wire1);
+        var player2 = NewConn(layout, instance, seed: 11, wire2);
+        player1.Character.Name = "GrovePeer1";
+        player2.Character.Name = "GrovePeer2";
+        player1.Connection.PlayerSent = player2.Connection.PlayerSent = true;
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var gameLifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = gameLifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(gameLifetime));
+            module.Load(context);
+            instance.AddPlayer(player1);
+            Program.InGame[player1] = 0;
+            await GameEvents.RunPlayerEntered(player1);
+
+            var grove = ReadGrove(instance);
+            Assert.NotEmpty(grove.Objects);
+            wire1.CloseWriter();
+            var firstEntry = ParsePackets(await wire1.ReadAllAsync());
+            int rules = firstEntry.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
+            Assert.True(rules >= 0 && firstEntry.FindIndex(p => p.Id == InstanceEntities.CreateObjectId) > rules);
+
+            instance.AddPlayer(player2);
+            Program.InGame[player2] = 0;
+            player2.Connection.WorldOutput.Begin(1);
+            var area = player2.Area;
+            var previous = GameArea.Own(area);
+            Task entered;
+            try
+            {
+                // Buffer the ruleset write so a socket continuation cannot leave the area frame.
+                entered = Program.SendBatched(player2, async () =>
+                {
+                    await GameEvents.RunPlayerEntered(player2);
+                    return true;
+                });
+            }
+            finally { GameArea.Own(previous); }
+            await entered;
+
+            wire2.CloseWriter();
+            Assert.Contains(ParsePackets(await wire2.ReadAllAsync()), p => p.Id == InstanceProtocol.AddRulesetId);
+            var creates = area.Delta.Take().Where(r => r.Kind == AreaDelta.Kind.Create).ToList();
+            Assert.Equal(grove.Objects.Count, creates.Count);
+            Assert.Equal(grove.Objects.Keys.ToHashSet(), creates.Select(r => r.Entity).ToHashSet());
+            Assert.All(creates, r =>
+            {
+                Assert.True(r.For(player2));
+                Assert.False(r.For(player1));
+            });
+        }
+        finally
+        {
+            Program.SetGameLogic(previousLogic!);
+            Game.CombatLifetime = previousLifetime;
+            gameLifetime.Stop(e => throw e);
+            Program.InGame.TryRemove(player1, out _);
+            Program.InGame.TryRemove(player2, out _);
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
     sealed class HarvestTestContext : IModuleContext, IDisposable
     {
         readonly ModuleLifetime lifetime = new("Harvest");
