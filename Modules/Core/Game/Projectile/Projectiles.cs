@@ -234,6 +234,7 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainInfernalBlowDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                     }
@@ -256,6 +257,7 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainInfernalBlowDeaths();
                     Runtime.AdvanceTo(at);
                 }
                 finally
@@ -289,11 +291,27 @@ public static partial class Game
                 });
         }
 
+        internal void ScheduleContact(long at, Func<bool> valid, Action contact)
+        {
+            if (!Active) return;
+            Runtime.Schedule(Math.Max(Runtime.Now, at), () =>
+            {
+                if (!Active || !valid()) return;
+                try { contact(); }
+                catch (InvalidOperationException ex)
+                {
+                    Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile path unavailable: {ex.Message}");
+                }
+            });
+        }
+
         /// <summary>Releases a resolved use at the runtime's current instant. Call in the area's frame.</summary>
         public long ReleaseNow(ProjectileUse use)
         {
             var seeded = use with { Seed = ++seed };
             long useId = Runtime.Release(seeded);
+            if (seeded.Payload is ProjectileOffense { ForbiddenRite: { } rite } shot)
+                ReleaseForbiddenRite(seeded, shot, rite);
             SacredWispsOnRelease(seeded);
             if (ServerTrace.Projectiles && !Quiet(seeded.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile release t={Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond:0.000000} use={useId} "
@@ -307,12 +325,16 @@ public static partial class Game
 
         public void Invalidate()
         {
+            // Retirement clears the same flight collection the pump advances. Serialize both under the mutation gate.
+            using var mutation = LevelUpdatesFor(Player).Gate.EnterScope();
             if (invalid) return;
             invalid = true;
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
-            ClearKnifeBlades();
+            ClearProjectileBladeSources();
+            ClearPlacedVolatileOrbs();
+            ClearCremationGeysers();
             ClearEnsnares();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
@@ -330,6 +352,14 @@ public static partial class Game
             Runtime.Clear();
             foreach (var visual in visuals.Values) Player.UntrackProjectileObject(visual.Id);
             visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
+        }
+
+        void RetireSkillEffectObject(uint id)
+        {
+            // A transfer already took these IDs for its own removal. A replacement combat generation drains
+            // the remaining owned objects through the normal world-output fence.
+            if (Player.UntrackProjectileObject(id) && !Player.LeavingArea && !Player.Closed)
+                Player.RetiredCombatObjects.Add(id);
         }
 
         public void Enqueue(Func<Task> intent) => Write(intent, keepsWorldGroup: false);
@@ -940,8 +970,7 @@ public static partial class Game
                 long impaleMultiplier = shot.NoExtraCriticalDamage ? sourceMultiplier
                     : sourceMultiplier + (target.MaxLife > 0 && target.Life >= target.MaxLife ? shot.TargetCritical.FullLife : 0);
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, impaleMultiplier) / 100d : 1);
-                var (stored, _) = target.Impale.OnHit(physical, at, settings, random, target.Effects[Stat.AvoidImpalePct]);
-                damage = ImpaleStats.AddReflected(damage, MonsterImpaleDamage(target, stored, at));
+                damage = ApplyPlayerImpaleContact(Player, target, damage, physical, at, at, settings, random).Damage;
             }
             uint lifeBefore = target.Life;
             var hit = ApplyMonsterHitCoreLocked(Player, target, damage, rampageSource: null, playerStats: player,
@@ -1056,6 +1085,8 @@ public static partial class Game
                 LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
+                if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
+                    LandUnearth(corpse, (x, y));
             }
             if (value.Kind == ProjectileEventKind.End && p.ParentId == 0 && ServerTrace.Projectiles && !Quiet(p.Use.Payload))
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile end use={p.UseId} entity={p.Id}"

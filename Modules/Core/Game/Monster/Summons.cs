@@ -204,6 +204,16 @@ public static partial class Game
         _ => null,
     };
 
+    /// <summary>The summon families whose official create (MinionType row, as in SentinelOwnership.MinionNativeType) is flag 0x02
+    /// with Owner, [Source], Self exactly: zombie (7), Herald of Agony spiders (39), raging spirit (20), animated guardian (18),
+    /// Vaal Domination sentinel (4). Spectres (0), animated weapons (19), Raise Spiders and the rest are not written that way.</summary>
+    internal static bool OfficialOwnedCreate(string family, string id) => family switch
+    {
+        "Zombie" => id != "RaiseZombieAltY",
+        "Agony" or "RagingSpirit" or "AnimatedGuardian" or "VaalDomination" => true,
+        _ => false,
+    };
+
     static string CanonicalMinionFamily(string family) => family switch
     {
         "VaalAbsolution" => "Absolution",
@@ -599,6 +609,12 @@ public static partial class Game
             && (spectreChild is null || g.Monster.SummonerId == spectreChild.Parent.Id)
             && (definition.Family != "Clone" || player.Summons.Definitions[g.Id].LimitStat == definition.LimitStat);
         bool damageImmune = definition.Family is "HolyArmament" or "Spider" or LivingLightningFamily or SpectralSpiritFamily;
+        // Official creates of these families carry flag 0x02 and base data: owner, the corpse it rose from (if any), itself.
+        // The others (spectres, animated weapons, ...) are sent differently and keep the plain create.
+        Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? baseData = !OfficialOwnedCreate(definition.Family, definition.Id) ? null
+            : self => consumed is { ObjectId: not 0 }
+                ? [(MonsterObject.OwnerKey, 0, player.Id), (MonsterObject.SourceKey, 0, consumed.ObjectId), (MonsterObject.SelfKey, 1, self)]
+                : [(MonsterObject.OwnerKey, 0, player.Id), (MonsterObject.SelfKey, 1, self)];
         uint id = await SpawnMonster(player, variety, level, rarity, aim.X, aim.Y,
             friendly: true, mods: mods, unrisen: false,
             extraStats: damageImmune ? [.. MinionStats, (Stat.BaseCannotBeDamaged, 1)]
@@ -608,6 +624,7 @@ public static partial class Game
             damagedLife: wireLife,
             ownedInitialDeath: pools.Fatal,
             ownedLooks: SummonLooks(fighter),
+            ownedBaseData: baseData,
             ownedAdmission: () => (replacement is null || SummonReplacementCurrentLocked(player, replacement))
                 && (animated?.GuardianGear is not { } guardian || AnimatedGuardianGearCurrentLocked(player, guardian))
                 && ConsumeAnimatedSourceLocked(player, animated),
@@ -625,6 +642,11 @@ public static partial class Game
                     if (definition == ItemSpider)
                         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(consumed.ObjectId),
                             "Raise Spiders consumes a corpse", WorldId: consumed.ObjectId, RemovesObject: true));
+                    // Official: any other raised corpse leaves in the create's frame, after the create. A corpse that was
+                    // created as one (itemised, Desecrate) is not sent, as in the Offering, Devour and warcry paths.
+                    else if (!consumed.CreatedAsCorpse && consumed.ObjectId != 0)
+                        player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(consumed.ObjectId),
+                            $"0x02bd raised corpse 0x{consumed.ObjectId:x} removed", WorldId: consumed.ObjectId, RemovesObject: true));
                 }
                 if (animated?.Ground is not null)
                     player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(animated.Id), "animated item consumed", WorldId: animated.Id, RemovesObject: true));

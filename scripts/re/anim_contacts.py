@@ -227,8 +227,8 @@ def default_attack_pools(text, animations, views):
 
 
 def single_skill_clips(text, animations):
-    """Only unambiguous, single-clip ACT actions with a contact. Chained actions need their own selector."""
-    tracked = {"HeavyStrike"}
+    """Only unambiguous, single-clip ACT actions with their relevant event. Chained actions need their own selector."""
+    tracked = {"HeavyStrike": "contact", "ShieldBash": "wave"}
 
     def resolve(body, inherited):
         current = dict(inherited)
@@ -251,10 +251,10 @@ def single_skill_clips(text, animations):
     start = tokens.index("{")
     root = tokens[start + 1:closing_brace(tokens, start)]
     base = resolve(root, {})
-    valid = contacts(animations)
+    events = {clip["name"]: {name for name, _, _ in clip["events"]} for clip in animations}
     return [{"stance": stance, "skill": skill, "animation": clip}
             for stance, actions in stances(root, base, {"Unarmed": base}, resolve).items()
-            for skill, clip in actions.items() if clip in valid]
+            for skill, clip in actions.items() if tracked[skill] in events.get(clip, ())]
 
 
 def main():

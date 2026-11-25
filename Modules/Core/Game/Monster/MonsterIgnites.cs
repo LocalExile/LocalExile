@@ -150,6 +150,18 @@ public static partial class Game
             WithIgniteSpread(settings, playerStats, SupportedSkill(player, skillId).Stats, spell, hand));
     }
 
+    static MonsterIgnites.Settings VoraciousFlame(MonsterIgnites.Settings settings, Func<uint, int> get)
+    {
+        if (get(Stat.KeystoneFirePurist) == 0) return settings;
+        return settings with
+        {
+            Seconds = settings.Seconds / 4,
+            Min = settings.Min * .75, Max = settings.Max * .75,
+            CriticalMin = settings.CriticalMin * .75, CriticalMax = settings.CriticalMax * .75,
+            Stacks = (int)Math.Min(int.MaxValue, (long)settings.Stacks + 1),
+        };
+    }
+
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
     /// Support's, the gloves', the notable's, the flask's, the generic stat, the main hand's (attacks in that hand) and
     /// Elemental Proliferation's (virtual_elemental_status_effect_aura_radius, the larger of its two sources). The client
@@ -177,6 +189,7 @@ public static partial class Game
         if (settings.Seconds <= 0) return settings;
         int Player(uint key) => player.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
+        settings = VoraciousFlame(settings, name => Player(name) + Skill(name));
         int radius = IgniteProliferationRadius(name => Player(name) + Skill(name), hand);
         if (radius <= 0) return settings;
         double area = includeActorBaseArea ? SkillArea.Modifier(name => Player(name) + Skill(name), spell)

@@ -1,3 +1,4 @@
+using GameServer.Core.World;
 using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
@@ -807,7 +808,7 @@ public static partial class Game
 
     public static SupportedHitInputs? SupportedHitInputsFor(Player player, ushort skillId, bool? area = null,
         SkillCatalog.Unarmed? weapon = null, IReadOnlyDictionary<ChargeType, int>? charges = null, SupportedGem? capturedGem = null,
-        bool projectile = false, int addedChaos = 0, bool totem = false)
+        bool projectile = false, int addedChaos = 0, bool totem = false, uint? projectileTotemLife = null)
     {
         var gem = capturedGem ?? SupportedSkill(player, skillId);
         bool wildStrike = IsWildStrike(gem.Effect);
@@ -853,6 +854,8 @@ public static partial class Game
         if (charges is not null)
             foreach (var (type, count) in charges)
                 if (Stats.Key($"current_removable_{Charges.Name(type)}_charges") is uint removable) stats[removable] = count;
+        if (stats.GetValueOrDefault(Stat.ElementalHitNoPhysicalChaosDamage) != 0)
+            ApplyElementalHitDamageStats(stats);
         if (totem && Stat.DamagePlusPct is var damage)
             stats[damage] = stats.GetValueOrDefault(damage) + GolemStat(stats, Stat.TotemDamagePlusPct);
         var placed = PlacedKind(gem);
@@ -912,11 +915,22 @@ public static partial class Game
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
-        var raw = secondary ? SecondaryRawHit(player, gem, plan.SpellBaseWith(Get), Get)
+        var spellBase = secondary || attackWeapon is null
+            ? plan.SpellBaseWith(Get) : GameServer.Core.World.DamagePacket.Empty;
+        if (GatewayProjectileSkillProfiles.IsForbiddenRite(skills.EffectId(gem.Effect)))
+        {
+            var (life, shield) = ForbiddenRitePools(player, projectileTotemLife, placed.Trap || placed.Mine);
+            double chaos = (life * (double)Get(Stat.SkillBaseChaosDamagePctMaximumLife)
+                + shield * (double)Get(Stat.SkillBaseChaosDamagePctMaximumEnergyShield)) / 100d;
+            spellBase = spellBase.Add(GameServer.Core.World.DamageType.Chaos, new(chaos, chaos));
+            stats[Stat.DamagePlusPct] = ActorScale.Add(Stat.DamagePlusPct, Get(Stat.DamagePlusPct),
+                Get(Stat.ForbiddenRiteDamagePlusPct));
+        }
+        var raw = secondary ? SecondaryRawHit(player, gem, spellBase, Get)
             : attackWeapon is not null
             ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
-            : DamageStats.RawAdded(plan.SpellBaseWith(Get), Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
+            : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
         {
             double fire = (long)player.PlayerMaxLife * lifePct / 100d;
@@ -1036,8 +1050,13 @@ public static partial class Game
         if (inputs.Melee && !inputs.Secondary) hit = WithVaalWarchiefBuff(hit, inputs.Get);
         double intensityMore = SupportedHitIntensityMore(inputs);
         if (intensityMore != 1) hit = hit.Scale(intensityMore);
+        hit = ApplyRoilingTempest(hit, inputs.Get);
         return suppress ? new SkillDamageContext(inputs.Plan.Kind, inputs.Caster).Hit(hit) : hit;
     }
+
+    static DamagePacket ApplyRoilingTempest(DamagePacket hit, Func<uint, int> get)
+        => get(Stat.KeystoneLightningPurist) == 0 ? hit : hit.Select((type, range) =>
+            type == DamageType.Lightning ? new DamageRange(range.Min * .5, range.Max * 1.25) : range);
 
     static double SupportedHitIntensityMore(SupportedHitInputs inputs)
     {
@@ -1188,7 +1207,9 @@ public static partial class Game
         if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
-        return new((int)Math.Floor(manaFlat * factor), (int)Math.Floor(manaPercent * factor),
+        decimal manaFactor = Get(Stat.KeystoneSupremeEgo) != 0
+            && SkillsFor(player).IsAura(gem.Effect, gem.Supports.Select(s => s.Effect.Row)) ? factor * 1.4m : factor;
+        return new((int)Math.Floor(manaFlat * manaFactor), (int)Math.Floor(manaPercent * manaFactor),
             (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor));
     }
 

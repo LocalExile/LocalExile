@@ -6,6 +6,7 @@ public static class MaximumPoolItemSources
     [
         (Stat.SpellDamagePlusPctPer100MaxLife, Stat.SpellDamagePlusPct, false),
         (SpellCriticalPerLife, Stat.SpellCriticalStrikeChancePlusPct, false),
+        (Stat.DamageOverTimePlusPctPer100MaxLife, Stat.DamageOverTimePlusPct, false),
         (Stat.MinimumAddedFireDamagePer100LowestOfMaxLifeMana, Stat.GlobalMinimumAddedFireDamage, true),
         (Stat.MaximumAddedFireDamagePer100LowestOfMaxLifeMana, Stat.GlobalMaximumAddedFireDamage, true),
     ];
