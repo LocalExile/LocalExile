@@ -322,8 +322,8 @@ public static partial class Game
             int criticalMultiplierBase = SupportedCriticalMultiplier(player, skillId, swingWeapon);
             var accuracy = SupportedAccuracy(player, skillId, hand);
             var leech = HitLeechSources(playerStats, true, skillStats, local, melee: true);
-            var impale = PlayerImpaleSettings(playerStats, Stats, true, skillStats, local);
-            var criticalImpale = PlayerImpaleSettings(playerStats, Stats, true, skillStats, local, critical: true);
+            var impale = ImpaleStats.From(playerStats, Stats, true, skillStats, local);
+            var criticalImpale = ImpaleStats.From(playerStats, Stats, true, skillStats, local, critical: true);
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);

@@ -1425,6 +1425,7 @@ public static partial class Game
         {
             IgnoreAttributeRequirements = ignoreAttributeRequirements,
             EvasionBasedOnWard = EquipmentInput(Stat.KeystoneVoranasAdaption) != 0,
+            ImpalesNearbyEnemies = EquipmentInput(Stat.KeystoneImpale) != 0,
             AccuracyAreaMorePct = areaAccuracy,
             AccuracyWeaponMorePct = weaponAccuracy,
             AccuracyChargeMorePct = chargeAccuracyMore,

@@ -4,18 +4,6 @@ public static partial class Game
 {
     const int ImpalerRadius = 30;
 
-    public static ImpaleStats.Settings PlayerImpaleSettings(IReadOnlyDictionary<uint, int> stats, StatCatalog catalog,
-        bool attack, IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? weaponLocal = null,
-        bool critical = false)
-    {
-        var settings = ImpaleStats.From(stats, catalog, attack, own, weaponLocal, critical);
-        return stats.GetValueOrDefault(Stat.KeystoneImpale) == 0 ? settings : settings with
-        {
-            Applications = 6,
-            ReapplicationDelay = 5,
-        };
-    }
-
     // Reflected physical damage receives target physical reduction and generic damage taken once. It is neither
     // attack nor spell damage and cannot crit, penetrate, or separately grant on-hit effects/Fortification/leech.
     public static int MonsterImpaleDamage(SpawnedMonster target, double stored, double now = double.NaN) =>
@@ -35,6 +23,8 @@ public static partial class Game
     static (int Damage, double Reflected, bool Applied) ApplyPlayerImpaleContact(Player player, SpawnedMonster target,
         int directDamage, double physical, double at, double mitigationAt, ImpaleStats.Settings settings, Random random)
     {
+        if (settings.Chance > 0 && player.Pools.ImpalesNearbyEnemies)
+            settings = settings with { Applications = 6, ReapplicationDelay = 5 };
         var result = ApplyImpaleContact(target, directDamage, physical, at, mitigationAt, settings, random);
         if (result.Applied && settings.ReapplicationDelay > 0)
         {

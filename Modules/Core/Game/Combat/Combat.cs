@@ -632,7 +632,7 @@ public static partial class Game
                     HitLeechSources(playerStats, true, ownPenetration, weapon.LocalSources, weapon.Melee), targetId);
                 (damage, stored, impaled) = WithImpaleHitLocked(player, m, damage, ownRolled, critical,
                     sourceCriticalMultiplier + FullLifeCriticalMultiplier(m, playerStats, ownPenetration),
-                    PlayerImpaleSettings(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
+                    ImpaleStats.From(playerStats, Stats, attack: true, ownPenetration, weapon.LocalSources, critical));
                 impaleStacks = m.Impale.Stacks;
                 impaleStored = m.Impale.Bonus;
                 var fortificationDamage = RawFortificationDamage(ownRolled, critical, criticalMultiplier);
@@ -3036,8 +3036,8 @@ public static partial class Game
                         sweepMultiplier = SupportedCriticalMultiplier(player, skillId, sourceWeapon);
                         if (!spell) accuracy = SupportedAccuracy(player, skillId, hand);
                         leech = HitLeechSources(playerStats, !spell, skillStats, local, !spell && SkillsFor(player).IsMelee(gem.Effect));
-                        impale = PlayerImpaleSettings(playerStats, Stats, !spell, skillStats, local);
-                        criticalImpale = PlayerImpaleSettings(playerStats, Stats, !spell, skillStats, local, critical: true);
+                        impale = ImpaleStats.From(playerStats, Stats, !spell, skillStats, local);
+                        criticalImpale = ImpaleStats.From(playerStats, Stats, !spell, skillStats, local, critical: true);
                         if (removeStunAndKnockback)
                         {
                             var adjusted = new Dictionary<uint, int>(skillStats)
