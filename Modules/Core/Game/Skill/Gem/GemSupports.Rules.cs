@@ -393,7 +393,7 @@ public static partial class Game
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
             WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
             skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
-            CostEfficiencyFor(skills, skill.Effect));
+            SkillCostScopeFor(skills, skill));
         return playerStats;
     }
 
@@ -420,14 +420,15 @@ public static partial class Game
     }
 
     [Flags]
-    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Mark = 16 }
+    enum SkillCostScope { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Trap = 16, Mark = 32 }
 
-    static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
-        (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
-        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
-        | (skills.HasType(effect, "Mark") ? CostEfficiency.Mark : CostEfficiency.None)
-        | (skills.EffectId(effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? CostEfficiency.Spectre : CostEfficiency.None)
-        | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
+    static SkillCostScope SkillCostScopeFor(SkillCatalog skills, SupportedGem skill) =>
+        (skills.IsSpell(skill.Effect) ? SkillCostScope.Spell : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "AppliesCurse") ? SkillCostScope.Curse : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "Mark") ? SkillCostScope.Mark : SkillCostScope.None)
+        | (skills.EffectId(skill.Effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? SkillCostScope.Spectre : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "Minion") ? SkillCostScope.Minion : SkillCostScope.None)
+        | (PlacedKind(skill).Trap ? SkillCostScope.Trap : SkillCostScope.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
@@ -446,13 +447,13 @@ public static partial class Game
 
     public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
         bool? channelled = null, double costMore = 1) =>
-        MergeSkillStats(player, own, channelled, costMore, CostEfficiency.None);
+        MergeSkillStats(player, own, channelled, costMore, SkillCostScope.None);
 
     static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, CostEfficiency efficiency)
+        bool? channelled, double costMore, SkillCostScope scope)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, efficiency);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope);
         return result;
     }
 
@@ -460,10 +461,10 @@ public static partial class Game
     /// until the skill's wrote it), <paramref name="write"/> sets one. Only the skill's own stats and its costs are written.</summary>
     public static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
         bool? channelled = null, double costMore = 1) =>
-        MergeSkillStatsInto(read, write, own, channelled, costMore, CostEfficiency.None);
+        MergeSkillStatsInto(read, write, own, channelled, costMore, SkillCostScope.None);
 
     static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, CostEfficiency efficiency)
+        bool? channelled, double costMore, SkillCostScope scope)
     {
         foreach (var (key, value) in own)
         {
@@ -476,16 +477,18 @@ public static partial class Game
             write(key, replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
-        long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
-            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
-            + ((efficiency & CostEfficiency.Mark) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills) : 0)
-            + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
+        if ((scope & SkillCostScope.Trap) != 0 && read(Stat.TrapThrowSkillsHaveBloodMagic) > 0)
+            write(Stat.SkillCostLifeInsteadOfMana, 1);
+        long conditionalEfficiency = ((scope & SkillCostScope.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
+            + ((scope & SkillCostScope.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((scope & SkillCostScope.Mark) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills) : 0)
+            + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
         {
-            long scopedCost = ((efficiency & CostEfficiency.Spectre) != 0 ? (long)read(Stat.RaiseSpectreManaCostPlusPct) : 0)
-                + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
+            long scopedCost = ((scope & SkillCostScope.Spectre) != 0 ? (long)read(Stat.RaiseSpectreManaCostPlusPct) : 0)
+                + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
             int ManaInput(uint name) => name == Stat.ManaCostPlusPct
                 ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
             write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, costMore));
@@ -821,7 +824,7 @@ public static partial class Game
         var skills = SkillsFor(player);
         int manaPool = ManaCostPool(player, gem);
         var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
-            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), CostEfficiencyFor(skills, gem.Effect));
+            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
         if (manaPool >= 0)
         {
             AddManaPoolDamage(Stat.ArchmageGainLightningDamagePctOfMaxUnreservedMana,
