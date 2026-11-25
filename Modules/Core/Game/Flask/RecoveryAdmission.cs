@@ -103,6 +103,31 @@ public static partial class Game
         || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurning) != 0
         || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS) > 0;
 
+    static void ApplyEquipmentFlaskCleansesLocked(Player player, double now)
+    {
+        if (!player.IncomingAilments.Bleeding(now) && !player.ElementalAilments.HasEffects
+            && FlameTouchedOf(player)?.Source is null) return;
+        // Read equipment at the paid use, after the flask's own suffix has had a chance to grant immunity.
+        var stats = CharacterStatSources(player).Stats;
+        if (stats.GetValueOrDefault(Stat.RemoveBleedOnFlaskUse) != 0)
+            player.IncomingAilments.RemoveOrProtectBleeding(now, 0);
+        if (stats.GetValueOrDefault(Stat.RemoveIgniteAndBurningOnFlaskUse) != 0)
+        {
+            player.ElementalAilments.RemoveOrProtectIgnite(now, 0);
+            EndFlameTouched(player, now);
+        }
+        if (stats.GetValueOrDefault(Stat.RemoveChillAndFreezeOnFlaskUse) != 0)
+            RemoveFlaskChillFreezeLocked(player, now, 0);
+    }
+
+    static bool RemoveFlaskChillFreezeLocked(Player player, double now, int protectSeconds)
+    {
+        if (!player.ElementalAilments.RemoveOrProtectChillFreeze(now, protectSeconds)) return false;
+        if (player.FreezeHeldUntil > now) player.FreezeHeldUntil = now;
+        player.ApplyMovementSpeedAt(now);
+        return true;
+    }
+
     internal static void ApplyConditionalFlaskAilmentProtectionLocked(Player player,
         IReadOnlyDictionary<uint, int> local, double now)
     {
@@ -119,13 +144,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
         int chillFreeze = ChillFreezeFlaskProtection(local);
         bool dispelsFreezeChill = local.GetValueOrDefault(Stat.LocalFlaskDispelsFreezeAndChill) != 0;
-        if ((chillFreeze > 0 || dispelsFreezeChill)
-            && player.ElementalAilments.RemoveOrProtectChillFreeze(now, chillFreeze))
-        {
-            if (player.FreezeHeldUntil > now) player.FreezeHeldUntil = now;
-            player.ApplyMovementSpeedAt(now);
+        if ((chillFreeze > 0 || dispelsFreezeChill) && RemoveFlaskChillFreezeLocked(player, now, chillFreeze))
             Console.WriteLine($"[gateway] flask removed chill/freeze{(chillFreeze > 0 ? $" and protects for {chillFreeze} s" : "")}");
-        }
         int ignite = IgniteFlaskProtection(local);
         if (ignite > 0 && player.ElementalAilments.RemoveOrProtectIgnite(now, ignite))
             Console.WriteLine($"[gateway] flask removed ignite and protects for {ignite} s");
