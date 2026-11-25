@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Protocol.Instance;
 
@@ -120,4 +121,87 @@ public static class InstanceHideoutEditing
     /// baseline walk grids and reapply all current model hulls. Its unused object header is zero.</summary>
     public static byte[] RebuildCollision() =>
         new GameServer.Core.Protocol.Login.LoginWriter().U16(0x161).U32(0).U32(0).U16(0).ToArray();
+
+    /// <summary>S→C / C→S 0x0213 (class 0x1435ca770, writer 0x141fa3630 → 0x141fab3f0, reader 0x141fa36e0 → 0x141fab5f0):
+    /// hideout template export/import. u16 BE hideout_hash (Hideouts.HASH16), u16 BE music_hash (Music.HASH16, 0 = default),
+    /// u8 environment, u16 BE count, count × (u32 BE MtxTypeGameSpecific.HASH32, u16 BE x, u16 BE y, u16 BE rotation, u8 fv).</summary>
+    public const ushort LayoutId = 0x0213;
+    public const int LayoutHeaderLength = 9;
+    public const int LayoutEntryLength = 11;
+    /// <summary>Framing cap on doodad records in C→S 0x0213 (9 + 4096 × 11 = 45,065 bytes &lt; MaxClientCarryBytes).</summary>
+    public const int MaxLayoutDoodads = 4096;
+
+    public readonly record struct LayoutDoodad(uint Hash, ushort X, ushort Y, ushort Rotation, byte Fv)
+    {
+        public byte Variation => (byte)(Fv & 0x7f);
+        public bool Mirrored => (Fv & 0x80) != 0;
+        public float RotationRadians => DecodeRotation(Rotation);
+    }
+
+    public sealed record Layout(ushort HideoutHash, ushort MusicHash, byte Environment, IReadOnlyList<LayoutDoodad> Doodads);
+
+    public static byte PackFv(byte variation, bool mirrored) => (byte)((variation & 0x7f) | (mirrored ? 0x80 : 0));
+
+    public static ushort EncodeRotation(float radians)
+    {
+        if (!float.IsFinite(radians)) return 0;
+        double turns = radians / (2.0 * Math.PI);
+        turns -= Math.Floor(turns);
+        return (ushort)((int)Math.Round(turns * 65536.0) & 0xffff);
+    }
+
+    public static float DecodeRotation(ushort encoded) => encoded / 65536f * (2f * MathF.PI);
+
+    public static int? LayoutLength(ReadOnlySpan<byte> m) =>
+        MeasureLayoutLength(m, out int length) == WireMeasure.Ok ? length : null;
+
+    internal static WireMeasure MeasureLayoutLength(ReadOnlySpan<byte> data, out int length)
+    {
+        length = 0;
+        if (data.Length < LayoutHeaderLength) return WireMeasure.Incomplete;
+        int count = BinaryPrimitives.ReadUInt16BigEndian(data[7..]);
+        if (count > MaxLayoutDoodads) return WireMeasure.Invalid;
+        int total = LayoutHeaderLength + count * LayoutEntryLength;
+        if (data.Length < total) return WireMeasure.Incomplete;
+        length = total;
+        return WireMeasure.Ok;
+    }
+
+    public static byte[] EncodeLayout(Layout layout)
+    {
+        if (layout.Doodads.Count > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(layout), "Hideout layout exceeds u16 doodad count.");
+        var w = new GameServer.Core.Protocol.Login.LoginWriter()
+            .U16(LayoutId)
+            .U16(layout.HideoutHash)
+            .U16(layout.MusicHash)
+            .U8(layout.Environment)
+            .U16((ushort)layout.Doodads.Count);
+        foreach (var d in layout.Doodads)
+            w.U32(d.Hash).U16(d.X).U16(d.Y).U16(d.Rotation).U8(d.Fv);
+        return w.ToArray();
+    }
+
+    public static Layout ReadLayout(ReadOnlySpan<byte> m)
+    {
+        if (m.Length < LayoutHeaderLength || BinaryPrimitives.ReadUInt16BigEndian(m) != LayoutId)
+            throw new ArgumentException("Invalid hideout layout packet", nameof(m));
+        ushort hideoutHash = BinaryPrimitives.ReadUInt16BigEndian(m[2..]);
+        ushort musicHash = BinaryPrimitives.ReadUInt16BigEndian(m[4..]);
+        byte environment = m[6];
+        ushort count = BinaryPrimitives.ReadUInt16BigEndian(m[7..]);
+        if (count > MaxLayoutDoodads || m.Length != LayoutHeaderLength + count * LayoutEntryLength)
+            throw new ArgumentException("Invalid hideout layout doodad count or length", nameof(m));
+        var doodads = new LayoutDoodad[count];
+        for (int i = 0, at = LayoutHeaderLength; i < count; i++, at += LayoutEntryLength)
+        {
+            doodads[i] = new(
+                BinaryPrimitives.ReadUInt32BigEndian(m[at..]),
+                BinaryPrimitives.ReadUInt16BigEndian(m[(at + 4)..]),
+                BinaryPrimitives.ReadUInt16BigEndian(m[(at + 6)..]),
+                BinaryPrimitives.ReadUInt16BigEndian(m[(at + 8)..]),
+                m[at + 10]);
+        }
+        return new(hideoutHash, musicHash, environment, doodads);
+    }
 }

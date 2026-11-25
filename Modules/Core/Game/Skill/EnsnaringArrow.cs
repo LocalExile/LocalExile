@@ -187,6 +187,8 @@ public static partial class Game
                     InstanceEntities.ObjectTypeHash(EffectObject.TypePath),
                     new EffectObject(x, y, demonic ? DemonicSnareArrowAo : SnareArrowAo).Blob());
             }, wake: true);
+            ushort beamRow = demonic ? DemonicSnareBeamRow : SnareBeamRow;
+            var lastEnd = ((int)Math.Round(centre.X), (int)Math.Round(centre.Y));
             Create(beamId, () =>
             {
                 if (rope.Ended) return null;
@@ -194,7 +196,7 @@ public static partial class Game
                 return InstanceEntities.CreateObject(beamId,
                     InstanceEntities.ObjectTypeHash(BeamEffectObject.TypePath), new BeamEffectObject(x, y, anchorId,
                         (float)centre.X * BeamEffectObject.WorldPerCell, (float)centre.Y * BeamEffectObject.WorldPerCell,
-                        key.Id, demonic ? DemonicSnareBeamRow : SnareBeamRow).Blob());
+                        key.Id, beamRow).Blob());
             }, wake: true);
 
             long interval = ProjectileRuntime.Time(.1);
@@ -207,13 +209,23 @@ public static partial class Game
                     return;
                 }
                 double at = Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                var pos = monster.Walk.Position(at);
                 if (!Player.Area.Monsters.TryGetValue(key.Id, out var current) || !ReferenceEquals(current, monster)
-                    || !rope.Holds(monster, Vector(monster.Walk.Position(at))))
+                    || !rope.Holds(monster, Vector(pos)))
                 {
                     if (monster.Bleeds.Burning) SettleBleeding(monster, at);
                     lock (ropes) ropes.Remove(rope);
                     RemoveEnsnare(rope);
                     return;
+                }
+                if (rope.BeamCreated && pos != lastEnd)
+                {
+                    lastEnd = pos;
+                    WorldRecords(beamId, () => !rope.Ended && rope.BeamCreated
+                        ? [InstanceEntities.BeamUpdate(beamId, new BeamEffectObject(x, y, anchorId,
+                            pos.X * BeamEffectObject.WorldPerCell, pos.Y * BeamEffectObject.WorldPerCell,
+                            key.Id, beamRow))]
+                        : null);
                 }
                 Runtime.Schedule(Runtime.Now + interval, Check);
             }

@@ -125,6 +125,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
+- Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
+- Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
 - Smuggler's Caches in maps: one per map area from the Heist roll, opens on click, back open on re-entry; no loot yet.
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
 - Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).

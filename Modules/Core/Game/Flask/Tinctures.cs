@@ -616,7 +616,7 @@ public static partial class Game
                     changed.Add(done);
             }
             return changed.Count == 0 ? null : ([.. changed.Select(c => c.Id)], changed);
-        }, changed => $"0x00bf adjacent tincture flask charges: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))}",
+        }, changed => $"0x00c6 adjacent tincture flask charges: {string.Join(", ", changed.Select(c => $"{c.X}: {c.Item.Charges}"))}",
             retainOutput: true);
     }
 

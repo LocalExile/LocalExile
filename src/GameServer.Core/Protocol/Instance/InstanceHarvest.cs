@@ -11,6 +11,15 @@ public static class InstanceHarvest
 
     public static ushort ReadCraft(ReadOnlySpan<byte> message) => BinaryPrimitives.ReadUInt16BigEndian(message[2..]);
 
+    /// <summary>C→S 0xf8 (8 bytes, writer 0x141f993f0, sender 0x14216eb70): Ctrl + click an item between main/expanded
+    /// inventory and HarvestCraftingItem (row 43) while the Horticrafting Station is open.
+    /// u32 BE item id (+2), u8 fromExpanded (+6), u8 intoStation (+7).</summary>
+    public const ushort QuickMoveItemId = 0xf8;
+    public const int QuickMoveItemLength = 8;
+
+    public static InstanceItems.LeagueWindowMove ReadQuickMoveItem(ReadOnlySpan<byte> m) =>
+        new(BinaryPrimitives.ReadUInt32BigEndian(m[2..]), m[6] != 0, m[7] != 0);
+
     /// <summary>C→S 0xf9 (10 bytes, writer 0x141fa0040, sender 0x140312da0): Ctrl + click an item into or out of
     /// HarvestCraftingItem (row 43) while the Horticrafting Station is open (from inventory or stash tab).
     /// u32 BE item id (+2), u8 flags (+6), u16 BE stash tab (+7), u8 intoStation (+9).</summary>

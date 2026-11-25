@@ -9,6 +9,7 @@ Nothing yet.
 
 ## Partly working
 
+- Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
 - Icicle Mine variants release their radial or aimed volleys and scale with the detonation chain. Pyroclast
   variants apply armed mine Fire Exposure, then release a nova and mortars. The Icicle critical aura is open.
 - Trap and mine payloads support Arc chains, Contagion, corpse Offerings, Hexes and Marks, damage brands,

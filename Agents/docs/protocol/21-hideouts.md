@@ -936,8 +936,14 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
   Forbidden Sanctum (116 160, 106 166), Kingsmarch, the Rogue Harbour and the Monastery of the Keepers (offsets from the
   arrival) get a stash and a guild stash, as the Mine Encampment does.
 - **Hideout decorations, `/save_hideout`, music box and Item Display Case (3.29.3c).**
-  - `C→S 0x16` command 50 (`Commands.dat` row 49 `SaveHideout` + 1) and `/save_hideout` report and confirm the saved
-    hideout layout.
+  - `C→S 0x16` command 50 (`Commands.dat` row 49 `SaveHideout` + 1) and `/save_hideout` emit `S→C 0x0213` for the
+    active hideout template.
+  - `S→C / C→S 0x0213` (class `0x1435ca770`, writer `0x141fa3630` → `0x141fab3f0`, reader `0x141fa36e0` → `0x141fab5f0`):
+    variable length `9 + count × 11` bytes (framed up to 4096 doodads; saved custom decorations capped at 750). Layout:
+    `u16 BE hideout_hash` (`Hideouts.HASH16`), `u16 BE music_hash` (`Music.HASH16`, `0` = default), `u8 environment`,
+    `u16 BE count`, `count × (u32 BE MtxTypeGameSpecific.HASH32, u16 BE x, u16 BE y, u16 BE rotation, u8 fv)` where
+    `fv = (variation & 0x7f) | (mirrored ? 0x80 : 0)`. Import validates owner, hideout hash match, bounds, and empty
+    display cases before replacing saved decorations and repositioning functional stations.
   - `C→S 0x59` (personal; `0x5a` guild placement is refused), 16 bytes (writer `0x141f99e90`): u32 BE
     MtxTypeGameSpecific HASH32, u16 BE x, u16 BE y, f32 BE rotation, u8 variation, u8 flags (bit 0 mirrored). Capped at
     750 custom decorations per hideout.
@@ -953,8 +959,12 @@ the exported SulphiteEnrage rows do not disclose the official daemon's radius or
     `0x141f973b0`, sender `0x140705a40`: u32 object, u32 cursor inventory, u32 item) places/swaps a cursor item, and
     `C→S 0x68` (7 bytes, writer `0x141f96e50`: u32 object, u8 flag) toggles or reclaims it. Stored items are strictly
     league-scoped in the account's league stash, reject quest items, and block reclaiming/resetting while occupied.
-- **Horticrafting Ctrl + click and recipe unlock notifications.**
+- **Horticrafting Ctrl + click, bench close, and recipe unlock notifications.**
+  - `C→S 0xf8` (8 bytes, writer `0x141f993f0`, sender `0x14216eb70`): `u32 BE item id`, `u8 fromExpanded`, `u8 intoStation`
+    quick-moves an item between carried inventory and `HarvestCraftingItem` (row 43).
   - `C→S 0xf9` (10 bytes, writer `0x141fa0040`, sender `0x140312da0`): u32 BE item id, u8 flags, u16 BE stash tab, u8
     intoStation moves an item into or out of `HarvestCraftingItem` (row 43) from inventory or personal stash.
+  - `C→S 0x2b1` (4 bytes, writer `0x141f9a380`, sender `0x140c40b80`): `u8 flags`, `u8 uiKind` (`0x33` crafting bench);
+    clears the open bench state and removes the bench balance inventory view.
   - Flipping a `RecipeUnlockDisplay.RecipeId` league quest flag bit `0 → 1` via `PlayerLeagueQuestFlagsUpdate` triggers
     the client's native recipe unlock toast (`0x140d6d030` → `0x1402a7210`).
