@@ -135,13 +135,7 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
-        var settings = MonsterIgnites.Settings.From(rows, hand, get);
-        if (get(Stat.KeystoneFirePurist) != 0)
-            settings = settings with {
-                Seconds = settings.Seconds / 4,
-                Min = settings.Min * .75, Max = settings.Max * .75,
-                CriticalMin = settings.CriticalMin * .75, CriticalMax = settings.CriticalMax * .75
-            };
+        var settings = VoraciousFlame(MonsterIgnites.Settings.From(rows, hand, get), get);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
         int per = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         if (per > 0)
@@ -154,6 +148,18 @@ public static partial class Game
         }
         return WithOverheat(player, skillId,
             WithIgniteSpread(settings, playerStats, SupportedSkill(player, skillId).Stats, spell, hand));
+    }
+
+    static MonsterIgnites.Settings VoraciousFlame(MonsterIgnites.Settings settings, Func<uint, int> get)
+    {
+        if (get(Stat.KeystoneFirePurist) == 0) return settings;
+        return settings with
+        {
+            Seconds = settings.Seconds / 4,
+            Min = settings.Min * .75, Max = settings.Max * .75,
+            CriticalMin = settings.CriticalMin * .75, CriticalMax = settings.CriticalMax * .75,
+            Stacks = (int)Math.Min(int.MaxValue, (long)settings.Stacks + 1),
+        };
     }
 
     /// <summary>The attacker's ignite proliferation radius in cells, the largest of its sources: Ignite Proliferation
@@ -217,11 +223,12 @@ public static partial class Game
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
-        return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
+        var settings = MonsterIgnites.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true),
             SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
             conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),
-            "main_hand", Get), playerStats, null, spell: false, "main_hand");
+            "main_hand", Get);
+        return WithIgniteSpread(VoraciousFlame(settings, Get), playerStats, null, spell: false, "main_hand");
     }
 
     // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite

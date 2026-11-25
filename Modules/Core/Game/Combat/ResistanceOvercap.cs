@@ -55,11 +55,14 @@ public static class ResistanceOvercap
             + bonus.LightningMaxResistance);
         if (StatOf(Stat.ElementalResistancesAreLimitedByHighestMaximumElementalResistance) != 0)
             fireMax = coldMax = lightningMax = Math.Max(fireMax, Math.Max(coldMax, lightningMax));
-        var derived = Increases(coldRaw + penalty, coldMax, Enabled(stats, sources, ColdEvasionFlag),
-            lightningRaw + penalty, lightningMax, Enabled(stats, sources, LightningCritFlag));
+        bool tempered = StatOf(Stat.KeystoneTemperedByWar) != 0;
+        int coldForOvercap = (tempered ? coldRaw / 2 : coldRaw) + penalty;
+        int lightningForOvercap = (tempered ? lightningRaw / 2 : lightningRaw) + penalty;
+        var derived = Increases(coldForOvercap, coldMax, Enabled(stats, sources, ColdEvasionFlag),
+            lightningForOvercap, lightningMax, Enabled(stats, sources, LightningCritFlag));
         int manaDivisor = StatOf(Stat.ManaIncreasedPerXOvercappedLightningResistanceChoirOfTheStorm);
         int manaIncrease = manaDivisor > 0
-            ? GameServer.Core.World.DamageModel.Overcap(lightningRaw + penalty, lightningMax) / manaDivisor : 0;
+            ? GameServer.Core.World.DamageModel.Overcap(lightningForOvercap, lightningMax) / manaDivisor : 0;
         int chaosIncrease = StatOf(Stat.EnergyShieldIncreasedByChaosResistance) == 0 ? 0
             : GameServer.Core.World.DamageModel.Capped(bonus.ChaosResistance + penalty,
                 GameServer.Core.World.DamageModel.DefaultMaxResistance + bonus.ChaosMaxResistance);

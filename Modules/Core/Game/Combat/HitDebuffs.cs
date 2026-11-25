@@ -194,7 +194,11 @@ public static partial class Game
     // same magnitude restarting it. Then Elemental Equilibrium (poedb: "Hits that deal Elemental Damage remove Exposure to
     // those Elements and inflict Exposure to other Elements"), after the hit's own Exposure as in PoB, for 4 s too:
     // Exposure's default duration, as the keystone names none.
-    public static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random)
+    public static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random) =>
+        ExposureOnHitLocked(m, get, mitigated, now, random, null);
+
+    static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random,
+        int? dominantElement)
     {
         if (m.Effects[Stat.ImmuneToExposure] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
@@ -203,15 +207,7 @@ public static partial class Game
         int strongestExposure = get(Stat.PurgeExposeResistPctMatchingHighestElementDamage);
         if (strongestExposure < 0)
         {
-            int index = -1;
-            double largest = 0;
-            for (int i = 0; i < ExposureTypes.Length; i++)
-            {
-                double amount = mitigated[ExposureTypes[i]].Max;
-                if (amount <= largest) continue;
-                largest = amount;
-                index = i;
-            }
+            int index = dominantElement ?? HighestElementalDamageTaken(m, mitigated, now);
             if (index >= 0 && InflictedExposure(get, ExposureTypes[index], strongestExposure) is < 0 and var magnitude)
             {
                 int basis = get(Stat.BaseSecondarySkillEffectDuration);
@@ -233,6 +229,24 @@ public static partial class Game
             else if (InflictedExposure(get, type, (int)(ElementalEquilibriumExposure * effect)) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
         }
+    }
+
+    // Incoming hit effects such as Covered in Ash multiply the individual elemental shares. Critical strikes and
+    // suppression scale every share equally, so their common factor cannot change the selected element.
+    static int HighestElementalDamageTaken(SpawnedMonster m, DamagePacket mitigated, double now)
+    {
+        int index = -1;
+        double largest = 0;
+        var effects = m.Effects;
+        for (int i = 0; i < ExposureTypes.Length; i++)
+        {
+            DamageType type = ExposureTypes[i];
+            double amount = mitigated[type].Max * (100 + ElementalHitTakenPercent(effects, m, type, now));
+            if (amount <= largest) continue;
+            largest = amount;
+            index = i;
+        }
+        return index;
     }
 
     static void Expose(SpawnedMonster m, int i, int magnitude, double now, double seconds = ExposureSeconds)

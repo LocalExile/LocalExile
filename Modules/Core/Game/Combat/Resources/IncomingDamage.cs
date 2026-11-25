@@ -133,7 +133,7 @@ public static partial class Game
         if (chaosDamage <= 0) return 0;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         bool protectsMana = Get(Stat.VirtualEnergyShieldProtectsMana) != 0 || Get(Stat.KeystoneEldritchBattery) != 0;
-        bool bypass = ChaosDamageBypassesEnergyShield(player, playerStats);
+        bool bypass = Get(Stat.KeystoneDivineFlesh) != 0 || ChaosDamageBypassesEnergyShield(player, playerStats);
         int remaining = IncomingResourceDefences.DamageOverTime(player.EnergyShield, chaosDamage,
             (protectsMana || bypass) ? 100 : 0, at, ref player.ChaosDotBypassCarry);
         if (remaining <= 0) return 0;
