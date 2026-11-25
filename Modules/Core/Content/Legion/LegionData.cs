@@ -49,9 +49,13 @@ public sealed class LegionData
     public sealed record RewardType(int Row, int MinimapIcon, int MiscAnimatedKey = -1, double Scale = 3.0);
 
     public IReadOnlyList<RewardType> RewardTypes { get; }
+    /// <summary>O(1) lookup of LegionRewardTypeVisuals by row index.</summary>
+    public IReadOnlyDictionary<int, RewardType> RewardTypesByRow { get; }
     public IReadOnlyList<Faction> Factions { get; }
     public IReadOnlyList<Rank> Ranks { get; }
     public IReadOnlyList<MonsterVariety> MonsterVarieties { get; }
+    /// <summary>O(1) lookup of first LegionMonsterVarieties row by MonsterVarietiesKey (for stasis props).</summary>
+    public IReadOnlyDictionary<int, MonsterVariety> VarietyByMonster { get; }
     public IReadOnlyList<MonsterCount> MonsterCounts { get; }
     public IReadOnlyList<ChestType> ChestTypes { get; }
     public IReadOnlyList<ChestCount> ChestCounts { get; }
@@ -118,6 +122,11 @@ public sealed class LegionData
             r.Int("__col4"), r.Int("__col5"), r.Int("__col7")))];
         RewardTypes = [.. ClientTables.TableOrEmpty("LegionRewardTypeVisuals").Select(r => new RewardType(
             r.Index, r.IntOrNull("MinimapIconsKey") ?? -1, r.IntOrNull("MiscAnimatedKey") ?? -1, r.RealOrNull("__col4") ?? 3.0))];
+        RewardTypesByRow = RewardTypes.ToDictionary(r => r.Row);
+        var byMonster = new Dictionary<int, MonsterVariety>();
+        foreach (var mv in MonsterVarieties)
+            if (mv.Monster >= 0) byMonster.TryAdd(mv.Monster, mv);
+        VarietyByMonster = byMonster;
         Balances = [.. ClientTables.TableOrEmpty("LegionBalancePerLevel").Select(r => new Balance(r.Index, r.Int("MinLevel"),
             [.. Enumerable.Range(1, 15).Select(c => r.Int($"__col{c}"))]))];
         var environments = ClientTables.TableOrEmpty("Environments");

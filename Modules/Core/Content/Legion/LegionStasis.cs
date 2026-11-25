@@ -92,9 +92,15 @@ static class LegionStasis
         return fighters.TryGetValue(id, out var found) ? found : null;
     }
 
+    /// <summary>Persists all currently tracked fighters for this area into ContentState once (called after batched ReleaseArmy).</summary>
+    public static void FlushFighters(Player player)
+    {
+        if (FightersByArea.TryGetValue(player.Area, out var fighters)) PersistFighters(player, fighters);
+    }
+
     /// <summary>The minimap icon stat (monster_minimap_icon = MinimapIcons row + 1) of a reward row, the first reward's; null when none.</summary>
     public static int? RewardIcon(int[]? rewards) =>
-        rewards is { Length: > 0 } && LegionData.Current.RewardTypes.FirstOrDefault(r => r.Row == rewards[0]) is { MinimapIcon: >= 0 } t ? t.MinimapIcon + 1 : null;
+        rewards is { Length: > 0 } && LegionData.Current.RewardTypesByRow.TryGetValue(rewards[0], out var t) && t.MinimapIcon >= 0 ? t.MinimapIcon + 1 : null;
 
     /// <summary>The create stats of a reward carrier: the icon, and hidden until its reveal when <paramref name="hidden"/> (state 0 shows on the minimap otherwise).</summary>
     static List<(uint Key, int Value)>? RewardStats(int[]? rewards, bool hidden)
@@ -151,9 +157,16 @@ static class LegionStasis
         double axis = generalArmy >= 0 && float.IsFinite(monolithRotation)
             ? monolithRotation + (generalArmy == 0 ? -Math.PI / 2 : Math.PI / 2)
             : rng.NextDouble() * Math.PI * 2;
+        // Cache MonsterVarieties lookups per army (~12 unique varieties instead of ~400 string allocations & lookups).
+        var varietyCache = new Dictionary<int, MonsterCatalog.Variety?>();
+        MonsterCatalog.Variety? FindVariety(int row)
+        {
+            if (varietyCache.TryGetValue(row, out var cached)) return cached;
+            return varietyCache[row] = Monsters.Find(row.ToString());
+        }
         // The formations (LegionFormation.cs): the block of each army from its member count and its bodies' size.
         var formations = plan.Factions.Select((f, i) => new LegionFormation(player, rng, cx, cy, axis, i, f,
-            row => Monsters.Find(row.ToString()) is { } v ? v.ObjectSize : 3)).ToArray();
+            row => FindVariety(row) is { } v ? v.ObjectSize : 3)).ToArray();
         byte areaLevel = (byte)Math.Clamp(level, 1, 100);
         var skippedBy = new int[plan.Factions.Length];
         int skipped = 0, sergeants = 0, generals = 0, chests = 0;
@@ -163,7 +176,7 @@ static class LegionStasis
         async Task Add(int faction, int row, MonsterRarity rarity, int tier, bool chest, bool hoard, int from, int to, int[]? rewards = null)
         {
             if (stopped) return;
-            if (Monsters.Find(row.ToString()) is not { Supported: true } variety || player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; return; }
+            if (FindVariety(row) is not { Supported: true } variety || player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; return; }
             if (formations[faction].Place(from, to, variety.ObjectSize, tier == 3) is not { } at) { skipped++; skippedBy[faction]++; return; }
             // bulk: no wait for the client's birth per monster (a frame each, 5-8 s for 150-250). The action is in its create (hidden from the first frame).
             ushort sequence = NextSequence();
@@ -231,7 +244,7 @@ static class LegionStasis
     static List<(int Row, AnimationControllerState Animation)> PropsOf(int monsterRow, Random rng)
     {
         var props = new List<(int, AnimationControllerState)>();
-        if (LegionData.Current.MonsterVarieties.FirstOrDefault(v => v.Monster == monsterRow) is not { MiscAnimated.Length: > 0 } row
+        if (!LegionData.Current.VarietyByMonster.TryGetValue(monsterRow, out var row) || row.MiscAnimated.Length == 0
             || row.PropChance <= 0 || rng.Next(100) >= row.PropChance) return props;
         int pick = rng.Next(row.MiscAnimated.Length);
         int n = Math.Max(0, At(row.PropCounts, pick));
@@ -299,9 +312,9 @@ static class LegionStasis
     /// <summary>A player who enters later: the area gives its client the monsters with their states and their action (MonsterOrigins), so this goes to
     /// that player alone, after the creates: a 0x2c8 state 2 for a revealed member that has not broken out (a broken one is created in state 3 from its origin and gets none). With
     /// <see cref="SendFreezeBuff"/> also the buff and the paused animation the area does not keep.</summary>
-    public static async Task Present(Player player, Member[]? army, LegionArmy.ArmyPlan? plan)
+    public static async Task Present(Player player, IReadOnlyList<Member>? army, LegionArmy.ArmyPlan? plan)
     {
-        if (army is not { Length: > 0 }) return;
+        if (army is not { Count: > 0 }) return;
         await LegionOutput.ToOne(player, async () =>
         {
             foreach (var member in army)
@@ -345,7 +358,7 @@ static class LegionStasis
     /// shaped with <c>present=1</c>, <c>breakout=1</c>, <c>activated=1</c> and <c>owning_initiator</c> right in its 0x02bb create so no crystal flickers and no post-spawn state update is needed.
     /// Preserves stasis life/damage scaling from Logistical Support, Eternal Conflict multi-breakouts, and Treasures reward spread.
     /// Returns the woken monster's object id, or 0 when the new monster could not be made (the frozen one is then left standing).</summary>
-    public static async Task<uint> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null, uint monolithId = 0, int lifePerRewardPct = 0, int sextantLifePct = 0, int sergeantRarityPct = 0)
+    public static async Task<uint> Wake(Player player, Member member, SpawnedMonster monster, int cx, int cy, string? factionId = null, uint monolithId = 0, int lifePerRewardPct = 0, int sextantLifePct = 0, int sergeantRarityPct = 0, bool deferRemove = false, bool deferPersist = false)
     {
         var variety = monster.Variety;
         if (variety is null) return 0;
@@ -368,7 +381,7 @@ static class LegionStasis
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var woken)) return 0;   // the frozen one stays: the caller removes it
         int damagePct = extraBreakouts * 35 + (member.SpreadEnhanced ? 25 : 0);
         if (damagePct > 0) woken.EncounterStats = new Dictionary<uint, int> { [Stat.DamagePlusPct] = damagePct };
-        await Remove(player, [member]);
+        if (!deferRemove) await Remove(player, [member]);
         if (extraBreakouts > 0) player.Area.Buffs.Set(id, new Buff(EnhancedBuff, Tag: 1));
         if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
         if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
@@ -378,7 +391,7 @@ static class LegionStasis
                 BreakOutCount: Math.Max(1, member.BreakOutCount),
                 SergeantRarityPct: member.Tier == 2 ? sergeantRarityPct : 0);   // for the drops (LegionRewards)
             anyFighter = true;
-            PersistFighters(player, map);
+            if (!deferPersist) PersistFighters(player, map);
         }
         return id;
     }

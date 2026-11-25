@@ -69,6 +69,11 @@ static class LegionDomain
         public List<int> BankedRewards = [.. s.BankedRewards];
         public FighterSlot[] Slots = s.Slots;
         public bool ControlZoneReady = s.ControlZoneReady;
+        /// <summary>True when individual kill updates have not yet been flushed to ContentState JSON.</summary>
+        public bool Dirty;
+        public double LastFlushAt;
+        /// <summary>Cached MonsterVarieties lookups per MonsterRow so spawns and revivals avoid repeated string allocations.</summary>
+        public readonly Dictionary<int, MonsterCatalog.Variety?> VarietyCache = [];
         /// <summary>Fast lookup from live SpawnedMonster.ObjectId -> slot index (rebuilt on restore).</summary>
         public Dictionary<uint, int> LiveByMonster = BuildLiveIndex(s.Slots);
 
@@ -305,8 +310,13 @@ static class LegionDomain
         return null;
     }
 
-    static void Keep(Player player, DomainState state)
+    const double DomainFlushSeconds = 0.5;
+
+    static void Keep(Player player, DomainState state, bool flush = true)
     {
+        if (!flush) { state.Dirty = true; return; }
+        state.Dirty = false;
+        state.LastFlushAt = global::Game.AreaTime(player);
         if (player.Instance is { } instance)
             instance.ContentState[SaveKey] = JsonSerializer.Serialize(state.Snapshot(), Json);
     }
@@ -455,6 +465,7 @@ static class LegionDomain
             }
             else if (state.Phase == DomainPhase.Active)
             {
+                if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
                 if (now >= state.EndsAt)
                 {
                     state.Phase = DomainPhase.Finished;
@@ -646,7 +657,13 @@ static class LegionDomain
             uberCount = state.UberCount;
             initiatorId = state.InitiatorId;
         }
-        if (Monsters.Find(slot.MonsterRow.ToString()) is not { Supported: true } variety || player.Closed || player.LeavingArea) return 0;
+        MonsterCatalog.Variety? variety;
+        lock (state)
+        {
+            if (!state.VarietyCache.TryGetValue(slot.MonsterRow, out variety))
+                state.VarietyCache[slot.MonsterRow] = variety = Monsters.Find(slot.MonsterRow.ToString());
+        }
+        if (variety is not { Supported: true } || player.Closed || player.LeavingArea) return 0;
 
         IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
             ? [(Stat.MonsterMinimapIcon, icon)] : null;
@@ -755,7 +772,7 @@ static class LegionDomain
             state.TotalKills++;
             if (slot.Tier == 3) state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
             if (slot.Rewards is { Length: > 0 }) state.BankedRewards.AddRange(slot.Rewards);
-            Keep(player, state);
+            Keep(player, state, flush: false);
             return true;
         }
     }

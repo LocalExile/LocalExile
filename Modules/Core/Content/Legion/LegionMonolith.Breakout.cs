@@ -124,23 +124,30 @@ static partial class LegionMonolith
         }
     }
 
-    /// <summary>The saved members are marked broken (incrementing BreakOutCount for Eternal Conflict and advancing the
-    /// Timeless Conflict Alert gauge when active); tracks dual Generals (Face Off) and returns whether Schism triggered.</summary>
+    /// <summary>The saved members are marked broken in O(1) via ArmyIndex (incrementing BreakOutCount for Eternal Conflict
+    /// and advancing the Timeless Conflict Alert gauge when active); tracks dual Generals (Face Off) and returns whether Schism triggered.</summary>
     static (bool GeneralBroken, uint NextGeneralId, bool TriggerSchism, uint SchismPulse) MarkBroken(Player player, Encounter e, HashSet<uint> ids)
     {
         lock (e)
         {
             if (e.Army is not { } army) return (false, 0, false, 0);
-            bool general = army.Any(m => ids.Contains(m.Id) && m.Tier == 3 && !m.Chest);
+            bool general = false;
             int alertAdded = 0;
-            e.Army = [.. army.Select(m =>
+            foreach (uint id in ids)
             {
-                if (!ids.Contains(m.Id)) return m;
+                if (!e.ArmyIndex.TryGetValue(id, out int idx)) continue;
+                var m = army[idx];
+                if (m.Tier == 3 && !m.Chest) general = true;
                 if (e.AlertMode) alertAdded += LegionArmy.RankAlertValue(LegionData.Current, e.Level, m.Tier, m.Chest, m.WarHoard);
-                return m with { Broken = true, BreakOutCount = m.BreakOutCount + 1 };
-            })];
-            uint nextGen = e.Army.FirstOrDefault(m => m.Tier == 3 && !m.Chest && !m.Broken)?.Id ?? 0;
-            if (general) e.GeneralId = nextGen;
+                army[idx] = m with { Broken = true, BreakOutCount = m.BreakOutCount + 1 };
+            }
+            uint nextGen = 0;
+            if (general)
+            {
+                foreach (var m in army)
+                    if (m.Tier == 3 && !m.Chest && !m.Broken) { nextGen = m.Id; break; }
+                e.GeneralId = nextGen;
+            }
             bool triggerSchism = false;
             uint schismPulse = 0;
             if (e.AlertMode && alertAdded > 0)
@@ -149,6 +156,7 @@ static partial class LegionMonolith
                 if (e.Phase == Phase.Running && e.AlertGauge >= e.AlertMax)
                 {
                     e.Phase = Phase.Frozen;
+                    e.Releasing = true;
                     e.StageAt = global::Game.AreaTime(player);
                     e.RuleStage = 1;
                     e.RuleStep = 3;
@@ -156,7 +164,8 @@ static partial class LegionMonolith
                     triggerSchism = true;
                 }
             }
-            Keep(player, e);
+            // Flush immediately on Schism phase change; coalesce per-monster breakouts in Tick to avoid AoE frame stalls.
+            Keep(player, e, flush: triggerSchism);
             return (general, nextGen, triggerSchism, schismPulse);
         }
     }
@@ -269,7 +278,7 @@ static partial class LegionMonolith
         double radius = ChestRadius * Math.Max(0, 100 + AreaStats(player).GetValueOrDefault(Stat.MapLegionChestsBreakOutRangePlusPct)) / 100.0 + ChestMargin;
         LegionStasis.Member[] army;
         int spreadChance;
-        lock (e) (army, spreadChance) = (e.Army ?? [], e.ChestSpreadChancePct);
+        lock (e) (army, spreadChance) = (e.Army is { Count: > 0 } a ? [.. a] : [], e.ChestSpreadChancePct);
         double now = global::Game.AreaTime(player);
         var near = new List<(Hold Hold, SpawnedMonster Monster)> { (hold, chestMonster) };
         foreach (var m in army)
@@ -307,8 +316,9 @@ static partial class LegionMonolith
                 {
                     if (e.Army is { } current)
                     {
-                        e.Army = [.. current.Select(m => spreadUpdates.TryGetValue(m.Id, out var r) ? m with { Rewards = r, SpreadEnhanced = true } : m)];
-                        Keep(player, e);
+                        foreach (var (mid, rewards) in spreadUpdates)
+                            if (e.ArmyIndex.TryGetValue(mid, out int idx)) current[idx] = current[idx] with { Rewards = rewards, SpreadEnhanced = true };
+                        Keep(player, e, flush: false);
                     }
                 }
                 foreach (var (mid, rewards) in spreadUpdates) LegionStasis.ShowRewards(player, mid, rewards, true);
@@ -326,7 +336,7 @@ static partial class LegionMonolith
     static async Task BreakRemaining(IModuleContext module, Player player, Encounter e)
     {
         LegionStasis.Member[] army;
-        lock (e) army = e.Army ?? [];
+        lock (e) army = e.Army is { Count: > 0 } a ? [.. a] : [];
         var left = new List<(Hold Hold, SpawnedMonster Monster)>();
         var inFlight = new HashSet<uint>();
         foreach (var m in army)
@@ -375,11 +385,10 @@ static partial class LegionMonolith
     {
         var list = new List<(string, double)>();
         if (rewards is not { Length: > 0 }) return list;
-        var types = LegionData.Current.RewardTypes;
+        var byRow = LegionData.Current.RewardTypesByRow;
         foreach (int row in rewards)
         {
-            var rt = types.FirstOrDefault(r => r.Row == row);
-            if (rt is not null && ModelOf(rt.MiscAnimatedKey) is { Length: > 0 } ao)
+            if (byRow.TryGetValue(row, out var rt) && ModelOf(rt.MiscAnimatedKey) is { Length: > 0 } ao)
                 list.Add((ao, rt.Scale));
         }
         return list;

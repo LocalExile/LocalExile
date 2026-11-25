@@ -24,7 +24,7 @@ static partial class LegionMonolith
     static async Task RevealArmy(IModuleContext module, Player player, Encounter e, uint pulse)
     {
         LegionStasis.Member[] army;
-        lock (e) army = e.Army ?? [];
+        lock (e) army = e.Army is { Count: > 0 } a ? [.. a] : [];
         double now = global::Game.AreaTime(player);
         var distances = new List<(LegionStasis.Member Member, double Distance)>();
         foreach (var m in army)
@@ -107,9 +107,9 @@ static partial class LegionMonolith
         {
             if (e.Army is { } army)
             {
-                var ids = done.Select(d => d.Member.Id).ToHashSet();
-                e.Army = [.. army.Select(m => ids.Contains(m.Id) ? m with { Revealed = true } : m)];
-                if (keep) Keep(player, e);   // the spawn path (Standing) skips it: BeginArmy keeps once after Spawn
+                foreach (var (m, _, _) in done)
+                    if (e.ArmyIndex.TryGetValue(m.Id, out int idx)) army[idx] = army[idx] with { Revealed = true };
+                if (keep) Keep(player, e, flush: false);   // coalesced in Tick so 16 reveal steps do not JSON-serialize 400 members 16 times
             }
         }
         // The reward symbols and the minimap icon appear with the reveal, not before: the area's components write them to every client
