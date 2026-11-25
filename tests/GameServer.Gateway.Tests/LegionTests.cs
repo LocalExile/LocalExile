@@ -7,8 +7,9 @@ namespace GameServer.Gateway.Tests;
 public sealed class LegionTests
 {
     [Fact]
-    public async Task In_the_areas_frame_a_record_goes_once_to_every_client_and_a_joiners_to_it_alone()
+    public async Task The_encounters_records_and_an_actors_current_action_are_written_as_the_client_reads_them()
     {
+        {
         var layout = new AreaLayout(0x1e9, "MapWorldsReef", 600, 600, 300, 300, (_, _) => true, []);
         var instance = new InstanceState();
         Player Make()
@@ -31,11 +32,8 @@ public sealed class LegionTests
             Assert.Same(second, Assert.Single(first.Area.Delta.Take()).Only);
         }
         finally { GameArea.Own(owner); }
-    }
-
-    [Fact]
-    public void An_actors_current_action_and_its_action_data_are_written_as_the_client_reads_them()
-    {
+        }
+        {
         const uint id = 0x08000123;
         var action = new ActorAction(0x18fe, 7) { Animation = new AnimationControllerState(3, 0f), Payload = [0, 100, 0, 0, 0] };
         // 0x2bc to the Actor (index 9): f0 0x04, f1 0; then little-endian u16 skill, the action record (u16 sequence, u32 target
@@ -58,6 +56,7 @@ public sealed class LegionTests
         // S→C 0x2c8: big-endian object header, action type, skill id, sequence, u8 sub-id, u16 length, the payload as is.
         Assert.Equal((byte[])[0x02, 0xc8, 0x08, 0x00, 0x01, 0x23, 0, 0, 0, 0, 0, 0, 0xd8, 0xfe, 0x18, 0xfe, 0x00, 0x07, 0x00, 0x00, 0x05, 2, 100, 0, 0, 0],
             InstanceProtocol.ActionData(id, 0xd8fe, 0x18fe, 7, 0, [2, 100, 0, 0, 0]));
+        }
     }
 
     static string Describe(LegionArmy.ArmyPlan plan) => string.Join("|", plan.Factions.Select(f => f.Id
@@ -65,7 +64,7 @@ public sealed class LegionTests
         + ":" + string.Join(",", f.Chests.Select(c => $"{c.WarHoard}[{string.Join("+", c.Rewards ?? [])}]"))));
 
     [Fact]
-    public void The_reward_plan_uses_only_the_allowed_rows_gives_hoards_two_or_three_and_is_the_same_for_a_seed()
+    public void The_reward_plan_and_pools_use_only_the_allowed_rows_and_give_the_kinds_their_items()
     {
         var data = LegionData.Current;
         Assert.NotEmpty(data.RewardTypes);
@@ -96,11 +95,6 @@ public sealed class LegionTests
         }
         Assert.True(sergeants > 0 && rewarded > 0 && chests > 0 && hoards > 0, "the seeds must include a War Hoard");
         Assert.True(rewarded < sergeants, "a sergeant carries a reward with a chance, not always");
-    }
-
-    [Fact]
-    public void Every_reward_row_has_a_kind_and_the_pool_kinds_have_items_with_the_mirror_shard_the_rarest_harbinger_drop()
-    {
         var catalog = Program.Items;
         foreach (int row in LegionRewards.RewardRows)
             if (LegionRewards.Pool(catalog, row, 100) is { } pool) Assert.NotEmpty(pool);
