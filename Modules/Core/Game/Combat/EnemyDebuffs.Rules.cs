@@ -51,6 +51,11 @@ public static partial class Game
     /// the other participants' stay.</summary>
     public static void ForgetSourceValues(Player player)
     {
+        if (DebuffStepsOf.TryGetValue(player, out var steps))
+        {
+            foreach (var target in steps.NearbyChills.Values) RemoveNearbyChill(player, target);
+            steps.NearbyChills.Clear();
+        }
         foreach (var m in player.Area.Monsters.Values) m.ForgetSource(player.Id);
         foreach (var m in player.Area.DormantMonsters.Values) m.ForgetSource(player.Id);
     }
@@ -77,6 +82,7 @@ public static partial class Game
         public int Scope;
         public bool Stepped, HadCursedCorpses;
         public readonly HashSet<uint> Changed = [];
+        public readonly Dictionary<uint, SpawnedMonster> NearbyChills = [];
         // Each monster's next timed change on the area's timers (the earliest one asked for).
         public readonly Dictionary<uint, double> Wakes = [];
     }
@@ -119,6 +125,11 @@ public static partial class Game
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
     const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
 
+    const uint NearbyChillZone = 0x10004;
+    static ulong NearbyChillSource(Player player) => 1UL << 63 | player.Id;
+    static void RemoveNearbyChill(Player player, SpawnedMonster target) =>
+        target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, NearbyChillSource(player));
+
     // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his capped lightning resistance
     // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 60 cells (6 metres) is the retail
     // aura's reach. Stored with an offset so a 0% wearer resistance stays distinct from SetSourceValue's 0-removal.
@@ -130,7 +141,7 @@ public static partial class Game
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
         int FleshRadius, int FleshPhysical, int? LightningEquals, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
         IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
-        IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
+        IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
         DebuffSteps steps)
@@ -144,6 +155,8 @@ public static partial class Game
         if (StatOf(playerStats, Stat.VirtualNearbyEnemiesAreIntimidated) > 0)
             auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
         bool alive = player.PlayerLife > 0;
+        bool nearbyChill = alive && (playerStats.GetValueOrDefault(Stat.NearbyEnemiesAreChilled) != 0
+            || playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesAreChilled) != 0);
         var here = player.Walk.Position(now);
         // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp is kept
         // per monster.
@@ -188,6 +201,7 @@ public static partial class Game
         SyncZones(player, player.Id, EnemyAuraZones, !alive ? []
             : [.. auras.Select(a => ((uint)a.Definition, a.Radius, here)),
                 .. flesh is not null ? [(FleshZone, fleshRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
+                .. nearbyChill ? [(NearbyChillZone, 30, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. lightningEquals is not null ? [(DoryaniZone, DoryaniAuraRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. blindRadius is int blindAt and > 0 ? [(BlindZone, blindAt, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. aegisReach > 0 ? [(AegisBlindZone, aegisReach, here)] : Array.Empty<(uint, int, (int, int))>(),
@@ -202,6 +216,12 @@ public static partial class Game
             hash.Add(a.Definition); hash.Add(a.Radius);
             foreach (var s in a.Stats) hash.Add(s);
         }
+        hash.Add(nearbyChill);
+        if (nearbyChill)
+        {
+            hash.Add(playerStats.GetValueOrDefault(Stat.VirtualChillEffectPlusPct));
+            hash.Add(playerStats.GetValueOrDefault(Stat.ElementalistChillMaximumMagnitudeOverride));
+        }
         hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
         if (impurities is not null)
             foreach (var (row, until) in impurities) { hash.Add(row); hash.Add(until); }
@@ -210,7 +230,7 @@ public static partial class Game
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
             player.EnemyDebuffs.TauntedDamageTakenPct, perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
-            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, hash.ToHashCode());
+            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, nearbyChill ? playerStats : null, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -233,13 +253,18 @@ public static partial class Game
             {
                 bool everyone = !steps.Stepped || steps.Scope != scope.Hash;
                 (steps.Scope, steps.Stepped) = (scope.Hash, true);
-                ids = everyone ? [.. player.Area.Monsters.Keys] : [.. steps.Changed];
+                ids = everyone ? [.. player.Area.Monsters.Keys,
+                    .. steps.NearbyChills.Keys.Where(id => !player.Area.Monsters.ContainsKey(id))] : [.. steps.Changed];
                 steps.Changed.Clear();
             }
             var bytes = new List<byte>();
             var counts = new int[2];
             foreach (uint id in ids)
-                if (player.Area.Monsters.TryGetValue(id, out var m)) StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
+            {
+                if (player.Area.Monsters.TryGetValue(id, out var m))
+                    StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
+                else if (steps.NearbyChills.Remove(id, out var departed)) RemoveNearbyChill(player, departed);
+            }
             ReconcileBlinds(player, now, scope.CursedCorpses, scope.MarkBlind, counts);
             if (counts[0] + counts[1] > 0)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} enemy debuffs: {counts[0]} added, {counts[1]} removed (t={now:0.000})");
@@ -258,6 +283,21 @@ public static partial class Game
         if (MonsterShown(player, id))
             foreach (var packet in PresentRupturesLocked(player, id, m, now)) bytes.AddRange(packet);
         bool living = scope.Alive && !m.Dead && m.Life > 0 && m.Hostile;
+        if (steps.NearbyChills.Count != 0 || scope.ChillStats is not null)
+        {
+            bool covered = living && scope.ChillStats is not null && In(NearbyChillZone);
+            if (steps.NearbyChills.TryGetValue(id, out var previous) && (!covered || !ReferenceEquals(m, previous)))
+            {
+                RemoveNearbyChill(player, previous);
+                steps.NearbyChills.Remove(id);
+            }
+            if (covered && scope.ChillStats is { } chill)
+            {
+                if (m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, NearbyChillSource(player),
+                    now, chill.GetValueOrDefault, name => m.Effects[name])) steps.NearbyChills[id] = m;
+                else steps.NearbyChills.Remove(id);
+            }
+        }
         // One timed debuff: its buff shown for the time left, shown again when that changes, taken off when it ends or
         // the monster or the player dies. Whether it is on.
         bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values, double rate = 1)
