@@ -191,6 +191,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
   Docs: [league encounters](../docs/game/league-encounters.md).
+- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons, helmets, back attachments, `MonsterArmours` slots, and deterministic non-zero `Actor`

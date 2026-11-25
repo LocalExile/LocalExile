@@ -2,6 +2,7 @@
   "modules": [
     "Core/Content/Anarchy",
     "Core/Content/Breach",
+    "Core/Content/Bestiary",
     "Core/Content/Deepwater",
     "Core/Content/Delve",
     "Core/Content/Delirium",
