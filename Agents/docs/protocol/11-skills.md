@@ -3007,6 +3007,11 @@ is "{0}% more Damage with Hits at Maximum Charge Distance": the Gateway scales e
 the start over the maximum (a guess; the client's ramp is not read). Verified live: level 1 with a 219-armour shield,
 base 51–83, panel 79–136 and 2.1 attacks per second, hits ×1.00 at the start up to ×1.83 at 62 cells.
 
+**Accuracy.** Shield Waves and Shield Charge carry the selected-hand byte at `+0x311`. Spectral Shield Throw
+sets `+0x518` in `0x141b720e0` and reads it at contact in `0x141b723e0`. Its selector in `0x141b725a0`
+returns 0 when `0x1419e7570` finds only the off hand eligible. The hit roll reads off-hand accuracy and
+cannot-evade fields `0x125` and `0x2b1` for this selector.
+
 ## 10f. Synthetic action instructions (S→C 0x1ce / 0x1cf)
 
 These are action instructions, distinct from per-target hit results or C→S collision reports.
