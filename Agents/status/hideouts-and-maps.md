@@ -67,7 +67,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   re-sends 0x1a3 right after 0x1a4 so the Atlas and portal labels update without an area change. Map-device rarity and
   corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
-  renaming (C→S 0x2a7 / S→C 0x3c), one-off free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91 replies are wired.
+  renaming (C→S 0x2a7 / S→C 0x3c), free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
+  Scrying Orbs carry their source map into the Atlas. Applying one changes the destination map’s divination-card pool. An Orb of Scouring clears the link.
+  Incremental Voidstone deltas (0x1a5),
+  Primordial Altar HUD ruleset 99 (0x1f/0x2c9), and 0x18/0x1d5 Atlas notifications are wired (live check pending).
   Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
   and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.
   `/atlas_complete <map | all>` and `/atlas_reset` (dev).
@@ -177,6 +180,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   assembly.
 
 - Expedition in maps and Acts 6-10: the instance's encounter, written from the captures; not live-verified yet.
+- Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
+- Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 
 - Sacred Grove (Harvest): the map rolls it from the composed area stats (Atlas, scarabs, sextants, Idols), on `.dgr`
   and `.tgr` maps; its `link` rooms are a gate each way inside the map instance where the league runs Harvest, and map
@@ -199,6 +204,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Station. Oshabi's fight ran in the client from the soul tree to the altar (four colours, adds, rewards, Bloodline
   selector). Not compared with a retail capture: Oshabi's state sequence (soul tree progression, interactable, emerge, energy and colour stages, death; her emerge,
   travelling and repeat_fight states).
+
+- Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
   Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
@@ -302,7 +309,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   combat affixes, Soul Eater, free lanterns, Strongboxes, Essence monoliths, Torment cages, Izaro altars, Treasure
   Anchors, minibosses, rare-monster drops and post-roll drop conversions.
   Not applied: Wildwood Wisps, Pantheon rare mods, rare fracture-on-death, Friendly Jellyfish AI, wealthy barrel
-  clusters, highly fishy, and the Active Voyage window (0x72).
+  clusters, and highly fishy.
+  The Active Voyage window (0x7b kind 0x72) and Bathysphere descent countdown (0x162) are wired (live check pending).
   A new instance of an encounter area (`/goto DeepwaterEncounter`, `/goto DeepwaterEncounterVoyage`) gets a random grid
   of the Sandy, Coral Forest and Coral Reef rooms (one room, or a 3 × 3 Voyage) with The Sovereign in it, sent in
   0x1d's extra data, and ruleset 171, which the client keeps (verified live, 3.29.3d, 2026-11-18;
@@ -420,6 +428,7 @@ Part of [Status](../Status.md); what to build next in this area is in
     confirmed cross-character checkpoint sharing and unfinished-trip death reset.
     DelveOwner enables chart continuity; Niko and Crawler center it on the last saved account checkpoint.
     Mine windows follow chart-cell origins so the underground position arrow follows the occupied checkpoint.
+    Live Azurite (0x227), chart delta (0x22c), and confirmed route echo (0x242) updates are wired (live check pending).
     General biome/encounter parity, darkness damage and consumable use remain partial.
   - The Crawler stands on the rails by the mine entrance at (408, 310), facing 90°, on every entry; the stash and the
     guild stash are at (355, 295) and (344, 295), facing 180°. Lioneye's Watch has them at (327, 270) and (317, 270).

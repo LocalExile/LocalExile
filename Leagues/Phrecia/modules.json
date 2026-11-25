@@ -1,11 +1,18 @@
 {
   "modules": [
+    "Core/Content/Abyss",
     "Core/Content/Anarchy",
+    "Core/Content/Breach",
+    "Core/Content/Bestiary",
+    "Core/Content/Blight",
+    "Core/Content/Betrayal",
+    "Core/Content/Mercenary",
     "Core/Content/Delve",
     "Core/Content/Delirium",
     "Core/Content/Expedition",
     "Core/Content/Harvest",
     "Core/Content/Heist",
+    "Core/Content/Incursion",
     "Core/Content/HeistCache",
     "Core/Game",
     "Core/Item/Bench",

@@ -32,10 +32,14 @@
     <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
     <ProjectReference Include="..\..\Modules\Core\World\Portals\Portals.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Breach\Breach.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Deepwater\Deepwater.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Blight\Blight.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Delirium\Delirium.csproj" />
     <!-- The Expedition encounter (ExpeditionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Expedition\Expedition.csproj" />
+    <!-- The Abyss encounter's plan, blobs and flow (AbyssEncounterTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Abyss\Abyss.csproj" />
     <!-- The Smuggler's Cache encounter (HeistCacheTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\HeistCache\HeistCache.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
@@ -45,5 +49,13 @@
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
     <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
+    <!-- The Bestiary mission's effect bytes and tables (BestiaryTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
+    <!-- Alva's incursions and the temple plan (IncursionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
+    <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Mercenary\Mercenary.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
   </ItemGroup>
 </Project>

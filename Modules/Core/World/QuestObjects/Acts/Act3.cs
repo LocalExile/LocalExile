@@ -95,10 +95,15 @@ static class Act3Objects
     /// portal out of the Labyrinth (to town, as the plaza's) and the font (a tile record, StatueLionBase), which awards the
     /// Labyrinth's points and opens the class selector.</summary>
     public const string ChamberPortal = "Metadata/Terrain/Labyrinth/Objects/LabyrinthReturnPortal",
-        AscendancyFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAscendancyDevice";
+        AscendancyFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthAscendancyDevice",
+        DivineFont = "Metadata/Terrain/Labyrinth/Objects/LabyrinthBlessingBench";
     public const string Chamber1 = "1_Labyrinth_boss_1_end", Chamber2 = "1_Labyrinth_boss_2_end", Chamber3 = "1_Labyrinth_boss_3_end_#";
     public const string CruelChamber1 = "2_Labyrinth_boss_1_end", CruelChamber2 = "2_Labyrinth_boss_2_end",
         CruelChamber3 = "2_Labyrinth_boss_3_end_#";
+    public const string MercilessChamber1 = "3_Labyrinth_boss_1_end", MercilessChamber2 = "3_Labyrinth_boss_2_end_#",
+        MercilessChamber3 = "3_Labyrinth_boss_3_end";
+    public const string EternalChamber1 = "EndGame_Labyrinth_boss_1_end", EternalChamber2 = "EndGame_Labyrinth_boss_2_end",
+        EternalChamber3 = "EndGame_Labyrinth_boss_3_end";
 }
 
 /// <summary>
@@ -257,12 +262,36 @@ sealed class Act3 : Act
                 On.Object(Act3Objects.Chamber1, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.Chamber2, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.Chamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.Chamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.Chamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.Chamber3, Act3Objects.DivineFont),
                 On.Object(Act3Objects.CruelChamber1, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber2, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber3, Act3Objects.ChamberPortal),
                 On.Object(Act3Objects.CruelChamber1, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.CruelChamber2, Act3Objects.AscendancyFont),
                 On.Object(Act3Objects.CruelChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.CruelChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.CruelChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.CruelChamber3, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.MercilessChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.MercilessChamber3, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.ChamberPortal),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.AscendancyFont),
+                On.Object(Act3Objects.EternalChamber1, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber2, Act3Objects.DivineFont),
+                On.Object(Act3Objects.EternalChamber3, Act3Objects.DivineFont),
             },
             new Quest("a3q10")
             {
