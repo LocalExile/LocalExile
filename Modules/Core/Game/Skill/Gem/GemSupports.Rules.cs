@@ -1009,6 +1009,8 @@ public static partial class Game
             raw = raw.Scale(Math.Max(0, 1 + magmaMore / 100d));
         if (gem.Stats.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) is int skillDamage and not 0)
             raw = raw.Scale(Math.Max(0, 1 + skillDamage / 100d));
+        if (gem.Stats.GetValueOrDefault(Stat.UniqueReplicaTheStampedeTravelSocketedSkillDamagePlusPctFinal) is int travelDamage and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + travelDamage / 100d));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
