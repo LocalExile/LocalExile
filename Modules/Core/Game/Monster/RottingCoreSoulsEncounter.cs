@@ -294,7 +294,9 @@ public static class RottingCoreSoulsEncounter
             if (now >= nextScreech)
             {
                 nextScreech = now + 11.0;
-                if (await CastAction(runner, bossId, boss, DoedreEffects, DoedreScreech, pos, now, DamageType.Chaos, 1.5, 28, "DoedreSoul", forceSpell: true) is { } screech)
+                // The native action reads the target's height when creating the caster-centred screech.
+                if (await CastAction(runner, bossId, boss, DoedreEffects, DoedreScreech, pos, now, DamageType.Chaos, 1.5, 28,
+                    "DoedreSoul", forceSpell: true, targetObjectId: bossId) is { } screech)
                 {
                     await SpawnTimedEffect(runner, effects, pos, DoedreScreechArt, now + 2.2, scale: 1.4f);
                     hits.Add(new(now + 1.4, bossId, boss, screech.Attack, pos, 26, null));

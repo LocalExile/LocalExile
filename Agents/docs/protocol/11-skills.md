@@ -141,6 +141,9 @@ uses skill `+0x138` for its primary fallback, initially aliased to the updated `
 Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
 Later slot replacement and complete invalidation remain unresolved.
 
+The server sends this record for a skill refresh in which only stat values changed; the conditions that decide it are in
+`SkillStatDeltasAtGate` (`Modules/Core/Game/Skill/SkillStatDeltas.cs`). Any other refresh sends the whole `0x2bc` list.
+
 [PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
 skill IDs and integer pairs and tentatively called it a possible path.
 The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
@@ -922,6 +925,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   names. Dominus' first effect, `DominusChillingBond`, used as his swing crashed the client at `0x1401297ca` a frame
   after his first action: `0x141a2bbb0` looked up entity 0 and `0x141a2c120` linked the effect to the null result
   (live 2026-11-05). `MavenNucleus.CombatEffect` skips them; Dominus swings `DominusLightningSlam`.
+  FireShield reads the action's target Life component at contact (`0x141d33500`); its monster self-cast points to
+  the caster. Doedre's Screech likewise reads the target's height (`0x1414469a0`), using the caster as the target
+  for the campaign's caster-centred version.
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
   reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
   type) at the level × `DamageMultiplier` / 100
@@ -1765,6 +1771,14 @@ aimed, as the client draws them: centred on the target, the server's circle sat 
 Its hammers deal no damage: the client draws them, but the server has no hammerfall hits
 (`holy_sweep_number_of_holy_bolts_to_create`, a 12-cell secondary area, `holy_sweep_hammerfall_damage_+%_final`).
 Which other melee actions centre on the player is not known from the data (each skill's own client action decides).
+
+**Shield Crush** (ActionTypes `ShieldWaves`, 0x0ee3) uses `ShieldBash` (Animation row 134, selected at
+`0x141c1e730`). Each of its rig's three `wave` events calls `0x141c1e760` (event 0xe510). The cone offsets
+are +30°, 0°, and −30° (`0x141c1ef20`), with the outer two reversed for class ID 5 (Templar). Each cone
+has a 30° half-angle and an origin eight cells behind the player, with an eight-cell inner radius.
+The base radius is 29 cells. `0x141c1ee20` doubles the centre's area before the centre-specific modifier
+(`shield_crush_helmet_enchantment_aoe_+%_final`) and radius scaling; the third wave excludes targets
+selected by the first. `animation_skill_clips` records the ACT stance's clip for the timing.
 
 **Movement skills** (ActiveSkillType Movement: Leap Slam, Whirling Blades …): the server estimates their landing
 when the skill starts (`Game.LandsAtAim`); keeping the starting cell made later resyncs pull the player back there
@@ -2659,21 +2673,24 @@ on the monsters the client strikes.
   The server keeps the last player cell and hit centre per skill (`StrikeTargets.Memory`) and clears them at death.
   At a skill's first use with the stat it sends the buff (S→C 0x1c1 on the player, with the source skill, its
   active-skill hash and that use as the first entry).
+- Static Strike of Gathering Lightning uses `StaticStrikeNew` with `skill_behaviour_variation` 1. The contact at
+  `0x141b16580` searches from the struck enemy for the first beam target, 35 cells away at most
+  (`0x141b16ad0`). The beam continuation search reaches 50 cells (`0x141c7eb20`). Both ranges scale with
+  chaining range. BuffDefinitions row 2687 carries the count in 0x1c1 bit 2. It has no inline recovery values.
+  The beam limit reads `virtual_number_of_chains_for_beams` from the skill record (`0x14193ef80`).
 - Hits: a gem Strike (`AreaSkillHit`) adds the spirit strike targets to its sweep, and for the previous location every
   living hostile monster within the skill's radius of the old centre.
-  A Strike gem typed Projectile (Frost Blades, Lightning Strike, Wild Strike and their transfigured gems except Frost
-  Blades of Katabasis, which has no Projectile type and runs through `AreaSkillHit` with both) goes through the
-  projectile runtime (`ScheduleGemProjectile`), which launches only its projectiles: the server has no melee hit for
-  these gems, so it has no spirit strikes or previous location for them either and sends them no
-  `skill_location_memory`. Molten Strike is the exception: its melee hit (`MoltenStrike.cs`, a copy of `AreaSkillHit`'s
-  per-target pipeline) takes the spirit strikes and the previous location too, and launches its balls from the struck
-  enemies.
-  The client still picks and draws their spirit strikes (its virtual needs only melee and Strike), which deal no
-  damage on the server.
+  Frost Blades and Lightning Strike use the same target selection at their scheduled melee contact. The client's
+  extra strike has a start cell eight cells behind its chosen enemy (`0x141c9d7c0`, per-axis rounding). Lightning
+  Strike resolves the main and extra contacts and their projectile actions in `0x1413f2ac0` via `0x141c95340`.
+  Each Frost Blades contact emits its ice blades from the struck enemy. The extra-location action uses the stored
+  start and aim (`0x141ca9940`). Molten Strike also takes spirit targets and the previous location into its melee
+  contact and launches its balls from the struck enemies. Other projectile Strikes still need their own checks.
   The default attack (`Attack`) hits each spirit strike target after its own target, then the living hostile monster
   nearest the old centre within the weapon's reach.
   Every extra hit rolls accuracy, block, crit and on-hit effects as the main one does.
-  A use grants at most one Fortification and one Rage gain, and each monster takes at most one hit of a use.
+  The melee sweep grants at most one Fortification and one Rage gain. Each monster takes at most one melee hit
+  in the sweep. A projectile volley excludes the target of its own originating strike on the outbound leg.
 
 Not mirrored: the client's line-of-sight test (`0x141d8a7f0`), which 20 candidates it keeps when more qualify (the
 server keeps the 20 lowest ids), and the unarmed term (`unarmed_attack_number_of_spirit_strikes`).
@@ -4279,8 +4296,8 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
 - **Hit timing.** The hit arrives 258 ms + 3.25 ms per cell of shooter-to-target distance after the echo, so the arrow
   flies about 308 cells/s (30 hits, 8–72 cells); delays fall on about 33 ms steps. The gem's hits fit 267 ms + 3.90 ms
   per cell.
-- **Undecoded:** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
-  and a list of compact-int points, and may be the shot's path.
+- **Decoded since (§3.1):** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
+  and a list of compact (stat key, value) pairs: it is a skill's stat update, not the shot's path.
 - **Sand Spitters.** 0x20 registered `Metadata/Monsters/SandSpitters/SandSpitter12@1` (row 490); all 11 hits came from
   three of them (type `0xe63d7611`). No `0x2bb` was created around the spits, so the client draws the mortar too.
   Each spit is `0x1ab` flags `0x80` with the player as the target object and a real action sequence (`0x80bc`,
