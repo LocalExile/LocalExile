@@ -611,6 +611,7 @@ public static class StatConditions
     {
         // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
         if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
+        if (statId == "local_display_gain_power_charge_on_spending_mana") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
@@ -846,7 +847,8 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+    public static bool SourceLocalCondition(string id) => id is "spell_chance_to_shock_frozen_enemies_%"
+        or "local_display_gain_power_charge_on_spending_mana"
         || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 
