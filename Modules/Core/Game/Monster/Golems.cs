@@ -527,6 +527,7 @@ public static partial class Game
         ClearMinionFlasksLocked(player, golem, now);
         ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
+        MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);
         MinionFortification.Remove(golem);

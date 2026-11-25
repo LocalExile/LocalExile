@@ -36,6 +36,23 @@ public sealed class VaalAnimateWeaponTests
     }
 
     [Fact]
+    public async Task Active_minion_counts_include_living_minions_and_drop_the_dead()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        f.Equip(("Vaal Animate Weapon", 1));
+        var sword = ItemCatalog.Create(Program.Items.Find("Rusted Sword")!);
+        uint id = await f.Summon("AnimateWeapon", f.Player.Instance.Ground.Add(new(100, 100, sword)));
+        Assert.NotEqual(0u, id);
+        var stats = Game.CharacterPlayerStats(f.Player);
+        Assert.Equal(1, stats[Stat.NumberOfActiveMinions]);
+        Assert.Equal(f.Player.Summons.Definitions[id].Persistent ? 1 : 0, stats[Stat.NumberOfActivePermanentMinions]);
+        Game.GolemDieLocked(f.Player, f.Player.Summons.Fighters[id], 1);
+        stats = Game.CharacterPlayerStats(f.Player);
+        Assert.Equal(0, stats[Stat.NumberOfActiveMinions]);
+        Assert.Equal(0, stats[Stat.NumberOfActivePermanentMinions]);
+    }
+
+    [Fact]
     public async Task Vaal_cast_consumes_only_eligible_sources_and_summons_temporary_unique_weapons()
     {
         using var f = new MinionUtilityTests.Fixture();

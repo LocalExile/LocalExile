@@ -690,7 +690,7 @@ public static partial class Game
                     monster.DamageImmune = true;
                 if (definition.Id == "RaiseZombieAltY" && fighter.Abilities.FirstOrDefault(a => a.Effect == 7133) is { } fall)
                     GolemReserveLocked(player, fighter, fall, 0, null, aim, AreaTime(player));
-                player.Minions.StatRevision++;
+                player.Minions.StatRevision++; MarkPlayerStats(player, PlayerStatStep.Golems);
                 if (!pools.Fatal) PresentTransferredGolemDotBuffsLocked(player, fighter, committed);
                 if (pools.Fatal) GolemDieLocked(player, fighter, AreaTime(player), emitLife: false, canReform: false);
                 else
@@ -1036,6 +1036,21 @@ public static partial class Game
             stats[dominated] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind.StartsWith("Dominating", StringComparison.Ordinal) && !g.Monster.Dead);
         foreach (var (kind, key) in SummonCountNames)
             stats[key] = player.Summons.Fighters.Values.Count(g => g.Definition.Kind == kind && !g.Monster.Dead && g.Monster.Life > 0);
+        // The living minions, and the part of them that stays: a persistent kind, and every golem.
+        int minions = 0, permanent = 0;
+        foreach (var (id, fighter) in player.Summons.Fighters)
+        {
+            if (fighter.Monster.Dead || fighter.Monster.Life == 0) continue;
+            minions++;
+            if (player.Summons.Definitions.TryGetValue(id, out var definition) && definition.Persistent) permanent++;
+        }
+        foreach (var golem in player.Golems.All.Values)
+        {
+            if (golem.Monster.Dead || golem.Monster.Life == 0) continue;
+            minions++; permanent++;
+        }
+        stats[Stat.NumberOfActiveMinions] = minions;
+        stats[Stat.NumberOfActivePermanentMinions] = permanent;
     }
     static readonly IReadOnlyDictionary<string, uint> SummonCountNames = new Dictionary<string, uint>
     {
