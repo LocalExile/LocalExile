@@ -194,6 +194,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Volcanic Fissure hits along its path and launches landing projectiles at the end. Snaking hits along each leg and erupts,
   seeking a reachable target outside the previous eruption's hit set. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Lacerate and its variants resolve two forward waves at their animation contacts. The overlap can take both hits,
+  and stance changes update the native angle and Blood Stance bleeding modifiers.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.

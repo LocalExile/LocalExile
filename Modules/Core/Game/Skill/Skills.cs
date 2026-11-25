@@ -480,6 +480,11 @@ public static partial class Game
             bool gatheringLightning = IsGatheringLightning(effect);
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction)
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
+            if (LacerateEffect(skills.EffectId(effect)))
+            {
+                stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
+                stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
+            }
             if (gatheringLightning)
                 stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
@@ -863,6 +868,11 @@ public static partial class Game
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(player).EffectId(effect), rarity) is { } sentinel)
                         Publish(sentinel.FinalLimitStat, SummonLimit(player, sentinel, supported));
+            if (LacerateEffect(SkillsFor(player).EffectId(effect)))
+            {
+                Publish(Stat.SkillBehaviourVariation, SkillsFor(player).BehaviourVariation(effect));
+                Publish(Stat.InSandStance, player.Stance == StanceCatalog.SandSelection ? 1 : 0);
+            }
             if (SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
                 or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
             {
