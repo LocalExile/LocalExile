@@ -1552,6 +1552,15 @@ public static partial class Game
             gone = player.ClientSkillIds.Except(skills.Select(s => s.Id)).Order().ToList();
             added = skills.Select(s => s.Id).Where(id => !player.ClientSkillIds.Contains(id)).ToList();
             player.ClientSkillIds = [.. skills.Select(s => s.Id)];
+            // Only stat values changed and nothing else needs the list: the changed skills as 0x1b4 (SkillStatDeltas), the
+            // Vaal soul budgets (not stats) behind them as one small 0x2bc record. Anything else, an unchanged list
+            // included (SendSkills is also how callers resync the client), is the whole list below.
+            if (gone.Count == 0 && SkillStatDeltasAtGate(player, skills, out bool detonate) is { Length: > 0 } deltas)
+            {
+                var souls = VaalSoulRecordAtGate(player);
+                RecordSkillDeltas(player, skills, detonate);
+                return souls is null ? deltas : [.. deltas, souls];
+            }
             RecordPlayerSkills(player, skills);
             return PlayerSkillsBatchesWithVaalSouls(player, skills, gone);
         }, "0x02bc player Actor: current skill stats");

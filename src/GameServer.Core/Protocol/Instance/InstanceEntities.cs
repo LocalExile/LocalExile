@@ -368,6 +368,27 @@ public static class InstanceEntities
         return ComponentUpdate(entityId, componentIndex, w.ToArray());
     }
 
+    public const ushort SkillStatsUpdateId = 0x1b4;
+
+    /// <summary>
+    /// One skill's stats again (S→C 0x1b4, reader <c>0x141fe5330</c>, Actor case <c>0x14219adf2</c>, 11-skills.md §3.1):
+    /// entity header, u16 skill id, u8 stat-set selector (0 = the skill's own stats, n = its additional stat set n − 1),
+    /// unsigned compact count, then the same (compact key, compact value) pairs the skill record carries. Each pair goes
+    /// through the raw stat setter, so the message can only set a value, never drop a key.
+    /// </summary>
+    public static byte[] SkillStatsUpdate(uint entityId, ushort skill, byte statSet,
+        IReadOnlyList<(uint Stat, int Value)> stats)
+    {
+        var w = new LoginWriter().U16(SkillStatsUpdateId).U32(entityId).U32(0).U16(0).U16(skill).U8(statSet);
+        InstanceProtocol.CompactUInt(w, (uint)stats.Count);
+        foreach (var (stat, value) in stats)
+        {
+            InstanceProtocol.CompactUInt(w, stat);
+            InstanceProtocol.CompactInt(w, value);
+        }
+        return w.ToArray();
+    }
+
     public const ushort BlockageUpdateId = 0x1c6;
 
     /// <summary>

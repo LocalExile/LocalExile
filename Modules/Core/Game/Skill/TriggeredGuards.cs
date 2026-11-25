@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    sealed class TriggeredGuard(int epoch, object? rules)
+    internal sealed class TriggeredGuard(int epoch, object? rules)
     {
         public readonly int Epoch = epoch;
         public readonly object? Rules = rules;
@@ -17,7 +17,7 @@ public static partial class Game
         public ProjectileSession? Session;
     }
     const string VaalMoltenShellEffect = "VaalMoltenShell";
-    static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
+    internal static readonly Store<Player, TriggeredGuard> TriggeredGuards = new();
     static bool TriggerGuardSpell(Player player, SupportedGem gem) =>
         GuardSpellEffect(SkillsFor(player).EffectId(gem.Effect)) && !SkillsFor(player).IsVaal(gem.Effect);
     static bool GuardSpellEffect(string? effect) => effect is "QuickGuard" or "ImmortalCall" or "MoltenShell" or VaalMoltenShellEffect;

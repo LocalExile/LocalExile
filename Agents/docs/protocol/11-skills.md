@@ -141,6 +141,9 @@ uses skill `+0x138` for its primary fallback, initially aliased to the updated `
 Overrides and explicit action caches prevent treating this as an unconditional update of every in-flight outcome.
 Later slot replacement and complete invalidation remain unresolved.
 
+The server sends this record for a skill refresh in which only stat values changed; the conditions that decide it are in
+`SkillStatDeltasAtGate` (`Modules/Core/Game/Skill/SkillStatDeltas.cs`). Any other refresh sends the whole `0x2bc` list.
+
 [PR 373's official-server report](../re/projectiles/external-ranged-evidence.md) observed this message carrying
 skill IDs and integer pairs and tentatively called it a possible path.
 The receiver establishes a skill-stat update instead; the private payload values have not been reviewed here.
@@ -4242,8 +4245,8 @@ On 2026-10-30: the same kind of character on the Twilight Strand, hit 11 times b
 - **Hit timing.** The hit arrives 258 ms + 3.25 ms per cell of shooter-to-target distance after the echo, so the arrow
   flies about 308 cells/s (30 hits, 8–72 cells); delays fall on about 33 ms steps. The gem's hits fit 267 ms + 3.90 ms
   per cell.
-- **Undecoded:** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
-  and a list of compact-int points, and may be the shot's path.
+- **Decoded since (§3.1):** S→C `0x1b4` went 27 times to the player only. It carries the attack's skill id (`0x4000`/`0x8002`)
+  and a list of compact (stat key, value) pairs: it is a skill's stat update, not the shot's path.
 - **Sand Spitters.** 0x20 registered `Metadata/Monsters/SandSpitters/SandSpitter12@1` (row 490); all 11 hits came from
   three of them (type `0xe63d7611`). No `0x2bb` was created around the spits, so the client draws the mortar too.
   Each spit is `0x1ab` flags `0x80` with the player as the target object and a real action sequence (`0x80bc`,
