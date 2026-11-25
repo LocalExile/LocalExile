@@ -60,7 +60,6 @@ public static class HitReaction
         double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
         if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
         hit.OnStun?.Invoke();
-        hit.OnStun?.Invoke();
         if (hit.Owner is { } owner)
         {
             Func<uint, int>? own = hit.Skill is { } skill ? key => skill.GetValueOrDefault(key) : null;
