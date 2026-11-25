@@ -554,7 +554,11 @@ public sealed partial class PlayerInventories
     }
 
     /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
-    public bool AnySocketedGem(Func<uint, Item, bool> predicate)
+    public bool AnySocketedGem(Func<uint, Item, bool> predicate) =>
+        AnySocketedGem((id, _, socket) => predicate(id, socket.Gem!));
+
+    /// <summary>Checks each socket with the owning item during the same inventory read.</summary>
+    public bool AnySocketedGem(Func<uint, Item, ItemSocket, bool> predicate)
     {
         lock (_lock)
             foreach (var row in GemExperienceRows)
@@ -564,7 +568,8 @@ public sealed partial class PlayerInventories
                 {
                     if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
                     for (int socket = 0; socket < held.Count; socket++)
-                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: { } gem } && predicate(items[at].Id, gem))
+                        if (held[socket] is { Colour: not SocketColour.Abyss, Gem: not null } entry
+                            && predicate(items[at].Id, items[at].Item, entry))
                             return true;
                 }
             }
@@ -579,7 +584,12 @@ public sealed partial class PlayerInventories
     /// experience.
     /// </summary>
     public IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> ChangeSocketedGems(
-        Func<uint, Item, Item?> change)
+        Func<uint, Item, Item?> change) =>
+        ChangeSocketedGems((id, _, socket) => change(id, socket.Gem!));
+
+    /// <summary>Updates socketed gems using the owning item and original socket under the inventory lock.</summary>
+    public IReadOnlyList<(byte Row, InventoryItem Item, IReadOnlyList<(Item Before, Item After)> Gems)> ChangeSocketedGems(
+        Func<uint, Item, ItemSocket, Item?> change)
     {
         var changed = new List<(byte, InventoryItem, IReadOnlyList<(Item, Item)>)>();
         lock (_lock)
@@ -592,7 +602,8 @@ public sealed partial class PlayerInventories
                     var sockets = held.ToArray();
                     var gems = new List<(Item, Item)>();
                     for (int socket = 0; socket < sockets.Length; socket++)
-                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } && change(items[at].Id, gem) is { } after)
+                        if (sockets[socket] is { Colour: not (SocketColour.Abyss or SocketColour.Delve), Gem: { } gem } entry
+                            && change(items[at].Id, items[at].Item, entry) is { } after)
                         {
                             after = PreserveGemIdentity(gem, after);
                             gems.Add((gem, after));
