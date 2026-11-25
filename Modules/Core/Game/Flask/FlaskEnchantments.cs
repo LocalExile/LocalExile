@@ -71,7 +71,6 @@ public static partial class Game
         if (player.PlayerLife == 0 || InTown(player) || InGracePeriod(player))
         { state.Discard(); return; }
         QueueFullFlasks(player);
-        IReadOnlyDictionary<uint, int>? character = null;
         while (CurrentGameWork && state.Events.TryPeek(out var signal))
         {
             foreach (var flask in ItemsOf(player).Items(PlayerInventories.Flask).OrderBy(i => i.X))
@@ -86,10 +85,8 @@ public static partial class Game
                 if (!FlaskEnchantments.Matches(local, signal.Trigger, flask.X, signal.Slot, active)) continue;
                 // Current charges are authoritative; an event cannot conjure charges or bypass Mageblood/death checks.
                 if (signal.Trigger == FlaskEnchantments.Trigger.Full
-                    && flask.Item.Charges < FlaskCharges.Of(utility.Charges, local,
-                        key => (character ??= CharacterPlayerStats(player)).GetValueOrDefault(key)).MaxCharges) continue;
+                    && flask.Item.Charges < FlaskCharges.Of(utility.Charges, local).MaxCharges) continue;
                 await UseUtilityFlaskForSignal(player, flask.X, flask, type, utility, signal);
-                character = null;
                 if (!CurrentGameWork) return; // Leave an unfinished edge for the replacement drainer.
             }
             if (!CurrentGameWork) return;

@@ -60,5 +60,11 @@ public class FlaskFullChargesTests
         await Game.DrainFlaskTriggers(player);
         Assert.Empty(player.FlaskAutomation.Events);
         Assert.Equal(utility.MaxCharges, Held());
+
+        // Charge gains queue a separate full-charge event, even in a hideout.
+        inventory.Change(PlayerInventories.Flask, flask.Id, i => i with { Charges = utility.MaxCharges - 1 });
+        await Game.GainFlaskCharges(player, (_, _) => 1, "hideout refill");
+        await Game.DrainFlaskTriggers(player);
+        Assert.Equal(utility.MaxCharges, Held());
     }
 }
