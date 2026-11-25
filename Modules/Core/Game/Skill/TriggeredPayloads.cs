@@ -23,7 +23,7 @@ public static partial class Game
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || PlacedArcPayload(effect)) return true;
+        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || ArcProxyPayload(effect)) return true;
         if (CurseCatalog.All.ContainsKey(effect ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
@@ -56,7 +56,7 @@ public static partial class Game
                     session.ScheduleTimedAreaSpell(skill, area, 0, 0, 0xffff, current, critical, sacrifice, 1, 0);
             };
         }
-        if (PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect)))
+        if (ArcProxyPayload(SkillsFor(player).EffectId(gem.Effect)))
             return () => ScheduleTriggeredArc(player, session, skill, aim, brandOrigin, current, triggerTarget);
         if (IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
         {

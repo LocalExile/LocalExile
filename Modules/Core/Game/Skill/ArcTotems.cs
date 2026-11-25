@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool PlacedArcPayload(string? effect) => effect is "Arc" or "ArcAltY";
+    static bool ArcProxyPayload(string? effect) => effect is "Arc" or "ArcAltY";
 
     static void ReleaseArcTotem(Player player, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence) =>
         ReleaseArcProxy(player, session, totem.SkillId, totem.Id, totem.At, totem.BodySize,
