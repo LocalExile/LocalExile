@@ -74,6 +74,12 @@ public static partial class Game
             : OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
                 handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier,
                 additionalBlindedIncreased);
+        if (Get(Stat.KeystoneLightningPurist) != 0)
+        {
+            captured = captured with { Hit = ApplyRoilingTempest(captured.Hit, Get) };
+            if (blindedCapture is not null)
+                blindedCapture = blindedCapture with { Hit = ApplyRoilingTempest(blindedCapture.Hit, Get) };
+        }
         var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(handAccuracy));
         var conversion = SupportedAttackDamage.WithWeaponGains(
             DamageStats.Conversion(character, Stats, attack: true), sourceWeapon, Get);
@@ -103,13 +109,13 @@ public static partial class Game
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
-            Ignite = MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get),
+            Ignite = VoraciousFlame(MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get), Get),
             Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources,
                 projectileAttack: true),
             Bleed = BleedSettings(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                 projectileAttack: true),
             VsBlinded = blindedCapture is null || blindedRows is null ? null : new(blindedCapture.Hit, null,
-                MonsterIgnites.Settings.From(blindedRows, "main_hand", Get),
+                VoraciousFlame(MonsterIgnites.Settings.From(blindedRows, "main_hand", Get), Get),
                 BleedSettings(blindedRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                     projectileAttack: true),
                 MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,

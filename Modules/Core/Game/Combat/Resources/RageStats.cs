@@ -21,18 +21,17 @@ public static class RageStats
         GainOnMeleeCritical: get(Stat.GainXRageOnMeleeCrit), GainWhenHit: get(Stat.GainXRageWhenHit),
         LossRatePercent: get(Stat.RageDecaySpeedPlusPct), RegenerationPerMinute: get(Stat.BaseRageRegenerationPerMinute));
 
-    public static RageState.Inputs Inputs(Player player, Func<uint, int> get) =>
-        WithManaRegeneration(Inputs(get), player, get);
+    public static RageState.Inputs Inputs(Player player, Func<uint, int> get) => Inputs(get) with
+    {
+        NonDelayingRegenerationPerMinute = ManaRegenerationPerMinute(player, get),
+    };
 
-    internal static RageState.Inputs WithManaRegeneration(RageState.Inputs inputs, Player player, Func<uint, int> get)
+    internal static double ManaRegenerationPerMinute(Player player, Func<uint, int> get)
     {
         int divisor = get(Stat.Regenerate1RagePerXManaRegeneration);
         if (divisor <= 0 || get(Stat.MapPlayersNoRegenerationIncludingEs) != 0 || get(Stat.CannotLeechOrRegenerateMana) != 0)
-            return inputs;
-        return inputs with
-        {
-            NonDelayingRegenerationPerMinute = Math.Max(0, PanelStats.GrossManaRegenerationPerMinute(get, player.Pools.Mana) / divisor),
-        };
+            return 0;
+        return Math.Max(0, PanelStats.GrossManaRegenerationPerMinute(get, player.Pools.Mana) / divisor);
     }
 
     /// <summary>

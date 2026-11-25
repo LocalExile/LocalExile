@@ -26,7 +26,6 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
             damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);
-        hit = Game.ApplyRoilingTempest(hit, Get);
         var impale = ImpaleStats.From(character, catalog, attack: true, own, weapon.LocalSources);
         return new(hit, accuracy, criticalChance, Game.CriticalHitMultiplier(criticalMultiplier, character, own), impale.Chance)
         { ImpaleSettings = impale,

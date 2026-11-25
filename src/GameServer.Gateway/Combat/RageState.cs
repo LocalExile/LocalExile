@@ -113,6 +113,12 @@ public sealed class RageState
         return GainFromHit(amount, now, inputs, maximumChanceRoll, soulGainPrevention);
     }
 
+    /// <summary>Uses a regeneration rate sampled at contact along with the caller's discrete hit inputs.</summary>
+    public bool Hit(double now, Inputs inputs, bool attack, bool melee, bool critical, int maximumChanceRoll,
+        bool soulGainPrevention, double nonDelayingRegenerationPerMinute) =>
+        Hit(now, inputs with { NonDelayingRegenerationPerMinute = nonDelayingRegenerationPerMinute }, attack, melee, critical,
+            maximumChanceRoll, soulGainPrevention);
+
     /// <summary>Being hit resets inherent-loss activity even without a grant, including during prevention.
     /// The caller excludes evaded events; deciding which incoming events count as hits belongs to combat.</summary>
     public bool EnemyHit(double now, Inputs inputs, int maximumChanceRoll, bool soulGainPrevention = false)
