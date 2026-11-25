@@ -750,7 +750,7 @@ public sealed partial class AccountStash
             // StashType.__col5: the native stack limit/display uses the inventory kind, not its shared row 26.
             slot = slot with { Kind = t.Saved.Type switch
             {
-                StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, StashRules.Divination => 0x14, _ => slot.Kind,
+                StashRules.Fragment => 0x16, StashRules.Delirium => 0x1e, StashRules.Divination => 0x14, StashRules.Ultimatum => 0x21, _ => slot.Kind,
             } };
             return (slot, [.. t.Items]);
         }
@@ -881,10 +881,21 @@ public sealed partial class AccountStash
             { why = $"the {TypeName(t)} tab's map cells take Blighted and Blight-ravaged maps only"; return null; }
             return (x, y);
         }
+        if (_rules.IsTrialSlot(t.Saved.Type, x, y))
+        {
+            if (!_rules.TakesInTrialSlot(t.Saved.Type, item.TypeHash))
+            { why = $"the {TypeName(t)} tab's trial cells take Inscribed Ultimatums only"; return null; }
+            return (x, y);
+        }
         if (!_rules.Holds(t.Saved.Type, item.TypeHash)) { why = $"the {TypeName(t)} tab doesn't hold that item"; return null; }
         if (!_rules.Slotted(t.Saved.Type)) return (x, y);
         if (_rules.IsOverflowSlot(t.Saved.Type, x, y)) return (x, y);   // a spare cell under the crafting slot: where dropped
         if (_rules.IsInputSlot(t.Saved.Type, x, y)) return (x, y);      // a crafting input beside the anoint cell: where dropped
+        if (_rules.TakesInTrialSlot(t.Saved.Type, item.TypeHash))
+            return _rules.TrialCells(t.Saved.Type)
+                .Where(c => !t.Items.Any(i => i.X == c.X && i.Y == c.Y))
+                .Select(c => ((int, int)?)c)
+                .FirstOrDefault() ?? _rules.TrialCells(t.Saved.Type).Select(c => ((int, int)?)c).First();
         if (_rules.SlotOf(t.Saved.Type, item.TypeHash) is not int slot) { why = $"the {TypeName(t)} tab has no slot for that item"; return null; }
         return SlotCell(t, slot);
     }
@@ -1207,6 +1218,9 @@ public sealed partial class AccountStash
             if (TakesInMapRow(t, item))   // the first free map cell; null when the row is full
                 return Enumerable.Range(0, t.Grid.W).Where(x => _rules.IsMapSlot(t.Saved.Type, x, 0) && !t.Items.Any(i => i.X == x && i.Y == 0))
                     .Select(x => ((byte, byte)?)((byte)x, (byte)0)).FirstOrDefault();
+            if (t.Saved.UniqueCategory == 0 && _rules.TakesInTrialSlot(t.Saved.Type, item.TypeHash))
+                return _rules.TrialCells(t.Saved.Type).Where(c => !t.Items.Any(i => i.X == c.X && i.Y == c.Y))
+                    .Select(c => ((byte, byte)?)c).FirstOrDefault();
             if (CellIn(t, item, 0, 0, out _) is not var (sx, sy)) return null;
             if (t.Saved.UniqueCategory != 0)
                 return t.Saved.Type == StashRules.Map

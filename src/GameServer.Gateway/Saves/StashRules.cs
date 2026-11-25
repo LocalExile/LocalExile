@@ -25,7 +25,7 @@ public sealed class StashRules
 
     // Affinity rows (StashTabAffinityId).
     const int CurrencyItems = 3, Maps = 5, DivinationCards = 6, Essences = 8, Fragments = 9, DelveItems = 12, BlightItems = 13,
-        DeliriumItems = 15;
+        UltimatumItems = 14, DeliriumItems = 15;
 
     readonly Dictionary<uint, HashSet<int>> _affinities = [];        // item type HASH32 → affinities
     readonly HashSet<uint> _questItems = [];                         // quest items that may never enter any stash tab
@@ -35,6 +35,7 @@ public sealed class StashRules
     readonly Dictionary<byte, HashSet<int>> _anySlots = [];          // StashType row → slots that take any item
     readonly Dictionary<byte, HashSet<int>> _inputSlots = [];        // StashType row → crafting inputs: the tab's items, where dropped
     readonly Dictionary<byte, HashSet<int>> _mapSlots = [];          // StashType row → slots that take maps, where dropped
+    readonly Dictionary<byte, (uint ItemType, int StartX, int Width, int Height)> _trialAreas = []; // StashType row → multi-cell trial region
     readonly Dictionary<uint, int> _mapTiers = [];                   // map item HASH32 → MapKeys.MapTier (1..16)
     readonly List<uint> _mapBases = [];                              // the map tab's bases: MapKeys rows + the four special maps
     readonly List<uint> _legendaryMaps = [];                         // MapStashUniqueMapInfo HASH16: the legendary maps' pages
@@ -102,6 +103,24 @@ public sealed class StashRules
     /// cells from its FirstSlotIndex): a map, where dropped.</summary>
     public bool IsMapSlot(byte tabType, int x, int y) => y == 0 && _mapSlots.TryGetValue(tabType, out var s) && s.Contains(x);
 
+    /// <summary>Whether cell (x, y) is inside a multi-cell trial grid (MetamorphosisStashTabLayout ItemisedTrial, 12 × 5
+    /// cells from FirstSlotIndex 9).</summary>
+    public bool IsTrialSlot(byte tabType, int x, int y) =>
+        _trialAreas.TryGetValue(tabType, out var a) && x >= a.StartX && x < a.StartX + a.Width && y >= 0 && y < a.Height;
+
+    /// <summary>Whether <paramref name="itemType"/> belongs in this tab type's multi-cell trial grid.</summary>
+    public bool TakesInTrialSlot(byte tabType, uint itemType) =>
+        _trialAreas.TryGetValue(tabType, out var a) && a.ItemType == itemType;
+
+    /// <summary>The cells of a tab type's trial grid in row-major order.</summary>
+    public IEnumerable<(byte X, byte Y)> TrialCells(byte tabType)
+    {
+        if (!_trialAreas.TryGetValue(tabType, out var a)) yield break;
+        for (int y = 0; y < a.Height; y++)
+            for (int x = a.StartX; x < a.StartX + a.Width; x++)
+                yield return ((byte)x, (byte)y);
+    }
+
     readonly Dictionary<byte, List<int>> _overflowSlots = [];   // StashType row → spare slots, in screen order
 
     /// <summary>
@@ -123,10 +142,10 @@ public sealed class StashRules
     /// Tab types whose page the client lays out its own way, which the Gateway doesn't know yet: items saved there are
     /// not shown, so these tabs take nothing. The map tab: the 3.29 client lists maps by tier, not at grid cells (two Beach
     /// Maps at (0, 0) and (0, 1) were saved but not shown, live 2026-10-20). Unique parents hold no direct items:
-    /// AccountStash routes them to hidden category inventories using UniqueStashLayout. Breach and ultimatum
-    /// still have no supported item layout.
+    /// AccountStash routes them to hidden category inventories using UniqueStashLayout. Breach still has no supported
+    /// item layout.
     /// </summary>
-    public static bool NotShown(byte tabType) => tabType is Map or Unique or Breach or Ultimatum;
+    public static bool NotShown(byte tabType) => tabType is Map or Unique or Breach;
 
     /// <summary>Whether this item type is a quest item (QuestItem class or Quest component) that cannot be stashed.</summary>
     public bool IsQuestItem(uint itemType) => _questItems.Contains(itemType);
@@ -149,14 +168,14 @@ public sealed class StashRules
 
     /// <summary>How many of the item type one cell of the tab holds, or null for the item's own stack size.</summary>
     public ushort? MaxStack(byte tabType, uint itemType) =>
-        Slotted(tabType) ? tabType == Currency && _currencyTabStack.TryGetValue(itemType, out var n) ? n : SlotStack : null;
+        Slotted(tabType) ? tabType is Currency or Ultimatum && _currencyTabStack.TryGetValue(itemType, out var n) ? n : SlotStack : null;
 
     public static StashRules Load(string folder, IReadOnlyList<ItemCatalog.BaseType> rows)
     {
         var rules = new StashRules { Uniques = UniqueStashLayout.Load(folder) };
         string[] needed = ["StashTabAffinities", "StashTabAffinityByBaseItemType", "StashtabAffinityByItemClassCategory", "ItemClasses",
             "CurrencyStashTabLayout", "EssenceStashTabLayout", "FragmentStashTabLayout", "DelveStashTabLayout", "BlightStashTabLayout",
-            "DeliriumStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
+            "DeliriumStashTabLayout", "MetamorphosisStashTabLayout", "DivinationCardStashTabLayout", "Mods"];
         foreach (var r in rows)
             if (r.Class == "QuestItem" || r.Components.Contains("Quest"))
                 rules._questItems.Add(r.Hash);
@@ -255,7 +274,7 @@ public sealed class StashRules
                 // Fragment slots address an inventory row as well as a column. Later pages reuse columns 0..254.
                 if (tabType == Fragment) slot += (r.IntOrNull("Subtab") ?? 0) * AccountStash.Types[Fragment].Width;
                 string id = r.Text("Id") ?? "";
-                if (id is "CraftingSlot" or "CraftingItem" || (tabType == Delve && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
+                if (id is "CraftingSlot" or "CraftingItem" || (tabType is Delve or Ultimatum && id.StartsWith("GenericSlot", StringComparison.Ordinal)))
                 {
                     (rules._anySlots.TryGetValue(tabType, out var any) ? any : rules._anySlots[tabType] = []).Add(slot);
                     continue;
@@ -272,17 +291,25 @@ public sealed class StashRules
                     for (int i = 0; i < (r.IntOrNull("Width") ?? 1); i++) maps.Add(slot + i);
                     continue;
                 }
+                int width = r.IntOrNull("Width") ?? 1, height = r.IntOrNull("Height") ?? 1;
+                if ((width > 1 || height > 1) && r.IntOrNull("StoredItem") is int regionRow && HashOfRow(regionRow) is uint regionItem)
+                {
+                    rules._trialAreas[tabType] = (regionItem, slot, width, height);
+                    Give(regionItem, affinity);
+                    continue;
+                }
                 if (id.StartsWith("Generic", StringComparison.Ordinal) && r.Has("XOffset") && r.Has("YOffset"))
                 {
                     spare.Add((r.Int("YOffset"), r.Int("XOffset"), slot));
                     continue;
                 }
                 var types = new List<uint>();
-                if (byId.TryGetValue(r.Text("Id") ?? "", out uint own)) types.Add(own);
-                // The currency layout names its item in StoredItem: for the Eldritch Embers and Ichors the row's Id is an old
-                // name (CurrencyCleansingFireOrb1 → CurrencyEldritchEmber1), so the Id alone missed them.
+                // Prefer StoredItem over Id: CurrencyStashTabLayout (Eldritch Embers/Ichors) and MetamorphosisStashTabLayout
+                // (rows 0-4) have mismatched Id vs StoredItem, and StoredItem names the item shown in that slot.
                 if (r.IntOrNull("StoredItem") is int one && HashOfRow(one) is uint item)
                     types.Add(item);
+                else if (byId.TryGetValue(r.Text("Id") ?? "", out uint own))
+                    types.Add(own);
                 foreach (int s in r.Ints("StoredItems")) if (HashOfRow(s) is uint h) types.Add(h);
                 foreach (uint hash in types)
                 {
@@ -299,6 +326,7 @@ public sealed class StashRules
         Layout("FragmentStashTabLayout", Fragment, Fragments);
         Layout("DelveStashTabLayout", Delve, DelveItems);
         Layout("BlightStashTabLayout", Blight, BlightItems);
+        Layout("MetamorphosisStashTabLayout", Ultimatum, UltimatumItems);
         Layout("DeliriumStashTabLayout", Delirium, DeliriumItems);
         // Divination cards: the table lists the cards in order, without slot numbers; a card's slot is its row (our guess).
         var cards = rules._slots[Divination] = [];
