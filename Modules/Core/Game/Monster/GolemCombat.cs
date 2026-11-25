@@ -814,10 +814,12 @@ public static partial class Game
             int catchup = 0;
             while (pulse.Next <= Math.Min(now, pulse.Until) && catchup++ < 16)
             {
-                var centre = pulse.Follows ? g.Monster.Walk.Position(now) : pulse.At;
+                double contact = pulse.Next;
+                var centre = pulse.Follows ? g.Monster.Walk.Position(contact) : pulse.At;
                 foreach (var (id, m) in player.Area.Monsters.ToArray())
                 {
-                    if (!m.Hostile || m.Dead || pulse.Once && pulse.Hit.Contains(id) || Dist(m.Walk.Position(now), centre) > pulse.Ability.Radius + LivingCollision.Size(m)) continue;
+                    if (!m.Hostile || m.Dead || pulse.Once && pulse.Hit.Contains(id)
+                        || Dist(m.Walk.Position(contact), centre) > pulse.Ability.Radius + LivingCollision.Size(m)) continue;
                     if (GolemHitLocked(player, g, pulse.Ability, id, m, now)) pulse.Hit.Add(id);
                 }
                 pulse.Next += pulse.Interval;
