@@ -76,6 +76,9 @@ static class LegionDomain
         public readonly Dictionary<int, MonsterCatalog.Variety?> VarietyCache = [];
         /// <summary>Fast lookup from live SpawnedMonster.ObjectId -> slot index (rebuilt on restore).</summary>
         public Dictionary<uint, int> LiveByMonster = BuildLiveIndex(s.Slots);
+        /// <summary>Kills RecordKill counted whose drop roll has not yet asked for its slot (MonsterKilled runs before Drops for
+        /// hit kills); bounded, not saved.</summary>
+        public readonly Dictionary<uint, FighterSlot> RecentKills = [];
 
         static Dictionary<uint, int> BuildLiveIndex(FighterSlot[] slots)
         {
@@ -768,6 +771,8 @@ static class LegionDomain
             var slot = state.Slots[idx];
             if (!slot.Alive) return false;
             killedSlot = slot;
+            if (state.RecentKills.Count >= 256) state.RecentKills.Clear();
+            state.RecentKills[monsterId] = slot;
             state.Slots[idx] = slot with { CurrentId = 0, Alive = false, DeadAt = global::Game.AreaTime(player) };
             state.TotalKills++;
             if (slot.Tier == 3) state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
@@ -780,7 +785,17 @@ static class LegionDomain
     static void Drops(DropRoll drop)
     {
         if (!IsDomainArea(drop.Player.Layout.Id) || StateOf(drop.Player) is not { } state) return;
-        if (!RecordKill(drop.Player, state, drop.Monster.ObjectId, out var slot) || slot is null) return;
+        // Whichever of Killed/Drops runs first records the kill; this one takes the slot it left, so the loot is cancelled either way.
+        FighterSlot? slot;
+        lock (state)
+        {
+            if (!state.RecentKills.Remove(drop.Monster.ObjectId, out var seen))
+            {
+                if (!RecordKill(drop.Player, state, drop.Monster.ObjectId, out slot) || slot is null) return;
+                state.RecentKills.Remove(drop.Monster.ObjectId);
+            }
+            else slot = seen;
+        }
         if (slot.Rewards is { Length: > 0 }) drop.Player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
         // Domain of Timeless Conflict holds all item rewards until 00:00; only Generals drop boosted gold during combat.
         drop.Cancel = true;
@@ -818,6 +833,7 @@ static class LegionDomain
                 state.Slots[idx] = state.Slots[idx] with { CurrentId = 0, Alive = false };
             }
             state.LiveByMonster.Clear();
+            state.RecentKills.Clear();
             bankedRewards = [.. state.BankedRewards];
             generalKills = new(state.GeneralKills, StringComparer.Ordinal);
             totalKills = state.TotalKills;
