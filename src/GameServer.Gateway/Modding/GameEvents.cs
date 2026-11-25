@@ -266,8 +266,28 @@ public static class GameEvents
     /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
     public static readonly GameEvent<Func<Player, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
 
+    /// <summary>Static objects created for each joining player before the world activates, alongside area transitions.</summary>
+    public static readonly GameEvent<Func<Player, (uint Id, string Type, QuestObject Object)?>> BeforeEnterObject = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<Player, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>Rulesets needed when this map's terrain and world are created. Evaluated after terrain overrides.</summary>
+    public static readonly GameEvent<Func<Player, (byte Row, byte? PreloadGroup)?>> AreaRuleset = new();
+
+    public static (List<byte> Rows, List<byte> PreloadGroups) AreaRulesets(Player player)
+    {
+        var rows = new List<byte>();
+        var groups = new List<byte>();
+        foreach (var (owner, run) in AreaRuleset.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaRuleset), () =>
+            {
+                if (run(player) is not { } entry) return;
+                if (!rows.Contains(entry.Row)) rows.Add(entry.Row);
+                if (entry.PreloadGroup is { } group && !groups.Contains(group)) groups.Add(group);
+            });
+        return (rows, groups);
+    }
 
     /// <summary>A map device's checked input before any item is consumed.</summary>
     public static readonly GameEvent<Action<MapOpening>> MapOpening = new();

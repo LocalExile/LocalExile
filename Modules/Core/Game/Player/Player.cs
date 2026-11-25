@@ -1837,6 +1837,13 @@ public static partial class Game
             foreach (var (log, message) in extra(player))
                 messages.Add((log, message));
         messages.AddRange(GameEvents.RunBeforeEnterMessages(player));
+        foreach (var (owner, run) in GameEvents.BeforeEnterObject.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(GameEvents.BeforeEnterObject), () =>
+            {
+                if (run(player) is { } obj)
+                    messages.Add(($"0x02bb create {obj.Type} 0x{obj.Id:x} at ({obj.Object.GridX}, {obj.Object.GridY})",
+                        Create(obj.Id, InstanceEntities.ObjectTypeHash(obj.Type), obj.Object.Blob())));
+            });
         var (passives, passivesLabel) = PassivesMessage(player);
         messages.Add((passivesLabel, passives));
         // Area transitions. Like the player they are queued by the world and created when 0x21 activates it.
