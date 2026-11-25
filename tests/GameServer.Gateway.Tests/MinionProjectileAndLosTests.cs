@@ -93,6 +93,13 @@ public sealed class MinionProjectileAndLosTests
             Assert.NotNull(golem.Pending);
             golem.Pending = null;
             golem.Monster.BusyUntil = 0;
+            // At one cell outside the hitbox, a wall in that last cell still blocks the shot.
+            f.Player.Use(f.Player.Layout with { Sight = (x, _) => x == 106 ? 0 : 1 });
+            golem.Monster.Walk.Teleport(105, 100, 1.6);
+            golem.NextMove = 0;
+            clock.Time = 1.6;
+            Game.GolemStepLocked(f.Player, golem, 1.6);
+            Assert.Null(golem.Pending);
             f.Player.Area.Monsters.Remove(6002);
             f.Player.Area.Monsters[6001] = enemy;
 

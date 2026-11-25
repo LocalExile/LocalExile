@@ -450,12 +450,12 @@ public static partial class Game
         return walkableFallback ?? target;
     }
 
-    static bool MinionHasClearShot(Player player, (int X, int Y) from, (int X, int Y) to, int targetRadius = 0)
+    static bool MinionHasClearShot(Player player, (int X, int Y) from, (int X, int Y) to, int targetRadius)
     {
         if (from == to) return true;
         double dx = to.X - from.X, dy = to.Y - from.Y;
         double dist = Math.Sqrt(dx * dx + dy * dy);
-        if (dist <= targetRadius + 1) return true;
+        if (dist <= targetRadius) return true;
         double endX = targetRadius > 0 ? to.X - dx / dist * targetRadius : to.X;
         double endY = targetRadius > 0 ? to.Y - dy / dist * targetRadius : to.Y;
         var start = new ProjectileVector(from.X, from.Y);
