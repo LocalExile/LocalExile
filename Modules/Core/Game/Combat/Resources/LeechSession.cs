@@ -28,6 +28,7 @@ public sealed class LeechSession
     public double LifeInstantCarry, ManaInstantCarry;
     // What a kill recovers (RecoverOnKill), from the same stat snapshot as this configuration.
     public KillRecovery OnKill { get; set; }
+    public int LifeOnIgnite { get; private set; }
 
     /// <summary>Leeching of a resource started or stopped (the stats that read it follow).</summary>
     public Action? Changed;
@@ -100,6 +101,7 @@ public sealed class LeechSession
         recoverLife = get(Stat.CannotRecoverLife) == 0;
         recoverEnergyShield = get(Stat.CannotRecoverEnergyShield) == 0;
         vaalPact = get(Stat.KeystoneVaalPact) != 0;
+        LifeOnIgnite = recoverLife && !vaalPact ? get(Stat.RecoverXLifeOnEnemyIgnited) : 0;
         equippedClaws = Math.Clamp(equippedClaws, 0, 2);
         double commonInstant = (double)get(Stat.LeechPctIsInstant)
             + (equippedClaws > 0 ? get(Stat.LeechPctIsInstantWhileWieldingClaw) : 0);
