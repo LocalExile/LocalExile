@@ -318,6 +318,9 @@ public static partial class Game
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
+        int witherAgainstCursed = ActorScale.Saturate((long)Player(Stat.WitheredOnHitChancePctVsCursedEnemies)
+            + Skill(Stat.WitheredOnHitChancePctVsCursedEnemies));
+        bool preCursed = witherAgainstCursed != 0 && m.Curses.All.Values.Any(curse => curse.Until > now);
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
@@ -425,7 +428,9 @@ public static partial class Game
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure);
-        WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
+        int WitherStat(uint name) => ActorScale.Saturate((long)Player(name) + Skill(name)
+            + (preCursed && name == Stat.WitheredOnHitFor2SecondsPctChance ? witherAgainstCursed : 0));
+        WitherOnHitLocked(m, WitherStat, now, AreaRng(player));
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
