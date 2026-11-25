@@ -155,7 +155,11 @@ public static partial class Game
                 Runtime.Release(use with
                 {
                     Origin = origin, Aim = next.Position(Runtime.Now), ProjectileTargets = null, ProjectilePayloads = null,
-                    Payload = shot with { ExcludedTarget = excluded, SomaticApplications = new(Math.Max(0, transfers)) }
+                    Payload = shot with
+                    {
+                        ExcludedTarget = excluded, ClientPredicted = false, MirageSource = null,
+                        SomaticApplications = new(Math.Max(0, transfers))
+                    }
                 });
             });
         }

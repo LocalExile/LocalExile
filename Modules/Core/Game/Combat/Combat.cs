@@ -2352,7 +2352,9 @@ public static partial class Game
                     if (cost > 0 && SkillsFor(player).IsAttack(gem.Effect) && WeaponProfileFor(player, activeSet: true).Bow)
                     {
                         var channelAim = snipe && SnipeRuntimes.TryGetValue(player, out var snipeState)
-                            ? snipeState.Aim : initialAim;
+                            ? snipeState.Aim
+                            : scourge && ScourgeChannels.TryGetValue(player, out var scourgeState)
+                                ? scourgeState.Aim : initialAim;
                         RecordPaidBowAttackLocked(player, skillId, SupportedSkill(player, skillId), cost, channelAim);
                     }
                     // Overheat: every paid channel tick is a use, so it consumes the Fortification gained since the
