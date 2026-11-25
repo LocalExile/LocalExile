@@ -871,6 +871,9 @@ public static partial class Game
                 projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
             }
             double chainsMore = Math.Max(0, 1 + (double)shot.RemainingChainDamagePercent * contact.Projectile.ChainsRemaining / 100);
+            if (shot.CompletedChainDamagePercent != 0)
+                chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
+                    * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
             if (ailmentMore != 1)
