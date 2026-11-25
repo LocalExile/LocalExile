@@ -112,12 +112,11 @@ public sealed class BreachEncounter
         if (count <= 0) return $"the roll gave none ({roll})";
         var rng = new Random(unchecked(area.Seed ^ (int)RollSalt));
         var taken = area.Taken.ToList();
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         var encounter = new Encounter();
         double now = AreaTime(player);
         for (int i = 0; i < Math.Min(count, 32); i++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
+            if (AreaPopulation.EncounterSpot(area, taken, rng)
                 is not { } site) break;
             taken.Add(site);
             encounter.Breaches.Add(new Breach

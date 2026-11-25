@@ -169,16 +169,22 @@ public sealed class AbyssEncounter
         // The encounter's own draws, apart from the packs' (the same instance gets the same encounter).
         var rng = new Random(area.Seed ^ 0x41627973);
         if (!Rolled(AreaLeagueStats(player), layout.Id, rng, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return null;
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
-        if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, area.Taken, rng)
-            is not { } spot) return $"{layout.Id}: no encounter spot for an Abyss";
         // Only lattice points the arrival walks to: an arm behind a wall would never be reached.
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         bool Reaches((int X, int Y) cell) => arrival is null || cell.X >= 0 && cell.Y >= 0 && cell.X < layout.GridW && cell.Y < layout.GridH
             && arrival[cell.Y * layout.GridW + cell.X];
-        if (MakePlan(layout, spot, rng, Reaches) is not { } plan) return $"{layout.Id}: no lattice point near ({spot.X}, {spot.Y}) has room for an Abyss arm";
-        Begin(player, plan, area.Level, rng);
-        return null;
+        var taken = area.Taken.ToList();
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            if (AreaPopulation.EncounterSpot(area, taken, rng) is not { } spot) break;
+            if (MakePlan(layout, spot, rng, Reaches) is { } plan)
+            {
+                Begin(player, plan, area.Level, rng);
+                return null;
+            }
+            taken.Add(spot);
+        }
+        return $"{layout.Id}: no encounter spot had room for an Abyss arm";
     }
 
     /// <summary>The instance's encounter for a plan: no object is sent until a player comes near.</summary>

@@ -140,14 +140,13 @@ public sealed class BestiaryEncounter
         if (!Rolled(layout.Id, AreaLeagueStats(player), MapDevices.IsMapArea(layout.Hash), rng,
             LeagueFor(player).HardMode, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return;
         if (BestiaryTables.PlanFor(layout.Id, area.Level, rng) is not { } plan) return;
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         (int X, int Y)? Spot()
         {
             for (int tries = 0; tries < 8; tries++)
             {
-                if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng) is not { } at) return null;
+                if (AreaPopulation.EncounterSpot(area, taken, rng) is not { } at) return null;
                 taken.Add(at);
                 if (arrival is null || arrival[at.Y * layout.GridW + at.X]) return at;
             }

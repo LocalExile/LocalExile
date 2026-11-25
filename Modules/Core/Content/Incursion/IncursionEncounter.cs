@@ -163,12 +163,11 @@ public sealed class IncursionEncounter
         var layout = player.Layout;
         if (player.Instance is not { } instance || layout.Walkable is not { } walkable || !RolledFor(player, area.Seed, out var rng)) return Task.CompletedTask;
         var taken = area.Taken.ToList();
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         var spots = new List<(int X, int Y)>();
         for (int tries = 0; tries < IncursionTables.SpotsPerArea * 2 && spots.Count < IncursionTables.SpotsPerArea; tries++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
+            if (AreaPopulation.EncounterSpot(area, taken, rng)
                 is not { } at) break;
             taken.Add(at);
             var portal = (X: at.X + IncursionTables.Portal1Offset.X, Y: at.Y + IncursionTables.Portal1Offset.Y);

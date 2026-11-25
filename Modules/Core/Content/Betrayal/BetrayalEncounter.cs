@@ -75,13 +75,12 @@ public sealed class BetrayalEncounter
         if (Members.Count == 0) return;
         var member = Members[rng.Next(Members.Count)];
         bool Floor(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0);
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         BetrayalPlan.Plan? plan = null;
         for (int tries = 0; tries < 8 && plan is null; tries++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
+            if (AreaPopulation.EncounterSpot(area, taken, rng)
                 is not { } spot) break;
             taken.Add(spot);
             if (arrival is not null && !arrival[spot.Y * layout.GridW + spot.X]) continue;

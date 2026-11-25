@@ -42,8 +42,7 @@ public sealed partial class MercenaryModule
         bool placed = chance >= 100 || chance > 0 && new Random(area.Seed ^ RollTag).Next(100) < chance;
         var rng = new Random(area.Seed ^ PlanTag);
         if (placed && MercenaryTables.Pick(rng) is { } pick
-            && AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY),
-                [.. layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY))], area.Taken, rng) is { } at)
+            && AreaPopulation.EncounterSpot(area, area.Taken, rng) is { } at)
             await Spawn(player, run, pick.Kind, pick.Build, at, area.Level, area.Seed);
     }
 
