@@ -18,11 +18,13 @@ public sealed class ShrinesModule : IModule
     {
         string id = module.Manifest.Id;
         ShrineRegistry.RegisterDefaults();
+        ApparitionRewards.Load();
         GameEvents.AreaGenerated.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => ShrineManager.Use(player, use, requestedAt));
         GameEvents.CompanionTick.Add(id, async (player, _) => { await ShrineManager.Tick(player); await ShrineGearEffects.Tick(player); });
         GameEvents.Kill.Add(id, kill => { LesserShrines.OnKill(kill); ShrineManager.OnKill(kill); });
         GameEvents.MapOpening.Add(id, ShrineMapAdmission.Check);
+        GameEvents.Drops.Add(id, ApparitionRewards.Drops);
         GameEvents.BuffCancel.Add(id, ShrineManager.CancelBuff);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { ShrineGearEffects.LeaveArea(player); return ShrineManager.LeaveArea(player); });
         // The claimed shrines' buff stats join the character's own sum, so the hit, crit, armour and resistance paths

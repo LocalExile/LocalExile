@@ -29,6 +29,9 @@ public static class ShrineRegistry
     /// </summary>
     public static void RegisterDefaults()
     {
+        foreach (string id in ShrineCatalog.ApparitionIds.Append("UpgradeOnKill"))
+            Register(new ShrineDefinition { Id = id, BeforeActivation = [() => new MonsterAuraEffect()] });
+
         Register(new ShrineDefinition
         {
             Id = "Acceleration",

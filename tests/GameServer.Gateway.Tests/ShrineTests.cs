@@ -8,7 +8,7 @@ using GameServer.Data.Terrain.Generation;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ShrineTests
+public sealed partial class ShrineTests
 {
     [Fact]
     public async Task Shrine_data_and_shared_lifecycle_keep_effects_owned_and_reversible()

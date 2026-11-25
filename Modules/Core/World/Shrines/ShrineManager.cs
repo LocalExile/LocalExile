@@ -62,7 +62,8 @@ public static class ShrineManager
     static readonly ConditionalWeakTable<InstanceState, SharedArea> Areas = new();
     static readonly ConditionalWeakTable<Player, AreaState> States = new();
     public static bool HasBuff(Player player, ushort buffRow) =>
-        States.TryGetValue(player, out var state) && state.Buffs.ContainsKey(buffRow);
+        !player.Closed && !player.LeavingArea && player.PlayerLife > 0 && States.TryGetValue(player, out var state)
+        && state.Buffs.TryGetValue(buffRow, out var buff) && buff.EndsAt > AreaTime(player);
     static AreaState Of(Player player) => States.GetValue(player,
         c => new(c.Instance is { } instance ? Areas.GetOrCreateValue(instance) : new()));
     static string ClaimKey(ShrineInstance shrine) => shrine.Definition.Lesser ? $"Shrines/used-lesser/{shrine.ObjectId}"
@@ -81,8 +82,7 @@ public static class ShrineManager
             {
                 state.Area.Spawned = true;
                 if (player.Layout.Walkable is { } walk && ServerLevels.For(player.Layout.Id, player.Seed) is { } level)
-                    foreach (var placed in ShrinePlacement.Plan(level.RoomObjects, walk, player.Seed,
-                        greedChancePct: MapModsOf(player)?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0))
+                    foreach (var placed in MapShrines.Plan(level.RoomObjects, walk, player.Seed, MapModsOf(player)))
                         await Create(player, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model));
                 if (player.Instance is { } instance)
                     foreach (var (key, value) in instance.ContentState.Where(p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)))

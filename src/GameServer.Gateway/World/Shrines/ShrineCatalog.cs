@@ -34,7 +34,12 @@ public static class ShrineCatalog
     /// variations and sound the row names.</summary>
     public sealed record ShrineDefinition(int Row, string Id, string Name, int Duration, bool Lesser, bool ChargesShared,
         bool PvPOnly, int Sound, ushort BuffRow, string BuffId, IReadOnlyList<(uint Key, int Value)> Stats,
-        MonsterBuff? Monster, IReadOnlyList<GuardPack> GuardPacks, IReadOnlyList<int> Visuals);
+        MonsterBuff? Monster, IReadOnlyList<GuardPack> GuardPacks, IReadOnlyList<int> Visuals)
+    {
+        /// <summary>The row's native daemon varieties; absent for shrines whose effect is entirely a buff.</summary>
+        public int? MonsterSummon { get; init; }
+        public int? PlayerSummon { get; init; }
+    }
 
     static (ShrineDefinition[] Rows, string[] Skipped) Data = default!;
 
@@ -164,7 +169,11 @@ public static class ShrineCatalog
                 r.BoolOrNull("IsLesserShrine") ?? false, r.BoolOrNull("ChargesShared") ?? false,
                 r.BoolOrNull("IsPVPOnly") ?? false, r.IntOrNull("ShrineSoundsKey") ?? 0,
                 player.Row, player.Id, player.Stats, monster, guards,
-                visuals.GetValueOrDefault(r.Index) ?? []));
+                visuals.GetValueOrDefault(r.Index) ?? [])
+            {
+                MonsterSummon = r.IntOrNull("SummonMonster_MonsterVarietiesKey"),
+                PlayerSummon = r.IntOrNull("SummonPlayer_MonsterVarietiesKey"),
+            });
         }
         return ([.. rows], [.. skipped]);
 
