@@ -178,6 +178,12 @@ public static partial class Game
         var raw = StatSourceValues(player);
         if (effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
         ApplySiphoningSkillUseLocked(player, now, raw);
+        int loss = raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill);
+        if (loss > 0 && player.PlayerMana != 0)
+        {
+            player.PlayerMana -= Math.Min(player.PlayerMana, (uint)loss);
+            player.Frames.Area?.Life.Resend(player);
+        }
         int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);
         if (chance <= 0) return;
 
