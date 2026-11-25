@@ -190,6 +190,67 @@ public sealed class StrongboxTests
         Assert.DoesNotContain("loop", StrongboxCatalog.OpenEffect(big, 3));
     }
 
+    [GameFilesFact]
+    public async Task Strongbox_replays_after_leave_and_reentry_without_duplication()
+    {
+        TestEnvironment.OpenOwnSaves("strongbox-reentry");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        var instance = new InstanceState();
+        var world = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
+        var mods = MapMods.None;
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(world.Id, 0x506, 70, stats);
+        ServerLevels.For(world.Id, seed, 70);
+        var layout = AreaLayouts.For(world.Hash16, seed);
+        instance.OpenedWith(new("BoxReentryOwner", new(layout.Hash, world.Id, "Strand", 3) { Level = 70 }, mods));
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        try
+        {
+            Assert.True(await MapStrongboxes.SpawnAt(owner.Player,
+                [new MapStrongboxes.SpawnRequest(layout.SpawnX, layout.SpawnY, StrongboxCatalog.Contents.Currency, 70, MapMods.None)], new Random(7)) > 0);
+            uint id = ReadBoxes(owner.Player)[0]!["Id"]!.GetValue<uint>();
+            Assert.NotEqual(0x08000000u, id & 0xF8000000u);
+            Assert.True(owner.Player.Area.Objects.Has(id));
+
+            MapStrongboxes.Leave(owner.Player);
+            await using var returning = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+            var previousOwner = GameArea.Own(owner.Player.Area);
+            try
+            {
+                owner.Player.Area.Objects.Join(returning.Player);
+                var frame1 = owner.Player.Area.Delta.Take();
+                Assert.Contains(frame1, r => r.Entity == id && r.Kind == AreaDelta.Kind.Create
+                    && ReferenceEquals(r.Only, returning.Player)
+                    && BinaryPrimitives.ReadUInt16BigEndian(r.Bytes) == InstanceEntities.CreateObjectId);
+            }
+            finally { GameArea.Own(previousOwner); }
+
+            var history = Program.HistoryFor(returning.Player.Connection.Session.Ciphers);
+            long mark = history.Count;
+            await MapStrongboxes.Enter(returning.Player);
+            var afterEnter = history.Lines((int)Math.Min(PacketHistory.Capacity, history.Count - mark))
+                .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Where(p => p.Length >= 6 && p[2] == "0x02bb")
+                .ToList();
+            Assert.Empty(afterEnter);
+
+            returning.Player.Walk.Teleport(layout.SpawnX, layout.SpawnY, Game.AreaTime(returning.Player));
+            Assert.True(await MapStrongboxes.Use(returning.Player, new(id, 0, 1, 0), Game.AreaTime(returning.Player)));
+            Assert.Equal(1, ReadBoxes(returning.Player)[0]!["Phase"]!.GetValue<int>());
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
     static JsonNode ReadBoxes(Player player)
     {
         var state = new JsonObject();

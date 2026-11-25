@@ -394,6 +394,78 @@ public sealed class EssenceCorruptionTests
         player.Closed = true;
     }
 
+    [GameFilesFact]
+    public async Task Essence_monoliths_and_minis_replay_after_leave_and_reentry_without_duplication()
+    {
+        TestEnvironment.OpenOwnSaves("essence-reentry");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
+        var instance = new InstanceState();
+        var world = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
+        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapExtraMonoliths] = 2 });
+        var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
+        uint seed = ServerLevels.PlayableSeed(world.Id, 0x505, 70, stats);
+        ServerLevels.For(world.Id, seed, 70);
+        var layout = AreaLayouts.For(world.Hash16, seed);
+        instance.OpenedWith(new("EssenceReentryOwner", new(layout.Hash, world.Id, "Strand", 3) { Level = 70 }, mods));
+        await using var owner = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+        try
+        {
+            await MapEssences.Enter(owner.Player);
+            var monoliths = JsonSerializer.Deserialize<MapEssences.Monolith[]>(instance.ContentState["Essence/monoliths"])!;
+            Assert.NotEmpty(monoliths);
+            var target = monoliths[0];
+            Assert.NotEqual(0x08000000u, target.Id & 0xF8000000u);
+            Assert.True(owner.Player.Area.Objects.Has(target.Id));
+            foreach (var mini in target.Minis)
+            {
+                Assert.NotEqual(0x08000000u, mini.Id & 0xF8000000u);
+                Assert.True(owner.Player.Area.Objects.Has(mini.Id));
+            }
+
+            MapEssences.Leave(owner.Player);
+            await using var returning = await ScarabEncounterTests.Wire.Open(instance, layout, seed);
+            var previousOwner = GameArea.Own(owner.Player.Area);
+            try
+            {
+                owner.Player.Area.Objects.Join(returning.Player);
+                var frame1 = owner.Player.Area.Delta.Take();
+                Assert.Contains(frame1, r => r.Entity == target.Id && r.Kind == AreaDelta.Kind.Create
+                    && ReferenceEquals(r.Only, returning.Player)
+                    && System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(r.Bytes) == InstanceEntities.CreateObjectId);
+                foreach (var mini in target.Minis)
+                    Assert.Contains(frame1, r => r.Entity == mini.Id && r.Kind == AreaDelta.Kind.Create
+                        && ReferenceEquals(r.Only, returning.Player)
+                        && System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(r.Bytes) == InstanceEntities.CreateObjectId);
+            }
+            finally { GameArea.Own(previousOwner); }
+
+            var history = Program.HistoryFor(returning.Player.Connection.Session.Ciphers);
+            long mark = history.Count;
+            await MapEssences.Enter(returning.Player);
+            var afterEnter = history.Lines((int)Math.Min(PacketHistory.Capacity, history.Count - mark))
+                .Select(line => line.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .Where(p => p.Length >= 6 && p[2] == "0x02bb")
+                .ToList();
+            Assert.Empty(afterEnter);
+
+            returning.Player.Walk.Teleport(target.X + 8, target.Y, 0);
+            Assert.True(await MapEssences.Use(returning.Player, new(target.Id, 0, 2, 0), 0));
+            var updated = JsonSerializer.Deserialize<MapEssences.Monolith[]>(instance.ContentState["Essence/monoliths"])!;
+            Assert.Equal(2, updated[0].Stage);
+        }
+        finally
+        {
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
     sealed class OutcomeRoll(int outcome) : Random
     {
         bool first = true;
