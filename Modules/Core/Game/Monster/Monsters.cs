@@ -606,7 +606,8 @@ public static partial class Game
         // Normal/Magic/Rare multi-skill monsters use the cached MonsterKits template so casters, summoners, chargers, leapers,
         // flicker-strikers and charge-ralliers play their retail kits instead of falling back to MeleeAtAnimationSpeed.
         var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
-            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique,
+                modifiers: mods.Effects, mapDamage: mapBossScaling.Damage);
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,

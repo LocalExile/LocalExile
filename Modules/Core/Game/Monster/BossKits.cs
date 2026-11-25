@@ -180,7 +180,11 @@ public static class BossKits
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false) =>
+        Kit(player, variety, level, defaultEffect, defaultAttack, unique, null, 1);
+
+    public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
+        int defaultEffect, MonsterAttack? defaultAttack, bool unique, MonsterModEffects? modifiers, double mapDamage)
     {
         var catalog = SkillsFor(player);
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
@@ -198,8 +202,9 @@ public static class BossKits
             var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
             // attack makes of it (Vickas Giantbone's Ethereal Knives totem).
-            var attack = (kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null)
-                ? defaultAttack with { SkillId = id } : built) with { Effect = effect };
+            bool keepsDefault = kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null);
+            var attack = (keepsDefault
+                ? defaultAttack! with { SkillId = id } : built) with { Effect = effect };
             if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
             {
                 // A travel reaches as far as it carries the monster; a buff on itself is used from where it sees the
@@ -215,7 +220,7 @@ public static class BossKits
                     : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
                     : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
-                kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+                kit.Add(new(effect, Scaled(attack), cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
                 continue;
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
@@ -250,7 +255,29 @@ public static class BossKits
                 }
             }
             if (!Acts(attack) && kit.Count > 0) continue;
-            kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+            kit.Add(new(effect, Scaled(attack), Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+
+            MonsterAttack Scaled(MonsterAttack action)
+            {
+                // Spawn's default attack already carries the map, rarity and species modifiers. Every other kit
+                // entry is built from native skill data and needs the same scaling before its actor record is sent.
+                if (keepsDefault || modifiers is null) return action;
+                return ScaleAttack(action);
+            }
+            MonsterAttack ScaleAttack(MonsterAttack action) => action with
+            {
+                Damage = modifiers!.Hit(action.Damage.Scale(mapDamage), level),
+                Seconds = modifiers.AttackSeconds(action.Seconds, action.Spell),
+                AreaRadius = action.AreaRadius * modifiers.AreaScaleFactor,
+                Range = action.AreaAtSelf && action.AreaRadius > 0 ? action.Range * modifiers.AreaScaleFactor : action.Range,
+                Projectile = action.Projectile is { } shot ? shot with
+                {
+                    Count = Math.Max(1, shot.Count + modifiers.AdditionalProjectiles),
+                    SpreadRadians = shot.Count + modifiers.AdditionalProjectiles > 1 && shot.SpreadRadians == 0 ? .45 : shot.SpreadRadians,
+                    AreaRadius = shot.AreaRadius * modifiers.AreaScaleFactor,
+                } : null,
+                Trap = action.Trap is { } trap ? ScaleAttack(trap) : null,
+            };
         }
         return kit;
     }
