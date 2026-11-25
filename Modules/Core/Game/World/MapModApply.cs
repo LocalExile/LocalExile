@@ -137,6 +137,8 @@ public static partial class Game
         if (mods.Get(Stat.MapMonstersPoisonOnHit) != 0)
             extra[Stat.BaseChanceToPoisonOnHitPct] =
                 extra.GetValueOrDefault(Stat.BaseChanceToPoisonOnHitPct) + 100;
+        Gain(Stat.MapMonstersChanceToImpalePct, Stat.MapMonstersChanceToImpalePct);
+        Gain(Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs, Stat.MapImpalesOnPlayersDetonateWhenPlayersHaveXImpaleDebuffs);
         Gain(Stat.MapMonstersBasePoisonDurationPlusPct, Stat.BasePoisonDurationPlusPct);
         Gain(Stat.MapMonstersAllDamageCanPoison, Stat.AllDamageCanPoison);
         return extra;
