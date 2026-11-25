@@ -3012,7 +3012,7 @@ public static partial class Game
             if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
             {
                 ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
-                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true);
+                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, now);
                 return;
             }
             if (!spell && !immediate && triggeredCurrent is null && strikeIndex == 0)
@@ -3101,7 +3101,7 @@ public static partial class Game
                 .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
-                    && (shieldWaves is not null || e.Distance <= reachLimit)
+                    && (contactTargets is not null || shieldWaves is not null || e.Distance <= reachLimit)
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));

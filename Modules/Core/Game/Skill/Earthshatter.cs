@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameServer.Core.Projectiles;
 
 public static partial class Game
@@ -5,15 +6,18 @@ public static partial class Game
     static readonly RuleTable<GameArea, List<EarthshatterSpike>> EarthshatterSpikes = new();
 
     internal sealed record EarthshatterAttack(ProjectileSession Session,
-        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem, ushort Sequence, int Repeat,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem, ushort Sequence,
         SkillCriticalRoll Critical, double Ruthless, bool Exerted, RetainedAreaAttack Fissure, RetainedAreaAttack Burst)
     {
         internal bool Active => Session.Active && Session.Player.PlayerLife > 0;
 
         internal void Detonate((int X, int Y) centre, int radius)
         {
+            double now = ProjectileWorldTime(Session.Player);
             var candidates = Session.Player.Area.MonstersNear(centre, radius)
-                .Where(enemy => enemy.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false }).Select(enemy => enemy.Key).ToArray();
+                .Where(enemy => enemy.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false }
+                    && Dist(centre, enemy.Value.Walk.Position(now)) <= radius)
+                .Select(enemy => enemy.Key).ToArray();
             if (candidates.Length != 0) Hit(centre, radius, Burst, candidates: candidates);
         }
 
@@ -23,7 +27,7 @@ public static partial class Game
             var player = Session.Player;
             var hit = AreaSkillHitStrike(player, Gem.Id, Gem, centre, centre, immediate: true, Sequence,
                 actionToken: null, cooldownUse: null, melee: true, damageMore: 1, excludeMonster: 0, Critical,
-                channelGeneration: null, targetId: 0, repeat: Repeat, radiusOverride: radius, once: struck, repeatDelay: 0,
+                channelGeneration: null, targetId: 0, repeat: 0, radiusOverride: radius, once: struck, repeatDelay: 0,
                 radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: () => Active, discharge: null, strikeIndex: 0,
                 firstContactAt: null, Ruthless, priorTargets: null, scaledBlastChaos: 0,
                 singleStrikeTarget: null, onHit: null, scheduledSession: Session, Exerted, prepaidRawExtra: 0,
@@ -33,7 +37,7 @@ public static partial class Game
         }
     }
 
-    sealed class EarthshatterSpike(EarthshatterAttack attack, (int X, int Y) at, long expires, int radius, bool timed)
+    internal sealed class EarthshatterSpike(EarthshatterAttack attack, (int X, int Y) at, long expires, int radius, bool timed)
     {
         internal EarthshatterAttack Attack { get; } = attack;
         internal (int X, int Y) At { get; } = at;
@@ -45,9 +49,29 @@ public static partial class Game
     public sealed partial class ProjectileSession
     {
         GameArea? earthshatterArea;
+        readonly ConcurrentQueue<(EarthshatterSpike Spike, long TriggeredAt, long Stagger)> earthshatterDetonations = new();
+
+        internal void QueueEarthshatterDetonation(EarthshatterSpike spike, long triggeredAt, long stagger) =>
+            earthshatterDetonations.Enqueue((spike, triggeredAt, stagger));
+
+        internal void ScheduleEarthshatterDetonation(EarthshatterSpike spike, long triggeredAt, long stagger)
+        {
+            if (!spike.Attack.Active) return;
+            Runtime.Schedule(Math.Max(Runtime.Now, triggeredAt) + stagger, () =>
+            {
+                if (spike.Attack.Active) spike.Attack.Detonate(spike.At, spike.Radius);
+            });
+        }
+
+        void DrainEarthshatterDetonations()
+        {
+            while (earthshatterDetonations.TryDequeue(out var pending))
+                ScheduleEarthshatterDetonation(pending.Spike, pending.TriggeredAt, pending.Stagger);
+        }
 
         void ClearEarthshatterSpikes()
         {
+            earthshatterDetonations.Clear();
             if (earthshatterArea is not { } area) return;
             earthshatterArea = null;
             void Remove()
@@ -89,7 +113,7 @@ public static partial class Game
     {
         if (!EarthshatterSpikes.TryGetValue(trigger.Area, out var spikes) || spikes.Count == 0) return;
         long triggeredAt = ProjectileRuntime.Time(now);
-        long when = triggeredAt;
+        long stagger = 0;
         long interval = ProjectileRuntime.Time(.05);
         for (int i = 0; i < spikes.Count;)
         {
@@ -101,15 +125,9 @@ public static partial class Game
             }
             spikes.RemoveAt(i);
             var session = spike.Attack.Session;
-            using (ProjectileMutation(session.Player, advance: false))
-            {
-                if (spike.Attack.Active)
-                    session.Runtime.Schedule(Math.Max(session.Runtime.Now, when), () =>
-                    {
-                        if (spike.Attack.Active) spike.Attack.Detonate(spike.At, spike.Radius);
-                    });
-            }
-            when += interval;
+            if (ReferenceEquals(session.Player, trigger)) session.ScheduleEarthshatterDetonation(spike, triggeredAt, stagger);
+            else session.QueueEarthshatterDetonation(spike, triggeredAt, stagger);
+            stagger += interval;
         }
     }
 
@@ -117,9 +135,11 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) from, (int X, int Y) to, ushort sequence, int repeats, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, SkillCriticalRoll critical, double radiusMore, double damageMore,
-        double ruthless, bool exerted)
+        double ruthless, bool exerted, double contactAt)
     {
         var session = ProjectilesFor(player);
+        long contact = ProjectileRuntime.Time(contactAt);
+        if (session.Runtime.Now < contact) session.AdvanceTo(contact);
         var layout = player.Layout;
         var own = admitted.Stats;
         var stats = CharacterPlayerStats(player);
@@ -129,9 +149,9 @@ public static partial class Game
         bool CanPass((int X, int Y) cell) => cell.X >= 0 && cell.Y >= 0 && cell.X < layout.GridW && cell.Y < layout.GridH
             && layout.WalkableFor(cell.X, cell.Y, 0) && !player.Barrier.Contains(cell);
 
-        int repeatCount = repeats == 0 ? 0 : Math.Max(0, MeleeAttackRepeats(player, skillId) - repeats);
+        int repeatsLeft = Math.Max(0, MeleeAttackRepeats(player, skillId) - repeats);
         float areaScale = (float)((1 + SkillArea.RadiusPercent(AreaStat, spell: false) / 100d) * radiusMore);
-        var fissures = EarthshatterFissures.Plan(from, to, sequence, player.Id, 0, (uint)repeatCount, 0,
+        var fissures = EarthshatterFissures.Plan(from, to, sequence, player.Id, 0, (uint)repeatsLeft, 0,
             AreaStat(Stat.SpikeSlamNumSpikes), AreaStat(Stat.SpikeSlamAdditionalSpikePctChance),
             AreaStat(Stat.SpikeSlamFissureLengthPlusPct), areaScale, CanPass);
         if (fissures.Count == 0) return;
@@ -140,7 +160,7 @@ public static partial class Game
         double fissureMore = More(Stat.SpikeSlamFissureDamagePlusPctFinal) * damageMore;
         double spikeMore = More(Stat.SpikeSlamExplosionDamagePlusPctFinal) * More(Stat.SpikeSlamSpikeDamagePlusPctFinal) * damageMore;
         var fissureSource = CaptureAreaAttack(player, skillId, admitted, hand, weapon, offCritical, fissureMore, fissureMore, "fissure");
-        var attack = new EarthshatterAttack(session, gem, sequence, repeats, critical, ruthless, exerted, fissureSource,
+        var attack = new EarthshatterAttack(session, gem, sequence, critical, ruthless, exerted, fissureSource,
             fissureSource with { HitMore = spikeMore, AilmentMore = spikeMore, Phase = "spike" });
         int capacity = AreaStat(Stat.SpikeSlamMaxSpikes);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), stats.GetValueOrDefault, Own,

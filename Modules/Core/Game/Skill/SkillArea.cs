@@ -22,7 +22,7 @@ public static class SkillArea
     static int? KnownBaseRadius(string? effect) =>
         effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect is "Earthquake" or "Earthshatter" ? 18
+            : effect is "Earthquake" or "Earthshatter" or "EarthshatterAltX" or "EarthshatterAltY" ? 18
             : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
