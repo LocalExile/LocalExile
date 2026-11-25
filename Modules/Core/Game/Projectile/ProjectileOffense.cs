@@ -44,6 +44,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
+    public sealed record GroundBladeSpec(int EveryProjectile, int Maximum, long Lifetime);
+    public GroundBladeSpec? GroundBlade { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
@@ -54,6 +56,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool FromTotem { get; init; }
     /// <summary>Thrown by a trap or mine: Bear Trap's damage taken from traps and mines applies (MonsterTakesTrapOrMineHit).</summary>
     public bool FromTrapOrMine { get; init; }
+    public bool FromMine { get; init; }
+    internal bool FreezingPulseFalloff { get; init; }
+    internal int RemainingChainDamagePercent { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (GamblerModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
     public string? WeaponClass { get; init; }

@@ -36,6 +36,57 @@ public sealed class CooldownAdmissionTests
         Assert.Null(Game.NativeCooldownRefresh(c, c.ProjectileEpoch, () => current));
     }
 
+    sealed class Clock : IPlayerUpdateSchedule
+    {
+        public double Time;
+        public double Now(Player _) => Time;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+    }
+
+    [Fact]
+    public void Shared_blink_debit_publishes_the_dash_copy_whose_plan_it_used()
+    {
+        using var f = new Fixture();
+        var player = f.Player;
+        ushort first = f.Equip(PlayerInventories.Weapon1, "Dash").Single();
+        f.Equip(PlayerInventories.Helmet, "Dash", "Second Wind Support");
+        ushort second = Game.GemSkillEffects(player).Single(g => g.Name == "Dash" && g.Id != first).Id;
+        ushort frostblink = f.Equip(PlayerInventories.Gloves, "Frostblink").Single();
+        var firstPlan = Game.CooldownForSkill(player, first)!.Value;
+        var secondPlan = Game.CooldownForSkill(player, second)!.Value;
+        Assert.NotEqual(firstPlan.RecoveryRate, secondPlan.RecoveryRate);
+        int dashEffect = Game.SupportedSkill(player, second).Effect;
+        int frostblinkEffect = Game.SupportedSkill(player, frostblink).Effect;
+        Assert.True(Game.CooldownKey(player, dashEffect, second) < 0);
+        player.ClientSkillIds.UnionWith([first, second, frostblink]);
+
+        var clock = new Clock();
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(Game.CombatLifetime!, clock);
+        try
+        {
+            Assert.True(Game.TryBeginSkillCooldownUse(player, second, dashEffect, secondPlan, true, () => { }, out var dash));
+            Assert.True(dash!.CommitNativeUse(player, second));
+            clock.Time += 60;
+            Game.RefreshSingleUseCooldowns(player);
+
+            Assert.True(Game.TryBeginSkillCooldownUse(player, frostblink, frostblinkEffect,
+                Game.CooldownForSkill(player, frostblink), true, () => { }, out var frost));
+            var receipt = Assert.Single(frost!.SharedUses);
+            Assert.Equal(secondPlan.RecoveryRate, receipt.State.Rate);
+            Assert.Equal(second, receipt.Skill);
+            Assert.True(frost.CommitNativeUse(player, frostblink));
+
+            float seconds = secondPlan.BaseMilliseconds / 1000f;
+            var expected = InstanceEntities.PlayerSingleUseCooldowns(player.Id,
+                [new(second, seconds, seconds, (float)secondPlan.RecoveryRate, 1)]);
+            var actual = Game.NativeCooldownRefresh(player, player.ProjectileEpoch,
+                () => [(first, dashEffect), (second, dashEffect)]);
+            Assert.Equal(expected, actual);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public void Duplicate_active_gems_keep_stored_uses_and_do_not_reset_recharge_debt()
     {
@@ -91,6 +142,59 @@ public sealed class CooldownAdmissionTests
         Assert.Equal((140, 100), c.Walk.Position(Game.ProjectileWorldTime(c)));
     }
 
+    [Fact]
+    public async Task Frostblink_slides_around_monster_blockers_and_queues_cooldown_refresh_in_area_frame()
+    {
+        using var f = new Fixture();
+        var c = f.Player;
+        c.Connection.PlayerSent = true;
+        c.Use(new(1, "blink-blocker", 200, 200, 100, 100, (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, []));
+        // Aiming onto a live monster's blocker footprint slides to the nearest clear cell instead of dropping the cast.
+        var zombie = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Zombies/ZombieBite"));
+        c.Area.Monsters[0x80000001u] = new("blocker", new(140, 100, 0), 0, 0, 1000) { Hostile = true, Variety = zombie };
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
+        Assert.True(Math.Max(Math.Abs(to.X - 140), Math.Abs(to.Y - 100)) - (zombie.ObjectSize - 1) >= 2);
+        Assert.InRange(Math.Max(Math.Abs(to.X - 140), Math.Abs(to.Y - 100)), 4, 6);
+
+        // Large-footprint monsters (ObjectSize > 8) expand the blocker slide radius beyond 8 cells.
+        c.Area.Monsters.Clear();
+        var large = zombie with { ObjectSize = 15 };
+        c.Area.Monsters[0x80000002u] = new("large-blocker", new(140, 100, 0), 0, 0, 1000) { Hostile = true, Variety = large };
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var largeTo));
+        Assert.True(Math.Max(Math.Abs(largeTo.X - 140), Math.Abs(largeTo.Y - 100)) - (large.ObjectSize - 1) >= 2);
+
+        // Inside an area frame, SendNativeCooldownRefresh queues 0x02bc into Area.Delta (only: player) after 0x01ce.
+        c.Connection.LockstepClient = false;
+        var frostId = f.Equip(PlayerInventories.Weapon1, "Frostblink").Single();
+        var frost = Game.SupportedSkill(c, frostId);
+        c.ClientSkillIds.Add(frostId);
+        var plan = Game.CooldownForSkill(c, frostId);
+        Assert.NotNull(plan);
+        Assert.True(Game.TryBeginSkillCooldownUse(c, frostId, frost.Effect, plan,
+            true, () => { }, out var use));
+        Assert.True(use!.CommitNativeUse(c, frostId));
+        Assert.Contains(c.SingleUseCooldowns.Values, s => s.NeedsNativeRefresh);
+        c.Connection.WorldOutput.Begin(1);
+        var previousArea = GameArea.Own(c.Area);
+        try
+        {
+            Assert.True(c.Area.Owned);
+            Assert.True(c.Connection.WorldOutput.Started);
+            Program.ToArea(c, Game.PlayerInstantAction(c, frostId, (140, 100)), "0x01ce instant action", only: c);
+            await Game.SendNativeCooldownRefresh(c);
+            var records = c.Area.Delta.Take();
+            Assert.Equal(2, records.Count);
+            Assert.Equal(InstanceProtocol.InstantActionId, (ushort)(records[0].Bytes[0] << 8 | records[0].Bytes[1]));
+            Assert.Equal(InstanceEntities.ComponentUpdateId, (ushort)(records[1].Bytes[0] << 8 | records[1].Bytes[1]));
+            Assert.Equal(c.Id, records[1].Entity);
+            Assert.Same(c, records[1].Only);
+        }
+        finally
+        {
+            GameArea.Own(previousArea);
+        }
+    }
+
     sealed class Fixture : IDisposable
     {
         readonly string path = Path.Combine(Path.GetTempPath(), $"cooldown-admission-{Guid.NewGuid():N}.db");
@@ -123,9 +227,12 @@ public sealed class CooldownAdmissionTests
                 _ => "Driftwood Wand"
             };
             var host = ItemCatalog.Create(Program.Items.Find(hostName)!);
+            static Item MakeGem(string n) => Program.Items.FindGem(n) is { } found
+                ? ItemCatalog.Create(found.Type) with { GemVariant = found.Variant.Index }
+                : ItemCatalog.Create(Program.Items.Find(n)!);
             Game.ItemsOf(Player).Add(row, 0, 0, host with
             {
-                Sockets = names.Select(n => new ItemSocket(SocketColour.White, ItemCatalog.Create(Program.Items.Find(n)!))).ToArray(),
+                Sockets = names.Select(n => new ItemSocket(SocketColour.White, MakeGem(n))).ToArray(),
                 Links = names.Length == 2 ? [2] : Enumerable.Repeat((byte)1, names.Length).ToArray()
             });
             return Game.GemSkillEffects(Player).Where(g => names.Contains(g.Name)).Select(g => g.Id).ToArray();

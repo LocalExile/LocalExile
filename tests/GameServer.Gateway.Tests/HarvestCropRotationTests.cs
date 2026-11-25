@@ -6,7 +6,9 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
 using GameServer.Modules.Harvest;
+using League = GameServer.Core.Accounts.League;
 
 namespace GameServer.Gateway.Tests;
 
@@ -247,6 +249,166 @@ public sealed class HarvestCropRotationTests
         var reloadPackets = ParsePackets(await reloadWire.ReadAllAsync());
         var reloadedExtractor = reloadPackets.Single(p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == sampleUp.Extractor);
         Assert.Equal(expectedBlob, reloadedExtractor.Blob);
+
+        // Death / portal re-entry via GameEvents.PlayerEntered: returning player on a new socket in the same instance
+        // still receives HarvestRules and all grove objects through HarvestModule's PlayerEntered subscription.
+        using var module = new HarvestModule();
+        using var context = new HarvestTestContext();
+        try
+        {
+            module.Load(context);
+            await using var reentryWire = new CaptureWire();
+            var returning = NewConn(layout, instance, chosenSeed, reentryWire);
+            await GameEvents.RunPlayerEntered(returning);
+            reentryWire.CloseWriter();
+            var reentryPackets = ParsePackets(await reentryWire.ReadAllAsync());
+            Assert.Contains(reentryPackets, p => p.Id == InstanceProtocol.AddRulesetId);
+            Assert.Contains(reentryPackets, p => p.Id == InstanceEntities.CreateObjectId && p.EntityId == sampleUp.Extractor);
+        }
+        finally
+        {
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
+    [Fact]
+    public async Task SacredGrove_multiplayer_enter_keeps_grove_objects_per_viewer_after_ruleset()
+    {
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        using var module = new HarvestModule();
+        using var context = new HarvestTestContext();
+        await using var wire1 = new CaptureWire();
+        await using var wire2 = new CaptureWire();
+        var player1 = NewConn(layout, instance, seed: 11, wire1);
+        var player2 = NewConn(layout, instance, seed: 11, wire2);
+        player1.Character.Name = "GrovePeer1";
+        player2.Character.Name = "GrovePeer2";
+        player1.Connection.PlayerSent = player2.Connection.PlayerSent = true;
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var gameLifetime = new ModuleLifetime("Game");
+        try
+        {
+            Game.CombatLifetime = gameLifetime;
+            Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(gameLifetime));
+            module.Load(context);
+            instance.AddPlayer(player1);
+            Program.InGame[player1] = 0;
+            await GameEvents.RunPlayerEntered(player1);
+
+            var grove = ReadGrove(instance);
+            Assert.NotEmpty(grove.Objects);
+            wire1.CloseWriter();
+            var firstEntry = ParsePackets(await wire1.ReadAllAsync());
+            int rules = firstEntry.FindIndex(p => p.Id == InstanceProtocol.AddRulesetId);
+            Assert.True(rules >= 0 && firstEntry.FindIndex(p => p.Id == InstanceEntities.CreateObjectId) > rules);
+
+            instance.AddPlayer(player2);
+            Program.InGame[player2] = 0;
+            player2.Connection.WorldOutput.Begin(1);
+            var area = player2.Area;
+            var previous = GameArea.Own(area);
+            Task entered;
+            try
+            {
+                // Buffer the ruleset write so a socket continuation cannot leave the area frame.
+                entered = Program.SendBatched(player2, async () =>
+                {
+                    await GameEvents.RunPlayerEntered(player2);
+                    return true;
+                });
+            }
+            finally { GameArea.Own(previous); }
+            await entered;
+
+            wire2.CloseWriter();
+            Assert.Contains(ParsePackets(await wire2.ReadAllAsync()), p => p.Id == InstanceProtocol.AddRulesetId);
+            var creates = area.Delta.Take().Where(r => r.Kind == AreaDelta.Kind.Create).ToList();
+            Assert.Equal(grove.Objects.Count, creates.Count);
+            Assert.Equal(grove.Objects.Keys.ToHashSet(), creates.Select(r => r.Entity).ToHashSet());
+            Assert.All(creates, r =>
+            {
+                Assert.True(r.For(player2));
+                Assert.False(r.For(player1));
+            });
+        }
+        finally
+        {
+            Program.SetGameLogic(previousLogic!);
+            Game.CombatLifetime = previousLifetime;
+            gameLifetime.Stop(e => throw e);
+            Program.InGame.TryRemove(player1, out _);
+            Program.InGame.TryRemove(player2, out _);
+            for (int rank = 0; rank <= 3; rank++) GameEventOwners.Release("Harvest", rank);
+        }
+    }
+
+    sealed class HarvestTestContext : IModuleContext, IDisposable
+    {
+        readonly ModuleLifetime lifetime = new("Harvest");
+        public GameServer.Modding.ModManifest Manifest => new("Harvest", "1.0.0", GameServer.Modding.ModKind.Feature, ["Game"], "harvest.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public void Log(string message) { }
+        public T Settings<T>() => throw new NotSupportedException();
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Dispose() => lifetime.Stop(e => throw e);
+    }
+
+    [Fact]
+    public async Task Crop_label_button_0x0275_decodes_and_activates_plot_via_irrigator_id()
+    {
+        var tables = HarvestTables.Current;
+        var level = SyntheticGroveLevel(siteCount: 2);
+        var layout = new AreaLayout(1, "MapWorldsStrand", 300, 300, 10, 10, (x, y) => x is >= 0 and < 300 && y is >= 0 and < 300, [])
+        {
+            Level = level,
+        };
+        var instance = new InstanceState();
+        instance.OpenedWith(new("CropOwner", new(layout.Hash, layout.Id, "Strand", 16) { Level = 83 }, new MapMods(new Dictionary<uint, int>())));
+
+        await using var enterWire = new CaptureWire();
+        var player = NewConn(layout, instance, seed: 7, enterWire);
+        await SacredGrove.Enter(player);
+        enterWire.CloseWriter();
+        await enterWire.ReadAllAsync();
+
+        var initial = ReadGrove(instance);
+        var chosen = initial.Crops[0];
+
+        Assert.Equal(6, InstanceProtocol.KnownClientLength(InstanceHarvest.ActivateCropId));
+        byte[] pkt = new byte[6];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(pkt, InstanceHarvest.ActivateCropId);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(pkt.AsSpan(2), chosen.Irrigator);
+        uint decoded = InstanceHarvest.ReadActivateCrop(pkt);
+        Assert.Equal(chosen.Irrigator, decoded);
+
+        Assert.False(await SacredGrove.ActivateFromLabel(player, 0x999999u));
+
+        // Player at (10, 10) is far outside label range: activation is rejected.
+        Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));
+        Assert.Equal(SacredGrove.Phase.Idle, ReadGrove(instance).Crops.Single(c => c.Irrigator == chosen.Irrigator).Phase);
+
+        var chosenIrrigator = initial.Objects[chosen.Irrigator];
+        player.Walk.Teleport(chosenIrrigator.X, chosenIrrigator.Y, 0);
+
+        await using var startWire = new CaptureWire();
+        player.Connection.Session = new("harvest-label-start", startWire.Stream, startWire.Ciphers);
+        Assert.True(await SacredGrove.ActivateFromLabel(player, decoded));
+        startWire.CloseWriter();
+        await startWire.ReadAllAsync();
+
+        var after = ReadGrove(instance);
+        Assert.Equal(SacredGrove.Phase.Running, after.Crops.Single(c => c.Irrigator == chosen.Irrigator).Phase);
+        Assert.Equal(SacredGrove.Phase.Withered, after.Crops.Single(c => c.Site == chosen.Site && c.Slot != chosen.Slot).Phase);
     }
 
     static byte[] BlobOf(SacredGrove.GroveObject o)

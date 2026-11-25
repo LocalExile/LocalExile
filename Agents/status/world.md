@@ -103,9 +103,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   compares client tile hashes against server-generated `TileHash` (not yet checked live).
   Docs: [02](../docs/protocol/02-instance-connection.md), [03](../docs/protocol/03-area-and-world.md).
 - Campaign world objects and encounters: ordinary clickable doors, ordinary breakables/chests, biome-filtered packs,
-  and campaign Essences and Voltaxic Sulphite deposits spawn across Acts 1–5 (not checked live).
+  Essences, Voltaxic Sulphite deposits and Act 6–10 Smuggler's Caches spawn across Acts 1–10 (not checked live).
 - HUD mission timers (S→C 0x163) and countdown timers (S→C 0x162): protocol encoders implemented and wired into
   Allflame lantern collapse (`Deepwater`) and Survivors stage countdowns (`Generic`); not yet checked live.
+- Life-0 `0x2bb` dead-pose bytes and `0x2bc` updates for shrines, ground effects and beams (not checked live).
 - Shrines from generated room lines share their claim state and object IDs for the instance's lifetime, including
   re-entry. Each player owns their timed buff and its effects; replacement, death, leaving and module unload clean up
   the effect. Buff shrines also grant their effect to nearby party members. Monster auras use independent sources,
@@ -379,6 +380,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   skills beyond attacks (Discharge, tar, death novas) and the room exits (a run) are not built.
   Code: `LabyrinthTrials.cs`, QuestObjects `Rules.LabyrinthTrials.cs`.
   Docs: [labyrinth-trials](../docs/game/labyrinth-trials.md).
+
+- Breach: maps roll Unstable Breaches; a touch opens the arena and the wave. Hive, boss and rewards are pending.
 
 ## Not working yet
 

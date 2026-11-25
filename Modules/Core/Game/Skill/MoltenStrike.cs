@@ -297,8 +297,8 @@ public static partial class Game
                 {
                     var splashAt = strikeMonster.Walk.Position(now);
                     foreach (var (sid, sm) in player.Area.Monsters)
-                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null && struck.Add(sid)
-                            && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius)
+                        if (sm.Hostile && !sm.Dead && sm.Life > 0 && sm.OwnerId is null
+                            && Dist(sm.Walk.Position(now), splashAt) <= splash.Radius && struck.Add(sid))
                         {
                             targets.Add((sid, sm, false));
                             splashMore[sid] = splash.More;
@@ -356,7 +356,8 @@ public static partial class Game
                 var gambler = GamblerFor(playerStats);
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                     GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert(
-                        (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats), cryExerted)
+                        (gambler with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
+                            intelligence: player.Pools.Intelligence), cryExerted)
                         .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {

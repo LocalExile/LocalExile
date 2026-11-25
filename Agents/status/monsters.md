@@ -114,7 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary monster spells use level-scaled `GrantedEffectStatSets` elemental/chaos base damage, native cast-speed
   modifiers and cooldowns, and on-screen reach capped by `spell_maximum_action_distance_+%`.
   `MinimumAttackDistance` is not read yet.
-  A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
+  A monster notices at its MinAgroRange and gives up past its MaxAgroRange (twice the aggro range for a row
+  without a MinAgroRange); a give-up ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
   Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
@@ -182,11 +183,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   shaped by type and client action class (rains, class radii and projectiles, grounds that burn and debuffs on the
   player: Fire Trap, Bear Trap, Desecrate, Caustic Arrow, Wither, Ensnaring Arrow, the totems' arrows and flames)); the
   map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
-  bosses and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items). All 71 exile
-  varieties played headless against the real client; map stats and guards not yet seen live. Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
+  bosses and strongboxes and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items).
+  Rewards follow retained world ids across players and reentry; Anarchy scarab counts and strongbox guards seen live.
+  All 71 exile varieties played headless; other map modifiers and boss guards not yet seen live.
+  Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
   alternate-minion skills (Raise Zombie, Summon Raging Spirit, Ice Golem), Cremation's and Volatile Dead's flights;
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
+  Docs: [league encounters](../docs/game/league-encounters.md).
+- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
+- Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
+- Mercenaries: a map area may hold one to talk to, duel and hire.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
@@ -225,9 +232,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
   have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
-  `EmptyAction`s) stay out, and the attack a boss had before is still its first, unchanged. Checked against the tables
-  and in `BossKitsTests`; **not yet played against the real client**: which of the list a client animates, and how the
-  bosses' official AI weights compare, are unverified.
+  `EmptyAction`s), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
+  and secondary `GA*` `GeometryAttack` leap payloads (`GANavaliGoatmanLeapDamage`) stay out of boss kits and default
+  attacks (verified live on The Faun), and the attack a boss had before is still its first, unchanged. Checked against
+  the tables and in `BossKitsTests`; **not yet played against the real client**: which of the remaining list a client
+  animates, and how the bosses' official AI weights compare, are unverified.
   Boss kits also cover teleports, movement moves, family summons, barrages, geyser hazards and second-form transitions.
   Code: `BossKits`, `BossMoves`, `BossSummons`, `BossForms`, `MonsterKitSkill`, `Monsters.PlanMonsterAi`.
 - The campaign Trinity has native attacks and two scorpion phases; organ portals use their native domain labels,
@@ -236,8 +245,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
-- Act 1–5 boss encounters have dedicated staged controllers (Hillock, Brutus, Weaver, Fairgraves, Merveil, Oversoul,
-  Piety, Dominus, Kaom, Daresso, Malachai, Innocence, Kitava) and multi-skill AI (not all verified live).
+- Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
+  Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI
+  (not all verified live).
 - Act 5 Kitava: body/heart sequence and rescue; AI tuning provisional ([Act 5](../docs/game/campaign/act5.md)).
 - Doedre: cauldron and effluent modes; AI tuning provisional ([Act 8](../docs/game/campaign/act8.md)).
 

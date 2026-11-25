@@ -869,4 +869,36 @@ public class LockstepTests : IDisposable
         Assert.Equal([0x01, 0x67, 0x9c], goldBlob[^3..]);
         Assert.Equal(0x00, goldGround.Blob(justDropped: false)[^1]);
     }
+
+    [Fact]
+    public void Trapped_and_mined_attacks_use_throw_hold_and_skip_lockstep_melee_walkup()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        player.Connection.PlayerSent = true;
+        player.Connection.LockstepClient = true;
+        player.Connection.LockstepFrame = (2.0, 2.033);
+        player.Walk.Teleport(100, 100, 2.0);
+        var items = Game.ItemsOf(player);
+        items.Change(PlayerInventories.Weapon1, items.Items(PlayerInventories.Weapon1).Single().Id,
+            _ => ItemCatalog.Create(Program.Items.Find("Short Bow")!));
+        ushort trapRain = fixture.Equip(("Toxic Rain", 1), ("Trap Support", 1))[0];
+        Assert.Equal((true, false), Game.PlacedKind(Game.SupportedSkill(player, trapRain)));
+        double throwHold = Game.LockstepActionHold(player, trapRain, 0x8001);
+        Assert.InRange(throwHold, 0.45, 0.55);
+        Assert.False(Game.LockstepGroundMelee(player, trapRain, 0x0408));
+
+        // Ground throw holds for PlacedThrowSeconds, not clamped to weapon attack time.
+        player.LockstepBusyUntil = 2.0;
+        player.LockstepSkill.Press((120, 100), null, trapRain, 0x0408, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8001, 2.0, 2.0);
+        Assert.Equal(2.0 + throwHold, player.LockstepBusyUntil, 6);
+
+        // Monster-targeted throw without attack-in-place flag still holds immediately (no skipped walk-up).
+        player.LockstepBusyUntil = 2.0;
+        player.LockstepSkill.Press((120, 100), 0x1001, trapRain, 0x0408, repeats: true);
+        Game.HoldLockstepSkill(player, 0x8002, 2.0, 2.0);
+        Assert.Equal(2.0 + throwHold, player.LockstepBusyUntil, 6);
+        player.LockstepSkill.Clear();
+    }
 }

@@ -20,9 +20,13 @@ public static class SkillArea
         get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+        effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
+            : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+            : effect is "Earthquake" or "Earthshatter" ? 18
+            : effect == "Cleave" ? 20
+            : effect == "TectonicSlam" ? 15
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
+            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
@@ -69,7 +73,7 @@ public static class SkillArea
     [
         Stat.SupportSpellCascadeAreaOfEffectPlusPctFinal, Stat.SupportBrandAreaOfEffectPlusPctFinal,
         Stat.SupportCorruptingCryAreaOfEffectPlusPctFinal, Stat.ConsecratedCryWarcryAreaOfEffectPlusPctFinal,
-        Stat.SupportSpellBoostAreaOfEffectPlusPctFinal,
+        Stat.SupportSpellBoostAreaOfEffectPlusPctFinal, Stat.SupportPulveriseAreaOfEffectPlusPctFinal,
     ];
 
     /// <summary>Greater Spell Echo: increased area for each repeat of the spell (the first cast is repeat 0).</summary>
@@ -163,11 +167,18 @@ public static class GroundSlamWave
     /// reach in about 0.15 s and keeps the nearest-first stagger.</summary>
     public const double CellsPerSecond = 400;
 
-    /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends: the base length,
-    /// moved by however far the skill's own radius sits from the generic one (so the gem's per-level radius, a
-    /// support's more area and the player's area stats all lengthen it without the level×base runaway a plain
-    /// multiple of the radius gives).</summary>
-    public static double Length(int areaRadius) => Math.Max(0, BaseLength + (areaRadius - GenericAreaRadius));
+    // Volcanic Fissure and older callers use the original bounded sweep.
+    public static double Length(int areaRadius) => Math.Max(0, BaseLength + areaRadius - GenericAreaRadius);
+
+    /// <summary>The reach in cells of the wave a skill of <paramref name="areaRadius"/> cells sends: at 0% AoE it grows
+    /// by <paramref name="gemBasePlus"/> (e.g. gem level's active_skill_base_radius_+) without runaway multiplication, and
+    /// scales proportionally with increased/more area (including Fist of War).</summary>
+    public static double Length(int areaRadius, int gemBasePlus)
+    {
+        double baseScaleRadius = Math.Max(1, GenericAreaRadius + Math.Max(0, gemBasePlus));
+        double baseLength = Math.Max(0, BaseLength + Math.Max(0, gemBasePlus));
+        return Math.Max(0, baseLength * Math.Max(0, areaRadius) / baseScaleRadius);
+    }
 
     /// <summary>The half angle in degrees this use sends: the estimate above, grown by the skill's own
     /// <c>ground_slam_angle_+%</c> (Ground Slam's alternate-quality form holds a flat 100), capped at a right angle so an

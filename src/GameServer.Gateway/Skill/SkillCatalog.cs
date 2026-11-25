@@ -634,6 +634,9 @@ public sealed class SkillCatalog
     /// gem's hit takes melee_damage_+% (the default attack does by its weapon profile instead).</summary>
     public bool IsMelee(int effectRow) => _meleeEffects.Contains(effectRow);
 
+    /// <summary>Whether a GrantedEffects row's ActiveSkill has the Area type (slams, sweeps, novas, area spells).</summary>
+    public bool IsArea(int effectRow) => _skillTypes.HasType(effectRow, "Area");
+
     public bool IsSpell(int effectRow) => _spellEffects.Contains(effectRow);
     public bool IsProjectile(int effectRow) => _projectileEffects.Contains(effectRow);
     // Generic monster Melee also carries Projectile. Actual melee classification takes precedence.
@@ -1154,6 +1157,10 @@ public sealed class SkillCatalog
         /// <summary>A lobbed shot's terminal area radius in cells (monster rows carry none; 10 is the development
         /// fallback, and a boss skill may name its own).</summary>
         public double AreaRadius { get; init; }
+        /// <summary>Spiral nova timing and arc metadata (<c>projectile_spiral_nova_*</c>) from the skill's stat set.</summary>
+        public int SpiralTimeMs { get; init; }
+        public int SpiralAngle { get; init; }
+        public int SpiralStartAngle { get; init; }
     }
 
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
@@ -1291,6 +1298,9 @@ public sealed class SkillCatalog
         {
             MinimumRange = Get(Stat.ProjectileMinimumRange), SpreadRadius = Get(Stat.ProjectileSpreadRadius),
             Count = Math.Max(1, count),
+            SpiralTimeMs = Get(Stat.ProjectileSpiralNovaTimeMs),
+            SpiralAngle = Get(Stat.ProjectileSpiralNovaAngle),
+            SpiralStartAngle = Get(Stat.ProjectileSpiralNovaStartingAngleOffset),
             // MonsterMortar names the action/data table, not its trajectory. The attack's +0x558 callback
             // (141b6c630 -> 141baf9f0) selects a straight path unless a ballistic stat requests an arc.
             // Straight spell projectiles (MonsterProjectileSpell) start with Lobbed false and stay straight.

@@ -75,6 +75,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadAlchemistsGeniusData();
         Rules.LoadBuffCancelData();
         Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
@@ -243,6 +244,7 @@ public sealed class GameModule : IModule, IDisposable
         string id = module.Manifest.Id;
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
@@ -295,6 +297,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::KitavaActTen.Area, global::KitavaActTen.Tick));
         module.Lifetime.Own(global::KitavaActTen.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::KitavaActTen.Leaving(player));
+        // Act 6-10 dedicated campaign boss encounter controllers.
+        global::Act6To8Encounters.Register(module);
+        global::Act9To10Encounters.Register(module);
         module.Lifetime.Own(global::VaalOversoul.CleanupOnUnload());
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::VaalOversoul.Leaving(player));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::BrineKing.PlayerStats);
@@ -338,7 +343,7 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
-        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.AreaHeader.Add(id, player => new AreaHeader(null, Rules.ActiveAchievementSets(player)));
         GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
         GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
         GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
@@ -462,6 +467,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
+        Rules.ClearPyroclastAuras(player);
         Rules.ForgetSourceValues(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);

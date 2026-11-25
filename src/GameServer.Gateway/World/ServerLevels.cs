@@ -61,6 +61,9 @@ public static class ServerLevels
         public long Milliseconds { get; init; }
         /// <summary>The generator's subgraph records with their placed rooms (each room's graph node descriptions).</summary>
         public IReadOnlyList<DoodadRecord> Records { get; init; } = [];
+        /// <summary>The path of the <c>.tdt</c> tile covering a cell, or null outside the grid: what a rule that names a
+        /// piece of the terrain (a ship, a bridge) asks to know where it may put things.</summary>
+        public Func<int, int, string?>? TileAt { get; init; }
         /// <summary>The cell rectangles (x0, y0, x1, y1; end exclusive) of the records an ExtraTerrainFeatures row added
         /// as a sub-area (<see cref="DoodadRecord.FeatureWorldArea"/>, the Sacred Grove beside a map).</summary>
         public IReadOnlyList<(int X0, int Y0, int X1, int Y1)> FeatureAreas { get; init; } = [];
@@ -435,7 +438,8 @@ public static class ServerLevels
         try
         {
             var files = Files();
-            var area = AreaInfo.Load(Read, areaId, areaLevel);
+            // The listed plugins are named as their states were composed (InstanceEvents.ComposeTerrainPluginStates).
+            var area = AreaInfo.Load(Read, areaId, areaLevel) with { PluginName = AreaTerrainPlugins.NameOf };
             if (PlayedStats.TryGetValue((areaId, seed), out var played) && played.Count > 0)
                 area = area with { Stats = played.ToDictionary(s => (int)s.Key, s => s.Value) };
             int category = CategoryOf(areaId, seed);
@@ -462,6 +466,8 @@ public static class ServerLevels
                 AreaObjects.QuestObjects(files, result), walk.Projectile)
             {
                 TileHash = result.Grid.Hash(), Milliseconds = clock.ElapsedMilliseconds, Records = result.Records,
+                // One tile slot is 23 x 23 cells (the client's tile map, TileGrid).
+                TileAt = TileLookup(result.Grid),
                 Exits = exits.Exits, Entrances = exits.Entrances, Start = start,
                 TileQuestObjects = AreaObjects.TileObjects(files, result, QuestObjectTypes.IsTileQuestObject),
                 TileLabyrinthObjects = AreaObjects.TileObjects(files, result, t => t.StartsWith("Metadata/Terrain/Labyrinth/", StringComparison.Ordinal)
@@ -485,23 +491,52 @@ public static class ServerLevels
         }
     }
 
+    /// <summary>A compact cell-to-tile-path lookup copied out of <paramref name="grid"/> so a cached level does not
+    /// retain the generator's grid or corners.</summary>
+    public static Func<int, int, string?> TileLookup(TileGrid grid)
+    {
+        int w = grid.Width, h = grid.Height;
+        var paths = new string?[w * h];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                paths[y * w + x] = grid[x, y]?.Tile.Path;
+        return (cx, cy) =>
+        {
+            if (cx < 0 || cy < 0) return null;
+            int tx = cx / 23, ty = cy / 23;
+            return tx < w && ty < h ? paths[ty * w + tx] : null;
+        };
+    }
+
     // Verified interactive ordinary door / smashable types present in client.db object_types with supported components.
     static readonly HashSet<string> OrdinaryDoorTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "Metadata/MiscellaneousObjects/Door",
+        "Metadata/MiscellaneousObjects/Door_grate_temp",
         "Metadata/MiscellaneousObjects/Lights/IncaDoorLight",
         "Metadata/MiscellaneousObjects/Lights/ScepterDoorLight",
         "Metadata/MiscellaneousObjects/Smashable",
+        "Metadata/MiscellaneousObjects/SmashableNoHighlight",
+        "Metadata/Terrain/Act8/Area3/Objects/GoldenDoor",
+        "Metadata/QuestObjects/BanditDoor",
+    };
+
+    static readonly HashSet<string> SpecialCampaignChestTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Metadata/Chests/StrongBoxes/ChemistGrainGate",
+        "Metadata/Chests/GrainGate/GrainGateChemistStrongbox",
+        "Metadata/Chests/QuestChests/ProminadeGardenChest",
     };
 
     public static bool IsOrdinaryDoorType(string type) => OrdinaryDoorTypes.Contains(type);
 
     public static bool IsOrdinaryChestType(string type) =>
-        type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/QuestChests/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/StrongBoxes/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/Labyrinth/", StringComparison.OrdinalIgnoreCase)
-        && !type.Contains("/League", StringComparison.OrdinalIgnoreCase);
+        SpecialCampaignChestTypes.Contains(type)
+        || (type.StartsWith("Metadata/Chests/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/QuestChests/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/StrongBoxes/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/Labyrinth/", StringComparison.OrdinalIgnoreCase)
+            && !type.Contains("/League", StringComparison.OrdinalIgnoreCase));
 
     static bool WithinReach(byte[] cells, int w, int h, int x, int y, int r)
     {

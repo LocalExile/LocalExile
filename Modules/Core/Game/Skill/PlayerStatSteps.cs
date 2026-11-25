@@ -93,6 +93,12 @@ public static partial class Game
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
+            if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
+            {
+                AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
+                AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
+            }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
@@ -132,10 +138,24 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            int damagePerHerald = GetIn(stats, Stat.DamagePlusPctForEachHeraldAffectingYou);
+            int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+            int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
+            if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
-            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
+            var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
+            // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
+            // with zero active auras, deduplicated against any Commander damage already counted by AuraCatalog.
+            int ownCommanderDamage = Math.Max(0, GetIn(stats, Stat.DamagePlusPctForYouAndAlliesAffectedByYourAuras));
+            if (ownCommanderDamage > 0)
+            {
+                int auraCommanderDamage = auras.Where(a => a.AffectsSelf && AuraCatalog.CommanderEligible(a, SkillsFor(player)))
+                    .Select(a => a.CommanderDamagePct).DefaultIfEmpty(0).Max();
+                if (ownCommanderDamage > auraCommanderDamage) AddTo(stats, Stat.DamagePlusPct, ownCommanderDamage - auraCommanderDamage);
+            }
             // "Auras from your Skills grant #% increased Damage to you and Allies": once for each of the player's own Aura
             // skills affecting them, scaled by that aura's effect as its other stats are.
             // shortcut: allies and minions do not get it yet.
@@ -251,6 +271,13 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
+                && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
+            {
+                AddTo(stats, Stat.LifeRecoveryRatePlusPct, stoppedDotRec);
+                AddTo(stats, Stat.EnergyShieldRecoveryRatePlusPct, stoppedDotRec);
+                StatsChangeIn(player.LastStoppedTakingDotAt + RecentEvents.WindowSeconds - statsAt + 1e-6);
+            }
             bool moving = player.Walk.Moving(statsAt);
             var recovery = PanelStats.WhileMoving(Get, moving);
             if (Stat.EvasionRating is var evasionKey)

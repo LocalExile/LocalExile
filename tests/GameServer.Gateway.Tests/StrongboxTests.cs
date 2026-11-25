@@ -42,6 +42,13 @@ public sealed class StrongboxTests
         var corrupted = Use(rare, CurrencyEffects.VaalOrb).Box!;
         Assert.True(corrupted.Corrupted);
         Assert.Equal(rare.Mods, corrupted.Mods);
+        // ObjectMagicProperties trailing flags bit 0 marks the strongbox as corrupted on the client (0x141e7e080 → +0x360).
+        var plainBlob = StrongboxCatalog.Blob(type, 100, 100, false, false, rare.Rarity, [.. type.Mods, .. rare.Explicits], null, null, 0, corrupted: false);
+        var corruptedBlob = StrongboxCatalog.Blob(type, 100, 100, false, false, corrupted.Rarity, [.. type.Mods, .. corrupted.Explicits], null, null, 0, corrupted: true);
+        Assert.Equal(plainBlob.Length, corruptedBlob.Length);
+        int flagIndex = Enumerable.Range(0, plainBlob.Length).Single(i => plainBlob[i] != corruptedBlob[i]);
+        Assert.Equal(0, plainBlob[flagIndex]);
+        Assert.Equal(1, corruptedBlob[flagIndex]);
         var chanced = Use(normal, CurrencyEffects.OrbOfChance).Box!;
         Assert.InRange(chanced.Rarity, 1, 3);
         Assert.NotEmpty(chanced.Mods);
@@ -109,9 +116,35 @@ public sealed class StrongboxTests
             uint orb = stash.Inventory(0).Items.Single(i => i.Item.TypeHash == vaal.Hash).Id;
             Assert.Equal(5, stash.CountOf(vaal.Hash));
 
+            var crafting = catalog.Find(box["Rarity"]!.GetValue<byte>() == 0
+                ? CurrencyEffects.OrbOfTransmutation : CurrencyEffects.OrbOfScouring)!;
+            var repeat = new GameServer.Core.Protocol.Login.LoginWriter().U16(InstanceItems.UseItemTypeOnObjectId)
+                .U32(crafting.Hash).U32(id).U32(0).U32(0).ToArray();
+            int premium = stash.Records(null).First(t => t.Type == 1).Index;
+            Assert.NotNull(stash.Place(premium, 0, 0, new(stash.NewItemId(), 0, 0, ItemCatalog.Create(crafting)),
+                i => new(1, 1, crafting.Class, crafting.MaxStack), out _));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(1, stash.CountOf(crafting.Hash)); // stash closed
+            owner.Player.StashOpen = true;
+            Assert.True(stash.SetPublic(premium, true));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(1, stash.CountOf(crafting.Hash)); // listed for trade
+            Assert.True(stash.SetPublic(premium, false));
+            Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
+            Assert.Equal(0, stash.CountOf(crafting.Hash));
+
             Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
             Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
             Assert.Equal(4, stash.CountOf(vaal.Hash));
+            Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
+            Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
+            Assert.Equal(4, stash.CountOf(vaal.Hash));
+
+            // Another player tops up the same stack while the strongbox handler waits for the area.
+            var last = stash.Shrink(0, orb, 3)!;
+            stash.AddStacked(0, item, Game.ShapeOf, out _);
+            Assert.NotNull(stash.PayOne(0, last));
+            Assert.Equal(5, stash.CountOf(vaal.Hash));
         }
         finally
         {

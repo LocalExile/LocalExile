@@ -9,6 +9,13 @@ Nothing yet.
 
 ## Partly working
 
+- Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
+- Icicle Mine variants release their radial or aimed volleys and scale with the detonation chain. Pyroclast
+  variants apply armed mine Fire Exposure, then release a nova and mortars. The Icicle critical aura is open.
+- Trap and mine payloads support Arc chains, Contagion, corpse Offerings, Hexes and Marks, damage brands,
+  Storm Call, Firestorm, Frost Bomb and Vortex. Offline checks exercise the paid placement and timed effects.
+- Eye of Winter variants emit their travel and final shards. Creeping Frost and its Floes variant release
+  chilling ground that follows enemies. The timings and ground motion were checked offline.
 - Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
   Deterministic support rewards are disabled; eligible active gems use Siosa's Uncarved Gemstone exchange.
   Gem XP receives the configured Ruthless multiplier.
@@ -76,6 +83,7 @@ Nothing yet.
   curse, mark, link and retaliation speed bonuses.
   Retaliation hits apply their damage, stun and ailment duration modifiers.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
+  A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
   Assembly rolls its extra throws, and Charged Traps and Charged Mines grant charges, throwing speed and critical bonuses.
   Flight and arming times and the native multi-throw patterns remain open.
@@ -102,8 +110,8 @@ Nothing yet.
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
-  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
-  ([25](../docs/protocol/25-gem-supports.md)).
+  the native panel's per-hit damage convention.
+  Melee Splash checks the radius of each strike before counting its targets ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.

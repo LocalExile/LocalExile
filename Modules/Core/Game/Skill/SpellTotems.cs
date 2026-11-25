@@ -82,6 +82,8 @@ public static partial class Game
             (Stat.BaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)),
             (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)) })
             if (name is var key) payload[key] = value;
+        // A totem never walks. Without this the client sends a server-driven action through its own walk-into-range
+        // step, which drops it (11 §"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
         if (SpellTotemNova(player, gem.Effect))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
@@ -207,8 +209,12 @@ public static partial class Game
             if (player.Paused || now < totem.NextCast) continue;
             // A lockstep client's totem exists from the end of the frame its create is written in: no order before that.
             if (player.Connection.LockstepClient && !player.Connection.WorldOutput.PublishedObject(totem.Id).IsReady) continue;
+            // Focused Ballista: due, but no owner attack to spend, no attack. It spends one when due, found a target or not.
+            if (!FocusedBallistaMayAttack(player, totem)) continue;
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
+            bool warchief = SkillsFor(player).EffectId(gem.Effect) == VaalAncestralWarchiefEffect;
+            if (warchief && !VaalWarchiefInRange(player, totem, now)) continue;
             var summon = TotemSummon(player, gem.Effect);
             var golem = GolemData.Find(SkillsFor(player).EffectId(gem.Effect));
             bool nova = SpellTotemNova(player, gem.Effect);
@@ -262,6 +268,15 @@ public static partial class Game
                 channel.Sequence = sequence;
             }
             var lifetime = CombatLifetime;
+            if (warchief)
+            {
+                session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
+                {
+                    if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem))
+                        ReleaseVaalWarchiefSlam(player, session, totem, aim, sequence);
+                });
+                continue;
+            }
             if (summon is not null || golem is not null)
             {
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>

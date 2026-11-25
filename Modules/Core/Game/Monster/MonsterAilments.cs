@@ -258,10 +258,15 @@ public static partial class Game
     {
         int basePct = m.Effects.MovementPct;
         int maimPct = now < m.MaimedUntil ? -30 : 0;
-        int hinderPct = Math.Max(SpiderHinder(m, now), m.HinderedUntil > now ? 30 : 0);
+        // The totem notable's local stat specifies 25%. The common 30% Hinder can expire independently.
+        int timedHinder = Math.Max(m.HinderedUntil > now ? 30 : 0, m.TotemHinderedUntil > now ? 25 : 0);
+        int hinderPct = Math.Max(SpiderHinder(m, now), timedHinder);
         int lowLife = MonsterOnLowLife(m) ? m.Effects[Stat.MovementVelocityPlusPctWhenOnLowLife] : 0;
         int totalPct = basePct + maimPct - hinderPct + lowLife;
-        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0) && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
+        bool debilitated = now < m.DebilitatedUntil;
+        if (debilitated) totalPct = ActorScale.Saturate((100L + totalPct) * (100 + DebilitateMovementPct) / 100 - 100);
+        if ((maimPct != 0 || hinderPct != 0 || lowLife != 0 || debilitated)
+            && m.Effects[Stat.MovementSpeedCannotBeReducedBelowBase] > 0)
             totalPct = Math.Max(0, totalPct);
         double Movement(double pct) => m.Variety is { } variety
             ? MonsterSpeedRoll.Factor(m.SpeedRoll) * Math.Max(1, variety.MovementSpeed * (100 + pct) / 100.0)
@@ -297,6 +302,16 @@ public static partial class Game
         bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
         double now, Random random, AttackAilmentGains attackGains, List<MonsterElementalAilments.Effect>? reflected = null,
         MonsterPoisons.Settings poison = default, ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true) =>
+        AilmentsOnHitLocked(player, targetId, m, mitigated, spell, critical, criticalMultiplier, playerStats, skill,
+            now, random, attackGains, false, 0, reflected, poison, sourceSkill, blind, hitOrigin, playerHit,
+            attackerSize, attackerHasReversedStat);
+
+    static void AilmentsOnHitLocked(Player player, uint targetId, SpawnedMonster m, DamagePacket mitigated, bool spell,
+        bool critical, int criticalMultiplier, IReadOnlyDictionary<uint, int> playerStats, IReadOnlyDictionary<uint, int>? skill,
+        double now, Random random, AttackAilmentGains attackGains, bool projectileDamage, int projectileFreezeChance,
+        List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
+        ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
@@ -306,16 +321,24 @@ public static partial class Game
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
+        bool criticalProjectileKnockback = critical && projectileDamage
+            && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
+                || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
-            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat);
+            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback);
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
+        if (playerHit && m.Hostile && m.Rarity == MonsterRarity.Unique)
+            player.RecentEvents.Record(StatConditions.HitUniqueEnemy, now);
         if (playerHit && spell) ArcaneSurgeOnSpellHitLocked(player, playerStats, now, random);
         // "on Critical Strike against Marked Unique Enemy" (Loyalty Tattoo of Rakiata).
         if (playerHit && critical) LoyaltyCritVsMarkedUniqueLocked(player, m, playerStats);
         if (playerHit && !spell && player.Summons.Fighters.Values.Any(g => g.Definition.Kind == "HolyRelic"))
             HolyRelicsOnHitLocked(player, targetId, m, now);
+        if (playerHit && !spell && m.Hostile && skill?.GetValueOrDefault(Stat.GainVaalSoulOnHitCooldownMs) is int soulInterval and > 0
+            && skill.GetValueOrDefault(Stat.PreventVaalSoulsOnHit) == 0)
+            HarvestVaalSoulOnHitLocked(player, soulInterval, now, playerStats);
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
@@ -335,6 +358,7 @@ public static partial class Game
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
+            if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
             {
@@ -366,7 +390,13 @@ public static partial class Game
                 if (m.Hostile) GainFromAttackAilmentLocked(player, attackGains.FreezeEndurance,
                     ChargeType.Endurance, EnduranceOnAttackFreeze);
             }
-            else if (effect.Kind == Kind.Shock) player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+            else if (effect.Kind == Kind.Shock)
+            {
+                player.RecentEvents.Record(StatConditions.ShockedEnemy, now);
+                if (playerHit && m.Hostile && !m.Dead && m.Life > 0
+                    && Player(Stat.CreateHeraldOfThunderStormOnShockingEnemy) != 0)
+                    ReservationShockLocked(player, now);
+            }
         }
         if (m.Dead || m.Life == 0)
         {
@@ -389,10 +419,13 @@ public static partial class Game
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player));
         WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
         int poisonStacksBefore = m.Poisons.Stacks(now);
+        double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,
                 out double poisonDps, out double poisonSeconds))
         {
             player.Area.ActivePoisonMonsters.Add(targetId);
+            if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
+                ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
             if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0
                 && Player(Stat.ImmuneToPoison) == 0
                 // Golden Rule's reflected-poison source stops adding player stacks at 100; this is not an incoming cap.
@@ -545,7 +578,7 @@ public static partial class Game
             a.SentActionSpeed = speed;
             SetStats(player, id, [(key, speed)]);
         }
-        bool maimed = m.MaimedUntil > now || m.HinderedUntil > now || SpiderHinder(m, now) != 0
+        bool maimed = TimedWalkDebuff(now, m) || SpiderHinder(m, now) != 0
             || lowLifeMove || trap != 1 || snare != 1;
         bool maimShown = m.MaimedMovementShown;
         bool movementChanged = maimed

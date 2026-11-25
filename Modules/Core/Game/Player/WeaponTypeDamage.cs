@@ -59,7 +59,8 @@ public static class WeaponTypeDamage
     /// <summary>The physical, elemental and per-element rows of this hand's weapon type, in the shape
     /// <see cref="PlayerHitDamage.Resolve"/> applies after conversion.</summary>
     public static HitIncreases Of(SkillCatalog.Unarmed weapon, Func<uint, int> get) =>
-        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false);
+        Extra(FamiliesOf(weapon), TwoHanded(weapon.ItemClass), get, ailment: false) with
+        { MeleePhysicalMorePct = get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) };
 
     /// <summary>The same rows for a damaging ailment of that hand: the ailment-only ids join the common bucket and the
     /// two-handed melee ailment row joins the physical one.</summary>

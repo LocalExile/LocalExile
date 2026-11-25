@@ -70,13 +70,25 @@ public static partial class Game
         TryApplyMaimLocked(m, get(Stat.MaimOnHitPct),
             Math.Max(0, get(Stat.SupportMaimedEnemiesPhysicalDamageTakenPlusPct)), now, random);
         if (spell && RandomRolls.Chance(get(Stat.SpellsChanceToHinderOnHitPct), 100, random))
-            { m.HinderedUntil = Math.Max(m.HinderedUntil, now + HinderSeconds); m.PresentationChanged?.Invoke(); }
+            ApplyHinderLocked(m, now);
+    }
+
+    static void ApplyHinderLocked(SpawnedMonster monster, double now, bool fromTotem = false)
+    {
+        if (monster.Effects[Stat.YouCannotBeHindered] != 0 || monster.Effects[Stat.ImmuneToHinder] != 0) return;
+        if (fromTotem) monster.TotemHinderedUntil = Math.Max(monster.TotemHinderedUntil, now + HinderSeconds);
+        else monster.HinderedUntil = Math.Max(monster.HinderedUntil, now + HinderSeconds);
+        monster.PresentationChanged?.Invoke();
     }
 
     /// <summary>The shared Maim application for a surviving hostile hit. RandomRolls.Chance returns false without drawing
     /// when the chance is at most zero, and true without drawing when it is at least the scale.</summary>
     public static bool TryMaimOnHitLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random) =>
         m.Hostile && TryApplyMaimLocked(m, chance, physicalTaken, now, random);
+
+    /// <summary>Whether the player avoids an incoming Maim (immune_to_maim or Garukhan's avoid_maim_%_chance).</summary>
+    public static bool PlayerAvoidsMaim(Func<uint, int> get, Random random) =>
+        get(Stat.ImmuneToMaim) != 0 || RandomRolls.Chance(get(Stat.AvoidMaimPctChance), 100, random);
 
     static bool TryApplyMaimLocked(SpawnedMonster m, int chance, int physicalTaken, double now, Random random)
     {
@@ -99,7 +111,37 @@ public static partial class Game
 
     /// <summary>Whether a timed movement debuff is running, so an otherwise idle monster still needs its walk factor
     /// recomputed (the ailment-idle skip must not starve Maim, Hinder or Covered in Ash).</summary>
-    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now || m.CoveredInAshUntil > now;
+    const ushort DebilitateBuffRow = 1583;
+    const int DebilitateDamagePct = -10, DebilitateMovementPct = -20;
+    static readonly IReadOnlyDictionary<uint, int> DebilitateStats = new Dictionary<uint, int>
+    {
+        [Stat.DebilitateDamagePlusPctFinal] = DebilitateDamagePct,
+        [Stat.DebilitateMovementSpeedPlusPctFinal] = DebilitateMovementPct,
+    };
+
+    static void ApplyDebilitateLocked(Player player, uint id, SpawnedMonster monster, double now, double seconds)
+    {
+        double until = now + seconds;
+        if (until <= monster.DebilitatedUntil) return;
+        if (monster.DebilitateSource != 0)
+            player.Area.Buffs.Clear(id, DebilitateBuffRow, monster.DebilitateSource);
+        monster.DebilitateSource = player.Id;
+        monster.DebilitatedUntil = until;
+        player.Area.Buffs.Set(id, BuffRows.Spec(DebilitateBuffRow, player.Id, DebilitateStats, seconds));
+        monster.PresentationChanged?.Invoke();
+    }
+
+    static void StepDebilitateLocked(Player player, uint id, SpawnedMonster monster, double now)
+    {
+        if (monster.DebilitateSource == 0 || monster.Hostile && !monster.Dead && monster.Life > 0
+            && now < monster.DebilitatedUntil) return;
+        player.Area.Buffs.Clear(id, DebilitateBuffRow, monster.DebilitateSource);
+        monster.DebilitateSource = 0;
+        monster.DebilitatedUntil = double.NegativeInfinity;
+    }
+
+    internal static bool TimedWalkDebuff(double now, SpawnedMonster m) => m.MaimedUntil > now || m.HinderedUntil > now
+        || m.TotemHinderedUntil > now || m.CoveredInAshUntil > now || m.DebilitatedUntil > now;
 
     /// <summary>The increased fire damage Covered in Ash applies at <paramref name="now"/> (20% while active, 0 otherwise).</summary>
     public static int CoveredInAshFireTaken(SpawnedMonster m, double now) => m.CoveredInAshUntil > now ? CoveredInAshFireTakenPct : 0;
@@ -173,10 +215,10 @@ public static partial class Game
         }
     }
 
-    static void Expose(SpawnedMonster m, int i, int magnitude, double now)
+    static void Expose(SpawnedMonster m, int i, int magnitude, double now, double seconds = ExposureSeconds)
     {
         var key = (ExposureTypes[i], magnitude);
-        double until = now + ExposureSeconds;
+        double until = now + seconds;
         m.Exposures[key] = Math.Max(m.Exposures.GetValueOrDefault(key, double.NegativeInfinity), until);
         { m.ExposureUntil[i] = Math.Max(m.ExposureUntil[i], until); m.PresentationChanged?.Invoke(); }
     }
@@ -185,7 +227,7 @@ public static partial class Game
     /// without a time.</summary>
     public static int MonsterExposure(SpawnedMonster m, DamageType type, double now)
     {
-        int strongest = 0;
+        int strongest = type == DamageType.Fire ? PyroclastExposure(m, now) : 0;
         foreach (var ((t, magnitude), until) in m.Exposures)
             if (t == type && until > now) strongest = Math.Min(strongest, magnitude);
         return strongest;

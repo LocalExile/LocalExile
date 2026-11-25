@@ -66,6 +66,8 @@ public static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        else if (Game.IsCreepingFrost(effect))
+            p = p with { EndArea = new("creeping-frost-burst", 0), EndAreaReasons = TerminalStops };
         else if (effect == "BlazingSalvo")
             p = p with
             {
@@ -116,6 +118,14 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (Game.IsPyroclastMine(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("pyroclast-mine", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing },
+            };
         else if (effect == "VolcanicFissure")
             p = p with
             {
@@ -175,6 +185,8 @@ public static class GatewayProjectileSkillProfiles
             if (countFinal != 0)
                 p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
         }
+        if (Game.IsCreepingFrost(effect) && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         if (effect == "HolyFlameTotemAltX")
@@ -186,6 +198,18 @@ public static class GatewayProjectileSkillProfiles
         }
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect == "SpectralThrowAltX")
+        {
+            int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
+            p = p with
+            {
+                Returns = true,
+                PierceAllOnReturn = true,
+                OutboundHitLimit = 0,
+                ReturnHitRule = repeatMs > 0
+                    ? new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(repeatMs / 1000d)) : null
+            };
+        }
         if (effect == "Twister") p = p with { Pierce = -1 };
         if (IsKineticBolt(effect)) p = WithKineticBoltLegs(p);
         if (IsTornadoShot(effect)) p = TornadoShotChildren(p, get);
@@ -226,7 +250,7 @@ public static class GatewayProjectileSkillProfiles
         HidePredictedVisual = true
     };
 
-    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltX" or "TornadoShotAltY";
+    static bool IsTornadoShot(string effect) => effect is "TornadoShot" or "TornadoShotAltY";
 
     // The client predicts the primary arrow and its terminal group itself (Frida: seven local and seven server
     // TornadoShotArrow objects for one use), so the server sends no object for either and only simulates the damage.
@@ -358,6 +382,8 @@ public static class GatewayProjectileSkillProfiles
             var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
             return p with { ContactArea = scaled, EndArea = scaled };
         }
+        if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
+            return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };

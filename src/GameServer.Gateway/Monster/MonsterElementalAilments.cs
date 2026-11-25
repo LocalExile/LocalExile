@@ -290,7 +290,14 @@ public sealed class MonsterElementalAilments
     /// ailments.</summary>
     public static bool CannotInflict(string ailment, Func<uint, int> attacker) =>
         attacker(Stat.CannotInflictStatusAilments) != 0 || attacker(Stat.NeverIgniteChillFreezeShock) != 0
-        || attacker(Stat.Of($"never_{ailment}")) != 0
+        || attacker(ailment switch
+        {
+            "ignite" => Stat.NeverIgnite,
+            "chill" => Stat.NeverChill,
+            "freeze" => Stat.NeverFreeze,
+            "shock" => Stat.NeverShock,
+            _ => Stat.Of($"never_{ailment}"),
+        }) != 0
         || ailment is "chill" or "freeze" && attacker(Stat.NeverFreezeOrChill) != 0
         || HandedProhibitions(ailment, attacker);
 

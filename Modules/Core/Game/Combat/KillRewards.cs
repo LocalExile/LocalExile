@@ -146,13 +146,14 @@ public static partial class Game
                 }
             }
 
-            int mapTier = MapRunOf(player)?.Area.Tier ?? 0;
+            var map = MapRunOf(player);
+            int mapTier = map?.Area.Tier ?? 0;
             var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
                 balance.EquipmentRarityMultiplier * (modded?.Rarity ?? 1),
-                mapTier, mapMods, player.Layout.Id, MapScarabQuantity(mapMods),
+                mapTier, mapMods, map?.Area.DivinationCardArea ?? player.Layout.Id, MapScarabQuantity(mapMods),
                 characterLevel: player.Pools.Level,
                 areaLevel: areaLevel, weights: modded?.Weights));
             drops.AddRange(PartyCurrency(player, drops, rng));

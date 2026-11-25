@@ -312,8 +312,11 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearKnifeBlades();
             ClearEnsnares();
             ClearExplosiveFuses();
+            RetireBannerLocked(Player);
+            ClearDivineBlastOrbs();
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
             EndSacredWisps(retire: true);
             if (ShaperMemories.TryGetValue(Player, out var memory)) memory.RemoveActor?.Invoke(true);
@@ -323,7 +326,7 @@ public static partial class Game
                 flaskFlushQueued = false;
             }
             Runtime.Clear();
-            foreach (var visual in visuals.Values) Player.ProjectileObjects.Remove(visual.Id);
+            foreach (var visual in visuals.Values) Player.UntrackProjectileObject(visual.Id);
             visuals.Clear(); flightRays.Clear(); later.Clear(); output.Writer.TryComplete();
         }
 
@@ -481,6 +484,20 @@ public static partial class Game
             openWorld = group;
         }
 
+        /// <summary>The life a queued 0x1b1 would give a monster the server has already killed, and so must not be written:
+        /// null for every other record. When two totems' arrows hit one monster in the same frame, the frame can carry
+        /// the killing hit's life 0 before the earlier hit's life. The client's monster then lives on with the sliver
+        /// that older life left it while the server has it dead, and the totems skip it from then on (their target
+        /// search takes Life &gt; 0), so nothing hits it again. Only Dead counts: a kill sets it with Life 0, while a
+        /// living monster can sit at Life 0 for a moment (a boss between phases) and must keep its records.</summary>
+        public static uint? RevivingLife(IReadOnlyDictionary<uint, SpawnedMonster> monsters, uint id, byte[] record)
+        {
+            if (record.Length < 21 || BinaryPrimitives.ReadUInt16BigEndian(record) != InstanceProtocol.LifeUpdateId
+                || record[20] != 0) return null;
+            uint life = BinaryPrimitives.ReadUInt32BigEndian(record.AsSpan(12));
+            return life > 0 && monsters.TryGetValue(id, out var m) && m.Dead ? life : null;
+        }
+
         async Task SendWorldGroup(List<(uint Id, Func<byte[][]?> Snapshot, string? Log)> group)
         {
             if (ReferenceEquals(openWorld?.Items, group)) openWorld = null;
@@ -505,7 +522,13 @@ public static partial class Game
                     foreach (var (id, snapshot, log) in group)
                         if (targets.TryGetValue(id, out var target) && snapshot() is { } bytes)
                             foreach (var record in bytes)
-                                if (record.Length > 0) records.Add(PresentedRecord(target, record, log));
+                                if (record.Length > 0)
+                                {
+                                    if (RevivingLife(Player.Area.Monsters, id, record) is { } stale)
+                                        Console.WriteLine($"[gateway] {Player.Connection.Remote} 0x01b1 monster 0x{id:x} life {stale} dropped: "
+                                            + $"the server killed it before this frame's write (order key 0x{BinaryPrimitives.ReadUInt32BigEndian(record.AsSpan(6)):x8})");
+                                    else records.Add(PresentedRecord(target, record, log));
+                                }
                     return records.Count == 0 ? null : new([.. records]);
                 });
                 // Admitted, or projected with nothing to send: done. Refused before its projection (a target not ready at
@@ -526,7 +549,19 @@ public static partial class Game
                 {
                     if (!Active || Player.Paused) return null;
                     completed = true;
-                    return snapshot();
+                    if (snapshot() is not { } records) return null;
+                    if (create || remove) return records;
+                    List<byte[]>? kept = null;
+                    for (int i = 0; i < records.Length; i++)
+                        if (RevivingLife(Player.Area.Monsters, id, records[i]) is { } stale)
+                        {
+                            Console.WriteLine($"[gateway] {Player.Connection.Remote} 0x01b1 monster 0x{id:x} life {stale} dropped: "
+                                + $"the server killed it before this frame's write (order key 0x{BinaryPrimitives.ReadUInt32BigEndian(records[i].AsSpan(6)):x8})");
+                            kept ??= [.. records[..i]];
+                        }
+                        else kept?.Add(records[i]);
+                    if (kept is { Count: 0 }) return null;
+                    return kept is null ? records : [.. kept];
                 }
                 if (create)
                     await SendWorldCreate(Player, id, () => Project() is { } records ? records.Single() : null,
@@ -818,13 +853,27 @@ public static partial class Game
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
-            double overexertionMore = OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
-            if (overexertionMore != 1)
+            int projectileFreezeChance = 0;
+            if (shot.FreezingPulseFalloff)
+            {
+                // The gem loses up to half its damage over the flight. Its inherent freeze chance fades
+                // from 25% to zero during the first quarter, independently of other freeze sources.
+                var flight = contact.Projectile;
+                double range = Math.Min(flight.Profile.Range,
+                    flight.Profile.Speed * flight.Profile.Lifetime / ProjectileRuntime.QuantaPerSecond);
+                double progress = Math.Clamp(flight.Distance / range, 0, 1);
+                shot = shot.ScaleDamage(1 - progress * .5);
+                projectileFreezeChance = (int)Math.Round(25 * Math.Max(0, 1 - 4 * progress));
+            }
+            double chainsMore = Math.Max(0, 1 + (double)shot.RemainingChainDamagePercent * contact.Projectile.ChainsRemaining / 100);
+            double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
+            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            if (ailmentMore != 1)
                 shot = shot with
                 {
-                    Ignite = RepeatAilment(shot.Ignite, overexertionMore),
-                    Bleed = RepeatAilment(shot.Bleed, overexertionMore),
-                    Poison = RepeatAilment(shot.Poison, overexertionMore),
+                    Ignite = RepeatAilment(shot.Ignite, ailmentMore),
+                    Bleed = RepeatAilment(shot.Bleed, ailmentMore),
+                    Poison = RepeatAilment(shot.Poison, ailmentMore),
                 };
             if (shot.DamageMorePerGroundBounce != 0 && contact.Projectile.GroundBounces > 0)
                 shot = shot.ScaleDamage(Math.Max(0, 1 + shot.DamageMorePerGroundBounce * (double)contact.Projectile.GroundBounces / 100));
@@ -836,7 +885,7 @@ public static partial class Game
             var baseHit = contact.IsArea ? shot.AreaHit ?? shot.Hit : shot.Hit;
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
-            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more);
+            var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var gambler = GamblerFor(player);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((gambler with { DamageMorePct = 0 })
@@ -869,8 +918,11 @@ public static partial class Game
             int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
                 additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
             bool immune = target.Invulnerable;
-            LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
-                shot.Leech, contact.Target.Id);
+            if (shot.FromMine)
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+            else if (!shot.FromTrapOrMine)
+                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                    shot.Leech, contact.Target.Id);
             if (!immune)
             {
                 var settings = (critical ? shot.CriticalImpaleSettings : null) ?? shot.ImpaleSettings ?? new(shot.ImpaleChance);
@@ -933,7 +985,7 @@ public static partial class Game
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
-                    attackerHasReversedStat: emitterTotem is null);
+                    attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
@@ -979,6 +1031,8 @@ public static partial class Game
             if (valid && value.Kind == ProjectileEventKind.End)
             {
                 CausticGroundAtEnd(value);
+                CreepingFrostAtEnd(value);
+                LeaveKnifeBlade(value);
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
             }
@@ -1034,7 +1088,9 @@ public static partial class Game
             // areas and continuation children, which do get objects). Client-predicted zig-zag secondaries stay hidden too.
             if (value.Kind == ProjectileEventKind.Spawn && p.Profile.HideVisual) return;
             if (value.Kind == ProjectileEventKind.Spawn && p.Use.Payload is ProjectileOffense primary
-                && ((p.ParentId == 0 && ClientDrawsPrimaryProjectile(primary.ClientPredicted, SkillsFor(Player).EffectId(primary.Effect)))
+                && ((p.ParentId == 0 && (primary.ClientPredicted
+                        || !primary.FromTotem && !primary.FromTrapOrMine
+                            && ClientDrawsPrimaryProjectile(false, SkillsFor(Player).EffectId(primary.Effect))))
                     || (primary.ClientPredicted && p.Profile.HidePredictedVisual))) return;
             if (value.Kind == ProjectileEventKind.Spawn)
             {
@@ -1047,7 +1103,7 @@ public static partial class Game
                         : ProjectileHeight.Flight(TerrainHeights.At(Player.Layout.Id, Player.Seed, x, y),
                             Environment.GetEnvironmentVariable("Game_PROJECTILE_HEIGHT"), presentation.LaunchHeight);
                 var visual = new Visual(id, height) { SpawnedAt = value.Position };
-                visuals[p.Id] = visual; Player.ProjectileObjects.Add(id);
+                visuals[p.Id] = visual; Player.TrackProjectileObject(id);
                 if (p.Profile.Lobbed) BeginArc(p, visual);
                 CreateFlight(id, () =>
                 {
@@ -1070,13 +1126,19 @@ public static partial class Game
                             + $" metadata={p.Profile.Id} created={at} simulated={p.Position} direction={p.Direction}"
                             + $" lagMs={(Runtime.Now - p.CreatedAt) / 120d:0.###} height={(obj.Height is int h ? h.ToString() : "terrain")}");
                     return CreateProjectileObject(id, obj);
-                }, () => Projected(visual));
+                }, () =>
+                {
+                    var anim = presentation.FlightClip is { } clip
+                        ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed)
+                        : null;
+                    var moves = Projected(visual);
+                    if (anim is null) return moves;
+                    return moves is { Length: > 0 } ? [anim, .. moves] : [anim];
+                });
                 // No 0x1a9: the projectile blob's first-byte flag 0x02 puts it in the client's wake zone already, and a
                 // second entry ("ObjectInWakeZone ... already in the wake zone", every projectile since 2026-11-01, thousands of
                 // Poison Arrow Trap bolts in The Upper Sceptre of God) broke its object list until it crashed at 0x1401297ca
                 // on an object that was gone (live 2026-11-04 and 2026-11-05, with traps firing).
-                if (presentation.FlightClip is { } clip)
-                    World(id, () => visual.Created && !visual.Ended ? InstanceProtocol.AnimationUpdate(id, 0, clip, presentation.FlightClipSpeed) : null);
                 UpdateForm(p, visual);
                 Glide(p, visual);
             }
@@ -1112,7 +1174,7 @@ public static partial class Game
                         visuals.Remove(p.Id);
                         WorldRecords(end.Id, () =>
                         {
-                            Player.ProjectileObjects.Remove(end.Id);
+                            Player.UntrackProjectileObject(end.Id);
                             return end.Created ? [InstanceProtocol.RemoveObject(end.Id)] : null;
                         }, remove: true);
                     });
@@ -1122,7 +1184,7 @@ public static partial class Game
                     visuals.Remove(p.Id);
                     WorldRecords(end.Id, () =>
                     {
-                        Player.ProjectileObjects.Remove(end.Id);
+                        Player.UntrackProjectileObject(end.Id);
                         return end.Created ? [height.StopAt(end.Id, x, y), InstanceProtocol.RemoveObject(end.Id)] : null;
                     }, remove: true);
                 }
@@ -1160,7 +1222,7 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile area object={id} position=({x}, {y})"
                     + $" radius={radius:0.###} art={ao} scale={scale:0.###}");
             var visual = new Visual(id, default);
-            Player.ProjectileObjects.Add(id);
+            Player.TrackProjectileObject(id);
             Create(id, () =>
             {
                 if (visual.Ended) return null;
@@ -1179,7 +1241,7 @@ public static partial class Game
                 visual.Ended = true;
                 WorldRecords(id, () =>
                 {
-                    Player.ProjectileObjects.Remove(id);
+                    Player.UntrackProjectileObject(id);
                     return visual.Created ? [InstanceProtocol.RemoveObject(id)] : null;
                 }, remove: true);
             });
@@ -1191,7 +1253,7 @@ public static partial class Game
             var childEffect = new EffectObject(x, y, child.Ao)
                 { Parent = attachParent != 0 ? attachParent : id, Bone = child.Bone, AttachKind = 0, AttachFlags = 3 };
             var childVisual = new Visual(childId, default);
-            Player.ProjectileObjects.Add(childId);
+            Player.TrackProjectileObject(childId);
             Create(childId, () =>
             {
                 if (childVisual.Ended) return null;
@@ -1204,7 +1266,7 @@ public static partial class Game
                 childVisual.Ended = true;
                 WorldRecords(childId, () =>
                 {
-                    Player.ProjectileObjects.Remove(childId);
+                    Player.UntrackProjectileObject(childId);
                     return childVisual.Created ? [InstanceProtocol.RemoveObject(childId)] : null;
                 }, remove: true);
             });

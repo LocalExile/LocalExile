@@ -89,6 +89,46 @@ public sealed class MapPortalLabelTests
             (phases.Area.Monsters[2].Dead, phases.Area.Monsters[2].Life) = (true, 0);
             await Game.TickMapRunBoss(phases, force: true);
             Assert.True(Game.RunBossKilled(phased));
+
+            // A guest captures a real Reef soul while the owner's device and pack are full.
+            var catalog = Program.Items;
+            var device = MapDevice.Load("data", row => catalog.Row(row)?.Hash, catalog);
+            MapDevice.Slot Slot(string id)
+            {
+                var type = Assert.IsType<ItemCatalog.BaseType>(catalog.Find(id));
+                return new(type.Hash, type.Class, type.Name, type.Row, [], 0) { BaseId = type.Id, Components = type.Components };
+            }
+            var reef = Slot("Metadata/Items/Maps/MapWorldsReef");
+            var vessel = Slot(ItemDrops.DivineVesselId);
+            Assert.Null(device.Check([reef, vessel, vessel], owner, catalog.Mods, out _));
+            var opening = Assert.IsType<MapDevice.Opening>(device.Check([reef, vessel], owner, catalog.Mods, out _));
+            Assert.Equal("MapWorldsReef", opening.Area.Id);
+            var soul = Assert.IsType<PantheonCatalog.Soul>(opening.PantheonSoul);
+            Assert.Equal("BrineKingUpgrade1", soul.UpgradeFlag);
+            var ownerItems = PlayerInventories.For(owner, Program.Items);
+            var filler = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Rings/Ring1")!);
+            Saves.Atomically(() =>
+            {
+                foreach (byte row in new[] { PlayerInventories.MapDevice, PlayerInventories.MainInventory })
+                    while (ownerItems.FreeCell(row, 1, 1, Game.ShapeOf) is { } at)
+                        ownerItems.Add(row, at.X, at.Y, filler);
+            });
+            var reefRun = MapDevice.Activate(owner, opening.Area, opening.Mods, pantheonSoul: soul);
+            MapDevice.Entered(reefRun, 987656);
+            var reefPlayer = Player(new InstanceState(), 987656, opening.Area);
+            var reefBosses = Game.Packs.For(opening.Area.Id)!.Bosses;
+            Assert.NotEmpty(reefBosses);
+            uint id = 1;
+            foreach (int row in reefBosses) reefPlayer.Area.Monsters[id++] = Boss(row, dead: true);
+            await Game.TickMapRunBoss(reefPlayer, force: true);
+            Assert.True(Game.RunBossKilled(reefRun));
+            Assert.Equal(soul.VesselItemId, CharacterSaves.ModuleData(owner, "pantheon.pendingSouls"));
+            Assert.NotNull(ownerItems.ConsumeOne(PlayerInventories.MapDevice, ownerItems.Items(PlayerInventories.MapDevice).First().Id));
+            await Game.DeliverCapturedSouls(reefPlayer, owner);
+            await Game.DeliverCapturedSouls(reefPlayer, owner);
+            Assert.True(string.IsNullOrEmpty(CharacterSaves.ModuleData(owner, "pantheon.pendingSouls")));
+            Assert.Single(ownerItems.Items(PlayerInventories.MapDevice), item =>
+                item.Item.TypeHash == InstanceEntities.ObjectTypeHash(soul.VesselItemId));
         }
         finally { MapDevice.Close(owner); MapDevice.Close(guest); }
     }
