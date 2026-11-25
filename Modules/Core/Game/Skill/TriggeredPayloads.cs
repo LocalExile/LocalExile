@@ -2,11 +2,12 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    // These spells have a single radial hit executor. Do not silently turn ground damage, chains, corpses or
-    // persistent entities into one area hit merely because their extracted stat set contains damage.
-    static bool TriggerAreaSpell(Player player, SupportedGem gem) =>
-        SkillsFor(player).EffectId(gem.Effect) is "IceNova" or "IceNovaAltY"
-        || IsHexblastEffect(SkillsFor(player).EffectId(gem.Effect)) || IsAbsolutionHitSpell(player, gem.Effect);
+    // These spells can release through the area hit executor, including Hexblast's primary and conditional splash.
+    static bool TriggerAreaSpell(Player player, SupportedGem gem)
+    {
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        return effect is "IceNova" or "IceNovaAltY" || IsHexblastEffect(effect) || IsAbsolutionHitSpell(player, gem.Effect);
+    }
 
     static bool TriggerChaosDebuff(string? effect) => IsBaneEffect(effect) || IsContagionEffect(effect);
 
@@ -15,13 +16,15 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
-        if (TriggerChaosDebuff(SkillsFor(player).EffectId(gem.Effect))) return true;
+        string? payload = SkillsFor(player).EffectId(gem.Effect);
+        if (TriggerChaosDebuff(payload)) return true;
+        if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         if (CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(gem.Effect) ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
-                || IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)))
+                || IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
             && SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;
     }
 
@@ -37,7 +40,7 @@ public static partial class Game
                 ? () => StartTriggeredGuard(player, session, id, AreaTime(player)) : null;
         if (TriggerSummonSpell(player, gem))
             return () => session.Enqueue(() => ReleaseTriggeredSummon(player, session, id, aim, current));
-        if (IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)))
+        if (IsStormCall(SkillsFor(player).EffectId(gem.Effect)))
         {
             var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
             var critical = CaptureSkillCriticalRoll(player, id);
@@ -59,6 +62,13 @@ public static partial class Game
                 use = ClientDrawnVolley(player, session, id, skill, use, 0, 0);
                 return use with { Payload = ((ProjectileOffense)use.Payload!) with { ClientPredicted = false, BrandedTarget = brandedTarget } };
             });
+        }
+        if (SpatialSpellEffect(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            var sacrifice = new SacrificeUse(player, id, skill.Effect, skill.Gem, triggered: true);
+            var critical = CaptureSkillCriticalRoll(player, id);
+            return () => session.ScheduleSpatialSpell(skill, brandOrigin ?? player.Walk.Position(AreaTime(player)), aim, 0,
+                current, sacrifice, critical, brandedTarget: brandedTarget);
         }
         if (brandOrigin is { } origin && TriggerAreaSpell(player, gem))
             return () => session.Enqueue(() => AreaSkillHitForUse(null, player,

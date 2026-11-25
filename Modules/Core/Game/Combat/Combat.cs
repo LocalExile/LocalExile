@@ -2165,7 +2165,7 @@ public static partial class Game
         bool darkBargain = IsDarkBargain(player, gem.Effect);
         bool wintryBlast = SkillsFor(player).EffectId(gem.Effect) == "FrostblinkAltX";
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
-        bool stormCall = IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect));
+        bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
         var firestorm = IsFirestorm(player, gem.Effect) && CastMs(player, gem.Effect, skillId) is int stormCast
             ? (Session: ProjectilesFor(player), Cast: stormCast) : ((ProjectileSession Session, int Cast)?)null;
         bool CanReleaseStorm() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
@@ -2203,6 +2203,16 @@ public static partial class Game
             {
                 jobs.Add(FrostblinkWintryBlastCast(player, skillId, gem, to, targetId, repeat, actionToken, cooldownUse,
                     criticalRoll, sacrifice, repeat * repeatInterval + sealDelay, more, swingAt));
+                continue;
+            }
+            if (SpatialSpellEffect(SkillsFor(player).EffectId(gem.Effect)) && CastMs(player, gem.Effect, skillId) is int spatialCast)
+            {
+                bool Current() => cooldownUse?.Current(player) ?? (actionToken is null || player.ActionCount == actionToken);
+                double windup = sealDelay + spatialCast / 1000d
+                    * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
+                var session = ProjectilesFor(player);
+                foreach (var area in cascadeAreas.Prepend(to))
+                    session.ScheduleSpatialSpell(gem, from, area, windup, Current, sacrifice, criticalRoll, sequence, repeat, more);
                 continue;
             }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHitForUse(repeatRuthless, player, skillId, gem, from,

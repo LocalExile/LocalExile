@@ -14,9 +14,7 @@ using GameServer.Core.World;
 /// </summary>
 public static partial class Game
 {
-    public static bool IsStormCall(string? effectId) => effectId == "StormCall";
-
-    static bool IsPlayerStormCall(string? effectId) => IsStormCall(effectId) || effectId == "StormCallAltX";
+    public static bool IsStormCall(string? effectId) => effectId is "StormCall" or "StormCallAltX";
 
     const double StormCallImpactArtSeconds = 1.5;
     const int TrarthusBloodArt = 10; // GroundEffects row 136: Blood / stormcall_blood_ground.
@@ -181,7 +179,7 @@ public static partial class Game
         if (removeMarker) await Send(player, InstanceProtocol.RemoveObject(marker.Object), null);
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == marker.Skill);
         if (marker.Use is not StormCallUse use || !use.Sacrifice.Current || gem.Name is null
-            || !IsPlayerStormCall(SkillsFor(player).EffectId(gem.Effect)) || player.PlayerLife == 0)
+            || !IsStormCall(SkillsFor(player).EffectId(gem.Effect)) || player.PlayerLife == 0)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} storm call marker 0x{marker.Object:x} strikes nothing (gem gone or player dead)");
             return;
