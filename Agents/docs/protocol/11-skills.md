@@ -922,6 +922,9 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   names. Dominus' first effect, `DominusChillingBond`, used as his swing crashed the client at `0x1401297ca` a frame
   after his first action: `0x141a2bbb0` looked up entity 0 and `0x141a2c120` linked the effect to the null result
   (live 2026-11-05). `MavenNucleus.CombatEffect` skips them; Dominus swings `DominusLightningSlam`.
+  FireShield reads the action's target Life component at contact (`0x141d33500`); its monster self-cast points to
+  the caster. Doedre's Screech likewise reads the target's height (`0x1414469a0`), using the caster as the target
+  for the campaign's caster-centred version.
 - **Stats.** The final attack stats (`MonsterAttack.Stats`): attack time = MonsterVarieties `AttackSpeed` (2400 ms),
   reach = `MaximumAttackDistance` (8), damage = DefaultMonsterStats `Damage` (`MinionDamage` for an IsPlayerMinion
   type) at the level × `DamageMultiplier` / 100
