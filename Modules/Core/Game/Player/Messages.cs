@@ -474,7 +474,7 @@ public static partial class Game
             {
                 // The client chose lockstep (07 §6): it is served as it asks.
                 OnLockstepRequest(player, id, bytes);
-                if (id == InstanceProtocol.LockstepMoveUpdateId && !HeldLockstepMovingChannel(player))
+                if (id == InstanceProtocol.LockstepMoveUpdateId && !HeldLockstepAimedChannel(player))
                     await AimLockstepChannel(player);
             }
             else if (id == InstancePause.RequestId)
@@ -808,9 +808,9 @@ public static partial class Game
                 bool hadChannel = player.ChannelSkill != 0;
                 int channelGen = player.ChannelGeneration;
                 ushort endedSequence = player.ChannelSkillSequence;
-                ChannelReleased(player, player.ClockAt(readAt));
+                var landing = EndChannel(player, player.ClockAt(readAt));
                 if (hadChannel && !player.Connection.LockstepClient)
-                    await EmitPredictiveChannelFinished(player, channelGen, endedSequence);
+                    await EmitPredictiveChannelFinished(player, channelGen, endedSequence, landing);
             }
             else if (id == InstanceProtocol.RetargetActionId)
                 await RetargetAction(player, InstanceProtocol.ReadRetargetAction(bytes), readAt);

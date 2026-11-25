@@ -413,6 +413,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Player-cast Blade Flurry and Blade Flurry of Incision. Aimed acquisition, paid stages, and additional release strikes.
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
 - Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
+- Charged Dash and its Projection variant steer a projection, hit along its path and release a scaled final wave. The normal gem moves to a legal landing; the Projection variant stays in place. Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.

@@ -1511,6 +1511,9 @@ public static partial class Game
                     channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                     if (IsBladeFlurry(player, gem.Effect))
                         BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
+                    if (IsChargedDash(player, gem.Effect))
+                        BeginChargedDash(player, paymentGem, skillId, sequence, action, channelGeneration.Value,
+                            player.Walk.Position(AreaTime(player)), to, AreaTime(player));
                     if (paidMomentum is { } channelMomentum)
                     {
                         GainMomentumOnUse(player, skillId, channelMomentum, action, channelGeneration, AreaTime(player));
@@ -1584,6 +1587,15 @@ public static partial class Game
             { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
+            if (IsChargedDash(player, gem.Effect))
+            {
+                if (SkillsFor(player).IsTravel(gem.Effect))
+                {
+                    QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Travel);
+                    LoyaltyTravelSkillTriggered(player);
+                }
+                return CompleteSupportedUse(true);
+            }
         }
         // The instant's two areas are resolved at the endpoints accepted by the outgoing movement record.
         if (locationInstant) return true;
@@ -2320,7 +2332,10 @@ public static partial class Game
     public static bool IsDivineIre(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "DivineIre" or "DivineIreAltX" or "DivineIreAltY" or "DivineIreRoyale";
 
-    public static async Task EmitPredictiveChannelFinished(Player player, int generation, ushort sequence)
+    public static Task EmitPredictiveChannelFinished(Player player, int generation, ushort sequence) =>
+        EmitPredictiveChannelFinished(player, generation, sequence, null);
+
+    static async Task EmitPredictiveChannelFinished(Player player, int generation, ushort sequence, (int X, int Y)? landing)
     {
         if (player.Closed || player.LeavingArea || player.Connection.LockstepClient) return;
         var tracker = ChannelEnds.GetOrCreateValue(player);
@@ -2329,7 +2344,7 @@ public static partial class Game
             if (generation <= tracker.FinishedGeneration) return;
             tracker.FinishedGeneration = generation;
         }
-        await SendWorldRecord(player, player.Id, InstanceProtocol.ChannelFinished(player.Id, sequence),
+        await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, sequence, landing),
             $"0x01ae channel 0x{sequence:x4} ended");
     }
 
@@ -2351,11 +2366,23 @@ public static partial class Game
         bool snipe = IsSnipe(gem.Effect);
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
         bool firstStagePaid = snipe;
+        var dash = CurrentChargedDash(player);
+        (int X, int Y)? dashLanding = null;
+        async Task EndPaidDash(double now)
+        {
+            dashLanding = EndChannel(player, now);
+            player.PaidChannel = null;
+            if (!player.Connection.LockstepClient) return;
+            player.LockstepSkill.Clear();
+            await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, channelSequence, dashLanding),
+                $"0x01ae Charged Dash 0x{channelSequence:x4} ended");
+        }
         bool divineIre = IsDivineIre(player, gem.Effect);
         int divineIreMaxStages = divineIre && SkillsFor(player).EffectId(gem.Effect) == "DivineIreRoyale" ? 20 : 10;
         int divineIreStages = 0;
         try
         {
+            if (dash is not null) _ = ChargedDashWave(player, dash, channelStarted, false, 1);
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
             else if (snipe)
@@ -2395,7 +2422,13 @@ public static partial class Game
                 if (!Running() || player.Paused || now < player.NextChannelHitAt) continue;
                 // A freeze or a stun's hit recovery interrupts the channelled action: no stage is paid or swept until it
                 // ends. The client's updates are dropped meanwhile, so a longer one ends the channel by silence.
-                if (PlayerActionBlocked(player, now, now)) { player.NextChannelHitAt = now + TickSeconds; continue; }
+                bool blocked = PlayerActionBlocked(player, now, now);
+                if (dash is not null && (blocked || dash.Interruption != player.ActionInterruptionGeneration))
+                {
+                    await EndPaidDash(now);
+                    return;
+                }
+                if (blocked) { player.NextChannelHitAt = now + TickSeconds; continue; }
                 var activeGem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
                 if (activeGem.Name is null || activeGem.Effect != gem.Effect
                     || GemSkillInstanceDisabled(player, activeGem.Effect, skillId) is not null)
@@ -2414,10 +2447,14 @@ public static partial class Game
                 }
                 else if (!PayMana(player, skillId, out cost, out lifeCost, 100, useSpell: false))
                 {
-                    _ = ReleaseBladeFlurry(player, now);
-                    player.ChannelSkill = 0;
-                    player.ChannelGeneration++;
-                    player.PaidChannel = null;
+                    if (dash is not null) await EndPaidDash(now);
+                    else
+                    {
+                        _ = ReleaseBladeFlurry(player, now);
+                        player.ChannelSkill = 0;
+                        player.ChannelGeneration++;
+                        player.PaidChannel = null;
+                    }
                 }
                 else
                 {
@@ -2471,11 +2508,17 @@ public static partial class Game
                         InstanceEntities.StatsUpdate(player.Id, [(Stat.DivineTempestCurrentNumberOfStages, divineIreStages)]),
                         $"0x01b3 Divine Ire stage {divineIreStages}");
                 }
+                double focusedMore = FocusedChannelMore(now - channelStarted,
+                    GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct));
+                if (dash is not null)
+                {
+                    StepChargedDash(player, dash, now, focusedMore);
+                    continue;
+                }
                 var at = player.Walk.Position(AreaTime(player));
                 await AreaSkillHit(player, skillId, gem, at, at,
                     immediate: true, sequence: player.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
-                    damageMore: FocusedChannelMore(now - channelStarted,
-                        GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct)));
+                    damageMore: focusedMore);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
@@ -2489,8 +2532,9 @@ public static partial class Game
             if (scourge) RetireScourgeChannel(player, generation, action);
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
+            if (dash is not null) RetireChargedDash(player, generation);
             if (!player.Connection.LockstepClient)
-                await EmitPredictiveChannelFinished(player, generation, channelSequence);
+                await EmitPredictiveChannelFinished(player, generation, channelSequence, dashLanding);
             if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
                 && (player.ChannelSkill == 0 || player.ChannelGeneration == generation))
                 await SendWorldRecord(player, player.Id,
@@ -2513,11 +2557,12 @@ public static partial class Game
 
     static bool ApplyChannelAim(Player player, int x, int y, double at)
     {
+        bool dashAimed = AimChargedDash(player, (x, y), at);
         AimChannelTriggers(player, (x, y));
         SnipeAimedAt(player, (x, y));
         ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
-        return AimBladeFlurry(player, (x, y));
+        return AimBladeFlurry(player, (x, y)) || dashAimed;
     }
 
     // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
@@ -2568,7 +2613,7 @@ public static partial class Game
                     {
                         ChannelAimedAt(player, aim.X, aim.Y, at);
                         player.LastChannelUpdateAt = now;
-                        if (HeldLockstepMovingChannel(player))
+                        if (HeldLockstepAimedChannel(player))
                         {
                             player.LastLockstepChannelAim = (aim, at);
                             player.LockstepChannelAimPending = false;
@@ -2591,8 +2636,11 @@ public static partial class Game
 
     // C→S 0x199: the button let go. The channel ends, and a walking one stops where the player is (it was walking only
     // as part of the channel); the walk gets its usual speed back.
-    public static void ChannelReleased(Player player, double at)
+    public static void ChannelReleased(Player player, double at) => EndChannel(player, at);
+
+    static (int X, int Y)? EndChannel(Player player, double at)
     {
+        var landing = ReleaseChargedDash(player, at);
         ReleaseScourgeChannel(player, at);
         _ = ReleaseBladeFlurry(player, at);
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
@@ -2604,6 +2652,7 @@ public static partial class Game
         EndCycloneStages(player, player.ChannelGeneration, at);
         player.ChannelGeneration++;
         SnipeWakeChannel(player);
+        return landing;
     }
 
     public static bool ChannelCurrent(Player player, ushort skill, int action, int generation)
@@ -2620,6 +2669,7 @@ public static partial class Game
                 || IsSnipeChannelling(player, skill)
                 || IsScourgeChannelling(player, skill, generation, action)
                 || IsBladeFlurryChannelling(player, skill, generation, action)
+                || CurrentChargedDash(player) is not null
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                         || IsDivineIre(player, paid.Effect))
@@ -2728,7 +2778,7 @@ public static partial class Game
         int extraCriticalIncrease = 0, IReadOnlyList<uint>? additionalStrikeTargets = null,
         double hitAndAilmentMore = 1, Action<uint>? onDirectHit = null, bool allowMeleeSplash = true,
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
-        double? strikeSeconds = null, BladeFlurryChannel? flurryRelease = null) =>
+        double? strikeSeconds = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -2736,7 +2786,8 @@ public static partial class Game
             extraCriticalIncrease, targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct,
             removeStunAndKnockback, offHandWeapon, additionalStrikeTargets: additionalStrikeTargets,
             hitAndAilmentMore: hitAndAilmentMore, onDirectHit: onDirectHit, allowMeleeSplash: allowMeleeSplash,
-            boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds, flurryRelease: flurryRelease);
+            boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
+            flurryRelease: flurryRelease, nearbyOnly: nearbyOnly);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2754,7 +2805,7 @@ public static partial class Game
         double hitAndAilmentMore = 1, Action<uint>? onDirectHit = null, bool allowMeleeSplash = true,
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, IReadOnlyList<uint>? contactTargets = null,
-        BladeFlurryChannel? flurryRelease = null)
+        BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -3097,7 +3148,7 @@ public static partial class Game
             }
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
                 (contactTargets is null
-                    ? boneshatter is null ? player.Area.Monsters : player.Area.MonstersNear(c, radius)
+                    ? (boneshatter is not null || nearbyOnly ? player.Area.MonstersNear(c, radius) : player.Area.Monsters)
                     : contactTargets.Select(id => new KeyValuePair<uint, SpawnedMonster>(id, player.Area.Monsters.GetValueOrDefault(id)!))
                         .Where(entry => entry.Value is not null))
                 .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
