@@ -413,8 +413,9 @@ public static partial class Game
                 + (devour is null ? "" : $", devours {devour.Life} life / {devour.Mana} mana a corpse"));
         }
 
+        await EnsureMonsterTypeSent(player, variety, level, Valid);
         uint? created = null;
-        // Registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
+        // The objects are registered and created at the send gate, so the tick's presentation never sends a totem the client lacks.
         await SendWorldBatch(player, [], admission =>
         {
             if (!Valid()) return null;
@@ -425,8 +426,6 @@ public static partial class Game
                 playerStats = CharacterPlayerStats(player);
             }
             var bytes = new WorldRecordBuilder(player, admission);
-            if (player.MonsterTypes.Add((variety.Row, level)))
-                bytes.Immediate(InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]));
             var objectStats = new List<(uint, int)>();
             if (life != baseLife) objectStats.Add((Stat.MaximumLife, (int)life));
             if (spellTotem && Stat.UsesNoMana is var noMana) objectStats.Add((noMana, 1));
