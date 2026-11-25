@@ -33,8 +33,9 @@ and may update itself.
 
 ## Pull Request Policy
 
-- **Batching & micro-PRs:** Standalone small PRs are accepted for reproducible bugs, crashes, protocol fixes, or build/CI breaks. Micro-cleanups, speculative checks, doc wording tweaks, and unrelated small changes belong in one batched PR (one commit per change); unbatched drive-by PRs may be closed with a request to batch.
-- **Evidence & accountability:** Gameplay, world, and protocol changes require verification evidence (live client via `scripts/dev/live.ps1`, logs, `scripts/dev/campaign.ps1`, or protocol/RE reference). The contributor owns every line in the diff and answers review questions directly.
+- **Batching & micro-PRs:** Non-maintainers are capped at 3 concurrent open PRs (including drafts). Standalone small PRs are accepted for reproducible bugs, crashes, protocol fixes, or build/CI breaks. Group other changes—such as doc updates, bug fixes, Acts, Combat, or multiple categories—into one batched PR (one commit per change); unbatched drive-by PRs may be closed with a request to batch.
+- **Drafts & follow-through:** Keep track of open PRs, reply to review comments, and mark drafts ready once done. Do not open ready PRs as drafts (drafts are not merged and auto-close after 7 days of inactivity).
+- **Evidence & accountability:** Gameplay, world, and protocol changes require verification evidence (live client via `scripts/dev/live.ps1`, logs, `scripts/dev/campaign.ps1`, or protocol/RE reference). Test changes in-game directly rather than relying solely on an AI model, check edge cases and performance regressions, and answer review questions directly. Blunt review feedback or closing a PR is about codebase health, never personal.
 - **Issue-first & claiming:** Check open issues and PRs before starting work, comment on an issue to claim it (release the claim if dropped), and link `Closes #N` in the PR description.
 
 ## Projects
