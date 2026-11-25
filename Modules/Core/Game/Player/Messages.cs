@@ -1174,7 +1174,7 @@ public static partial class Game
         return raw is null ? null : ItemRolls.ClearForesee(raw);
     }
 
-    static (uint InventoryId, uint ItemId) LocateCurrencyStackByType(Player player, uint typeHash, uint preferredInventoryId)
+    public static (uint InventoryId, uint ItemId) LocateCurrencyStackByType(Player player, uint typeHash, uint preferredInventoryId)
     {
         if (player.Closed || player.LeavingArea) return (0, 0);
         var items = ItemsOf(player);

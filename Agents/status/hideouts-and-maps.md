@@ -68,7 +68,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   corruption qualify a separate, one-time passive point and objective count ([21](../docs/protocol/21-hideouts.md)).
   Atlas passive gold respec (C→S 0x3f gold flag and 0x40 Refund All via Kirac's Atlas Respecialisation), preset
   renaming (C→S 0x2a7 / S→C 0x3c), free resets (0x3d bit 0 / C→S 0x41) and 0x129 → 0x91/0x12a replies are wired.
-  Incremental Voidstone deltas (0x1a5), Atlas Scrying (0x7b kind 0x13, 0x1a7), Atlas node currency use (0x75/0x76),
+  Scrying Orbs carry their source map into the Atlas. Applying one changes the destination map’s divination-card pool. An Orb of Scouring clears the link.
+  Incremental Voidstone deltas (0x1a5),
   Primordial Altar HUD ruleset 99 (0x1f/0x2c9), and 0x18/0x1d5 Atlas notifications are wired (live check pending).
   Map device activations forward eligible primordial boss options (C→S 0xd8 index) to `map_atlas_primordial_boss_influence`
   and handle Memory Line (C→S 0x297) and Maven Invitation (C→S 0x298) receptacles.

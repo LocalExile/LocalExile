@@ -68,6 +68,7 @@ public sealed class AtlasModule : IModule
             if (AtlasProgress.OfArea(kill.ModPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)) return;
             var player = kill.Player;
             var data = WorldOf(kill.ModPlayer).CharacterData;
+            await AtlasFeature.DropScryingOrbOnCompletion(kill, node);
             bool completed = AtlasProgress.Complete(data, [node]);
             bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
                 && AtlasProgress.CompleteBonus(data, [node]);
@@ -303,7 +304,7 @@ public static class AtlasFeature
         byte stones = AtlasProgress.VoidstoneMask(slots);
         yield return ("0x003c Atlas tree names", global::Game.AtlasTreeNamesMessage(player));
         yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, voidstones 0x{stones:X2} ({slots.Count})",
-            AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count));
+            AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count, AtlasProgress.ScryPairs(data)));
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
@@ -522,138 +523,98 @@ public static class AtlasFeature
         });
         if (!accepted) return;
         ScryOffers.Remove(player);
+        await SendScryPairs(player, data);
         await PlayerOf(player).Tell($"Atlas Scrying: {to.Name} now drops the divination cards from {from.Name}.");
     }
 
-    // C→S 0x0075: apply a specific currency item (by inventory + item id) to an Atlas node.
-    internal static async Task UseItemOnNode(Player player, InstanceMapDevice.UseItemOnAtlasNode req)
+    const string ScryingOrb = "Metadata/Items/Currency/CurrencyScryingOrb";
+    const string ScouringOrb = "Metadata/Items/Currency/CurrencyConvertToNormal";
+
+    internal static async Task DropScryingOrbOnCompletion(MonsterKill kill, AtlasProgress.Node node)
     {
-        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
-        var items = ItemsOf(player);
-        var stash = global::Game.StashOf(player);
-        var (spot, used) = global::Game.Locate(items, stash, req.InventoryId, req.ItemId);
-        if (used is null)
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId} on 0x{req.NodeHash16:x4}: item not found");
-            return;
-        }
-        if (spot.Tab is int tab)
-        {
-            if (!(player.StashOpen || player.GuildStashOpen))
-            {
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (stash closed)");
-                return;
-            }
-            if (stash.IsPublic(tab))
-            {
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (public stash tab {tab})");
-                return;
-            }
-        }
-        else if (spot.Row is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory))
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0075 Atlas node item {req.ItemId}: refused (inventory row {spot.Row})");
-            return;
-        }
-        await ApplyAtlasNodeCurrency(player, spot, used, req.NodeHash16);
+        var player = kill.Player;
+        if (!node.IsNormalMap || global::Game.MapRunOf(player) is not { Atlas: true, Area.Tier: >= 14 } run
+            || !GameEvents.AllowsLoot(player)) return;
+        var stats = player.Instance.AreaStats(() => global::Game.AreaLeagueStats(player));
+        int chance = stats.GetValueOrDefault(Stat.MapDropScryingOrbOnCompletionChancePct);
+        if (chance <= 0 || !player.Instance.ContentState.TryAdd("Atlas.ScryingOrbRolled", "1")
+            || Random.Shared.Next(100) >= chance || ItemsFor(player).Find(ScryingOrb) is not { Supported: true } type) return;
+        var at = player.Layout.Near((kill.Monster.X, kill.Monster.Y));
+        var item = ItemCatalog.Create(type) with { ScryingAreaHash = player.Layout.Hash,
+            ItemLevel = (byte)Math.Clamp(run.Area.Level > 0 ? run.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100) };
+        var ground = new WorldItemObject(at.X, at.Y, item);
+        uint id = player.Instance.Ground.Add(ground, player);
+        await global::Game.SendGroundItem(player, id, ground, "Atlas map completion drops Scrying Orb", justDropped: true);
     }
 
-    // C→S 0x0076: Shift-held currency type applied to an Atlas node.
-    internal static async Task UseItemTypeOnNode(Player player, InstanceMapDevice.UseItemTypeOnAtlasNode req)
+    static Task SendScryPairs(Player player, ISavedData data)
     {
-        if (player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
-        var items = ItemsOf(player);
-        var stash = global::Game.StashOf(player);
-        InventoryItem? found = null;
-        uint foundInv = 0;
-        byte[] rows = ExpandedInventoryGranted(player)
-            ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory]
-            : [PlayerInventories.MainInventory];
-        foreach (byte row in rows)
-        {
-            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } hit)
-            {
-                found = hit;
-                foundInv = PlayerInventories.InventoryId(row);
-                break;
-            }
-        }
-        if (found is null && (player.StashOpen || player.GuildStashOpen))
-        {
-            for (int t = 0; t < stash.Count; t++)
-            {
-                if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } hit)
-                {
-                    found = hit;
-                    foundInv = stash.InventoryOf(t);
-                    break;
-                }
-            }
-        }
-        if (found is null)
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0076 Atlas node currency type 0x{req.TypeHash:x8} on 0x{req.NodeHash16:x4}: none left");
-            return;
-        }
-        var (spot, located) = global::Game.Locate(items, stash, foundInv, found.Id);
-        if (located is null) return;
-        await ApplyAtlasNodeCurrency(player, spot, located, req.NodeHash16);
+        var slots = SlotsOf(PlayerOf(player));
+        return Send(player, AtlasProgress.AtlasState((byte)slots.Count, AtlasProgress.VoidstoneMask(slots), 0,
+            AtlasProgress.ScryPairs(data)).ToArray(), "0x01a3 Atlas scrying connections");
     }
 
-    static async Task ApplyAtlasNodeCurrency(Player player, ItemMoves.Spot spot, InventoryItem used, ushort nodeHash16)
+    internal static Task UseItemTypeOnNode(Player player, InstanceMapDevice.UseItemTypeOnAtlasNode req)
     {
-        var node = AtlasProgress.FindByHash16(nodeHash16) ?? AtlasProgress.FindByAreaHash16(nodeHash16);
-        var type = ItemsFor(player).ByHash(used.Item.TypeHash);
-        if (node is null || type is null)
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency on 0x{nodeHash16:x4}: unknown node or item");
-            return;
-        }
-        bool isSeal = type.Id.Contains("CartographerSeal", StringComparison.OrdinalIgnoreCase)
-            || type.Id.Contains("Unshaping", StringComparison.OrdinalIgnoreCase)
-            || type.Id.Contains("AtlasSeal", StringComparison.OrdinalIgnoreCase);
-        if (!isSeal)
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} <= Atlas node currency {type.Id} on {node.Name}: unsupported currency");
-            return;
-        }
+        // Only a stackable Scouring Orb is interchangeable by type. Scrying Orbs have individual origins.
+        if (ItemsFor(player).ByHash(req.TypeHash)?.Id != ScouringOrb) return Task.CompletedTask;
+        var (inventory, id) = global::Game.LocateCurrencyStackByType(player, req.TypeHash, req.InventoryId);
+        return id == 0 ? Task.CompletedTask : UseItemOnNode(player, new(inventory, id, req.NodeHash16), req.TypeHash);
+    }
 
+    internal static async Task UseItemOnNode(Player player, InstanceMapDevice.UseItemOnAtlasNode req, uint? requiredType = null)
+    {
+        if (player.Closed || player.LeavingArea || player.PlayerLife == 0
+            || AtlasProgress.FindByHash16(req.NodeHash16) is not { IsNormalMap: true } node) return;
+        var items = ItemsOf(player);
+        var stash = global::Game.StashOf(player);
         var data = WorldOf(PlayerOf(player)).CharacterData;
-        if (!AtlasProgress.Completed(data).Contains(node.Id))
+        var inventoryUpdate = Saves.Atomically<byte[]?>(() =>
         {
-            await PlayerOf(player).Tell($"Atlas: {node.Name} is not completed.");
-            return;
-        }
-
-        var items = ItemsOf(player);
-        var stash = global::Game.StashOf(player);
-        (InventoryItem? Replaced, uint RemovedId)? spent = Saves.Atomically<(InventoryItem?, uint)?>(() =>
-        {
-            var cur = spot.Tab is int tab ? stash.Inventory(tab).Items.FirstOrDefault(i => i.Id == used.Id)
-                : items.Items(spot.Row).FirstOrDefault(i => i.Id == used.Id);
-            if (cur is null) return null;
-            if (cur.Item.StackSize > 1)
+            var (spot, used) = global::Game.Locate(items, stash, req.InventoryId, req.ItemId);
+            if (used is null || used.Item.StackSize == 0 || (requiredType.HasValue && used.Item.TypeHash != requiredType)) return null;
+            if (spot.Tab is int stashTab)
             {
-                var updated = cur.Item with { StackSize = (ushort)(cur.Item.StackSize - 1) };
-                var next = spot.Tab is int tab2 ? stash.Change(tab2, cur.Id, _ => updated)
-                    : items.Change(spot.Row, cur.Id, _ => updated);
-                return next is null ? null : (next, cur.Id);
+                if (!(player.StashOpen || player.GuildStashOpen) || stash.IsPublic(stashTab)) return null;
             }
-            var removed = spot.Tab is int tab3 ? stash.Take(tab3, cur.Id) : items.Remove(spot.Row, cur.Id);
-            return removed is null ? null : (null, cur.Id);
+            else if (req.InventoryId != PlayerInventories.InventoryId(spot.Row)
+                || (spot.Row != PlayerInventories.MainInventory
+                    && !(spot.Row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player)))) return null;
+
+            switch (ItemsFor(player).ByHash(used.Item.TypeHash)?.Id)
+            {
+                case ScryingOrb:
+                    if (used.Item.ScryingAreaHash is not ushort origin
+                        || AtlasProgress.FindByAreaHash16(origin) is not { IsNormalMap: true } source
+                        || !source.AreaHashes.Contains(origin) || source.Id == node.Id) return null;
+                    var completed = AtlasProgress.Completed(data);
+                    if (!completed.Contains(source.Id) || !completed.Contains(node.Id) || !AtlasProgress.SetScry(data, source, node)) return null;
+                    break;
+                case ScouringOrb:
+                    if (!AtlasProgress.RemoveScry(data, node)) return null;
+                    break;
+                default:
+                    return null;
+            }
+
+            InventoryItem? remaining = null;
+            if (used.Item.StackSize == 1)
+            {
+                var taken = spot.Tab is int tab ? stash.Take(tab, used.Id) : items.Remove(spot.Row, used.Id);
+                if (taken is null) throw new InvalidOperationException("Atlas currency disappeared during its transaction");
+            }
+            else
+            {
+                var reduced = used.Item with { StackSize = (ushort)(used.Item.StackSize - 1) };
+                remaining = spot.Tab is int tab ? stash.Change(tab, used.Id, _ => reduced) : items.Change(spot.Row, used.Id, _ => reduced);
+                if (remaining is null) throw new InvalidOperationException("Atlas currency disappeared during its transaction");
+            }
+            uint revision = spot.Tab is int t ? stash.NextRevision(t) : items.NextRevision(spot.Row);
+            return InstanceItems.InventoryChange(req.InventoryId, revision, [used.Id], remaining is null ? [] : [remaining]);
         });
-        if (spent is null) return;
-
-        uint invId = spot.Tab is int sTab ? stash.InventoryOf(sTab) : PlayerInventories.InventoryId(spot.Row);
-        uint rev = spot.Tab is int sTab2 ? stash.NextRevision(sTab2) : items.NextRevision(spot.Row);
-        IReadOnlyList<InventoryItem> added = spent.Value.Replaced is { } rep ? [rep] : [];
-        await Send(player, InstanceItems.InventoryChange(invId, rev, [spent.Value.RemovedId], added),
-            $"0x00bf consume {type.Name} on Atlas node {node.Name}");
-
-        AtlasProgress.Uncomplete(data, node);
-        await SyncTreeFlags(player);
-        await Refresh(player);
-        await PlayerOf(player).Tell($"Atlas: {node.Name} uncompleted.");
+        if (inventoryUpdate is null) return;
+        await Send(player, inventoryUpdate, $"0x00bf consume Atlas currency on {node.Name}");
+        await SendScryPairs(player, data);
     }
 
     // C→S 0x2a7: rename one Atlas passive tree preset (0..2), persisted in module data and echoed via S→C 0x3c.
@@ -988,7 +949,7 @@ public static class AtlasFeature
         var bonusCompleted = AtlasProgress.BonusCompleted(data);
         var slots = SlotsOf(modPlayer);
         byte stones = AtlasProgress.VoidstoneMask(slots);
-        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count),
+        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, (byte)slots.Count, AtlasProgress.ScryPairs(data)),
             $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), {completed.Count} completed, {bonusCompleted.Count} bonus");
     }
 

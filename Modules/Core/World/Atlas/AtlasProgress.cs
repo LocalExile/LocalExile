@@ -153,6 +153,21 @@ public static class AtlasProgress
         return true;
     });
 
+    public static bool RemoveScry(ISavedData data, Node node) => Saves.Atomically(() =>
+    {
+        var links = ScryLinks(data);
+        var donor = links.ContainsKey(node.Id) ? node.Id : links.FirstOrDefault(p => p.Value == node.Id).Key;
+        if (donor is null) return false;
+        links.Remove(donor);
+        data.Change("atlas.scryLinks", _ => JsonSerializer.Serialize(links));
+        return true;
+    });
+
+    public static IReadOnlyList<(ushort From, ushort To)> ScryPairs(ISavedData data) => Saves.Atomically(() =>
+        ScryLinks(data).Select(pair => (From: Find(pair.Key), To: Find(pair.Value)))
+            .Where(pair => pair.From is not null && pair.To is not null)
+            .Select(pair => (pair.From!.Hash16, pair.To!.Hash16)).ToArray());
+
     public static string? ScryTarget(ISavedData data, Node from) =>
         Saves.Atomically(() => ScryLinks(data).GetValueOrDefault(from.Id));
 
@@ -202,7 +217,7 @@ public static class AtlasProgress
     }
 
     /// <summary>S→C 0x1a3: u8 → +0x71 (socketed count), u8 → +0x72, u8 → +0x70 (Voidstone T16 bits), u8 sections
-    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of u16 pairs, 0 here) and the
+    /// (bit 0: first mask, bit 1: second mask), then always 0x141faaa80 (u8 count of scrying map pairs) and the
     /// selected 22-byte masks (bit r of byte r / 8 = AtlasNode row r). The first mask carries saved completed maps
     /// (+0xd030: clears fog and opens connected maps, +0x9ca), and the second carries bonus-completed maps (+0xd070:
     /// draws the bonus completion frame +0x9cb/+0x9ce and drives the bonus counter). Uncompleted maps stay fogged
@@ -211,7 +226,7 @@ public static class AtlasProgress
         FullMessage(completed, completed, voidstones, awakening);
 
     public static byte[] FullMessage(IReadOnlySet<string> completed, IReadOnlySet<string> bonusCompleted,
-        byte voidstones = 0, byte awakening = 0)
+        byte voidstones = 0, byte awakening = 0, IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
@@ -220,7 +235,17 @@ public static class AtlasProgress
             if (completed.Contains(node.Id)) SetBit(revealed, node.Row);
             if (bonusCompleted.Contains(node.Id)) SetBit(done, node.Row);
         }
-        return [0x01, 0xa3, awakening, 0, voidstones, 0x03, 0, .. revealed, .. done];
+        return AtlasState(awakening, voidstones, 3, scryPairs ?? []).Bytes(revealed).Bytes(done).ToArray();
+    }
+
+    // The pair list is always present, including when no completion-mask section is being replaced.
+    internal static GameServer.Core.Protocol.Login.LoginWriter AtlasState(byte awakening, byte voidstones, byte sections,
+        IReadOnlyList<(ushort From, ushort To)> pairs)
+    {
+        var w = new GameServer.Core.Protocol.Login.LoginWriter().U16(0x01a3).U8(awakening).U8(0).U8(voidstones)
+            .U8(sections).U8(checked((byte)pairs.Count));
+        foreach (var (from, to) in pairs) w.U16(from).U16(to);
+        return w;
     }
 
     /// <summary>S→C 0x1a4: u16 BE AtlasNode HASH16, u8 ×2 (unknown, 0), u8 flags (bit 1: also the second set, bonus).</summary>

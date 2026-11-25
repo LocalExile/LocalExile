@@ -21,8 +21,11 @@ public sealed class BatchEndgameAtlasDelveHudTests
         Assert.Null(AtlasProgress.ScryTarget(data, chateau));
         const byte mainBag = PlayerInventories.MainInventory;
         var bag = Game.ItemsOf(fixture.Player);
-        var orb = bag.Add(mainBag, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyScryingOrb")!) with { StackSize = 2 });
+        var orb = bag.Add(mainBag, 0, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyScryingOrb")!) with { ScryingAreaHash = chateau.AreaHashes.First() });
         var compass = bag.Add(mainBag, 1, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyItemiseSextantModifier")!));
+        var scour = bag.Add(mainBag, 2, 0, ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyConvertToNormal")!) with { StackSize = 2 });
+        Assert.Equal(orb.Item.ScryingAreaHash, BinaryPrimitives.ReadUInt16LittleEndian(orb.Item.Payload().AsSpan()[^2..]));
+        Assert.Equal(orb.Item.ScryingAreaHash, CharacterSaves.FromSaved(CharacterSaves.ToSaved(orb.Item), Program.Items).ScryingAreaHash);
         const uint npc = 123;
         var confirm = new InstanceMapDevice.AtlasScryRequest(chateau.AreaHashes.First(), alleyways.AreaHashes.First(), npc);
         fixture.Player.Use(fixture.Player.Layout with { Id = chateau.Areas.First(), Hash = chateau.AreaHashes.First() });
@@ -47,10 +50,20 @@ public sealed class BatchEndgameAtlasDelveHudTests
             Assert.Null(AtlasProgress.ScryTarget(data, chateau));
             Assert.Contains(bag.Items(mainBag), item => item == orb);
             Assert.True(AtlasProgress.Complete(data, [chateau, alleyways]));
+            Assert.True(await Use(orb.Id, alleyways.Hash16));
+            Assert.DoesNotContain(bag.Items(mainBag), item => item.Id == orb.Id);
+            Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
+            Assert.True(await Use(orb.Id, alleyways.Hash16)); // Repeated click after it was spent.
+            Assert.True(await GameEvents.AnyPacket(fixture.Player, InstanceMapDevice.UseItemTypeOnAtlasNodeId,
+                new LoginWriter().U16(InstanceMapDevice.UseItemTypeOnAtlasNodeId).U32(scour.Item.TypeHash)
+                    .U32(PlayerInventories.InventoryId(mainBag)).U16(0).U16(0).U8(0).U16(alleyways.Hash16).ToArray()));
+            Assert.Null(AtlasProgress.ScryTarget(data, chateau));
+            Assert.True(await Use(scour.Id, chateau.Hash16)); // Neither endpoint has a link any more.
+            Assert.Equal(1, bag.Items(mainBag).Single(i => i.Id == scour.Id).Item.StackSize);
             Assert.True(await Confirm());
             Assert.True(await Confirm());
         }
-        Assert.Equal(2, bag.Items(mainBag).Single(item => item.Id == orb.Id).Item.StackSize);
+        Assert.DoesNotContain(bag.Items(mainBag), item => item.Id == orb.Id);
         Assert.Equal(alleyways.Id, AtlasProgress.ScryTarget(data, chateau));
         MapDevice.MapArea Map(AtlasProgress.Node node) => new(node.AreaHashes.First(), node.Areas.First(), node.Name, 1);
         var destination = new MapOpening(fixture.Player, [], false, new(Map(alleyways), MapMods.None), "");
