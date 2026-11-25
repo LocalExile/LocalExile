@@ -320,11 +320,11 @@ public static class StatConditions
         if (DedicatedConsumers.Contains(statId) || Program.Stats.Key(statId) is uint id
             && (ChargeEffects.Expands(id) || IncomingAilmentEffects.Expands(id))) return null;
         if (candidate is not { } plain) return null;
-        if (statId == "additional_physical_damage_reduction_%_while_affected_by_determination")
-            plain = "base_additional_physical_damage_reduction_%";
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
+            "additional_physical_damage_reduction_%" when statId == "additional_physical_damage_reduction_%_while_affected_by_determination"
+                => "base_additional_physical_damage_reduction_%",
             "attack_skills_damage_+%" => "attack_damage_+%",
             "resist_all_elements_+%" => "base_resist_all_elements_%",
             "evasion_+%" => "evasion_rating_+%",

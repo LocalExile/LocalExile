@@ -4,43 +4,6 @@ namespace GameServer.Gateway.Tests;
 
 public class PlayerDamageTakenTests
 {
-    [Fact]
-    public async Task Watchers_Eye_reduces_fixed_physical_contact_damage_while_Determination_is_active()
-    {
-        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
-        var mod = Program.Items.Mods.ById("DeterminationPhysicalDamageReduction")!;
-        var plain = await HitWithAura(modified: false, active: true);
-        var protectedHit = await HitWithAura(modified: true, active: true);
-        var auraAbsent = await HitWithAura(modified: true, active: false);
-        Assert.Equal(plain - 80, protectedHit);
-        Assert.True(auraAbsent > plain);
-        Console.WriteLine($"Determination physical contact: {plain}, with Watcher's Eye {protectedHit}, aura disabled {auraAbsent}");
-
-        async Task<int> HitWithAura(bool modified, bool active)
-        {
-            using var fixture = new TriggeredSummonTests.Fixture();
-            var player = fixture.Player;
-            const byte slot = 1;
-            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
-            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
-            { Mods = modified ? [new(ModSection.Explicit, mod.Hash, [8])] : [] });
-            ushort skill = Assert.Single(fixture.Equip(("Determination", 1)));
-            var aura = Assert.Single(Game.GemSkillEffects(player));
-            if (active)
-                Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
-                    Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
-            Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == skill));
-            Assert.Equal(modified && active ? 8 : 0, Game.CharacterPlayerStats(player)
-                .GetValueOrDefault(Stat.BaseAdditionalPhysicalDamageReductionPct));
-            Game.RecomputePoolsAndSpeed(player);
-            player.PlayerLife = player.PlayerMaxLife;
-            Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 1000, block: false, spell: true,
-                suppress: false, out var hit));
-            Assert.Equal((uint)hit.Damage, player.PlayerMaxLife - player.PlayerLife);
-            return hit.Damage;
-        }
-    }
-
     static Func<uint, int> With(params (string Stat, int Value)[] stats) =>
         name => stats.Where(s => Stat.Of(s.Stat) == name).Sum(s => s.Value);
 

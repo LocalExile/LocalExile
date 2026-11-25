@@ -6,15 +6,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class HitDebuffTests
 {
-    [Fact]
-    public async Task Equipped_contact_and_skill_use_modifiers_apply_to_their_own_hits()
-    {
-        await Dyadus_chills_for_one_second_only_with_the_attacking_offhand();
-        await Disorienting_Display_blinds_nearby_enemies_on_elemental_skill_use();
-        await Obscurantis_adds_damage_only_to_projectile_attacks_at_the_accuracy_breakpoint();
-    }
-
-    static async Task Dyadus_chills_for_one_second_only_with_the_attacking_offhand()
+    static async Task VerifyDyadusOffhandChill()
     {
         var dyadus = NativeUnique("Dyadus", "ChillEnemiesOnHitWithWeaponUnique__1", 1000);
         foreach (bool offHand in new[] { false, true })
@@ -36,7 +28,7 @@ public sealed class HitDebuffTests
             });
     }
 
-    static async Task Disorienting_Display_blinds_nearby_enemies_on_elemental_skill_use()
+    static async Task VerifyDisorientingDisplaySkillUse()
     {
         foreach (bool elemental in new[] { false, true })
             await WithContactWitness(async (fixture, clock, target) =>
@@ -53,7 +45,7 @@ public sealed class HitDebuffTests
             });
     }
 
-    static async Task Obscurantis_adds_damage_only_to_projectile_attacks_at_the_accuracy_breakpoint()
+    static async Task VerifyObscurantisAccuracyBreakpoint()
     {
         var helmet = NativeUnique("Obscurantis", "IncreaseProjectileAttackDamagePerAccuracyUnique__1", 1);
         async Task<(double Min, uint Damage)> Damage(string name, int accuracy, bool mod)
@@ -206,8 +198,12 @@ public sealed class HitDebuffTests
     // Intimidate, Unnerve, Blind and Withered from the player's hits: each rolls its own chances and lasts its own time
     // from the latest hit, and Intimidate, Unnerve and Withered raise the damage the monster takes.
     [Fact]
-    public void Hits_intimidate_unnerve_blind_and_wither_by_their_chances()
+    public async Task Hits_intimidate_unnerve_blind_and_wither_by_their_chances()
     {
+        await VerifyDyadusOffhandChill();
+        await VerifyDisorientingDisplaySkillUse();
+        await VerifyObscurantisAccuracyBreakpoint();
+
         // Bite's conditional stat is an additive increased-damage bucket, never an automatic neutral-resolver bonus and
         // never a final-packet more multiplier. These are explicit arithmetic controls independent of the resolver.
         {

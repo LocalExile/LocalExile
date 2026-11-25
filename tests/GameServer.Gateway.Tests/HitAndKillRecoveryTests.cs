@@ -1,3 +1,4 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -5,7 +6,14 @@ namespace GameServer.Gateway.Tests;
 public sealed class HitAndKillRecoveryTests
 {
     [Fact]
-    public async Task Watchers_Eye_recovers_life_and_shield_on_paid_spell_and_attack_hits()
+    public async Task Equipped_aura_jewels_apply_their_defence_critical_and_recovery_effects()
+    {
+        await VerifyDeterminationPhysicalDamageReduction();
+        await VerifyPrecisionCriticalChanceMultiplier();
+        await VerifyVitalityAndDisciplineHitRecovery();
+    }
+
+    static async Task VerifyVitalityAndDisciplineHitRecovery()
     {
         var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
         var lifeMod = Program.Items.Mods.ById("VitalityLifeGainPerHit")!;
@@ -87,6 +95,83 @@ public sealed class HitAndKillRecoveryTests
                 }
                 finally { player.Area.Monsters.Remove(id); }
             }
+        }
+    }
+
+    static async Task VerifyDeterminationPhysicalDamageReduction()
+    {
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("Watcher's Eye", new Random(17)));
+        var mod = Program.Items.Mods.ById("DeterminationPhysicalDamageReduction")!;
+        var plain = await HitWithAura(modified: false, active: true);
+        var protectedHit = await HitWithAura(modified: true, active: true);
+        var auraAbsent = await HitWithAura(modified: true, active: false);
+        Assert.Equal(plain - 80, protectedHit);
+        Assert.True(auraAbsent > plain);
+        Console.WriteLine($"Determination physical contact: {plain}, with Watcher's Eye {protectedHit}, aura disabled {auraAbsent}");
+
+        async Task<int> HitWithAura(bool modified, bool active)
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, jewel with
+            { Mods = modified ? [new(ModSection.Explicit, mod.Hash, [8])] : [] });
+            ushort skill = Assert.Single(fixture.Equip(("Determination", 1)));
+            var aura = Assert.Single(Game.GemSkillEffects(player));
+            if (active)
+                Assert.True(await Game.ToggleAura(player, skill, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, skill)!.Value, aura.Level, aura.Quality));
+            Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == skill));
+            Assert.Equal(modified && active ? 8 : 0, Game.CharacterPlayerStats(player)
+                .GetValueOrDefault(Stat.BaseAdditionalPhysicalDamageReductionPct));
+            Game.RecomputePoolsAndSpeed(player);
+            player.PlayerLife = player.PlayerMaxLife;
+            Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 1000, block: false, spell: true,
+                suppress: false, out var hit));
+            Assert.Equal((uint)hit.Damage, player.PlayerMaxLife - player.PlayerLife);
+            return hit.Damage;
+        }
+    }
+
+    static async Task VerifyPrecisionCriticalChanceMultiplier()
+    {
+        var uniques = new UniqueCatalog(Program.Items);
+        var definition = Assert.IsType<UniqueCatalog.Definition>(uniques.Find("Sublime Vision"));
+        var mod = Program.Items.Mods.ById("SublimeVisionPrecision")!;
+        var jewel = Assert.IsType<Item>(Enumerable.Range(1, 512).Select(seed => uniques.Create(definition, new Random(seed)))
+            .FirstOrDefault(candidate => candidate?.Mods.Any(roll => roll.Hash == mod.Hash) == true));
+        var modifier = Assert.Single(jewel.Mods, roll => roll.Hash == mod.Hash);
+        Assert.Equal(25, modifier.Values[0]);
+        var control = jewel with { Mods = [.. jewel.Mods.Select(roll => roll.Hash != mod.Hash ? roll
+            : roll with { Values = [0, .. roll.Values.Skip(1)] })] };
+        var baseline = await Chances(control, active: true);
+        var active = await Chances(jewel, active: true);
+        Assert.Equal(await Chances(control, active: false), await Chances(jewel, active: false));
+        Assert.InRange(active.Spell, (int)Math.Round(baseline.Spell * 1.25) - 1, (int)Math.Round(baseline.Spell * 1.25) + 1);
+        Assert.InRange(active.Attack, (int)Math.Round(baseline.Attack * 1.25) - 1, (int)Math.Round(baseline.Attack * 1.25) + 1);
+        Assert.True(active.Spell > baseline.Spell && active.Attack > baseline.Attack);
+        Console.WriteLine($"Precision crit chances (spell, attack): {baseline} -> {active}");
+
+        async Task<(int Spell, int Attack)> Chances(Item equipped, bool active)
+        {
+            using var fixture = new TriggeredSummonTests.Fixture();
+            var player = fixture.Player;
+            var items = Game.ItemsOf(player);
+            uint main = Assert.Single(items.Items(PlayerInventories.Weapon1)).Id;
+            items.Change(PlayerInventories.Weapon1, main, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+            fixture.Equip(("Ice Nova", 1), ("Double Strike", 1), ("Precision", 1));
+            var gems = Game.GemSkillEffects(player).ToDictionary(skill => skill.Name);
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            items.Add(PlayerInventories.PassiveJewels, slot, 0, equipped);
+            var aura = gems["Precision"];
+            if (active)
+                Assert.True(await Game.ToggleAura(player, aura.Id, aura.Effect, aura.Name,
+                    Game.SupportedReservationCost(player, aura.Id)!.Value, aura.Level, aura.Quality));
+            Assert.Equal(active, Game.AffectingAuras(player).Any(a => a.SkillId == aura.Id));
+            return (Game.SupportedCriticalChance(player, gems["Ice Nova"].Id),
+                Game.SupportedCriticalChance(player, gems["Double Strike"].Id));
         }
     }
 
