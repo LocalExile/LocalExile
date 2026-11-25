@@ -64,6 +64,89 @@ public sealed class HolyFlameTotemTests
     }
 
     [Fact]
+    public void Area_exit_retires_totem_objects_pending_placements_and_their_ground()
+    {
+        using var fixture = new MinionUtilityTests.Fixture();
+        var player = fixture.Player;
+        var area = player.Area;
+        var totem = new TotemState.Totem(100, 259, (50, 50), 24, double.PositiveInfinity, null);
+        player.Totems.Place(totem, 1, 0);
+        player.SetObjectBlocker(totem.Id, 50, 50, 2, true);
+        player.Totems.PendingPlacements.Add(101);
+        player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 50, 50, 16, double.PositiveInfinity, 102)
+            { SourceAlive = totem.Alive, GrantsCurseImmunity = true });
+        player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ChilledGround, 99, 99, 16, double.PositiveInfinity, 103));
+        var previous = GameArea.Own(area);
+        try
+        {
+            foreach (uint id in new uint[] { 100, 101, 102, 103 })
+                area.Delta.Add(id, InstanceEntities.CreateObject(id, 0x1234, [0, 0]), kind: AreaDelta.Kind.Create);
+            area.Delta.Take();
+
+            Game.EndAreaTotems(player);
+            Assert.Empty(player.Totems.All);
+            Assert.Empty(player.Totems.PendingPlacements);
+            Assert.Equal(103u, Assert.Single(player.FlaskGrounds.Grounds).Object);
+            Assert.False(area.Objects.Has(100));
+            Assert.False(area.Objects.Has(101));
+            Assert.False(area.Objects.Has(102));
+            Assert.True(area.Objects.Has(103));
+
+            Game.EndAreaTotems(player);
+            var records = area.Delta.Take();
+            Assert.Equal(new uint[] { 100, 101, 102 }, records
+                .Where(record => record.Kind == AreaDelta.Kind.Remove).Select(record => record.Entity).Order());
+            var roster = InstanceEntities.PlayerMinionsChange(player.Id, [new(100, 0, 5)], false);
+            Assert.Single(records, record => ReferenceEquals(record.Only, player)
+                && record.Bytes.AsSpan().SequenceEqual(roster));
+        }
+        finally { GameArea.Own(previous); }
+    }
+
+    [Fact]
+    public void Area_exit_off_frame_purges_objects_immediately_and_defers_delta_to_departed_area()
+    {
+        using var fixture = new MinionUtilityTests.Fixture();
+        var player = fixture.Player;
+        var area = player.Area;
+        var totem = new TotemState.Totem(200, 259, (50, 50), 24, double.PositiveInfinity, null);
+        player.Totems.Place(totem, 1, 0);
+        player.SetObjectBlocker(totem.Id, 50, 50, 2, true);
+        player.Totems.PendingPlacements.Add(201);
+        player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, 50, 50, 16, double.PositiveInfinity, 202)
+            { SourceAlive = totem.Alive, GrantsCurseImmunity = true });
+        var previous = GameArea.Own(area);
+        try
+        {
+            foreach (uint id in new uint[] { 200, 201, 202 })
+                area.Delta.Add(id, InstanceEntities.CreateObject(id, 0x1234, [0, 0]), kind: AreaDelta.Kind.Create);
+            area.Delta.Take();
+        }
+        finally { GameArea.Own(previous); }
+
+        area.Driven = true;
+        try
+        {
+            Game.EndAreaTotems(player);
+            Assert.Empty(player.Totems.All);
+            Assert.Empty(player.Totems.PendingPlacements);
+            Assert.Empty(player.FlaskGrounds.Grounds);
+            Assert.False(area.Objects.Has(200));
+            Assert.False(area.Objects.Has(201));
+            Assert.False(area.Objects.Has(202));
+
+            player.Closed = true;
+            area.Step(1, 0);
+            area.Driven = false;
+            var records = area.Delta.Take();
+            Assert.Equal(new uint[] { 200, 201, 202 }, records
+                .Where(record => record.Kind == AreaDelta.Kind.Remove).Select(record => record.Entity).Order());
+            Assert.DoesNotContain(records, record => ReferenceEquals(record.Only, player));
+        }
+        finally { area.Driven = false; }
+    }
+
+    [Fact]
     public void Native_admission_stays_bounded_and_retired_holy_flame_sources_stop_casting()
     {
         using var f=new MinionUtilityTests.Fixture();
