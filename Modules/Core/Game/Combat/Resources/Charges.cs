@@ -263,7 +263,10 @@ public static partial class Game
         int tukohamaPerSec = Get(Stat.WhileStationaryGainAdditionalPhysicalDamageReductionPct);
         if (tukohamaPerSec > 0 && !player.Walk.Moving(now) && double.IsFinite(player.StationarySince))
             pantheonPhysical += Math.Min(9L, (long)Math.Min(3, (int)Math.Floor(Math.Max(0, now - player.StationarySince))) * tukohamaPerSec);
-        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction) + minionReduction + pantheonPhysical), reduction.Elemental);
+        int leechReduction = Get(Stat.KeystoneStrengthOfBlood) != 0
+            ? LeechOf(player).StrengthOfBloodReduction(ProjectileWorldTime(player)) : 0;
+        return (ActorScale.Saturate((long)reduction.Physical + Get(SiphoningHitReduction)
+            + minionReduction + pantheonPhysical + leechReduction), reduction.Elemental);
     }
 
     // A hit's damage taken after the player's mitigation (the dev /hit commands, MonsterSwing's rules): physical through

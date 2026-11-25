@@ -3684,7 +3684,7 @@ public static partial class Game
         if (damage > 0 && m.Effects[Stat.AvoidDamagePct] is > 0 and var avoid && Random.Shared.Next(100) < avoid) return null;
         double hitNow = ProjectileWorldTime(player);
         if (impale is { } contact)
-            damage = ApplyImpaleContact(m, damage, contact.Physical, contact.At, hitNow, contact.Settings, contact.Random).Damage;
+            damage = ApplyImpaleContact(player, m, damage, contact.Physical, contact.At, hitNow, contact.Settings, contact.Random).Damage;
         int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, damage, chaosDamage, AreaTime(player));
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(player, m, hitNow, playerStats);

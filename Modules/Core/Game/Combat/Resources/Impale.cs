@@ -2,6 +2,8 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const int ImpalerRadius = 30;
+
     // Reflected physical damage receives target physical reduction and generic damage taken once. It is neither
     // attack nor spell damage and cannot crit, penetrate, or separately grant on-hit effects/Fortification/leech.
     public static int MonsterImpaleDamage(SpawnedMonster target, double stored, double now = double.NaN) =>
@@ -14,14 +16,22 @@ public static partial class Game
         if (target.Invulnerable) return (directDamage, 0, false);
         double physical = rolled[DamageType.Physical].Min
             * (critical ? Math.Max(0, sourceCriticalMultiplier) / 100.0 : 1) * Math.Max(0, hitMore);
-        return ApplyImpaleContact(target, directDamage, physical, AreaTime(player), ProjectileWorldTime(player),
+        return ApplyImpaleContact(player, target, directDamage, physical, AreaTime(player), ProjectileWorldTime(player),
             settings, AreaRng(player));
     }
 
-    static (int Damage, double Reflected, bool Applied) ApplyImpaleContact(SpawnedMonster target,
+    static (int Damage, double Reflected, bool Applied) ApplyImpaleContact(Player player, SpawnedMonster target,
         int directDamage, double physical, double at, double mitigationAt, ImpaleStats.Settings settings, Random random)
     {
         var (stored, applied) = target.Impale.OnHit(physical, at, settings, random, target.Effects[Stat.AvoidImpalePct]);
+        if (applied && settings.TheImpaler)
+        {
+            var centre = target.Walk.Position(at);
+            foreach (var (_, enemy) in player.Area.MonstersNear(centre, ImpalerRadius))
+                if (!ReferenceEquals(enemy, target) && enemy is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+                    && Dist(centre, enemy.Walk.Position(at)) <= ImpalerRadius)
+                    enemy.Impale.Spread(physical, at, settings, random, enemy.Effects[Stat.AvoidImpalePct]);
+        }
         return (ImpaleStats.AddReflected(directDamage, MonsterImpaleDamage(target, stored, mitigationAt)), stored, applied);
     }
 

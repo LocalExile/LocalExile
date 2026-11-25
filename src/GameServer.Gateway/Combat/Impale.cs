@@ -9,7 +9,11 @@ public sealed class ImpaleState
     public const double BaseDuration = 8;
     public const double StoredShare = 0.10;
 
+    const int ImpalerStacks = 6;
+    const double ImpalerLockSeconds = 5;
+
     readonly List<(double Stored, int HitsLeft, double ExpiresAt)> _stacks = [];
+    double _cannotBeImpaledUntil = double.NegativeInfinity;
 
     public int Stacks => _stacks.Count;
 
@@ -24,9 +28,15 @@ public sealed class ImpaleState
         int hits = HitsPerStack, double duration = BaseDuration)
     {
         Expire(now);
+        return Store(physicalDamage, now, effectPercent, hits, duration, 1);
+    }
+
+    bool Store(double physicalDamage, double now, int effectPercent, int hits, double duration, int count)
+    {
+        if (now < _cannotBeImpaledUntil) return false;
         double stored = physicalDamage * StoredShare * Math.Max(0, 1 + effectPercent / 100.0);
         if (!double.IsFinite(stored) || stored <= 0 || hits <= 0 || !double.IsFinite(duration) || duration <= 0) return false;
-        _stacks.Add((stored, hits, now + duration));
+        for (int i = 0; i < count; i++) _stacks.Add((stored, hits, now + duration));
         return true;
     }
 
@@ -52,10 +62,30 @@ public sealed class ImpaleState
         double reflected = Bonus;
         AfterHit(now);
         bool applied = physicalDamage > 0 && settings.Chance > 0 && random.Next(100) < settings.Chance
-            && (avoidChance <= 0 || random.Next(100) >= Math.Clamp(avoidChance, 0, 100))
-            && Apply(physicalDamage, now, settings.EffectPercent, settings.Hits, settings.Duration);
+            && TryInflict(physicalDamage, now, settings, random, avoidChance);
         return (reflected, applied);
     }
 
-    public void Clear() => _stacks.Clear();
+    /// <summary>A successful impale can also apply to a nearby enemy without registering a hit on it.</summary>
+    public bool Spread(double physicalDamage, double now, ImpaleStats.Settings settings, Random random, int avoidChance)
+    {
+        Expire(now);
+        return TryInflict(physicalDamage, now, settings, random, avoidChance);
+    }
+
+    bool TryInflict(double physicalDamage, double now, ImpaleStats.Settings settings, Random random, int avoidChance)
+    {
+        if (now < _cannotBeImpaledUntil
+            || avoidChance > 0 && random.Next(100) < Math.Clamp(avoidChance, 0, 100)) return false;
+        bool applied = Store(physicalDamage, now, settings.EffectPercent, settings.Hits, settings.Duration,
+            settings.TheImpaler ? ImpalerStacks : 1);
+        if (applied && settings.TheImpaler) _cannotBeImpaledUntil = now + ImpalerLockSeconds;
+        return applied;
+    }
+
+    public void Clear()
+    {
+        _stacks.Clear();
+        _cannotBeImpaledUntil = double.NegativeInfinity;
+    }
 }

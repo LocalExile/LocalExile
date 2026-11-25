@@ -200,6 +200,26 @@ public static partial class Game
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (ExposureRoll(get, ExposureTypes[i], mitigated[ExposureTypes[i]].Max > 0, random) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
+        int strongestExposure = get(Stat.PurgeExposeResistPctMatchingHighestElementDamage);
+        if (strongestExposure < 0)
+        {
+            int index = -1;
+            double largest = 0;
+            for (int i = 0; i < ExposureTypes.Length; i++)
+            {
+                double amount = mitigated[ExposureTypes[i]].Max;
+                if (amount <= largest) continue;
+                largest = amount;
+                index = i;
+            }
+            if (index >= 0 && InflictedExposure(get, ExposureTypes[index], strongestExposure) is < 0 and var magnitude)
+            {
+                int basis = get(Stat.BaseSecondarySkillEffectDuration);
+                double seconds = basis > 0 ? SkillDurationModifiers.Seconds(basis, get, _ => 0, SkillDurationModifiers.Kinds.Secondary)
+                    : ExposureSeconds;
+                if (seconds > 0) Expose(m, index, magnitude, now, seconds);
+            }
+        }
         if (get(Stat.KeystoneElementalEquilibrium) == 0 || !ExposureTypes.Any(t => mitigated[t].Max > 0)) return;
         double effect = Math.Max(0, 1 + get(Stat.ElementalEquilibriumEffectPlusPct) / 100.0);
         for (int i = 0; i < ExposureTypes.Length; i++)
