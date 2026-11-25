@@ -82,7 +82,7 @@ public static partial class Game
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
                     ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
-                candidate = WithCasterAuraStamps(candidate, CharacterStatSources(player).Stats);
+                candidate = WithCasterAuraStamps(player, candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
         }

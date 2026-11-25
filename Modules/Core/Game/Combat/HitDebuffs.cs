@@ -196,7 +196,7 @@ public static partial class Game
     // Exposure's default duration, as the keystone names none.
     public static void ExposureOnHitLocked(SpawnedMonster m, Func<uint, int> get, DamagePacket mitigated, double now, Random random)
     {
-        if (m.Mods.Effects[Stat.ImmuneToExposure] > 0) return;
+        if (m.Effects[Stat.ImmuneToExposure] > 0) return;
         for (int i = 0; i < ExposureTypes.Length; i++)
             if (ExposureRoll(get, ExposureTypes[i], mitigated[ExposureTypes[i]].Max > 0, random) is < 0 and var magnitude)
                 Expose(m, i, magnitude, now);
