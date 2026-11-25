@@ -227,14 +227,20 @@ public static partial class Game
 
     public static List<byte[]>? IgniteOnHitLocked(Player player, uint id, SpawnedMonster target,
         MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
-        bool playerIgnite = true)
+        bool playerIgnite = true) =>
+        IgniteOnHitLocked(player, id, target, settings, critical, now, attackGains, out _, playerIgnite);
+
+    static List<byte[]>? IgniteOnHitLocked(Player player, uint id, SpawnedMonster target,
+        MonsterIgnites.Settings settings, bool critical, double now, AttackAilmentGains attackGains,
+        out double igniteDps, bool playerIgnite = true)
     {
+        igniteDps = 0;
         if (target.Invulnerable) return null;
         var e = target.Mods.Effects;
         settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
                 e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
-                UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat))) return null;
+                UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat), out igniteDps)) return null;
         player.Area.ActiveIgniteMonsters.Add(id);
         player.Area.RecentlyIgnitedMonsters.Add(id);
         InflictedLocked(player, target, AilmentType.Ignite, now + settings.Seconds);

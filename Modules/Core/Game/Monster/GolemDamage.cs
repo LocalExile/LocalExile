@@ -257,6 +257,12 @@ public static partial class Game
         GainMonsterHitChargesLocked(player.Area, attacker, source, now, random);
         if (!elementalImmune)
             m.Ailments.Inflict(rolled, critical, m.MaxLife, now, n => n == Stat.NeverFreeze && attack.Ailments.NeverFreeze ? 1 : source.Effects[n], n => effects[n], random);
+        if (EqualisingPercent(player, source) is > 0 and var equalising)
+        {
+            m.Life -= HitResourceLoss(m.Life, m.MaxLife, equalising);
+            uint removedShield = HitResourceLoss(g.Shield, g.MaximumShield, equalising);
+            if (removedShield > 0 && g.ShieldPool.Spend(removedShield)) PublishEnergyShieldLocked(player, g);
+        }
         if (m.Life > 0)
         {
             if (mitigated.MinTotal > 0) SpectreDamagedLocked(player, g, now, random);

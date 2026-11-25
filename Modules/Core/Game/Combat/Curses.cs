@@ -145,6 +145,7 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
+        if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
@@ -201,6 +202,7 @@ public static partial class Game
                 target.Monster.Curses.Put(transferred, limit);
                 if (!ReferenceEquals(target.Monster.Curses.All.GetValueOrDefault((mark.Caster, mark.Effect)), transferred)) continue;
                 dead.Curses.Remove(mark.Caster, mark.Effect);
+                TrackMarkTarget(owner, target.Monster);
                 dead.PresentationChanged?.Invoke();
                 target.Monster.PresentationChanged?.Invoke();
                 break;

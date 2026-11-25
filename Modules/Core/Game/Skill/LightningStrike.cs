@@ -21,6 +21,7 @@ static partial class Game
         int action = player.ActionCount;
         var stats = SupportedSkill(player, skillId).Stats;
         bool frostBlades = IsFrostBlades(gem.Effect);
+        bool wildStrike = IsWildStrike(gem.Effect);
         double ruthless = RuthlessBlowMore(player, skillId, name => name is var key ? stats.GetValueOrDefault(key) : 0);
         bool Valid() => session.Active && player.ActionInterruptionGeneration == recoveryGeneration
             && (ticket?.Current(player) ?? PlayerStateAllowsAction(player))
@@ -30,7 +31,10 @@ static partial class Game
             int index = repeat;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + contact + repeat * duration),
                 () => Valid() && (index == 0 || player.ActionCount == action), () =>
-                frostBlades
+                wildStrike
+                    ? ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
+                        criticalRoll, sequence, index, cryExerted, ruthless)
+                    : frostBlades
                     ? ReleaseFrostBlades(player, session, skillId, gem, from, aim, targetId,
                         criticalRoll, sequence, index, cryExerted, ruthless)
                     : ReleaseLightningStrike(player, session, skillId, gem, from, aim, targetId,
