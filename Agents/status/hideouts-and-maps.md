@@ -179,6 +179,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   hits once instead of zapping as it flies, The Beachhead unique map portal encounter and Harbinger unique piece
   assembly.
 
+- Expedition in maps and Acts 6-10 supports placing explosives, detonating markers and opening excavated chests.
+  The installed client produced chest loot in Forbidden Woods in Lockstep and on the Act 6 Coast in Predictive.
 - Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
 - Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 
