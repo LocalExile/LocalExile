@@ -103,6 +103,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   with the supported client's predicted action.
 - Static Strike (ordinary): melee hit grants `static_strike_buff` bound to the client's `StaticStrikeNew` action and
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
+  Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
+  and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
+- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
+  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -118,7 +122,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
-- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll.
+- Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll. Either Impaling strike
+  can reflect stored physical damage to nearby enemies on a kill.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Dual wielding: each attack use swings the hand the client picks from its sequence (main, off, mainâ€¦), with that
   weapon's time, damage, critical chance, accuracy and local mods; a hand the skill's weapon list excludes never
@@ -163,6 +168,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
   more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Double Strike of Momentum gains stages per started pair of swings, including Multistrike repeats. The stage counter,
+  attack cadence and skill panel follow each gain and reset on movement.
 - Glacial Hammer's third strike amplifies Freeze duration from hit damage, and strikes shatter frozen non-unique
   enemies already below one third life. Shattering guarantees the critical roll of every third consecutive strike.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) Â§2i.
@@ -187,10 +194,13 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
   landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
+  the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.
-- Poison hits and spread use increased Poison Duration. Unnatural Strength grants minions conversion and Wither on hit.
+- Poison hits and spread use increased Poison Duration. Viper Strike of the Mamba applies one poison per hit
+  to a target with no active poisons. Unnatural Strength grants minions conversion and Wither on hit.
 - Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
@@ -244,6 +254,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Lightning Strike resolves its melee hit and secondary projectiles.
+- Infernal Blow charges detonate on expiry or the sixth charge, and marked corpses explode in a separate radius;
+  Immolation charges the attacker.
 - Pestilent Strike spreads a marked corpse's remaining poison damage as a separate chaos debuff.
 - Lightning Strike of Arcing resolves the melee strike and the bolt's escalating chain damage.
   Docs: [11](../docs/protocol/11-skills.md).
@@ -324,8 +336,12 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
-  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
-  Owned minions are created as the official servers send them; a raise removes its corpse (not checked live).
+  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types, and a placed totem
+  is listed under `TotemMinion` until it dies (not checked live). The active and permanent minion counts
+  (`number_of_active_minions`, `number_of_active_permanent_minions`) count the same minion roster, with a permanent
+  minion being one without a duration.
+  Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
+  in reach is refused before its cost is paid (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane
@@ -339,6 +355,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Conversion Trap temporarily changes the triggering enemy's allegiance. Converted enemies can attack hostiles,
   and unique enemies are immune.
 - Bear Trap's single secondary hit immobilises the target, then applies a decaying slow and trap/mine hit vulnerability.
+  Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Hexes and marks. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
@@ -351,7 +368,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Artillery Ballista's mortar volleys, including Cross Strafe and Focus Fire (checked offline).
   Docs: [11](../docs/protocol/11-skills.md) §10g.
 - Minions inherit spell suppression chance and the minion damage over time multiplier from their owner.
-- Holy Flame Totem and its Ire variant use their native projectiles.
+- Holy Flame Totem and its Ire variant use their native projectiles. Leaving the area retires totem objects and their
+  ground effects.
   Docs: [11](../docs/protocol/11-skills.md) Â§10g.
 - Passive self buffs. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Onslaught on kill and from a Silver Flask. Docs: [13](../docs/protocol/13-items.md) Â§8a.

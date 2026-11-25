@@ -464,9 +464,6 @@ public static partial class Game
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         if (!friendly && MapModsOf(player) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
-        // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
-        if (!friendly && PartyMonsterLife(player, rarity) is int party and > 0)
-            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
@@ -477,6 +474,13 @@ public static partial class Game
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
+        // Corpse damage that uses unscaled life keeps the spawn's solo value even if party membership changes.
+        uint? lifeWithoutParty = null;
+        if (!friendly && PartyMonsterLife(player, rarity) is int party and > 0)
+        {
+            lifeWithoutParty = (uint)mods.Effects.MaxLife(baseLife, level);
+            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = party }) };
+        }
         uint life = (uint)mods.Effects.MaxLife(baseLife, level);
         if (ownedMaximumLife is uint ownLife) life = ownLife;
         // A part of its full life (Izaro's later Aspirant's Trials start with what the earlier ones left).
@@ -780,6 +784,7 @@ public static partial class Game
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 PackId = packId,
+                MaxLifeWithoutParty = lifeWithoutParty,
                 SpawnAnchor = (x, y),
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,

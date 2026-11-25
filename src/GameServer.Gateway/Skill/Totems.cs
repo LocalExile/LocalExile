@@ -91,6 +91,8 @@ public sealed class TotemState
         public uint Life = maxLife;
         /// <summary>When it died; null while it lives.</summary>
         public double? DiedAt;
+        /// <summary>Whether its removal from the owner's minion roster was written.</summary>
+        public bool RosterRemovalSent;
         public bool Alive(double now) => DiedAt is null && Life > 0 && now < Until;
     }
 
@@ -103,7 +105,13 @@ public sealed class TotemState
     public Action? Changed;
 
     public IReadOnlyList<Totem> All => _totems;
+    public HashSet<uint> PendingPlacements { get; } = [];
     public IEnumerable<Totem> Living(double now) => _totems.Where(t => t.Alive(now));
+    public void Clear()
+    {
+        _totems.Clear();
+        PendingPlacements.Clear();
+    }
 
     public static int SharedLimit(int limit, int? ordinaryLimit, int bonusSlots, IEnumerable<Totem> living)
     {

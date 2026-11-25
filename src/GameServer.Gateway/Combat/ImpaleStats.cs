@@ -16,15 +16,23 @@ public static class ImpaleStats
         bool critical = false) => From(character, catalog, attack, own, weaponLocal, critical, additionalAttackChance: 0);
 
     public static Settings From(IReadOnlyDictionary<uint, int> character, StatCatalog catalog, bool attack,
-        IReadOnlyDictionary<uint, int>? own, IReadOnlyDictionary<uint, int>? weaponLocal, bool critical, long additionalAttackChance)
+        IReadOnlyDictionary<uint, int>? own, IReadOnlyDictionary<uint, int>? weaponLocal, bool critical, long additionalAttackChance) =>
+        FromDamageKind(character, own, weaponLocal, attack, spell: !attack, critical, additionalAttackChance);
+
+    public static Settings FromSecondaryHit(IReadOnlyDictionary<uint, int> character, IReadOnlyDictionary<uint, int> own) =>
+        FromDamageKind(character, own, null, attack: false, spell: false, critical: false, additionalAttackChance: 0);
+
+    static Settings FromDamageKind(IReadOnlyDictionary<uint, int> character, IReadOnlyDictionary<uint, int>? own,
+        IReadOnlyDictionary<uint, int>? weaponLocal, bool attack, bool spell, bool critical, long additionalAttackChance)
     {
         long Get(uint key) => (long)character.GetValueOrDefault(key) + (own?.GetValueOrDefault(key) ?? 0);
-        long chance = Get(Stat.ImpaleOnHitPctChance) + (attack
-            ? Get(Stat.AttacksImpaleOnHitPctChance) + (weaponLocal?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) ?? 0)
-                + additionalAttackChance
-
-            : Get(Stat.SpellsImpaleOnHitPctChance) + (critical ? Get(Stat.SpellImpaleOnCritPctChance) : 0));
-        long effect = Get(Stat.ImpaleDebuffEffectPlusPct) + (attack ? 0 : Get(Stat.ImpaleEffectPlusPctForImpalesInfictedBySpells));
+        long chance = Get(Stat.ImpaleOnHitPctChance);
+        if (attack)
+            chance += Get(Stat.AttacksImpaleOnHitPctChance) + (weaponLocal?.GetValueOrDefault(Stat.LocalAttacksImpaleOnHitPctChance) ?? 0)
+                + additionalAttackChance;
+        if (spell)
+            chance += Get(Stat.SpellsImpaleOnHitPctChance) + (critical ? Get(Stat.SpellImpaleOnCritPctChance) : 0);
+        long effect = Get(Stat.ImpaleDebuffEffectPlusPct) + (spell ? Get(Stat.ImpaleEffectPlusPctForImpalesInfictedBySpells) : 0);
         return new((int)Math.Clamp(chance, 0, 100), (int)Math.Clamp(effect, int.MinValue, int.MaxValue),
             (int)Math.Clamp(ImpaleState.HitsPerStack + Get(Stat.ImpaledDebuffNumberOfReflectedHits), 0, int.MaxValue),
             ImpaleState.BaseDuration * Math.Max(0, 1 + Get(Stat.ImpaledDebuffDurationPlusPct) / 100.0));

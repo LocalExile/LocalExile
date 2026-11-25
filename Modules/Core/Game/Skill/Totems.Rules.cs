@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
@@ -22,6 +23,9 @@ public static partial class Game
     /// <summary>Metadata/Characters/Character.ot: base_number_of_totems_allowed 1 and base_presence_radius 80 (the wiki's
     /// fixed 8 metres "in your presence"). The client has both from the .ot; the server's stats do not carry them.</summary>
     public const int BaseTotemsAllowed = 1, PresenceRadius = 80;
+
+    /// <summary>The MinionType.dat row (TotemMinion) a placed totem is listed under in its owner's minion roster.</summary>
+    const ushort TotemMinionType = 5;
 
     /// <summary>The totem skills that also carry an aura: Rejuvenation Totem's (BuffDefinitions 172
     /// totem_aura_life_regen, base radius 10, wiki Rejuvenation Totem) regenerates the player's Life. A totem skill that
@@ -363,6 +367,11 @@ public static partial class Game
             if (spellTotem) BindTotemSource(player, placed);
             BindFocusedBallista(player, placed);
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
+            // The owner's minion roster lists a placed totem, as the official servers do; the client's totem counter counts
+            // these. Written where the totem enters its state, so a cancelled placement never lists one, and in the same
+            // batch as the removal of a replaced one (TotemRecords).
+            bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(objectId, skillId, TotemMinionType)],
+                CanDetonateMines(player)));
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
             StartTotemTimer(player);
             if (replaced.Count > 0)
@@ -431,6 +440,7 @@ public static partial class Game
                     bytes.Presentation(objectId, InstanceProtocol.ActionStartedNow(objectId, place.X, place.Y, place.X, place.Y,
                         emerge, player.NextActionSequence(), 0x0800, objectId));
                 if (finishPlacement is null) Activate(objectId, bytes);
+                else player.Totems.PendingPlacements.Add(objectId);
                 created ??= objectId;
             }
             if (finishPlacement is null)
@@ -462,6 +472,7 @@ public static partial class Game
                         place = clear;
                         bytes.World(pendingId, InstanceProtocol.Teleport(pendingId, place.X, place.Y));
                     }
+                    if (!player.Totems.PendingPlacements.Remove(pendingId)) return null;
                     Activate(pendingId, bytes);
                     DetonateSearingBondsLocked(player, playerStats, limit, SharedOrdinaryLimit(), bytes);
                     TotemRecords(player, bytes);
@@ -475,7 +486,11 @@ public static partial class Game
         }
         finally
         {
+            bool removePending = false;
             if (!active && !player.Closed && !player.LeavingArea)
+                using (ProjectileMutation(player, advance: false))
+                    removePending = player.Totems.PendingPlacements.Remove(pendingId);
+            if (removePending)
                 await SendWorldRemoval(player, pendingId, "cancelled totem placement");
         }
     }
@@ -601,7 +616,8 @@ public static partial class Game
     }
 
     // The totems as the client should see them, from the totems' timer and after a placement: expired ones die, their Life
-    // (0x1b1), the dead ones' removal (0x2bd), and the aura buff on the player (0x1c1 from the totem, 0x1c2) with his stats.
+    // (0x1b1), the dead ones' roster removal (0x2bc) and body removal (0x2bd), and the aura buff on the player (0x1c1 from
+    // the totem, 0x1c2) with his stats.
     public static byte[]? TotemPresentation(Player player) => TotemRecords(player, new(player, null)) is { } batch
         ? [.. batch.Records.SelectMany(r => r.CopyBytes())] : null;
 
@@ -625,6 +641,13 @@ public static partial class Game
                 StopTotemChannel(t, bytes);
                 StopSearingBond(t, bytes);
                 TotemChannels.Remove(t);
+                // Source 0 takes it off the roster; once, in the batch that carries its death.
+                if (!t.RosterRemovalSent)
+                {
+                    t.RosterRemovalSent = true;
+                    bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(t.Id, 0, TotemMinionType)],
+                        CanDetonateMines(player)));
+                }
             }
             player.Area.Life.Set(t.Id, AreaLife.LifePool, t.DiedAt is null ? t.Life : 0);
         }
@@ -641,6 +664,74 @@ public static partial class Game
         SyncReceivedTotemAuraLocked(player, now, bytes);
         SyncVaalWarchiefBuff(player, now, bytes);
         return bytes.Count == 0 ? null : bytes.Build();
+    }
+
+    internal static void EndAreaTotems(Player player)
+    {
+        GameArea area;
+        var retired = new List<uint>();
+        MinionOwnershipChange[] rosterChanges;
+        bool canDetonateMines = false;
+        using (ProjectileMutation(player, advance: false))
+        {
+            var totems = player.Totems;
+            if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
+            area = player.Area;
+            double now = AreaTime(player);
+            totems.KillAll(now);
+            foreach (uint pending in totems.PendingPlacements)
+                retired.Add(pending);
+            foreach (var totem in totems.All)
+            {
+                player.RemoveBlocker(totem.Id);
+                TotemChannels.Remove(totem);
+                if (SearingBondSources.TryGetValue(totem, out var source))
+                {
+                    foreach (uint beam in source.Beams.Values) retired.Add(beam);
+                    SearingBondSources.Remove(totem);
+                }
+                retired.Add(totem.Id);
+            }
+            rosterChanges = player.Closed
+                ? []
+                : totems.All.Where(t => !t.RosterRemovalSent)
+                    .Select(t => new MinionOwnershipChange(t.Id, 0, TotemMinionType)).ToArray();
+            if (rosterChanges.Length > 0) canDetonateMines = CanDetonateMines(player);
+            totems.Clear();
+            foreach (var ground in player.FlaskGrounds.Expire(now))
+                if (ground.Object is uint groundObject) retired.Add(groundObject);
+        }
+
+        static byte[] RemoveBytes(uint id)
+        {
+            var remove = InstanceProtocol.RemoveObject(id);
+            BinaryPrimitives.WriteUInt32BigEndian(remove.AsSpan(6), uint.MaxValue);
+            return remove;
+        }
+
+        if (area.Owned)
+        {
+            foreach (uint id in retired)
+                area.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes totem object 0x{id:x}");
+            if (rosterChanges.Length > 0 && !player.Closed)
+                area.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, rosterChanges,
+                    canDetonateMines), only: player);
+            return;
+        }
+
+        // Purge AreaObjectRecords immediately (thread-safe) so returning/joining players never see ghost totems even if
+        // this was the last player in the area and the frame driver stops before any deferred callback runs.
+        foreach (uint id in retired)
+            area.Objects.RecordDirect(id, RemoveBytes(id), AreaDelta.Kind.Remove, player);
+        if (area.Driven)
+            area.Defer(a =>
+            {
+                foreach (uint id in retired)
+                    a.Delta.RemoveSharedObject(id, RemoveBytes(id), $"0x02bd area exit removes totem object 0x{id:x}");
+                if (rosterChanges.Length > 0 && !player.Closed && ReferenceEquals(player.Area, a))
+                    a.Delta.Add(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, rosterChanges,
+                        canDetonateMines), only: player);
+            });
     }
 
     static void SyncReceivedTotemAuraLocked(Player player, double now, WorldRecordBuilder bytes)
