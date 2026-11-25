@@ -82,6 +82,7 @@ public static partial class Game
             int damage = MonsterImpaleDamage(enemy, stored, now);
             if (damage <= 0 || ApplyMonsterHitLocked(player, enemy, damage, playerStats: stats, allyAt: centre) is not { } hit)
                 continue;
+            if (hit.Life == 0) SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
                 $"killing-blow impale reflection on monster 0x{id:x} for {damage}");
             if (hit.StageStarts) CommitProjectileBossStage(session, id, enemy, at);

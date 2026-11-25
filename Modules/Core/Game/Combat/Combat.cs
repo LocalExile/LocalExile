@@ -3553,7 +3553,7 @@ public static partial class Game
                             RecordTinctureKill(m, tinctureKill);
                             ReflectKillingBlowImpalesLocked(player, m,
                                 skillStats.GetValueOrDefault(global::Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance),
-                                AreaTime(player), playerStats, playerKill: true);
+                                at, playerStats, playerKill: true);
                         }
                         if (!spell && player.TinctureEffects.AnyEffective) TinctureOnWeaponHitLocked(player, playerStats, m, lifeBefore, at, AreaRng(player));
                         // Devour: a killing blow recovers the support's life/mana and consumes the corpse (the kill removes it).
