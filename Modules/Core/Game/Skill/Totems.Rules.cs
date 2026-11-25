@@ -851,7 +851,8 @@ public static partial class Game
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
-        var caster = TotemCasterStats(CharacterPlayerStats(player));
+        var ownerStats = CharacterPlayerStats(player);
+        var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         bool attack = SkillsFor(player).IsAttack(skill.Effect);
         var hit = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster)
@@ -889,6 +890,7 @@ public static partial class Game
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
+            if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
