@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -16,6 +17,12 @@ public static partial class Game
     {
         public readonly Dictionary<Player, FrostShieldZone> Shields = [];
         public readonly Dictionary<Player, SigilZone> Sigils = [];
+    }
+
+    static bool TryZoneSpellArea(Player player, [NotNullWhen(true)] out ZoneSpellArea? area)
+    {
+        area = null;
+        return player.Instance is { } instance && ZoneSpellAreas.TryGetValue(instance, out area);
     }
 
     abstract class ZoneSpell(Player owner, ushort skill, int effect, GemSourceLifetimes.SourceLifetime source,
@@ -87,6 +94,7 @@ public static partial class Game
     internal static bool? CastZoneSpell(Player player, string? id, ushort skill, (int X, int Y) target, Func<bool> current)
     {
         if (id is not (FrostShieldEffect or SigilOfPowerEffect) || IsTotemSkill(player, skill)) return null;
+        if (player.Instance is not { } instance) return false;
         using var mutation = ProjectileMutation(player, advance: false);
         if (!current() || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InTown(player)) return false;
         var gem = SupportedSkill(player, skill);
@@ -107,7 +115,7 @@ public static partial class Game
         if (duration <= 0 || radius <= 0) return false;
         double now = AreaTime(player);
         var centre = player.Layout.Near(target);
-        var state = ZoneSpellAreas.GetOrCreateValue(player.Instance);
+        var state = ZoneSpellAreas.GetOrCreateValue(instance);
         if (frost)
         {
             if (state.Shields.Remove(player, out var old)) EndZoneSpell(old);
@@ -138,7 +146,7 @@ public static partial class Game
 
     internal static Task TickZoneSpells(Player player)
     {
-        if (!ZoneSpellAreas.TryGetValue(player.Instance, out var area)
+        if (!TryZoneSpellArea(player, out var area)
             || !(area.Shields.ContainsKey(player) || area.Sigils.ContainsKey(player))) return Task.CompletedTask;
         using var mutation = ProjectileMutation(player, advance: false);
         double now = AreaTime(player);
@@ -170,7 +178,7 @@ public static partial class Game
 
     internal static void EndZoneSpells(Player player)
     {
-        if (!ZoneSpellAreas.TryGetValue(player.Instance, out var area)) return;
+        if (!TryZoneSpellArea(player, out var area)) return;
         var activeArea = player.Area;
         void Remove(GameArea _)
         {
@@ -276,7 +284,7 @@ public static partial class Game
 
     internal static Dictionary<uint, int> ZoneSpellPlayerStats(Player player, Dictionary<uint, int> stats)
     {
-        if (!ZoneSpellAreas.TryGetValue(player.Instance, out var area) || (area.Shields.Count == 0 && area.Sigils.Count == 0))
+        if (!TryZoneSpellArea(player, out var area) || (area.Shields.Count == 0 && area.Sigils.Count == 0))
             return stats;
         double now = AreaTime(player);
         var here = player.Walk.Position(now);
@@ -291,7 +299,7 @@ public static partial class Game
 
     static void AddMinionSigilLightning(Player player, (int X, int Y) here, double now, Dictionary<uint, int> stats)
     {
-        if (ZoneSpellAreas.TryGetValue(player.Instance, out var area)) AddSigilLightning(area, here, now, stats);
+        if (TryZoneSpellArea(player, out var area)) AddSigilLightning(area, here, now, stats);
     }
 
     static void AddSigilLightning(ZoneSpellArea area, (int X, int Y) here, double now, Dictionary<uint, int> stats)
@@ -316,7 +324,7 @@ public static partial class Game
 
     static void SigilManaSpent(Player player, uint amount, double now)
     {
-        if (!ZoneSpellAreas.TryGetValue(player.Instance, out var area) || !area.Sigils.TryGetValue(player, out var sigil)
+        if (!TryZoneSpellArea(player, out var area) || !area.Sigils.TryGetValue(player, out var sigil)
             || !sigil.Active(now) || sigil.Stages >= sigil.MaxStages || !sigil.Contains(player.Walk.Position(now))) return;
         sigil.Mana = Math.Min((long)sigil.ManaPerStage * (sigil.MaxStages - sigil.Stages), sigil.Mana + amount);
         if (sigil.Mana < sigil.ManaPerStage || now < sigil.NextStage) return;
@@ -328,7 +336,7 @@ public static partial class Game
 
     static double SigilEnemyDamageFactor(Player player, SpawnedMonster attacker, double now)
     {
-        if (!attacker.Hostile || !ZoneSpellAreas.TryGetValue(player.Instance, out var area) || area.Sigils.Count == 0) return 1;
+        if (!attacker.Hostile || !TryZoneSpellArea(player, out var area) || area.Sigils.Count == 0) return 1;
         int modifier = 0;
         var here = attacker.Walk.Position(now);
         foreach (var sigil in area.Sigils.Values)
@@ -338,11 +346,11 @@ public static partial class Game
     }
 
     static bool HasFrostShieldZones(Player player) =>
-        ZoneSpellAreas.TryGetValue(player.Instance, out var area) && area.Shields.Count > 0;
+        TryZoneSpellArea(player, out var area) && area.Shields.Count > 0;
 
     static int AbsorbFrostShield(Player player, (int X, int Y) here, (int X, int Y) enemy, int damage, double now)
     {
-        if (damage <= 0 || !ZoneSpellAreas.TryGetValue(player.Instance, out var area) || area.Shields.Count == 0) return damage;
+        if (damage <= 0 || !TryZoneSpellArea(player, out var area) || area.Shields.Count == 0) return damage;
         FrostShieldZone? best = null;
         int absorb = 0;
         foreach (var shield in area.Shields.Values)
