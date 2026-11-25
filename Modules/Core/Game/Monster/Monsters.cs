@@ -3049,7 +3049,7 @@ public static partial class Game
         // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
-        if (m.Hostile && damage > 0 && FrostShieldCovers(player))
+        if (m.Hostile && damage > 0 && HasFrostShieldZones(player))
         {
             int kept = AbsorbFrostShield(player, player.Walk.Position(now), m.Walk.Position(now), damage, now);
             chaosDamage = (int)((long)chaosDamage * kept / damage);

@@ -337,7 +337,7 @@ public static partial class Game
         return Math.Max(0, 1 + modifier / 100d);
     }
 
-    static bool FrostShieldCovers(Player player) =>
+    static bool HasFrostShieldZones(Player player) =>
         ZoneSpellAreas.TryGetValue(player.Instance, out var area) && area.Shields.Count > 0;
 
     static int AbsorbFrostShield(Player player, (int X, int Y) here, (int X, int Y) enemy, int damage, double now)

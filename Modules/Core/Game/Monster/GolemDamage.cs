@@ -249,7 +249,7 @@ public static partial class Game
                 interceptedCarry = share % 100;
                 value -= intercept - player.EnergyShield.Damage(intercept, bypass: false, now);
             }
-            if (source.Hostile && value > 0 && FrostShieldCovers(player))
+            if (source.Hostile && value > 0 && HasFrostShieldZones(player))
                 value = AbsorbFrostShield(player, m.Walk.Position(now), source.Walk.Position(now), value, now);
             damage += g.ShieldPool.Damage(value, isChaos && !chaosNoBypass, now);
         }
