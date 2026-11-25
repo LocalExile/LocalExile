@@ -161,6 +161,8 @@ public sealed class LegionTests
         Assert.NotNull(revivalStats);
         Assert.True(revivalStats!.GetValueOrDefault(Stat.DamagePlusPct) > 0);
         Assert.True(revivalStats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) > 0);
+        Assert.Equal(250, LegionDomain.RevivalLifePct(uberReq.Opening.Mods.Stats, 5));
+        Assert.Equal(500, LegionDomain.RevivalLifePct(uberReq.Opening.Mods.Stats, 50));
         var oneReq = new MapOpening(opener, [EmblemSlot(normalIds[0])], false, null, "");
         LegionDomain.ResolveOpening(oneReq);
         Assert.Null(oneReq.Opening);

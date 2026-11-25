@@ -258,10 +258,19 @@ static class LegionDomain
         return Math.Max(30.0, BaseTimerSeconds + bonus);
     }
 
+    /// <summary>GUESS, to check in the client: the stacks of the per-revival stats stop at this many revivals (the tables give no cap; uncapped, a
+    /// common monster revived every pulse of a 315 s Domain reaches about 45 and could not be killed).</summary>
+    const int MaxRevivalStacks = 10;
+
     /// <summary>The monster's toughness (less damage taken) gained per revival: the emblems' uber_domain_monster_tankiness_+%_per_revival
     /// (every Timeless Emblem carries 10).</summary>
     public static int RevivalToughness(IReadOnlyDictionary<uint, int> areaStats, int revivalCount) =>
-        revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterTankinessPlusPctPerRevival) * revivalCount;
+        revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterTankinessPlusPctPerRevival) * Math.Min(MaxRevivalStacks, revivalCount);
+
+    /// <summary>The increased maximum life gained per revival: the Unrelenting emblems' uber_domain_monster_maximum_life_+%_per_revival (10 each).
+    /// GUESS: it stacks as increased (additive with the monster's other maximum_life_+%).</summary>
+    public static int RevivalLifePct(IReadOnlyDictionary<uint, int> areaStats, int revivalCount) =>
+        revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterMaximumLifePlusPctPerRevival) * Math.Min(MaxRevivalStacks, revivalCount);
 
     /// <summary>Per-revival EncounterStats of the emblems used (summed over them, times the revival count) for a monster revived
     /// in a Domain of Timeless Conflict. The consumers today are damage_+% and the phys-as-chaos gain (hit damage); the rest is
@@ -269,7 +278,7 @@ static class LegionDomain
     public static Dictionary<uint, int>? UberRevivalStats(IReadOnlyDictionary<uint, int> areaStats, int revivalCount)
     {
         if (revivalCount <= 0) return null;
-        int stacks = revivalCount;
+        int stacks = Math.Min(MaxRevivalStacks, revivalCount);
         var stats = new Dictionary<uint, int>();
         void Add(uint areaStat, uint monsterStat)
         {
@@ -716,9 +725,18 @@ static class LegionDomain
 
         IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
             ? [(Stat.MonsterMinimapIcon, icon)] : null;
+        // The per-revival life and toughness go in the spawn's mods, so the life and the client's maximum are right from the create.
+        int revivalLife = RevivalLifePct(areaStats, slot.RevivalCount), revivalToughness = RevivalToughness(areaStats, slot.RevivalCount);
+        MonsterModSet? revivalMods = revivalLife > 0 || revivalToughness > 0
+            ? new([], [], new MonsterModEffects(new Dictionary<uint, int>
+            {
+                [Stat.MaximumLifePlusPct] = revivalLife,
+                [global::Game.MonsterToughness] = revivalToughness,
+            }))
+            : null;
         uint id = await SpawnMonster(player, variety, areaLevel, (MonsterRarity)slot.Rarity, slot.X, slot.Y,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false,
-            placement: MonsterPlacement.Established, rotation: slot.Facing, extraStats: extraStats,
+            placement: MonsterPlacement.Established, rotation: slot.Facing, extraStats: extraStats, extraMods: revivalMods,
             shape: o =>
             {
                 var sm = (o.StateMachine ?? variety.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1);
@@ -729,8 +747,6 @@ static class LegionDomain
 
         if (slot.RevivalCount > 0)
         {
-            if (RevivalToughness(areaStats, slot.RevivalCount) is > 0 and int toughness)
-                monster.Mods = monster.Mods with { Effects = monster.Mods.Effects.Plus(global::Game.MonsterToughness, toughness) };
             if (UberRevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
                 monster.EncounterStats = revivalStats;
         }
@@ -792,7 +808,12 @@ static class LegionDomain
         int revived = 0, beams = 0;
         foreach (int idx in toRevive)
         {
-            if (await SpawnSlot(player, state, idx, stats) != 0)
+            if (await SpawnSlot(player, state, idx, stats) == 0)
+            {
+                // A failed spawn is not a revival: take back the count taken for it.
+                lock (state) state.Slots[idx] = state.Slots[idx] with { RevivalCount = Math.Max(0, state.Slots[idx].RevivalCount - 1) };
+            }
+            else
             {
                 revived++;
                 if (beams < 6 && beamModel is not null && state.Slots[idx].Tier >= 2)
