@@ -160,10 +160,18 @@ public static class RitualFavours
             }
         }
 
+        int level = Math.Clamp(state.Level, 1, 100);
+        var equipBases = catalog.All.Where(b => b.Supported && b.DropLevel <= level && b.DropLevel >= Math.Max(1, level - 22)
+            && (b.Components.Contains("Armour") || b.Components.Contains("Weapon")
+                || b.Class is "Ring" or "Amulet" or "Belt" or "Jewel")).ToList();
+        var scarabBases = level >= 68 ? catalog.All.Where(b => b.Supported && b.Class == "MapFragment"
+            && b.Id.Contains("Scarab", StringComparison.Ordinal)).ToList() : [];
+        var cardBases = catalog.All.Where(b => b.Supported && b.Class == "DivinationCard").ToList();
+
         int safety = targetCount * 4;
         while (candidates.Count < targetCount && safety-- > 0)
         {
-            var rolled = RollRewardItem(catalog, rolls, uniques, state, opulent, vaal, nameless, qualityBoost, rng);
+            var rolled = RollRewardItem(catalog, rolls, uniques, equipBases, scarabBases, cardBases, state, opulent, vaal, nameless, qualityBoost, rng);
             if (rolled is not { } r) continue;
             int price = PriceWithModifiers(r.BasePrice, state, isReroll, rng);
             candidates.Add((r.Item, price, price, RitualWire.FlagNormal, null));
@@ -270,7 +278,11 @@ public static class RitualFavours
     ];
 
     static (Item Item, int BasePrice)? RollRewardItem(
-        ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques, RitualEncounter.State state,
+        ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques,
+        IReadOnlyList<ItemCatalog.BaseType> equipBases,
+        IReadOnlyList<ItemCatalog.BaseType> scarabBases,
+        IReadOnlyList<ItemCatalog.BaseType> cardBases,
+        RitualEncounter.State state,
         bool opulent, bool vaal, bool nameless, int qualityBoost, Random rng)
     {
         int roll = rng.Next(100);
@@ -282,7 +294,7 @@ public static class RitualFavours
         // Vaal altars favour corrupted items & Vaal gems / Vaal Orbs.
         if (vaal && roll < 45)
         {
-            var item = RollRareOrUnique(catalog, rolls, uniques, level, qualityBoost, rng, forceUniqueChance: 25);
+            var item = RollRareOrUnique(catalog, rolls, uniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 25);
             if (item is not null)
                 return (item.Value.Item with { Corrupted = true }, (int)(item.Value.BasePrice * 1.15));
         }
@@ -314,9 +326,9 @@ public static class RitualFavours
                 return (ItemCatalog.Create(king), rng.Next(6500, 11000));
         }
         if (roll < 86)
-            return RollRareOrUnique(catalog, rolls, uniques, level, qualityBoost, rng, forceUniqueChance: 22 + qualityBoost / 3);
+            return RollRareOrUnique(catalog, rolls, uniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 22 + qualityBoost / 3);
         if (roll < 94)
-            return RollDivCardOrScarab(catalog, level, rng);
+            return RollDivCardOrScarab(scarabBases, cardBases, level, rng);
         return RollCurrency(catalog, state, level, rng, bonusStack: false);
     }
 
@@ -346,7 +358,8 @@ public static class RitualFavours
         return catalog.Find(id) is { Supported: true } t ? ItemCatalog.Create(t) : null;
     }
 
-    static (Item Item, int BasePrice)? RollRareOrUnique(ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques, int level, int qualityBoost, Random rng, int forceUniqueChance)
+    static (Item Item, int BasePrice)? RollRareOrUnique(ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques,
+        IReadOnlyList<ItemCatalog.BaseType> equipBases, int level, int qualityBoost, Random rng, int forceUniqueChance)
     {
         if (rng.Next(100) < forceUniqueChance && uniques.All.Count > 0)
         {
@@ -358,25 +371,22 @@ public static class RitualFavours
                     return (u with { ItemLevel = (byte)level, Identified = true }, rng.Next(2200, 6200) + qualityBoost * 15);
             }
         }
-        // Roll a rare equippable item near the area's level.
-        var bases = catalog.All.Where(b => b.Supported && b.DropLevel <= level && b.DropLevel >= Math.Max(1, level - 22)
-            && (b.Components.Contains("Armour") || b.Components.Contains("Weapon")
-                || b.Class is "Ring" or "Amulet" or "Belt" or "Jewel")).ToList();
-        if (bases.Count == 0) return null;
-        var chosen = bases[rng.Next(bases.Count)];
+        if (equipBases.Count == 0) return null;
+        var chosen = equipBases[rng.Next(equipBases.Count)];
         var item = ItemCatalog.Create(chosen) with { ItemLevel = (byte)level };
         item = rolls.Alchemy(item, rng) ?? item;
         return (item, rng.Next(750, 2400));
     }
 
-    static (Item Item, int BasePrice)? RollDivCardOrScarab(ItemCatalog catalog, int level, Random rng)
+    static (Item Item, int BasePrice)? RollDivCardOrScarab(
+        IReadOnlyList<ItemCatalog.BaseType> scarabBases,
+        IReadOnlyList<ItemCatalog.BaseType> cardBases, int level, Random rng)
     {
-        string wantedClass = level >= 68 && rng.Next(2) == 0 ? "MapFragment" : "DivinationCard";
-        var pool = catalog.All.Where(b => b.Supported && b.Class == wantedClass
-            && (wantedClass != "MapFragment" || b.Id.Contains("Scarab", StringComparison.Ordinal))).ToList();
+        bool pickScarab = level >= 68 && scarabBases.Count > 0 && rng.Next(2) == 0;
+        var pool = pickScarab ? scarabBases : cardBases;
         if (pool.Count == 0) return null;
         var chosen = pool[rng.Next(pool.Count)];
-        return (ItemCatalog.Create(chosen), wantedClass == "MapFragment" ? rng.Next(900, 2800) : rng.Next(800, 3200));
+        return (ItemCatalog.Create(chosen), pickScarab ? rng.Next(900, 2800) : rng.Next(800, 3200));
     }
 
     static (byte W, byte H) ItemSize(ItemCatalog catalog, Item item)

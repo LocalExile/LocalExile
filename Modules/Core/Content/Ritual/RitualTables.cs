@@ -115,9 +115,9 @@ public static partial class RitualTables
     public static int DeferCost(int originalCost, int deferCostPct) =>
         Math.Max(0, (int)MathF.Ceiling(originalCost * (0.15f + 0.0015f * deferCostPct)));
 
-    /// <summary>Discount applied to an item's buy cost when deferred (10% of original cost, min 1).</summary>
+    /// <summary>Discount applied to an item's buy cost when deferred (exact client formula 0x140321865: ceil(originalCost * 0.099), min 1).</summary>
     public static int DeferDiscount(int originalCost) =>
-        Math.Max(1, (int)MathF.Ceiling(originalCost * 0.10f));
+        Math.Max(1, (int)MathF.Ceiling(originalCost * 0.099f));
 
     /// <summary>Exact binary-verified deferral eligibility check (0x140321865).</summary>
     public static bool CanDefer(int areaLevel, ushort buyCost, ushort originalCost) =>

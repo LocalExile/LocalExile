@@ -300,14 +300,28 @@ public sealed class RitualEncounter
         var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         int wanted = rng.Next(lo, hi + 1);
         var cells = new List<(int X, int Y)>();
+        bool atArrival = Environment.GetEnvironmentVariable("Game_ENCOUNTERS_AT_ARRIVAL") == "1";
         for (int attempt = 0; attempt < wanted * 24 && cells.Count < wanted; attempt++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
-                is not { } at) break;
+            (int X, int Y)? at;
+            // With Game_ENCOUNTERS_AT_ARRIVAL=1, EncounterSpot pins every call near spawn; use it for the first altar
+            // and sample open walkable cells across the map for the remaining altars so all 3-4 place in <5 ms.
+            if (atArrival && cells.Count > 0)
+            {
+                int rx = rng.Next(8, Math.Max(9, layout.GridW - 8));
+                int ry = rng.Next(8, Math.Max(9, layout.GridH - 8));
+                at = layout.WalkableFor(rx, ry, 2) ? (rx, ry) : null;
+            }
+            else
+            {
+                at = AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng);
+                if (at is null) break;
+            }
+            if (at is not { } spot) continue;
             double apart = attempt < wanted * 12 ? RitualTables.SpacingMin : 2 * RitualTables.RadiusCells;
-            if (cells.Any(c => Distance(c, at) < apart)) continue;
-            cells.Add(at);
-            taken.Add(at);
+            if (cells.Any(c => Distance(c, spot) < apart)) continue;
+            cells.Add(spot);
+            taken.Add(spot);
         }
         if (cells.Count == 0) return "no open ground for an altar";
 
@@ -401,7 +415,8 @@ public sealed class RitualEncounter
         {
             await Sync(player, state);
             await RitualFavours.SyncSavedRewardsInventory(player);
-            await RitualFavours.SendShopState(player, state, openWindow: false);
+            if (!state.ShopSentTo.Contains(player.Id))
+                await RitualFavours.SendShopState(player, state, openWindow: false);
             foreach (var altar in state.Altars)
                 if (altar.Shown && altar.Interactable != 0 && altar.State >= Ready)
                     await Send(player, RitualWire.AltarState(altar.Interactable, altar.Cell, altar.State),
@@ -645,7 +660,7 @@ public sealed class RitualEncounter
     {
         if (Of(player) is not { } state || state.Altars.FirstOrDefault(a => a.Interactable != 0 && a.Interactable == use.TargetId) is not { } altar)
             return false;
-        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
 
         // Clicking a completed altar opens the Ritual Favour window!
         if (altar.State == Done)
