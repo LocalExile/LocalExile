@@ -39,6 +39,45 @@ public sealed class RottingCoreTests
         }
     }
 
+    [Fact]
+    public async Task Blood_evacuation_republishes_existing_loot_at_the_landing()
+    {
+        using var runtime = new Runtime();
+        var player = new Player(new(1, DepravedTrinity.Area, 500, 500, 200, 200, (_, _) => true, []), 1, 1)
+            { Instance = new() };
+        runtime.Player = player;
+        player.Connection.LockstepClient = false;
+        player.Connection.WorldOutput.Begin(1);
+        var ground = player.Instance.Ground;
+        var item = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Currency/CurrencyUpgradeToMagic")!);
+        var loot = new WorldItemObject(75, 75, item);
+        uint oldId = ground.Add(loot, player);
+        uint privateId = ground.Add(loot with { GridX = 76 }, player, shared: false);
+        uint farId = ground.Add(loot with { GridX = 380 });
+        var previous = GameArea.Own(player.Area);
+        try
+        {
+            await Game.SendGroundItem(player, oldId, loot, null, justDropped: true);
+            player.Area.Delta.Take();
+            player.Area.Delta.Take();
+            await DepravedTrinity.CarryLoot(player, (50, 50), (200, 200));
+
+            Assert.Null(ground.Get(oldId));
+            Assert.NotNull(ground.Get(privateId));
+            Assert.NotNull(ground.Get(farId));
+            var (id, relocated) = Assert.Single(ground.Within(200, 200, 6, _ => true));
+            Assert.Same(item, relocated.Item);
+            Assert.Equal((player, true), ground.Origin(id));
+            Assert.False(ground.IsNewFor(player, id));
+            var records = player.Area.Delta.Take();
+            Assert.Contains(records, record => record.Entity == oldId && record.Kind == AreaDelta.Kind.Remove);
+            Assert.Contains(records, record => record.Entity == id && record.Kind == AreaDelta.Kind.Create);
+            Assert.Contains(player.Area.Delta.Take(), record =>
+                record.Entity == id && record.Bytes.AsSpan().SequenceEqual(InstanceProtocol.EnterWakeZone(id)));
+        }
+        finally { GameArea.Own(previous); }
+    }
+
     [GameFilesFact]
     public void Native_organ_gates_keep_their_domain_names_and_land_at_each_gauntlet()
     {

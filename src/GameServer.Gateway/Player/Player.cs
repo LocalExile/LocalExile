@@ -684,6 +684,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
+    public uint? MaxLifeWithoutParty { get; init; }
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;

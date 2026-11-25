@@ -87,6 +87,7 @@ public static partial class Game
     {
         SpreadPestilentStrike(player, victimId, monster, now);
         RememberCursedCorpse(player, victimId, monster);
+        QueueInfernalBlowDeath(monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         HitSummonsOnDeathLocked(player, victimId, monster, now);
         QueueEssenceDeathSpawnLocked(player, victimId, monster);

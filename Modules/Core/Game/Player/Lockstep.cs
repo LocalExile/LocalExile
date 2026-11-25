@@ -781,7 +781,7 @@ public static partial class Game
         ? Math.Max(TickSeconds, DefaultAttackSeconds(player, sequence, CharacterPlayerStats(player)) / PlayerActionFactor(player))
         : ShieldWeapon(player, skill) is { } shieldWeapon
             ? SupportedOffHandAttackSeconds(player, skill, shieldWeapon)
-            : SupportedAttackSeconds(player, skill, sequence);
+            : StartingAttackSeconds(player, skill, sequence);
 
     // When, after a swing's start, the client lets a Move cut the attack short: its clip's lock_cancelling keyframe where
     // it has one, else its contact (live 2026-11-03, the first Move the client ran at once: a wand's 0.334 s into a

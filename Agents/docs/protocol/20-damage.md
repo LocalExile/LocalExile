@@ -866,7 +866,12 @@ their stored values are summed into one reflected physical hit, remaining hit co
 new chance/target-avoidance roll may add an instance. Nonphysical and zero-damage hits can trigger existing
 instances but cannot create one. There is no independent five-stack cap; modifiers can extend the effective count.
 The state uses the paused connection clock and lazy expiry at the next hit/state observation. Corpses retain their
-instances until expiry/removal; native impale-count/visual publication and corpse consumers are not implemented.
+instances until expiry/removal. Native impale-count and visual publication are still open.
+
+Client stat sets `DoubleStrikeAltX` and `BearTrapAltX` grant the same 100% killing-blow reflection stat.
+The trap's chance and impale effect are general stats on a secondary hit. The model reflects the live stored
+amount once after the contact, including an impale created by that contact. Remaining instances stay on the
+corpse for Call of Steel. The approximate observed radius is 23 cells and skill area modifiers do not scale it.
 
 The reflected total receives the existing target physical reduction and generic damage-taken calculation once.
 It receives no new source modifiers, conversion, critical multiplier, spell-only damage taken or returning-projectile
