@@ -623,7 +623,7 @@ public static partial class Game
             int AilmentStat(uint name) => DamageStat(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+            var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
                 mods.Stats, raw, spell, hand, includeActorBaseArea: true);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
             double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
@@ -660,7 +660,7 @@ public static partial class Game
                     + (name == Stat.DamagePlusPct ? extraDamage : 0);
                 var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null),
                     rawDamage.Scale(more), conversion, AilmentStat);
-                var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+                var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
                     mods.Stats, raw, spell, hand, includeActorBaseArea: true);
                 var bleed = spell ? MonsterIgnites.Settings.None
                     : BleedSettings(rows, hand, AilmentStat, weaponLocal, projectile is null, projectile is not null);

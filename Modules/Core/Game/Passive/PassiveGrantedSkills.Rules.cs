@@ -346,7 +346,7 @@ public static partial class Game
                 var hit = context.Hit(PlayerHitDamage.Resolve(woven, Merged, conversion, spell: true,
                     area: Merged(Stat.IsAreaDamage) != 0, skillTypes: types, additionalIncreased: increased + staffSpell));
                 var rows = AilmentPanelStats.Compute(new("spell", Spell: true), woven, conversion, Merged, increased);
-                var ignite = MonsterIgnites.Settings.From(rows, "spell", Merged);
+                var ignite = IgniteSettingsFrom(rows, "spell", Merged);
                 var poison = MonsterPoisons.Settings.From(rows, "spell", Merged);
                 double fireFactor = context.OverTime(new(DamageType.Fire, 1, 1)).DamagePerSecond;
                 double chaosFactor = context.OverTime(new(DamageType.Chaos, 1, 1)).DamagePerSecond;

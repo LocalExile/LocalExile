@@ -141,7 +141,7 @@ public static partial class Game
                 supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
                 increased + target.AilmentIncrease);
-            var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
+            var ignite = IgniteSettingsFrom(rows, "secondary", TargetStat);
             var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
             if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
             return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)

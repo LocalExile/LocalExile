@@ -448,7 +448,7 @@ public static partial class Game
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
-        var ignite = hitInputs is null ? MonsterIgnites.Settings.From(ailmentRows, hand, Get)
+        var ignite = hitInputs is null ? IgniteSettingsFrom(ailmentRows, hand, Get)
             : IgniteWithTargetCondition(ailmentRows, hitInputs, hand, Get);
         bool weaponAttack = !spell && local is not null && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).RequiresShield(gem.Effect);
         AttackAccuracyProfile? accuracy = spell ? null : SupportedAccuracy(player, skillId, swingHand);

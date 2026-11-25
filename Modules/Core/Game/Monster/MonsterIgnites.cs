@@ -5,6 +5,14 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static MonsterIgnites.Settings IgniteSettingsFrom(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
+    {
+        var settings = MonsterIgnites.Settings.From(rows, hand, get);
+        double factor = Math.Max(0, 1 + get(Stat.EmberglowIgniteDurationPlusPctFinal) / 100d)
+            * Math.Max(0, 1 + get(Stat.UniqueReplicaVolkuursGuidanceIgniteDurationPlusPctFinal) / 100d);
+        return settings with { Seconds = settings.Seconds * factor };
+    }
+
     /// <summary>BuffDefinitions row 0 <c>ignited</c> ("You're on fire", BuffVisuals 2: the burning flames).</summary>
     public const ushort IgnitedBuffRow = 0;
 
@@ -133,7 +141,7 @@ public static partial class Game
         string hand = spell ? "spell" : "main_hand";
         NoteIgniteArt(player, skillId);
         var inputs = capturedInputs ?? SupportedHitInputsFor(player, skillId, weapon: weapon);
-        var settings = inputs is null ? MonsterIgnites.Settings.From([], hand, get)
+        var settings = inputs is null ? IgniteSettingsFrom([], hand, get)
             : IgniteWithTargetCondition(SupportedAilmentRowsFrom(inputs, hand, additionalIncreased), inputs, hand, get,
                 additionalIncreased);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
@@ -159,12 +167,12 @@ public static partial class Game
         Func<uint, int> get, long additionalIncreased, string? hand = null)
     {
         hand ??= context.Hand;
-        var settings = MonsterIgnites.Settings.From(rows, hand, get);
+        var settings = IgniteSettingsFrom(rows, hand, get);
         int increasedAgainstChilled = get(Stat.IgniteDamagePlusPctVsChilledEnemies);
         if (settings.Seconds <= 0 || increasedAgainstChilled == 0) return settings;
         var chilled = AilmentPanelStats.Ignite(context, raw, conversion, damageStats,
             additionalIncreased + increasedAgainstChilled);
-        return settings with { ChilledTarget = MonsterIgnites.Settings.From(chilled, hand, get).Ranges };
+        return settings with { ChilledTarget = IgniteSettingsFrom(chilled, hand, get).Ranges };
     }
 
     static MonsterIgnites.Settings VoraciousFlame(MonsterIgnites.Settings settings, Func<uint, int> get)
