@@ -127,7 +127,11 @@ def hideouts(doc):
         rows.append(flat(hideout, skip=("doodads",)))
         doodads += [child("hideout", h, i, d) for i, d in enumerate(hideout["doodads"])]
     radii = [{"model": model, "radius": radius} for model, radius in doc["collisionRadii"].items()]
+    portals = [{"model": model, "ord": i, **flat(spawn)}
+               for model, spawns in doc.get("portalSpawns", {}).items() for i, spawn in enumerate(spawns)]
+    variations = [{"model": model, "variation": variation} for model, variation in doc.get("deviceVariations", {}).items()]
     return {"hideout_layouts": rows, "hideout_doodads": doodads, "hideout_collision_radii": radii,
+            "hideout_portal_spawns": portals, "hideout_device_variations": variations,
             **info("hideouts_info", doc, ["note"])}
 
 
