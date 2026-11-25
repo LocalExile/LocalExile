@@ -2779,6 +2779,7 @@ public static partial class Game
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         int inversionChance = Stat(global::Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
+        var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
         double chargeAttackMore = 1, chargeRadius = 1;
         int perChargeDamage = Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge);
@@ -3355,7 +3356,8 @@ public static partial class Game
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
                         profile = new(conditionalHit, woven.Ignite, woven.Bleed, woven.Poison);
                     }
-                    double profileMore = phaseDamageMore * hitAndAilmentMore;
+                    var fullLifeStrike = dualStrikeBonuses.Against(m);
+                    double profileMore = phaseDamageMore * hitAndAilmentMore * fullLifeStrike.DamageMore;
                     if (boneshatter is not null)
                     {
                         profileMore *= boneshatter.More;
@@ -3475,7 +3477,8 @@ public static partial class Game
                                     SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
                                     SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
                         }
-                        critical = RollCriticalStrike(player, shatteringCritical ? 10_000 : criticalChance, skillStats,
+                        int targetChance = shatteringCritical ? 10_000 : fullLifeStrike.CriticalChance(criticalChance);
+                        critical = RollCriticalStrike(player, targetChance, skillStats,
                                 attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }
