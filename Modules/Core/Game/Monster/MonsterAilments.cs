@@ -414,6 +414,9 @@ public static partial class Game
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
             ? ActorScale.Saturate((long)Player(Stat.SpellChanceToShockFrozenEnemiesPct) +
                 Skill(Stat.SpellChanceToShockFrozenEnemiesPct)) : 0;
+        // "#% chance to Shock Chilled Enemies" (The Stormheart).
+        if (Player(Stat.ChanceToShockChilledEnemiesPct) is int shockChilled and not 0 && AilmentOn(m, AilmentType.Chill, now))
+            frozenShock = ActorScale.Saturate((long)frozenShock + shockChilled);
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);

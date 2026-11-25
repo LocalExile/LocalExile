@@ -181,8 +181,10 @@ public static partial class Game
             int extraRes = type == DamageType.Chaos ? PlayerStat(player, Stat.AdditionalChaosResistanceAgainstDamageOverTimePct) : 0;
             double resisted = type == DamageType.Physical ? 0 : Math.Min(MaxResistance(player, type), Resistance(player, type) + extraRes);
             double rate = perMinute / 60 * (1 - resisted / 100.0);
-            if (type == DamageType.Chaos && player.InCausticCloud)
-                rate *= Math.Max(0, 1 + PlayerStat(player, Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) / 100.0);
+            // "#% increased Chaos Damage taken over time" (Solaris Lorica), with the caustic cloud's own.
+            if (type == DamageType.Chaos)
+                rate *= Math.Max(0, 1 + (PlayerStat(player, Stat.ChaosDamageTakenOverTimePlusPct)
+                    + (player.InCausticCloud ? PlayerStat(player, Stat.ChaosDamageTakenOverTimePlusPctWhileInCausticCloud) : 0)) / 100.0);
             else if (type == DamageType.Physical && player.Walk.Moving(now))
                 rate *= Math.Max(0, 1 + PlayerStat(player, Stat.PhysicalDamageOverTimeTakenPlusPctWhileMoving) / 100.0);
             total += rate;
