@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" || IsToxicRain(id);
+    static bool ArrowRain(string? id) => id is "RainOfArrows" or "BlastRain" || IsToxicRain(id) || IsKineticRain(id);
 
     static bool IsToxicRain(string? id) => id is "ToxicRain" or "ToxicRainAltX" or "ToxicRainAltY";
 
@@ -100,6 +100,11 @@ public static partial class Game
         use = use with { Payload = shot with { AreaVisual = null, Presentation = new(), ClientPredicted = true,
             FromTrapOrMine = shot.FromTrapOrMine || from is not null,
             FromMine = shot.FromMine || placedKind.Mine } };
+        if (IsKineticRain(id))
+        {
+            ReleaseKineticRain(session, use, gem, id, aim, own, playerStats, critical, sequence);
+            return;
+        }
         int Own(uint stat) => own.GetValueOrDefault(stat);
         int Player(uint stat) => playerStats.GetValueOrDefault(stat);
         int Get(uint key) => Own(key) + Player(key);

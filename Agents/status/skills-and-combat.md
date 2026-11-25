@@ -228,6 +228,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   over time and burst; Concentrated Effect scaling and owner/proxy damage restrictions await a client check.
   The arrows fall before they land, and Toxic Rain's pods grow and burst, for every skill effect.
   The arrow the client flies up is stood in for by the falling art; Rain of Arrows and Blast Rain shoot nothing up.
+- Kinetic Rain and Kinetic Rain of Impact place markers and resolve delayed area hits. The base gem creates proximity
+  anomalies from its linked effect. The target envelope and flight cadence await a client measurement.
 - Caustic Arrow stops at the aimed point and leaves caustic ground: chaos damage over time that does not stack.
   The ground is the art's pieces laid over the radius, for the worn skill effect; the layout is the server's own.
   Only the default, Celestial and Tentacles grounds fade in and out.
