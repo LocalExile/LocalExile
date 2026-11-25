@@ -139,14 +139,16 @@ public static partial class Game
                         request.Monster.Rarity, Math.Clamp(SkillsFor(player).PlayerLevelReq(gem.Effect, gem.Level), 1, 100)) : null,
                 rarity: definition.Family.StartsWith("Dominating", StringComparison.Ordinal) && request.ConsumeCorpse
                     ? request.Monster.Rarity : MonsterRarity.Normal);
+            // The raise removes a corpse that was not created as one (SummonFighterCore); it is removed here only otherwise.
             if (id != 0 && request.ConsumeCorpse)
-                ConsumeHitSummonCorpseLocked(player, request);
+                ConsumeHitSummonCorpseLocked(player, request, removedByRaise: !request.Monster.CreatedAsCorpse);
         }
     }
 
-    static void ConsumeHitSummonCorpseLocked(Player player, SummonedMinions.HitSummon request)
+    static void ConsumeHitSummonCorpseLocked(Player player, SummonedMinions.HitSummon request, bool removedByRaise = false)
     {
         ConsumeSummonCorpseLocked(player, request.Monster, request.PlayerConsumesCorpse);
+        if (removedByRaise) return;
         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(request.Target), "Sentinel corpse consumed",
             WorldId: request.Target, RemovesObject: true));
     }

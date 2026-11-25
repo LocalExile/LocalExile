@@ -373,6 +373,26 @@ public static partial class Game
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
             lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking);
 
+    /// <summary>The same, for an owned object whose create carries base data (owner, the object it came from, itself) and object
+    /// flag 0x02, as the official servers' minions. A separate overload: the one above keeps its signature for compiled mods.</summary>
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData,
+        string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
+        IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
+        uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        bool bulk = false, bool nonBlocking = false) =>
+        SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
+            rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
+            ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, ownedBaseData);
+
     static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
         MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
@@ -386,8 +406,10 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false)
+        bool bulk = false, bool nonBlocking = false, Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData = null)
     {
+        // Flag 0x02 wakes the object in its create, which only the owned branch sends that way; the other one wakes it separately.
+        if (ownedBaseData is not null && owned is null) throw new ArgumentException("base data needs an owned spawn", nameof(ownedBaseData));
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
         if (ownedLooks is null && !friendly && rarity == MonsterRarity.Unique && variety.Weapons.Count > 0) ownedLooks = variety.Weapons;
@@ -658,6 +680,8 @@ public static partial class Game
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
+            // An owned object's create names its owner, what it came from and itself, with object flag 0x02 (MonsterObject.BaseData).
+            BaseData = ownedBaseData?.Invoke(id) ?? [], ObjectFlags = ownedBaseData is null ? (byte)0 : (byte)0x02,
             Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(player, variety),
@@ -701,7 +725,7 @@ public static partial class Game
                     AddMonsterLocked(); admitted = true;
                     return create;
                 }
-            }, createLog, wake: true,
+            }, createLog, wake: monster.ObjectFlags == 0,   // flag 0x02 wakes it itself (CreateInWakeZone)
                 afterCreation: initialDeath ? () => [InstanceProtocol.LifeUpdate(id, 0)] : null);
             if (!admitted) return 0;
         }

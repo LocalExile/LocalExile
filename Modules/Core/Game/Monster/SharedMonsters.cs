@@ -337,7 +337,8 @@ public static partial class Game
         var create = InstanceEntities.CreateObject(id, o.Type, shown.Blob());
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(create.AsSpan(6), uint.MaxValue);
         area.Delta.Add(id, create, $"0x02bb monster 0x{id:x} where the area has it", AreaDelta.Kind.Create, only: only);
-        if (!m.Asleep) area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: only);
+        // Flag 0x02 (an owned object) wakes it in its create: a second wake would be a duplicate on an awake object.
+        if (!m.Asleep && shown.ObjectFlags == 0) area.Delta.Add(id, InstanceProtocol.EnterWakeZone(id), null, only: only);
         if (corpse) area.Delta.Add(id, InstanceProtocol.LifeUpdate(id, 0), null, only: only);
         if (InstanceEntities.MonsterEquipmentUpdate(id, shown) is { } stance) area.Delta.Add(id, stance, null, only: only);
         if (m.OwnerId is uint ownerId && player.Frames.Players().FirstOrDefault(p => p.Id == ownerId) is { } ownerPlayer

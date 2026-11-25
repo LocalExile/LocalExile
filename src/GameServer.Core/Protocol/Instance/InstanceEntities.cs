@@ -994,6 +994,15 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     /// <summary>The current Energy Shield wire snapshot; the authoritative owned-minion value remains its server double.</summary>
     public uint EnergyShield { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init => field = Owned.List(value); }
+    /// <summary>The blob's base data entries (key, kind byte, u32 value); none for an ordinary monster. A raised zombie's create
+    /// carries <see cref="OwnerKey"/> (the player's object id), <see cref="SourceKey"/> and <see cref="SelfKey"/> (its own).</summary>
+    public IReadOnlyList<(uint Key, byte Kind, uint Value)> BaseData { get; init; } = [];
+    /// <summary><see cref="SourceKey"/>: the object it came from (a raised zombie's corpse).</summary>
+    public const uint OwnerKey = 0x9cfcf040, SelfKey = 0x3aac50b3, SourceKey = 0x79c80077;
+
+    /// <summary>The blob's first byte. An official raised zombie carries 0x02 with its base data (the flag wakes it in its create); ordinary monsters 0.</summary>
+    public byte ObjectFlags { get; init; }
+
     /// <summary>A monster with an NPC component can become a quest speaker after a scripted encounter.</summary>
     public bool HasDialogue { get; init; }
     /// <summary>The Actor's native stance byte, retained in an instance's creation snapshot.</summary>
@@ -1055,8 +1064,11 @@ public sealed record MonsterObject(int GridX, int GridY, uint Life, IReadOnlyLis
     {
         if (!CanSerialize(Components, StateMachine is not null)) throw new ArgumentException($"unsupported components: {string.Join(", ", Components)}");
         var w = new BlobWriter();
-        w.U8(0);            // object flags
-        w.U8(0);            // base data entry count
+        w.U8(ObjectFlags);            // object flags
+        w.U8((byte)BaseData.Count);            // base data entry count
+        // Each entry: its key (big-endian), a kind byte, count 1, value type 1 (a u32).
+        foreach (var (key, kind, value) in BaseData)
+            w.U8((byte)(key >> 24)).U8((byte)(key >> 16)).U8((byte)(key >> 8)).U8((byte)key).U8(kind).U8(1).U8(1).U32(value);
         foreach (string c in Components)
         {
             switch (c)
