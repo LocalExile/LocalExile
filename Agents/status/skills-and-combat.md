@@ -101,6 +101,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   runs data-driven periodic chained beam hits (`Modules/Core/Game/Skill/StaticStrike.cs`, live-verified).
   Gathering Lightning gains a timed stack on melee contact and emits a beam from that contact. Its chain allowance
   and hit and ailment damage grow with the stacks already held. Docs [11](../docs/protocol/11-skills.md).
+- Boneshatter and its Complex Trauma and Carnage variants resolve stun pulses at contact. Regular and Complex Trauma
+  track independent stack lifetimes and physical self-hits. Docs: [11](../docs/protocol/11-skills.md#boneshatter).
 - Eternal Blessing suspends other skills' mana reservations while its aura is active and preserves life reservations.
 - Guardian's Blessing needs a living minion that shares its support link. The minion takes physical damage over time,
   and the aura ends when the last qualifying minion is gone.
@@ -324,7 +326,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Minion equipment rules: limits, restrictions, Triad Grip, Speaker's Wreath, Alberon's Warpath, and on-hit ailments.
 - Absolution and Dominating sentinels, Phantasms, direct Vaal Skeletons and Vaal Absolution/Domination ascensions.
-  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types (not checked live).
+  HUD minion counter icons (`PlayerMinionsChange`) now publish for all active player minion types, and a placed totem
+  is listed under `TotemMinion` until it dies (not checked live).
   Owned minions are created as the official servers send them; a raise removes its corpse (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
