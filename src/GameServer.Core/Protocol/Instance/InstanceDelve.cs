@@ -8,7 +8,8 @@ namespace GameServer.Core.Protocol.Instance;
 /// </summary>
 public static class InstanceDelve
 {
-    public const ushort ChartRequestId = 0x023f, ChartId = 0x0240, DelveDataId = 0x228;
+    public const ushort ChartRequestId = 0x023f, ChartId = 0x0240, DelveDataId = 0x228,
+        AzuriteChangedId = 0x0227, ChartDeltaId = 0x022c, RouteConfirmedId = 0x0242;
     public const ushort MineArea = 64840;
     public const ushort UpgradesRequestId = 0x23e, UpgradeId = 0x229, PurchaseId = 0x22a;
     public const byte UpgradesUi = 0x1d;
@@ -18,6 +19,43 @@ public static class InstanceDelve
     /// this event refreshes the native gauge's fill fraction, including an unchanged-value refresh.</summary>
     public static byte[] SulphiteChanged(ushort previous, ushort current) =>
         new LoginWriter().U16(0x226).U16(previous).U16(current).ToArray();
+
+    /// <summary>S→C 0x0227 (6 bytes, read 0x140911270, dispatcher case 0xa8 at 0x142159863):
+    /// live Azurite balance update (<c>u32 BE azurite</c>). Notifies <c>instance+0x2978</c> with (previous, current)
+    /// and updates <c>instance+0xd882</c>.</summary>
+    public static byte[] AzuriteChanged(uint azurite) =>
+        new LoginWriter().U16(AzuriteChangedId).U32(azurite).ToArray();
+
+    /// <summary>S→C 0x022c (read 0x1421bab40 / write 0x1421ba9f0, dispatcher case 0xab at
+    /// 0x142159a1d): incremental Subterranean Chart node delta (<c>u16 BE count</c>, then <c>count</c> × four big-endian
+    /// coordinates <c>blockX, blockY, cellX, cellY</c> via <c>0x141fac7f0</c>).</summary>
+    public static byte[] ChartDelta(IReadOnlyList<RoutePoint> points)
+    {
+        int count = Math.Min(points.Count, ushort.MaxValue);
+        var w = new LoginWriter().U16(ChartDeltaId).U16((ushort)count);
+        for (int i = 0; i < count; i++)
+        {
+            var p = points[i];
+            w.U32((uint)p.BlockX).U32((uint)p.BlockY).U32((uint)p.CellX).U32((uint)p.CellY);
+        }
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x0242 (read 0x141fa6a10 / write 0x141fa69c0 -> 0x141fabb30, dispatcher case
+    /// 0xb6 at 0x142159a87): confirmed Crawler route echo after C→S 0x0241 (<c>u8 count</c>, then <c>count</c> × four
+    /// big-endian coordinates <c>blockX, blockY, cellX, cellY</c>). Sets <c>instance+0xe169 = 1</c> and stores route
+    /// endpoints when at least two points are present.</summary>
+    public static byte[] RouteConfirmed(IReadOnlyList<RoutePoint> points)
+    {
+        int count = Math.Min(points.Count, byte.MaxValue);
+        var w = new LoginWriter().U16(RouteConfirmedId).U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var p = points[i];
+            w.U32((uint)p.BlockX).U32((uint)p.BlockY).U32((uint)p.CellX).U32((uint)p.CellY);
+        }
+        return w.ToArray();
+    }
 
     public readonly record struct RoutePoint(int BlockX, int BlockY, int CellX, int CellY);
 
