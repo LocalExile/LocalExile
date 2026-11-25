@@ -145,6 +145,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   player movement onto diagonals. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Ice Nova of Frostbolts expands from up to two active player Frostbolt projectiles near the aimed point with its native
   more-damage multiplier (not checked live). Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Glacial Hammer's third strike amplifies Freeze duration from hit damage, and strikes shatter frozen non-unique
+  enemies already below one third life. Shattering guarantees the critical roll of every third consecutive strike.
 - Petrified Blood. Docs: [20](../docs/protocol/20-damage.md) Â§2i.
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) Â§9.

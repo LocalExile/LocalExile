@@ -312,7 +312,8 @@ public static partial class Game
         double now, Random random, AttackAilmentGains attackGains, bool projectileDamage, int projectileFreezeChance,
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
-        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true)
+        bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
+        int glacialFreezeMore = 0)
     {
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
@@ -378,7 +379,7 @@ public static partial class Game
             ? Math.Max(1L, (long)Math.Round(Monsters.AilmentThreshold(m.Variety, m.Level, m.MaxLife) * thresholdScale))
             : m.MaxLife;
         var added = m.Ailments.Inflict(taken, critical, (uint)Math.Min(uint.MaxValue, ailmentThreshold), now, Attacker, name => m.Effects[name], random,
-            AilmentArea(Player, Skill, spell));
+            AilmentArea(Player, Skill, spell), Math.Max(0, 1 + glacialFreezeMore / 100.0));
         // Scorch, Brittle and Sap (MonsterAlternateAilments): only from a source, after chill, freeze and shock's draws.
         var alternate = AlternateAilmentsOnHitLocked(m, taken, critical, now, Attacker, random);
         foreach (var effect in added)

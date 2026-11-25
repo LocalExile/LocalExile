@@ -2768,6 +2768,9 @@ public static partial class Game
             if (Replaced() || player.Closed || !Current()) return;
         }
         int addedChaos;
+        int glacialFreezeMore = 0;
+        bool shatteringCritical = false;
+        bool shatterFrozen = !spell && Stat(global::Stat.GlacialHammerShatterFrozenEnemiesAt33PctLife) != 0;
         double contactAt = firstContactAt ?? AreaTime(player);
         int strikes = SkillMultiStrike.StrikeCount(SkillsFor(player).EffectId(gem.Effect), Stat(global::Stat.BaseSkillNumberOfAdditionalHits),
             immediate, channelGeneration is not null, spell, wave);
@@ -2796,6 +2799,17 @@ public static partial class Game
             if (channelGeneration is not null
                 && PlayerActionBlocked(player, AreaTime(player), AreaTime(player))) return;
             CastingIntensity(player, skillId)?.Complete();
+            if (!spell && !immediate && triggeredCurrent is null && strikeIndex == 0)
+            {
+                int freezeMore = Stat(global::Stat.GlacialHammerThirdHitFreezeAsThoughDealtDamagePlusPct);
+                bool alwaysCrit = Stat(global::Stat.GlacialHammerThirdHitAlwaysCrits) != 0;
+                if ((freezeMore != 0 || alwaysCrit)
+                    && ThirdGlacialHammerStrikeLocked(player, skillId, gem.Effect, action, now))
+                {
+                    glacialFreezeMore = freezeMore;
+                    shatteringCritical = alwaysCrit;
+                }
+            }
             if (divineBlast && !immediate && strikeIndex == 0)
                 ProjectilesFor(player).PlaceDivineBlastOrb(gem, centre, admittedGem, criticalRoll);
             // Queued mana output may outlast movement: resolve a channel at its current position.
@@ -3182,7 +3196,7 @@ public static partial class Game
                                 SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
                                 SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
                     }
-                    critical = RollCriticalStrike(player, criticalChance, skillStats,
+                    critical = RollCriticalStrike(player, shatteringCritical ? 10_000 : criticalChance, skillStats,
                             attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                         && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
@@ -3241,9 +3255,10 @@ public static partial class Game
                     var rampagePlayer = freshPlayer ? playerStats : null;
                     var rampageSource = RampageOnMeleeHitLocked(player, m, !spell && SkillsFor(player).IsMelee(gem.Effect), rampagePlayer);
                     uint lifeBefore = m.Life;
+                    var cull = Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal);
+                    if (shatterFrozen && !splashMore.ContainsKey(id)) cull = cull with { ShatterFrozen = true };
                     applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, rampagePlayer, allyAt: null,
-                        cull: Cull.Of(playerStats, skillStats, critical, spell).WithWeapon(weaponLocal), cullPlayer: playerStats,
-                        chaosDamage: chaosDamage);
+                        cull: cull, cullPlayer: playerStats, chaosDamage: chaosDamage);
                     if (applied is not null)
                     {
                         if (applied.Value.Life < lifeBefore)
@@ -3289,7 +3304,8 @@ public static partial class Game
                             AreaRng(player), reflected: reflected, poison: profile.Poison, sourceSkill: skillId,
                             blind: BlindHitInput.Capture(playerStats, skillStats),
                             hitOrigin: IsLeapSlam(player, gem.Effect) ? centre : null,
-                            attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)));
+                            attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)),
+                            projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
                             m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
