@@ -1,10 +1,11 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 public static partial class Game
 {
     // Called only inside SpendFlask's accepted charge transaction, in the area's frame and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
-    static void AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
+    static int? AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
         IReadOnlyDictionary<uint, int> local, Func<uint, int> character, bool appliesToPlayer,
         IReadOnlyList<UtilityFlasks.Source>? during = null)
@@ -28,16 +29,30 @@ public static partial class Game
         if (!appliesToPlayer)
         {
             TryGrantAlchemistsGenius(player);
-            return;
+            return null;
         }
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
             LifeCap(player), UnreservedMana(player))!.Value;
         (player.PlayerLife, player.PlayerMana) = (life, mana);
+        // Paid recovery flask modifiers can remove a pool, deal a separate hit, or grant charges.
+        if (local.GetValueOrDefault(Stat.LocalFlaskRemovesPctMaximumEnergyShieldOnUse) is > 0 and var shieldPct)
+        {
+            double carry = 0;
+            player.EnergyShield.Lose(player.EnergyShield.Maximum * (long)shieldPct / 100, ref carry);
+        }
+        if (local.GetValueOrDefault(Stat.LocalFlaskDealsPctMaximumLifeAsChaosDamageOnUse) is > 0 and var chaosPct)
+        {
+            int chaos = ActorScale.Saturate(player.PlayerMaxLife * (long)chaosPct / 100);
+            if (chaos > 0) ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Chaos, chaos, chaos), now);
+        }
+        (life, mana) = (player.PlayerLife, player.PlayerMana);
         TrimLeechLocked(player); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
+        if (life == 0) return player.IncomingHitEpoch;
+        QueueFlaskUseCharges(player, type.Name, local);
         if (local.GetValueOrDefault(Stat.LocalUniqueFlaskStartEnergyShieldRecharge) != 0)
             player.EnergyShield.StartRecharge(now, character);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
@@ -73,6 +88,7 @@ public static partial class Game
             }
         }
         TryGrantAlchemistsGenius(player);
+        return null;
     }
 
     // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then
