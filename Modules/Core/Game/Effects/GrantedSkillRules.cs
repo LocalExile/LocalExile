@@ -328,6 +328,32 @@ public static partial class Game
                 });
             }));
 
+        // A skill that makes a ground effect (effect_skills how "ground", art: the ground's kind): consecrated ground
+        // where a critical strike landed (Gifts from Above), shocked ground under the character when hit (Ylfeban's
+        // Trickery). The ground is one of the flask grounds, so it acts and is drawn as those are.
+        RegisterTriggeredSkillExecutor(new("ground", (_, grant) => TriggeredGroundOf(grant.EffectId) is not null,
+            (fire, grant) =>
+            {
+                var player = fire.Conn;
+                if (TriggeredGroundOf(grant.EffectId) is not var (kind, row)) return;
+                if (player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea || InTown(player)
+                    || ActorSkillOf(player, grant) is not var (actor, gem) || !gem.RequirementsMet
+                    || GemSkillInstanceDisabled(player, gem.Effect, actor, triggered: true) is not null) return;
+                double now = AreaTime(player);
+                var at = player.Walk.Position(now);
+                if (fire.Word("at") != "self" && fire.Event.Monster is { } monster && kind != FlaskGrounds.Kind.ShockedGround)
+                    at = monster.Walk.Position(now);
+                if (!PayMana(player, actor, out _, out _)) return;
+                var own = SupportedSkill(player, actor).Stats;
+                var playerStats = CharacterPlayerStats(player);
+                double seconds = SkillDurationModifiers.Seconds(GolemStat(own, Stat.BaseSkillEffectDuration), key => GolemStat(playerStats, key), key => GolemStat(own, key));
+                if (seconds <= 0) seconds = row.Seconds;
+                int radius = SkillRadius(player, row.Radius ?? 12, gem.Stats, spell: true, gem.Effect);
+                int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? OwnConsecratedGroundCreatedLocked(player, playerStats) : 0;
+                player.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds, QueueGroundArtLocked(player, kind, at, radius), taken));
+                PresentNearby(player);
+                Console.WriteLine($"[gateway] {grant.EffectId}: {kind} at ({at.X}, {at.Y}) radius {radius} for {seconds:0.##} s");
+            }));
         // A skill that gives its user a buff (effect_buffs): the skill's own routine (Blood Rage's, with its degeneration
         // and its refresh on kill), or a timed buff with the row's values for the skill's duration.
         RegisterTriggeredSkillExecutor(new("buff", (_, grant) => TriggeredBuffOf(grant.EffectId) is not null,
@@ -611,6 +637,12 @@ public static partial class Game
             }
         return table.Buffs.GetValueOrDefault(effectId);
     }
+
+    /// <summary>A skill the "ground" executor carries out: its effect_skills row with how "ground", whose art names
+    /// the ground's kind (ConsecratedGround, ShockedGround, ChilledGround, SmokeCloud).</summary>
+    public static (FlaskGrounds.Kind Kind, GameServer.Storage.GameDataStore.EffectSkillRow Row)? TriggeredGroundOf(string effectId) =>
+        EffectSkillRowOf(effectId) is { How: "ground", Art: { } art } row && Enum.TryParse<FlaskGrounds.Kind>(art, out var kind)
+            && kind != FlaskGrounds.Kind.Taunt ? (kind, row) : null;
 
     /// <summary>The skills the "area" executor releases: world.db's <c>effect_skills</c> rows with how "area" (the
     /// art of most is a best guess until its row is checked against the game), and those a module or mod added

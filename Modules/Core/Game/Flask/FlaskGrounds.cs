@@ -156,6 +156,13 @@ public static partial class Game
                 InflictedLocked(player, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Chill,
                     .3, now, _ => 0, n => monster.Mods.Effects[n], stated: 10));
             }
+            // Shocked ground: a shock with no damage behind it, at the ground's stated 15%, kept up the same way.
+            if (aliveMonster && InFlaskGround(player, FlaskGrounds.Kind.ShockedGround, id))
+            {
+                chilledAny = true;
+                InflictedLocked(player, monster, monster.Ailments.WithoutDamage(MonsterElementalAilments.Kind.Shock,
+                    .3, now, _ => 0, n => monster.Mods.Effects[n], stated: FlaskGrounds.ShockedGroundPct));
+            }
             if (state.SetProfane(id, inProfane, aliveMonster, now, () => 1) is { } profane)
             {
                 if (profane.Added) player.Area.Buffs.Set(id, new(FlaskGrounds.ProfaneBuffRow, player.Id));
