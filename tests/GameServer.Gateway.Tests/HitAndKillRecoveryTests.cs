@@ -18,8 +18,9 @@ public sealed class HitAndKillRecoveryTests
 
     // Culling Strike, gain on hit and Life Recoup: what each source gives, and the hit that applies it.
     [Fact]
-    public void Hits_cull_gain_and_recoup_by_their_stats()
+    public async Task Hits_cull_gain_and_recoup_by_their_stats()
     {
+        await PlacedTotemDamageRecoupsToTheOwner();
         // Culling Strike: the threshold comes from the character and the skill.
         Assert.Equal(default, Game.Cull.Of(null, null, critical: true, spell: true));
         // The support: its implicit stat and its quality's life recovery.
@@ -130,6 +131,57 @@ public sealed class HitAndKillRecoveryTests
             life.Add(30, 8, 4);
             Assert.Equal(0, life.Take(29), 9);
             Assert.Equal(8, life.Take(34), 9);
+        }
+    }
+
+    static async Task PlacedTotemDamageRecoupsToTheOwner()
+    {
+        var source = Program.Items.Mods.ById("AnimalCharmTotemRecoup2")!;
+        var jewel = Assert.IsType<Item>(new UniqueCatalog(Program.Items).Create("That Which Was Taken", new Random(17)));
+        double plain = await Hit(jewel with { Mods = [] });
+        var modified = jewel with { Mods = [new(ModSection.Explicit, source.Hash, [8])] };
+        double qualified = await Hit(modified);
+        double blocked = await Hit(modified, cannotRecover: true);
+        Console.WriteLine($"Totem redirects 43 damage; owner's Life Recoup: {plain} -> {qualified}, recovery blocked {blocked}");
+        Assert.Equal(0, plain);
+        Assert.Equal(3.44, qualified, 6);
+        Assert.Equal(0, blocked);
+
+        async Task<double> Hit(Item equipped, bool cannotRecover = false)
+        {
+            var clock = new KillClock();
+            using var fixture = new TriggeredSummonTests.Fixture(clock);
+            var player = fixture.Player;
+            player.ProjectileRuntimeState = fixture.Session;
+            player.Walk.Teleport(100, 100, clock.Now(player));
+            const byte slot = 1;
+            player.Character.Passives.Add(Game.PassivesFor(player).JewelNodeForSlot(slot)!.Value);
+            player.Character.Passives.Add(31703);
+            Game.ItemsOf(player).Add(PlayerInventories.PassiveJewels, slot, 0, equipped);
+            fixture.Equip(("Shockwave Totem", 18), ("Ice Nova", 18));
+            ushort skill = Game.GemSkillEffects(player).Single(g => g.Name == "Shockwave Totem").Id;
+            using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+            {
+                if (!ReferenceEquals(owner, player)) return values;
+                values[Game.TotemRedirectStat] = 33;
+                if (cannotRecover) values[Stat.CannotRecoverLife] = 1;
+                return values;
+            });
+            var previous = Game.AreaUpdateContext.Value;
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+            try
+            {
+                uint mana = player.PlayerMana;
+                Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (108, 100)));
+                Assert.True(player.PlayerMana < mana);
+                var totem = Assert.Single(player.Totems.All);
+                totem.Life = 130;
+                double now = clock.Now(player);
+                Assert.Equal((88, 0), Game.TotemsTakeHitLocked(player, 131, 0, now, Game.PlayerStatValues(player)));
+                Assert.Equal(87u, totem.Life);
+                return player.LifeRecoup.Take(now + 4);
+            }
+            finally { Game.AreaUpdateContext.Value = previous; }
         }
     }
 

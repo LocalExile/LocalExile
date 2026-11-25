@@ -566,9 +566,11 @@ public static partial class Game
     static (int NonChaos, int Chaos) RedirectTotemHitLocked(Player player, TotemState.Totem totem,
         int nonChaos, int chaos, int pct, double clock, IReadOnlyDictionary<uint, int>? stats)
     {
-        var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, totem.Life);
+        uint before = totem.Life;
+        var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, before);
         var (keptChaos, left) = TotemState.Redirect(chaos, pct, life);
         totem.Life = left;
+        RecoupTotemHitLocked(player, before - left, clock, stats);
         if (left == 0)
         {
             totem.DiedAt = clock;
