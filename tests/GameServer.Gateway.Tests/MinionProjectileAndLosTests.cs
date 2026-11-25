@@ -158,9 +158,19 @@ public sealed class MinionProjectileAndLosTests
         using var f = new TriggeredSummonTests.Fixture();
         ushort spectreSource = f.Equip(("Raise Spectre", 20), ("Returning Projectiles Support", 20)).First();
         var revenant = Assert.IsType<MonsterCatalog.Variety>(Game.Monsters.Find("Metadata/Monsters/Revenant/RevenantMapBossStandalone_AtlasUber"));
-        uint spectreId = await Game.SummonFighter(f.Player, spectreSource,
-            Game.SummonData.Find("RaiseSpectre")!, (100, 100), restoredVariety: revenant.Id);
-        var golem = f.Player.Summons.Fighters[spectreId];
+        var area = f.Player.Area;
+        var previous = GameArea.Own(area);
+        Task<uint> summon;
+        try
+        {
+            summon = Game.SummonFighter(f.Player, spectreSource, Game.SummonData.Find("RaiseSpectre")!,
+                (100, 100), restoredVariety: revenant.Id);
+        }
+        finally { GameArea.Own(previous); }
+        var golem = f.Player.Summons.Fighters[await summon];
+        var registration = GameServer.Core.Protocol.Instance.InstanceEntities.MonsterTypes([((ushort)revenant.Row, golem.Monster.Level)]);
+        Assert.Contains(area.Delta.Take(), record => record.Kind == AreaDelta.Kind.Message
+            && record.Only is null && record.Bytes.SequenceEqual(registration));
         var spell = Assert.Single(golem.Abilities, a => a.Id == "RevenantBossSpellProjectile");
         var mods = golem.Monster.Mods.Effects;
         var profile = GatewayProjectileModifiers.Resolve(
