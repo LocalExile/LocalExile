@@ -134,9 +134,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   GUESS: the `ControlZone` radius of 28 cells and the (333, 333) fallback.
 - Monsters come from `LegionRanks` 56-59 (`MinLevel = 101`, `*Endless` Tier 1 varieties, revival cooldowns
   `6 s / 6 s / 16 s / 24 s`); revival beam is `MiscAnimated` 3377 `beam_down.ao`, the end `MiscAnimated` 3357.
-- Every Timeless Emblem's second mod (`Mods` 21228-21232) carries `uber_domain_monster_tankiness_+%_per_revival` (10) plus
-  one faction stat (Karui crit chance 50, Maraketh attack and cast speed 5, Eternal accuracy 10, Templar penetration 3,
-  Vaal phys-as-chaos 5), so revival scaling is not Unrelenting-only. The values are summed over the emblems used and multiplied
-  by the revival count. Surprise: `Mods.StatsKey` is the 0-based `Stats` row, the
-  generated `Stat` constants are row + 1.
+- Per-revival stats of the emblems (suffix `_per_revival`), summed over the emblems used and times the revival count. Timeless
+  (`Mods` 21228-21232), all with `uber_domain_monster_tankiness_+%` 10: Karui crit chance 50 and crit multiplier 5, Maraketh attack
+  and cast speed 5, Eternal accuracy 10 and area of effect 5, Templar penetrate all resistances 3, Vaal phys-as-chaos 5.
+  Unrelenting (21238-21242), all with `maximum_life_+%` 10: Karui life regeneration 60 and avoid stun 20, Maraketh attack and cast
+  speed 10 and movement speed 10, Eternal crit chance 50 and crit multiplier 3, Templar additional physical damage reduction 4 and
+  all resistances 4, Vaal damage 10 (and penetration 0). GUESS: the cap of 10 revival stacks, and the life stacking as increased.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).
