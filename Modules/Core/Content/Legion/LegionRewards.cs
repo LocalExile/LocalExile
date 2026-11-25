@@ -238,7 +238,7 @@ static class LegionRewards
     /// <summary>The items of an opened chest by its reward types, plus its faction's splinters (factionId null: none); respects league drop scaling.</summary>
     public static List<Item> Chest(Player player, int[] rewards, string? factionId, bool hoard, int level, Random rng)
     {
-        var rules = global::Game.LeagueFor(player).Rules;
+        var rules = Program.LeagueFor(player).Rules;
         var made = new List<Item>();
         var stacks = new List<(string Item, int Count)>();
         foreach (int row in rewards)
@@ -295,7 +295,7 @@ static class LegionRewards
         var player = drop.Player;
         if (fighter.Rewards.Length > 0) player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
         if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
-        var rules = global::Game.LeagueFor(player).Rules;
+        var rules = Program.LeagueFor(player).Rules;
         var rng = global::Game.AreaRng(player);
         int level = Math.Clamp(drop.Monster.Level, 1, 100);
         foreach (int row in fighter.Rewards)
@@ -336,7 +336,7 @@ static class LegionRewards
         var catalog = global::Game.ItemsFor(player);
         var drops = global::Game.DropsFor(player);
         var rolls = global::Game.RollsFor(player);
-        var league = global::Game.LeagueFor(player);
+        var league = Program.LeagueFor(player);
         var rules = league.Rules;
         string kind = Kinds.GetValueOrDefault(row, "generic");
         IEnumerable<Item> Items(IEnumerable<ItemDrops.Drop> d) => d.Select(x => x.Item);

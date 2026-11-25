@@ -250,7 +250,7 @@ static partial class LegionMonolith
     {
         var planned = e.Plan is { } plan && member.Faction < plan.Factions.Length
             ? plan.Factions[member.Faction].Chests.FirstOrDefault(c => c.WarHoard == member.WarHoard) : null;
-        bool ruthless = global::Game.LeagueFor(player).HardMode;
+        bool ruthless = Program.LeagueFor(player).HardMode;
         int row = planned is null ? -1 : ruthless && planned.HardmodeChest >= 0 ? planned.HardmodeChest : planned.Chest;
         static (string Type, QuestObjectTypes.Info Info)? ResolveChest(int chestRow)
         {

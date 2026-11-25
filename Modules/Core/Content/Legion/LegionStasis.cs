@@ -55,7 +55,7 @@ static class LegionStasis
     {
         if (player.Instance is not { } instance) return;
         var snapshot = fighters.ToDictionary(kv => kv.Key, kv => kv.Value);
-        if (snapshot.Count == 0) instance.ContentState.Remove(FightersSaveKey);
+        if (snapshot.Count == 0) instance.ContentState.TryRemove(FightersSaveKey, out _);
         else instance.ContentState[FightersSaveKey] = JsonSerializer.Serialize(snapshot, Json);
     }
 
