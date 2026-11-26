@@ -32,6 +32,50 @@ public sealed class SquireOffhandSupportTests
         };
     }
 
+    [Theory]
+    [InlineData("Holy Flame Totem", "Flamewood Support", "AvengingFlame", "HungryLoopSupportedByFlamewood")]
+    [InlineData("Wintertide Brand", "Foulgrasp Support", "TriggeredSupportFoulgrasp", "HungryLoopSupportedByFoulgrasp")]
+    [InlineData("Cleave", "Prismatic Burst Support", "PrismaticBurst", "HungryLoopSupportedByPrismaticBurst")]
+    public void Squire_companions_resolve_to_the_shields_real_socket(string activeGem, string supportGem,
+        string companion, string hungryLoopSupport)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"squire-companion-{Guid.NewGuid():N}.db");
+        var previous = Program.GameLogicOrNull;
+        Saves.Open(path); Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var player = PlayerOf($"Squire{Guid.NewGuid():N}");
+        TestRequirements.Waive(player);
+        try
+        {
+            var items = Game.ItemsOf(player);
+            var sword = ItemCatalog.Create(Program.Items.Find(
+                "Metadata/Items/Weapons/OneHandWeapons/OneHandSwords/OneHandSword1")!);
+            items.Add(PlayerInventories.Weapon1, 0, 0, sword with
+            {
+                Sockets = [new(SocketColour.White, Gem(activeGem))], Links = [1],
+            });
+            var squire = Assert.IsType<Item>(Game.Uniques.Create("The Squire", new Random(17)));
+            var shield = items.Add(PlayerInventories.Offhand1, 0, 0, squire with
+            {
+                Sockets = [new(SocketColour.White, null), new(SocketColour.White, Gem(supportGem)), new(SocketColour.White, null)],
+                Links = [1, 1, 1],
+            });
+            ushort active = Game.GemSkillEffects(player).Single(source => source.Name == activeGem).Id;
+            var skill = Game.SupportedSkillAt(player, active, null);
+            var support = Assert.Single(skill.Supports);
+            var source = Assert.IsType<Game.PlayerSkillSource>(
+                Game.SupportCompanionSourceLocked(player, skill, support, companion, hungryLoopSupport));
+            Assert.Equal(shield.Id, source.Identity.Host);
+            Assert.Equal(1, source.Identity.Socket);
+
+            items.Remove(PlayerInventories.Offhand1, shield.Id);
+            Assert.Null(Game.SupportCompanionSourceLocked(player, skill, support, companion, hungryLoopSupport));
+        }
+        finally
+        {
+            PlayerInventories.Forget(player.Character.Name!); Program.SetGameLogic(previous!); TestEnvironment.ReleaseSaves(path);
+        }
+    }
+
     [Fact]
     public void Squire_supports_from_the_off_hand_reach_main_hand_skills_unlinked()
     {

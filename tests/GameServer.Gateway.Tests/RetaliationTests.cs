@@ -50,6 +50,7 @@ public sealed class RetaliationTests
 
             Block();
             Assert.False(Admit(triggered: true));
+            Assert.False(Game.TriggerPayloadAvailable(player, skill));
             var readyBuff = Assert.IsType<Buff>(player.Area.Buffs.Get(player.Id, 2470, player.Id, tag: id));
             Assert.Equal(id, readyBuff.SourceSkill);
             Assert.Equal((ushort)0, readyBuff.U82);

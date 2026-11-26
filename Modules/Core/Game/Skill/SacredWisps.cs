@@ -79,23 +79,8 @@ public static partial class Game
             Runtime.Schedule(Math.Min(until, Runtime.Now + ProjectileRuntime.Time(.25)), Check);
         }
 
-        ushort? SacredWispSummonFor(SupportedGem attack, GemSupports.Applied support)
-        {
-            var catalog = SkillsFor(Player);
-            uint host = attack.WornGrant?.Host ?? attack.Host;
-            int socket = support.Gem.Socket;
-            if (socket >= OffhandSocketBase)
-            {
-                var offhand = ItemsOf(Player).EquipmentSnapshot().FirstOrDefault(item => item.Row == PlayerInventories.Offhand1).Item;
-                if (offhand is null) return null;
-                host = offhand.Id;
-                socket -= OffhandSocketBase;
-            }
-            return PlayerSkillSourcesLocked(Player).FirstOrDefault(row => row.Active && row.Identity.Host == host
-                && catalog.EffectId(row.Effect) == SummonSacredWispEffect
-                && (row.Identity.Socket == socket
-                    || row.WornGrant is { ModId: "HungryLoopSupportedBySacredWisps" } && row.Level == support.Gem.Level))?.Id;
-        }
+        ushort? SacredWispSummonFor(SupportedGem attack, GemSupports.Applied support) =>
+            SupportCompanionSourceLocked(Player, attack, support, SummonSacredWispEffect, "HungryLoopSupportedBySacredWisps")?.Id;
 
         async Task SpawnSacredWisps(SacredWisps wisps)
         {

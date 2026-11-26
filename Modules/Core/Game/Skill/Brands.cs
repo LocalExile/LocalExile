@@ -1623,7 +1623,7 @@ public static partial class Game
             BrandFamily.Magma => BrandStat(playerStats, "penance_brand_damage_+%"),
             _ => 0,
         };
-        if (BrandMonsterMarks.TryGetValue(m, out var bm) && bm.AttachedCount > 0)
+        if (SkillsFor(player).IsBrand(gem.Effect) && BrandMonsterMarks.TryGetValue(m, out var bm) && bm.AttachedCount > 0)
             brandSpecific += BrandStat(playerStats, "sigil_attached_target_damage_+%");
         var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
         if (hitMore != 1.0) hit = hit.Scale(hitMore);

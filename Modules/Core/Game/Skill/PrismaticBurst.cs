@@ -57,11 +57,7 @@ public static partial class Game
             || parent.Supports.FirstOrDefault(s => SupportHas(s, trigger)) is not { } support)
             return;
 
-        uint host = parent.WornGrant?.Host ?? parent.Host;
-        var child = PlayerSkillSourcesLocked(player).FirstOrDefault(s => s.Active && s.Identity.Host == host
-            && SkillsFor(player).EffectId(s.Effect) == PrismaticBurstEffect
-            && (s.Identity.Socket == support.Gem.Socket
-                || s.WornGrant is { ModId: "HungryLoopSupportedByPrismaticBurst" } && s.Level == support.Gem.Level));
+        var child = SupportCompanionSourceLocked(player, parent, support, PrismaticBurstEffect, "HungryLoopSupportedByPrismaticBurst");
         if (child is null || GemSkillInstanceDisabled(player, child.Effect, child.Id, triggered: true) is not null
             || CooldownForSkill(player, child.Id) is not { } cooldown) return;
         var session = ProjectilesFor(player);

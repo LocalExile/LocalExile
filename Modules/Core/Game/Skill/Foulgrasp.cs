@@ -18,14 +18,7 @@ public static partial class Game
             || !RandomRolls.Chance(brand.Gem.Stats.GetValueOrDefault(trigger), 100, AreaRng(player)))
             return null;
 
-        uint host = brand.Gem.WornGrant?.Host ?? brand.Gem.Host;
-        foreach (var source in PlayerSkillSourcesLocked(player))
-            if (source.Active && SkillsFor(player).EffectId(source.Effect) == FoulgraspEffect
-                && source.Identity.Host == host
-                && (source.Identity.Socket == support.Gem.Socket
-                    || source.WornGrant is { ModId: "HungryLoopSupportedByFoulgrasp" } && source.Level == support.Gem.Level))
-                return source.Id;
-        return null;
+        return SupportCompanionSourceLocked(player, brand.Gem, support, FoulgraspEffect, "HungryLoopSupportedByFoulgrasp")?.Id;
     }
 
     static bool TryReleaseFoulgraspLocked(Player player, BrandState state, ushort skill, int brands,
@@ -124,8 +117,8 @@ public static partial class Game
                     && FoulgraspClearSight(player, hand.At, at);
             }
 
-            var nearby = player.Area.MonstersNear(hand.At, hand.Radius);
-            if (!nearby.Any(InRange))
+            var targets = player.Area.MonstersNear(hand.At, hand.Radius).Where(InRange).ToArray();
+            if (targets.Length == 0)
             {
                 i++;
                 continue;
@@ -134,7 +127,7 @@ public static partial class Game
             bytes.Remove(hand.Object);
             SpawnTempEffectLocked(player, state, hand.At, FoulgraspBurstAo, now + .5, bytes, hand.Radius / 15f);
             var multipliers = BrandHitMultipliers(playerStats, hand.Gem);
-            foreach (var (id, target) in nearby.Where(InRange).ToArray())
+            foreach (var (id, target) in targets)
                 DealBrandSpellHitLocked(player, hand.Skill, hand.Gem, playerStats, multipliers, id, target, now,
                     hitMore: 1, ailmentMore: 1, label: "Foulgrasp");
         }

@@ -26,12 +26,7 @@ public static partial class Game
             || placement.Supports.FirstOrDefault(s => SupportHas(s, trigger)) is not { } support)
             return null;
 
-        uint host = placement.WornGrant?.Host ?? placement.Host;
-        var catalog = SkillsFor(player);
-        var source = PlayerSkillSourcesLocked(player).FirstOrDefault(s => s.Active && s.Identity.Host == host
-            && catalog.EffectId(s.Effect) == AvengingFlameEffect
-            && (s.Identity.Socket == support.Gem.Socket
-                || s.WornGrant is { ModId: "HungryLoopSupportedByFlamewood" } && s.Level == support.Gem.Level));
+        var source = SupportCompanionSourceLocked(player, placement, support, AvengingFlameEffect, "HungryLoopSupportedByFlamewood");
         if (source is null) return null;
         var spell = SupportedSkill(player, source.Id);
         if (spell.Stats.GetValueOrDefault(Stat.InfernalBoltBaseFireDamagePctMaximumLife) <= 0) return null;
@@ -50,7 +45,7 @@ public static partial class Game
         ApplyProjectilePanelStats(spell.Effect, payload);
         double speed = ProjectileSpeed.Scale(1, caster.GetValueOrDefault, spell.Stats.GetValueOrDefault);
         payload[Stat.ProjectileSpeedPlusPct] = (int)Math.Round((speed - 1) * 100);
-        var grant = catalog.FindByRow(AvengingFlameTotemSkill, spell.Effect, spell.Level,
+        var grant = SkillsFor(player).FindByRow(AvengingFlameTotemSkill, spell.Effect, spell.Level,
             [.. payload.Select(pair => (pair.Key, pair.Value))]);
         return grant is null ? null : new(grant with { Parent = (player.Id, skillId) }, skillId, placement, source, spell);
     }

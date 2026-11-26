@@ -854,6 +854,17 @@ public static partial class Game
                             (centre, radius, _) => Hit(centre, radius, 1));
                 });
             }
+            else if (shockNova)
+                session.ReleasePlacedShockNova(placed, aim, inventionMore, Current);
+            else if (cascade)
+                session.ReleasePlacedGlacialCascade(effect!, placed, aim, inventionMore, Current);
+            else if (ruin && Current())
+            {
+                // A placed device owns its Ruin. Its one point of life cannot be sacrificed.
+                GainTrarthanRuin(player, placed.Id, 0x4000, placed.Own, 1, 1, out _);
+                PlacedAreaDamageLocked(player, placed, placed.At, radius, now, inventionMore, currentSkill: true,
+                    spellDamage: true, ruinSession: session);
+            }
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, inventionMore), Current);
             else if (volatileDead)
@@ -880,7 +891,9 @@ public static partial class Game
                 CommitTriggeredUtilityLocked(player, placed.Skill, gem, payload.Gem, effect!, placed.At, now, fromPlacement: true);
             return;
         }
-        if (arc || shockNova || cascade || ruin) return; // The released spell requires its current linked source.
+        // These releases require their current linked source; stale placements must not deal generic area damage.
+        if (arc || shockNova || cascade || ruin || purifyingFlame || conviction || bladeBlast || unloading || lance || manabond)
+            return;
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
         if (rainSkill)

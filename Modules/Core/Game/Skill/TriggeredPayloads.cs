@@ -17,6 +17,7 @@ public static partial class Game
 
     public static bool TriggerPayloadAvailable(Player player, SupportedGem gem)
     {
+        if (SkillsFor(player).IsRetaliation(gem.Effect)) return false;
         string? payload = SkillsFor(player).EffectId(gem.Effect);
         if (TriggerChaosDebuff(payload)) return true;
         if (SpatialSpellEffect(payload)) return SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality).CanHit;

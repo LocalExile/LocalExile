@@ -6,6 +6,45 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class PlacedSupportsTests(ITestOutputHelper output)
 {
+    [Theory]
+    [InlineData("Shock Nova", "Trap Support", false)]
+    [InlineData("Glacial Cascade", "Blastchain Mine Support", false)]
+    [InlineData("Dark Bargain of Trarthus", "Trap Support", false)]
+    [InlineData("Purifying Flame", "Trap Support", true)]
+    public async Task Placed_spells_release_the_native_payload_only_with_a_current_source(
+        string spell, string support, bool removeSource)
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        var clock = new PlacedClock();
+        var previous = Game.AreaUpdateContext.Value;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            ushort skill = Assert.Single(fixture.Equip((spell, 1), (support, 1)));
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            var placed = Assert.Single(player.Placed.All.Values);
+            int offset = spell == "Glacial Cascade" ? 12 : 0;
+            var monster = new SpawnedMonster("placed spell target", new(placed.At.X + offset, placed.At.Y, 0), 0, 0, 10_000);
+            player.Area.Monsters.Add(750, monster);
+            if (removeSource) fixture.Equip(("Fireball", 1));
+
+            clock.At = placed.Armed + .05;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            if (placed.Mine) Game.DetonateMinesLocked(player, clock.At);
+            await Game.PlayerMinionsTick(player, clock.At);
+            clock.At += 1;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            await Game.PlayerMinionsTick(player, clock.At);
+            Assert.Empty(player.Placed.All);
+            Assert.Equal(removeSource, monster.Life == monster.MaxLife);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public async Task Locus_keeps_close_mines_armed_while_the_rest_of_the_sequence_fires()
     {

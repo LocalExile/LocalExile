@@ -369,6 +369,25 @@ public static partial class Game
         return result;
     }
 
+    internal static PlayerSkillSource? SupportCompanionSourceLocked(Player player, SupportedGem parent,
+        GemSupports.Applied support, string effectId, string hungryLoopSupport)
+    {
+        uint host = parent.WornGrant?.Host ?? parent.Host;
+        int socket = support.Gem.Socket;
+        if (socket >= OffhandSocketBase)
+        {
+            var offhand = ItemsOf(player).EquipmentSnapshot().FirstOrDefault(item => item.Row == PlayerInventories.Offhand1).Item;
+            if (offhand is null) return null;
+            host = offhand.Id;
+            socket -= OffhandSocketBase;
+        }
+        var skills = SkillsFor(player);
+        return PlayerSkillSourcesLocked(player).FirstOrDefault(source => source.Active && source.Identity.Host == host
+            && skills.EffectId(source.Effect) == effectId
+            && (source.Identity.Socket == socket
+                || source.WornGrant?.ModId == hungryLoopSupport && source.Level == support.Gem.Level));
+    }
+
     static bool HasModStat(Player player, Item item, uint stat) =>
         item.Mods.Any(m => ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => s.Id == stat) == true);
 
