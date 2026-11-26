@@ -60,7 +60,11 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     /// overdue time without catching up (the client's cluster timer).</summary>
     public bool UpdateTimer { get; init; }
 }
-public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
+public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval)
+{
+    /// <summary>Whether each selected hit uses area damage modifiers.</summary>
+    public bool AreaDamage { get; init; } = true;
+}
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {

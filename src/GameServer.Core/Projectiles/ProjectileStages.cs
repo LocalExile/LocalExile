@@ -26,6 +26,8 @@ public sealed partial class ProjectileRuntime
         if (p.Profile.Pulse is { } pulse)
         {
             if (pulse.Interval <= 0) throw new ArgumentOutOfRangeException(nameof(pulse));
+            var rule = p.Profile.HitRule;
+            long group = rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId;
             void Pulse()
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
@@ -35,12 +37,13 @@ public sealed partial class ProjectileRuntime
                     for (int i = 0; i < listed; i++)
                     {
                         var target = targets[i];
-                        if (target.Team == p.Use.Team || target.Key == p.Use.Owner) continue;
+                        if (target.Team == p.Use.Team || target.Key == p.Use.Owner
+                            || !ledger.CanHit(group, 0, pulse.Stage, target.Key, Now, p.CreatedAt, rule)) continue;
                         var delta = target.Position(Now) - p.Position;
                         double limit = pulse.Radius + target.Radius;
                         if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
                             && delta.X * delta.X + delta.Y * delta.Y <= limit * limit)
-                            Damage(p, target, pulse.Stage, isArea: true);
+                            Damage(p, target, pulse.Stage, group: group, rule: rule, isArea: pulse.AreaDamage, admissionPhase: 0);
                     }
                 }
                 finally { Return(targets, listed); }

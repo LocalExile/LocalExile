@@ -208,6 +208,7 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(p, get);
         if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);
         if (IsShatteringSteel(effect) && p.ParallelOrigins is null
             && get(Stat.ActiveSkillAdditionalProjectilesFireParallelXDist) is > 0 and var parallelGap)
@@ -410,6 +411,11 @@ public static class GatewayProjectileSkillProfiles
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<uint, int> get, bool spell)
     {
         int Value(uint key, int fallback) => get(key) is > 0 and var value ? value : fallback;
+        if (Game.MovingBallLightning(effect) && p.Pulse is { } pulse)
+        {
+            int basis = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, effect == "BallLightningRoyale" ? 18 : 20);
+            return p with { Pulse = pulse with { Radius = SkillArea.Radius(basis, get, spell) } };
+        }
         if (IsKineticBlast(effect) && p.ContactArea is { } contact)
         {
             bool clustering = effect == "KineticBlastAltX";

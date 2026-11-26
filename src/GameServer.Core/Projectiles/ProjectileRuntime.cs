@@ -534,13 +534,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
-        bool isArea = false)
+        bool isArea = false, int? admissionPhase = null)
     {
         rule ??= (admissionStage ?? stage) == "direct" ? DirectHitRule(p) : p.Profile.HitRule;
         long g = group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId);
         contactEpoch++;
         var result = ProjectileHitResult.Blocked;
-        ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
+        ledger.TryHit(g, admissionPhase ?? p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
             if (p.Profile.LifetimeDamageGainPercent != 0)
             {

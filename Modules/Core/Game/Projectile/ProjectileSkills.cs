@@ -28,6 +28,9 @@ public static partial class Game
         const string ember = "Metadata/Projectiles/Ember";
         foreach (string effect in new[] { "BlazingSalvo", "BlazingSalvoRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, ember, SkillProjectileParameters(effect, ember));
+        foreach (string effect in new[] { "BallLightning", "BallLightningAltX", "BallLightningRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, PlayerBallLightningProjectile,
+                SkillProjectileParameters(effect, PlayerBallLightningProjectile));
         foreach (string effect in new[] { "ForbiddenRite", "ForbiddenRiteAltX" })
             definitions[effect] = SkillProjectileDefinition(effect, ForbiddenRitePrimary,
                 SkillProjectileParameters(effect, ForbiddenRitePrimary));
