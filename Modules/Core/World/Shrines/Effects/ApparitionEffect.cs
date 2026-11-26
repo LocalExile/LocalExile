@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Diagnostics;
 using GameServer.Core.Protocol.Instance;
@@ -56,7 +57,8 @@ public sealed class ApparitionEffect : IShrineEffect
 
     public async Task Tick(ShrineContext ctx, ShrineInstance shrine)
     {
-        if (ctx.Player.Closed || ctx.Player.LeavingArea || ctx.Player.PlayerLife == 0) return;
+        if (ctx.Player.Closed || ctx.Player.LeavingArea
+            || ctx.Player.PlayerLife == 0 && shrine.State != ShrineState.Inactive) return;
         if (producer is not null && !ReferenceEquals(producer, ctx.Player)) await Remove(ctx.Player);
         producer = ctx.Player;
         var p = profile ??= Describe(ctx.Player, shrine.Definition, shrine.State != ShrineState.Inactive);
@@ -253,7 +255,6 @@ public sealed class ApparitionEffect : IShrineEffect
             TerrainBounces = -1,
             Legs = i => new SparkLegs(sequence, i, id, seconds, Get(Stat.SparkRandomDurationPct), speed),
         };
-        var owner = session.ActorKey(id, source);
         var offense = new ObjectProjectileOffense($"shrine apparition tornado {id:x}", (s, hit) =>
         {
             if (token != generation || actor != id || player.Closed || player.LeavingArea || player.PlayerLife == 0)
@@ -272,11 +273,16 @@ public sealed class ApparitionEffect : IShrineEffect
                 attack with { Projectile = shot }, source.ActionGeneration, source.Label)
                 { MinionDamageFactor = Math.Max(0, 1 + Get(Stat.MonsterPenaltyAgainstMinionsDamagePlusPctFinalVsPlayerMinions) / 100d) });
         }) { Quiet = true, Presentation = MonsterProjectilePresentation(catalog.Clips(shot.Metadata), seconds) };
-        flights.Add((session, offense));
-        session.Schedule(session.Runtime.Now, () => token == generation && actor == id,
-            () => new(recipe, owner, owner, p.Claimed ? 1 : 2, ProjectileSession.Vector(contact.Centre),
-                ProjectileSession.Vector((contact.Centre.X + (int)Math.Round(30 * Math.Cos(contact.Angle)),
-                    contact.Centre.Y + (int)Math.Round(30 * Math.Sin(contact.Angle))))) { Payload = offense, Sequence = sequence });
+        using (LevelUpdatesFor(player).Gate.EnterScope())
+        {
+            if (!session.Active) return;
+            var owner = session.ActorKey(id, source);
+            flights.Add((session, offense));
+            session.Schedule(session.Runtime.Now, () => token == generation && actor == id,
+                () => new(recipe, owner, owner, p.Claimed ? 1 : 2, ProjectileSession.Vector(contact.Centre),
+                    ProjectileSession.Vector((contact.Centre.X + (int)Math.Round(30 * Math.Cos(contact.Angle)),
+                        contact.Centre.Y + (int)Math.Round(30 * Math.Sin(contact.Angle))))) { Payload = offense, Sequence = sequence });
+        }
         session.Advance();
     }
 
@@ -299,6 +305,7 @@ public sealed class ApparitionEffect : IShrineEffect
             uint removed = actor;
             var retired = body;
             var bytes = InstanceProtocol.RemoveObject(removed);
+            BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
             void Retire(GameArea a)
             {
                 if (retired is not null) { retired.Dead = true; retired.Life = 0; retired.ActionGeneration++; }

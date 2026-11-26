@@ -93,14 +93,11 @@ public sealed partial class ShrineTests
         ApparitionRewards.Load();
         var noBuff = new DropRoll(player, new("ordinary", "ordinary", 70, MonsterRarity.Normal, 100, 100));
         for (int i = 0; i < 100; i++) ApparitionRewards.Drops(noBuff);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 10000; i++) ApparitionRewards.Drops(noBuff);
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        watch.Stop();
         Assert.Equal(0, allocated);
         Assert.Empty(noBuff.Changes);
-        Console.WriteLine($"Apparition rewards inactive: {watch.Elapsed.TotalMilliseconds:0.###} ms / 10000 kills, {allocated} bytes");
         var modifiers = new MonsterModEffects(new Dictionary<uint, int>
         {
             [Stat.DamagePlusPct] = 30, [Stat.AttackSpeedPlusPct] = 20, [Stat.BaseCastSpeedPlusPct] = 20,
@@ -249,7 +246,8 @@ public sealed partial class ShrineTests
             Assert.True(leaving.Value.Dead);
             Assert.DoesNotContain(area.MonstersNear(leaving.Value.Walk.Position(13), 10), m => m.Key == leaving.Key);
             Assert.DoesNotContain(leaving.Key, player.MinionOrigins.Keys);
-            Assert.Contains(area.Delta.Take(), r => r.Entity == leaving.Key && r.Kind == AreaDelta.Kind.Remove);
+            Assert.Contains(area.Delta.Take(), r => r.Entity == leaving.Key && r.Kind == AreaDelta.Kind.Remove
+                && r.Order == WorldOrder.Last);
             player.Area.Monsters.Remove(0x7071);
         }
     }
@@ -268,12 +266,19 @@ public sealed partial class ShrineTests
         try
         {
             await effect.Tick(new(driver, 0), shrine);
+            var initial = Assert.Single(driver.Area.Monsters, m => m.Value.Variety?.Id == ApparitionEffect.Describe(driver, row, false).Body.Id);
+            driver.PlayerLife = 0;
             await effect.Tick(new(driver, ApparitionEffect.Describe(driver, row, false).CastSeconds + .7), shrine);
             var session = Game.ProjectilesFor(peer.Player);
             Assert.NotEmpty(session.Runtime.Projectiles);
             Assert.All(session.Runtime.Projectiles, p => Assert.False(p.Profile.HideVisual));
-            await effect.OnMapUnload(new(driver, 7), shrine);
+            await effect.Tick(new(driver, 9), shrine);
+            Assert.DoesNotContain(initial.Key, driver.Area.Monsters.Keys);
             Assert.Empty(session.Runtime.Projectiles);
+            await effect.Tick(new(driver, 12), shrine);
+            var replacement = Assert.Single(driver.Area.Monsters, m => m.Value.Variety?.Id == initial.Value.Variety!.Id);
+            Assert.NotEqual(initial.Key, replacement.Key);
+            await effect.OnMapUnload(new(driver, 13), shrine);
         }
         finally
         {
@@ -281,6 +286,7 @@ public sealed partial class ShrineTests
             await ShrineManager.LeaveArea(peer.Player);
             await ShrineManager.LeaveArea(driver);
             driver.Walk.Teleport(100, 100, 0);
+            driver.PlayerLife = driver.PlayerMaxLife;
         }
     }
 
@@ -290,13 +296,10 @@ public sealed partial class ShrineTests
         var original = DamagePacket.Of(DamageType.Physical, 100, 100);
         var random = new Random(1);
         for (int i = 0; i < 100; i++) Game.MonsterTemporaryHit(inactive, original, random);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         long bytes = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 10000; i++) Game.MonsterTemporaryHit(inactive, original, random);
         bytes = GC.GetAllocatedBytesForCurrentThread() - bytes;
-        watch.Stop();
         Assert.Equal(0, bytes);
-        Console.WriteLine($"Temporary monster offence inactive: {watch.Elapsed.TotalMilliseconds:0.###} ms / 10000 hits, {bytes} bytes");
         var damage = Game.TemporaryMonsterDamage(DamagePacket.Of(DamageType.Physical, 100, 100),
             new Dictionary<uint, int> { [Stat.PhysicalDamagePctToAddAsChaos] = 10, [Stat.ChaosDamagePlusPct] = 50 }, new Random(1));
         Assert.Equal(100, damage[DamageType.Physical].Min);
@@ -324,14 +327,11 @@ public sealed partial class ShrineTests
         EvolutionShrine.Load();
         var inactive = new KillContext(player, new("inactive", player.Walk, 20, 5, 1000), "inactive", (100, 100));
         for (int i = 0; i < 100; i++) EvolutionShrine.OnKill(inactive);
-        var watch = System.Diagnostics.Stopwatch.StartNew();
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 10000; i++) EvolutionShrine.OnKill(inactive);
         allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        watch.Stop();
         Assert.Equal(0, allocated);
         Assert.Empty(inactive.Afterwards);
-        Console.WriteLine($"Evolution inactive: {watch.Elapsed.TotalMilliseconds:0.###} ms / 10000 kills, {allocated} bytes");
         using var sources = GameEvents.PlayerStatSources.Add("shrine-regression", (p, stats) =>
         {
             ShrineManager.AddStats(p, stats);
