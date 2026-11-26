@@ -80,6 +80,27 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Bestiary and Sulphite scarab boundaries
+
+The pinned client tables supply all twelve Bestiary scarab/lure inputs and seven Sulphite inputs, including legacy
+rows. Family lures use BestiaryCapturableMonsters, BestiaryGroups and BestiaryFamilies; Shadowed Crow selects
+AtlasMorriganBeast rather than a similarly named ordinary bird. Herd, Duplicating, Crow, Greed and Fumes modify an
+existing master encounter; they do not independently guarantee one. The base scarabs and legacy lures carry that stat.
+
+The account/league capture store retains the capturable row, variety, level, rarity, modifiers and separate copy IDs.
+Its source identity prevents repeated kills or reload from crediting the same capture twice. The mission snapshot
+keeps each red beast's separate wave and random progression. Native book, itemisation and Blood Altar protocols are
+not implemented by this store. The base mission's level/count mapping, equal red selection weights and map fallback
+pool remain estimates. The full store retains 1,000 entries and replaces the oldest; the replacement order and the
+50% nearby-party capture roll are local approximations. The official
+[3.20 party change](https://www.pathofexile.com/forum/view-thread/3323944#bestiaryparty-play) establishes per-player
+chance and guaranteed instance-owner credit, but does not publish its exact constant. Nearby non-owners use 250 cells.
+
+Sulphite retains the shipped resource curve and existing party yield formula, with owner-only scarab bonuses,
+map quantity, mined-sulphite modifiers and equipment capacity. The three deposits have a shared single-use claim.
+Fumes adds its 50% quantity once, preserving other encounter quantity and other stats, and uses a separate retained
+mark for the native enrage presentation. Its radius, guard placement and combat tuning remain local approximations.
+
 ## Mercenaries (CoreLeagues row 28)
 
 A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in
