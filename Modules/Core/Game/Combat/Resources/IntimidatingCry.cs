@@ -29,6 +29,7 @@ public static partial class Game
         internal readonly ConcurrentQueue<CryGift> Inbox = new();
         internal readonly List<CryGift> Gifts = [];
         internal int Exerts, SeismicExerts, SeismicArea, AncestralExerts, AncestralTargets, PresentedMovement;
+        internal int RallyingExerts, RallyingDamage;
         internal ushort Buff;
     }
     static readonly Store<Player, CryRuntime> CryRuntimes = new();
@@ -43,7 +44,7 @@ public static partial class Game
             state.Rules = CombatLifetime;
             state.Epoch = player.ProjectileEpoch;
             state.Sources.Clear(); state.Pending.Clear(); state.Gifts.Clear();
-            state.Exerts = state.SeismicExerts = state.AncestralExerts = 0;
+            state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = 0;
             if (initialized) while (state.Inbox.TryDequeue(out _)) { }
         }
         return state;
@@ -177,7 +178,7 @@ public static partial class Game
         while (state.Inbox.TryDequeue(out var gift))
             if (ReferenceEquals(gift.Instance, player.Instance.Presence) && gift.Until > now) { state.Gifts.Add(gift); CryGiftGained(player); }
         if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
-        { state.Gifts.Clear(); state.Exerts = state.SeismicExerts = state.AncestralExerts = 0; }
+        { state.Gifts.Clear(); state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = 0; }
         state.Gifts.RemoveAll(g => !ReferenceEquals(g.Instance, player.Instance.Presence) || g.Until <= now);
         // The movement step runs again when the first gift ends (on the area's clock).
         if (state.Gifts.Count > 0) StatsChangeAt(state.Gifts.Min(g => g.Until), () => AreaTime(player));
@@ -223,6 +224,25 @@ public static partial class Game
         cry.AncestralTargets = Math.Max(0, own.GetValueOrDefault(Stat.AncestralCryEmpoweredAttacksStrikeXAdditionalEnemies));
     }
 
+    internal static void GrantRallyingCryExertsLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, int affectedAllies)
+    {
+        var cry = CryOf(player);
+        long count = (long)own.GetValueOrDefault(Stat.SkillEmpowersNextXMeleeAttacks)
+            + playerStats.GetValueOrDefault(Stat.RallyingCryExertsXAdditionalAttacks);
+        cry.RallyingExerts = WarcryExertionCount(count, playerStats);
+        cry.RallyingDamage = (int)Math.Clamp((long)affectedAllies
+            * own.GetValueOrDefault(Stat.RallyingCryDamagePlusPctFinalFromOsmPerNearbyAlly), 0, 25);
+    }
+
+    static int? ConsumeRallyingCry(CryRuntime cry)
+    {
+        if (cry.RallyingExerts <= 0) return null;
+        cry.RallyingExerts--;
+        // A zero-ally cry still exerts the attack and counts for Overexertion.
+        return cry.RallyingDamage;
+    }
+
     static int WarcryExertionCount(long count, IReadOnlyDictionary<uint, int> stats) =>
         Math.Max(0, ActorScale.Saturate(count * (stats.GetValueOrDefault(Stat.WarcriesExertTwiceAsManyAttacks) != 0 ? 2 : 1)));
 
@@ -233,7 +253,7 @@ public static partial class Game
         return cry.AncestralTargets;
     }
 
-    static (bool Intimidating, int? SeismicArea, int AncestralTargets) ConsumeMeleeWarcryExertsLocked(
+    static (bool Intimidating, int? SeismicArea, int AncestralTargets, int? RallyingDamage) ConsumeMeleeWarcryExertsLocked(
         Player player, ushort skill, int effect, bool eligible)
     {
         if (!eligible || !WarcryCanExert(player, skill, effect)) return default;
@@ -243,10 +263,11 @@ public static partial class Game
         if (intimidating) cry.Exerts--;
         var skills = SkillsFor(player);
         int ancestralTargets = cry.AncestralExerts > 0 && skills.IsStrike(effect) ? ConsumeAncestralCry(cry) : 0;
+        int? rallyingDamage = ConsumeRallyingCry(cry);
         if (cry.SeismicExerts <= 0 || !skills.HasType(effect, "Slam"))
-            return (intimidating, null, ancestralTargets);
+            return (intimidating, null, ancestralTargets, rallyingDamage);
         cry.SeismicExerts--;
-        return (intimidating, cry.SeismicArea, ancestralTargets);
+        return (intimidating, cry.SeismicArea, ancestralTargets, rallyingDamage);
     }
 
     static bool WarcryCanExert(Player player, ushort skill, int effect) =>
@@ -260,19 +281,20 @@ public static partial class Game
     public static HitRollModifiers WithIntimidatingCryExert(HitRollModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
 
-    static double OverexertionMore(IReadOnlyDictionary<uint, int> skill, bool exerted, int otherWarcries = 0)
+    static double ExertedAttackMore(IReadOnlyDictionary<uint, int> skill, bool exerted, int otherWarcries = 0,
+        int? rallyingDamage = null)
     {
-        int warcries = (exerted ? 1 : 0) + otherWarcries;
+        int warcries = (exerted ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
         if (warcries == 0) return 1;
         double warcryMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalPerWarcryExertingAction) / 100d * warcries);
         double exertedMore = Math.Max(0, 1 + skill.GetValueOrDefault(Stat.SupportOverexertionDamagePlusPctFinalIfExerted) / 100d);
-        return warcryMore * exertedMore;
+        return warcryMore * exertedMore * (1 + rallyingDamage.GetValueOrDefault() / 100d);
     }
 
-    static DamagePacket WithOverexertion(DamagePacket hit, IReadOnlyDictionary<uint, int> skill, bool exerted,
-        int otherWarcries = 0)
+    static DamagePacket WithExertedAttackDamage(DamagePacket hit, IReadOnlyDictionary<uint, int> skill, bool exerted,
+        int otherWarcries = 0, int? rallyingDamage = null)
     {
-        double more = OverexertionMore(skill, exerted, otherWarcries);
+        double more = ExertedAttackMore(skill, exerted, otherWarcries, rallyingDamage);
         return more == 1 ? hit : hit.Scale(more);
     }
 

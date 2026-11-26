@@ -119,6 +119,78 @@ public sealed class WarcryExertionTests
         finally { Game.AreaUpdateContext.Value = previous; }
     }
 
+    [Theory]
+    [InlineData(0, 1177)]
+    [InlineData(1, 1236)]
+    [InlineData(6, 1471)]
+    public async Task Rallying_Cry_keeps_five_exerts_at_the_release_time_ally_count(int expectedAllies, int expectedDamage)
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        var aim = (X: 109, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        fixture.Equip(("Rallying Cry", 1), ("Heavy Strike", 1), ("Overexertion Support", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => g.Name == "Rallying Cry");
+        var strike = Game.GemSkillEffects(player).Single(g => g.Name == "Heavy Strike");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(5, own[Stat.SkillEmpowersNextXMeleeAttacks]);
+        Assert.Equal(5, own[Stat.RallyingCryDamagePlusPctFinalFromOsmPerNearbyAlly]);
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalAlwaysHit] = 1;
+                values[Stat.GlobalCannotCrit] = 1;
+            }
+            return values;
+        });
+        using var damage = GameEvents.OutgoingDamage.Add("Game", (owner, _, _, rolled) => ReferenceEquals(owner, player)
+            ? DamagePacket.Of(DamageType.Chaos, 1000, 1000) : rolled);
+        var foe = new SpawnedMonster("Rallying Cry witness", new(aim.X, aim.Y, 0), 0, 0, 1_000_000);
+        player.Area.Monsters.Add(901, foe);
+        player.Area.Monsters.Add(902, new("out of range", new(190, 100, 0), 0, 0, 100) { Hostile = false });
+        player.Area.Monsters.Add(903, new("non-blocking ally", new(100, 110, 0), 0, 0, 100)
+            { Hostile = false, NonBlocking = true });
+        for (int i = 1; i < expectedAllies; i++)
+            player.Area.Monsters.Add((uint)(910 + i), new("nearby ally", new(100, 110 + i, 0), 0, 0, 100) { Hostile = false });
+        if (expectedAllies > 0) player.Totems.Place(new(909, 0, (100, 112), 100, clock.At + 3, null), 1, clock.At);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            async Task<int> Strike()
+            {
+                foe.Walk.Teleport(aim.X, aim.Y, clock.At);
+                uint life = foe.Life;
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, strike.Id, origin, aim, 901));
+                return (int)(life - foe.Life);
+            }
+
+            Assert.Equal(1000, await Strike());
+            var playerStats = new Dictionary<uint, int>();
+            int affected = Game.GrantWarcryBuffLocked(player, "RallyingCry", own, playerStats, origin, 60, clock.At, 2.5, 1);
+            Assert.Equal(expectedAllies, affected);
+            Assert.False(player.Area.Buffs.Has(player.Id, Game.RallyingCryBuffRow, player.Id));
+            Assert.False(player.Area.Buffs.Has(903, Game.RallyingCryBuffRow, player.Id));
+            Game.GrantRallyingCryExertsLocked(player, own, playerStats, affected);
+
+            clock.At += 10;
+            Game.ExpireWarcryBuffs(player);
+            player.Totems.Clear();
+            for (int i = 1; i < expectedAllies; i++) player.Area.Monsters.Remove((uint)(910 + i));
+            for (int i = 0; i < 5; i++) Assert.InRange(await Strike(), expectedDamage - 1, expectedDamage + 1);
+            Assert.Equal(1000, await Strike());
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public void War_bringer_doubles_the_native_count_and_each_eligible_attack_spends_one()
     {

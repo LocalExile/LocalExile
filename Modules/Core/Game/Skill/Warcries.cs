@@ -248,15 +248,23 @@ public static partial class Game
     }
 
     public static void ApplyWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, (int X, int Y) at, int radius, double now, double duration, double buffEffect) =>
+        GrantWarcryBuffLocked(player, effectId, own, playerStats, at, radius, now, duration, buffEffect);
+
+    internal static int GrantWarcryBuffLocked(Player player, string effectId, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats, (int X, int Y) at, int radius, double now, double duration, double buffEffect)
     {
         if (playerStats.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
             || own.GetValueOrDefault(Stat.WarcriesDoNotApplyBuffsToSelfOrAllies) != 0
-            || WarcryBuffRow(effectId) is not ushort row || duration <= 0 && row != EnduringCryBuffRow) return;
+            || WarcryBuffRow(effectId) is not ushort row || duration <= 0 && row != EnduringCryBuffRow) return 0;
         bool rallying = row == RallyingCryBuffRow;
         var nearbyPlayers = (player.Instance?.PlayersExcept(player.Id) ?? [])
-            .Where(ally => ally.Area == player.Area && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius).ToArray();
-        int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length);
+            .Where(ally => ally.Area == player.Area && !ally.Closed && !ally.LeavingArea && ally.PlayerLife > 0
+                && Dist(ally.Walk.Position(now), at) <= radius).ToArray();
+        int nearbyTotems = rallying ? NearbyRallyingTotems(player, at, radius) : 0;
+        int affectedAllies = rallying ? nearbyPlayers.Length + nearbyTotems + player.Area.Monsters.Values.Count(ally =>
+            !ally.Hostile && !ally.Dead && ally.Life > 0 && RallyingCryAlly(ally) && Dist(ally.Walk.Position(now), at) <= radius) : 0;
+        int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length, nearbyTotems);
         bool givesSelf = playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0;
         if (row == EnduringCryBuffRow)
         {
@@ -271,16 +279,16 @@ public static partial class Game
             }
             buffEffect += playerStats.GetValueOrDefault(Stat.EnduringCryBuffEffectPlusPct) / 100d;
         }
-        if (duration <= 0) return;
+        if (duration <= 0) return 0;
         if (effectId == "BattlemagesCry") buffEffect += playerStats.GetValueOrDefault(Stat.BattlemagesCryBuffEffectPlusPct) / 100d;
         WarcryGrant gift;
         WarcryGrant? ownMinionGift = null;
         if (rallying)
         {
-            if (WeaponIn(player, ActiveMainHand(player)) is not { LocalDamage: { } weapon }) return;
+            if (WeaponIn(player, ActiveMainHand(player)) is not { LocalDamage: { } weapon }) return affectedAllies;
             double fraction = Math.Clamp(power, 0, 30) / 5 * own.GetValueOrDefault(Stat.RallyingCryWeaponDamagePctForAlliesPer5MonsterPower)
                 * Math.Max(0, buffEffect + playerStats.GetValueOrDefault(Stat.RallyingCryBuffEffectPlusPct) / 100d) / 100d;
-            if (fraction <= 0) return;
+            if (fraction <= 0) return affectedAllies;
             var values = RallyingCryDamage(weapon, fraction);
             gift = new(player.Area, row, player.Id, now + duration, values, values.Sum(v => (long)v.Value));
             double minionEffect = Math.Max(0, 1 + own.GetValueOrDefault(Stat.RallyingCryBuffEffectOnMinionsPlusPctFinal) / 100d);
@@ -289,7 +297,7 @@ public static partial class Game
         }
         else
         {
-            if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return;
+            if (WarcryBuffStats(effectId, power, buffEffect, key => own.GetValueOrDefault(key)) is not { } stats) return 0;
             gift = new(player.Area, row, player.Id, now + duration, stats);
         }
         void GrantPlayer(Player recipient)
@@ -305,14 +313,41 @@ public static partial class Game
             var ownMinions = ownMinionGift is null ? null : player.Minions.All.Select(m => m.Id).ToHashSet();
             foreach (var (id, ally) in player.Area.Monsters)
                 if (!ally.Hostile && !ally.Dead && ally.Life > 0 && Dist(ally.Walk.Position(now), at) <= radius)
+                {
+                    if (rallying)
+                    {
+                        // A mirage uses its owner's stats. It counts as an ally, but cannot use the weapon-damage grant.
+                        if (!RallyingCryAlly(ally) || RallyingCryMirage(ally)) continue;
+                    }
                     ReceiveWarcry(player.Area, id, MinionWarcryGrants.GetOrCreateValue(ally),
                         ownMinions?.Contains(id) == true ? ownMinionGift! : gift, now);
+                }
         }
         Console.WriteLine($"[gateway] {effectId}: warcry buff row {row} power={power} for {duration:0.###} s");
+        return affectedAllies;
+    }
+
+    static bool RallyingCryMirage(SpawnedMonster ally) =>
+        ally.Variety?.Id.StartsWith("Metadata/Monsters/MirageWarrior/", StringComparison.Ordinal) == true;
+
+    static bool RallyingCryAlly(SpawnedMonster ally) =>
+        !ally.WorldHidden && (!ally.NonBlocking && ally.Variety?.PositionedBlocking != false || RallyingCryMirage(ally));
+
+    static int NearbyRallyingTotems(Player player, (int X, int Y) at, int radius)
+    {
+        int count = 0;
+        foreach (var owner in (player.Instance?.PlayersExcept(player.Id) ?? []).Prepend(player))
+        {
+            if (owner.Area != player.Area || owner.Closed || owner.LeavingArea || owner.PlayerLife == 0) continue;
+            double now = AreaTime(owner);
+            foreach (var totem in owner.Totems.All)
+                if (totem.Alive(now) && Dist(totem.At, at) <= radius) count++;
+        }
+        return count;
     }
 
     static int WarcryPowerAt(Player player, (int X, int Y) at, int radius, double now, string effectId,
-        IReadOnlyDictionary<uint, int> stats, int nearbyAllies)
+        IReadOnlyDictionary<uint, int> stats, int nearbyAllies, int nearbyTotems = 0)
     {
         if (stats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0) return InfiniteWarcryPower;
         int minimum = stats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
@@ -324,8 +359,8 @@ public static partial class Game
         });
         bool rallying = effectId == "RallyingCry";
         long nearby = player.Area.Monsters.Values.Where(m => !m.Dead && m.Life > 0
-            && (m.Hostile || rallying) && Dist(m.Walk.Position(now), at) <= radius).Sum(m => (long)WarcryPower(m.Rarity));
-        if (rallying) nearby += 5L * nearbyAllies;
+            && (m.Hostile || rallying && RallyingCryAlly(m)) && Dist(m.Walk.Position(now), at) <= radius).Sum(m => (long)WarcryPower(m.Rarity));
+        if (rallying) nearby += 5L * nearbyAllies + nearbyTotems;
         return Math.Max(minimum, ActorScale.Saturate(nearby * (100L + stats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
     }
 
@@ -347,7 +382,8 @@ public static partial class Game
             {
                 int allies = effectId == "RallyingCry" ? (player.Instance?.PlayersExcept(player.Id) ?? [])
                     .Count(ally => !ally.LeavingArea && ally.PlayerLife > 0 && Dist(ally.Walk.Position(now), at) <= radius) : 0;
-                int power = WarcryPowerAt(player, at, radius, now, effectId, stats, allies);
+                int totems = effectId == "RallyingCry" ? NearbyRallyingTotems(player, at, radius) : 0;
+                int power = WarcryPowerAt(player, at, radius, now, effectId, stats, allies, totems);
                 int increase = (int)Math.Min(100L, (long)(power / 5) * armour);
                 if (increase > 0)
                 {

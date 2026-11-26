@@ -14,7 +14,8 @@ static partial class Game
     // and extra contacts together, then releases a volley from each branch of the attack.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
-        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0)
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0,
+        int? rallyingDamage = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -65,11 +66,11 @@ static partial class Game
             if (wildStrike)
                 session.Schedule(contactAt, RepeatValid, () =>
                     ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
-                        criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets));
+                        criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets, rallyingDamage));
             else
                 session.ScheduleContact(contactAt, RepeatValid, () =>
                     ReleaseProjectileStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
-                        index, cryExerted, ruthless, frostBlades, extras, ancestralTargets));
+                        index, cryExerted, ruthless, frostBlades, extras, ancestralTargets, rallyingDamage));
         }
         return Task.CompletedTask;
     }
@@ -77,7 +78,7 @@ static partial class Game
     static void ReleaseProjectileStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
-        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras, int ancestralTargets)
+        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras, int ancestralTargets, int? rallyingDamage)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var stats = SupportedSkill(player, skillId).Stats;
@@ -118,14 +119,14 @@ static partial class Game
                     if (target == primary.Target) primaryHit = true;
                     else extraHits?.Add(target);
                 }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets,
-                ancestralTargets: ancestralTargets);
+                ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled projectile strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
 
         if (frostBlades && !primaryHit && extraHits is not { Count: > 0 }) return;
         var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted,
-            otherWarcryExertions: ancestralTargets > 0 ? 1 : 0);
+            otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
         if (frostBlades)
         {
             if (primaryHit) session.ReleaseNow(FrostBladesVolley(player, use, stats, now, from, aim, primary, more));

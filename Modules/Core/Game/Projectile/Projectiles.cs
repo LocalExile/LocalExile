@@ -937,7 +937,7 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
+            double ailmentMore = chainsMore * returnMore * ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -966,7 +966,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
+            rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second

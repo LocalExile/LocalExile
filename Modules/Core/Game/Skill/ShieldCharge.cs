@@ -352,7 +352,7 @@ public static partial class Game
         RunShieldChargeHits(player, token, charged, skillId, sequence, actionToken, cooldownUse, cryExerted, null);
 
     static async Task RunShieldChargeHits(Player player,
-        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted, SkillCriticalRoll? criticalRoll)
+        int token, bool charged, ushort skillId, ushort sequence, int actionToken, CooldownUseTicket? cooldownUse, bool cryExerted, SkillCriticalRoll? criticalRoll, int? rallyingDamage = null)
     {
         if (!ShieldChargeRuns.TryGetValue(player, out var run) || run.Token != token) return;
         int epoch = player.ProjectileEpoch, interruption = player.ActionInterruptionGeneration;
@@ -388,6 +388,7 @@ public static partial class Game
             return AreaSkillHitForUse(ruthless, player, skillId, gem, at, at, immediate: true, sequence: sequence,
                 actionToken: hitAction, cooldownUse: hitAction is null ? null : cooldownUse,
                 damageMore: more, criticalRoll: criticalRoll, radiusOverride: radius, once: once, cryExerted: cryExerted,
+                rallyingDamage: rallyingDamage,
                 targetFilter: targetFilter, extraStunThresholdReduction: stunRed,
                 extraStunDurationPct: stunDur, extraKnockbackDistancePct: kbDist,
                 removeStunAndKnockback: removeStunAndKnockback, offHandWeapon: true);
