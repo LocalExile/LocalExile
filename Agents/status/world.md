@@ -101,7 +101,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Kingsmarch (Settlers of Kalguur): the hub's villagers stand on their room's own lines (the cells, the facings and the
   models of `kingsmarch.arm`; the client's own type table gives the farmer Isla's model) and talk, the farm plots grow and
-  harvest at a rate (workers with ranks, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury",
+  harvest at a rate (workers with ranks, wages, a saved store), an empty treasury halts the whole town (the plots stop
+  growing and the mine and the smeltery stop delivering until Johan's "Fund the Treasury" fills it again), the treasury
+  takes gold from Johan's "Fund the Treasury",
   and the harbour loads crops onto the town's three ships and sails them to the seven ports with travel time, risk and the
   shipping failure rows. The town panel
   opens: the server sends the settlement records with the area's own messages (`0x1f`, kind `0x9b`, before `0x21`), which

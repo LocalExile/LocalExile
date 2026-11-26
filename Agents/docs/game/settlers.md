@@ -102,7 +102,11 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   actions (reroll, hire, release, assign, give and take treasury gold) and the wage table the worker rows carry
   (`Modules/Core/Village/VillageWages.cs`, `Modules/Core/Village/VillageWorkers.cs`).
 - `Modules/Core/Game/World/KingsmarchTown.cs`: the town's server objects (farm plots, then optionally the noticeboards),
-  crop growth per plot, workers, wages, the treasury, and a click on a plot to plant or harvest.
+  crop growth per plot, workers, wages, the treasury, and a click on a plot to plant or harvest. The farm runs on one
+  clock, the wall clock in Unix seconds (`UtcNow()`), the same base the plots' catch-up and the harbour's trips use, so a
+  town saved by one process is still at the right point in the next. An empty treasury halts the town: the plots stop
+  growing (`PlotRate` returns 0) and the mine and the smeltery stop bringing anything up -their cycles are moved to the
+  tick that notices the halt, so the hours it stood idle are not paid out as produce once it is funded again.
 - `Modules/Core/Game/World/KingsmarchPort.cs`: the harbour — the seven ports of `VillageShippingPorts`, cargo value from
   `VillageExports`, crew, travel time and risk from distance, and the failure rows of `VillageShippingFailures`. The town
   has three dock slots (`Docks = 3`): a slot is bound for a port (`Route`), cargo is loaded into it out of the farm's

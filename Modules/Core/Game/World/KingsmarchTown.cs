@@ -343,7 +343,7 @@ public static class KingsmarchTown
             progress.Ui = false;
             Console.WriteLine($"[gateway] kingsmarch area load: {player.AreaId} character {player.Character}");
             // The client is still loading the area; objects sent into a loading area are dropped.
-            progress.Ready = Environment.TickCount64 / 1000.0 + 3.0;
+            progress.Ready = UtcNow() + 3.0;
             Restore(progress, player.Character);
             // The area generation does not always fire (a cached layout re-entered from a town does not generate again),
             // so the tick also notices a new instance; either way a fresh area is what lets the town be placed again.
@@ -380,7 +380,7 @@ public static class KingsmarchTown
         public string Who = "";
         public List<SavedPlot> Saved = [];
         public readonly Dictionary<string, int> Store = [];
-        // Before this (seconds, Environment.TickCount64 based) the area is still loading and nothing may be sent.
+        // Before this (Unix seconds) the area is still loading and nothing may be sent.
         public double Ready;
         // Plots removed for a crop change, waiting for their re-create (the client's destroy is deferred).
         public readonly List<(double At, Plot Plot, int X, int Y)> Pending = [];
@@ -390,7 +390,7 @@ public static class KingsmarchTown
         // five crops, since the farm panel that would let a player choose one cannot be opened in this build).
         public int MineRotation;
         public int CropNext;
-        // When the mine's and the smeltery's running cycle started (seconds, Environment.TickCount64 based), so a worker
+        // When the mine's and the smeltery's running cycle started (Unix seconds, the wall clock), so a worker
         // set to either job brings its produce in MineSeconds/SmeltSeconds later. The mine digs one ore a worker a cycle;
         // the smeltery refines one ore a worker a cycle.
         public double MineStartedAt;
@@ -416,7 +416,7 @@ public static class KingsmarchTown
         // The settlement records (0x1f) and the village UI events (0x7b) were sent for this area load.
         public bool Records;
         public bool Ui;
-        // The probe ladder's step and when the next one may go out (seconds, Environment.TickCount64 based).
+        // The probe ladder's step and when the next one may go out (Unix seconds, the wall clock).
         public int ProbeStep;
         public double ProbeAt;
     }
@@ -577,8 +577,9 @@ public static class KingsmarchTown
 
         Progress progress;
         object instance = Program.PlayerOf(player).Instance;
-        // The tick's own time value is not the clock the rest of this file uses, so wait on Environment.TickCount64 here.
-        double clock = Environment.TickCount64 / 1000.0;
+        // One clock for the whole farm: the wall clock in whole seconds, the same base the plots, the store's catch-up and
+        // the harbour's trips are written on, so a town saved by one process is still in the right place in the next.
+        double clock = UtcNow();
         lock (_lock)
         {
             progress = _progress.GetOrCreateValue(player);
@@ -876,9 +877,14 @@ public static class KingsmarchTown
         var farm = Farm(progress.Who);
         progress.Saved = farm.Plots;
         foreach (var (crop, count) in farm.Store) progress.Store[crop] = count;
-        double now = Environment.TickCount64 / 1000.0;
-        progress.MineStartedAt = farm.MineStarted > 0 ? farm.MineStarted : now;
-        progress.SmeltStartedAt = farm.SmeltStarted > 0 ? farm.SmeltStarted : now;
+        double now = UtcNow();
+        // A cycle start from a save is kept only while it is a time this clock has reached, and never as more than one
+        // cycle ago: a value written on another clock (this file used Environment.TickCount64 until 2026-11-26) would
+        // otherwise stand as overdue for weeks -the report read "next ore in 0 s" and delivered nothing.
+        progress.MineStartedAt = farm.MineStarted > 0 && farm.MineStarted <= now
+            ? Math.Max(farm.MineStarted, now - MineSeconds) : now;
+        progress.SmeltStartedAt = farm.SmeltStarted > 0 && farm.SmeltStarted <= now
+            ? Math.Max(farm.SmeltStarted, now - SmeltSeconds) : now;
         // The town ran while the character was away; CatchUp settles that gap against the treasury once the plots are
         // back, and ordinary per-tick billing starts from this load.
         progress.AwayFrom = farm.WageSettled > 0 ? farm.WageSettled : 0;
@@ -1476,7 +1482,7 @@ public static class KingsmarchTown
     {
         Progress progress;
         progress = State(player);
-        double clock = Environment.TickCount64 / 1000.0;
+        double clock = UtcNow();
         var lines = new List<string>();
         if (progress.Halted) lines.Add("HALTED: the treasury is empty, nothing is being produced");
         foreach (var plot in progress.Plots.Values.OrderBy(p => p.Order))
@@ -1769,6 +1775,15 @@ public static class KingsmarchTown
     {
         // Wages are not paid per cycle here: a worker costs its hourly wage for as long as it works, whatever it works at
         // (see SettleWages). A cycle only delivers the produce.
+        if (progress.Halted)
+        {
+            // A halted town works nothing: no ore comes up and no bar is cast (the plots stop through PlotRate). The
+            // cycles are moved to now so that the hours the town stood idle are not banked and paid out as produce the
+            // moment the treasury is funded again.
+            progress.MineStartedAt = clock;
+            progress.SmeltStartedAt = clock;
+            return;
+        }
         int digging;
         lock (_lock) digging = progress.Workers.Count(w => w.Plot == MineJob);
         if (digging > 0 && clock - progress.MineStartedAt >= MineSeconds)
@@ -1920,7 +1935,7 @@ public static class KingsmarchTown
         lock (_lock)
         {
             progress.Plots.Remove(objectId);
-            progress.Pending.Add((Environment.TickCount64 / 1000.0 + 1.0, plot, x, y));
+            progress.Pending.Add((UtcNow() + 1.0, plot, x, y));
         }
     }
 
