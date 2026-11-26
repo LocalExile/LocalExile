@@ -8,14 +8,6 @@ public static partial class Game
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or ArcSurgingEffect
             || ShockNovaEffect(effect);
 
-    static bool ShockNovaEffect(string? effect) => effect is "ShockNova" or "ShockNovaAltX" or "ShockNovaRoyale";
-
-    static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
-        SkillsFor(player).EffectId(effect) == "ShockNovaAltX"
-            ? Math.Clamp(SkillsFor(player).EffectStats(effect, level, quality)
-                .FirstOrDefault(s => s.Item1 == Stat.BaseSpellRepeatCount).Item2, 0, 8)
-            : 0;
-
     // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
     static (int X, int Y) CascadeKnockbackOrigin((int X, int Y) target, (double X, double Y) direction) =>
         (target.X - (int)Math.Round(100 * direction.X), target.Y - (int)Math.Round(100 * direction.Y));
@@ -103,30 +95,9 @@ public static partial class Game
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
                 else if (ShockNovaEffect(effect))
-                {
-                    int total = ShockNovaProcessionRepeats(Player, gem.Effect, gem.Level, gem.Quality) + 1;
-                    int radius = Radius(26), ringOuter = Radius(20), ringInner = Radius(13);
-                    int ringShockChance = Own(Stat.ShockNovaRingChanceToShockPlusPct);
-                    double ringDamage = Math.Max(0, 1 + Own(Stat.NewshocknovaFirstRingDamagePlusPctFinal) / 100d);
-                    // The base pair uses the same collision sizes and timing estimates as Procession.
-                    // The intrinsic repeat count is independent of Spell Echo.
-                    for (int pulse = 0; pulse < total; pulse++)
-                    {
-                        double offset = pulse * ringOuter;
-                        var centre = (from.X + (int)Math.Round(offset * direction.X), from.Y + (int)Math.Round(offset * direction.Y));
-                        long due = Runtime.Now + ProjectileRuntime.Time(pulse * .16);
-                        Runtime.Schedule(due, () =>
-                        {
-                            if (CurrentSource()) Hit(centre, ringOuter, ringDamage,
-                                targetFilter: (_, at) => Dist(at, centre) >= ringInner, centred: true,
-                                extraShockChance: ringShockChance);
-                        });
-                        Runtime.Schedule(due + ProjectileRuntime.Time(.045), () =>
-                        {
-                            if (CurrentSource()) Hit(centre, radius, centred: true);
-                        });
-                    }
-                }
+                    ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, from, aim, source.Stats, caster, CurrentSource,
+                        pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
+                            targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance));
                 else if (effect == ArcSurgingEffect)
                 {
                     int distance = Own(Stat.ArcChainDistance);

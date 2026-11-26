@@ -199,7 +199,7 @@ public static partial class Game
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     blind: blind, hitOrigin: from, attackerSize: bodySize, attackerHasReversedStat: false, playerHit: false);
-            WriteArcProxyHit(session, emitter, sequence, id, m, from, now, mitigated, damage, crit, accepted.Life);
+            WriteSpellProxyHit(session, emitter, sequence, id, m, from, now, mitigated, damage, crit, accepted.Life);
             if (accepted.StageStarts)
             {
                 CommitProjectileBossStage(session, id, m, session.Runtime.Now);
@@ -219,7 +219,7 @@ public static partial class Game
         else ArcChainTargets(player, first, origin, now, range, chains, effect == "ArcAltY", Land);
     }
 
-    static void WriteArcProxyHit(ProjectileSession session, uint emitter, ushort sequence, uint id, SpawnedMonster monster,
+    static void WriteSpellProxyHit(ProjectileSession session, uint emitter, ushort sequence, uint id, SpawnedMonster monster,
         (int X, int Y) from, double now, DamagePacket mitigated, int damage, bool critical, uint life)
     {
         var at = monster.Walk.Position(now);
