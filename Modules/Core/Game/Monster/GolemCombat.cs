@@ -928,6 +928,7 @@ public static partial class Game
         resistanceMods = ImpurityHitMods(target, now, resistanceMods);
         var strike = new HitResistances.Strike(Critical: critical, Attack: !a.Attack.Spell);
         var random = AreaRng(player);
+        if (projectile && MonsterAvoidsProjectile(target, random)) return false;
         int inversionChance = GolemStat(supported.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance)
             + GolemStat(a.Stats, Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
         bool invert = inversionChance > 0 && rolled.Components.Any(component =>
@@ -1283,7 +1284,8 @@ public static partial class Game
                 double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)
                     * MeatShieldDamage(player, g.Own, m, now);
                 double resisted = DamageModel.Mitigate(DamagePacket.Of(hazard.Type, raw, raw), t => MonsterHitResistance(m, t, default, now))[hazard.Type].Min;
-                double total = resisted * MonsterDamageTaken(m, spell: true, now, chaos: hazard.Type == DamageType.Chaos)
+                double total = resisted * MonsterDamageTaken(m, spell: true, now, elemental: DamageTypes.IsElemental(hazard.Type), hit: false,
+                    chaos: hazard.Type == DamageType.Chaos, overTime: true)
                     + hazard.DamageCarry.GetValueOrDefault(id);
                 int damage = (int)Math.Floor(total); hazard.DamageCarry[id] = total - damage;
                 if (damage <= 0 || ApplyTypedMonsterHitLocked(player, m, damage, hazard.Type == DamageType.Chaos ? damage : 0, allyAt: centre) is not { } hit) continue;

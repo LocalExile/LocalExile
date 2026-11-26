@@ -710,7 +710,8 @@ public static partial class Game
         bool ownKit = ownedKit is { Count: > 0 } && !scripted && kingSkills is null;
         var kit = ownKit ? ownedKit!
             : scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
-            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique,
+                modifiers: mods.Effects, mapDamage: mapBossScaling.Damage);
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
@@ -3059,9 +3060,8 @@ public static partial class Game
         // with this hit's one armour decision.
         var hitRolls = HitRollsFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
-        var hitDamage = a.Damage;
-        if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);
-        foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
+        var baseDamage = MonsterTemporaryHit(m, a.Damage, player.IncomingHitRandom);
+        var hitDamage = baseDamage;
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
         var map = MapModsOf(player);
@@ -3087,7 +3087,7 @@ public static partial class Game
             increasedCriticalAgainstTarget: StatOf(Stat.BaseEnemyCriticalStrikeChancePlusPctAgainstSelf));
         // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
-        var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
+        var baseHit = baseDamage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
@@ -3105,10 +3105,9 @@ public static partial class Game
         var taken = PlayerDamageTaken.Avoid(shifted, StatOf, player.IncomingHitRandom, out var avoided, ElusiveAvoidPct(player),
             projectile, projectile && player.RecentEvents.Happened(TakenProjectileDamage, now));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
-        int elemPen = Math.Max(0, m.Effects[Stat.ReduceEnemyElementalResistancePct]);
         var mitigated = hitRolls.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(player, type), MaxResistance(player, type),
-                Penetration: type is DamageType.Fire or DamageType.Cold or DamageType.Lightning ? elemPen : 0), player.IncomingHitRandom);
+                Penetration: Math.Max(0, MonsterPenetration(m.Effects, type))), player.IncomingHitRandom);
         var immune = PlayerImmunities(player, stats);
         // This remains the original next RNG draw when the feature is absent. Blocking never
         // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
@@ -3314,10 +3313,15 @@ public static partial class Game
         int fireExp = e[Stat.FireExposureOnHitMagnitude];
         int coldExp = e[Stat.ColdExposureOnHitMagnitude];
         int lightExp = e[Stat.LightningExposureOnHitMagnitude];
-        if (!crush && fireExp >= 0 && coldExp >= 0 && lightExp >= 0)
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictFireExposureOnHitPctChance], 100, random)) fireExp = Math.Min(fireExp, -10);
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictColdExposureOnHitPctChance], 100, random)) coldExp = Math.Min(coldExp, -10);
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictLightningExposureOnHitPctChance], 100, random)) lightExp = Math.Min(lightExp, -10);
+        bool wither = GameServer.Core.World.RandomRolls.Chance(e[Stat.WitheredOnHitFor2SecondsPctChance], 100, random);
+        if (!crush && !wither && fireExp >= 0 && coldExp >= 0 && lightExp >= 0)
             return baseDebuffs.Count > 0 ? baseDebuffs : null;
         var list = baseDebuffs.Count > 0 ? new List<MonsterDebuffSpec>(baseDebuffs) : new List<MonsterDebuffSpec>(2);
         if (crush) list.Add(new(CrushedBuffRow, PlayerCrushedDebuffStats, CrushSeconds));
+        if (wither) list.Add(new(WitheredBuffRow, new Dictionary<uint, int> { [Stat.ChaosDamageTakenPlusPct] = 6 }, 2));
         if (fireExp < 0) list.Add(new(ExposureBuffRows[0], new Dictionary<uint, int> { [Stat.BaseFireDamageResistancePct] = fireExp }, ExposureSeconds));
         if (coldExp < 0) list.Add(new(ExposureBuffRows[1], new Dictionary<uint, int> { [Stat.BaseColdDamageResistancePct] = coldExp }, ExposureSeconds));
         if (lightExp < 0) list.Add(new(ExposureBuffRows[2], new Dictionary<uint, int> { [Stat.BaseLightningDamageResistancePct] = lightExp }, ExposureSeconds));

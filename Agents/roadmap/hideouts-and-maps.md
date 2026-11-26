@@ -77,6 +77,7 @@ bench.
 - **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
   music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
   maps: remaining scarab engines outside Delirium, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
+  maps: remaining scarab engines and Essence skills/enhancement scaling (#505);
   Torment spirits' and Grips' skills (#1129);
   Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);

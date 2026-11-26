@@ -149,6 +149,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
   the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
   the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
