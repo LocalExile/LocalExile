@@ -47,6 +47,10 @@ public static partial class Game
         GolemStat(stats, Stat.MinionDamagePlusPctIfHaveUsedAMinionSkillRecently) != 0
         && player.RecentEvents.Happened(UsedMinionSkillRecently, now);
 
+    static int PlaguebringerArea(Player player, IReadOnlyDictionary<uint, int> stats, double now) =>
+        GolemStat(stats, Stat.AreaOfEffectPlusPctForYouAndMinionsIfConsumedCorpseRecently) is int area and not 0
+        && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now) ? area : 0;
+
     static int MinionHeraldCount(Player player, IReadOnlyDictionary<uint, int> stats) =>
         GolemStat(stats, Stat.MinionDamagePlusPctWhileAffectedByAHerald) == 0
         && GolemStat(stats, Stat.MinionMovementVelocityPlusPctForEachHeraldAffectingYou) == 0 ? 0
@@ -145,6 +149,7 @@ public static partial class Game
         {
             if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
         }
+        AddStat(Stat.BaseSkillAreaOfEffectPlusPct, PlaguebringerArea(player, playerStats, now));
         AddStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
         AddStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
         AddStat(Stat.BaseChanceToIgnitePct, link.Ignite);
@@ -748,6 +753,7 @@ public static partial class Game
         hash.Add(GolemSummonedInPastEightSeconds(golem, now));
         hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
         hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
+        hash.Add(PlaguebringerArea(player, playerStats, now));
         hash.Add(MinionHeraldCount(player, playerStats));
         hash.Add(PresentMinionDevouredSoulsLocked(player, golem, now));
         hash.Add(FreshMeatActive(golem, now));

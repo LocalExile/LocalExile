@@ -131,6 +131,9 @@ public static partial class Game
             if (GetIn(stats, Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) is int stationaryElemental and not 0
                 && !player.Walk.Moving(now))
                 AddTo(stats, Stat.ElementalDamageTakenPlusPct, stationaryElemental);
+            if (GetIn(stats, Stat.AreaOfEffectPlusPctForYouAndMinionsIfConsumedCorpseRecently) is int corpseArea and not 0
+                && player.RecentEvents.Happened(StatConditions.ConsumedCorpse, now))
+                AddTo(stats, SkillArea.BaseIncreased, corpseArea);
             if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
             {
                 AddTo(stats, Stat.CastSpeedPlusPct, CorpsePactSpeed(player, stats, now));
