@@ -29,6 +29,8 @@ public static partial class Game
             HitRule = new(ProjectileHitScope.Emission, ProjectileRepeat.Interval, gap),
             Pulse = new("ball-lightning-bolt", 0, ProjectileRuntime.TickQuanta) { AreaDamage = false },
             Legs = orbiting ? _ => new BallLightningOrbit(speed) : null,
+            // Positioned size 2 needs clearance 3. The orbit holds its launch height over every turn.
+            TerrainSteps = orbiting ? new(3, 11) : null,
         };
     }
 

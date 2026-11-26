@@ -289,7 +289,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
-                ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: p.Position + (to - p.Position) * fraction);
+                ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: wall.StopPosition ?? p.Position + (to - p.Position) * fraction);
         }
         if (Interactions.Count > 0)
             foreach (var interaction in Interactions.OrderBy(w => w.Id))
@@ -510,6 +510,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void StartLeg(ProjectileEntity p, ProjectileLeg leg, bool publish = true)
     {
+        if (p.Profile.TerrainSteps is not null) p.TerrainLeg = (p.Position, leg.Target);
         var delta = leg.Target - p.Position;
         double length = delta.Length;
         if (length > 0) p.Direction = delta.Unit;

@@ -775,9 +775,12 @@ public static partial class Game
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
 
-        bool Wall(int x, int y) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
+        bool Wall(int x, int y) => Wall(x, y, 1);
+
+        bool Wall(int x, int y, int clearance) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
             || Player.Layout.GridH > 0 && y >= Player.Layout.GridH
-            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y) == true || Player.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y, clearance) == true
+            || Player.ProjectileWalls.Contains((x, y));
 
         int? Height(int x, int y)
         {
@@ -810,17 +813,28 @@ public static partial class Game
             if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
             if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
                 return null;
-            if (ProjectileAimHeight.Primary(p.Use.Origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height) is not { } primary)
+            var origin = p.Use.Origin;
+            ProjectileAimHeight.Ray? primary = p.Profile.TerrainSteps is { } steps
+                ? Height((int)Math.Round(origin.X), (int)Math.Round(origin.Y)) is int ground
+                    ? new(origin, p.Direction, ground + steps.LaunchHeight, 0) : null
+                : ProjectileAimHeight.Primary(origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height);
+            if (primary is not { } launch)
                 return null;
-            var ray = primary.WithLeg(p.Position, p.Direction);
+            var ray = launch.WithLeg(p.Position, p.Direction);
             flightRays[p.Id] = ray;
             return ray;
         }
 
-        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
-            FlightRayFor(p) is { } ray
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to)
+        {
+            var rayForFlight = FlightRayFor(p);
+            if (p.Phase == 0 && p.Profile.TerrainSteps is { } steps && p.TerrainLeg is { } leg)
+                return ProjectileGeometry.TraceTerrainSteps(leg.Start, leg.Target, from, to,
+                    (x, y) => Wall(x, y, steps.Clearance) || rayForFlight?.Blocks(x, y, Height) == true);
+            return rayForFlight is { } ray
                 ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ray.Blocks(x, y, Height))
                 : TraceTerrain(from, to);
+        }
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
@@ -1421,7 +1435,7 @@ public static partial class Game
                 startHeight = arc.Height(fraction);
             }
             if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlight(p, p.Position, end) is { } wall)
-                end = p.Position + (end - p.Position) * wall.Fraction;
+                end = wall.StopPosition ?? p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)

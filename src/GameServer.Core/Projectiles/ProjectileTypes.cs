@@ -21,7 +21,11 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
     /// −1 is no footprint, which the client never contacts.</summary>
     public int Size { get; init; }
 }
-public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal);
+public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal)
+{
+    // Grid-step movement rejects the attempted cell and leaves the projectile on its previous cell.
+    public ProjectileVector? StopPosition { get; init; }
+}
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
 public enum ProjectileRepeat { Once, Interval, Window }
@@ -167,6 +171,9 @@ public readonly record struct ProjectileLeg(ProjectileVector Target, double Spee
 public readonly record struct ProjectileLegTurn(ProjectileLeg Leg, ProjectileProfile? SecondaryProfile = null,
     ProjectileVector SecondaryDirection = default);
 
+/// <summary>Terrain clearance and launch height for flights that move in discrete grid steps at a fixed height.</summary>
+public readonly record struct ProjectileTerrainSteps(int Clearance, int LaunchHeight);
+
 /// <summary>Resolved stage parameters. Counts and restrictions are resolved before a use is released.</summary>
 public sealed record ProjectileProfile(string Id)
 {
@@ -192,6 +199,7 @@ public sealed record ProjectileProfile(string Id)
     /// max(CollisionRadius, CollisionCandidateRadius). Set, a flight cell contacts an actor whose Chebyshev cell distance
     /// is at most this plus the actor's <see cref="ProjectileActor.Size"/>, and <see cref="Radius"/> is not used for actors.</summary>
     public int? ContactCells { get; init; }
+    public ProjectileTerrainSteps? TerrainSteps { get; init; }
     /// <summary>Symmetric speed variation sampled for each initial launch with no explicit speed.</summary>
     public int SpeedVariationPercent { get; init; }
     public long Lifetime { get; init; } = 1200000;
@@ -373,6 +381,7 @@ public sealed class ProjectileEntity
     internal long ChildEmission;
     internal int EmissionNumber;
     internal IProjectileLegs? Legs;
+    public (ProjectileVector Start, ProjectileVector Target)? TerrainLeg { get; internal set; }
     internal ProjectileVector LegStart;
     internal bool LegLeashed;
     /// <summary>A legged flight stopped by terrain picks its next leg at once but moves from the next tick, as the
