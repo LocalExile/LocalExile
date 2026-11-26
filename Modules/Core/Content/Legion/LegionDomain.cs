@@ -706,35 +706,42 @@ static class LegionDomain
                 var stats = LegionMonolith.AreaStats(player);
                 var ghosts = new List<uint>(swaps.Count);
                 int made = 0;
-                foreach (int i in swaps)
+                try
                 {
-                    uint ghost;
-                    lock (state) { ghost = state.Slots[i].GhostId; state.Spawning.Remove(i); }
-                    swapsHandled++;
-                    uint fighter = await SpawnSlot(player, state, i, stats);
-                    if (fighter == 0)
+                    foreach (int i in swaps)
                     {
-                        // Ended meanwhile: the stood-up ghost goes as the fighters did. A variety that cannot spawn (SpawnSlotCore put it in
-                        // NoSpawn): the ghost stays where it stood and the revival is not counted. Else (the runner was leaving the area, a
-                        // spawn that failed) the swap is tried again on the next tick.
-                        bool ended;
-                        lock (state)
+                        uint ghost;
+                        lock (state) { ghost = state.Slots[i].GhostId; state.Spawning.Remove(i); }
+                        uint fighter = await SpawnSlot(player, state, i, stats);
+                        if (fighter == 0)
                         {
-                            var s = state.Slots[i];
-                            ended = state.Phase != DomainPhase.Active;
-                            if (ended) state.Slots[i] = s with { GhostId = 0, RiseStep = 0 };
-                            else if (state.NoSpawn.Contains(i)) state.Slots[i] = s with { RevivalCount = Math.Max(0, s.RevivalCount - 1) };
-                            else { state.Slots[i] = s with { RiseStep = 2 }; state.Rising.Add(i); }
+                            // Ended meanwhile: the stood-up ghost goes as the fighters did. A variety that cannot spawn (SpawnSlotCore put it in
+                            // NoSpawn): the ghost stays where it stood and the revival is not counted. Else (the runner was leaving the area, a
+                            // spawn that failed) the swap is tried again on the next tick.
+                            bool ended;
+                            lock (state)
+                            {
+                                var s = state.Slots[i];
+                                ended = state.Phase != DomainPhase.Active;
+                                if (ended) state.Slots[i] = s with { GhostId = 0, RiseStep = 0 };
+                                else if (state.NoSpawn.Contains(i)) state.Slots[i] = s with { RevivalCount = Math.Max(0, s.RevivalCount - 1) };
+                                else { state.Slots[i] = s with { RiseStep = 2 }; state.Rising.Add(i); }
+                            }
+                            if (ended) ghosts.Add(ghost);
+                            swapsHandled++;
+                            continue;
                         }
-                        if (ended) ghosts.Add(ghost);
-                        continue;
+                        made++;
+                        ghosts.Add(ghost);
+                        lock (state) state.Slots[i] = state.Slots[i] with { GhostId = 0, RiseAt = double.NegativeInfinity, RiseStep = 0 };
+                        swapsHandled++;
+                        if (swaps.Count == 1) module.Log($"Domain revive: ghost 0x{ghost:x} slot {i} -> fighter 0x{fighter:x}");
                     }
-                    made++;
-                    ghosts.Add(ghost);
-                    lock (state) state.Slots[i] = state.Slots[i] with { GhostId = 0, RiseAt = double.NegativeInfinity, RiseStep = 0 };
-                    if (swaps.Count == 1) module.Log($"Domain revive: ghost 0x{ghost:x} slot {i} -> fighter 0x{fighter:x}");
                 }
-                await LegionRevive.Remove(player, ghosts);
+                finally
+                {
+                    if (ghosts.Count > 0) await LegionRevive.Remove(player, ghosts);
+                }
                 if (swaps.Count > 1) module.Log($"Domain revive: {made}/{swaps.Count} ghosts swapped for their fighters");
             }
             if (fallen.Count > 0)
@@ -754,11 +761,16 @@ static class LegionDomain
                 var made = new List<uint>(fallen.Count);
                 foreach (var (i, _) in fallen)
                 {
-                    fallenHandled++;
-                    if (await SpawnGhost(player, state, i, fall: true) is uint ghost and not 0) { made.Add(ghost); continue; }
+                    if (await SpawnGhost(player, state, i, fall: true) is uint ghost and not 0)
+                    {
+                        made.Add(ghost);
+                        fallenHandled++;
+                        continue;
+                    }
                     // Not made (the runner was leaving the area, a spawn that failed): tried again where the slot now stands.
                     lock (state)
                         if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(i)) state.Fallen.Enqueue((i, 0));
+                    fallenHandled++;
                 }
                 module.Log($"Domain revive: {fallen.Count} fallen -> {made.Count} ghosts lying (state 4{(made.Count == 1 ? $", 0x{made[0]:x}" : "")}), state 3 in {FallDelaySeconds:0.##} s");
             }
@@ -784,7 +796,7 @@ static class LegionDomain
                     {
                         var (idx, corpse) = fallen[k];
                         state.Spawning.Remove(idx);
-                        if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(idx))
+                        if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(idx) && state.Slots[idx] is { Alive: false, GhostId: 0 })
                             state.Fallen.Enqueue((idx, corpse));
                     }
                 }
