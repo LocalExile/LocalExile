@@ -36,8 +36,10 @@ public static partial class Game
     {
         if (player.ProjectileRuntime is not ProjectileSession { KtashSpells: { } empowerment }) return null;
         var skills = SkillsFor(player);
+        var source = SupportedSkill(player, skill);
         if (!skills.IsSpell(effect) || !skills.HasType(effect, "Damage")
-            || skills.HasType(effect, "Triggered") || TriggerOnlyReason(SupportedSkill(player, skill)) is not null) return null;
+            || skills.HasType(effect, "Triggered") || IsTotemSkill(player, skill) || TriggerOnlyReason(source) is not null
+            || PlacedKind(source) != (false, false)) return null;
         long now = ProjectileRuntime.Time(ProjectileWorldTime(player));
         if (now >= empowerment.Ends || !SameTriggerSource(empowerment.Source, SupportedSkill(player, empowerment.Skill)))
             return null;
