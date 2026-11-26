@@ -858,10 +858,6 @@ public static partial class Game
         if (sources.GetValueOrDefault(daggerCrit) != 0
             && !WeaponProfileFrom(row => items.Items(row), inactive.Contains, catalog, activeSet: true, () => false).Dagger)
             sources.Remove(daggerCrit);
-        if (conditionSubject.DualWield == true
-            && sources.GetValueOrDefault(Stat.GlobalCriticalStrikeChanceWhileDualWieldingPlusPct) is int dualWieldCrit and not 0)
-            sources[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate(
-                (long)sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct) + dualWieldCrit);
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
