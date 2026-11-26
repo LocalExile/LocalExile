@@ -12,16 +12,21 @@ public sealed class SparkLegs : IProjectileLegs
 {
     AnimationVariantSelector.NativeRandom random;
     readonly double baseSpeed;
+    readonly bool unpredictable;
     readonly ushort sequence;
     readonly int index;
     float heading;
 
     public SparkLegs(ushort sequence, int index, uint owner, double lifeSeconds, int randomDurationPercent, double baseSpeed,
-        uint repeatsLeft = 0)
+        uint repeatsLeft = 0) : this(sequence, index, owner, lifeSeconds, randomDurationPercent, baseSpeed, repeatsLeft, false) { }
+
+    public SparkLegs(ushort sequence, int index, uint owner, double lifeSeconds, int randomDurationPercent, double baseSpeed,
+        uint repeatsLeft, bool unpredictable)
     {
         random = new([sequence, (uint)(index + 2), repeatsLeft, owner]);
         this.sequence = sequence; this.index = index;
         this.baseSpeed = baseSpeed;
+        this.unpredictable = unpredictable;
         float life = (float)lifeSeconds, spread = life * Math.Min(randomDurationPercent, 100) / 100f;
         Lifetime = Draw(life - spread, life + spread);
     }
@@ -30,7 +35,7 @@ public sealed class SparkLegs : IProjectileLegs
 
     public ProjectileLeg First(ProjectileVector from, ProjectileVector aim)
     {
-        float length = Draw(15, 25);
+        float length = Length();
         var (x, y) = Cell(from);
         int dx = (int)Math.Floor(aim.X) - x, dy = (int)Math.Floor(aim.Y) - y;
         if (dx == 0 && dy == 0) dx = 1;
@@ -47,12 +52,19 @@ public sealed class SparkLegs : IProjectileLegs
         heading += blocked ? Draw(0, Tau) : Draw(-Turn, Turn);
         while (heading < 0) heading += Tau;
         while (heading > Tau) heading -= Tau;
-        float length = Draw(15, 25);
+        float length = Length();
         var (x, y) = Cell(from);
         return new(new(x + (int)(MathF.Cos(heading) * length), y + (int)(MathF.Sin(heading) * length)), Speed());
     }
 
-    double Speed() => Draw(.8f, 1.2f) * (float)baseSpeed;
+    // Both leg constructors read these ranges for native behaviour 6, preserving their draw order.
+    float Length() => unpredictable ? Draw(10, 40) : Draw(15, 25);
+
+    double Speed()
+    {
+        float variation = unpredictable ? .9f : .2f;
+        return Draw(1 - variation, 1 + variation) * (float)baseSpeed;
+    }
 
     // The client's cell is its integer position; a leg that arrived sits exactly on its target.
     static (int X, int Y) Cell(ProjectileVector p) => ((int)Math.Floor(p.X + 1e-6), (int)Math.Floor(p.Y + 1e-6));

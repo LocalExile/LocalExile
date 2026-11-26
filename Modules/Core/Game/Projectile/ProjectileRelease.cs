@@ -281,6 +281,7 @@ public static partial class Game
             ? ProjectileSession.Vector(player.Walk.Position(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
             : use.Origin;
         double speed = use.Profile.Speed;
+        bool unpredictable = SkillsFor(player).EffectId(gem.Effect) == "SparkAltY";
         var shot = (ProjectileOffense)use.Payload!;
         // The proxy's Actor action does not draw Spark. Give its simulated legs a flight object and the art's own clip.
         if (use.Emitter.Id != player.Id)
@@ -295,7 +296,7 @@ public static partial class Game
             Payload = shot,
             Profile = use.Profile with
             {
-                Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft),
+                Legs = i => new SparkLegs(sequence, i, use.Emitter.Id, life, randomDuration, speed, repeatsLeft, unpredictable),
                 // 0x141b38c00: a spark ends 150 cells from where it started.
                 LegLeash = SkillsFor(player).EffectId(gem.Effect) == TwisterEffect ? 0 : 150
             }
