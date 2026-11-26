@@ -217,11 +217,12 @@ public static partial class Game
             localTransitions: [.. layout.AreaTransitions.Where(t => t.Transition.DestinationHash16 == layout.Hash
                     && t.Transition.TeleportTo.HasValue)
                 .Select(t => (layout.Near((t.Transition.GridX, t.Transition.GridY)), layout.Near(t.Transition.TeleportTo!.Value)))],
-            additionalPacks: MapScarabPacks.Requests(mapMods),
+            additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        spawns.AddRange(MapInfluence.Accompany(player, layout, spawns));
         if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(player,
                 [.. ShrinePlacement.Plan(shrineRooms.RoomObjects, walkable, player.Seed).Select(p => (p.X, p.Y))], spawns, layout));
