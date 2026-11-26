@@ -239,7 +239,11 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, ProjectileUse use, ushort sequence,
         uint repeatsLeft)
     {
-        if (use.Payload is not ProjectileOffense { ClientPredicted: true }) return use;
+        if (use.Payload is not ProjectileOffense initialOffense) return use;
+        var effect = SkillsFor(player).EffectId(gem.Effect);
+        bool spectralTrap = GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effect);
+        // The trap's weapon needs the same flight rules even though the server draws it.
+        if (!initialOffense.ClientPredicted && !spectralTrap) return use;
         var playerStats = CharacterPlayerStats(player);
         var own = SupportedSkill(player, skillId).Stats;
         int Player(uint k) => playerStats.GetValueOrDefault(k);
@@ -248,7 +252,7 @@ public static partial class Game
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
         if (CastingBeidatSpell(player, skillId) is { Projectiles: > 0 })
             use = use with { Profile = use.Profile with { NativeVolley = new() { Nova = true } } };
-        else if (GatewayProjectileSkillProfiles.IsBlazingSalvo(SkillsFor(player).EffectId(gem.Effect))
+        else if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)
             && use.Profile.NativeVolley is { Angles: null, Nova: false })
             use = use with { Profile = use.Profile with { NativeVolley = null } };
         // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
@@ -257,9 +261,8 @@ public static partial class Game
             use = use with { Payload = totemShot with { ClientPredicted = false,
                 Presentation = WithProjectileClips(totemShot.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                     use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
-        var effect = SkillsFor(player).EffectId(gem.Effect);
         bool selfThrown = GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(effect);
-        if (selfThrown || GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effect))
+        if (selfThrown || spectralTrap)
         {
             bool materialising = effect == "SpectralThrowAltX";
             double thrown = use.Profile.Speed;
