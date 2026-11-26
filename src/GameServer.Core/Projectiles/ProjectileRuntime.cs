@@ -164,12 +164,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (continuing is null && p.Profile.Legs is { } legs)
         {
             p.Legs = legs(index); p.LegStart = position;
-            p.ExpiresAt = Now + Time(p.Legs.Lifetime);
             // The first leg aims where the volley put this projectile's aim point, at the use's aim distance.
             var legAim = p.Legs.EndsAfterLegs && (use.Aim - use.Origin).Length <= 1e-6
                 ? position + direction
                 : position + direction * (use.Aim - use.Origin).Length;
-            StartLeg(p, p.Legs.First(position, legAim), publish: false);
+            var first = p.Legs.First(position, legAim, p.Speed);
+            p.ExpiresAt = Now + Time(p.Legs.Lifetime);
+            StartLeg(p, first, publish: false);
         }
         else if (split && continuing is { } cont && p.Profile.Legs is not null && cont.Legs?.Continue(direction) is { } continuedLegs)
         {

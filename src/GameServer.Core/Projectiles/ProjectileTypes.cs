@@ -147,9 +147,11 @@ public sealed record ProjectileParallelOrigins(int PointsPerSide, double Lateral
 /// projectiles it draws itself, so the server's flight is the one on screen.</summary>
 public interface IProjectileLegs
 {
-    /// <summary>Seconds this flight lives, decided before its first leg.</summary>
+    /// <summary>Seconds this flight can live, read when the first leg is ready.</summary>
     double Lifetime { get; }
     ProjectileLeg First(ProjectileVector from, ProjectileVector aim);
+    /// <summary>Use the launch speed selected for this projectile when the path needs it.</summary>
+    ProjectileLeg First(ProjectileVector from, ProjectileVector aim, double launchSpeed) => First(from, aim);
     /// <summary>The leg after the last one ended (<paramref name="blocked"/> false) or terrain stopped it.</summary>
     ProjectileLeg Next(ProjectileVector from, bool blocked);
     /// <summary>Whether an enemy hit triggers the next leg before Pierce/Fork/Chain/Return.</summary>

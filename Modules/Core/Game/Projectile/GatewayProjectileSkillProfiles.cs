@@ -208,7 +208,7 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
-        if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(p, get);
+        if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(effect, p, get);
         if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);
         if (IsShatteringSteel(effect) && p.ParallelOrigins is null
             && get(Stat.ActiveSkillAdditionalProjectilesFireParallelXDist) is > 0 and var parallelGap)
