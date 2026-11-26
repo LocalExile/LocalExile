@@ -126,12 +126,16 @@ public static partial class MapBeyond
                 $"area={opening.Area.Id} content=Beyond: enabled; not acted on: {string.Join(", ", present)}"));
     }
 
-    /// <summary>Merging radius in grid cells: 45 × (1 + increased%) × (1 + final%), minimum 10 cells.
-    /// Endless Tide keystone applies -50% final radius (the Idol already carries its own final stat).</summary>
-    public static double MergeRadius(Player player) => MergeRadius(
-        AreaStat(player, Stat.MapBeyondPortalSearchRadiusPlusPct),
-        AreaStat(player, Stat.MapBeyondPortalSearchRadiusPlusPctFinal),
-        AreaStat(player, Stat.AtlasKeystoneEndlessTide) > 0);
+    /// <summary>Merging radius in grid cells: 45 × (1 + increased%) × (1 + final%), minimum 10 cells. The Endless Tide
+    /// keystone applies -50% final radius; a module's own final percent adds to it (GameEvents.BeyondMergeRadiusFinal).</summary>
+    public static double MergeRadius(Player player)
+    {
+        int final = 0;
+        if (GameEvents.BeyondMergeRadiusFinal.Any)
+            foreach (var run in GameEvents.BeyondMergeRadiusFinal.For(player)) final += run(player, id => AreaStat(player, id));
+        return MergeRadius(AreaStat(player, Stat.MapBeyondPortalSearchRadiusPlusPct), final,
+            AreaStat(player, Stat.AtlasKeystoneEndlessTide) > 0);
+    }
 
     public static double MergeRadius(int increasedPct, int finalPct, bool endlessTide)
     {

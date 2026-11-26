@@ -1,8 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
-  <!-- The 3.13 Heart of the Grove as a module (Agents/docs/dev/modules.md). It uses Harvest's public API only. -->
-  <ItemGroup>
-    <ProjectReference Include="../../../Core/Content/Harvest/Harvest.csproj" Private="false" />
-  </ItemGroup>
-
-</Project>

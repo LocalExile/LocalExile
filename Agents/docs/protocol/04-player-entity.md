@@ -424,6 +424,10 @@ keeps the account's stash from before (`AccountStash.Key`).
 
 ## Open
 
+- **Stance**: the client picks an actor's animation set (`FUN_141e9da30`: `"Town"` in a town or with `use_town_stance`,
+  else the weapon's) when its Inventories component changes, not when the object is created (Frida, 2026-11-01; the script is
+  LocalExile-Mods' `mods/playerbots/tools/trace-stance.js`). An observer therefore needs the peer's equipment (0x2bc)
+  right after creating it for the town stance (not yet verified live).
 - Real meanings of the unnamed Player fields and Life +0x14/+0x28/+0x40.
 - What comp1 (stats) pairs the client expects for a working character (attributes, max life …).
 - Components 10/11 and the `type+0x80` count: why the loop stops after comp 9.

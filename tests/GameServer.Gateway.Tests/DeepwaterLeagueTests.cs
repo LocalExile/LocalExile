@@ -603,8 +603,8 @@ public sealed class DeepwaterLeagueTests
 
     static IModuleContext Context(IModuleLifetime lifetime)
     {
-        var context = DispatchProxy.Create<IModuleContext, SurvivorsLeagueTests.HookContext>();
-        ((SurvivorsLeagueTests.HookContext)(object)context).Lifetime = lifetime;
+        var context = DispatchProxy.Create<IModuleContext, DivinationCardTests.HookContext>();
+        ((DivinationCardTests.HookContext)(object)context).Lifetime = lifetime;
         return context;
     }
 }

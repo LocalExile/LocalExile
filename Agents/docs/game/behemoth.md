@@ -1,8 +1,8 @@
 # Behemoth
 
-Behemoth is the Phrecia Berserker capability in
-`Modules/Legacy/PhreciaAscendancies/Classes/Behemoth`.
-It requires that optional module in the connection's league, `Game_VERIFIED_BEHEMOTH=1`, and the reviewed
+Behemoth is the Phrecia Berserker capability in the mod `phreciaascendancies` (LocalExile-Mods),
+`Classes/Behemoth`.
+It requires that mod in the connection's league, `Game_VERIFIED_BEHEMOTH=1`, and the reviewed
 3.29.3b combined graph already installed separately.
 The common module verifies archive bytes read-only; ordinary characters need no alternate graph.
 Idols remains independent and unimplemented by this PR.
@@ -21,7 +21,7 @@ Historical whole-class/native results do not establish current whole-class parit
 
 ## Capability and engine ownership
 
-The optional module owns the Behemoth descriptor, opt-in, installed-graph admission, mode-aware allocated node
+The mod owns the Behemoth descriptor, opt-in, installed-graph admission, mode-aware allocated node
 sources and graph selector through `PhreciaFamilyPolicy` and `AscendancyPolicies`.
 Missing/disabled providers refuse optional admission without changing durable class progress.
 No Behemoth identity, graph check or opt-in is added to Game or Gateway.
@@ -148,7 +148,7 @@ No transient combat resource is persisted in character saves.
 
 ## Validation scope
 
-The two new deterministic Gateway guards use the actual catalog and optional module policy to check the Behemoth
+The two new deterministic Gateway guards use the actual catalog and the optional mod's policy to check the Behemoth
 identity, opt-in, league admission and Rampager source before exercising provider/Game generation retirement,
 duplicate activation,
 old-generation isolation, primitive actor/buff cleanup, transfer/expiry/death, and actual early Vaal object/ground

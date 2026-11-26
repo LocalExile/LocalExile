@@ -5,29 +5,29 @@ using GameServer.Core.Accounts;
 // What they hook into is GameEvents (GameEvents.cs): one hook system, each subscriber running for its league's players.
 public partial class Program
 {
-    // A league (Leagues/<Name>/) is a set of modules (Modules/Core/, Legacy/, Custom/); a mod (Mods/) is the user's opt-in custom
-    // content, in every league. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
+    // A league (Leagues/<Name>/) is a set of modules (Modules/Core/) and of the mods it lists; a mod (Mods/) is
+    // the user's opt-in content, in every league or in the leagues that list it. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
     // while it runs; the code of a loaded league, module or mod hot-reloads.
     public static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";
     public static string LeaguesFolder => Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues";
 
-    // A package (a mod's folder with Leagues/ and Modules/ in it, Core's Packages) adds its leagues and modules to the repository's.
+    // A mod's Leagues/ (Core's ModFolders) adds its leagues to the repository's.
     public static readonly ModHost ServerLeagueCode = new(LeaguesFolder, Console.WriteLine, modules: true, leagues: true)
     {
-        More = () => Packages.Roots("Leagues"),
+        More = () => ModFolders.Roots("Leagues"),
         GameValues = GameValuesOf,
     };
 
     public static readonly ModHost ServerModules = new(ModulesFolder, Console.WriteLine, modules: true)
     {
-        More = () => Packages.Roots("Modules"),
         Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
         GameValues = GameValuesOf,
     };
-    // A mod gets what a module gets, in the leagues that take it (every league, unless its league.json says): the server's
-    // assemblies, the modules it depends on, the player's world.
-    public static readonly ModHost ServerMods = new(Packages.Folder, Console.WriteLine)
+    // A mod gets what a module gets, in every league or (mod.json "leagues": "listed") in the leagues that list it: the
+    // server's assemblies, the modules it depends on, the player's world.
+    public static readonly ModHost ServerMods = new(ModFolders.Folder, Console.WriteLine)
     {
+        Wanted = () => ServerLeagues.Wanted(LeagueCatalog.Startup),
         Modules = ServerModules,
         Leagues = ServerLeagueCode,
         GameValues = GameValuesOf,
@@ -42,11 +42,11 @@ public partial class Program
         if (leagues.FindLoaded(LeagueCatalog.Standard) is null)
             throw new InvalidOperationException($"The Standard league is required: no {Path.Combine(LeaguesFolder, LeagueCatalog.Standard, ModHost.LeagueManifestFile)}");
         foreach (string error in leagues.Errors) Console.WriteLine($"[leagues] not loaded: {error}");
-        var modules = ServerModules.Ids();
+        var known = ServerModules.Ids().Concat(ModFolders.On().Select(m => Path.GetFileName(m)!)).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var league in leagues.Loaded)
             foreach (string path in league.Modules)
-                if (!modules.Contains(Packages.Id(path)))
-                    Console.WriteLine($"[leagues] {league.Name}'s modules.json lists {path}: no such module in {ModulesFolder}/ or a package");
+                if (!known.Contains(ModFolders.Id(path)))
+                    Console.WriteLine($"[leagues] {league.Name} lists {path}: no such module in {ModulesFolder}/, and no such mod that is on");
         Console.WriteLine($"[leagues] loaded: {string.Join(", ", leagues.Loaded.Select(l => l.Name + (l.Ended ? " (ended)" : "")))}");
         ModLoadContext.DeleteOldCopies();
         ServerLeagueCode.Changed += line => HotReload.Tell(line.Replace("[leagues] ", "Leagues: "));
