@@ -74,8 +74,12 @@ public static partial class Game
             return "Avenging Flame triggers when its totem is hit by an enemy";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
-        if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
-            return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        if (gem.Effect >= 0)
+        {
+            string effect = Skills.EffectId(gem.Effect) ?? "";
+            if (effect == SummonSacredWispEffect) return "Sacred Wisps are summoned by a supported wand hit";
+            if (IsRelicSkill(effect)) return "Summon Elemental Relic triggers automatically; manual use is unavailable";
+        }
         if (GolemStat(gem.Stats, Stat.SpellUncastableIfTriggerable) != 0
             || gem.Supports.Any(s => s.Effect.Added.Contains(36)))
             return "this trigger has no server executor; manual use is unavailable";
