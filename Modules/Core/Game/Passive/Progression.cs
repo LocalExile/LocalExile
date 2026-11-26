@@ -2470,9 +2470,13 @@ public static partial class Game
         var catalog = ItemsFor(player);
         var skills = SkillsFor(player);
         int playerLevel = player.Pools.Level;
-        int? NextExperience(uint itemId, Item gem, out bool levels)
+        int corruptedBonus = PlayerStat(player, Stat.CorruptedGemExperienceGainPlusPct);
+        Item? lastBlueHost = null;
+        int blueBonus = 0;
+        int? NextExperience(uint itemId, Item host, ItemSocket socket, out bool levels)
         {
             levels = false;
+            var gem = socket.Gem!;
             if (IsInactive(player, itemId) || catalog.ByHash(gem.TypeHash) is not { } baseType || catalog.Gem(baseType) is not { } type) return null;
             // The experience stops one point below the next level's threshold, where the client draws the "+", so a
             // kill never levels a gem: only the player's click (0x31, or Level Up All's 0x32) writes the threshold.
@@ -2482,16 +2486,31 @@ public static partial class Game
             int allowed = Math.Min(skills.MaxLevelAt(type.Variant(gem.GemVariant).Effect, playerLevel), type.MaxLevel);
             int cap = type.ExperienceFor(Math.Min(level + 1, allowed + 1)) - 1;
             if (gem.GemExperience < 0 || gem.GemExperience >= cap) return null;
-            int nextXp = (int)Math.Min((long)gem.GemExperience + share, cap);
+            long increased = gem.Corrupted ? corruptedBonus : 0;
+            if (socket.Colour == SocketColour.Blue)
+            {
+                if (!ReferenceEquals(host, lastBlueHost))
+                {
+                    lastBlueHost = host;
+                    blueBonus = HasBlueSocketXpMod(host, catalog)
+                        ? ItemModStats.LocalValue(host, catalog.Mods, Stat.LocalSocketedGemsInBlueSocketsExperienceGainedPlusPct)
+                        : 0;
+                }
+                increased += blueBonus;
+            }
+            long earned = (long)share * Math.Max(0, 100L + ActorScale.Saturate(increased)) / 100;
+            if (earned == 0) return null;
+            int nextXp = (int)Math.Min(gem.GemExperience + earned, cap);
             levels = type.Level(nextXp) > level;
             return nextXp;
         }
         // AddExperience caps at one point below the next level's threshold, so kills almost never level a gem;
         // scan once without allocating to detect level-ups and per-gem 0x00c3 divergence before mutating.
         bool mayLevel = false, gemDiverges = false;
-        items.AnySocketedGem((itemId, gem) =>
+        items.AnySocketedGem((itemId, host, socket) =>
         {
-            if (NextExperience(itemId, gem, out bool levels) is not null && levels) mayLevel = true;
+            var gem = socket.Gem!;
+            if (NextExperience(itemId, host, socket, out bool levels) is not null && levels) mayLevel = true;
             if (!gemDiverges && catalog.ByHash(gem.TypeHash) is { } baseType && catalog.Gem(baseType) is { } type)
             {
                 int level = type.Level(gem.GemExperience);
@@ -2511,11 +2530,11 @@ public static partial class Game
         });
         IReadOnlyList<PlayerSkillSource> sourcesBefore = mayLevel ? CaptureGemSourceRowsLocked(player) : [];
         bool leveled = false;
-        var changed = items.ChangeSocketedGems((itemId, gem) =>
+        var changed = items.ChangeSocketedGems((itemId, host, socket) =>
         {
-            if (NextExperience(itemId, gem, out bool levels) is not int nextXp) return null;
+            if (NextExperience(itemId, host, socket, out bool levels) is not int nextXp) return null;
             if (levels) leveled = true;
-            return gem with { GemExperience = nextXp };
+            return socket.Gem! with { GemExperience = nextXp };
         });
         if (changed.Count == 0) return ([], false);
         foreach (var (before, after) in changed.SelectMany(c => c.Gems))
@@ -2565,22 +2584,23 @@ public static partial class Game
     {
         if (PlayerStat(player, Stat.GemExperienceGainPlusPct) != 0
             || PlayerStat(player, Stat.CorruptedGemExperienceGainPlusPct) != 0) return false;
-        bool HasBlueSocketXpMod(Item item)
-        {
-            if (item.Sockets.Count == 0) return false;
-            foreach (var m in item.Mods)
-                if (catalog.Mods.ByHash(m.Hash) is { } mod)
-                    foreach (var s in mod.Stats)
-                        if (s.Id == Stat.LocalSocketedGemsInBlueSocketsExperienceGainedPlusPct)
-                            return true;
-            return false;
-        }
         foreach (var (_, equipped) in items.EquipmentSnapshot())
-            if (HasBlueSocketXpMod(equipped.Item)) return false;
+            if (HasBlueSocketXpMod(equipped.Item, catalog)) return false;
         foreach (var swapItem in items.Items(PlayerInventories.Weapon2))
-            if (HasBlueSocketXpMod(swapItem.Item)) return false;
+            if (HasBlueSocketXpMod(swapItem.Item, catalog)) return false;
         foreach (var swapItem in items.Items(PlayerInventories.Offhand2))
-            if (HasBlueSocketXpMod(swapItem.Item)) return false;
+            if (HasBlueSocketXpMod(swapItem.Item, catalog)) return false;
         return true;
+    }
+
+    static bool HasBlueSocketXpMod(Item item, ItemCatalog catalog)
+    {
+        if (item.Sockets.Count == 0) return false;
+        foreach (var m in item.Mods)
+            if (catalog.Mods.ByHash(m.Hash) is { } mod)
+                foreach (var s in mod.Stats)
+                    if (s.Id == Stat.LocalSocketedGemsInBlueSocketsExperienceGainedPlusPct)
+                        return true;
+        return false;
     }
 }

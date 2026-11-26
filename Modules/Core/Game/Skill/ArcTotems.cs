@@ -4,7 +4,7 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
-    static bool PlacedArcPayload(string? effect) => effect is "Arc" or "ArcAltY";
+    static bool ArcProxyPayload(string? effect) => effect is "Arc" or "ArcAltY";
 
     static void ReleaseArcTotem(Player player, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence) =>
         ReleaseArcProxy(player, session, totem.SkillId, totem.Id, totem.At, totem.BodySize,
@@ -80,7 +80,8 @@ public static partial class Game
             || Dist(initial.Walk.Position(now), origin) > targetRange) return;
 
         var skill = SupportedSkill(player, skillId);
-        var caster = TotemCasterStats(CharacterPlayerStats(player));
+        var ownerStats = CharacterPlayerStats(player);
+        var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         var stats = MergeSkillStats(caster, skill.Stats);
         int Get(uint name) => GolemStat(stats, name);
@@ -90,6 +91,7 @@ public static partial class Game
         var criticalRoll = CaptureSkillCriticalRoll(player, skillId);
         var penetration = Penetration.Of(caster, Stats, false, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
+        var hitRolls = HitRollsFor(caster).ForSkill(skill.Stats.GetValueOrDefault, spell: true);
         int range = Get(Stat.ArcChainDistance);
         int chains = Math.Max(0, Get(Stat.NumberOfChains));
         void Land(uint id, int remaining, (int X, int Y) from)
@@ -102,18 +104,24 @@ public static partial class Game
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
-            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, false, now, resistance, penetration,
-                HitRollsFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
+            rolled = hitRolls.ForCriticalStrike(crit, caster, skill.Stats).ApplyDamageMultiplier(rolled, AreaRng(player));
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, crit, false, now, resistance, penetration,
+                hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: !totem);
             if (crit) damage = DamageModel.CriticalDamage(damage,
                 CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, caster, skill.Stats));
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
-                totem ? 0 : BearTrapDamageTaken(m, now));
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage, takenRules);
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
-            if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id);
+            if (totem)
+            {
+                ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
+                LeechFromTotemHitLocked(player, m, damage, now, ownerStats);
+            }
+            if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id, takenRules);
             var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
-                    blind: blind, hitOrigin: from, attackerSize: bodySize, attackerHasReversedStat: false, playerHit: false);
+                    sourceEffect: skill.Effect, blind: blind, hitOrigin: from, attackerSize: bodySize,
+                    attackerHasReversedStat: false, playerHit: false);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - from.X, targetAt.Y - from.Y);

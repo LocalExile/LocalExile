@@ -320,6 +320,8 @@ public static class StatConditions
         if (DedicatedConsumers.Contains(statId) || Program.Stats.Key(statId) is uint id
             && (ChargeEffects.Expands(id) || IncomingAilmentEffects.Expands(id))) return null;
         if (candidate is not { } plain) return null;
+        if (statId == "additional_physical_damage_reduction_%_while_affected_by_determination")
+            plain = "base_additional_physical_damage_reduction_%";
         // Table spellings shared by several conditional rolls, mapped to the existing unconditional consumer.
         plain = plain switch
         {
@@ -354,6 +356,13 @@ public static class StatConditions
             "life_gain_per_target" => "base_life_gain_per_target",
             "maximum_life_+" => "base_maximum_life",
             "damage_taken_+%" => "base_damage_taken_+%",
+            "damage_taken_goes_to_mana_over_4_seconds_%" => "damage_taken_goes_to_mana_%",
+            "your_ailments_deal_damage_faster_%" => "damaging_ailments_deal_damage_+%_faster",
+            "maximum_mana_%_to_add_to_energy_shield" => "mana_%_to_add_as_energy_shield",
+            "flask_life_recovery_+%" => "flask_life_to_recover_+%",
+            "always_scorch" => "virtual_always_inflict_scorch",
+            "always_frostburn" => "virtual_always_inflict_frostburn",
+            "always_sap" => "virtual_always_inflict_sapped",
             "deal_no_damage" => "base_deal_no_damage",
             "critical_strike_multiplier_+" or "global_critical_strike_multiplier_+" => "base_critical_strike_multiplier_+",
             "critical_strike_multiplier_+%" => "base_critical_strike_multiplier_+",
@@ -606,7 +615,10 @@ public static class StatConditions
     static Func<Subject, State> ParseKnownCondition(string statId)
     {
         // Placed mines choose this modifier when they release their area damage. Keep the source available at placement.
-        if (statId == "mine_area_damage_+%_if_detonated_mine_recently") return static _ => State.None;
+        if (statId is "mine_area_damage_+%_if_detonated_mine_recently"
+            or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered"
+            or "local_display_nearby_enemies_are_chilled"
+            or "local_display_nearby_enemies_have_fire_exposure") return static _ => State.None;
         if (PrideStat(statId) is not null)
             return static subject => subject.Flags is { } flags && flags.TryGetValue(UsingPride, out bool active)
                 ? active ? State.Holds : State.Fails : State.NotModelled;
@@ -842,7 +854,11 @@ public static class StatConditions
         new(@"_if_(?:other_ring_is_(?:shaper|elder)_item|(?:left|right)_ring_is_magic_item)$", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // These table-local values describe a relationship to the source, then project onto the recipient's stats.
-    public static bool SourceLocalCondition(string id) => id == "spell_chance_to_shock_frozen_enemies_%"
+    public static bool SourceLocalCondition(string id) => id is "spell_chance_to_shock_frozen_enemies_%"
+        or "local_display_gain_power_charge_on_spending_mana"
+        or "local_display_trigger_level_x_smoke_cloud_on_trap_triggered"
+        or "local_display_nearby_enemies_are_chilled"
+        or "local_display_nearby_enemies_have_fire_exposure"
         || RingConditionId.IsMatch(id)
         && id.Contains("_if_other_ring_", StringComparison.Ordinal);
 

@@ -23,6 +23,7 @@ public static class AuraCatalog
         public object? StanceOwner { get; init; }
         public bool SelfOnly { get; init; }
         public int MoreEffectPct { get; init; }
+        public bool FixedManaReservation { get; init; }
     }
 
     // The source supplies the ground art; the received buff supplies the HUD icon and active-skill association.
@@ -250,7 +251,8 @@ public static class AuraCatalog
         double flat = 0, percent = 0;
         foreach (var aura in auras)
         {
-            double efficiency = Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
+            double efficiency = !life && aura.FixedManaReservation ? 1
+                : Math.Max(-99L, (long)efficiencyPct + aura.ReservationEfficiencyPct) / 100.0 + 1;
             var (flatCost, percentCost) = life
                 ? ExplicitLife(aura) ? (aura.LifeFlat, aura.LifePercent) : (aura.ManaFlat, aura.ManaPercent)
                 : (aura.ManaFlat, aura.ManaPercent);

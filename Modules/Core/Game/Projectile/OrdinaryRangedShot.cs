@@ -22,7 +22,7 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         foreach (var (key, value) in own) conversion.TryAdd(key, value);
         var damageConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversion, catalog, attack: true), weapon, Get);
         var hit = GameEvents.WithAttackHit(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, new(accuracy)),
-            SupportedAttackDamage.HitModifiers(weapon, Get),
+            SupportedAttackDamage.HitModifiers(weapon, Get, accuracy),
             damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);

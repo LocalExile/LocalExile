@@ -87,6 +87,8 @@ public static partial class Game
         var ailmentRows = AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get);
         var blindedRows = blindedCapture is null ? null
             : AilmentPanelStats.Compute(ailmentContext, raw, conversion, Get, additionalBlindedIncreased);
+        int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
+        int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
         var shot = new ProjectileOffense(captured.Hit, false, captured.Accuracy, captured.CriticalChance,
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
@@ -94,7 +96,10 @@ public static partial class Game
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
-            Spider = !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
+            DamageIncreasePerChain = damagePerChain,
+            DamageIncreasePerPierce = damagePerPierce,
+            Spider = damagePerChain == 0 && damagePerPierce == 0
+                && !HasSpiderDamage(Get) && !HasLowLifeDamage(Get) && !HasTypedTargetDamage(Get)
                 && !HasContactDamage(Get) && !HasLocalTargetDamage(sourceWeapon.LocalSources)
                 && Get(Stat.AttackDamagePlusPctVsMaimedEnemies) == 0 ? null
                 : new(raw, conversion, new Dictionary<uint, int>(character),
@@ -105,25 +110,28 @@ public static partial class Game
                 WeaponTypedIncreases: WeaponTypeDamage.Of(sourceWeapon, Get))
             {
                 Armed = WeaponAttributeDamage.Armed(sourceWeapon), OffHand = hand == AttackHand.Off,
+                ProjectileAttackHitIncrease = (long)SupportedAttackDamage.HitModifiers(sourceWeapon, Get, handAccuracy)(Stat.ProjectileDamagePlusPct)
+                    - Get(Stat.ProjectileDamagePlusPct),
             },
             SkillStats = SkillsFor(player).EffectStats(effect, 1).ToDictionary(s => s.Item1, s => s.Item2),
             VsBlindedCriticalChance = AttackCriticalChanceVsBlinded(player, character, release: true, hand: hand),
             VsGroundCriticalChance = AttackCriticalChanceVsGround(player, character, release: true, hand: hand),
             Penetration = captured.Penetration, ResistanceMods = captured.ResistanceMods, ImpaleChance = captured.ImpaleChance,
             ImpaleSettings = captured.ImpaleSettings, AccuracyProfile = captured.AccuracyProfile,
-            Ignite = VoraciousFlame(MonsterIgnites.Settings.From(ailmentRows, "main_hand", Get), Get),
-            Poison = MonsterPoisons.Settings.From(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources,
+            Ignite = VoraciousFlame(IgniteWithTargetCondition(ailmentRows, ailmentContext, raw, conversion, Get, Get, 0), Get),
+            Poison = PoisonSettingsFrom(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources,
                 projectileAttack: true),
             Bleed = BleedSettings(ailmentRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                 projectileAttack: true),
             VsBlinded = blindedCapture is null || blindedRows is null ? null : new(blindedCapture.Hit, null,
-                VoraciousFlame(MonsterIgnites.Settings.From(blindedRows, "main_hand", Get), Get),
+                VoraciousFlame(IgniteWithTargetCondition(blindedRows, ailmentContext, raw, conversion, Get, Get, additionalBlindedIncreased), Get),
                 BleedSettings(blindedRows, "main_hand", Get, sourceWeapon.LocalSources, melee: false, bow: !wand,
                     projectileAttack: true),
-                MonsterPoisons.Settings.From(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
+                PoisonSettingsFrom(blindedRows, "main_hand", Get, sourceWeapon.LocalSources,
                     projectileAttack: true)),
             MaimChance = Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             CriticalRoll = criticalRoll, Leech = captured.Leech, WeaponLocal = sourceWeapon.LocalSources,
+            OffHandWeapon = hand == AttackHand.Off,
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct, AccuracyMoreClose = player.Pools.AccuracyMoreInCloseRangePct,
             LocalStunThresholdReduction = sourceWeapon.LocalSources?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,
             AlwaysHits = Get(Stat.GlobalAlwaysHit) != 0, FarShot = Get(Stat.PlayerFarShot) != 0,

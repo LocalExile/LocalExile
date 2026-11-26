@@ -84,9 +84,16 @@ public static partial class Game
             return minion.G is null ? (distance, false)
                 : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
-        if (DecoyTarget(m, now) is { } decoy)
+        var forcedOwner = DecoyTarget(m, now)?.Owner;
+        if (forcedOwner is null && m.TauntedUntil > now && m.TauntingPlayerId is uint source)
         {
-            if (!ReferenceEquals(player, decoy.Owner)) return false;
+            var taunter = source == player.Id ? player : player.Instance.Player(source);
+            if (taunter is not null && TargetLive(taunter, player) && ReferenceEquals(taunter.Area, player.Area)
+                && !InGracePeriod(taunter)) forcedOwner = taunter;
+        }
+        if (forcedOwner is not null)
+        {
+            if (!ReferenceEquals(player, forcedOwner)) return false;
             if (!ReferenceEquals(m.Target, player))
             {
                 (m.LastTarget, m.SwingGeneration) = (null, null);
