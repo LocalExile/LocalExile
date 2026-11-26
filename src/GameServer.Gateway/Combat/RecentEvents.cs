@@ -18,37 +18,44 @@ public sealed class RecentEvents
     readonly Dictionary<string, double> windows = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<(double At, long Amount)>> amounts = new(StringComparer.Ordinal);
     Queue<double>? attackCriticals;
+    readonly object spellCastGate = new();
     List<(int Effect, double At)>? nonInstantSpells;
 
     public void RecordNonInstantSpell(int effect, double now)
     {
-        var casts = nonInstantSpells ??= [];
-        int expired = 0;
-        while (expired < casts.Count && !Recent(casts[expired].At, now, EightSecondWindow)) expired++;
-        if (expired != 0) casts.RemoveRange(0, expired);
-        casts.Add((effect, now));
+        lock (spellCastGate)
+        {
+            var casts = nonInstantSpells ??= [];
+            int expired = 0;
+            while (expired < casts.Count && !Recent(casts[expired].At, now, EightSecondWindow)) expired++;
+            if (expired != 0) casts.RemoveRange(0, expired);
+            casts.Add((effect, now));
+        }
     }
 
     /// <summary>Count accepted casts in the requested windows and report their next relevant expiry.</summary>
     public (int Distinct, int Total, double? Expiry) NonInstantSpells(double now, bool needDistinct, bool needTotal)
     {
-        if (nonInstantSpells is not { Count: > 0 } casts) return default;
-        HashSet<int>? distinct = needDistinct ? [] : null;
-        int total = 0;
-        double expiry = double.PositiveInfinity;
-        for (int index = casts.Count - 1; index >= 0; index--)
+        lock (spellCastGate)
         {
-            var (effect, at) = casts[index];
-            if (at > now || !Recent(at, now, EightSecondWindow)) continue;
-            if (needTotal)
+            if (nonInstantSpells is not { Count: > 0 } casts) return default;
+            HashSet<int>? distinct = needDistinct ? [] : null;
+            int total = 0;
+            double expiry = double.PositiveInfinity;
+            for (int index = casts.Count - 1; index >= 0; index--)
             {
-                total++;
-                expiry = Math.Min(expiry, at + EightSecondWindow);
+                var (effect, at) = casts[index];
+                if (at > now || !Recent(at, now, EightSecondWindow)) continue;
+                if (needTotal)
+                {
+                    total++;
+                    expiry = Math.Min(expiry, at + EightSecondWindow);
+                }
+                if (distinct is not null && Recent(at, now, WindowSeconds) && distinct.Add(effect))
+                    expiry = Math.Min(expiry, at + WindowSeconds);
             }
-            if (distinct is not null && Recent(at, now, WindowSeconds) && distinct.Add(effect))
-                expiry = Math.Min(expiry, at + WindowSeconds);
+            return (distinct?.Count ?? 0, total, double.IsFinite(expiry) ? expiry : null);
         }
-        return (distinct?.Count ?? 0, total, double.IsFinite(expiry) ? expiry : null);
     }
 
     // Amounts are recorded only at one authoritative commit per counted operation. Boolean observations may be
@@ -206,7 +213,7 @@ public sealed class RecentEvents
         windows.Clear();
         amounts.Clear();
         attackCriticals?.Clear();
-        nonInstantSpells?.Clear();
+        lock (spellCastGate) nonInstantSpells?.Clear();
         Changed?.Invoke();
     }
 }
