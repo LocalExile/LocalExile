@@ -8,6 +8,40 @@ public static partial class Game
     sealed record PopulationPlan(AreaLayout Layout, HashSet<string> QuestFlags, PackCatalog.AreaPacks Area,
         List<AreaPopulation.Spawn> Spawns, List<string> Notes, Dictionary<int, (int X, int Y)> LaterForms, double Milliseconds);
 
+    /// <summary>The packs of the instance this player plays: the area's own packs (<see cref="PackCatalog.For"/>) with
+    /// this instance's draw from the shared map pool joined to their scattered ones
+    /// (<see cref="AreaPopulation.ForInstance"/>). Everything that picks a monster out of "the area's packs" asks here
+    /// rather than reading <c>Packs.For(...).Scattered</c>, so the scattered monsters, a strongbox's guards and summons,
+    /// an Essence's monster and the like draw from the one set: on a map whose signature list is one single-entry pack
+    /// (Forbidden Woods: Vendigo) they were otherwise all that one variety. A pure function of (area, area hash, seed),
+    /// so no two callers can disagree; kept for the instance, as the pool is walked once per draw.
+    /// Null for an area the pack catalog does not know.</summary>
+    public static PackCatalog.AreaPacks? InstancePacks(Player player)
+    {
+        var layout = player.Layout;
+        if (player.Instance is null) return InstancePacks(layout.Id, layout.Hash, player.Seed);
+        var cached = InstancePackCache.TryGetValue(player.Instance, out var hit) ? hit : null;
+        if (cached is not null && cached.AreaId == layout.Id && cached.Hash == layout.Hash && cached.Seed == player.Seed)
+            return cached.Packs;
+        var packs = InstancePacks(layout.Id, layout.Hash, player.Seed);
+        InstancePackCache.AddOrUpdate(player.Instance, new InstancePackEntry(layout.Id, layout.Hash, player.Seed, packs));
+        return packs;
+    }
+
+    /// <summary>The packs of an instance by its area, hash and seed (<see cref="InstancePacks(Player)"/>, uncached).</summary>
+    public static PackCatalog.AreaPacks? InstancePacks(string areaId, ushort areaHash, uint areaSeed) =>
+        Packs.For(areaId) is not { } area ? null
+            : AreaPopulation.ForInstance(area, AreaPopulation.PopulationSeed(areaHash, areaSeed), PoolSpawnable);
+
+    sealed record InstancePackEntry(string AreaId, ushort Hash, uint Seed, PackCatalog.AreaPacks? Packs);
+
+    static readonly ConditionalWeakTable<InstanceState, InstancePackEntry> InstancePackCache = new();
+
+    /// <summary>Whether a pool pack has one variety this server can write. The draw asks no more than that, so every
+    /// caller of <see cref="InstancePacks(Player)"/> draws the same packs; a pack's members are filtered again where
+    /// they are placed.</summary>
+    static bool PoolSpawnable(int row) => Monsters.Find(row.ToString()) is { Supported: true };
+
     // Plans begun when the area's 0x1d went out (PlanPopulationAhead), one per connection until its 0x7d takes it. A
     // reloaded module starts with none, and its 0x7d plans there.
     static readonly ConditionalWeakTable<Player, Task<PopulationPlan?>> PopulationsAhead = new();
@@ -20,8 +54,8 @@ public static partial class Game
             || CaptureTour.Active(CharacterName(player)) || Monsters.Error is not null) return;
         var layout = ArrivalLayout(player).Layout;
         if (layout.Walkable is null || layout.Id == Sirus.Area
-            || Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Bosses.Count == 0)) return;
-        if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [] };
+            || Packs.For(layout.Id) is not { } area || (area.Scattered.Count == 0 && area.Pool.Count == 0 && area.Bosses.Count == 0)) return;
+        if (layout.Id == "AzmeriLeagueBoss") area = area with { Scattered = [], Pool = [] };
         PopulationsAhead.AddOrUpdate(player, Task.Run(() =>
         {
             try { return PlanPopulation(player, layout, area); }
@@ -65,6 +99,9 @@ public static partial class Game
         // The Ashen Fields' boss depends on the character's Act 2 bandit choice (MapBossOverride).
         area = MapBossOverride.Apply(area, Quests.Names(PlayerQuestFlags(player)), row => Monsters.Find(row.ToString())?.Id);
         var notes = new List<string>();
+        // This instance's draw from the shared map pool, before anything reads the area's packs (a no-op where the
+        // area has no pool, or where the override above emptied it).
+        area = AreaPopulation.ForInstance(area, AreaPopulation.PopulationSeed(layout.Hash, player.Seed), PoolSpawnable, notes);
         var placedRooms = new List<AreaPopulation.PlacedRoom>();
         var (points, objects, capturedRooms) = AreaPopulation.FitRooms(layout.Id, player.Seed, notes, "data", placedRooms: placedRooms);
         // A boss whose room or tile has a spawner object for it (The Quay's Tolman, The Marketplace's Marceus) stands at the spawner.

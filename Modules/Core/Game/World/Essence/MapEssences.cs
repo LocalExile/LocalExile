@@ -85,8 +85,11 @@ public static partial class MapEssences
     public static void Opening(MapOpening request)
     {
         if (request.Campaign || request.Opening is not { } opening || MapEssenceCatalog.Pool(opening.Area.Level).Count == 0) return;
-        if (Packs.For(opening.Area.Id)?.Scattered.Any(p => p.Pack.Entries.Any(e =>
-            Monsters.Find(e.Variety.ToString()) is { Supported: true })) != true) return;
+        // The signature packs and the shared pool alike: on a map whose signature list is empty the monoliths still
+        // stand from this instance's draw from the pool (see Enter), so the opening claims the content there too.
+        var packs = Packs.For(opening.Area.Id);
+        if (packs is null || !packs.Scattered.Concat(packs.Pool).Any(p => p.Pack.Entries.Any(e =>
+            Monsters.Find(e.Variety.ToString()) is { Supported: true }))) return;
         request.HandledContent.UnionWith([Content, Ascent, Calcification, Stability, Adaptation]);
         if (opening.Mods.Get(Stat.MapEssenceImprisonedMonstersEnhancedForEachEssence) != 0)
             request.ContentWarnings.Add(("Essence.AdaptationScaling",
@@ -193,7 +196,7 @@ public static partial class MapEssences
             }
             var monolith = new Monolith(player.Instance.World.NewMonsterId(), monoliths.Count, at.Value.X, at.Value.Y,
                 variety.Id, essences) { Source = source };
-            var weights = (Packs.For(player.Layout.Id)?.Scattered.SelectMany(p => p.Pack.Entries)
+            var weights = (InstancePacks(player)?.Scattered.SelectMany(p => p.Pack.Entries)
                 .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })
                 .Select(e => (e.Variety, e.Weight)).ToArray()) ?? [];
             monolith = monolith with { Minis = MakeMinis(player, monolith, weights, new Random(unchecked((int)player.Seed ^ spawn.X * 31 ^ spawn.Y))) };
@@ -303,7 +306,7 @@ public static partial class MapEssences
                 {
                     area.Monoliths = [];
                     int count = Count(player);
-                    var pool = Packs.For(player.Layout.Id)?.Scattered.SelectMany(p => p.Pack.Entries)
+                    var pool = InstancePacks(player)?.Scattered.SelectMany(p => p.Pack.Entries)
                         .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true }).ToArray() ?? [];
                     var random = new Random(unchecked((int)(player.Seed ^ 0x45535345)));
                     var weights = pool.Select(e => (e.Variety, e.Weight)).ToArray();
@@ -350,7 +353,7 @@ public static partial class MapEssences
         {
             area.Monoliths ??= [];
             var monoliths = area.Monoliths;
-            var pool = Packs.For(conn.Layout.Id)?.Scattered.SelectMany(p => p.Pack.Entries)
+            var pool = InstancePacks(conn)?.Scattered.SelectMany(p => p.Pack.Entries)
                 .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true }).ToArray() ?? [];
             if (pool.Length == 0 || pool.Sum(e => e.Weight) <= 0) return false;
             var random = new Random(unchecked((int)conn.Seed ^ x * 397 ^ y));

@@ -136,7 +136,7 @@ public static partial class MapStrongboxes
                 .Select(r => r.IntOrNull("MonsterVarietiesKey") ?? -1);
         // Rallying's stream: the area's own monsters.
         else if (skill == "ChestSummonMonstersContinuous")
-            rows = (Packs.For(player.Layout.Id)?.Scattered ?? []).SelectMany(p => p.Pack.Entries).Select(e => e.Variety);
+            rows = (InstancePacks(player)?.Scattered ?? []).SelectMany(p => p.Pack.Entries).Select(e => e.Variety);
         else return [];
         return [.. rows.Distinct().Where(r => r >= 0 && Monsters.Find(r.ToString()) is { Supported: true })];
     }
