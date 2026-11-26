@@ -184,6 +184,8 @@ static partial class LegionMonolith
         var restored = Encounters.GetValue(instance, _ => [.. saved.Select(s => new Encounter(s))]);
         foreach (var e in restored)
         {
+            if (e.Phase == Phase.Running && Multiple(player) && e.Army is { } repeat)
+                e.Army = [.. repeat.Select(m => m.Chest ? m : m with { Broken = false })];
             // The old module's holds were cleared on unload (leaving EntranceGrace true): re-arm holds and non-lethal floors.
             if (e.Army is { } army && e.Phase is Phase.Idle or Phase.Charging or Phase.Running)
                 foreach (var m in army) Arm(module, player, e, m);
@@ -667,6 +669,7 @@ static partial class LegionMonolith
     /// lock, so the timer and this cannot both finish it.</summary>
     static async Task EarlyEnd(IModuleContext module, Player player, Encounter e)
     {
+        if (Multiple(player)) return;
         uint pulse;
         lock (e)
         {
@@ -767,7 +770,7 @@ static partial class LegionMonolith
         foreach (var m in army)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead) continue;
-            bool broken = m.Broken;
+            bool broken = m.Broken || m.Breakouts > 0;
             if (Holds.TryGetValue(monster, out var hold)) { lock (hold) broken |= hold.Broken; }
             monster.OnNonLethalZero = null;
             monster.EntranceGrace = true;

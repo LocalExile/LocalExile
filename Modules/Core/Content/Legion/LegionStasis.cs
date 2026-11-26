@@ -22,7 +22,8 @@ static class LegionStasis
     /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), whether it broke out, the
     /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2), its reward types
     /// (LegionRewardTypeVisuals rows; null or empty: none), and its formation facing angle.</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null);
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null,
+        int Breakouts = 0, bool Spread = false);
 
     /// <summary>The LegionBreakout action: ActionTypes HASH16 (the 0x2c8 header's action type) and its skill id, the type's HASH16 &amp; 0x3fff (R11 section 0).</summary>
     const ushort ActionType = 0xd8fe, ActionSkill = 0x18fe;
@@ -37,7 +38,7 @@ static class LegionStasis
     public const ushort RewardBuff = 1328;
 
     /// <summary>A woken member as the drops see it: its reward types (LegionRewardTypeVisuals rows), its faction's LegionFactions Id and its rank tier.</summary>
-    public sealed record Fighter(int[] Rewards, string FactionId, int Tier);
+    public sealed record Fighter(int[] Rewards, string FactionId, int Tier, double RewardFactor = 1);
 
     /// <summary>The members that woke and fight, by the new monster's id, per AREA (ids restart in every area instance; the table goes with its area).
     /// Also persisted in Instance.ContentState["LegionFighters"] so module hot-reloads keep sergeant/general rewards intact.</summary>
@@ -332,7 +333,7 @@ static class LegionStasis
         uint id = await SpawnMonster(player, variety, monster.Level, monster.Rarity, x, y, mods: monster.Mods,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
             rotation: rotation,
-            extraStats: RewardStats(member.Rewards, false),   // the icon, shown
+            extraStats: LegionScarabs.Stats(LegionScarabs.Difficulty(member.Breakouts, member.Spread), member.Rewards),
             shape: o =>
             {
                 var sm = (o.StateMachine ?? variety.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1);
@@ -342,10 +343,11 @@ static class LegionStasis
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out _)) return 0;   // the frozen one stays: the caller removes it
         await Remove(player, [member]);
         if (member.Rewards is { Length: > 0 } rewards) ShowRewards(player, id, rewards, false);
-        if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 })
+        if (member.Tier >= 2 && factionId is not null || member.Rewards is { Length: > 0 } || member.Breakouts > 0)
         {
             var map = FightersByArea.GetOrCreateValue(player.Area);
-            map[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier);   // for the drops (LegionRewards)
+            map[id] = new Fighter(member.Rewards ?? [], factionId ?? "", member.Tier,
+                LegionScarabs.Rewards(member.Breakouts, global::Game.AreaLeagueStats(player).GetValueOrDefault(Stat.MapLegionMultipleBreakout)));
             anyFighter = true;
             PersistFighters(player, map);
         }

@@ -21,6 +21,7 @@ public sealed class LegionModule : IModule
         var data = LegionData.Current;
         module.Lifetime.Own(new Cleanup(() => { LegionMonolith.UnloadData(); LegionData.Unload(); }));
         LegionMonolith.Register(module);
+        GameEvents.MapOpening.Add(module.Manifest.Id, LegionScarabs.Opening);
         module.Log($"{data.Factions.Count} factions, {data.Ranks.Count} ranks, {data.MonsterVarieties.Count} monster varieties, {data.MonsterCounts.Count} monster counts, {data.ChestTypes.Count} chest types, {data.ChestCounts.Count} chest counts, {data.Balances.Count} balance rows");
     }
 

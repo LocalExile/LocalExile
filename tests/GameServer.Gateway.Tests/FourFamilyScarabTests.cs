@@ -1,6 +1,7 @@
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
+using GameServer.Modules.Legion;
 
 namespace GameServer.Gateway.Tests;
 
@@ -25,6 +26,25 @@ public sealed class FourFamilyScarabTests
             return request;
         }
         Assert.Equal(16, MapInfluence.Companions.Count);
+        LegionModule.LoadData();
+        foreach (string leaf in Enumerable.Range(1, 4).Select(i => $"ScarabLegion{i}").Concat(Enumerable.Range(1, 5).Select(i => $"ScarabLegionNew{i}")))
+        {
+            var request = Input(leaf); LegionScarabs.Opening(request); Assert.Empty(request.UnhandledContent);
+        }
+        var legionStats = new Dictionary<uint, int>
+        {
+            [Stat.MapLegionLeagueForceGeneral] = 1, [Stat.MapLegionLeagueForceWarChest] = 1,
+            [Stat.MapLegionContainsMarakethFaction] = 1, [Stat.MapLegionAdditionalNumberOfSergeants] = 5,
+        };
+        for (int seed = 0; seed < 25; seed++)
+        {
+            var plan = LegionArmy.Plan(LegionData.Current, 83, beach.Id, legionStats, new Random(seed));
+            Assert.Contains(plan.Factions, f => f.Id == "Maraketh");
+            Assert.All(plan.Factions, f => { Assert.Equal(1, f.Squads.Where(s => s.Tier == 3).Sum(s => s.Count)); Assert.Contains(f.Chests, c => c.WarHoard); });
+            Assert.True(plan.Factions.SelectMany(f => f.Squads).Where(s => s.Tier == 2).Sum(s => s.Count) >= 5);
+        }
+        Assert.Equal(3, LegionScarabs.Rewards(2, 100));
+        Assert.Equal(200, LegionScarabs.Difficulty(2, true));
         foreach (string family in new[] { "ShaperRares", "ElderRares", "InfluenceNew" })
             for (int i = 1; i <= 4; i++)
             {
