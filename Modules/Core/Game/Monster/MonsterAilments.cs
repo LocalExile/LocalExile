@@ -329,7 +329,14 @@ public static partial class Game
         bool owned = ownHit ?? playerHit;
         int blindChilled = owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
             ? Math.Max(0, playerStats.GetValueOrDefault(Stat.BlindChilledEnemiesOnHitPct)) : 0;
-        bool chilledBeforeHit = blindChilled > 0 && m.Ailments.Magnitude(Kind.Chill, now) > 0;
+        long Effect(uint key) => (long)playerStats.GetValueOrDefault(key) + (skill?.GetValueOrDefault(key) ?? 0);
+        long shockVsCursed = Effect(Stat.ShockEffectAgainstCursedEnemiesPlusPct);
+        if (shockVsCursed != 0 && (!m.HasCurses || !m.Curses.HasActive(now))) shockVsCursed = 0;
+        long lightningVsChilled = Effect(Stat.LightningAilmentEffectPlusPctAgainstChilledEnemies);
+        bool chilledBeforeHit = (blindChilled > 0 || lightningVsChilled != 0) && m.Ailments.Magnitude(Kind.Chill, now) > 0;
+        if (!chilledBeforeHit) lightningVsChilled = 0;
+        long coldVsShocked = Effect(Stat.ColdAilmentEffectPlusPctAgainstShockedEnemies);
+        if (coldVsShocked != 0 && m.Ailments.Magnitude(Kind.Shock, now) <= 0) coldVsShocked = 0;
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
@@ -386,9 +393,15 @@ public static partial class Game
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
-            if (criticalEffect != 0 && name is Stat.VirtualChillEffectPlusPct or Stat.VirtualShockEffectPlusPct
-                or Stat.VirtualScorchEffectPlusPct or Stat.VirtualFrostburnEffectPlusPct or Stat.VirtualSapEffectPlusPct)
-                value = ActorScale.Saturate(value + criticalEffect);
+            long effect = name switch
+            {
+                Stat.VirtualShockEffectPlusPct => criticalEffect + shockVsCursed + lightningVsChilled,
+                Stat.VirtualSapEffectPlusPct => criticalEffect + lightningVsChilled,
+                Stat.VirtualChillEffectPlusPct or Stat.VirtualFrostburnEffectPlusPct => criticalEffect + coldVsShocked,
+                Stat.VirtualScorchEffectPlusPct => criticalEffect,
+                _ => 0,
+            };
+            if (effect != 0) value = ActorScale.Saturate(value + effect);
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
@@ -448,7 +461,7 @@ public static partial class Game
             return;
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
-        if (chilledBeforeHit)
+        if (blindChilled > 0 && chilledBeforeHit)
         {
             if (blind == default) blind = BlindHitInput.Capture(playerStats, skill);
             blind = blind with { GlobalChance = blind.GlobalChance + blindChilled };
