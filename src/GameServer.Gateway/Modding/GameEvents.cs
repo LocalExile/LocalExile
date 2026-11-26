@@ -6,15 +6,16 @@ using GameServer.Core.World;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
-/// whose league lists it, a mod's in every league that takes it (all, unless its league.json says) while it is loaded. They run in
-/// that order: the league's code, then the modules', then the mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
+/// whose league lists it, a mod's in every league, or only in the leagues that list it when its mod.json says so. They run in
+/// that order: the league's code, the modules', the listed mods', then the other mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
     {
-        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank ? league.Takes(Owner) : league.Modules.Contains(Owner)
-            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+        // A league's code by the league alone: its list may hold a mod of its name in another case (the mod that brings it).
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.LeagueRank ? league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase)
+            : Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner);
     }
 
     ImmutableArray<Subscriber> _subscribers = [];
@@ -98,9 +99,9 @@ public static class GameEventOwners
     static ImmutableArray<IOwned> _events = [];
     static ImmutableDictionary<(int Rank, string Owner), ImmutableList<IDisposable>> _held = ImmutableDictionary<(int, string), ImmutableList<IDisposable>>.Empty;
 
-    /// <summary>The ranks: a league's code, a module, a mod. A host releases only its own rank, so a league and a module of the same
-    /// name (Ruthless) do not release each other's.</summary>
-    public const int LeagueRank = 0, ModuleRank = 1, ModRank = 2;
+    /// <summary>The ranks: a league's code, a module, a mod of the leagues that list it, a mod of every league. A host releases
+    /// only its own rank, so a league and a module of the same name (Ruthless) do not release each other's.</summary>
+    public const int LeagueRank = 0, ModuleRank = 1, LeagueModRank = 2, ModRank = 3;
 
     public static void Register(IOwned gameEvent) => ImmutableInterlocked.Update(ref _events, e => e.Add(gameEvent));
 
@@ -124,7 +125,7 @@ public static class GameEventOwners
     /// <summary>How many subscriptions the owner has (its "hooks" in /mod and /module).</summary>
     public static int Count(string owner) => _events.Sum(e => e.Count(owner));
 
-    // A league's code first, then the modules, then the mods, by the kind of host that runs the owner. An owner no host runs (a test, a
+    // A league's code first, then the modules, then the mods (the listed ones first), by what runs the owner. An owner no host runs (a test, a
     // helper) counts as a module, and so does a name that is both a module's and a league's.
     internal static int RankOf(string owner) => ModHost.RankOf(owner) ?? ModuleRank;
 
