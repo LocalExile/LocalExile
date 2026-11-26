@@ -1731,7 +1731,7 @@ public static partial class Game
             await UseInstantSkillAtLocation(player, skillId, default, targetId);
             return;
         }
-        if (gem.Name is null || !ObjectInstantSupported(player, gem.Effect)) return;
+        if (gem.Name is null || !ObjectInstantSupported(player, gem.Effect, skillId)) return;
         var cooldownPlan = CooldownForSkill(player, skillId);
         int epoch;
         epoch = player.ProjectileEpoch;
@@ -1774,8 +1774,11 @@ public static partial class Game
         }
     }
 
-    static bool ObjectInstantSupported(Player player, int effect) =>
+    static bool ObjectInstantSupported(Player player, int effect, ushort skillId) =>
         InstantLocationSkill.ObjectTargetSupported(SkillsFor(player), effect) || InPlaceSelfBuff(player, effect)
+        // Blasphemy makes its linked hex an instant reservation without changing the base effect's types.
+        || CurseCatalog.Hex(SkillsFor(player).EffectId(effect))
+            && SupportedSkill(player, skillId).Supports.Any(s => IsBlasphemySupport(s.Effect.Id))
         // The client's 0x2064 (skill_is_instant) is what EffectStats publishes from IsInstant; reading the type here
         // skips a full supported-skill stat build (51 ms on a live press, measured 2026-11-18).
         || !SkillsFor(player).IsMovement(effect) && (SkillsFor(player).IsInstant(effect)
@@ -1790,7 +1793,7 @@ public static partial class Game
         if (!InstantLocationSkill.Supported(SkillsFor(player), gem.Effect))
         {
             // A self buff aimed at empty ground uses 0x190 too; it still applies at its caster.
-            if (ObjectInstantSupported(player, gem.Effect))
+            if (ObjectInstantSupported(player, gem.Effect, skillId))
                 await UseInstantSkill(player, skillId, player.Id, player.Walk.Position(AreaTime(player)));
             return;
         }
