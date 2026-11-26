@@ -31,6 +31,7 @@ public sealed class DeliriumMirrorEncounter
         "AfflictionMinion1", "AfflictionMinion2", "AfflictionMinion3",
         "AfflictionMinion4", "AfflictionMinion5_", "AfflictionMinion6_",
     ];
+    static readonly string[] BossVarieties = [SimulacrumRules.Omniphobia, SimulacrumRules.Kosis];
 
     readonly ConditionalWeakTable<InstanceState, MirrorState> _states = new();
     readonly JsonSerializerOptions _json = new() { TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
@@ -64,12 +65,14 @@ public sealed class DeliriumMirrorEncounter
         public HashSet<string> SpawnedBosses { get; set; } = [];
         public Dictionary<uint, string> Bosses { get; set; } = [];
         public HashSet<uint> RewardedBosses { get; set; } = [];
+        public HashSet<string> RewardedBossVarieties { get; set; } = [];
         public string Why { get; set; } = "";
 
         [System.Text.Json.Serialization.JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
         [System.Text.Json.Serialization.JsonIgnore] public object? ShownArea;
         [System.Text.Json.Serialization.JsonIgnore] public byte[]? LastTiles;
         [System.Text.Json.Serialization.JsonIgnore] public bool TilesDirty;
+        [System.Text.Json.Serialization.JsonIgnore] public bool Spawning;
 
         public void EnsureRewardArrays()
         {
@@ -210,6 +213,9 @@ public sealed class DeliriumMirrorEncounter
     {
         var state = instance.ContentState.TryGetValue(StateKey, out var text)
             ? JsonSerializer.Deserialize<MirrorState>(text, _json) ?? new() : new MirrorState();
+        // Older in-memory snapshots used transient world ids for the award guard.
+        foreach (uint id in state.RewardedBosses)
+            if (state.Bosses.TryGetValue(id, out var variety)) state.RewardedBossVarieties.Add(variety);
         if (state.Level == 0)
             state.Level = (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
         state.Wave = MirrorFogWave.For(state.Level, instance.AreaStats(() => AreaLeagueStats(player)));
@@ -419,7 +425,7 @@ public sealed class DeliriumMirrorEncounter
                 state.LastTimerSeconds = 0;
                 state.DepthPercent = 10;
                 state.LastTickAt = AreaTime(player);
-                state.NextSpawnAt = state.LastTickAt;
+                state.NextSpawnAt = state.LastTickAt + SpawnIntervalSeconds;
                 state.TilesDirty = false;
                 entityId = state.EntityId;
                 SaveLocked(player, state);
@@ -590,10 +596,16 @@ public sealed class DeliriumMirrorEncounter
         lock (state)
         {
             if (state.Stage != MirrorStage.Active) return;
-            bool boss = state.Bosses.ContainsKey(kill.Monster.ObjectId);
-            if (boss && !state.RewardedBosses.Add(kill.Monster.ObjectId)) return;
+            string? boss = state.Bosses.GetValueOrDefault(kill.Monster.ObjectId);
+            if (boss is null && state.SpawnedBosses.Contains(kill.VarietyId) && Array.IndexOf(BossVarieties, kill.VarietyId) >= 0)
+                boss = kill.VarietyId;
+            if (boss is not null)
+            {
+                if (!state.RewardedBossVarieties.Add(boss)) return;
+                state.RewardedBosses.Add(kill.Monster.ObjectId);
+            }
             state.RecordKill(kill.Monster.Rarity, bonusPct, stats.GetValueOrDefault(Stat.MapAfflictionRewardKillsPlusPct));
-            if (boss
+            if (boss is not null
                 && RandomRolls.Chance(stats.GetValueOrDefault(Stat.MapAfflictionPctChanceAdditionalRewardOnAfflictionUniqueMonsterKilled), 100, AreaRng(kill.Player)))
                 state.AddReward(AreaRng(kill.Player));
             state.Monsters.Remove(kill.Monster.ObjectId);
@@ -693,6 +705,18 @@ public sealed class DeliriumMirrorEncounter
     async Task SpawnPack(Player player, MirrorState state)
     {
         if (!_context.Lifetime.IsActive || !Current(player)) return;
+        lock (state)
+        {
+            if (state.Spawning || state.Stage != MirrorStage.Active) return;
+            state.Spawning = true;
+        }
+        try { await SpawnPackCore(player, state); }
+        finally { lock (state) state.Spawning = false; }
+    }
+
+    async Task SpawnPackCore(Player player, MirrorState state)
+    {
+        var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
         byte level;
         int packSize;
         int spawnedBase;
@@ -703,7 +727,6 @@ public sealed class DeliriumMirrorEncounter
             level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
             packSize = Math.Min(5, Math.Min(MaxActiveMonsters - state.Monsters.Count, MaxSpawnTotal - state.Spawned));
             spawnedBase = state.Spawned;
-            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
             delirious = Math.Max(0.05, DeliriumScarabs.MonsterDepth(state.DepthPercent,
                 stats.GetValueOrDefault(Stat.MapAfflictionEncounterMonsterDepthPlusPct)) / 100.0);
         }
@@ -723,11 +746,10 @@ public sealed class DeliriumMirrorEncounter
         for (int i = 0; i < packSize; i++)
         {
             if (!_context.Lifetime.IsActive || !Current(player) || !IsActive(state)) break;
-            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
             string? boss = null;
             lock (state)
                 if (stats.GetValueOrDefault(Stat.MapAfflictionContainsBosses) > 0)
-                    boss = new[] { SimulacrumRules.Omniphobia, SimulacrumRules.Kosis }.FirstOrDefault(b => !state.SpawnedBosses.Contains(b));
+                    boss = BossVarieties.FirstOrDefault(b => !state.SpawnedBosses.Contains(b));
             var variety = boss is null ? pool[rng.Next(pool.Length)] : Monsters.Find(boss);
             if (variety is not { Supported: true }) break;
             variety = variety with { StateMachine = DeliriumModule.MonsterStates(variety.StateMachine), AggroRange = Math.Max(90, variety.AggroRange) };

@@ -367,16 +367,21 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
 public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
     Item contents = Item;
-    public Item Item { get => contents; init => contents = value; }
+    public Item Item { get => System.Threading.Volatile.Read(ref contents); init => contents = value; }
+    readonly object preparationGate = new();
     bool prepared;
+
+    public bool Equals(WorldItemObject? other) => ReferenceEquals(this, other)
+        || other is not null && GridX == other.GridX && GridY == other.GridY && Item == other.Item && PlayerDropped == other.PlayerDropped;
+    public override int GetHashCode() => HashCode.Combine(GridX, GridY, Item, PlayerDropped);
 
     /// <summary>Finalizes a newly generated drop before it is published; recovery and stack remainders keep it.</summary>
     public void Prepare(Func<Item, Item> transform)
     {
-        lock (this)
+        lock (preparationGate)
         {
             if (prepared) return;
-            contents = transform(contents);
+            System.Threading.Volatile.Write(ref contents, transform(contents));
             prepared = true;
         }
     }

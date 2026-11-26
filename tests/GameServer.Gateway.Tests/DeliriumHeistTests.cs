@@ -83,6 +83,13 @@ public class DeliriumHeistTests
         Assert.Same(map, dropped.Item);
         Assert.Same(map, restored.Item);
         Assert.Equal(1, calls);
+        var value = new WorldItemObject(9, 9, map);
+        var equivalent = value with { };
+        int hash = value.GetHashCode(), attempts = 0;
+        Parallel.For(0, 32, _ => value.Prepare(item => { Interlocked.Increment(ref attempts); return item; }));
+        Assert.Equal(1, attempts);
+        Assert.Equal(equivalent, value);
+        Assert.Equal(hash, value.GetHashCode());
     }
 
     [Fact]
@@ -333,11 +340,38 @@ public class DeliriumHeistTests
             Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
             Assert.Equal(3, state.Rewards.Length);
             Assert.Equal(2, state.Bosses.Count);
+            // Two batches overlap while the first waits at a real connection's send gate.
+            var concurrent = new DeliriumMirrorEncounter.MirrorState { Stage = DeliriumMirrorEncounter.MirrorStage.Active, Level = 70 };
+            var spawn = typeof(DeliriumMirrorEncounter).GetMethod("SpawnPack", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            var sendGate = Program.SendGates.GetValue(peer1.Player.Connection.Session.Ciphers, _ => new SemaphoreSlim(1, 1));
+            await sendGate.WaitAsync();
+            Task batch1, batch2;
+            try
+            {
+                batch1 = (Task)spawn.Invoke(encounter, [peer1.Player, concurrent])!;
+                Assert.False(batch1.IsCompleted);
+                batch2 = (Task)spawn.Invoke(encounter, [peer1.Player, concurrent])!;
+            }
+            finally { sendGate.Release(); }
+            await Task.WhenAll(batch1, batch2);
+            Assert.Equal(5, concurrent.Spawned);
+            Assert.Equal(new[] { SimulacrumRules.Kosis, SimulacrumRules.Omniphobia }.Order(), concurrent.Bosses.Values.Order());
+            foreach (uint id in concurrent.Monsters)
+            {
+                peer1.Player.Area.Monsters.Remove(id);
+                instance.World.MonsterOrigins.TryRemove(id, out _);
+            }
             foreach (uint id in state.Bosses.Keys)
             {
                 var boss = peer1.Player.Area.Monsters[id];
                 Assert.Equal(MonsterRarity.Unique, boss.Rarity);
-                var kill = new KillContext(peer1.Player, boss, state.Bosses[id], (layout.SpawnX, layout.SpawnY));
+                // Solo reentry restores a surviving body under a different world id.
+                peer1.Player.Area.Monsters.Remove(id);
+                instance.World.MonsterOrigins.TryRemove(id, out _);
+                uint rebound = await Game.RestoreMonster(peer1.Player, boss.Variety!,
+                    new(boss.Variety!.Row, boss.Level, boss.Rarity, true, layout.SpawnX + 10, layout.SpawnY + 10, boss.Life) { Mods = boss.Mods });
+                Assert.NotEqual(id, rebound);
+                var kill = new KillContext(peer1.Player, peer1.Player.Area.Monsters[rebound], state.Bosses[id], (layout.SpawnX, layout.SpawnY));
                 encounter.OnKill(kill);
                 int after = state.KillPoints;
                 encounter.OnKill(kill);
@@ -349,6 +383,7 @@ public class DeliriumHeistTests
             resumedEncounter.Attach(context);
             Assert.NotEmpty(resumedEncounter.BeforeEnterMessages(peer2.Player));
             Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBosses.Count);
+            Assert.Equal(2, resumedEncounter.For(peer2.Player).RewardedBossVarieties.Count);
             Assert.Equal(2, resumedEncounter.For(peer2.Player).SpawnedBosses.Count);
 
             // Dirty reward tiles past 3 and push OuterElapsed past trailing clear so both peers leave fog and receive 0x02c9 + 0x0163.
