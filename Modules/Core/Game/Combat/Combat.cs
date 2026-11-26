@@ -1615,7 +1615,7 @@ public static partial class Game
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId)
             && SkillsFor(player).EffectId(gem.Effect) is "LightningWarp" or VaalLightningWarpEffect)
-            return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll));
+            return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll, vaalUse?.PactDamageMore ?? 1));
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } summon)
@@ -1673,7 +1673,7 @@ public static partial class Game
             await LaunchProjectileForUse(player, onShieldChargeReady, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt,
-                doubleStrikePairs: doubleStrikePairs);
+                doubleStrikePairs: doubleStrikePairs, vaalDamageMore: vaalUse?.PactDamageMore ?? 1);
         return CompleteSupportedUse(true);
     }
 
@@ -2084,7 +2084,7 @@ public static partial class Game
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null,
-        DoubleStrikePairs? doubleStrikePairs = null)
+        DoubleStrikePairs? doubleStrikePairs = null, double vaalDamageMore = 1)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -2243,7 +2243,7 @@ public static partial class Game
             int repeat = Math.Max(0, release - seals);
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
-            double more = reoccurrence ? reoccurrenceMore : 1;
+            double more = vaalDamageMore * (reoccurrence ? reoccurrenceMore : 1);
             if (timedAreaCast is int timedAreaWindup)
             {
                 double windup = sealDelay + timedAreaWindup / 1000d

@@ -160,7 +160,8 @@ public static partial class Game
                 return Task.CompletedTask;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + delay), () => Valid() && VaalAdmissionCurrent(player, paid), () =>
             {
-                var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
+                    sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
                 var own = SupportedSkill(player, skillId).Stats;
                 // The default profile substitutes one shot for a missing base count. Vaal Spark
                 // already supplies that base as its hundred-shot stream; quality adds to the stream.
@@ -192,7 +193,8 @@ public static partial class Game
                     () => session.Active && player.PlayerLife > 0 && (captured is not null || Valid() && VaalAdmissionCurrent(player, paid)),
                     () =>
                     {
-                        captured ??= CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, sacrifice: sacrifice);
+                        captured ??= CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
+                            sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
                         var direction = (captured.Aim - captured.Origin).Unit.Rotate(turn * degrees * Math.PI / 180);
                         return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
                     });

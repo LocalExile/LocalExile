@@ -8,6 +8,8 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
     public long WorkGeneration;
     public int RecoveryGeneration;
     public bool RageConverted;
+    internal Game.KtashEmpowerment? Ktash { get; init; }
+    internal double PactDamageMore => Ktash?.DamageMore ?? 1;
 }
 
 public static partial class Game
@@ -117,9 +119,12 @@ public static partial class Game
         if (plan.Souls > 0)
         {
             var definition = SkillsFor(player).VaalBudget(plan.Effect, SupportedSkill(player, plan.Skill).Level)!.Value;
-            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls))
+            bool refund = plan.Ktash is { RefundChance: > 0 } empowerment
+                && (empowerment.RefundChance == 100 || AreaRng(player).Next(100) < empowerment.RefundChance);
+            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls, refund))
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
+        if (plan.Ktash is { } admitted) UseKtashEmpowerment(player, admitted);
         player.PlayerMana -= plan.Mana;
         player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);

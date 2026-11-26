@@ -31,7 +31,7 @@ public static partial class Game
 
     static bool ScheduleLightningWarp(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
-        Func<bool> current, SkillCriticalRoll? critical)
+        Func<bool> current, SkillCriticalRoll? critical, double vaalDamageMore)
     {
         var session = ProjectilesFor(player);
         var source = SupportedSkill(player, gem.Id);
@@ -60,7 +60,7 @@ public static partial class Game
             {
                 session.Runtime.Schedule(session.Runtime.Now + ProjectileRuntime.Time(delay), () =>
                 {
-                    if (Active()) WarpEnemies(player, session, gem, origin, landing, source, critical, Active);
+                    if (Active()) WarpEnemies(player, session, gem, origin, landing, source, critical, Active, vaalDamageMore);
                 });
                 return;
             }
@@ -91,7 +91,8 @@ public static partial class Game
 
     static void WarpEnemies(Player player, ProjectileSession session,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) origin, (int X, int Y) landing, SupportedGem source, SkillCriticalRoll? critical, Func<bool> inArea)
+        (int X, int Y) origin, (int X, int Y) landing, SupportedGem source, SkillCriticalRoll? critical, Func<bool> inArea,
+        double damageMore)
     {
         bool Current() => inArea() && SameTriggerSource(source, SupportedSkill(player, gem.Id));
         if (!Current()) return;
@@ -106,7 +107,7 @@ public static partial class Game
         // Immediate hits with a scheduled session commit on this frame and queue their presentation.
         void Hit((int X, int Y) at, IReadOnlyDictionary<uint, SpawnedMonster> eligible) =>
             _ = AreaSkillHitForUse(null, player, gem.Id, gem, at, at, immediate: true, criticalRoll: critical, radiusOverride: radius,
-                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) =>
+                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: session, damageMore: damageMore, targetFilter: (id, _) =>
                     eligible.TryGetValue(id, out var target) && ReferenceEquals(target, player.Area.Monsters.GetValueOrDefault(id)));
         Hit(origin, targets);
         if (!Current()) return;

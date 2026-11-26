@@ -63,8 +63,11 @@ public static partial class Game
                 () =>
                 {
                     var stats = CharacterPlayerStats(player);
-                    if (SkillsFor(player).EffectId(source.Effect) == PactOfGhorrEffect)
-                        StartPactOfGhorr(session, skill, source, aim, stats);
+                    switch (SkillsFor(player).EffectId(source.Effect))
+                    {
+                        case PactOfGhorrEffect: StartPactOfGhorr(session, skill, source, aim, stats); break;
+                        case PactOfKtashEffect: StartPactOfKtash(session, skill, source); break;
+                    }
                     GrantPactCondition(session, skill, stats.GetValueOrDefault(Stat.GainBoonsInsteadOfAfflictionsWhenUsingAPactSkill) != 0);
                 });
         }

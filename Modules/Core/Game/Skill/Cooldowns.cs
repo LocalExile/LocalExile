@@ -281,6 +281,8 @@ public static partial class Game
                     var world = player.RampageWorld;
                     if (!player.OwnedCombatWorker.Bind(player, CombatLifetime!, world.SourceOwner, world, out long generation))
                         return false;
+                    if (KtashSpellFor(player, requested, vaal.Effect) is { } ktash)
+                        vaal = vaal with { Ktash = ktash, PreventionSeconds = vaal.PreventionSeconds * ktash.PreventionMore };
                     vaal.WorkGeneration = generation;
                 }
             }
