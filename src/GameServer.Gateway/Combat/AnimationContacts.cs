@@ -318,6 +318,15 @@ public sealed class AnimationContacts
         TryDefaultAttackClip(animatedObject, weapon, sequence, attackSeconds, out var clip)
             ? clip.ContactSeconds(attackSeconds) : attackSeconds * AttackContact(animatedObject, weapon);
 
+    /// <summary>A single swing using the ACT Melee action starts at the first clip of a paired stance.</summary>
+    public double SingleMeleeContactSeconds(string animatedObject, WeaponProfile weapon, ushort sequence, double attackSeconds)
+    {
+        if (StanceFor(weapon) is { } stance && _byAo.TryGetValue(animatedObject, out var actor)
+            && actor.AttackPools.TryGetValue(stance, out var pool) && pool[0].Pair)
+            return pool[0].ContactSeconds(attackSeconds);
+        return DefaultAttackContactSeconds(animatedObject, weapon, sequence, attackSeconds);
+    }
+
     /// <summary>When the client runs a Move it holds during the default attack's swing (seconds after the swing's start):
     /// the stance pool's clip's lock_cancelling event, else its contact (<see cref="DefaultAttackClip.CutInSeconds"/>);
     /// without pool data, the attack1 keyframe's fraction of the attack.</summary>

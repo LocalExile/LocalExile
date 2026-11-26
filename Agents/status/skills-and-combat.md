@@ -67,6 +67,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Pride on enemies. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 
 - Bladestorm swings around the player and creates timed Blood or Sand storms with their respective buffs.
+- Chain Hook pulls and hits at beam contact at range, and uses the weapon stance's swing at close range.
 - Chain Hook of Trarthus attaches, grants Rage on attack hits and deals area damage when a chain breaks.
 
 ## Partly working

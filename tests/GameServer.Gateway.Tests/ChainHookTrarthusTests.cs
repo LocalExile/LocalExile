@@ -26,6 +26,22 @@ public sealed class ChainHookTrarthusTests
         Assert.Equal(after, target.Life);
     }
 
+    [Fact]
+    public async Task Base_hook_uses_the_stance_swing_contact_on_a_close_target()
+    {
+        using var run = new Scenario(0, ordinaryHook: true);
+        var target = run.Spawn(891, (106, 100));
+        run.Step(.7);
+        double swing = Game.SupportedAttackSeconds(run.Player, run.Chain);
+        double contact = 300d / 387 * Math.Min(.5, swing) + Math.Max(0, swing - .5);
+        Assert.True(await Game.CastGemSkill(run.Player, run.Chain, (100, 100), (106, 100), sequence: 1));
+        run.Step(contact - .02);
+        Assert.Equal(10000u, target.Life);
+        run.Step(.04);
+        Assert.Equal((100, 100), run.Player.Walk.Position(run.Clock.At));
+        Assert.InRange(target.Life, 1u, 9999u);
+    }
+
     [Theory]
     [InlineData(0, 8)]
     [InlineData(20, 11)]

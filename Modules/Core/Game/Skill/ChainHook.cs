@@ -130,10 +130,14 @@ public static partial class Game
                 // The beam uses the hand's duration before the character's action-speed factor.
                 double rawAttack = seconds * PlayerActionFactor(player);
                 delay = seconds + ChainHookFlight(distanceToAnchor, range, rawAttack);
-                // The cast is still running during the beam. A held attack may start when it hits.
-                player.NextAttackAt = Math.Max(player.NextAttackAt, began + delay + seconds * AttackTiming.EarlyAllowance);
             }
-            else delay = GemAttackContactDelay(player, gem.Effect, seconds, out _, out _);
+            else
+            {
+                string ao = SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject;
+                delay = Animations.SingleMeleeContactSeconds(ao, AnimationWeaponProfileFor(player), sequence, seconds);
+            }
+            // Keep early attack admission from cutting off the paired swing or the travelling beam before contact.
+            player.NextAttackAt = Math.Max(player.NextAttackAt, began + delay + seconds * AttackTiming.EarlyAllowance);
 
             var hooked = pull ? player.Area.Monsters.GetValueOrDefault(anchorId) : null;
             long due = ProjectileRuntime.Time(began + delay);
