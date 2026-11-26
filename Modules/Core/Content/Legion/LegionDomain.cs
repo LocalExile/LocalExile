@@ -569,7 +569,7 @@ static class LegionDomain
             FighterSlot slot; byte level;
             lock (state)
             {
-                if (!fall && state.Phase == DomainPhase.Finished) return 0;
+                if (state.Phase == DomainPhase.Finished) return 0;
                 (slot, level) = (state.Slots[i], (byte)Math.Clamp(state.Level, 1, 100));
             }
             if (VarietyOf(state, slot.MonsterRow) is not { Supported: true } variety)
@@ -584,7 +584,7 @@ static class LegionDomain
             lock (state)
             {
                 state.Slots[i] = state.Slots[i] with { GhostId = id, Sequence = sequence, RiseAt = double.NegativeInfinity, RiseStep = 0 };
-                if (fall) state.Falls.Add((i, now + FallDelaySeconds));
+                if (fall && state.Phase == DomainPhase.Active) state.Falls.Add((i, now + FallDelaySeconds));
                 Keep(player, state, flush: false);
             }
             return id;
@@ -686,81 +686,108 @@ static class LegionDomain
     static async Task StepRising(IModuleContext module, Player player, DomainState state, ReviveWork work)
     {
         var (revived, swaps, fallen, falls) = (work.Revived, work.Swaps, work.Fallen, work.Falls);
-        if (revived.Count > 0)
+        int swapsHandled = 0, fallenHandled = 0;
+        try
         {
-            byte[] payload = LegionRevive.RevivedPayload(LegionRevive.StandSeconds);
-            var batch = new List<(uint, ushort, byte[])>(revived.Count);
-            foreach (var (_, ghost, sequence) in revived)
+            if (revived.Count > 0)
             {
-                LegionRevive.SetOrigin(player, ghost, sequence, LegionRevive.Revived, LegionRevive.StandSeconds, revive: false);
-                batch.Add((ghost, sequence, payload));
-            }
-            await LegionRevive.SendBatch(player, batch);
-            module.Log($"Domain revive: {revived.Count} ghosts -> state 1 (revived, beam){(revived.Count == 1 ? $", 0x{revived[0].Ghost:x}" : "")}");
-        }
-        if (swaps.Count > 0)
-        {
-            var stats = LegionMonolith.AreaStats(player);
-            var ghosts = new List<uint>(swaps.Count);
-            int made = 0;
-            foreach (int i in swaps)
-            {
-                uint ghost;
-                lock (state) { ghost = state.Slots[i].GhostId; state.Spawning.Remove(i); }
-                uint fighter = await SpawnSlot(player, state, i, stats);
-                if (fighter == 0)
+                byte[] payload = LegionRevive.RevivedPayload(LegionRevive.StandSeconds);
+                var batch = new List<(uint, ushort, byte[])>(revived.Count);
+                foreach (var (_, ghost, sequence) in revived)
                 {
-                    // Ended meanwhile: the stood-up ghost goes as the fighters did. A variety that cannot spawn (SpawnSlotCore put it in
-                    // NoSpawn): the ghost stays where it stood and the revival is not counted. Else (the runner was leaving the area, a
-                    // spawn that failed) the swap is tried again on the next tick.
-                    bool ended;
-                    lock (state)
+                    LegionRevive.SetOrigin(player, ghost, sequence, LegionRevive.Revived, LegionRevive.StandSeconds, revive: false);
+                    batch.Add((ghost, sequence, payload));
+                }
+                await LegionRevive.SendBatch(player, batch);
+                module.Log($"Domain revive: {revived.Count} ghosts -> state 1 (revived, beam){(revived.Count == 1 ? $", 0x{revived[0].Ghost:x}" : "")}");
+            }
+            if (swaps.Count > 0)
+            {
+                var stats = LegionMonolith.AreaStats(player);
+                var ghosts = new List<uint>(swaps.Count);
+                int made = 0;
+                foreach (int i in swaps)
+                {
+                    uint ghost;
+                    lock (state) { ghost = state.Slots[i].GhostId; state.Spawning.Remove(i); }
+                    swapsHandled++;
+                    uint fighter = await SpawnSlot(player, state, i, stats);
+                    if (fighter == 0)
                     {
-                        var s = state.Slots[i];
-                        ended = state.Phase != DomainPhase.Active;
-                        if (ended) state.Slots[i] = s with { GhostId = 0, RiseStep = 0 };
-                        else if (state.NoSpawn.Contains(i)) state.Slots[i] = s with { RevivalCount = Math.Max(0, s.RevivalCount - 1) };
-                        else { state.Slots[i] = s with { RiseStep = 2 }; state.Rising.Add(i); }
+                        // Ended meanwhile: the stood-up ghost goes as the fighters did. A variety that cannot spawn (SpawnSlotCore put it in
+                        // NoSpawn): the ghost stays where it stood and the revival is not counted. Else (the runner was leaving the area, a
+                        // spawn that failed) the swap is tried again on the next tick.
+                        bool ended;
+                        lock (state)
+                        {
+                            var s = state.Slots[i];
+                            ended = state.Phase != DomainPhase.Active;
+                            if (ended) state.Slots[i] = s with { GhostId = 0, RiseStep = 0 };
+                            else if (state.NoSpawn.Contains(i)) state.Slots[i] = s with { RevivalCount = Math.Max(0, s.RevivalCount - 1) };
+                            else { state.Slots[i] = s with { RiseStep = 2 }; state.Rising.Add(i); }
+                        }
+                        if (ended) ghosts.Add(ghost);
+                        continue;
                     }
-                    if (ended) ghosts.Add(ghost);
-                    continue;
+                    made++;
+                    ghosts.Add(ghost);
+                    lock (state) state.Slots[i] = state.Slots[i] with { GhostId = 0, RiseAt = double.NegativeInfinity, RiseStep = 0 };
+                    if (swaps.Count == 1) module.Log($"Domain revive: ghost 0x{ghost:x} slot {i} -> fighter 0x{fighter:x}");
                 }
-                made++;
-                ghosts.Add(ghost);
-                lock (state) state.Slots[i] = state.Slots[i] with { GhostId = 0, RiseAt = double.NegativeInfinity, RiseStep = 0 };
-                if (swaps.Count == 1) module.Log($"Domain revive: ghost 0x{ghost:x} slot {i} -> fighter 0x{fighter:x}");
+                await LegionRevive.Remove(player, ghosts);
+                if (swaps.Count > 1) module.Log($"Domain revive: {made}/{swaps.Count} ghosts swapped for their fighters");
             }
-            await LegionRevive.Remove(player, ghosts);
-            if (swaps.Count > 1) module.Log($"Domain revive: {made}/{swaps.Count} ghosts swapped for their fighters");
-        }
-        if (fallen.Count > 0)
-        {
-            double now = global::Game.AreaTime(player);
-            var corpses = new List<uint>(fallen.Count);
-            foreach (var (i, corpse) in fallen)
+            if (fallen.Count > 0)
             {
-                if (corpse != 0 && player.Area.Monsters.TryGetValue(corpse, out var dead))
+                double now = global::Game.AreaTime(player);
+                var corpses = new List<uint>(fallen.Count);
+                foreach (var (i, corpse) in fallen)
                 {
-                    var at = dead.Walk.Position(now);
-                    lock (state) state.Slots[i] = state.Slots[i] with { X = at.X, Y = at.Y, Facing = (float)Math.Atan2(state.X - at.X, -(state.Y - at.Y)) };
-                    corpses.Add(corpse);
+                    if (corpse != 0 && player.Area.Monsters.TryGetValue(corpse, out var dead))
+                    {
+                        var at = dead.Walk.Position(now);
+                        lock (state) state.Slots[i] = state.Slots[i] with { X = at.X, Y = at.Y, Facing = (float)Math.Atan2(state.X - at.X, -(state.Y - at.Y)) };
+                        corpses.Add(corpse);
+                    }
                 }
+                await LegionRevive.Remove(player, corpses);
+                var made = new List<uint>(fallen.Count);
+                foreach (var (i, _) in fallen)
+                {
+                    fallenHandled++;
+                    if (await SpawnGhost(player, state, i, fall: true) is uint ghost and not 0) { made.Add(ghost); continue; }
+                    // Not made (the runner was leaving the area, a spawn that failed): tried again where the slot now stands.
+                    lock (state)
+                        if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(i)) state.Fallen.Enqueue((i, 0));
+                }
+                module.Log($"Domain revive: {fallen.Count} fallen -> {made.Count} ghosts lying (state 4{(made.Count == 1 ? $", 0x{made[0]:x}" : "")}), state 3 in {FallDelaySeconds:0.##} s");
             }
-            await LegionRevive.Remove(player, corpses);
-            var made = new List<uint>(fallen.Count);
-            foreach (var (i, _) in fallen)
+            if (falls.Count > 0)
             {
-                if (await SpawnGhost(player, state, i, fall: true) is uint ghost and not 0) { made.Add(ghost); continue; }
-                // Not made (the runner was leaving the area, a spawn that failed): tried again where the slot now stands.
-                lock (state)
-                    if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(i)) state.Fallen.Enqueue((i, 0));
+                await LegionRevive.SendBatch(player, [.. falls.Select(f => (f.Ghost, f.Sequence, LegionRevive.FallenPayload(f.Timer)))]);
+                module.Log($"Domain revive: {falls.Count} ghosts -> state 3 (fall, cooldown){(falls.Count == 1 ? $", 0x{falls[0].Ghost:x} for {falls[0].Timer:0.#} s" : "")}");
             }
-            module.Log($"Domain revive: {fallen.Count} fallen -> {made.Count} ghosts lying (state 4{(made.Count == 1 ? $", 0x{made[0]:x}" : "")}), state 3 in {FallDelaySeconds:0.##} s");
         }
-        if (falls.Count > 0)
+        finally
         {
-            await LegionRevive.SendBatch(player, [.. falls.Select(f => (f.Ghost, f.Sequence, LegionRevive.FallenPayload(f.Timer)))]);
-            module.Log($"Domain revive: {falls.Count} ghosts -> state 3 (fall, cooldown){(falls.Count == 1 ? $", 0x{falls[0].Ghost:x} for {falls[0].Timer:0.#} s" : "")}");
+            if (swapsHandled < swaps.Count || fallenHandled < fallen.Count)
+                lock (state)
+                {
+                    for (int k = swapsHandled; k < swaps.Count; k++)
+                    {
+                        int idx = swaps[k];
+                        state.Spawning.Remove(idx);
+                        if (state.Phase == DomainPhase.Active && state.Slots[idx] is { GhostId: not 0, RiseStep: 2 })
+                            state.Rising.Add(idx);
+                    }
+                    for (int k = fallenHandled; k < fallen.Count; k++)
+                    {
+                        var (idx, corpse) = fallen[k];
+                        state.Spawning.Remove(idx);
+                        if (state.Phase == DomainPhase.Active && !state.NoSpawn.Contains(idx))
+                            state.Fallen.Enqueue((idx, corpse));
+                    }
+                }
         }
     }
 
@@ -783,6 +810,8 @@ static class LegionDomain
                 foreach (var m in LegionOutput.Members(player))
                     m.SetBlocker(state.InitiatorId, state.X, state.Y, Math.Max(1, InitiatorInfo.Size));
         }
+        if (InitiatorSupported && InitiatorInfo!.Blocking)
+            player.SetBlocker(state.InitiatorId, state.X, state.Y, Math.Max(1, InitiatorInfo.Size));
 
         if (phase != DomainPhase.Finished)
         {
@@ -932,27 +961,30 @@ static class LegionDomain
             else if (state.Phase == DomainPhase.Active)
             {
                 if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
-                if (state.Rising.Count > 0 || state.Fallen.Count > 0 || state.Falls.Count > 0)
-                    work = TakeReviveWork(state, now);
                 if (TakeEnd(player, state, now)) action = 2;
-                // 3.29: a wave only while a player stands in the zone (no wave without one), at most every WaveSeconds; the slots
-                // are scanned only then.
-                else if (now - state.LastWaveAt >= state.WaveSeconds && now >= state.NextWaveCheck)
+                else
                 {
-                    if (!AnyPlayerNear(player, state, now, ZoneRadius)) state.NextWaveCheck = now + ZoneCheckSeconds;
-                    else
+                    if (state.Rising.Count > 0 || state.Fallen.Count > 0 || state.Falls.Count > 0)
+                        work = TakeReviveWork(state, now);
+                    // 3.29: a wave only while a player stands in the zone (no wave without one), at most every WaveSeconds; the slots
+                    // are scanned only then.
+                    if (now - state.LastWaveAt >= state.WaveSeconds && now >= state.NextWaveCheck)
                     {
-                        var ready = new List<(int Slot, int Tier)>();
-                        for (int i = 0; i < state.Slots.Length; i++)
-                            if (IsReady(state, i, now)) ready.Add((i, state.Slots[i].Tier));
-                        if (ready.Count == 0) state.NextWaveCheck = now + WaveRetrySeconds;
+                        if (!AnyPlayerNear(player, state, now, ZoneRadius)) state.NextWaveCheck = now + ZoneCheckSeconds;
                         else
                         {
-                            wave = PickWave(ready, global::Game.AreaRng(player));
-                            state.LastWaveAt = now;
-                            state.Waves++;
-                            Keep(player, state);
-                            action = 3;
+                            var ready = new List<(int Slot, int Tier)>();
+                            for (int i = 0; i < state.Slots.Length; i++)
+                                if (IsReady(state, i, now)) ready.Add((i, state.Slots[i].Tier));
+                            if (ready.Count == 0) state.NextWaveCheck = now + WaveRetrySeconds;
+                            else
+                            {
+                                wave = PickWave(ready, global::Game.AreaRng(player));
+                                state.LastWaveAt = now;
+                                state.Waves++;
+                                Keep(player, state);
+                                action = 3;
+                            }
                         }
                     }
                 }
@@ -1200,25 +1232,28 @@ static class LegionDomain
         }
         // No reward symbols (buff 1328) over the Domain's monsters (3.29.0); their rewards still bank (RecordKill).
 
+        bool ended = false;
         lock (state)
         {
-            if (state.Phase != DomainPhase.Active)
+            if (state.Phase != DomainPhase.Active) ended = true;
+            else
             {
-                // Encounter ended while spawning — remove cleanly.
-                if (player.Area.Monsters.Remove(id, out var gone)) { gone.Dead = true; gone.Life = 0; gone.ActionGeneration++; }
-                player.Instance.World.MonsterOrigins.TryRemove(id, out _);
-                LegionOutput.ForgetComponents(player, id);
-                return 0;
+                state.Slots[slotIndex] = slot with { CurrentId = id, Alive = true };
+                state.LiveByMonster[id] = slotIndex;
+                if (slot.Tier == 3)
+                {
+                    // The general on foot says its Dismount line, a revived one a BattleCry; one such line per 30 s per faction (GUESS).
+                    // Only a revived one (Aukuna's Domain variety is always the one on foot: she is not dismounting at the first wake).
+                    if (slot.RevivalCount > 0)
+                        state.Chatter.Add((variety.Id, LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : "BattleCry"));
+                }
             }
-            state.Slots[slotIndex] = slot with { CurrentId = id, Alive = true };
-            state.LiveByMonster[id] = slotIndex;
-            if (slot.Tier == 3)
-            {
-                // The general on foot says its Dismount line, a revived one a BattleCry; one such line per 30 s per faction (GUESS).
-                // Only a revived one (Aukuna's Domain variety is always the one on foot: she is not dismounting at the first wake).
-                if (slot.RevivalCount > 0)
-                    state.Chatter.Add((variety.Id, LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : "BattleCry"));
-            }
+        }
+        if (ended)
+        {
+            // Encounter ended while spawning — remove from both server state and all connected clients.
+            await LegionRevive.Remove(player, [id]);
+            return 0;
         }
         return id;
     }

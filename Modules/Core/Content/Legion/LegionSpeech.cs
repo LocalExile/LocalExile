@@ -20,8 +20,8 @@ static class LegionSpeech
     public static async Task Say(Player player, string? varietyId, string category, uint delayMs = 0)
     {
         if (LegionData.Current.VoiceOf(varietyId) is not { } voice || !voice.Lines.TryGetValue(category, out var rows) || rows.Length == 0) return;
-        byte[] message = InstanceNpcs.TextAudio(0, voice.Npc, rows[Random.Shared.Next(rows.Length)], delayMs);
+        ushort row = rows[Random.Shared.Next(rows.Length)];
         foreach (var member in LegionOutput.Members(player))
-            await PlayerOf(member).Send(message, $"0x01c7 Legion general {category} (NPCs {voice.Npc})");
+            await PlayerOf(member).Send(InstanceNpcs.TextAudio(0, voice.Npc, row, delayMs), $"0x01c7 Legion general {category} (NPCs {voice.Npc})");
     }
 }

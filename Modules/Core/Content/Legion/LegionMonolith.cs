@@ -276,9 +276,10 @@ static partial class LegionMonolith
 
     static async Task BroadcastEnvironments(Player player, string what, params (ushort Row, double Seconds)[] entries)
     {
-        if (LegionRules.Environments(entries) is not { } packet) return;
+        if (entries.Length == 0 || entries.Any(e => e.Row == 0)) return;
         foreach (var member in Members(player))
-            await PlayerOf(member).Send(packet, $"0x00df Legion environment ({what})");
+            if (LegionRules.Environments(entries) is { } packet)
+                await PlayerOf(member).Send(packet, $"0x00df Legion environment ({what})");
     }
 
     /// <summary>GameEvents.EnterMessages: registers the LegionRules ruleset (0x001f) before area objects arrive for a late joiner.</summary>
@@ -307,8 +308,8 @@ static partial class LegionMonolith
         }
         Encounters.Add(instance, all);
         KeepAll(player, all);   // saved first: a failure leaves no encounter that the client was not shown
-        if (LegionRules.Add() is { } add)
-            foreach (var member in Members(player)) await SendRules(member, add, "0x001f ruleset LegionRules");
+        foreach (var member in Members(player))
+            if (LegionRules.Add() is { } add) await SendRules(member, add, "0x001f ruleset LegionRules");
         var areaStats = AreaStats(player);
         int durationPct = areaStats.GetValueOrDefault(Stat.MapLegionDurationPlusPct);
         bool alertMode = areaStats.GetValueOrDefault(Stat.AtlasKeystoneTimelessConflict) > 0
