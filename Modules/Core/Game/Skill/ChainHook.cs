@@ -53,6 +53,15 @@ public static partial class Game
         return from;
     }
 
+    // ChainStrikeThrow reaches its release at the attack's duration. The beam's own contact then
+    // invokes the pull and hit together (0x141d04270, 0x141d04a10 and chain_attach.ao).
+    static double ChainHookFlight(double distance, int range, double rawAttackSeconds)
+    {
+        double fraction = Math.Min(1, distance / range);
+        double beamRate = (2 - fraction * fraction) / (.5 + .5 * rawAttackSeconds);
+        return (distance <= 30 ? .2075 : .415) / beamRate;
+    }
+
     static Task ScheduleBaseChainHook(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         uint targetId, int recovery, int action, ushort sequence, double? swingAt, CooldownUseTicket? ticket,
@@ -61,14 +70,16 @@ public static partial class Game
         var session = ProjectilesFor(player);
         session.Advance();
         var source = SupportedSkill(player, skillId);
-        double delay = GemAttackContactDelay(player, gem.Effect, SupportedAttackSeconds(player, skillId), out _, out _);
-        long due = ProjectileRuntime.Time((swingAt ?? AreaTime(player)) + delay);
-        session.Runtime.Schedule(Math.Max(session.Runtime.Now, due), () =>
+        double began = swingAt ?? AreaTime(player);
+        var hand = AttackHandFor(player, skillId, sequence);
+        double seconds = SupportedAttackSeconds(player, skillId, hand);
+        bool Current() => session.Active && PlayerStateAllowsAction(player) && player.ActionCount == action
+            && player.ActionInterruptionGeneration == recovery && (ticket?.Current(player) ?? true)
+            && SameTriggerSource(source, SupportedSkill(player, skillId))
+            && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
+
+        session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(began)), () =>
         {
-            bool Current() => session.Active && PlayerStateAllowsAction(player) && player.ActionCount == action
-                && player.ActionInterruptionGeneration == recovery && (ticket?.Current(player) ?? true)
-                && SameTriggerSource(source, SupportedSkill(player, skillId))
-                && GemSkillInstanceDisabled(player, gem.Effect, skillId) is null;
             if (!Current()) return;
 
             using var statScope = new PlayerStatScope(player, fresh: true);
@@ -110,36 +121,57 @@ public static partial class Game
             }
 
             if (anchorId == 0 && Dist(origin, aim) > 12) return;
-            if (anchorId != 0)
+            if (anchorId != 0 && origin != anchor) direction = GroundSlamWave.Direction(origin, anchor);
+            double distanceToAnchor = anchorId == 0 ? 0 : Dist(origin, anchor);
+            bool pull = distanceToAnchor > closeRange;
+            double delay;
+            if (pull)
             {
-                if (origin != anchor) direction = GroundSlamWave.Direction(origin, anchor);
-                if (Dist(origin, anchor) > closeRange)
+                // The beam uses the hand's duration before the character's action-speed factor.
+                double rawAttack = seconds * PlayerActionFactor(player);
+                delay = seconds + ChainHookFlight(distanceToAnchor, range, rawAttack);
+                // The cast is still running during the beam. A held attack may start when it hits.
+                player.NextAttackAt = Math.Max(player.NextAttackAt, began + delay + seconds * AttackTiming.EarlyAllowance);
+            }
+            else delay = GemAttackContactDelay(player, gem.Effect, seconds, out _, out _);
+
+            var hooked = pull ? player.Area.Monsters.GetValueOrDefault(anchorId) : null;
+            long due = ProjectileRuntime.Time(began + delay);
+            session.Runtime.Schedule(Math.Max(session.Runtime.Now, due), () =>
+            {
+                if (!Current()) return;
+                using var hitScope = new PlayerStatScope(player, fresh: true);
+                double at = ProjectileWorldTime(player);
+                var centre = player.Walk.Position(at);
+                if (pull)
                 {
-                    var landing = ChainHookLanding(player, origin, anchor, direction);
-                    if (landing == origin || Dist(landing, anchor) > closeRange) return;
-                    player.Walk.Teleport(landing.X, landing.Y, now);
+                    if (!ChainHookTarget(hooked) || !ReferenceEquals(hooked, player.Area.Monsters.GetValueOrDefault(anchorId))) return;
+                    var point = hooked!.Walk.Position(at);
+                    if (!ChainHookSight(player, centre, point) || Dist(centre, point) > range) return;
+                    var landing = ChainHookLanding(player, centre, point, direction);
+                    if (landing == centre || Dist(landing, point) > closeRange) return;
+                    player.Walk.Teleport(landing.X, landing.Y, at);
                     session.ChainHookRest = player.Layout.Walkable?.Invoke(landing.X, landing.Y) == false ? landing : null;
                     session.World(player.Id, InstanceProtocol.Teleport(player.Id, landing.X, landing.Y), "Chain Hook pull");
-                    origin = landing;
+                    centre = landing;
                 }
-            }
 
-            // ChainStrike hits a 140-degree outer sector and a separate 15-cell inner sweep. A victim in
-            // both shapes still receives one contact from this use.
-            int inner = SkillArea.Radius(15, stat => stat == Stat.ActiveSkillBaseRadiusPlus ? 0 : StatValue(stat), false);
-            var hit = AreaSkillHitForUse(null, player, skillId, gem, origin, origin, immediate: true,
-                sequence: sequence, criticalRoll: critical, radiusOverride: Math.Max(inner, radius),
-                triggeredCurrent: Current, scheduledSession: session, cryExerted: cryExerted,
-                rallyingDamage: rallyingDamage, nearbyOnly: true, targetFilter: (id, at) =>
-                {
-                    if (!ChainHookTarget(player.Area.Monsters.GetValueOrDefault(id)) || !ChainHookSight(player, origin, at))
-                        return false;
-                    double distance = Dist(origin, at);
-                    return distance <= inner || distance <= radius
-                        && ChainHookInSector(origin, at, direction, distance, ChainHookImpactCosine);
-                });
-            if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Chain Hook contact must not yield.");
-            hit.GetAwaiter().GetResult();
+                // A victim in both the outer sector and the inner sweep receives one contact.
+                int inner = SkillArea.Radius(15, stat => stat == Stat.ActiveSkillBaseRadiusPlus ? 0 : StatValue(stat), false);
+                var hit = AreaSkillHitForUse(null, player, skillId, gem, centre, centre, immediate: true,
+                    sequence: sequence, criticalRoll: critical, radiusOverride: Math.Max(inner, radius),
+                    triggeredCurrent: Current, scheduledSession: session, cryExerted: cryExerted,
+                    rallyingDamage: rallyingDamage, nearbyOnly: true, targetFilter: (id, targetAt) =>
+                    {
+                        if (!ChainHookTarget(player.Area.Monsters.GetValueOrDefault(id)) || !ChainHookSight(player, centre, targetAt))
+                            return false;
+                        double distance = Dist(centre, targetAt);
+                        return distance <= inner || distance <= radius
+                            && ChainHookInSector(centre, targetAt, direction, distance, ChainHookImpactCosine);
+                    });
+                if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Chain Hook contact must not yield.");
+                hit.GetAwaiter().GetResult();
+            });
         });
         return Task.CompletedTask;
     }

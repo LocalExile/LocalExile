@@ -5,6 +5,27 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class ChainHookTrarthusTests
 {
+    [Fact]
+    public async Task Base_hook_pulls_and_hits_on_beam_contact_after_the_throw()
+    {
+        using var run = new Scenario(0, ordinaryHook: true);
+        var target = run.Spawn(890, (145, 100));
+        run.Step(.7);
+        double swing = Game.SupportedAttackSeconds(run.Player, run.Chain);
+        Assert.True(await Game.CastGemSkill(run.Player, run.Chain, (100, 100), (145, 100), sequence: 1));
+
+        run.Step(swing + .18);
+        Assert.Equal((100, 100), run.Player.Walk.Position(run.Clock.At));
+        Assert.Equal(10000u, target.Life);
+
+        run.Step(.10);
+        Assert.Equal((137, 100), run.Player.Walk.Position(run.Clock.At));
+        Assert.InRange(target.Life, 1u, 9999u);
+        uint after = target.Life;
+        run.Step(.2);
+        Assert.Equal(after, target.Life);
+    }
+
     [Theory]
     [InlineData(0, 8)]
     [InlineData(20, 11)]
@@ -100,7 +121,7 @@ public sealed class ChainHookTrarthusTests
         internal ushort Chain { get; }
         internal ushort Attack { get; }
 
-        internal Scenario(int quality)
+        internal Scenario(int quality, bool ordinaryHook = false)
         {
             fixture = new(Clock);
             Player.Use(new(1, "chain-hook-test", 300, 300, 100, 100, (_, _) => true, []) { Sight = (_, _) => 2 });
@@ -121,7 +142,7 @@ public sealed class ChainHookTrarthusTests
                 return map;
             });
 
-            var (chainType, variant) = Program.Items.FindGem("Chain Hook of Trarthus")!.Value;
+            var (chainType, variant) = Program.Items.FindGem(ordinaryHook ? "Chain Hook" : "Chain Hook of Trarthus")!.Value;
             var chain = ItemCatalog.Create(chainType) with { GemVariant = variant.Index, Quality = (byte)quality };
             var (attackType, attackVariant) = Program.Items.FindGem("Heavy Strike")!.Value;
             var attack = ItemCatalog.Create(attackType) with { GemVariant = attackVariant.Index };
@@ -130,7 +151,8 @@ public sealed class ChainHookTrarthusTests
                 Sockets = [new(SocketColour.White, chain), new(SocketColour.White, attack)],
                 Links = [1, 1],
             });
-            Chain = Game.GemSkillEffects(Player).Single(g => Program.Skills.EffectId(g.Effect) == "ChainHookAltY").Id;
+            string effect = ordinaryHook ? "ChainHook" : "ChainHookAltY";
+            Chain = Game.GemSkillEffects(Player).Single(g => Program.Skills.EffectId(g.Effect) == effect).Id;
             Attack = Game.GemSkillEffects(Player).Single(g => Program.Skills.EffectId(g.Effect) == "HeavyStrike").Id;
             previous = Game.AreaUpdateContext.Value;
             Game.AreaUpdateContext.Value = new(fixture.Lifetime, Clock);
