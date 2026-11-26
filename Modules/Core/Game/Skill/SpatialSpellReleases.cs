@@ -30,7 +30,7 @@ public static partial class Game
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
             || IsCracklingLance(effect) || effect is "LightningConduitAltX" or ManabondEffect or "VortexAltX"
             or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
-            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect) || effect == DivineRetributionEffect;
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -74,12 +74,12 @@ public static partial class Game
                 void Hit((int X, int Y) centre, int radius, double more = 1,
                     Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
                     int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None,
-                    long baseChaos = 0) =>
+                    long baseChaos = 0, bool nearbyOnly = false) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
                         hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
-                        baseChaos: baseChaos));
+                        baseChaos: baseChaos, nearbyOnly: nearbyOnly));
 
                 if (IsPurifyingFlame(effect))
                 {
@@ -192,6 +192,11 @@ public static partial class Game
                                 sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
                                 targetFilter: filter, hitAndAilmentMore: intensityMore * beidatMore);
                         }), intensity?.Stacks ?? 0, repeat);
+                else if (effect == DivineRetributionEffect)
+                    ScheduleDivineRetribution(Player.Walk.Position(ProjectileWorldTime(Player)), aim,
+                        Own(Stat.DivineRetributionNumWaves), Own(Stat.DivineRetributionBlastsPerWave), Radius,
+                        SkillArea.BaseRadius(effect, Own), CurrentSource,
+                        (centre, radius) => Hit(centre, radius, nearbyOnly: true));
                 else if (effect is not null && GlacialCascadeEffect(effect))
                     ScheduleGlacialCascade(effect, from, aim, source.Stats,
                         () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,

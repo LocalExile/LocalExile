@@ -22,25 +22,6 @@ public static partial class Game
     public const ushort RallyingCryBuffRow = 1538, SeismicCryBuffRow = 1544, AncestralCryBuffRow = 1545,
         InfernalCryBuffRow = 1540, BattlemagesCryBuffRow = 1866, VengefulCryBuffRow = 2476;
 
-    const string VengefulCryEffect = "VengefulCry";
-    const string VengefulCryOpportunity = "vengeful_cry_opportunity";
-
-    static bool VengefulCryReady(Player player, ushort skillId, double now)
-    {
-        if (player.RecentEvents.LastWindow(VengefulCryOpportunity) is not { } opportunity
-            || now < opportunity.From) return false;
-        var own = SupportedSkill(player, skillId).Stats;
-        long milliseconds = own.GetValueOrDefault(Stat.RetaliationBaseUseWindowDurationMs);
-        if (milliseconds <= 0) return false;
-        var character = PlayerStatValues(player);
-        milliseconds += (long)own.GetValueOrDefault(Stat.RetaliationSkillAdditionalUseWindowDurationMs)
-            + character.GetValueOrDefault(Stat.RetaliationSkillAdditionalUseWindowDurationMs);
-        long increased = (long)own.GetValueOrDefault(Stat.RetaliationUseWindowDurationPlusPct)
-            + character.GetValueOrDefault(Stat.RetaliationUseWindowDurationPlusPct);
-        double seconds = Math.Max(0, milliseconds) * Math.Max(0, 100d + increased) / 100000d;
-        return now < opportunity.From + seconds;
-    }
-
     /// <summary>The BuffDefinitions row a warcry's own buff uses, or null when no buff is granted for it.</summary>
     public static ushort? WarcryBuffRow(string effectId) => effectId switch
     {
