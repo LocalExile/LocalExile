@@ -96,9 +96,9 @@ public static partial class Game
 
     static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim, ushort skill, ushort flags)
     {
-        if (player.Layout.Walkable is not { } floor) return aim;
-        bool walkable(int x, int y) => floor(x, y) && !player.Barrier.Contains((x, y));
         string? id = SkillsFor(player).EffectId(effect);
+        if (player.Layout.Walkable is not { } floor) return IsFlameDashEffect(id) ? from : aim;
+        bool walkable(int x, int y) => floor(x, y) && !player.Barrier.Contains((x, y));
         if (id == "FrostblinkAltX")
         {
             const uint distanceStat = Stat.SkillMaximumTravelDistancePlusPct;
@@ -131,7 +131,7 @@ public static partial class Game
             int travel = GolemStat(CharacterPlayerStats(player), distanceStat);
             if (skill != 0) travel += GolemStat(SupportedSkill(player, skill).Stats, distanceStat);
             return DashLanding(player.Layout, player.Barrier, from, aim, travel, (flags & 1) != 0,
-                sightBarriers: player.SightBarrier);
+                size: 1, sightBarriers: player.SightBarrier);
         }
         if (id?.StartsWith("WhirlingBlades", StringComparison.Ordinal) == true && aim != from)
         {
@@ -164,11 +164,14 @@ public static partial class Game
     // standing room at the end and along the line, and one more of clearance for the fallback: Ainsley Varrich's
     // stopped 4-5 cells short of the size-1 landing at both ends of an open line (sync trace 2026-11-17).
     public static (int X, int Y) DashLanding(AreaLayout layout, IReadOnlySet<(int X, int Y)> barriers,
-        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size = 1,
-        IReadOnlySet<(int X, int Y)>? sightBarriers = null)
+        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size = 1) =>
+        DashLanding(layout, barriers, from, aim, travelPercent, reverse, size, barriers);
+
+    public static (int X, int Y) DashLanding(AreaLayout layout, IReadOnlySet<(int X, int Y)> barriers,
+        (int X, int Y) from, (int X, int Y) aim, int travelPercent, bool reverse, int size,
+        IReadOnlySet<(int X, int Y)> sightBarriers)
     {
         size = Math.Max(1, size);
-        sightBarriers ??= barriers;
         if (from == aim) return from;
         float dx = (float)aim.X - from.X, dy = (float)aim.Y - from.Y;
         long distance = Math.Max(0L, 30L * (100L + travelPercent) / 100);

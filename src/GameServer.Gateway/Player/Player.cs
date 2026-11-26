@@ -1281,32 +1281,29 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
     // Cells quest walls and closed doors close to the player's walk estimate (QuestBarriers): the union of
     // QuestRoomObjects' and DoorBarriers' cells.
-    volatile IReadOnlySet<(int X, int Y)> barrier = new HashSet<(int X, int Y)>();
-    volatile IReadOnlySet<(int X, int Y)>? sightBarrier;
-    public IReadOnlySet<(int X, int Y)> Barrier
-    {
-        get => barrier;
-        set { barrier = value; sightBarrier = null; }
-    }
-    /// <summary>Cells quest walls and solid doors close on the sight/travel layer (layer 1): omits walk-only doors such
-    /// as prison grates while keeping quest walls and projectile-blocking doors enforced.</summary>
-    public IReadOnlySet<(int X, int Y)> SightBarrier => sightBarrier ?? barrier;
+    public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> and <see cref="SightBarrier"/> from the standing quest walls and
-    /// closed doors; the player's walk estimate reads it on its next order (call in the area's frame).</summary>
+    sealed class DoorLayers(IEnumerable<(int X, int Y)> walk, IReadOnlySet<(int X, int Y)> sight)
+        : HashSet<(int X, int Y)>(walk)
+    {
+        public IReadOnlySet<(int X, int Y)> Sight { get; } = sight;
+    }
+
+    public IReadOnlySet<(int X, int Y)> SightBarrier => Barrier switch { DoorLayers layers => layers.Sight, var walk => walk };
+
     public void UpdateBarrier()
     {
-        var walk = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
-        barrier = walk;
+        var quest = QuestRoomObjects.Values.SelectMany(o => o.Cells);
+        var walk = quest.Concat(DoorBarriers.Values.SelectMany(c => c));
         if (SightDoorBarriers.Count == 0)
         {
-            sightBarrier = null;
+            Barrier = walk.ToHashSet();
             return;
         }
-        var sight = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells));
+        var sight = quest.ToHashSet();
         foreach (var (id, cells) in DoorBarriers)
             sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
-        sightBarrier = sight;
+        Barrier = new DoorLayers(walk, sight);
     }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;

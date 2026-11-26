@@ -161,11 +161,12 @@ public sealed class CooldownAdmissionTests
         c.UpdateBarrier();
         Assert.Contains((120, 100), c.Barrier);
         Assert.DoesNotContain((120, 100), c.SightBarrier);
+        Assert.Null(Game.ProjectilesFor(c).TraceTerrain(new(100, 100), new(140, 100)));
         Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var to));
         Assert.Equal((140, 100), to);
         // Dash crosses the walk-only door too when SightBarrier is supplied.
         Assert.Equal((130, 100), Game.DashLanding(openLayout, c.Barrier, (100, 100), (140, 100), 0, false,
-            sightBarriers: c.SightBarrier));
+            size: 1, sightBarriers: c.SightBarrier));
         // When the direct endpoint behind a walk-only grate is unwalkable, IceDash's 0x141c04830 aborts at layer 0
         // (before the grate) rather than crossing into the blocked room and desyncing from the client's 0x01ce check.
         var walledBehindGrate = new AreaLayout(1, "prison-door-wall", 200, 200, 100, 100,
@@ -182,6 +183,7 @@ public sealed class CooldownAdmissionTests
         c.UpdateBarrier();
         Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeDoor));
         Assert.Equal((119, 100), beforeDoor);
+        Assert.NotNull(Game.ProjectilesFor(c).TraceTerrain(new(100, 100), new(140, 100)));
 
         // Static solid wall at x=118..122 (Sight=0, Walkable=false; ring x=117 has Sight=1): never crosses the wall.
         c.DoorBarriers.Clear();
@@ -258,12 +260,19 @@ public sealed class CooldownAdmissionTests
         var offTrail = new SpawnedMonster("burn-off-trail", new(130, 120, 0), 0, 0, 1000) { Hostile = true };
         c.Area.Monsters[0x80000101u] = onTrail;
         c.Area.Monsters[0x80000102u] = offTrail;
-        Game.PlaceFlameDashGround(c, (100, 100), (160, 100), flameDashId, flameDash, 0);
-        Assert.True(Game.ProjectileSession.OnBurningDamageGround(c.Area, onTrail, 0.5));
-        Assert.False(Game.ProjectileSession.OnBurningDamageGround(c.Area, offTrail, 0.5));
-        Game.ProjectilesFor(c).AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(1.0));
+        Game.PlaceFlameDashGround(c, (100, 100), (160, 100), flameDashId, flameDash, Game.ProjectileWorldTime(c));
+        double groundStart = Game.ProjectileWorldTime(c);
+        Assert.True(Game.ProjectileSession.OnBurningDamageGround(c.Area, onTrail, groundStart + .5));
+        Assert.False(Game.ProjectileSession.OnBurningDamageGround(c.Area, offTrail, groundStart + .5));
+        Game.ProjectilesFor(c).AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(groundStart + 1));
         Assert.True(onTrail.Life < 1000);
         Assert.Equal(1000u, offTrail.Life);
+
+        c.Use(openLayout with { Walkable = null });
+        int usesBefore = c.SingleUseCooldowns[flameDash].SpentUses;
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (390, 100), (_, _, _, _) => Assert.Fail("Missing terrain admitted a cast"), out _));
+        Assert.Equal(usesBefore, c.SingleUseCooldowns[flameDash].SpentUses);
     }
 
     [Fact]

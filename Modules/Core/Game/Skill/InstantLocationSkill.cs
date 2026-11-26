@@ -37,8 +37,11 @@ public static class InstantLocationSkill
 
     // 0x141c00cd0 (IceDash: 32/42) / 0x141d39ea0 (FlameDash: 25/60): max distance truncates
     // baseMaxRange * (100 + travelDistancePct) / 100; 0x1406722c0 rounds each normalized component with floor(x + .5).
+    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct) =>
+        Endpoint(from, aim, travelDistancePct, 32, 42);
+
     public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct,
-        int minRange = 32, int baseMaxRange = 42)
+        int minRange, int baseMaxRange)
     {
         if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return null;
         long numerator = (long)baseMaxRange * (100L + travelDistancePct);
@@ -86,8 +89,11 @@ public static class InstantLocationSkill
     /// forward fallback before solid walls when direct travel fails, monster blocker slide, and the native minimum
     /// displacement threshold (<c>dx² + dy² >= 25</c>).</summary>
     public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
-        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to,
-        int minRange = 32, int baseMaxRange = 42)
+        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to) =>
+        TryResolveLanding(player, from, aim, travelDistancePct, allowTerrainFallback, out to, 32, 42);
+
+    public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
+        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to, int minRange, int baseMaxRange)
     {
         to = default;
         if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
