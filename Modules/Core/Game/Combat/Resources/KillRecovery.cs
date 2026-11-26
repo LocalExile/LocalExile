@@ -8,7 +8,10 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
 {
     // "Gain X Life per Ignited Enemy Killed", "Recover X% of Life on Killing a Chilled Enemy", "+X Energy Shield gained on
     // Killing a Shocked Enemy", "+X Mana gained on Killing a Frozen Enemy".
-    public readonly record struct Ailing(int IgnitedLife, int ChilledLifePct, int ShockedEnergyShield, int FrozenMana);
+    public readonly record struct Ailing(int IgnitedLife, int ChilledLifePct, int ShockedEnergyShield, int FrozenMana)
+    {
+        public int PoisonedLifePct { get; init; }
+    }
     public Ailing When { get; init; }
 
     public static KillRecovery From(Func<uint, int> get, int level)
@@ -24,7 +27,10 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
         {
             When = new(life ? get(Stat.LifeGainedOnKillingIgnitedEnemies) : 0,
                 life ? get(Stat.RecoverPctMaximumLifeOnKillingChilledEnemy) : 0,
-                shield ? get(Stat.GainXEnergyShieldOnKillingShockedEnemy) : 0, get(Stat.RecoverXManaOnKillingFrozenEnemy)),
+                shield ? get(Stat.GainXEnergyShieldOnKillingShockedEnemy) : 0, get(Stat.RecoverXManaOnKillingFrozenEnemy))
+            {
+                PoisonedLifePct = life ? get(Stat.RecoverPctMaximumLifeOnKillingPoisonedEnemy) : 0,
+            },
         };
     }
 
@@ -52,6 +58,8 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
+        if (session.OnKill.When.PoisonedLifePct != 0 && (m.Poisons.DiedPoisoned || m.Poisons.Stacks(now) > 0))
+            k = k with { LifePct = ActorScale.Saturate((long)k.LifePct + session.OnKill.When.PoisonedLifePct) };
         k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
             Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
         static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
