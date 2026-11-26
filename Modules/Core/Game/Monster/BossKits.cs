@@ -240,13 +240,14 @@ public static class BossKits
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
         IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect) && !IsDamageTakenTrigger(catalog, defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
-        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true);
+        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true, modifiers, mapDamage);
     }
 
     /// <summary>The entries of a kit for these effects, in order. <paramref name="keepFirst"/>: the first entry is kept whatever
     /// it does (it is the monster's own default attack); without it every entry must do something.</summary>
     static IReadOnlyList<MonsterKitSkill> BuildKit(Player player, MonsterCatalog.Variety variety, byte level,
-        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst)
+        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst,
+        MonsterModEffects? modifiers = null, double mapDamage = 1)
     {
         var catalog = SkillsFor(player);
         List<MonsterKitSkill> kit = [];
