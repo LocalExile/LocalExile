@@ -43,7 +43,8 @@ public static partial class Game
         var skillStats = SupportedSkill(player, skillId).Stats;
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         int percent = Math.Max(0, Stat(global::Stat.SkeletalChainsAoePctHealthDealtAsChaosDamage));
-        int chains = Math.Max(0, Stat(global::Stat.NumberOfChains));
+        var beidat = CastingBeidatSpell(player, skillId);
+        int chains = Math.Max(0, Stat(global::Stat.NumberOfChains)) + (beidat?.Chains ?? 0);
         var blasts = new List<((int X, int Y) At, int Sacrificed, uint Skeleton)>();
         bool self = false;
         int epoch = player.ProjectileEpoch;
@@ -100,8 +101,9 @@ public static partial class Game
             int addedChaos = paid;
             Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
-            await AreaSkillHit(player, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
+            await AreaSkillHitForUse(null, player, skillId, gem, at, at, immediate: true,
+                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore,
+                hitAndAilmentMore: beidat?.More ?? 1);
         }
         if (art.Count > 0)
             _ = AreaFrames.Start(async () =>

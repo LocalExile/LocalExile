@@ -204,18 +204,20 @@ public static partial class Game
         int repeats = attack ? 0 : SpellRepeats(player, skillId, gem.Effect);
         var intensity = CastingIntensity(player, skillId);
         var ghorr = CastingGhorrSpell(player, skillId);
+        var beidat = CastingBeidatSpell(player, skillId);
         Action? completed = intensity is null ? null : intensity.Complete;
         for (int release = 0; release <= repeats + seals; release++)
         {
             int ordinal = Math.Max(0, release - seals);
             int left = repeats - ordinal;
-            double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
+            double more = (beidat?.More ?? 1) * (release > 0 && release <= seals ? reoccurrenceMore : 1);
             double castOffset = ordinal + Math.Min(release, seals) * .1;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + castOffset * cast.Value / 1000d + delay), Valid,
                 () =>
                 {
                     using var scope = intensity is null ? null : new IntensityScope(intensity);
                     using var pact = ghorr is null ? null : new GhorrCastScope(ghorr);
+                    using var beidatScope = beidat is null ? null : new BeidatCastScope(beidat);
                     return ClientDrawnVolley(player, session, skillId, gem,
                         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
                             cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
@@ -239,7 +241,9 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (GatewayProjectileSkillProfiles.IsBlazingSalvo(SkillsFor(player).EffectId(gem.Effect))
+        if (CastingBeidatSpell(player, skillId) is { Projectiles: > 0 })
+            use = use with { Profile = use.Profile with { NativeVolley = new() { Nova = true } } };
+        else if (GatewayProjectileSkillProfiles.IsBlazingSalvo(SkillsFor(player).EffectId(gem.Effect))
             && use.Profile.NativeVolley is { Angles: null, Nova: false })
             use = use with { Profile = use.Profile with { NativeVolley = null } };
         // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
@@ -399,7 +403,9 @@ public static partial class Game
                 merged = MergeSkillStats(playerStats, own);
             }
         }
-        int Get(uint k) => merged.GetValueOrDefault(k);
+        int extraBeidatProjectiles = CastingBeidatSpell(player, skillId)?.Projectiles ?? 0;
+        int Get(uint k) => k == Stat.NumberOfAdditionalProjectiles
+            ? merged.GetValueOrDefault(k) + extraBeidatProjectiles : merged.GetValueOrDefault(k);
         int Player(uint k) => playerStats.GetValueOrDefault(k);
         int Own(uint k) => own.GetValueOrDefault(k);
         var definition = ResolveProjectileDefinition(gem.Effect) ?? (ArrowRain(SkillsFor(player).EffectId(gem.Effect)) ? GroundArrow : null)
@@ -435,7 +441,8 @@ public static partial class Game
         // 3.29.3c client spawn forward offset (0x141ba7840 -> 0x141ba7c30): 30 world units (~2.76 cells) unless
         // projectile_uses_contact_position, projectile_firing_forward_distance_override, or projectiles_not_offset applies.
         double ahead = NativeProjectileForwardCells(Get, release, IsLightningStrike(gem.Effect));
-        bool radialRelease = SkillsFor(player).EffectId(gem.Effect) == "SoulrendAltY" && profile.SequentialDelay > 0;
+        bool radialRelease = extraBeidatProjectiles > 0
+            || SkillsFor(player).EffectId(gem.Effect) == "SoulrendAltY" && profile.SequentialDelay > 0;
         // A point closer than the muzzle must not end up behind the released projectile.
         if (!radialRelease && totem is null && from is null && ahead > 0)
             origin += direction * Math.Min(ahead, (target - origin).Length / 2);
@@ -450,6 +457,7 @@ public static partial class Game
             profile = profile with { Speed = Math.Max(0.001, flight / untilLanding) };
         }
         if (!spell) profile = NativeVolley(profile, Get, sequence, target - origin, totem?.Id ?? player.Id, repeatsLeft);
+        else if (extraBeidatProjectiles > 0) profile = profile with { NativeVolley = new() { Nova = true } };
         int variation = SkillArtVariation(player, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local

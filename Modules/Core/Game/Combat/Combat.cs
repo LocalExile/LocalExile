@@ -1212,6 +1212,7 @@ public static partial class Game
         PlacedCastAdmission? placedAdmission = null;
         SupportedGem? paidIntensity = null, paidMomentum = null;
         GhorrCast? pactSpell = null;
+        BeidatCast? beidatSpell = null;
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         var baseSkill = BaseSupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect or FleshrendEffect) return false;
@@ -1483,7 +1484,11 @@ public static partial class Game
                     RecordSpellWindup();
                     if (!locationInstant && placedAdmission is null)
                     {
-                        if (spell) pactSpell = TakeGhorrSpell(player, skillId, paymentGem);
+                        if (spell)
+                        {
+                            pactSpell = TakeGhorrSpell(player, skillId, paymentGem);
+                            beidatSpell = TakeBeidatSpell(player, skillId, paymentGem);
+                        }
                         if (paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0) paidIntensity = paymentGem;
                         if (paymentGem.Stats.GetValueOrDefault(Stat.SupportMomentumMaxStacks) > 0
                             && !IsTotemSkill(player, skillId)) paidMomentum = paymentGem;
@@ -1560,6 +1565,7 @@ public static partial class Game
         }
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
         using var pactScope = pactSpell is null ? null : new GhorrCastScope(pactSpell);
+        using var beidatScope = beidatSpell is null ? null : new BeidatCastScope(beidatSpell);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
         using var intensityScope = intensity is null ? null : new IntensityScope(intensity);
         bool CompleteSupportedUse(bool accepted)
@@ -2151,6 +2157,7 @@ public static partial class Game
             return ScheduleBoneshatter(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
         var supported = SupportedSkill(player, skillId);
+        var beidat = CastingBeidatSpell(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
         double reoccurrenceMore = Math.Max(0, 1 + GolemStat(supported.Stats, Stat.SupportSpellRapidFireRepeatUseDamagePlusPctFinal) / 100d);
         if (UsesProjectileRuntime(gem.Effect) && !IsVolcanicFissure(gem.Effect)
@@ -2201,10 +2208,13 @@ public static partial class Game
         // (live 2026-11-04: Reap at the character's area of effect had radius 28.5 and repeats 28-29 cells apart; the
         // client draws each effect half a radius toward the caster, so the hit centre is the aim +- one radius).
         List<(int X, int Y)> cascadeAreas = spell ? SpellCascadeAreas(player, gem.Effect, supported.Stats, from, to) : [];
+        if (beidat is { ExtraAreas: > 0 })
+            AppendBeidatAreas(player, gem.Effect, supported.Stats, from, to, beidat.ExtraAreas, cascadeAreas);
         var jobs = new List<Task>();
         // Discharge: one use, one count of its charges, for every repeat and cascade area (DischargeUse).
         var discharge = DischargeUseFor(player, gem.Effect, gem.Level, gem.Quality);
         bool darkBargain = IsDarkBargain(player, gem.Effect);
+        bool arc = PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect));
         bool wintryBlast = SkillsFor(player).EffectId(gem.Effect) == "FrostblinkAltX";
         // Storm Call sets a marker at every landing (each repeat and cascade area) that strikes later (StormCall.cs).
         bool stormCall = IsStormCall(SkillsFor(player).EffectId(gem.Effect));
@@ -2245,6 +2255,19 @@ public static partial class Game
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
             double more = useDamageMore * (reoccurrence ? reoccurrenceMore : 1);
+            if (arc && CastMs(player, gem.Effect, skillId) is int arcMs)
+            {
+                double windup = sealDelay + arcMs / 1000d
+                    * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
+                var session = ProjectilesFor(player);
+                long due = GameServer.Core.Projectiles.ProjectileRuntime.Time(Math.Max(AreaTime(player),
+                    session.Runtime.Now / (double)GameServer.Core.Projectiles.ProjectileRuntime.QuantaPerSecond) + windup);
+                ScheduleArcContact(player, session, gem, to, null, () => CanReleaseTimedSpell()
+                    && player.ActionInterruptionGeneration == recoveryGeneration
+                    && SameTriggerSource(supported, SupportedSkill(player, skillId)), targetId, due, sequence,
+                    criticalRoll ?? CaptureSkillCriticalRoll(player, skillId), sacrifice, more, beidat?.Chains ?? 0, beidat?.More ?? 1);
+                continue;
+            }
             if (timedAreaCast is int timedAreaWindup)
             {
                 double windup = sealDelay + timedAreaWindup / 1000d
@@ -2298,7 +2321,8 @@ public static partial class Game
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
-                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1), discharge: discharge, cryExerted: cryExerted));
+                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
+                discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: beidat?.More ?? 1));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }

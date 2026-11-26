@@ -241,6 +241,7 @@ public static partial class Game
         ClearPactConditionsOnDeath(player);
         if (player.ProjectileRuntime is ProjectileSession projectiles)
         {
+            ClearBeidatEmpowerment(projectiles);
             ClearGhorrEmpowerment(projectiles);
             ClearKtashEmpowerment(projectiles);
             ClearLyciaEmpowerment(projectiles);

@@ -49,6 +49,7 @@ public static partial class Game
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
             double dotMore = GhorrDotMore(Player, gem.Id);
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(released, () =>
@@ -64,7 +65,8 @@ public static partial class Game
                     Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
-                        sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter));
+                        sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
+                        hitAndAilmentMore: beidatMore));
 
                 if (effect == "LightningConduitAltX")
                 {

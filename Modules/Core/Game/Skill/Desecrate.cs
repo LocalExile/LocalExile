@@ -12,6 +12,7 @@ public static partial class Game
         ushort source, (int X, int Y) aim, Func<bool> current, bool triggered = false)
     {
         var gem = SupportedSkill(player, source);
+        var areas = new List<(int X, int Y)> { aim };
         double release = AreaTime(player) + (triggered ? 0 : (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
         bool Current() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current()
@@ -24,7 +25,12 @@ public static partial class Game
         using (ProjectileMutation(player))
         {
             if (!Current() || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
-            ProjectilesFor(player).PlaceDesecratedGround(aim, gem, triggered ? 1 : GhorrDotMore(player, source));
+            if (!triggered && CastingBeidatSpell(player, source) is { ExtraAreas: > 0 } beidat)
+                AppendBeidatAreas(player, gem.Effect, gem.Stats, player.Walk.Position(ProjectileWorldTime(player)), aim, beidat.ExtraAreas, areas);
+            var session = ProjectilesFor(player);
+            double more = triggered ? 1 : GhorrDotMore(player, source);
+            foreach (var centre in areas)
+                session.PlaceDesecratedGround(centre, gem, more);
         }
         EnsureSpectreBankLoaded(player);
         var area = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
@@ -40,11 +46,14 @@ public static partial class Game
         int count = Math.Max(1, GolemStat(gem.Stats, Stat.DesecrateNumberOfCorpsesToCreate));
         int maximum = Math.Max(count, GolemStat(gem.Stats, Stat.DesecrateMaximumNumberOfCorpses));
         byte level = (byte)Math.Clamp(Math.Min(GolemStat(gem.Stats, Stat.DesecrateCorpseLevel), Packs.For(player.Layout.Id)?.AreaLevel ?? 1), 1, 100);
-        for (int i = 0; i < count; i++)
+        // Earlier corpses beyond the cap would be replaced by this cast before the player can use them.
+        int total = count * areas.Count;
+        for (int i = Math.Max(0, total - maximum); i < total; i++)
         {
-            double angle = Math.Tau * i / count;
-            var at = (aim.X + (int)(Math.Cos(angle) * 6), aim.Y + (int)(Math.Sin(angle) * 6));
-            if (!player.Layout.WalkableFor(at.Item1, at.Item2, 0)) at = aim;
+            var centre = areas[i / count];
+            double angle = Math.Tau * (i % count) / count;
+            var at = (centre.X + (int)(Math.Cos(angle) * 6), centre.Y + (int)(Math.Sin(angle) * 6));
+            if (!player.Layout.WalkableFor(at.Item1, at.Item2, 0)) at = centre;
             await SpawnSkillCorpse(player, pool[AreaRng(player).Next(pool.Length)], level, at, player.Summons.Corpses,
                 maximum, Current);
         }

@@ -72,6 +72,7 @@ public static partial class Game
                     var stats = CharacterPlayerStats(player);
                     switch (SkillsFor(player).EffectId(source.Effect))
                     {
+                        case PactOfBeidatEffect: StartPactOfBeidat(session, skill, source); break;
                         case PactOfGhorrEffect: StartPactOfGhorr(session, skill, source, aim, stats); break;
                         case PactOfKtashEffect: StartPactOfKtash(session, skill, source); break;
                         case PactOfLyciaEffect: StartPactOfLycia(session, skill, source); break;

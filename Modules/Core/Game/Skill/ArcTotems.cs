@@ -37,7 +37,16 @@ public static partial class Game
     {
         var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem, triggered: true);
         var critical = CaptureSkillCriticalRoll(player, gem.Id);
-        session.Runtime.Schedule(session.Runtime.Now, () =>
+        ScheduleArcContact(player, session, gem, aim, brandOrigin, current, triggerTarget, session.Runtime.Now,
+            0xffff, critical, sacrifice);
+    }
+
+    static void ScheduleArcContact(Player player, ProjectileSession session,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        (int X, int Y)? brandOrigin, Func<bool> current, uint triggerTarget, long due, ushort sequence,
+        SkillCriticalRoll? critical, SacrificeUse sacrifice, double damageMore = 1, int beamChains = 0, double hitAndAilmentMore = 1)
+    {
+        session.Runtime.Schedule(due, () =>
         {
             bool Current() => session.Active && current() && sacrifice.Current;
             if (!Current()) return;
@@ -53,15 +62,16 @@ public static partial class Game
             var stats = MergeSkillStats(CharacterPlayerStats(player), SupportedSkill(player, gem.Id).Stats);
             int Get(uint key) => stats.GetValueOrDefault(key);
             ArcChainTargets(player, first, origin, now, Get(Stat.ArcChainDistance),
-                Math.Max(0, Get(Stat.NumberOfChains)), Get(Stat.ArcEnhancedBehaviour) != 0,
+                Math.Max(0, Get(Stat.NumberOfChains)) + beamChains, Get(Stat.ArcEnhancedBehaviour) != 0,
                 (victim, remaining, from) =>
                 {
                     var at = player.Area.Monsters[victim].Walk.Position(now);
-                    double more = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
-                    var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: 0xffff,
+                    double more = damageMore * Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
+                    var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: sequence,
                         radiusOverride: 1, damageMore: more, criticalRoll: critical, sacrifice: sacrifice,
-                        triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim);
-                    if (!task.IsCompleted) throw new InvalidOperationException("Scheduled triggered Arc hit must not yield.");
+                        triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim,
+                        hitAndAilmentMore: hitAndAilmentMore);
+                    if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Arc hit must not yield.");
                     task.GetAwaiter().GetResult();
                 });
         });
