@@ -464,6 +464,61 @@ public sealed partial class AccountStash
         Persist();
     }
 
+    /// <summary>The <c>StashTabAffinityId</c> bitmask configured on <paramref name="tab"/>, or 0 if out of range.</summary>
+    public uint AffinitiesOfTab(int tab)
+    {
+        lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Affinities : 0u;
+    }
+
+    /// <summary>Finds the first visible non-public tab in panel order whose configured affinities match <paramref name="item"/>
+    /// (including Unique/Map parent tabs), or null when no affinity tab matches.</summary>
+    public int? FindAffinityTab(Item item, Func<Item, PlayerInventories.Shape?>? shapeOf = null)
+    {
+        lock (_lock)
+        {
+            if (_rules.IsQuestItem(item.TypeHash)) return null;
+            uint itemMask = 0;
+            foreach (int affinity in _rules.AffinitiesOf(item.TypeHash))
+                if (affinity is > 0 and < 32) itemMask |= 1u << affinity;
+            if (itemMask == 0) return null;
+
+            int best = -1;
+            int bestPosition = int.MaxValue;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var saved = _tabs[i].Saved;
+                if (saved.Hidden || saved.Public || saved.UniqueCategory != 0 || saved.Type == StashRules.Folder) continue;
+                if ((saved.Affinities & itemMask) == 0) continue;
+
+                // Validate that the tab (or its Unique/Map destination child) can actually hold this item.
+                int dest = i;
+                if (saved.Type == StashRules.Unique)
+                {
+                    dest = UniqueDestination(i, item);
+                    if (dest < 0) continue;
+                }
+                else if (saved.Type == StashRules.Map)
+                {
+                    if (shapeOf is not null)
+                    {
+                        dest = MapDestination(i, item, shapeOf);
+                        if (dest == i || !Holds(dest, item)) continue;
+                    }
+                    else if (MapIdentity(item).Group < 0) continue;
+                }
+                else if (!Holds(i, item)) continue;
+
+                int pos = saved.Position ?? i;
+                if (pos < bestPosition || (pos == bestPosition && i < best))
+                {
+                    best = i;
+                    bestPosition = pos;
+                }
+            }
+            return best >= 0 ? best : null;
+        }
+    }
+
     /// <summary>Turns tab affinities on or off (the tab settings' check mark, C→S 0xd3; rows of StashTabAffinityId, up to
     /// 31). Returns the tab's affinities after, or null when there is no such tab.</summary>
     public uint? SetAffinities(int tab, IEnumerable<(byte Affinity, bool On)> changes)

@@ -91,6 +91,49 @@ public interface IPlayerWorld
     /// <summary>Puts as much of a currency as fits into the main inventory; <paramref name="commit"/> records how much in the same transaction.
     /// Returns how much went in.</summary>
     Task<int> ReceiveCurrency(uint currency, int amount, Func<int, bool> commit, string log);
+
+    /// <summary>The account's current gold in this player's league.</summary>
+    uint Gold { get; }
+
+    /// <summary>Adds (or subtracts, clamped at 0) gold in this player's league stash and syncs <c>S→C 0x02aa</c>.</summary>
+    Task<uint> AddGoldAsync(long delta, string? reason = null);
+
+    /// <summary>Sets the character's level (<c>1..100</c>), persists experience, syncs <c>0x02bc</c>/<c>0x01b3</c>/<c>0x0033</c>,
+    /// notifies Auth (<c>set_level</c>), and fires <see cref="GameEvents.LevelUp"/> when raising level.</summary>
+    Task<bool> SetLevelAsync(int level, string? reason = null);
+
+    /// <summary>Whether the character holds <paramref name="flag"/>; with <paramref name="earnedOnly"/>, excludes
+    /// login-granted unearned flags (<c>UnearnedQuestFlags</c>).</summary>
+    bool HasQuestFlag(string flag, bool earnedOnly = false);
+
+    /// <summary>Sets or clears character quest flags (clearing <c>UnearnedQuestFlags</c> when setting so Kitava penalties,
+    /// Pantheon unlocks, and endgame gates apply), saves, and syncs the client.</summary>
+    Task SetQuestFlagsAsync(IEnumerable<string> flags, bool on = true);
+
+    /// <summary>Sets or clears account-wide league quest flags in this player's league and syncs the client.</summary>
+    Task SetLeagueQuestFlagsAsync(IEnumerable<int> flags, bool on = true);
+
+    /// <summary>Activates waypoints for the given <c>WorldAreas</c> Ids, saves, and syncs <c>0x02bc</c> + <c>0x004c</c>.
+    /// Returns how many new waypoints were added.</summary>
+    Task<int> GrantWaypointsAsync(IEnumerable<string> areaIds, string? reason = null);
+
+    /// <summary>The character's current passive refund points.</summary>
+    ushort RefundPoints { get; }
+
+    /// <summary>Sets the character's passive refund points, persists, updates optimistic passive snapshot, and syncs <c>0x0033</c>.</summary>
+    Task<ushort> SetRefundPointsAsync(ushort points);
+
+    /// <summary>Awards Labyrinth ascendancy point tiers (<c>AscendancyRules.AwardKeys</c>: normal, cruel, merciless, eternal),
+    /// persists, and syncs <c>0x0033</c>. Returns total earned ascendancy points.</summary>
+    Task<int> AwardAscendancyAsync(IEnumerable<string> awardKeys);
+
+    /// <summary>Allocates ordinary/ascendancy passive nodes (with optional mastery effect) using the server's normal
+    /// connectivity and budget validation. Returns null on success or an error reason.</summary>
+    Task<string?> AllocatePassivesAsync(IReadOnlyList<ushort> nodes, ushort? masteryEffect = null, string? reason = null);
+
+    /// <summary>Lists characters belonging to this player's account in the player's current league, respecting exact
+    /// league/SSF isolation and Hardcore death state.</summary>
+    IReadOnlyList<CharacterSaves.LeagueCharacterInfo> GetLeagueCharacters(bool includeDead = false);
 }
 
 /// <summary>A reserved spot on every hideout's floor: there whether or not a module uses it, so the rest of the layout does not

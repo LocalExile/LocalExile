@@ -261,3 +261,44 @@ public sealed record CosmeticChange(Player Player, byte Slot, uint RecordId, uin
     public IPlayer ModPlayer => Program.PlayerOf(Player);
     public bool IsSkillCosmetic => GemHash != 0;
 }
+
+/// <summary>A brand-new character was committed in Auth and has not yet entered its first area (<see cref="GameEvents.CharacterCreated"/>).
+/// Subscribers may inspect <see cref="CreationOptions"/> and set <see cref="StartingAreaId"/>, <see cref="StartingLevel"/>,
+/// or <see cref="SuppressStartKit"/> before Auth sends S→C 0x15 / 0x13 and assigns the first area.</summary>
+public sealed class CharacterCreatedContext(
+    string account,
+    Guid characterId,
+    string name,
+    GameServer.Core.Accounts.CharacterClass @class,
+    string league,
+    bool hardcore,
+    bool ssf,
+    string? leagueForm,
+    IReadOnlyDictionary<string, string> creationOptions)
+{
+    public string Account { get; } = account;
+    public Guid CharacterId { get; } = characterId;
+    public string Name { get; } = name;
+    public GameServer.Core.Accounts.CharacterClass Class { get; } = @class;
+    public string League { get; } = league;
+    public bool Hardcore { get; } = hardcore;
+    public bool Ssf { get; } = ssf;
+    public string? LeagueForm { get; } = leagueForm;
+    public IReadOnlyDictionary<string, string> CreationOptions { get; } = creationOptions;
+
+    /// <summary>Optional town <c>WorldAreas</c> Id (e.g. <c>"2_11_endgame_town"</c>) to assign as <c>LastTown</c> before first login.</summary>
+    public string? StartingAreaId { get; set; }
+
+    /// <summary>Optional starting character level (<c>1..100</c>) to apply before S→C 0x15 / 0x13.</summary>
+    public int? StartingLevel { get; set; }
+
+    /// <summary>When true, pre-seeds an empty save (<c>StartWeapon = null</c>, <c>Tutorial = null</c>) so the first login
+    /// skips the starter weapon, starter flasks/scrolls, and opening tutorial.</summary>
+    public bool SuppressStartKit { get; set; }
+}
+
+/// <summary>Result of evaluating a vendor sale quote (<see cref="GameEvents.VendorQuote"/>).</summary>
+public sealed record VendorQuoteResult(
+    IReadOnlyList<GameServer.Core.Protocol.Instance.Item> Rewards,
+    IReadOnlyList<string> Recipes,
+    string? Error = null);

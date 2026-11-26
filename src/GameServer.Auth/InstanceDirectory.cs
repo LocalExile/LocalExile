@@ -25,6 +25,93 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
     // Manager) must not take it out of that instance.
     private readonly ConcurrentDictionary<string, uint> _latest = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, LoginLink> _links = new(StringComparer.OrdinalIgnoreCase);
+    private GatewayChannel? _gateway;
+
+    /// <summary>True when <paramref name="areaId"/> is a known login town in this Auth instance.</summary>
+    public bool IsKnownTown(string areaId) =>
+        !string.IsNullOrEmpty(areaId) && _towns.Any(t => string.Equals(t.Id, areaId, StringComparison.Ordinal));
+
+    /// <summary>Persistent reverse NDJSON control link from Gateway to Auth on <see cref="InstanceControl.Port"/>.</summary>
+    sealed class GatewayChannel(TcpClient tcp, NetworkStream stream, StreamReader reader) : IDisposable
+    {
+        readonly SemaphoreSlim _gate = new(1, 1);
+        readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        int _disposed;
+
+        public Task Closed => _closed.Task;
+
+        public async Task<ControlResponse?> CallAsync(ControlRequest request, TimeSpan timeout, CancellationToken ct)
+        {
+            if (Volatile.Read(ref _disposed) != 0) return null;
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            linked.CancelAfter(timeout);
+            await _gate.WaitAsync(linked.Token);
+            try
+            {
+                if (Volatile.Read(ref _disposed) != 0) return null;
+                byte[] line = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(request, InstanceControl.Json) + "\n");
+                await stream.WriteAsync(line, linked.Token);
+                await stream.FlushAsync(linked.Token);
+                string? reply = await reader.ReadLineAsync(linked.Token);
+                if (reply is null) { Dispose(); return null; }
+                return JsonSerializer.Deserialize<ControlResponse>(reply, InstanceControl.Json);
+            }
+            catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException or OperationCanceledException or JsonException)
+            {
+                Dispose();
+                return null;
+            }
+            finally
+            {
+                if (Volatile.Read(ref _disposed) == 0) _gate.Release();
+                else try { _gate.Release(); } catch (ObjectDisposedException) { }
+            }
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            _closed.TrySetResult();
+            try { tcp.Close(); } catch { }
+            try { reader.Dispose(); } catch { }
+        }
+    }
+
+    /// <summary>Notifies the attached Gateway that a new character was created so mods can inspect options and override
+    /// starting town, level, or start kit before S→C 0x15 / 0x13 are sent.</summary>
+    public async Task<LoginServerSession.CharacterCreatedEffects?> NotifyCharacterCreatedAsync(
+        string account, Character character, League league, IReadOnlyDictionary<string, string> options,
+        CancellationToken ct = default)
+    {
+        var channel = Volatile.Read(ref _gateway);
+        if (channel is null) return null;
+        var request = new ControlRequest
+        {
+            Op = "character_created",
+            Account = account,
+            CharacterId = character.Id,
+            Character = character.Name,
+            Class = (int)character.Class,
+            League = league.Name,
+            Hardcore = league.Hardcore,
+            Ssf = league.Ssf,
+            LeagueForm = league.Form,
+            CreationOptions = options.Count > 0 ? new Dictionary<string, string>(options, StringComparer.OrdinalIgnoreCase) : null,
+        };
+        var reply = await channel.CallAsync(request, TimeSpan.FromSeconds(5), ct);
+        if (reply is null)
+        {
+            Interlocked.CompareExchange(ref _gateway, null, channel);
+            Console.WriteLine($"[auth] character_created handoff for {character.Name}: gateway channel unavailable; using defaults");
+            return null;
+        }
+        if (!reply.Ok)
+        {
+            Console.WriteLine($"[auth] character_created handoff for {character.Name} failed: {reply.Error ?? "unknown error"}");
+            return null;
+        }
+        return new LoginServerSession.CharacterCreatedEffects(reply.StartingAreaId, reply.StartingLevel, reply.SuppressStartKit);
+    }
 
     /// <summary>True when <paramref name="character"/> currently has an active login link or live instance presence.</summary>
     public bool IsCharacterActive(string character)
@@ -114,16 +201,41 @@ sealed class InstanceDirectory(InstanceRegistry registry, AccountService? accoun
             var tcp = await listener.AcceptTcpClientAsync();
             _ = Task.Run(async () =>
             {
-                using (tcp)
+                bool keepOpen = false;
+                try
                 {
                     var stream = tcp.GetStream();
-                    using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                    var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
                     string? line = await reader.ReadLineAsync();
-                    if (line is null) return;
+                    if (line is null) { reader.Dispose(); return; }
+                    ControlRequest? parsed = null;
                     ControlResponse reply;
-                    try { reply = Handle(JsonSerializer.Deserialize<ControlRequest>(line, InstanceControl.Json)!); }
+                    try
+                    {
+                        parsed = JsonSerializer.Deserialize<ControlRequest>(line, InstanceControl.Json);
+                        if (parsed?.Op == "gateway_attach")
+                        {
+                            await stream.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new ControlResponse { Ok = true }, InstanceControl.Json) + "\n"));
+                            await stream.FlushAsync();
+                            var channel = new GatewayChannel(tcp, stream, reader);
+                            var previous = Interlocked.Exchange(ref _gateway, channel);
+                            previous?.Dispose();
+                            Console.WriteLine("[auth] gateway control channel attached");
+                            keepOpen = true;
+                            await channel.Closed;
+                            Interlocked.CompareExchange(ref _gateway, null, channel);
+                            return;
+                        }
+                        reply = Handle(parsed!);
+                    }
                     catch (Exception ex) { reply = new ControlResponse { Ok = false, Error = ex.Message }; }
                     await stream.WriteAsync(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(reply, InstanceControl.Json) + "\n"));
+                    reader.Dispose();
+                }
+                catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException) { }
+                finally
+                {
+                    if (!keepOpen) tcp.Dispose();
                 }
             });
         }

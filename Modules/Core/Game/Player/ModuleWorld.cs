@@ -141,7 +141,7 @@ public static partial class Game
                     items.NextRevision(PlayerInventories.MainInventory), [.. inventory.Removed, .. inventory.Changed.Select(c => c.Id)], inventory.Changed),
                     $"{log}: paid from inventory");
             await SendStashPayment(player, stash, paid.Stash);
-            if (gold > 0) await Send(InstanceEntities.Gold(stash.Gold), $"0x02a9 gold: {stash.Gold} ({log})");
+            if (gold > 0) await Send(InstanceEntities.Gold(stash.Gold), $"0x02aa gold: {stash.Gold} ({log})");
             return true;
         }
 
@@ -155,6 +155,48 @@ public static partial class Game
                     items.NextRevision(PlayerInventories.MainInventory), stack.RemovedIds, stack.AddedItems), $"{log}: {placed} {type.Name}");
             return placed;
         }
+
+        public uint Gold => PersonalStashOf(player).Gold;
+
+        public async Task<uint> AddGoldAsync(long delta, string? reason = null)
+        {
+            if (HardcoreProgressBlocked(player)) return PersonalStashOf(player).Gold;
+            uint total = PersonalStashOf(player).AddGold(delta);
+            if (!player.Closed && player.Connection.PlayerSent)
+                await Send(InstanceEntities.Gold(total), $"0x02aa gold: {total} ({reason ?? "world"})");
+            return total;
+        }
+
+        public Task<bool> SetLevelAsync(int level, string? reason = null) =>
+            SetCharacterLevel(player, level, reason ?? "world");
+
+        public bool HasQuestFlag(string flag, bool earnedOnly = false) =>
+            earnedOnly ? player.Character.EarnedQuestFlag(flag) : player.Character.HasQuestFlag(flag);
+
+        public Task SetQuestFlagsAsync(IEnumerable<string> flags, bool on = true) =>
+            SetQuestFlags(player, flags, on);
+
+        public Task SetLeagueQuestFlagsAsync(IEnumerable<int> flags, bool on = true) =>
+            SetLeagueQuestFlags(player, flags, on);
+
+        public Task<int> GrantWaypointsAsync(IEnumerable<string> areaIds, string? reason = null) =>
+            GrantWaypoints(player, areaIds, reason ?? "world");
+
+        public ushort RefundPoints => player.Character.RefundPoints;
+
+        public Task<ushort> SetRefundPointsAsync(ushort points) =>
+            SetRefundPoints(player, points);
+
+        public Task<int> AwardAscendancyAsync(IEnumerable<string> awardKeys) =>
+            AwardAscendancyPoints(player, awardKeys);
+
+        public Task<string?> AllocatePassivesAsync(IReadOnlyList<ushort> nodes, ushort? masteryEffect = null, string? reason = null) =>
+            ChangePassives(player, nodes, allocate: true, reason ?? "world", masteryEffect);
+
+        public IReadOnlyList<CharacterSaves.LeagueCharacterInfo> GetLeagueCharacters(bool includeDead = false) =>
+            player.Character.Account is { Length: > 0 } account
+                ? CharacterSaves.GetLeagueCharacters(account, player.Character.League ?? GameServer.Core.Accounts.LeagueCatalog.Standard, includeDead)
+                : [];
     }
 }
 

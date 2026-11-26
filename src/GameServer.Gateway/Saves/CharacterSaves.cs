@@ -482,6 +482,62 @@ public static class CharacterSaves
         });
     }
 
+    /// <summary>Read-only character entry for an account's characters in a league, respecting league/SSF/HC-death isolation.</summary>
+    public sealed record LeagueCharacterInfo(Guid Id, string Name, CharacterClass Class, int Level, uint Experience,
+        string League, string AreaId, string? LastTown, DateTimeOffset CreatedUtc, DateTimeOffset LastPlayedUtc,
+        bool HardcoreDead, bool PermanentlyDead, string? Ascendancy, string? AscendancyFamily = null);
+
+    /// <summary>Lists an account's characters in <paramref name="league"/> (exact league/SSF isolation). Dead or voided
+    /// Hardcore characters are excluded unless <paramref name="includeDead"/> is true.</summary>
+    public static IReadOnlyList<LeagueCharacterInfo> GetLeagueCharacters(string account, string league, bool includeDead = false)
+    {
+        if (string.IsNullOrWhiteSpace(account) || string.IsNullOrWhiteSpace(league) || !Saves.IsOpen) return [];
+        var store = new SqliteAccountStore(Saves.Db);
+        if (store.FindAccount(account.Trim()) is not { } acc) return [];
+        string targetLeague = league.Trim();
+        return Saves.Db.Read(() =>
+        {
+            using var c = Saves.Db.Command(
+                "SELECT ac.id, ac.name, ac.class, ac.level, coalesce(cs.experience, 0), ac.league, ac.area_id, ac.last_town, " +
+                "ac.created_utc, ac.last_played_utc, ac.hardcore_death_utc IS NOT NULL, coalesce(ac.hardcore_death_permanent, 0), " +
+                "ca.ascendancy, ca.family " +
+                "FROM account_characters ac " +
+                "LEFT JOIN character_saves cs ON cs.name = ac.name AND cs.deleted_utc IS NULL " +
+                "LEFT JOIN character_ascendancies ca ON ca.save = cs.id " +
+                "WHERE ac.account_id = $account AND ac.league = $league COLLATE NOCASE " +
+                "ORDER BY ac.created_utc ASC, ac.id ASC",
+                ("$account", acc.Id.ToString()), ("$league", targetLeague));
+            using var r = c.ExecuteReader();
+            var list = new List<LeagueCharacterInfo>();
+            while (r.Read())
+            {
+                string name = r.GetString(1);
+                string charLeague = r.GetString(5);
+                bool hcDead = r.GetInt64(10) != 0;
+                bool permDead = r.GetInt64(11) != 0;
+                bool isVoid = string.Equals(charLeague, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase);
+                if (!includeDead && (permDead || isVoid)) continue;
+                uint xp = UnsavedExperience.TryGetValue(name, out uint unsaved) ? unsaved : (uint)Math.Max(0L, r.GetInt64(4));
+                list.Add(new LeagueCharacterInfo(
+                    Guid.Parse(r.GetString(0)),
+                    name,
+                    (CharacterClass)r.GetInt64(2),
+                    checked((int)r.GetInt64(3)),
+                    xp,
+                    charLeague,
+                    r.GetString(6),
+                    r.IsDBNull(7) ? null : r.GetString(7),
+                    ParseUtc(r.GetString(8)),
+                    ParseUtc(r.GetString(9)),
+                    hcDead,
+                    permDead,
+                    r.IsDBNull(12) ? null : r.GetString(12),
+                    r.IsDBNull(13) ? null : r.GetString(13)));
+            }
+            return list;
+        });
+    }
+
     public static IReadOnlyList<CharacterSummary> TopLeagueCharacters(string league, int limit = 10)
     {
         if (string.IsNullOrWhiteSpace(league) || limit <= 0 || !Saves.IsOpen) return [];

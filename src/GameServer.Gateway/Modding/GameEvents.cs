@@ -64,7 +64,8 @@ public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
         foreach (var (_, run) in Subscribers(league)) yield return run;
     }
 
-    IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
+    /// <summary>The subscribers for a league, with their owners, before a connection exists.</summary>
+    public IEnumerable<(string Owner, T Run)> Subscribers(LeagueRuntime league)
     {
         var subscribers = _subscribers;
         if (subscribers.IsEmpty) yield break;
@@ -230,6 +231,14 @@ public static class GameEvents
 
     /// <summary>The player changed a cosmetic slot or skill-gem cosmetic.</summary>
     public static readonly GameEvent<Func<CosmeticChange, Task>> CosmeticChanged = new();
+
+    /// <summary>A new character was created on Auth, before S→C 0x15 / 0x13 and first area assignment.
+    /// Subscribers may override <see cref="CharacterCreatedContext.StartingAreaId"/>, <see cref="CharacterCreatedContext.StartingLevel"/>,
+    /// or <see cref="CharacterCreatedContext.SuppressStartKit"/>.</summary>
+    public static readonly GameEvent<Func<CharacterCreatedContext, Task>> CharacterCreated = new();
+
+    /// <summary>Evaluates a vendor sale quote for a list of offered items (implemented by the Vendors module).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<InventoryItem>, VendorQuoteResult?>> VendorQuote = new();
 
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
@@ -1116,5 +1125,25 @@ public static class GameEvents
         if (!CosmeticChanged.Any) return;
         foreach (var (owner, run) in CosmeticChanged.Subscribers(change.Player))
             await GameEventOwners.Guard(owner, nameof(CosmeticChanged), () => run(change));
+    }
+
+    public static async Task RunCharacterCreated(CharacterCreatedContext context, LeagueRuntime? league = null)
+    {
+        if (!CharacterCreated.Any) return;
+        league ??= ServerLeagues.Resolve(context.LeagueForm, context.League, GameServer.Core.Accounts.LeagueCatalog.Startup);
+        foreach (var (owner, run) in CharacterCreated.Subscribers(league))
+            await GameEventOwners.Guard(owner, nameof(CharacterCreated), () => run(context));
+    }
+
+    public static VendorQuoteResult? QuoteVendor(Player player, IReadOnlyList<InventoryItem> offered)
+    {
+        if (!VendorQuote.Any) return null;
+        foreach (var (owner, run) in VendorQuote.Subscribers(player))
+        {
+            VendorQuoteResult? result = null;
+            if (GameEventOwners.Guard(owner, nameof(VendorQuote), () => result = run(player, offered)) && result is not null)
+                return result;
+        }
+        return null;
     }
 }
