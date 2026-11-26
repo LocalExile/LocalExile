@@ -216,12 +216,54 @@ public sealed class CooldownAdmissionTests
         c.Walk.Teleport(114, 100, Game.ProjectileWorldTime(c));
         Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (150, 100), false, _ => 0, out _, out _));
         Assert.Equal((114, 100), Game.MovementLanding(c, flameDash, (114, 100), (160, 100)));
-        // Flame Dash crosses walk-only prison grates up to its 60-cell base range when SightBarrier is empty.
+        // Rejected Flame Dash casts (< 5 cells from a wall or aiming at self) must not spend Flame Dash / shared Blink
+        // cooldown charges, bump ActionCount, or move the player before admission.
+        var blinkIds = f.Equip(PlayerInventories.Weapon1, "Flame Dash", "Frostblink");
+        ushort flameDashId = blinkIds.Single(id => Game.SkillsFor(c).EffectId(Game.SupportedSkill(c, id).Effect) == "FlameDash");
+        ushort frostblinkId = blinkIds.Single(id => id != flameDashId);
+        int frostblinkEffect = Game.SupportedSkill(c, frostblinkId).Effect;
+        c.SingleUseCooldowns.Clear(); c.SkillReadyAt.Clear(); c.CooldownGroups.Clear(); c.CooldownSources.Clear();
+        c.PlayerMana = 1000;
+        int actionsBefore = c.ActionCount;
+        bool callbackRan = false;
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (160, 100), (_, _, _, _) => callbackRan = true, out var refusedUse));
+        Assert.Null(refusedUse);
+        Assert.False(callbackRan);
+        Assert.Equal(actionsBefore, c.ActionCount);
+        Assert.Empty(c.SingleUseCooldowns);
+        Assert.False(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (114, 100), (_, _, _, _) => callbackRan = true, out _));
+        Assert.False(callbackRan);
+        Assert.Empty(c.SingleUseCooldowns);
+        // Flame Dash crosses walk-only prison grates up to its 60-cell base range when SightBarrier is empty, and valid
+        // admission spends 1 charge (including shared Blink cooldown) and delivers the resolved landing.
         c.Use(openLayout);
+        c.Walk.Teleport(100, 100, Game.ProjectileWorldTime(c));
         c.DoorBarriers[1] = doorCells;
         c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
         c.UpdateBarrier();
         Assert.Equal((160, 100), Game.MovementLanding(c, flameDash, (100, 100), (170, 100)));
+        (int X, int Y) admittedLanding = default;
+        Assert.True(Game.TryBeginFlameDashUse(c, flameDashId, flameDash, 0, Game.ProjectileWorldTime(c),
+            _ => (170, 100), (t, _, _, landed) => { admittedLanding = landed; c.Walk.Teleport(landed.X, landed.Y, t); },
+            out var acceptedUse));
+        Assert.NotNull(acceptedUse);
+        Assert.Equal((160, 100), admittedLanding);
+        Assert.Equal((160, 100), c.Walk.Position(Game.ProjectileWorldTime(c)));
+        Assert.Equal(1, c.SingleUseCooldowns[flameDash].SpentUses);
+        Assert.Equal(1, c.SingleUseCooldowns[frostblinkEffect].SpentUses);
+        // Flame Dash's burning ground segment damages hostile monsters along the dash trail without touching off-trail ones.
+        var onTrail = new SpawnedMonster("burn-on-trail", new(130, 100, 0), 0, 0, 1000) { Hostile = true };
+        var offTrail = new SpawnedMonster("burn-off-trail", new(130, 120, 0), 0, 0, 1000) { Hostile = true };
+        c.Area.Monsters[0x80000101u] = onTrail;
+        c.Area.Monsters[0x80000102u] = offTrail;
+        Game.PlaceFlameDashGround(c, (100, 100), (160, 100), flameDashId, flameDash, 0);
+        Assert.True(Game.ProjectileSession.OnBurningDamageGround(c.Area, onTrail, 0.5));
+        Assert.False(Game.ProjectileSession.OnBurningDamageGround(c.Area, offTrail, 0.5));
+        Game.ProjectilesFor(c).AdvanceTo(GameServer.Core.Projectiles.ProjectileRuntime.Time(1.0));
+        Assert.True(onTrail.Life < 1000);
+        Assert.Equal(1000u, offTrail.Life);
     }
 
     [Fact]

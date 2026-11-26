@@ -45,17 +45,22 @@ public static partial class Game
     public static bool IsFlameDashEffect(string? effectId) =>
         effectId is "FlameDash" or "FlameDashAltX" or "FlameDashAltY" or "FlameDashHardMode" or "FlameDashRoyale";
 
+    internal static double FlameDashGroundSeconds(Player player, ushort skillId, int effect,
+        IReadOnlyDictionary<uint, int>? own = null, IReadOnlyDictionary<uint, int>? playerStats = null)
+    {
+        own ??= SupportedSkill(player, skillId).Stats;
+        playerStats ??= CharacterPlayerStats(player);
+        int baseMs = GolemStat(own, Stat.BaseSkillEffectDuration);
+        return SkillDurationModifiers.Seconds(baseMs > 0 ? baseMs : 4000,
+            k => GolemStat(playerStats, k), k => GolemStat(own, k), DurationKinds(player, effect));
+    }
+
     /// <summary>Builds Flame Dash's S→C 0x2c8 burning-ground segment update (reader 0x141478930 → 0x1414786c0):
     /// four i32 LE grid coordinates (x1, y1, x2, y2) and f32 LE duration in seconds.</summary>
     public static byte[] FlameDashGroundSegment(Player player, ushort skillId, int effect, ushort sequence,
         (int X, int Y) from, (int X, int Y) to)
     {
-        var own = SupportedSkill(player, skillId).Stats;
-        var playerStats = CharacterPlayerStats(player);
-        int baseMs = GolemStat(own, Stat.BaseSkillEffectDuration);
-        double seconds = baseMs > 0
-            ? SkillDurationModifiers.Seconds(baseMs, k => GolemStat(playerStats, k), k => GolemStat(own, k))
-            : 4.0;
+        double seconds = FlameDashGroundSeconds(player, skillId, effect);
         ushort actionTypeHash = SkillsFor(player).ActionHash(effect) ?? 0x5ccd;
         byte[] tail = new BlobWriter().I32(from.X).I32(from.Y).I32(to.X).I32(to.Y).F32((float)seconds).ToArray();
         return InstanceProtocol.ActionUpdate(player.Id, actionTypeHash, skillId, sequence, tail);
@@ -63,6 +68,31 @@ public static partial class Game
 
     public static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim) =>
         MovementLanding(player, effect, from, aim, 0, 0);
+
+    /// <summary>Admits Flame Dash inside the cooldown critical section only when its resolved landing moves the player
+    /// (<c>landing != from</c>, matching client <c>0x141d39830</c>'s <c>dx^2 + dy^2 &gt;= 25</c> check before spending a
+    /// charge), and hands the resolved timing and landing to <paramref name="onAccepted"/> so rejected casts never
+    /// debit cooldowns, bump <c>ActionCount</c>, or acknowledge <c>0x01ab</c>/<c>0x02bc</c>.</summary>
+    internal static bool TryBeginFlameDashUse(Player player, ushort skillId, int effect, ushort flags,
+        double requestedAt, Func<double, (int X, int Y)> resolveAim,
+        Action<double, (int X, int Y), (int X, int Y), (int X, int Y)> onAccepted, out CooldownUseTicket? ticket)
+    {
+        double acceptedAt = 0;
+        (int X, int Y) from = default, aim = default, landing = default;
+        return TryBeginSkillCooldownUse(player, skillId, effect, CooldownForSkill(player, skillId), false,
+            () => onAccepted(acceptedAt, from, aim, landing), out ticket, requestedAt: requestedAt,
+            admit: () =>
+            {
+                bool lockstep = player.Connection.LockstepClient;
+                acceptedAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start
+                    : Math.Max(requestedAt, ProjectileWorldTime(player));
+                if (lockstep) StepWalkers(player, acceptedAt);
+                from = player.Walk.Position(acceptedAt);
+                aim = resolveAim(acceptedAt);
+                landing = MovementLanding(player, effect, from, aim, skillId, flags);
+                return landing != from;
+            });
+    }
 
     static (int X, int Y) MovementLanding(Player player, int effect, (int X, int Y) from, (int X, int Y) aim, ushort skill, ushort flags)
     {

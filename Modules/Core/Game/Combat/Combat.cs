@@ -943,6 +943,9 @@ public static partial class Game
         }
         // Flicker Strike's client action strikes without moving the player: the server teleports it (FlickerStrike).
         bool flicker = moves && SkillsFor(player).ActionHash(gem.Effect) == FlickerStrike.Action, flickers = false;
+        bool flameDash = moves && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
+        ((int X, int Y) Aim, (int X, int Y) Landing)? flameDashTo = null;
+        double? flameDashAt = null;
         // The monster Flicker Strike goes to, which may not be the clicked one (FlickerStrike.Pick): its strike's target.
         uint struckId = use.TargetId;
         (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
@@ -960,7 +963,7 @@ public static partial class Game
         void StartCast()
         {
             bool lockstep = player.Connection.LockstepClient;
-            castAt = leap?.At ?? ProjectileWorldTime(player);
+            castAt = flameDashAt ?? leap?.At ?? ProjectileWorldTime(player);
             double actionAt = lockstep && player.Connection.LockstepFrame is { } frame ? frame.Start : castAt;
             if (lockstep) StepWalkers(player, actionAt);
             AdvanceShieldChargeForUse(player, actionAt, immediateAttack);
@@ -980,6 +983,11 @@ public static partial class Game
                 (aim, landing, flickers, struckId) = (to.At, to.Landing, true, to.Id);
                 player.Walk.Teleport(landing.X, landing.Y, castAt);
             }
+            else if (flameDash && flameDashTo is { } fd)
+            {
+                (aim, landing) = fd;
+                player.Walk.Teleport(landing.X, landing.Y, castAt);
+            }
             else if (moves && chargeBonus == 0)
             {
                 landing = MovementLanding(player, gem.Effect, stand, aim, use.SkillId, use.Flags);
@@ -992,6 +1000,15 @@ public static partial class Game
             admitted = TryBeginAttackUse(player, use.SkillId, gem.Effect, requestedAt,
                 _ => StartCast(), out spellUse,
                 at => (leap = PlanLeapSlam(player, use.SkillId, gem.Effect, m.Walk.Position(at), at)) is not null);
+        else if (flameDash)
+            admitted = TryBeginFlameDashUse(player, use.SkillId, gem.Effect, use.Flags, requestedAt,
+                t => m.Walk.Position(t),
+                (acceptedAt, _, resolvedAim, resolvedLanding) =>
+                {
+                    flameDashAt = acceptedAt;
+                    flameDashTo = (resolvedAim, resolvedLanding);
+                    StartCast();
+                }, out spellUse);
         else admitted = TryBeginSkillCooldownUse(player, use.SkillId, gem.Effect,
             gem.Name is null ? null : CooldownForSkill(player, use.SkillId), false,
             StartCast, out spellUse, requestedAt: requestedAt, admit: flicker ? FlickerAdmit : null);
@@ -1035,11 +1052,13 @@ public static partial class Game
                 $"0x01b7 {gem.Name} to ({landing.X}, {landing.Y}) for the monster at ({aim.X}, {aim.Y}) (t={castAt:0.000})");
         }
         if (flicker && spellAcknowledged) await GrantFlickerSpeed(player, use.SkillId);
-        bool flameDash = IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect));
         if (spellAcknowledged && movedByCast && flameDash)
+        {
             await SendWorldRecord(player, player.Id,
                 FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Sequence, stand, landing),
                 $"0x02c8 Flame Dash burning ground ({stand.X}, {stand.Y}) -> ({landing.X}, {landing.Y})");
+            PlaceFlameDashGround(player, stand, landing, use.SkillId, gem.Effect, castAt);
+        }
         if (spellAcknowledged) await SendNativeCooldownRefresh(player);
         if (leap is { } jump)
             ResyncAfter(player,
