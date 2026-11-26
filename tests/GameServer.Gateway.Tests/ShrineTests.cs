@@ -8,7 +8,7 @@ using GameServer.Data.Terrain.Generation;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ShrineTests
+public sealed partial class ShrineTests
 {
     [Fact]
     public async Task Shrine_data_and_shared_lifecycle_keep_effects_owned_and_reversible()
@@ -249,8 +249,8 @@ public sealed class ShrineTests
                 { [Stat.MapNumExtraApparitionShrines] = 2 }));
             var request = new MapOpening(player, [], false, opening, "");
             ShrineMapAdmission.Check(request);
-            Assert.Null(request.Opening);
-            Assert.Contains("not been consumed", request.Reason);
+            Assert.NotNull(request.Opening);
+            Assert.Contains("Shrines.Apparitions", request.HandledContent);
             var ordinary = new MapOpening(player, [], false, opening with { Mods = MapMods.None }, "");
             ShrineMapAdmission.Check(ordinary);
             Assert.NotNull(ordinary.Opening);
@@ -484,7 +484,7 @@ public sealed class ShrineTests
         public GameServer.Modding.IModuleLifetime Lifetime => lifetime;
         public string Folder => "";
         public void Log(string message) { }
-        public T Settings<T>() => throw new NotSupportedException();
+        public T Settings<T>() => System.Text.Json.JsonSerializer.Deserialize<T>("{}")!;
         public void SaveSettings<T>(T settings) => throw new NotSupportedException();
         public void ProvideLeagueRules(Func<GameServer.Modding.LeagueRules> rules) { }
     }
