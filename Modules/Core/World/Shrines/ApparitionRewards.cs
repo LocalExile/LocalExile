@@ -33,7 +33,7 @@ public static class ApparitionRewards
     {
         var item = drop.Item;
         if (!drop.Type.CanBeMirrored || item.Rarity != ItemRarity.Rare || item.Influences != ItemInfluence.None || item.Synthesised
-            || item.FracturedCount != 0 || item.Mirrored || item.Corrupted) return drop;
+            || item.FracturedCount != 0 || item.Mirrored || item.Corrupted || item.Vestigial) return drop;
         List<ItemInfluence>? candidates = null;
         foreach (var c in Chances)
         {

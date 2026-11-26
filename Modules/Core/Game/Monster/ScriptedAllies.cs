@@ -9,7 +9,7 @@ public static partial class Game
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.PlayerLife == 0
             || source.Dead || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(sourceId), source)
-            || target is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
+            || !MinionMayTarget(target)
             || !ReferenceEquals(player.Area.Monsters.GetValueOrDefault(targetId), target)) return false;
         if (projectile && MonsterAvoidsProjectile(target, random)) return false;
         if (!attack.Spell && !DamageModel.Hits(DamageModel.AccuracyHitChance(

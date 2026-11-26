@@ -83,7 +83,7 @@ public static class ShrineManager
                 state.Area.Spawned = true;
                 if (player.Layout.Walkable is { } walk && ServerLevels.For(player.Layout.Id, player.Seed) is { } level)
                     foreach (var placed in MapShrines.Plan(level.RoomObjects, walk, player.Seed, MapModsOf(player)))
-                        await Create(player, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model));
+                        await Create(player, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model), spawnGuards: false);
                 if (player.Instance is { } instance)
                     foreach (var (key, value) in instance.ContentState.Where(p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)).ToArray())
                     {
@@ -125,7 +125,7 @@ public static class ShrineManager
     /// <summary>Creates one shrine object at its cell and registers it for clicks. The Shrines row goes in the object's
     /// Shrine component (the client draws that row's buff icon over it), so the icon and the buff the click grants are
     /// one value.</summary>
-    static async Task Create(Player player, ShrineInstance shrine, uint restoredId = 0)
+    static async Task Create(Player player, ShrineInstance shrine, uint restoredId = 0, bool spawnGuards = true)
     {
         uint id = restoredId != 0 ? restoredId : !shrine.Definition.Lesser && player.Instance is { } instance
             ? uint.Parse(instance.ContentState.GetOrAdd($"Shrines/id/{shrine.At.X}/{shrine.At.Y}", _ => player.TakeObjectId().ToString()))
@@ -139,9 +139,9 @@ public static class ShrineManager
         await Present(player, shrine);
         if (shrine.State == ShrineState.Inactive)
         {
-            bool spawnGuards = Of(player).Area.GuardsSpawned.Add(id);
+            bool shouldSpawnGuards = spawnGuards && Of(player).Area.GuardsSpawned.Add(id);
             foreach (var effect in shrine.Before)
-                if (spawnGuards || effect is not GuardedPacksEffect)
+                if (shouldSpawnGuards || effect is not GuardedPacksEffect)
                     await effect.OnSpawn(new(player, AreaTime(player)), shrine);
         }
     }
@@ -343,7 +343,9 @@ public static class ShrineManager
         int effectPercent = ShrineGearEffects.EffectiveShrineEffectPct(player, Stat, mapGranted && !definition.Lesser);
         if (effectPercent != 0)
             shrine.Stats = shrine.Stats.Select(s => (s.Key, s.Key is global::Stat.HasShrineEffect or global::Stat.AlwaysCrit
-                or global::Stat.BaseCannotBeDamaged or global::Stat.GlobalKnockback or global::Stat.ExtraGore or global::Stat.SkillRepeatCount
+                or global::Stat.BaseCannotBeDamaged or global::Stat.BaseCannotBeStunned
+                or global::Stat.SelfTakeNoExtraDamageFromCriticalStrikes or global::Stat.GlobalKnockback
+                or global::Stat.ExtraGore or global::Stat.SkillRepeatCount
                 ? s.Value : (int)Math.Clamp((long)s.Value * Math.Max(0L, 100L + effectPercent) / 100, int.MinValue, int.MaxValue))).ToArray();
         ActiveBuff? previous;
         previous = state.Buffs.GetValueOrDefault(definition.BuffRow);

@@ -39,11 +39,15 @@ public static class EvolutionShrine
     {
         var player = kill.Player;
         var state = States.GetOrCreateValue(player);
-        if (!state.Seen.Add(kill.Monster)) return;
         int basis = PlayerStatValues(player).GetValueOrDefault(Stat.ChanceToUpgradeMonstersOnKillPermyriad);
-        int chance = Chance(basis, state.Successes, Policy.EvolutionDeclinePerSuccessPermyriad);
-        if (AreaRng(player).Next(10000) >= chance) return;
-        state.Successes++;
+        int chance, successes;
+        lock (state)
+        {
+            if (!state.Seen.Add(kill.Monster)) return;
+            chance = Chance(basis, state.Successes, Policy.EvolutionDeclinePerSuccessPermyriad);
+            if (AreaRng(player).Next(10000) >= chance) return;
+            successes = ++state.Successes;
+        }
         var instance = player.Instance;
         var variety = kill.Monster.Variety!;
         var rarity = kill.Monster.Rarity == MonsterRarity.Normal ? MonsterRarity.Magic : MonsterRarity.Rare;
@@ -55,7 +59,7 @@ public static class EvolutionShrine
                 || !ReferenceEquals(player.Instance, instance) || !ShrineManager.HasBuff(player, row)) return;
             uint id = await SpawnMonster(player, variety, level, rarity, at.X, at.Y, log: false,
                 unrisen: false, alone: true, placement: MonsterPlacement.Established);
-            if (id != 0) Console.WriteLine($"[gateway] shrine evolution {kill.Monster.ObjectId:x} -> {id:x} {rarity}, chance {chance}/10000, successes {state.Successes}");
+            if (id != 0) Console.WriteLine($"[gateway] shrine evolution {kill.Monster.ObjectId:x} -> {id:x} {rarity}, chance {chance}/10000, successes {successes}");
         });
     }
 

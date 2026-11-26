@@ -119,12 +119,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Nova daemons play their native actions; Ice Nova contacts follow the expanding ring. Standing and claimed Shocking
   Shrines use their separate radii and ground counts. The Gull triggers lesser shrines with an initial cooldown and
   a separate object lifetime; their buffs accept shrine effect and duration modifiers.
-  Special shrine rooms share the generated room budget and guard plan; Conqueror buffs can roll influenced rare equipment.
+  Special shrine rooms share the generated room budget and guard plan; Conqueror buffs can roll influenced rare gear.
   Retained shrines bind to each joining connection without granting spent buffs again.
-  Evolution and Apparition Scarabs open their encounters. Evolution revives eligible normal/magic enemies one rarity higher;
-  its diminishing counter survives buff refresh and clears on leaving (the configurable decline is a local approximation).
-  All eight Apparition buffs and monster auras apply their stats. The four Conqueror projections use native primary actions,
-  timed geometry contacts and moving cold tornadoes, with expiry/claim/leave cleanup; secondary contact shapes/timings are local sequences.
+  Evolution and Apparition Scarabs open their encounters.
+  Evolution revives eligible normal/magic enemies one rarity higher; its declining counter survives refresh and clears
+  on leaving (the configurable decline is a local approximation).
+  All eight Apparition buffs and monster auras apply their stats.
+  The four Conqueror projections use native primary actions, timed geometry contacts and moving cold tornadoes, with
+  expiry/claim/leave cleanup; secondary contact shapes/timings are local sequences.
 
 - Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each
   area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes

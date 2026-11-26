@@ -166,6 +166,7 @@ public sealed partial class ShrineTests
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             await ApparitionCombat(player);
             await ApparitionPartyVisibility(player);
+            await ApparitionGuardAuraOnce(player);
             TemporaryShrineDamage(player);
             await EvolutionLifecycle(player);
         }
@@ -212,6 +213,13 @@ public sealed partial class ShrineTests
             Assert.True(actor.Value.Invulnerable);
             Assert.Null(actor.Value.OwnerId);
             Assert.Null(actor.Value.Attack);
+            var asleep = new SpawnedMonster("asleep target", new(110, 100, 10, (_, _) => true, 1000, 1000), 20, 5, 1000)
+                { Asleep = true, Variety = target.Variety, Level = 1 };
+            player.Area.Monsters[0x7072] = asleep;
+            player.Area.Grid.Set(new(0x7072), (110, 100));
+            Assert.False(Game.ScriptedAllyHitLocked(player, actor.Key, actor.Value, 0x7072, asleep,
+                BossKits.AttackFor(player, profile.Body, 70, profile.Payloads[0], 0x4000), 0, new Random(1)));
+            player.Area.Monsters.Remove(0x7072);
             await effectController.Tick(new(player, profile.CastSeconds + .7), shrine);
             if (id == "Redeemer")
             {
@@ -289,6 +297,42 @@ public sealed partial class ShrineTests
             await ShrineManager.LeaveArea(driver);
             driver.Walk.Teleport(100, 100, 0);
             driver.PlayerLife = driver.PlayerMaxLife;
+        }
+    }
+
+    static async Task ApparitionGuardAuraOnce(Player player)
+    {
+        ShrineRegistry.RegisterDefaults();
+        player.Walk.Teleport(200, 200, 0);
+        var before = player.Area.Monsters.Keys.ToHashSet();
+        await ShrineManager.SpawnAroundPlayer(player, ["Lunaris"]);
+        var guards = player.Area.Monsters.Where(p => !before.Contains(p.Key) && p.Value.Hostile).Select(p => p.Value).ToArray();
+        uint shrineId = uint.Parse(player.Instance!.ContentState["Shrines/id/212/200"]);
+        try
+        {
+            Assert.NotEmpty(guards);
+            await ShrineManager.Tick(player);
+            Assert.All(guards, g =>
+            {
+                Assert.Null(g.EncounterStats);
+                Assert.Equal(50, g.Effects[Stat.BaseAvoidProjectilesPctChance]);
+                Assert.Equal(-50, g.Effects[Stat.ElementalDamageTakenPlusPct]);
+            });
+            player.Walk.Teleport(212, 200, 0);
+            Assert.True(await ShrineManager.Use(player, new(shrineId, 0, 1, 0), 0));
+            Assert.All(guards, g =>
+            {
+                Assert.Empty(g.TemporaryStats);
+                Assert.Equal(0, g.Effects[Stat.BaseAvoidProjectilesPctChance]);
+                Assert.Equal(0, g.Effects[Stat.ElementalDamageTakenPlusPct]);
+            });
+        }
+        finally
+        {
+            await ShrineManager.LeaveArea(player);
+            foreach (uint key in player.Area.Monsters.Keys.Where(k => !before.Contains(k)).ToArray())
+                player.Area.Monsters.Remove(key);
+            player.Walk.Teleport(100, 100, 0);
         }
     }
 
