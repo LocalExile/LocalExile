@@ -90,7 +90,7 @@ Modules sit in three folders, and each module in exactly one.
 |---|---|---|
 | `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
 | `Modules/Legacy/` | like Core, for GGG's past leagues and content | none: Idols and the Phrecia classes are mods |
-| `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/` |
+| `Modules/Custom/` | content GGG never had, which a custom league may list | none: Survivors is a mod |
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
 mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
@@ -100,9 +100,8 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 - **Hot reload:** a new build in `bin/`, an edited `module.json` or `settings.json`, a change to its user's settings, a saved loose `.cs` file, or `/module_reload [id]` reloads a module and those that depend on it; their state starts over.
 - **Settings:** what a module lets the user tune is declared in its `settings.json`, read with `Settings<T>()`, and the user's values are in `data/modules/<id>.json`, as for a mod ([modding](modding.md), "Settings"). A module's settings are the same in every league that lists it.
   Bad new files leave the running one as it is; a build that throws while loading goes back to the assemblies it had. Saving a project's source does nothing until it is built.
-- **Limits:** `module.json` (and a mod's `mod.json`) may say which modules and listed mods it cannot share a league with (`"conflicts": ["<id>"]`), and a mode,
-  which changes the whole game, which ones may join it (`"only": ["<id>"]`; the game itself always may). A league whose
-  list breaks one does not load, and a user's change that would is an error line. Everything else may be combined.
+- **Limits:** `module.json` (and a mod's `mod.json`) may say which modules and listed mods it cannot share a league with (`"conflicts": ["<id>"]`), and the only ones it may share one with (`"only": ["<id>"]`; the game itself always may).
+  A league whose list breaks one does not load, and a user's change that would is an error line. Everything else may be combined.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
 - **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 

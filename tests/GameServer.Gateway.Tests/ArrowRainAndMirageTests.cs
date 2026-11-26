@@ -3,7 +3,6 @@ using GameServer.Core.Accounts;
 using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
-using GameServer.Modules.Survivors;
 
 namespace GameServer.Gateway.Tests;
 
@@ -1635,16 +1634,6 @@ public class ArrowRainAndMirageTests
         var fireball = Game.GemSkillEffects(c).Single(g => g.Name == "Fireball");
         var melee = Game.GemSkillEffects(c).Single(g => g.Name == "Double Strike");
         var hybrid = Game.GemSkillEffects(c).Single(g => g.Name == "Lightning Strike");
-        var survivorsCatalog = SurvivorsSkills.SurvivorsCatalogFor(c);
-        SurvivorsSkills.SurvivorsComputedCast SurvivorsCast(string name)
-        {
-            int index = survivorsCatalog.ToList().FindIndex(skill => skill.Name == name);
-            Assert.True(index >= 0);
-            var run = new SurvivorsRun();
-            run.Learn(index);
-            return Assert.IsType<SurvivorsSkills.SurvivorsComputedCast>(SurvivorsSkills.SurvivorsComputeCast(
-                c, run, survivorsCatalog[index], 1, index, new([], [], 1, 20, 40)));
-        }
         var type = Program.Items.Find("Large Cluster Jewel")!;
         var theme = ClusterJewels.FindTheme(type.Cluster!, "affliction_dagger_and_claw_damage")!;
         var fan = Program.Items.Mods.ById("AfflictionNotableFanofBlades_")!;
@@ -1662,8 +1651,6 @@ public class ArrowRainAndMirageTests
         var hybridProjectileBase = Game.SupportedHitFor(c, hybrid.Id, suppress: false, projectile: true);
         var ailmentBase = Game.SupportedAilmentRows(c, gem.Id, "main_hand");
         Assert.Contains(ailmentBase, row => (Program.Stats.Name(row.Stat) ?? "").Contains("poison") && row.Value > 0);
-        var survivorsBase = SurvivorsCast("Spectral Throw");
-        var survivorsSpellBase = SurvivorsCast("Fireball");
         c.Character.ClusterPassives.Add(notable);
         var stats = Game.FinalPlayerStats(c).ToDictionary(s => s.Item1, s => s.Item2);
         Assert.Equal(1, stats[Stat.AttackSkillAdditionalNumProjectilesWhileWieldingClawsDaggers]);
@@ -1679,15 +1666,6 @@ public class ArrowRainAndMirageTests
         Assert.Equal(hybridProjectileBase[DamageType.Lightning].Min * 1.1,
             Game.SupportedHitFor(c, hybrid.Id, suppress: false, projectile: true)[DamageType.Lightning].Min, 6);
         Assert.Equal(ailmentBase, Game.SupportedAilmentRows(c, gem.Id, "main_hand"));
-        var survivors = SurvivorsCast("Spectral Throw");
-        Assert.Equal(survivorsBase.Count + 1, survivors.Count);
-        Assert.Equal(survivorsBase.Shot!.Hit[DamageType.Lightning].Min * 1.1,
-            survivors.Shot!.Hit[DamageType.Lightning].Min, 6);
-        Assert.Equal(survivorsBase.Shot.AreaHit![DamageType.Lightning].Min * 1.1,
-            survivors.Shot.AreaHit![DamageType.Lightning].Min, 6);
-        var survivorsSpell = SurvivorsCast("Fireball");
-        Assert.Equal(survivorsSpellBase.Count, survivorsSpell.Count);
-        Assert.Equal(survivorsSpellBase.Shot!.Hit.Components, survivorsSpell.Shot!.Hit.Components);
 
         foreach (var (mainName, offName, count, mainDamage, offDamage) in new (string, string?, int, double, double)[]
         {
