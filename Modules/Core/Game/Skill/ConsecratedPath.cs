@@ -70,10 +70,11 @@ public static partial class Game
         bool Has(uint key) => Skill(key) != 0 || PlayerStat(key) != 0;
         bool profane = Has(Stat.ConsecratedPathAndPurifyingFlameCreateProfaneGroundInsteadOfConsecratedGround)
             || Has(Stat.CreateProfaneGroundInsteadOfConsecratedGround);
-        var kind = profane ? FlaskGrounds.Kind.ProfaneGround : FlaskGrounds.Kind.ConsecratedGround;
-        int taken = profane ? 0 : OwnConsecratedGroundCreatedLocked(player, stats);
-        player.FlaskGrounds.Add(new(kind, at.X, at.Y, groundRadius, now + seconds,
-            QueueGroundArtLocked(player, kind, at, groundRadius), taken));
+        var kind = FlaskGrounds.Kind.ProfaneGround;
+        var ground = profane
+            ? new FlaskGrounds.Ground(kind, at.X, at.Y, groundRadius, now + seconds, QueueGroundArtLocked(player, kind, at, groundRadius))
+            : CreateOwnConsecratedGroundLocked(player, at, groundRadius, now + seconds, stats);
+        player.FlaskGrounds.Add(ground);
         PresentNearby(player);
     }
 }

@@ -83,9 +83,9 @@ public static partial class Game
         owner.FlameTouched = null;
     }
 
-    static async Task<bool> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleApproachingFlames(Player player, ushort skillId, Func<bool> current)
     {
-        bool toggled = false;
+        bool toggled = false, activated = false;
         await SendWorldRecord(player, player.Id, [], "Approaching Flames toggled", atGate: () =>
         {
             if (!current() || InTown(player) || SupportedSkill(player, skillId).WornGrant is not { EffectId: ApproachingFlamesEffect } source
@@ -99,6 +99,7 @@ public static partial class Game
             if (flame.Source is not null) EndFlameTouched(player, now);
             else
             {
+                activated = true;
                 var stats = CharacterPlayerStats(player);
                 flame.Start(source, now, stats.GetValueOrDefault(Stat.FireDamageTakenPerSecondWhileFlameTouched),
                     stats.GetValueOrDefault(Stat.LoseAdrenalineOnLosingFlameTouched) != 0);
@@ -113,7 +114,7 @@ public static partial class Game
             return [];
         });
         if (toggled) await SendWardBreak(player);
-        return toggled;
+        return (toggled, activated);
     }
 
     static void AdvanceFlameTouchedDamage(Player player, double now, IReadOnlyDictionary<uint, int> stats)

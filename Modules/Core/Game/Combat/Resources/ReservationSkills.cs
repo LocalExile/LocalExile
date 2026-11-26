@@ -73,9 +73,7 @@ public static partial class Game
             {
                 double now = AreaTime(player);
                 var at = target.Walk.Position(now);
-                player.FlaskGrounds.Add(new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, 14,
-                    now + 8, QueueGroundArtLocked(player, FlaskGrounds.Kind.ConsecratedGround, at, 14),
-                    OwnConsecratedGroundCreatedLocked(player, playerStats)));
+                player.FlaskGrounds.Add(CreateOwnConsecratedGroundLocked(player, at, 14, now + 8, playerStats));
                 PresentNearby(player);
             }
         }
@@ -143,8 +141,8 @@ public static partial class Game
                 supportModifiers: modifiers, skillTypes: types, additionalIncreased: increased + target.HitIncrease);
             var rows = AilmentPanelStats.Compute(new("secondary", Spell: false), woven, conversion, TargetStat,
                 increased + target.AilmentIncrease);
-            var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
-            var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+            var ignite = IgniteSettingsFrom(rows, "secondary", TargetStat);
+            var poison = PoisonSettingsFrom(rows, "secondary", TargetStat);
             if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
             return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
                 : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
@@ -227,6 +225,10 @@ public static partial class Game
             .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
         if (thunder) candidates = candidates.Take(1).ToArray();
         else if (aura.EffectId == "TempestShield") candidates = candidates.Take(1 + Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains))).ToArray();
+        bool spell = aura.EffectId == "TempestShield";
+        int Player(uint n) => GolemStat(playerStats, n);
+        int Own(uint n) => GolemStat(skill.Stats, n);
+        var hitRolls = HitRollsFor(playerStats).ForSkill(Own, spell);
         player.Reservations.Secondary = true;
         try
         {
@@ -240,9 +242,6 @@ public static partial class Game
                 var profile = targetProfile(targetWasBlinded ? additionalIncreased : 0, m.SpiderWebs.Count(now),
                     m.Ignites.IgnitedAt(now), m.Bleeds.IgnitedAt(now), EnemyOnLowLife(m), contactDamage ? ContactDamage(player, m, now, playerStats) : default);
                 var targetPacket = profile.Hit;
-                bool spell = aura.EffectId == "TempestShield";
-                int Player(uint n) => GolemStat(playerStats, n);
-                int Own(uint n) => GolemStat(skill.Stats, n);
                 List<byte[]>? ignited = null;
                 string? igniteLog = null;
                 int criticalChance = spell ? SupportedCriticalChance(player, aura.SkillId)
@@ -254,17 +253,24 @@ public static partial class Game
                     : CriticalHitMultiplier(150L + Player(Stat.BaseCriticalStrikeMultiplierPlus)
                         + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, skill.Stats);
                 var rolled = targetPacket.Roll(AreaRng(player)).Scale(critical ? multiplier / 100.0 : 1);
+                rolled = hitRolls.ForCriticalStrike(critical, playerStats, skill.Stats)
+                    .ApplyDamageMultiplier(rolled, AreaRng(player));
                 var mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
-                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)));
-                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player));
-                if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, mitigated, spell, now, damage)) is not { } hit) continue;
+                    Math.Max(Player(Stat.CannotPenetrateOrIgnoreElementalResistances), Own(Stat.CannotPenetrateOrIgnoreElementalResistances)),
+                    elementalUsesLowestResistance: Player(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                int damage = MonsterTakesMitigated(m, mitigated, spell, now, random: AreaRng(player),
+                    additionalElementalTakenPct: witheredElemental);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage,
+                    new HitTakenRules(0, witheredElemental, false));
+                if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } hit) continue;
                 if (hit.StageStarts)
                 { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
                 {
                     var own = new Dictionary<uint, int>(skill.Stats);
                     if (thunder) own[Stat.NeverShock] = 1;
                     AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, 100, playerStats, own, now,
-                        AreaRng(player), poison: profile.Poison,
+                        AreaRng(player), sourceEffect: skill.Effect, poison: profile.Poison,
                         blind: BlindHitInput.Capture(playerStats, own));
                     if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
                         && IgniteOnHitLocked(player, id, m, profile.Ignite, critical, now) is { } packets)
