@@ -56,7 +56,7 @@ public sealed class StashRules
         return use switch
         {
             0 => [.. inputs.Where(s => s != corrupt).Order()],
-            1 when corrupt >= 0 => [corrupt],
+            1 or 2 when corrupt >= 0 => [corrupt],
             _ => [],
         };
     }
