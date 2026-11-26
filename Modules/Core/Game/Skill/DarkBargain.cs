@@ -12,6 +12,9 @@ public static partial class Game
     // same way. With no skeleton in reach it sacrifices that share of the player's maximum life instead, explodes around
     // the player and deals skeletal_chains_no_minions_damage_+%_final more damage (even if no life could be paid).
     const string DarkBargainSkin = "default";
+    const string TrarthanBargain = "DarkPactAltX";
+    const ushort TrarthanRuin = 2632; // dark_pact_ruin
+    const int TrarthanRuinThreshold = 7;
     const string DarkBargainSkeletonAo = "Metadata/Effects/Spells/skeletal_chains/minion_explode.ao";
     const string DarkBargainPlayerAo = "Metadata/Effects/Spells/skeletal_chains/explosion.ao";
     // ESTIMATE: no table carries how far the skill looks for a skeleton or how far a chain jumps.
@@ -22,6 +25,26 @@ public static partial class Game
 
     public static bool IsDarkBargain(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "DarkPact" or "DarkPactRoyale";
+
+    static long GainTrarthanRuin(Player owner, uint caster, ushort skill, IReadOnlyDictionary<uint, int> stats,
+        uint life, uint maxLife, out uint sacrificed)
+    {
+        var buffs = owner.Area.Buffs;
+        int count = (buffs.Get(caster, TrarthanRuin, caster)?.Stacks ?? 0) + 1;
+        int extraChance = stats.GetValueOrDefault(Stat.DarkPactChanceToGainAnAdditionalRuinPct);
+        if (extraChance > 0 && RandomRolls.Chance(extraChance, 100, AreaRng(owner))) count++;
+        if (count < TrarthanRuinThreshold)
+        {
+            buffs.Set(caster, new(TrarthanRuin, caster, skill, Stacks: (ushort)count, KeepInstance: true));
+            sacrificed = 0;
+            return 0;
+        }
+
+        buffs.Clear(caster, TrarthanRuin, caster);
+        int percent = stats.GetValueOrDefault(Stat.DarkPactSacrificePctLifeFromMaxRuin);
+        sacrificed = (uint)DarkBargainLifePaid(life, maxLife, percent);
+        return sacrificed * (long)Math.Max(0, stats.GetValueOrDefault(Stat.DarkPactChaosDamageAddedFromSacrificePlusPct)) / 100;
+    }
 
     static async Task DarkBargainCast(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
@@ -43,7 +66,8 @@ public static partial class Game
         var skillStats = SupportedSkill(player, skillId).Stats;
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         int percent = Math.Max(0, Stat(global::Stat.SkeletalChainsAoePctHealthDealtAsChaosDamage));
-        int chains = Math.Max(0, Stat(global::Stat.NumberOfChains));
+        var beidat = CastingBeidatSpell(player, skillId);
+        int chains = Math.Max(0, Stat(global::Stat.NumberOfChains)) + (beidat?.Chains ?? 0);
         var blasts = new List<((int X, int Y) At, int Sacrificed, uint Skeleton)>();
         bool self = false;
         int epoch = player.ProjectileEpoch;
@@ -101,8 +125,9 @@ public static partial class Game
             int addedChaos = paid;
             Console.WriteLine($"[gateway] {player.Connection.Remote} dark bargain blast {i + 1}/{blasts.Count} at ({at.X}, {at.Y})"
                 + $"{(skeleton != 0 ? $" skeleton 0x{skeleton:x}" : "")}: paid {paid}, added chaos {addedChaos}");
-            await AreaSkillHit(player, skillId, gem, at, at, immediate: true,
-                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore);
+            await AreaSkillHitForUse(null, player, skillId, gem, at, at, immediate: true,
+                criticalRoll: criticalRoll, sacrifice: sacrifice, baseChaos: paid, damageMore: more * reoccurrenceMore,
+                hitAndAilmentMore: beidat?.More ?? 1);
         }
         if (art.Count > 0)
             _ = AreaFrames.Start(async () =>

@@ -4,6 +4,7 @@ public sealed partial class ProjectileRuntime
 {
     void StartStages(ProjectileEntity p)
     {
+        if (p.Phase == 0 && p.Profile.Steering is { } steering) StartSteering(p, steering);
         if (p.Profile.WanderInterval > 0)
         {
             void Wander()
@@ -26,6 +27,8 @@ public sealed partial class ProjectileRuntime
         if (p.Profile.Pulse is { } pulse)
         {
             if (pulse.Interval <= 0) throw new ArgumentOutOfRangeException(nameof(pulse));
+            var rule = pulse.HitRule ?? p.Profile.HitRule;
+            long group = rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId;
             void Pulse()
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
@@ -35,12 +38,13 @@ public sealed partial class ProjectileRuntime
                     for (int i = 0; i < listed; i++)
                     {
                         var target = targets[i];
-                        if (target.Team == p.Use.Team || target.Key == p.Use.Owner) continue;
+                        if (target.Team == p.Use.Team || target.Key == p.Use.Owner
+                            || !ledger.CanHit(group, 0, pulse.Stage, target.Key, Now, p.CreatedAt, rule)) continue;
                         var delta = target.Position(Now) - p.Position;
                         double limit = pulse.Radius + target.Radius;
                         if (Math.Abs(delta.X) <= limit && Math.Abs(delta.Y) <= limit
                             && delta.X * delta.X + delta.Y * delta.Y <= limit * limit)
-                            Damage(p, target, pulse.Stage, isArea: true);
+                            Damage(p, target, pulse.Stage, group: group, rule: rule, isArea: pulse.AreaDamage, admissionPhase: 0);
                     }
                 }
                 finally { Return(targets, listed); }
@@ -59,6 +63,37 @@ public sealed partial class ProjectileRuntime
             }
             Schedule(Now + emission.Interval, Emit);
         }
+    }
+
+    void StartSteering(ProjectileEntity p, ProjectileSteeringRecipe steering)
+    {
+        var desired = steering.Direction(p, Now);
+        long nextTarget = Now + steering.TargetInterval;
+
+        void Turn()
+        {
+            if (!projectiles.ContainsKey(p.Id) || p.Phase != 0) return;
+            if (Now >= nextTarget)
+            {
+                desired = steering.Direction(p, Now);
+                nextTarget = Now + steering.TargetInterval;
+            }
+            if (desired is { Length: > 0 } target)
+            {
+                var direction = target.Unit;
+                double cross = p.Direction.X * direction.Y - p.Direction.Y * direction.X;
+                double delta = Math.Atan2(cross, p.Direction.Dot(direction));
+                if (Math.Abs(delta) > 1e-6)
+                {
+                    p.Direction = Math.Abs(delta) <= steering.MaximumTurn ? direction
+                        : p.Direction.Rotate(Math.CopySign(steering.MaximumTurn, delta));
+                    Publish(ProjectileEventKind.Redirect, p);
+                }
+            }
+            Schedule(Now + steering.TurnInterval, Turn);
+        }
+
+        Schedule(Now + steering.TurnInterval, Turn);
     }
 
     void EmitAfterEnd(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded)
@@ -215,7 +250,8 @@ public sealed partial class ProjectileRuntime
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
         ProjectileActorKey? victim, long areaId)
     {
-        double radius = recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
+        double radius = recipe.RadiusForTravel?.Invoke(p.Distance)
+            ?? recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: radius, Stage: recipe.Stage));
         var targets = ActorsInOrder(world.ActorsNear(centre, radius + 2, Now), generations: true, out int listed);
         double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;

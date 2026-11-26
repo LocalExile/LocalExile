@@ -106,7 +106,7 @@ public static class GatewayProjectileModifiers
         p = p with
         {
             SpeedVariationPercent = Math.Clamp(get(Stat.ProjectileSpeedVariationPlusPct)
-                + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99)
+                + get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal) / 2, 0, 99)
         };
         // Children receive already resolved continuation grants, never another count expansion.
         if (p.EndEmission is { } endEmission)

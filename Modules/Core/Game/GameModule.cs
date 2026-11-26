@@ -39,6 +39,7 @@ public sealed class GameModule : IModule, IDisposable
     {
         Rules.ForgetClaimedCharacters();
         Rules.ResetAchievementCache();
+        Rules.RetirePactConditions();
         Rules.ClearReaveCounters();
         RuleTables.Empty();
     }
@@ -133,6 +134,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadEssenceProjectiles();
         Rules.LoadRemnantAuraData();
         Rules.LoadSelfBuffSkillsData();
+        Rules.LoadPactConditionData();
         Rules.LoadMapAreaStats();
         Rules.LoadAchievementsData();
     }

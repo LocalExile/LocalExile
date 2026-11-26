@@ -63,7 +63,8 @@ public static partial class Game
             + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct) + Get(Stat.DarkRitualDamagePlusPct);
         double more = ChaosAreaDotSupportMore.Aggregate(1d, (m, key) => m * Math.Max(0, 1 + Own(key) / 100d));
         double dps = DamageStats.Prohibited(DamageType.Chaos, Get) ? 0 : baseDps * Math.Max(0, 1 + increased / 100d)
-            * more * Math.Max(0, 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100d);
+            * more * Math.Max(0, 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100d)
+            * GhorrDotMore(player, skill);
         int radius = (int)Math.Round(SkillRadius(player, gem.Stats, spell: true, gem.Effect) * radiusMore);
         var hexes = BaneHexes(player, gem);
         // The support half's stats at Bane's level and quality: its less effect, and its quality's increased curse effect.

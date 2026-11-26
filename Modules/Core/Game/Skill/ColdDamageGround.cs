@@ -50,7 +50,7 @@ public static partial class Game
             int secondary = Own(Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius);
             int radius = SkillArea.Radius(secondary > 4 ? secondary : 18 + secondary, Get, spell: true);
             double dps = new SkillDamageContext(SkillHitKind.Spell, caster).Suppressed ? 0
-                : ColdGroundDps(Get, Own, spell: true, shot.FromMine, trap: shot.FromTrapOrMine && !shot.FromMine);
+                : ColdGroundDps(Get, Own, spell: true, shot.FromMine, trap: shot.FromTrapOrMine && !shot.FromMine) * shot.GhorrDotMore;
             // Local starting speed for the chilling ground. The Floes gem's native movement modifier applies to it.
             double pace = 10 * Math.Max(0, 1 + Get(Stat.ArcticBreathChillingAreaMovementVelocityPlusPct) / 100d);
             int limit = Own(Stat.ArcticBreathMaximumNumberOfSkullsAllowed);
@@ -71,7 +71,7 @@ public static partial class Game
         internal void ReleaseVortexProjection((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) origin, (int X, int Y) aim, IReadOnlyDictionary<uint, int> own, IReadOnlyDictionary<uint, int> caster,
             SkillCriticalRoll? critical, SacrificeUse sacrifice, Func<bool> current, ushort sequence, int repeat,
-            double damageMore, SpawnedMonster? brandedTarget)
+            double damageMore, SpawnedMonster? brandedTarget, double dotMore)
         {
             var area = SkillAreaStats(Player, own, gem.Effect, caster);
             int Get(uint key) => area.GetValueOrDefault(key);
@@ -102,7 +102,8 @@ public static partial class Game
                 Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centre, centre, immediate: true, sequence: sequence,
                     repeat: repeat, damageMore: damageMore * more, radiusOverride: hitRadius, criticalRoll: critical,
                     sacrifice: sacrifice, triggeredCurrent: current, brandedTarget: brandedTarget));
-                PlaceDamageGround(Vector(centre), dotRadius, duration, DamageType.Cold, dps * damageMore * more, Runtime.Now, chillStats: area);
+                PlaceDamageGround(Vector(centre), dotRadius, duration, DamageType.Cold, dps * damageMore * more * dotMore,
+                    Runtime.Now, chillStats: area);
             }
         }
 
