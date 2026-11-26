@@ -18,7 +18,7 @@ static partial class Game
             {
                 if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed
                     || player.LeavingArea || player.PlayerLife == 0 || !triggered && recovery != player.ActionInterruptionGeneration
-                    || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
+                    || !SameTriggerSource(gem, SupportedSkill(player, source))) return released;
                 if (!player.Paused && AreaTime(player) >= due) break;
                 await AreaWait(PlayerUpdateRole.Minions, 25);
             }

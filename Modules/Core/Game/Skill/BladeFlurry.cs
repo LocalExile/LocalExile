@@ -139,7 +139,7 @@ public static partial class Game
         {
             double distance = Dist(target, search);
             if (distance > acquisition + LivingCollision.Size(monster)
-                || player.Layout.Sight is { } sight && ClientPathfinder.LineBelow(search, target, sight, 1)) continue;
+                || player.Layout.Sight is { } sight && ClientPathfinder.LineBelow(origin, target, sight, 1)) continue;
             flurry.PreviousTargets.TryAdd(id, 0);
             uint weight = (uint)Math.Max(1, 1_000_000 / Math.Max(1, ((int)distance + flurry.PreviousTargets[id] * 5) * 10));
             total += weight;
@@ -171,22 +171,26 @@ public static partial class Game
     static async Task RunBladeFlurryRelease(Player player, BladeFlurryChannel flurry, double at)
     {
         bool Current() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0
-            && player.ProjectileEpoch == flurry.Epoch && player.ActionCount == flurry.Action
+            && player.ProjectileEpoch == flurry.Epoch
             && player.ActionInterruptionGeneration == flurry.Interruption
             && !PlayerActionBlocked(player, AreaTime(player), AreaTime(player))
             && SameTriggerSource(flurry.Source, SupportedSkill(player, flurry.Skill));
-        for (int hit = 0; hit < flurry.Stages; hit++)
+        try
         {
-            await AreaDelay(player, Math.Max(0, at + .08 + hit * .025 - AreaTime(player)));
-            await WhilePaused(player);
-            if (!Current()) return;
-            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == flurry.Skill);
-            if (gem.Name is null || !IsBladeFlurry(player, gem.Effect)
-                || GemSkillInstanceDisabled(player, gem.Effect, flurry.Skill) is not null) return;
-            flurry.ReleaseRemaining = flurry.Stages - hit;
-            var origin = player.Walk.Position(AreaTime(player));
-            await AreaSkillHitForUse(ruthlessMore: 1, player, flurry.Skill, gem, origin, flurry.Aim, immediate: true,
-                sequence: flurry.Sequence, actionToken: flurry.Action, triggeredCurrent: Current, flurryRelease: flurry);
+            for (int hit = 0; hit < flurry.Stages; hit++)
+            {
+                await AreaDelay(player, Math.Max(0, at + .08 + hit * .025 - AreaTime(player)));
+                await WhilePaused(player);
+                if (!Current()) return;
+                var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == flurry.Skill);
+                if (gem.Name is null || !IsBladeFlurry(player, gem.Effect)
+                    || GemSkillInstanceDisabled(player, gem.Effect, flurry.Skill) is not null) return;
+                flurry.ReleaseRemaining = flurry.Stages - hit;
+                var origin = player.Walk.Position(AreaTime(player));
+                await AreaSkillHitForUse(ruthlessMore: 1, player, flurry.Skill, gem, origin, flurry.Aim, immediate: true,
+                    sequence: flurry.Sequence, actionToken: null, triggeredCurrent: Current, flurryRelease: flurry);
+            }
         }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }
 }

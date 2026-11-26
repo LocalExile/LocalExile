@@ -1579,10 +1579,22 @@ public static partial class Game
             if (Current()) RecordSpellWindup();
             await PublishVaalUse(player, vaalUse);
         }
+        void AbortStartedChannel()
+        {
+            if (channelGeneration is null) return;
+            EndChannel(player, AreaTime(player));
+            player.PaidChannel = null;
+        }
         if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null)
+        {
+            AbortStartedChannel();
             return false;
+        }
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission))
+        {
+            AbortStartedChannel();
             return false;
+        }
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
@@ -1607,9 +1619,9 @@ public static partial class Game
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
-            if (!Current()) return false;
+            if (!Current()) { AbortStartedChannel(); return false; }
             if (SupportedChannelSeconds(player, skillId) is not double interval)
-            { player.ChannelSkill = 0; player.ChannelGeneration++; player.PaidChannel = null; return false; }
+            { AbortStartedChannel(); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
             if (IsChargedDash(player, gem.Effect))
@@ -3015,15 +3027,9 @@ public static partial class Game
         }
         var shieldWaves = shieldUse?.Waves;
         CleaveArc? cleave = null;
-        if (!spell && CleaveAttack(effectId))
-        {
-            double now = AreaTime(player);
-            int arcRadius = CleaveRadius(player, gem.Effect, areaStats, from, now);
-            var direction = from == to ? (0d, -1d) : GroundSlamWave.Direction(from, to);
-            cleave = new(from, direction, Math.Max(0, (int)(arcRadius * radiusMore * chargeRadius)));
-        }
+        bool cleaveAttack = !spell && CleaveAttack(effectId);
         bool tumultContact = channelGeneration is not null && effectId == "CycloneAltX" && radiusOverride is null;
-        int radius = tumultContact ? 0 : cleave?.Radius ?? lacerate?.Waves.Radius ?? shieldWaves?.CentreRadius
+        int radius = tumultContact || cleaveAttack ? 0 : lacerate?.Waves.Radius ?? shieldWaves?.CentreRadius
             ?? (int)Math.Round((radiusOverride ?? (divineBlast && !immediate
             ? SkillRadius(player, Stat(global::Stat.ActiveSkillBaseSecondaryAreaOfEffectRadius), areaStats, spell: false, gem.Effect)
             : SkillRadius(player, areaStats, spell, gem.Effect))) * radiusMore * chargeRadius);
@@ -3052,7 +3058,7 @@ public static partial class Game
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
         if (divineBlast) centre = to;
         if (lacerate is not null) centre = lacerate.Waves.Origin;
-        if (cleave is { } cleaveArc) centre = cleaveArc.Origin;
+        if (cleaveAttack) centre = from;
         // A later action (a Move, another use) replaces the swing; nothing of it lands from then on. The ordinary attack
         // says so at its own contact (Attack's HitTarget); this says so for a gem skill's sweep, whose drop was otherwise
         // invisible in the log (the live tests cannot count what a swing did without it).
@@ -3153,8 +3159,16 @@ public static partial class Game
                 }
             }
             if (ownSlam && retainedAttack is null && strikeIndex == 0)
-                TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, centre, now,
+            {
+                var fissureAt = from;
+                foreach (var cell in GameServer.Core.World.ClientPathfinder.Line(from, centre))
+                {
+                    if (!player.Layout.WalkableFor(cell.X, cell.Y, 0) || player.Barrier.Contains(cell)) break;
+                    fissureAt = cell;
+                }
+                TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, fissureAt, now,
                     global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct, "TriggeredSupportFissure");
+            }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,
@@ -3203,6 +3217,16 @@ public static partial class Game
                     damageMore *= slam.HitFactor;
                 }
             }
+            if (cleaveAttack)
+            {
+                var cleaveFrom = player.Walk.Position(now);
+                int arcRadius = CleaveRadius(player, gem.Effect, areaStats, cleaveFrom, now);
+                var direction = cleaveFrom == to ? (0d, -1d) : GroundSlamWave.Direction(cleaveFrom, to);
+                radius = Math.Max(0, (int)(arcRadius * radiusMore * chargeRadius));
+                cleave = new(cleaveFrom, direction, radius);
+                centre = cleaveFrom;
+            }
+            var reaveFrom = from;
             if (reave)
             {
                 int stages = ReaveStages(player);
@@ -3212,7 +3236,8 @@ public static partial class Game
                 // with a 22-cell basis before gem levels and area modifiers (FUN_141bd9540).
                 radius = (int)Math.Floor(SkillArea.Radius(22, key => reaveStats.GetValueOrDefault(key),
                     spell: false, stageMore) * radiusMore);
-                reaveArc = ReaveArea(player.Walk.Position(now), to, radius, Stat(global::Stat.ReaveRotationOnRepeat), repeat);
+                reaveFrom = player.Walk.Position(now);
+                reaveArc = ReaveArea(reaveFrom, to, radius, Stat(global::Stat.ReaveRotationOnRepeat), repeat);
                 centre = reaveArc.Value.Origin;
                 if (Stat(global::Stat.SkillConvertPctPhysicalDamageToRandomElement) is int conversion and > 0)
                 {
@@ -3254,11 +3279,12 @@ public static partial class Game
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && (e.Distance <= reachLimit || contactTargets is not null || shieldWaves is not null
                         || lacerate is not null || cleave is not null || reaveArc is not null)
-                    && (lacerate is null || !e.Value.WorldHidden && lacerate.Waves.Covers(lacerate.Phase, e.At, LivingCollision.Size(e.Value)))
+                    && (lacerate is null || !e.Value.WorldHidden && lacerate.Waves.Covers(lacerate.Phase, e.At, LivingCollision.Size(e.Value))
+                        && MeleeArcSight(player, from, e.At))
                     && (cleave is not { } arc || !e.Value.WorldHidden
                         && arc.Covers(e.At, e.Distance, LivingCollision.Size(e.Value)) && MeleeArcSight(player, c, e.At))
                     && (reaveArc is not { } sweep || !e.Value.WorldHidden && sweep.Covers(e.At, LivingCollision.Size(e.Value))
-                        && MeleeArcSight(player, sweep.Origin, e.At))
+                        && MeleeArcSight(player, reaveFrom, e.At))
                     && (strikeIndex > 0 ? !SkillMultiStrike.WasHitBeforeUse(alreadyHit, e.Key) : once?.Contains(e.Key) != true)
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
@@ -3666,7 +3692,7 @@ public static partial class Game
                     if (profileMore != 1)
                         profile = new(profile.Hit.Scale(profileMore), RepeatAilment(profile.Ignite, profileMore),
                             RepeatAilment(profile.Bleed, profileMore), RepeatAilment(profile.Poison, profileMore));
-                    if (!spell && repeat > 0)
+                    if (!spell && repeat > 0 && retainedAttack is null)
                     {
                         double repeatMore = MeleeRepeatDamageMore(player, skillId, repeat);
                         profile = profile with

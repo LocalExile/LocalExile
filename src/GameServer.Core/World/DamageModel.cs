@@ -66,8 +66,8 @@ public static class DamageModel
     public static bool Suppresses(int chance, Random random, bool lucky = false, bool unlucky = false)
     {
         int roll = random.Next(100);
-        if (lucky) roll = Math.Min(roll, random.Next(100));
-        else if (unlucky) roll = Math.Max(roll, random.Next(100));
+        if (lucky != unlucky)
+            roll = lucky ? Math.Min(roll, random.Next(100)) : Math.Max(roll, random.Next(100));
         return roll < Math.Clamp(chance, 0, SpellSuppressionChanceCap);
     }
 
@@ -75,8 +75,8 @@ public static class DamageModel
     public static double EffectiveSuppressionChance(int chance, bool lucky = false, bool unlucky = false)
     {
         double p = Math.Clamp(chance, 0, SpellSuppressionChanceCap) / 100.0;
-        if (lucky) p = 1 - (1 - p) * (1 - p);
-        else if (unlucky) p *= p;
+        if (lucky != unlucky)
+            p = lucky ? 1 - (1 - p) * (1 - p) : p * p;
         return p * 100;
     }
 

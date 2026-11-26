@@ -54,7 +54,7 @@ public static partial class Game
         if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
         var stats = CharacterPlayerStats(player);
         int Get(uint name) => RageStat(stats, name);
-        player.Rage.Gain(rage, now, RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
+        player.Rage.Gain(rage, ProjectileWorldTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
     }
 
     public static void RageWhenHitLocked(Player player)
@@ -66,7 +66,9 @@ public static partial class Game
         {
             player.Rage.Clear();
             player.Rampage.Clear();
+            ClearCycloneStages(player);
             ClearReaveStages(player);
+            RetireBladeFlurry(player, player.ChannelGeneration);
             WinterOrbRetire(player);
             SnipeRetire(player);
             MirageWarriorsRetire(player);

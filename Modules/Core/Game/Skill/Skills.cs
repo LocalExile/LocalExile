@@ -477,10 +477,12 @@ public static partial class Game
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
+            string? effectId = skills.EffectId(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
-            if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction)
-                stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
-            if (LacerateEffect(skills.EffectId(effect)))
+            if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
+                || effectId == "VolcanicFissureAltX" || IsChargedDash(player, effect))
+                stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
+            if (LacerateEffect(effectId))
             {
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
                 stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
@@ -566,13 +568,7 @@ public static partial class Game
             if (SkillsFor(player).IsAttack(effect) && Stat.AttackRepeatCount is var attackRepeatKey)
                 stats[attackRepeatKey] = MeleeAttackRepeats(player, id);
             if (IsBladeFlurry(player, effect))
-            {
-                var flurryArea = SkillAreaStats(player, own, effect, playerStats);
-                int AreaGet(uint key) => flurryArea.GetValueOrDefault(key);
                 stats[Stat.VirtualMaxChargedAttackStages] = BladeFlurryMaxStages(own, characterInputs);
-                stats[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(AreaGet, spell: false);
-                stats[Stat.SkillAreaOfEffectPlusPct] = SkillArea.Increased(AreaGet, spell: false);
-            }
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(player).EffectId(effect)))
             {
@@ -868,11 +864,6 @@ public static partial class Game
                 foreach (var rarity in new[] { MonsterRarity.Normal, MonsterRarity.Magic, MonsterRarity.Rare })
                     if (HitSummonDefinition(SkillsFor(player).EffectId(effect), rarity) is { } sentinel)
                         Publish(sentinel.FinalLimitStat, SummonLimit(player, sentinel, supported));
-            if (LacerateEffect(SkillsFor(player).EffectId(effect)))
-            {
-                Publish(Stat.SkillBehaviourVariation, SkillsFor(player).BehaviourVariation(effect));
-                Publish(Stat.InSandStance, player.Stance == StanceCatalog.SandSelection ? 1 : 0);
-            }
             if (SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX" or "VaalAbsolution"
                 or "DominatingBlow" or "DominatingBlowAltX" or "VaalDomination")
             {

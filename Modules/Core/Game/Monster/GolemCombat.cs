@@ -667,6 +667,7 @@ public static partial class Game
                 && ScavengingCorpse(corpse) && Dist(at, corpse.Walk.Position(now)) <= 15)
             {
                 corpse.CorpseConsumed = true;
+                corpse.Ignites.RetireCorpse();
                 g.CorpseEmpowered = true;
                 g.Monster.Life = (uint)Math.Min(g.Monster.MaxLife, (long)g.Monster.Life + g.Monster.MaxLife / 5);
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(action.Target), "golem consumed corpse",
@@ -1013,7 +1014,7 @@ public static partial class Game
             double ailmentArea = Golem(Stat.ElementalStatusEffectAuraRadius) > 0
                 ? SkillArea.Modifier(Golem, a.Attack.Spell) : 1;
             target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Mods.Effects[n], AreaRng(player), ailmentArea);
+                n => target.Effects[n], AreaRng(player), ailmentArea);
             if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
                 || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
                 ExposureOnHitLocked(target, Golem, mitigated, now, random);

@@ -144,8 +144,9 @@ public static partial class Game
         lock (LevelUpdatesFor(player).Gate)
         {
             if (!ReferenceEquals(CurrentChargedDash(player), dash)) return;
+            bool wasStopped = dash.Path.Stopped;
             AdvanceChargedDash(player, dash, now);
-            if (!dash.Path.Stopped && dash.Path.Distance > dash.StageDistance) dash.Stages++;
+            if (!wasStopped && dash.Path.Distance > dash.StageDistance) dash.Stages++;
             dash.StageDistance = dash.Path.Distance;
             if ((++dash.PaidSteps & 1) != 0) return;
             wave = CaptureChargedDashWave(dash);
@@ -213,38 +214,42 @@ public static partial class Game
                 + stages * (stats.GetValueOrDefault(Stat.ChargedDashDamagePlusPctFinalPerStack) / 100d));
             return (1, scale);
         }
-        return (stopped ? Math.Max(0, 1 + stats.GetValueOrDefault(Stat.ChargedDashChannellingDamageAtFullStacksPlusPctFinal) / 100d) : 1, 1);
+        return (1, stopped ? Math.Max(0, 1 + stats.GetValueOrDefault(Stat.ChargedDashChannellingDamageAtFullStacksPlusPctFinal) / 100d) : 1);
     }
 
     static async Task ChargedDashWave(Player player, ChargedDashChannel dash, ChargedDashWavePath wave,
         double start, bool release, double focusedMore)
     {
-        var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == dash.Skill);
-        if (gem.Name is null || !ChargedDashWaveCurrent(player, dash)) return;
-        var points = wave.Points;
-        var (hitMore, hitAndAilmentMore) = ChargedDashDamage(dash.Source.Stats, release, wave.Stopped, wave.Stages);
-        var stats = SkillAreaStats(player, dash.Source.Stats, gem.Effect);
-        int scale = 100 + SkillArea.RadiusPercent(stats.GetValueOrDefault, spell: false);
-        int final = stats.GetValueOrDefault(Stat.ChargedDashAreaOfEffectRadiusPlusOfFinalExplosion);
-        if (release) final += 5;
-        var rolledCrit = CaptureSkillCriticalRoll(player, dash.Skill);
-        var hit = new HashSet<uint>();
-        for (int i = 0; i < points.Length; i++)
+        try
         {
-            double wait = start + ChargedDashWaveStep * i - AreaTime(player);
-            if (wait > 0) await AreaDelay(player, wait);
-            await WhilePaused(player);
-            if (!ChargedDashWaveCurrent(player, dash)) return;
-            var centre = points[i];
-            int radius = ChargedDashRadius(wave.Progress, scale, i == points.Length - 1 ? final : 0);
-            if (radius <= 0) continue;
-            await AreaSkillHitForUse(1, player, dash.Skill, gem, centre, centre, immediate: true,
-                sequence: dash.Sequence, damageMore: hitMore * focusedMore, hitAndAilmentMore: hitAndAilmentMore,
-                criticalRoll: rolledCrit, radiusOverride: radius, once: hit, triggeredCurrent: () => ChargedDashWaveCurrent(player, dash),
-                targetFilter: (id, at) => player.Area.Monsters.TryGetValue(id, out var m) && !m.WorldHidden
-                    && (player.Layout.Sight is not { } sight || !ClientPathfinder.LineBelow(centre, at, sight, 1)),
-                allowMeleeSplash: false, nearbyOnly: true);
+            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == dash.Skill);
+            if (gem.Name is null || !ChargedDashWaveCurrent(player, dash)) return;
+            var points = wave.Points;
+            var (hitMore, hitAndAilmentMore) = ChargedDashDamage(dash.Source.Stats, release, wave.Stopped, wave.Stages);
+            var stats = SkillAreaStats(player, dash.Source.Stats, gem.Effect);
+            int scale = 100 + SkillArea.RadiusPercent(stats.GetValueOrDefault, spell: false);
+            int final = stats.GetValueOrDefault(Stat.ChargedDashAreaOfEffectRadiusPlusOfFinalExplosion);
+            if (release) final += 5;
+            var rolledCrit = CaptureSkillCriticalRoll(player, dash.Skill);
+            var hit = new HashSet<uint>();
+            for (int i = 0; i < points.Length; i++)
+            {
+                double wait = start + ChargedDashWaveStep * i - AreaTime(player);
+                if (wait > 0) await AreaDelay(player, wait);
+                await WhilePaused(player);
+                if (!ChargedDashWaveCurrent(player, dash)) return;
+                var centre = points[i];
+                int radius = ChargedDashRadius(wave.Progress, scale, i == points.Length - 1 ? final : 0);
+                if (radius <= 0) continue;
+                await AreaSkillHitForUse(1, player, dash.Skill, gem, centre, centre, immediate: true,
+                    sequence: dash.Sequence, damageMore: hitMore * focusedMore, hitAndAilmentMore: hitAndAilmentMore,
+                    criticalRoll: rolledCrit, radiusOverride: radius, once: hit, triggeredCurrent: () => ChargedDashWaveCurrent(player, dash),
+                    targetFilter: (id, at) => player.Area.Monsters.TryGetValue(id, out var m) && !m.WorldHidden
+                        && (player.Layout.Sight is not { } sight || !ClientPathfinder.LineBelow(centre, at, sight, 1)),
+                    allowMeleeSplash: false, nearbyOnly: true);
+            }
         }
+        catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }
 
     // Both variants use the client's ChargedDashAim action, which can relocate the local actor on release.

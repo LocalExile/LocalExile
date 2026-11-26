@@ -11,7 +11,7 @@
 /// </summary>
 public static class SkillArea
 {
-    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
+    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX" or "VaalCyclone";
 
     /// <summary>Explicit data wins. Cyclone's base radius is not in its exported stat set (PoB: 16 cells). The player's
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which

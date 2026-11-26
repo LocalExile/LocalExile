@@ -43,7 +43,7 @@ public sealed class ChargedDashTests
             [Stat.ChargedDashDamagePlusPctFinalPerStack] = 75,
             [Stat.ChargedDashChannellingDamageAtFullStacksPlusPctFinal] = 150,
         };
-        Assert.Equal((2.5, 1), Game.ChargedDashDamage(ordinary, release: false, stopped: true, stages: 4));
+        Assert.Equal((1, 2.5), Game.ChargedDashDamage(ordinary, release: false, stopped: true, stages: 4));
         Assert.Equal((1, 3), Game.ChargedDashDamage(ordinary, release: true, stopped: true, stages: 4));
         ordinary[Stat.ChargedDashDamagePlusPctFinalPerStack] = 145;
         Assert.Equal((1, 5.8), Game.ChargedDashDamage(ordinary, release: true, stopped: false, stages: 4));

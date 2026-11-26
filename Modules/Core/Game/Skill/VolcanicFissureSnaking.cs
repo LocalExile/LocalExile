@@ -82,8 +82,11 @@ public static partial class Game
                 if (!Eligible(monster) || monster.Invulnerable || lastBlast.Contains(id)) continue;
                 var position = monster.Walk.Position(time);
                 double distance = Dist(at, position);
-                if (distance == 0 || distance >= best || distance > SnakingFissureRange || End(at, position) != position) continue;
-                end = position;
+                if (distance == 0 || distance >= best || distance > SnakingFissureRange) continue;
+                var stop = End(at, position);
+                if (stop != position && (Walkable(position) || stop == at
+                    || Dist(stop, position) > blast + Math.Max(0, LivingCollision.Size(monster)) || !CanReach(stop, position))) continue;
+                end = stop;
                 best = distance;
             }
             // Where the chain finds no enemy, it still spends its remaining eruptions in the surrounding terrain.

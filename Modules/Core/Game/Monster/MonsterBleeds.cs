@@ -129,6 +129,8 @@ public static partial class Game
         if (target.Bleeds.Burning
             && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, player.IgniteRandom))
             target.Bleeds.Aggravate();
+        if (settings.Seconds <= 0 || settings.OnlyFromCrit && !critical
+            || (critical ? settings.CriticalMax : settings.Max) <= 0) return null;
         int chance = ActorScale.Saturate((long)(critical ? settings.CriticalChance : settings.Chance)
             + target.Effects[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
         if (!RandomRolls.Chance(chance, 100, player.IgniteRandom)) return null;
