@@ -133,8 +133,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components,
   read/close via `0x84`/`0x85` and fire `CharacterAudioEvents` lore reactions (not checked live).
   Docs: [17](../docs/protocol/17-npcs.md).
-- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
-  `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
+- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the mod
+  `nessadevelopmenttabs` in LocalExile-Mods: after her progression tabs or replacing them; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
 - **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
