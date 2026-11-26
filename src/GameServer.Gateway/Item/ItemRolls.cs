@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text.Json;
+using GameServer.Modding;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
@@ -232,7 +234,7 @@ public sealed class ItemRolls
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
         var (prefix, suffix) = SmallAffixClass(type.Class)
@@ -243,9 +245,24 @@ public sealed class ItemRolls
             Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
 
-    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
-    /// which share the jewels' caps.</summary>
-    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and the classes a module
+    /// gave the jewels' caps (<see cref="UseJewelAffixCaps"/>).</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" || jewelCapClasses.Contains(itemClass);
+
+    // Once per UseJewelAffixCaps: an owner's unload takes away only its own.
+    static ImmutableList<string> jewelCapClasses = [];
+
+    /// <summary>Gives an item class of a module's own the jewels' affix caps until the module unloads.</summary>
+    public static IDisposable UseJewelAffixCaps(IModuleLifetime owner, string itemClass)
+    {
+        ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Add(itemClass));
+        return owner.Own(new Undo(() => ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Remove(itemClass))));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>

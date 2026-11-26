@@ -15,7 +15,7 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// 3 enemies (every Augury of Penitence, Occultist and Saboteur enemy aura has [3]; not confirmed in the client).
 /// One table, three views, each limited to the templates whose stats have a consumer:
 /// <list type="bullet">
-/// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): a hit conversion, Overwhelm's crit multiplier,
+/// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): Overwhelm's crit multiplier,
 /// a module's own (<see cref="Apply"/>) and the <c>SaboteurBlind</c> blind (Born in the Shadows: a
 /// stat-less generic_buff_aura, shown on monsters as BuffDefinitions <c>blinded</c>). Game.EnemyDebuffsTick puts
 /// them on every living hostile monster within their radius of the living player; hits read them.</item>
@@ -46,8 +46,7 @@ public static class PassiveBuffAuras
 
     const int PlayerTarget = 1, AlliesTarget = 2, EnemiesTarget = 3;
 
-    // Enemy auras applied by name: their stats have consumers. A template whose every stat is a hit conversion acts too
-    // (Game.EnemyAuraActs).
+    // Enemy auras applied by name: their stats have consumers (Game.EnemyAuraActs).
     static readonly HashSet<string> EnemyAuraTemplates =
     [
         "SlayerCritMultiplier", // Slayer Overwhelm: 1343 slayer_crit_multi_aura, -30 to their crits on the player
@@ -58,8 +57,8 @@ public static class PassiveBuffAuras
 
     /// <summary>Has the server apply this BuffTemplates row of a module's own nodes until the module unloads. With a radius
     /// it is an enemy aura, and its stats must be ones the game's rules read on a monster (elemental_damage_taken_+%,
-    /// MonsterTakesMitigated). With radius 0 it is a permanent, unconditional buff on the player: its stats join the
-    /// passives' sum and the buff is shown.</summary>
+    /// MonsterTakesMitigated; a conversion of its hits, Game.EnemyAuraConversionLocked). With radius 0 it is a permanent,
+    /// unconditional buff on the player: its stats join the passives' sum and the buff is shown.</summary>
     public static IDisposable Apply(IModuleLifetime owner, string template)
     {
         ImmutableInterlocked.Update(ref moduleTemplates, list => list.Add(template));
@@ -107,7 +106,7 @@ public static class PassiveBuffAuras
     public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
         [.. For(nodes, ruthless).Where(acts)];
 
-    /// <summary>Whether this enemy aura is applied by name (not by its stats).</summary>
+    /// <summary>Whether this enemy aura is applied: by name.</summary>
     public static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template)
         || moduleTemplates.Contains(aura.Template);
 

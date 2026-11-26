@@ -20,6 +20,8 @@ public sealed class IdolsModule : IModule
         LoadData();
         var choices = module.Settings<Choices>();
         string id = module.Manifest.Id;
+        // Idols have the jewels' affix caps: two a side, three or four on a rare.
+        ItemRolls.UseJewelAffixCaps(module.Lifetime, IdolRules.ItemClass);
         module.Log($"Atlas passive tree {(choices.EnableAtlasTree ? "kept beside Idols" : "replaced by Idols")}, drop rate ×{choices.DropRate:0.##}");
         // The league's stat: with it the client hides the Atlas passive tree. Nothing else the Idols need depends on it.
         if (!choices.EnableAtlasTree)
