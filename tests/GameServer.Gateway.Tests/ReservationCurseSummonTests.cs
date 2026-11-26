@@ -63,6 +63,48 @@ public sealed partial class ReservationCurseSummonTests
         Assert.Equal(17, ailments.Magnitude(MonsterElementalAilments.Kind.Shock, 0));
     }
 
+    [Fact]
+    public async Task Equipment_reservation_efficiency_updates_reserved_mana_immediately_during_frame_updates()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        ushort id = f.Equip(("Determination", 20)).Single();
+        var det = Game.SupportedSkill(player, id);
+        var updates = new PlayerUpdatesState(f.Lifetime, new FixedSchedule());
+        player.PlayerUpdatesState = updates;
+        Assert.True(player.PlayerUpdatesWorker.TryStart(player, updates.Rules, null, updates, out updates.Generation));
+        await Program.BeginWorldFrames(player, Program.FrameMs / 1000d);
+        player.Area.Systems.Add("stats", AreaPhase.Stats, _ => Game.StepPlayerStats(player), source: f.Lifetime);
+        Assert.True(await Game.ToggleAura(player, id, det.Effect, "Determination",
+            Game.SupportedReservationCost(player, id)!.Value, det.Level, det.Quality));
+        player.Clock.Stop();
+        await player.Frames.EndPausedFrame(player);
+        int reservedWithoutBelt = Game.ReservedMana(player);
+
+        var mod = Program.Items.Mods.ById("V2ManaReservationEfficiencyDeterminationCorrupted")!;
+        var belt = ItemCatalog.Create(Program.Items.Find("Leather Belt")!) with
+        {
+            Mods = [new ItemMod(ModSection.Implicit, mod.Hash, [30])],
+        };
+        Game.ItemsOf(player).Put(PlayerInventories.Belt, new(310, 0, 0, belt));
+        Game.ReconcileOwnAuras(player);
+        int reservedWithBelt = Game.ReservedMana(player);
+        Assert.True(reservedWithBelt < reservedWithoutBelt);
+        Game.StepPlayerStats(player);
+        Assert.Equal(reservedWithBelt, Game.ReservedMana(player));
+
+        Game.ItemsOf(player).Remove(PlayerInventories.Belt, 310);
+        Game.ReconcileOwnAuras(player);
+        Assert.Equal(reservedWithoutBelt, Game.ReservedMana(player));
+        Assert.Equal(0, Game.StatSourceValues(player).GetValueOrDefault(Stat.Of("determination_mana_reservation_efficiency_+%")));
+    }
+
+    sealed class FixedSchedule : IPlayerUpdateSchedule
+    {
+        public double Now(Player player) => 1;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+    }
+
     sealed class Wire : IDisposable
     {
         readonly TcpListener listener = new(IPAddress.Loopback, 0); readonly TcpClient writer = new(); readonly TcpClient reader; readonly Task drain;

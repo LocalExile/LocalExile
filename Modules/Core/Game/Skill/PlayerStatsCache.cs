@@ -24,6 +24,8 @@ public static partial class Game
     /// A stat rule works them out itself, so the graph records what it read.
     public static IReadOnlyDictionary<uint, int> StatSourceValues(Player player) =>
         !StatGraph.InRule && FrameStatsOf.TryGetValue(player, out var frame) && frame.ByFrame && frame.Outputs.Sources is { } sources
+            && frame.Graph is { MarksPending: false } && ReferenceEquals(ItemsOfUnread(player), frame.Items)
+            && ItemsOfUnread(player).Changes == frame.ItemChanges
             ? sources : CharacterStatSources(player).Stats;
 
     /// <summary>The player's stats, not to be changed: in an area's frames the graph's last step's values, off them a
