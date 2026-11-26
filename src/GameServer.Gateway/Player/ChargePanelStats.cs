@@ -24,20 +24,23 @@ public static class ChargePanelStats
 
     /// <summary>The three panel rows, from the stats as the server holds them (<paramref name="get"/>: by Stats.dat Id,
     /// 0 when absent). Reductions that would take a maximum below zero show zero instead.</summary>
-    public static List<(uint Stat, int Value)> Compute(Func<uint, int> get)
+    public static List<(uint Stat, int Value)> Compute(Func<uint, int> get) => Compute(get, 0, 0, 0);
+
+    /// <summary>Computes the panel rows with type-specific bonuses provided by the current rules.</summary>
+    public static List<(uint Stat, int Value)> Compute(Func<uint, int> get, int enduranceBonus, int frenzyBonus, int powerBonus)
     {
         int powerAndEndurance = get(Stat.MaximumPowerAndEnduranceChargesPlus);
         int all = get(Stat.MaximumFrenzyPowerEnduranceCharges);
         static int Maximum(long value) => (int)Math.Clamp(value, 0, int.MaxValue);
-        int frenzy = Maximum((long)BaseMaximumCharges + get(Stat.MaxFrenzyCharges) + all);
+        int frenzy = Maximum((long)BaseMaximumCharges + get(Stat.MaxFrenzyCharges) + frenzyBonus + all);
         return
         [
             // Masterful Form: the endurance maximum is the frenzy one instead of its own sum (client 0x142811290).
             (Stat.VirtualMaximumEnduranceCharges, get(EnduranceEqualsFrenzy) != 0 ? frenzy
-                : Maximum((long)BaseMaximumCharges + get(Stat.MaxEnduranceCharges) + powerAndEndurance + all)),
+                : Maximum((long)BaseMaximumCharges + get(Stat.MaxEnduranceCharges) + enduranceBonus + powerAndEndurance + all)),
             (Stat.VirtualMaximumFrenzyCharges, frenzy),
             (Stat.VirtualMaximumPowerCharges,
-                Maximum((long)BaseMaximumCharges + get(Stat.MaxPowerCharges) + powerAndEndurance + all)),
+                Maximum((long)BaseMaximumCharges + get(Stat.MaxPowerCharges) + powerBonus + powerAndEndurance + all)),
         ];
     }
 

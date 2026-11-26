@@ -2,7 +2,7 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    // BuffDefinitions.crazy carries chaos damage based on maximum Life, attack speed, and increased damage.
+    // BuffDefinitions.crazy has IsRecovery off, so the native buff record carries no stat values.
     const ushort MinionWhispersBuff = 1764;
     const int WhispersDamagePerMinutePct = 1200, WhispersAttackSpeed = 50, WhispersDamage = 50;
 
@@ -26,7 +26,7 @@ public static partial class Game
         double seconds = milliseconds / 1000d;
         state.Until = now + seconds;
         player.Area.Buffs.Set(minion.Id, new(MinionWhispersBuff, minion.Id,
-            Values: [WhispersDamagePerMinutePct, WhispersAttackSpeed, WhispersDamage], U68: Buff.Seconds(seconds)));
+            U68: Buff.Seconds(seconds)));
     }
 
     static int MinionWhispersDamageLocked(Player player, GolemState.Golem minion, double from, double to, double mitigation)
