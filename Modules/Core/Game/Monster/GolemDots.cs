@@ -89,6 +89,7 @@ public static partial class Game
             return;
         }
         if (MinionInstabilityLocked(player, golem, to)) return;
+        if (lifeDamage > 0) ShatteringIceGolemBurstLocked(player, golem, to);
         UpdateGolemDotBuffsLocked(player, golem, to);
     }
 
@@ -138,7 +139,7 @@ public static partial class Game
     {
         var target = golem.Monster;
         var effects = source.Mods.Effects;
-        var victim = target.Mods.Effects;
+        var victim = target.Effects;
         var random = player.IncomingHitRandom;
         // The hit roll carries the monster's 1.3 critical multiplier; ailments use their own ordinary 50%-more critical
         // DoT row, so remove only that hit multiplier before deriving their bases.
@@ -166,6 +167,7 @@ public static partial class Game
 
         int bleedChance = Math.Max(effects[Stat.GlobalBleedOnHit] != 0 ? 100 : 0,
             attack ? effects[Stat.BleedOnHitWithAttacksPct] : 0);
+        if (attack) bleedChance = ActorScale.Saturate((long)bleedChance + victim[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
         double bleedDamage = physical * .10
             * Math.Max(0, 1 + effects[Stat.BleedingDamagePlusPct] / 100.0)
             * Math.Max(0, 1 + effects[Stat.MonsterBleedingDamagePlusPctFinal] / 100.0);

@@ -363,7 +363,8 @@ public static partial class Game
         return RepeatSummonCast(player, source, recovery, current, triggered, async () =>
         {
             uint id = await SummonGolem(player, source, definition, aim, current: current, atProxy: atProxy);
-            if (id != 0 && onslaughtMs > 0)
+            if (id == 0) return false;
+            if (onslaughtMs > 0)
             {
                 bool present;
                 using (ProjectileMutation(player, advance: false))

@@ -190,10 +190,16 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
-  radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
-  melee swings keep their hit over a queued Move.
+- Ground Slam's forward wave scales with area and gains more damage near the player.
+  Area attacks publish their final radius.
+  Volcanic Fissure hits along its path and launches landing projectiles at the end.
+  Snaking hits along each leg and erupts, seeking a reachable target outside the previous eruption's hit set.
+  Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Lacerate and its variants resolve two forward waves at their animation contacts. The overlap can take both hits,
+  and stance changes update the native angle and Blood Stance bleeding modifiers.
+- Cleave hits in a forward semicircle. Quality counts nearby enemies up to the radius cap, and Cleave of Rage
+  needs an axe and sword pair and adds reach at its Rage thresholds.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
@@ -407,7 +413,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   [Paladin](../docs/game/paladin.md).
 - The player's debuffs on monsters: taunt, enemy auras, Intimidate, Unnerve and Wither.
   Docs: [11](../docs/protocol/11-skills.md) Â§12, [Paladin](../docs/game/paladin.md).
-- Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
+- Cyclone and Cyclone of Tumult convert extra melee strike range into increased area.
+  Tumult gains and loses stages on the area clock, with per-stage radius, attack speed and movement speed.
+  Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
+- Player-cast Blade Flurry and Blade Flurry of Incision with aimed acquisition, paid stages, and release strikes.
+  Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
+- Charged Dash and its Projection variant steer a projection, hit along its path and release a scaled final wave.
+  The normal gem moves to a legal landing; the Projection variant stays in place.
+  Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.
