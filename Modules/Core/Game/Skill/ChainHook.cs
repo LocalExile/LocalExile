@@ -27,21 +27,19 @@ public static partial class Game
         return player.Barrier.Count == 0 || ClientPathfinder.Line(from, to).All(cell => !player.Barrier.Contains(cell));
     }
 
+    // The native pull (0x141d04fa0) projects eight cells back from the anchor along its original ray.
     static (int X, int Y) ChainHookLanding(Player player, (int X, int Y) from,
-        (int X, int Y) anchor, int anchorSize)
+        (int X, int Y) anchor, (double X, double Y) direction)
     {
+        const int standOff = 8;
+        if (Dist(from, anchor) <= standOff) return from;
+        var destination = (X: anchor.X - (int)Math.Floor(direction.X * standOff + .5),
+            Y: anchor.Y - (int)Math.Floor(direction.Y * standOff + .5));
         int size = LivingCollision.PlayerSize;
-        int separation = Math.Max(2, size + anchorSize + 1);
-        var last = from;
-        foreach (var cell in ClientPathfinder.Line(from, anchor).Skip(1))
-        {
-            if (Dist(cell, anchor) < separation) break;
-            if (!player.Layout.WalkableFor(cell.X, cell.Y, size) || player.Barrier.Contains(cell)) break;
-            if (player.Blockers.Any(b => Math.Max(Math.Abs(cell.X - b.X), Math.Abs(cell.Y - b.Y)) <= b.Size + size))
-                continue;
-            last = cell;
-        }
-        return last;
+        foreach (var cell in ClientPathfinder.Line(from, destination).Skip(1))
+            if (!player.Layout.WalkableFor(cell.X, cell.Y, size) || player.Barrier.Contains(cell)) return from;
+        return player.Blockers.Any(b => Math.Max(Math.Abs(destination.X - b.X), Math.Abs(destination.Y - b.Y)) <= b.Size + size)
+            ? from : destination;
     }
 
     static Task ScheduleBaseChainHook(Player player, ushort skillId,
@@ -96,7 +94,7 @@ public static partial class Game
                     if (distance >= best || distance > range
                         || !ChainHookInSector(origin, at, direction, distance, ChainHookSearchCosine)
                         || !ChainHookSight(player, origin, at)) continue;
-                    (anchorId, anchor, target, best) = (id, at, m, distance);
+                    (anchorId, anchor, best) = (id, at, distance);
                 }
             }
 
@@ -106,7 +104,7 @@ public static partial class Game
                 if (origin != anchor) direction = GroundSlamWave.Direction(origin, anchor);
                 if (Dist(origin, anchor) > closeRange)
                 {
-                    var landing = ChainHookLanding(player, origin, anchor, LivingCollision.Size(target!));
+                    var landing = ChainHookLanding(player, origin, anchor, direction);
                     if (landing == origin || Dist(landing, anchor) > closeRange) return;
                     player.Walk.Teleport(landing.X, landing.Y, now);
                     session.World(player.Id, InstanceProtocol.Teleport(player.Id, landing.X, landing.Y), "Chain Hook pull");

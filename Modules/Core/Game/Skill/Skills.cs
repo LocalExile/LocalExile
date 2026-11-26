@@ -482,6 +482,7 @@ public static partial class Game
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
+                || effectId is "ChainHookAltY" or "ChainHookAltMercenary"
                 || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
