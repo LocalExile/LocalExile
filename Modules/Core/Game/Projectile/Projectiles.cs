@@ -1280,7 +1280,8 @@ public static partial class Game
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
-            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null)
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
+            Action<Action<int, int, float>>? captureMovement = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1315,6 +1316,8 @@ public static partial class Game
                     ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
             Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), Remove);
             captureRemoval?.Invoke(Remove);
+            captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
+                ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
             void Remove()
             {
                 if (visual.Ended) return;

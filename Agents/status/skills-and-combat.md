@@ -335,6 +335,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Blade Blast of Unloading consumes up to ten orbiting blades in a sequence of expanding blasts.
 - Blade Vortex stacks individually timed blades on the caster, scales its pulse with the blade count, and supports
   repeats, triggered casts, and spell totems.
+- Vaal Blade Vortex pursues nearby enemies and hits periodically from direct casts and paid spell totems.
 - Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
 - Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
 - Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.

@@ -4,7 +4,7 @@ public static partial class Game
 {
     static bool TimedAreaSpellEffect(string? effect) =>
         CorpseDamageSpell(effect) || CremationEffect(effect) || BladefallEffect(effect)
-        || FrostBombEffect(effect) || IsBladeVortex(effect) || effect == "BallLightningAltY";
+        || FrostBombEffect(effect) || IsBladeVortex(effect) || effect is "BallLightningAltY" or VaalBladeVortexEffect;
 
     public sealed partial class ProjectileSession
     {
@@ -26,6 +26,12 @@ public static partial class Game
             {
                 if (!Current() || !commit()) return;
                 double now = ProjectileWorldTime(Player);
+                if (effect == VaalBladeVortexEffect)
+                {
+                    ReleaseVaalBladeVortex(source, CharacterPlayerStats(Player), Player.Walk.Position(now), Current,
+                        (at, radius) => Hit(at, radius, ProjectileWorldTime(Player)));
+                    return;
+                }
                 if (IsBladeVortex(effect))
                 {
                     ReleaseBladeVortex(Player.Id, gem.Id, SkillArtVariation(Player, gem.Gem), source, CharacterPlayerStats(Player), Current,

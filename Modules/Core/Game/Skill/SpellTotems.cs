@@ -21,7 +21,7 @@ public static partial class Game
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
-                || IsBladeVortex(SkillsFor(player).EffectId(effect))
+                || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -312,6 +312,21 @@ public static partial class Game
                         else await CastGolem(player, totem.SkillId, golem!, aim,
                             player.ActionInterruptionGeneration, Current, triggered: true);
                     });
+                });
+                continue;
+            }
+            if (effect == VaalBladeVortexEffect)
+            {
+                long due = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast));
+                // This proxy was paid for at placement and has one Vaal cast.
+                totem.NextCast = double.PositiveInfinity;
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(due, Current, () =>
+                {
+                    var spell = SupportedSkill(player, totem.SkillId);
+                    var critical = CaptureSkillCriticalRoll(player, totem.SkillId);
+                    session.ReleaseVaalBladeVortex(spell, TotemCasterStats(CharacterPlayerStats(player)), totem.At, Current,
+                        (at, radius) => TotemNovaLocked(player, session, totem, at, radius, sequence, sharedCritical: critical));
                 });
                 continue;
             }

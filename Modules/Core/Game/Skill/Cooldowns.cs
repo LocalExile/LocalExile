@@ -276,6 +276,13 @@ public static partial class Game
                 if (reserve && !TryVaalAttackDeadline(player, vaal, out vaalAttackDeadline)) return false;
                 if (reserve)
                 {
+                    if (effectId == VaalBladeVortexEffect && IsTotemSkill(player, requested))
+                    {
+                        vaal.TotemPlacements = 1;
+                        if (TotemLimit(player, requested) >= 2 && WantsTwoTotems(player, requested)
+                            && vaal.Souls <= uint.MaxValue / 2 && CanPayVaalUse(player, vaal with { Souls = vaal.Souls * 2 }))
+                            vaal = vaal with { Souls = vaal.Souls * 2, TotemPlacements = 2 };
+                    }
                     var world = player.RampageWorld;
                     if (!player.OwnedCombatWorker.Bind(player, CombatLifetime!, world.SourceOwner, world, out long generation))
                         return false;

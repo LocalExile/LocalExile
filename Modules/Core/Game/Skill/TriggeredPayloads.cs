@@ -23,7 +23,7 @@ public static partial class Game
         if (TriggerGuardSpell(player, gem) || TriggerSummonSpell(player, gem)
             || TriggerBrandSpell(player, gem.Effect) || MinionUtility(SkillsFor(player).EffectId(gem.Effect))) return true;
         string? effect = SkillsFor(player).EffectId(gem.Effect);
-        if (TimedAreaSpellEffect(effect) && effect != "VaalDetonateDead" || ArcProxyPayload(effect)) return true;
+        if (TimedAreaSpellEffect(effect) && effect is not ("VaalDetonateDead" or VaalBladeVortexEffect) || ArcProxyPayload(effect)) return true;
         if (CurseCatalog.All.ContainsKey(effect ?? "")) return true;
         return (UsesProjectileRuntime(gem.Effect) && ResolveProjectileDefinition(gem.Effect) is not null
                 || TriggerAreaSpell(player, gem) || IsFirestorm(player, gem.Effect)
