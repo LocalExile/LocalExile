@@ -170,6 +170,10 @@ public static partial class Game
         if (SkillsFor(player).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
+        if (SkillsFor(player).IsAura(selected.Effect) && ItemsFor(player).ByHash(host.TypeHash)?.Class == "Ring"
+            && PlainItemSum(host, ItemsFor(player).Mods).GetValueOrDefault(
+                Stat.DisableBlessingSkillsAndDisplaySocketedAuraGemsReserveNoMana) != 0)
+            own[Stat.BaseSkillNoReservation] = 1;
         return new(selected.Effect, level, quality, supports, own, selected.Place.Gem,
             inactive?.Contains(selected.Place.ItemId) != true
                 && GemRequirementsUnmetAt(player, selected.Place.Gem, requirements) is null,
