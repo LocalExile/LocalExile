@@ -259,7 +259,7 @@ public static partial class Game
         player.WitchbaneImmunityUntil = 0;
         ClearMomentum(player);
         ClearDoubleStrikeMomentum(player);
-        ClearAntiquarianOnDeath(player);
+        ClearWardBreakOnDeath(player);
         player.StrikeLocations.Clear();   // skill_location_memory is CancelOnDeath
         player.SpiritChieftains.End(AreaTime(player));   // the chieftain minion dies with the player
         player.Totems.KillAll(AreaTime(player));   // and his totems (the tick sends their deaths)
@@ -605,7 +605,7 @@ public static partial class Game
         int speed = playerStat(Stat.CastSpeedPlusPct) + own(Stat.BaseCastSpeedPlusPct);
         speed += BrandCastSpeedBonusPct(player, effect, playerStat, own)
             + TaggedCastSpeedBonusPct(player, effect, playerStat, own);
-        speed = FinalCastSpeedPct(merged, () => HoldingFishingRod(player), speed);
+        speed = FinalCastSpeedPct(merged, player, speed);
         return own(Stat.BaseSpellCastTimeMsOverride) is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(player), effect, speed);
     }
@@ -662,19 +662,22 @@ public static partial class Game
     // "More" cast speed on the summed increases (the skill's own included), as the client's cast_speed_+% calculator
     // 0x1427101c0: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x14270ed40)
     // multiplies max(0, 1 + v / 100) of each source below in single precision and in this order, then rounds:
-    // Spell Echo's support_multicast_cast_speed_+%_final, Screaming Reels' only for main_hand_weapon_type 15 (a fishing
-    // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
-    // +200%, the metamorphosis boss's in permyriad. A total of −100% or less keeps its existing refusal.
+    // Spell Echo's support_multicast_cast_speed_+%_final, the totem supports' only off a totem, Fanaticism's only for a
+    // hand-cast spell, the Frostbolt one at most +200%, the metamorphosis boss's in permyriad. A module's own sources
+    // (GameEvents.CastSpeedMore) multiply after Fanaticism's, where the client has the one of a class a module gives; a
+    // call without a player (bare stats) has none. A total of −100% or less keeps its existing refusal.
     static int FinalCastSpeedPct(Player player, IReadOnlyDictionary<uint, int> stats, int increased) =>
-        FinalCastSpeedPct(name => name is var k ? stats.GetValueOrDefault(k) : 0, () => HoldingFishingRod(player), increased);
+        FinalCastSpeedPct(name => name is var k ? stats.GetValueOrDefault(k) : 0, player, increased);
 
-    public static int FinalCastSpeedPct(Func<uint, int> get, Func<bool> holdingFishingRod, int increased)
+    public static int FinalCastSpeedPct(Func<uint, int> get, Player? player, int increased)
     {
         if (increased <= -100) return increased;
         static float Factor(int value, float scale = 100) => Math.Max(0, (value + scale) / scale);
         float Final(uint name) => Factor(get(name));
         bool totem = get(Stat.IsTotem) != 0, handCast = get(Stat.CastingSpell) != 0 && get(Stat.IsNotHandCast) == 0;
-        int fishing = get(Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod);
+        float modules = 1;
+        if (player is not null && GameEvents.CastSpeedMore.Any)
+            foreach (var run in GameEvents.CastSpeedMore.For(player)) modules *= Factor(run(player, get));
         float final = Final(Stat.ActiveSkillCastSpeedPlusPctFinal) * 100 * Final(Stat.RighteousFireCastSpeedPlusPctFinal)
             * Final(Stat.SuppressingFireDebuffCastSpeedPlusPctFinal) * Final(Stat.SupportMulticastCastSpeedPlusPctFinal)
             * Final(Stat.EchoingShrineCastSpeedPlusPctFinal) * Final(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal)
@@ -683,7 +686,7 @@ public static partial class Game
             * (totem ? 1 : Final(Stat.SupportSpellTotemCastSpeedPlusPctFinal)) * (totem ? 1 : Final(Stat.SupportCrabTotemCastSpeedPlusPctFinal))
             * Factor(Math.Min(200, get(Stat.CastSpeedPlusPctFinalPerFrostboltDestroyedRecently) * get(Stat.NumberOfFrostboltsDestroyedRecently)))
             * (handCast ? Final(Stat.FanaticismHandCastSpeedPlusPctFinal) : 1)
-            * (fishing != 0 && holdingFishingRod() ? Factor(fishing) : 1)
+            * modules
             * Factor(get(Stat.MetamorphosisBossCastSpeedPlusPctFinalPermyriad), 10000) * Final(Stat.CastSpeedPlusPctFinalForMinion) - 100;
         int more = (int)MathF.Round(final, MidpointRounding.AwayFromZero);
         if (more == 0) return increased;
@@ -1209,7 +1212,7 @@ public static partial class Game
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
-                    ClearAntiquarianOnDeath(player);
+                    ClearWardBreakOnDeath(player);
                     player.LastStunnedOrBlockedStunAt = double.NegativeInfinity;
                     player.LastStoppedTakingDotAt = double.NegativeInfinity;
                     player.TakingDotLastTick = false;
@@ -1272,8 +1275,8 @@ public static partial class Game
                     player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0), esCeiling);
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
                     if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife, esCeiling);
-                    double antiquarianLife = player.Antiquarian.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
-                    if (convertLifeRegen) player.EnergyShield.Gain(antiquarianLife, esCeiling);
+                    double wardBreakLife = player.WardBreak.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
+                    if (convertLifeRegen) player.EnergyShield.Gain(wardBreakLife, esCeiling);
                     double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
                     if (noRegeneration) unhingedHitLife = 0;
@@ -1285,7 +1288,7 @@ public static partial class Game
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
-                        + (fortificationLife + antiquarianLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + (fortificationLife + wardBreakLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
                         + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
@@ -1311,7 +1314,7 @@ public static partial class Game
                     if (lifeTrap > 0 && !HardcoreProgressBlocked(player))
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player, (uint)Math.Max(0, (long)lifeAfter - lifeTrap), now);
-                        if (trapDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+                        if (trapDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
                     // Petrified Blood's own life loss is not damage and cannot be mitigated; it may kill, through the
@@ -1322,7 +1325,7 @@ public static partial class Game
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player,
                             (uint)Math.Max(0, (long)lifeAfter - (long)Math.Round(pbLoss, MidpointRounding.AwayFromZero)), now);
-                        if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+                        if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
                     bool survived = CompleteResourceRecoveryLocked(player, recoveryFrom, now, recoveryStats,
@@ -1406,7 +1409,7 @@ public static partial class Game
     {
         LeechOf(player).TakeRecovery(now);
         FortificationOf(player).TakeRecovery(now);
-        player.Antiquarian.TakeRecovery(now);
+        player.WardBreak.TakeRecovery(now);
         player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
@@ -1795,7 +1798,7 @@ public static partial class Game
         RestoreRampage(player);
         RestoreResourceEffects(player);
         RestoreVaalSouls(player);
-        RestoreAntiquarian(player);
+        RestoreWardBreak(player);
         player.Ward.SetMaximum(player.Pools.Ward);
         pools = player.Pools;
         var stats = CharacterPlayerStatsSnapshot(player, out _, out var panelSources, capturePanelSources: true);

@@ -1,21 +1,23 @@
-# Phrecia Ascendancies module
+# Phrecia Ascendancies mod
 
-`Modules/Legacy/PhreciaAscendancies` owns the existing Phrecia family's class capabilities, opt-ins,
-read-only installed-graph verification, allocated node-stat sources and native graph selector.
-`Leagues/Phrecia/modules.json` explicitly composes it with the standard game modules.
-Any other league can list `PhreciaAscendancies` independently.
-League lists are startup configuration; rebuilding the module reloads its code.
+The mod `phreciaascendancies` in LocalExile-Mods (once the Legacy module `PhreciaAscendancies`) owns the existing
+Phrecia family's class capabilities, opt-ins, read-only installed-graph verification, allocated node-stat sources and
+native graph selector.
+It brings the Phrecia league, whose `league.json` lists it and the mod `idols` (`"mods"`) beside the standard game
+modules. Any other league can list `phreciaascendancies` independently.
+League lists are startup configuration; rebuilding the mod reloads its code.
 
 ## Scope
 
 The initial extraction preserves Gambler, Antiquarian and Aristocrat from main.
 Their class descriptors live under `Classes/<Name>`; a class is enabled only after its implementation is supported.
-The generic catalog still reads all 19 identities for save validation, without making unfinished classes playable.
+The module builds all 19 identities (`AscendancyCatalog.Build`) while it is loaded, without making unfinished classes
+playable; with the module away a saved choice is kept and the character is refused at entry.
 Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reusable stat-driven engines stay in Game.
 Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
 Harbinger remains separate work.
 Other contributors' classes are not copied into this prerequisite.
-Idols are their own module, `Modules/Legacy/Idols`, listed by the league beside this one; neither depends on the other.
+Idols are their own mod, `idols`, listed by the league beside this one; neither depends on the other.
 See [Idols](idols.md).
 
 The existing `Game_VERIFIED_GAMBLER`, `Game_VERIFIED_ANTIQUARIAN` and `Game_VERIFIED_ARISTOCRAT`
@@ -31,7 +33,7 @@ Normal and unascended characters have no alternate-graph verification requiremen
 
 Ward, Adrenaline, stun recovery, luck, attributes, item requirements and other stat-driven consumers remain reusable
 in `Core/Game`, including their non-Phrecia item and ordinary-class sources.
-The optional module supplies Phrecia node stats before the existing equipment/attribute qualification pass.
+The mod supplies Phrecia node stats before the existing equipment/attribute qualification pass.
 The common resolver passes the current mode vector, preserving HardMode alternates for ordinary and optional nodes.
 The existing allocation, connectivity, awards, paid refund and compare-and-save rules remain shared.
 Save family, stable identity, revision, nodes, awards and unknown fields keep their existing representation.
@@ -77,7 +79,7 @@ Historical tests and native checks from before the module restructuring do not e
 The Gateway regressions exercise host lifetime cleanup and optional-family admission, source/selector ownership,
 durable progress retention, ordinary controls and replacement generation isolation without real-time waits.
 The bounded native migration smoke checks one legal source-producing allocation for each of the three classes,
-paid resets and normal graph controls, optional-module reload/re-entry with retained progress,
+paid resets and normal graph controls, optional-mod reload/re-entry with retained progress,
 and an ordinary connection remaining playable across that reload.
 It does not repeat historical whole-class combat matrices.
 Current solution, Core/Data/Gateway and native acceptance receipts belong to the exact tested base/head in `logs/`.

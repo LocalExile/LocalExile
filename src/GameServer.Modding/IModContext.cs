@@ -30,12 +30,11 @@ public interface IModContext
     /// left out; the write reloads the mod. Throws <see cref="ArgumentException"/>, writing nothing, when one does not fit
     /// its declaration.</summary>
     void SaveSettings<T>(T settings);
-}
 
-/// <summary>What the host gives a module or a league's own code beyond a mod's: the rules it gives leagues. The player's world is
-/// the Gateway's (<c>Program.WorldOf</c>).</summary>
-public interface IModuleContext : IModContext
-{
-    /// <summary>The rules this module gives the leagues that use it; the first in a league's list that gives any wins.</summary>
+    /// <summary>The rules this module, or this mod of the leagues that list it (<see cref="ModManifest.Listed"/>), gives the
+    /// leagues that use it; the first in a league's list that gives any wins. A mod of every league cannot: it throws.</summary>
     void ProvideLeagueRules(Func<LeagueRules> rules);
 }
+
+/// <summary>What the host gives a module or a league's own code (<see cref="IModule.Load"/>): the same as a mod's.</summary>
+public interface IModuleContext : IModContext;

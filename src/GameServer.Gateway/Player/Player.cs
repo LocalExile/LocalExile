@@ -882,8 +882,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public readonly CharacterBuildImports.Session BuildImport = new();
     public bool BuildFinalized;
-    public bool Controlled, ControlledPrepared;
-    public double ControlledNextAction, ControlledDeadSince = double.NaN;
+    /// <summary>False for a player the server drives (Program.DriveByServer): nothing reaches a client, and it answers no
+    /// window, vote or prompt.</summary>
+    public bool HasClient => Connection.Driven is null;
+    /// <summary>Whether its account's progress counts (achievements, play time, kill and death counts): a client's does.</summary>
+    public bool EarnsProgress => Connection.Driven?.EarnsProgress ?? true;
+    /// <summary>Whether it is found by name or account (whispers, /who, friends, the guild, invites): a client's is.</summary>
+    public bool Listed => Connection.Driven?.Listed ?? true;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
@@ -1284,7 +1289,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
-    public readonly AntiquarianCombatState Antiquarian = new();
+    public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>

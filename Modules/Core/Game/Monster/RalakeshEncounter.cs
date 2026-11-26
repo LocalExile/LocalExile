@@ -147,10 +147,21 @@ public static class RalakeshEncounter
             await ResolveHits(runner, hits, effects, now, () => !stopped);
             desecrates.RemoveAll(d => now >= d.Ends);
 
-            var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && IsAvatar(p.Value.Variety?.Id));
-            if (entry.Value is not { } boss)
+            // Read the avatar by its remembered id first; scan the area only when that lookup is gone.
+            SpawnedMonster? boss = null;
+            if (bossId != 0 && runner.Area.Monsters.TryGetValue(bossId, out var cached) && cached.Hostile && IsAvatar(cached.Variety?.Id))
+                boss = cached;
+            else
+            {
+                var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && IsAvatar(p.Value.Variety?.Id));
+                if (entry.Value is { } found)
+                {
+                    bossId = entry.Key;
+                    boss = found;
+                }
+            }
+            if (boss is null)
                 return;
-            bossId = entry.Key;
 
             if (!Alive(boss))
             {

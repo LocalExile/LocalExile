@@ -78,6 +78,13 @@ checked again under the lock, so it runs once.
   delete its row from `updates` (or the database) to run it again.
 - A file with a recorded file's text under a new name, whose old file is gone, is the merge's rename: only its record is
   renamed.
+- A [mod](modding.md#leagues) that is on brings world data in its own `sql/updates/world/`: those files run at
+  the next start, after the repository's, recorded as `mods/<id>/updates/world/<file>`, under the same rules. So
+  a mod's file must run against the newest schema (name its columns) and is replaced by a new file, never
+  edited. A file that moves between the repository and a mod with its text unchanged is a rename and does not
+  run again; while both hold it, the mod's is not run beside the repository's. Rows stay when a mod is
+  turned off: they must do nothing without its code (a unique: `encounter_only`) and must not change the
+  repository's rows.
 
 The servers read `sql/` from their working directory (the repository root, or the release folder); `Game_SQL_DIR`
 points elsewhere.

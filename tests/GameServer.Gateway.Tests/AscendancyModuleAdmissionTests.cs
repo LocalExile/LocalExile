@@ -7,7 +7,7 @@ public sealed class AscendancyModuleAdmissionTests
     public void Optional_family_requires_its_live_league_owner_and_preserves_progress_across_retirement()
     {
         using var save = new SaveFixture();
-        var identity = new AscendancyIdentity(AscendancyFamily.Phrecia, "Gladiator", "3.29.3b");
+        var identity = new AscendancyIdentity(AscendancyFamilies.Named("Phrecia"), "Gladiator", "3.29.3b");
         var normal = identity with { Family = AscendancyFamily.Normal };
         var progress = new AscendancyProgress(identity, [19], ["normal"]);
         var admitted = PlayerOf("admitted", "PhreciaAscendancies");
@@ -100,7 +100,8 @@ public sealed class AscendancyModuleAdmissionTests
     sealed class Policy(AscendancyIdentity supported) : IAscendancyFamilyPolicy
     {
         public bool RejectGraph;
-        public AscendancyFamily Family => AscendancyFamily.Phrecia;
+        public AscendancyFamily Family => AscendancyFamilies.Named("Phrecia");
+        public AscendancyTree Tree { get; } = new([], []);
         public bool Supports(AscendancyIdentity identity) => identity == supported;
         public void RequirePlayable(AscendancyIdentity identity)
         {

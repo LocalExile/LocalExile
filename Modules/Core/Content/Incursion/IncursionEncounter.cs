@@ -90,7 +90,7 @@ public sealed class IncursionEncounter
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+        InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c));
 
     static double Distance((int X, int Y) a, (int X, int Y) b) => double.Hypot(a.X - b.X, a.Y - b.Y);
 

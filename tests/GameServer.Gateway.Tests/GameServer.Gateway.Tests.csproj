@@ -20,11 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\PlayerBots\PlayerBots.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
-    <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
     <!-- The QuestObjects module's rules and acts (Act6EncounterTests, QuestEncounterRestoreTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />

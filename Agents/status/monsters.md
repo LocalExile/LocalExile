@@ -248,6 +248,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
+  Kitava's Act 5 and Act 10 bodies stay at the terrain's exact boss point and keep its facing during combat.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
   Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI

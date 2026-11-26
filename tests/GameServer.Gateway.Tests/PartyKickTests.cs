@@ -42,7 +42,7 @@ public class PartyKickTests
         first.Connection.Outbox = firstOutbox;
         second.Connection.Outbox = secondOutbox;
         uint party = 0;
-        leader.Controlled = first.Controlled = second.Controlled = false;
+        leader.Connection.Driven = first.Connection.Driven = second.Connection.Driven = null;
         try
         {
             await PartyRoster.InviteHuman(leader, first.Character.Name!);
@@ -92,7 +92,7 @@ public class PartyKickTests
         var invited = runtime.PlayerOf(instance, wire, "CancelTarget");
         var (invitedMessages, invitedOutbox) = Capture();
         invited.Connection.Outbox = invitedOutbox;
-        leader.Controlled = invited.Controlled = false;
+        leader.Connection.Driven = invited.Connection.Driven = null;
         await PartyRoster.InviteHuman(leader, invited.Character.Name!);
         uint invite = PartyRoster.PartyOf(leader);
         invitedMessages.Clear();
@@ -114,7 +114,7 @@ public class PartyKickTests
         var member = runtime.PlayerOf(instance, wire, "CancelMember");
         var (messages, outbox) = Capture();
         member.Connection.Outbox = outbox;
-        member.Controlled = false;
+        member.Connection.Driven = null;
         await PartyRoster.InviteHuman(leader, member.Character.Name!);
         uint party = PartyRoster.PartyOf(leader);
         await PartyRoster.AcceptHuman(member, party);
@@ -132,7 +132,7 @@ public class PartyKickTests
             await PartyRoster.LeaveHuman(member, PartyRoster.PartyOf(member));
         }
 
-        // A player in no party is another module's (the PlayerBots one owns its bots' parties): leave it alone.
+        // A player in no party is another owner's (the playerbots mod owns its bots' parties): leave it alone.
         Assert.False(await PartyRoster.Kick(member, "SomeBot"));
     }
 }

@@ -10,6 +10,8 @@ namespace GameServer.Storage;
 /// transaction of its own, and is recorded in the database's <c>updates</c> table with the SHA-1 of its text: a recorded
 /// file whose text changed stops the server (a fix is a new update), and so does a file that fails. A file renamed with the
 /// same text (a pending update the merge moved and dated) only has its record renamed.
+/// <para>A mod (Agents/docs/dev/modding.md) brings world data the same way: the update files in its
+/// <c>sql/updates/world/</c> run after the repository's own, under the same rules.</para>
 /// <para>Several processes may update one file at once (Auth and the Gateway both open the player databases): each file
 /// is applied under SQLite's write lock and checked again there, so it runs once.</para>
 /// </summary>
@@ -31,6 +33,18 @@ public static class SqlUpdater
     public static string Root => Environment.GetEnvironmentVariable("Game_SQL_DIR") ?? "sql";
 
     public sealed record Script(string Name, string Path, bool Base, bool Pending);
+
+    /// <summary>The database a mod may bring updates for.</summary>
+    const string ModDatabase = "world";
+
+    /// <summary>The update files the mods bring for <paramref name="database"/>, from each mod's sql folder
+    /// (<c>Mods/Binaries/&lt;id&gt;/sql</c>): its <c>updates/world/</c> files, all mods merged in name order. A name is
+    /// <c>mods/&lt;id&gt;/updates/world/x.sql</c>. Only the world database takes them.</summary>
+    public static IReadOnlyList<Script> ModUpdates(string database, IEnumerable<string> mods) =>
+        database != ModDatabase ? [] :
+        [.. mods.SelectMany(sql => Files(sql, $"updates/{database}")
+                .Select(s => s with { Name = $"mods/{System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(sql)))}/{s.Name}" }))
+            .OrderBy(s => System.IO.Path.GetFileName(s.Name), StringComparer.Ordinal).ThenBy(s => s.Name, StringComparer.Ordinal)];
 
     /// <summary>The files that build <paramref name="database"/>, in the order they apply. A name is the path under
     /// <paramref name="root"/> with forward slashes (<c>updates/world/2026_11_09_120000_x.sql</c>).</summary>
@@ -84,7 +98,7 @@ public static class SqlUpdater
         return db;
     }
 
-    /// <summary>Brings the database at <paramref name="path"/> up to date (<see cref="Update(SqliteConnection, string, string?, Action{string}?)"/>).</summary>
+    /// <summary>Brings the database at <paramref name="path"/> up to date (<see cref="Update(SqliteConnection, string, string?, Action{string}?, IEnumerable{string}?)"/>).</summary>
     public static int Update(string path, string database, string? root = null, Action<string>? log = null)
     {
         using var db = Open(path);
@@ -93,8 +107,9 @@ public static class SqlUpdater
 
     /// <summary>Applies every file of <paramref name="database"/> not yet recorded in the connection's main database.
     /// Returns how many ran. Throws <see cref="SqlUpdateException"/> on a failed or changed file; what ran before it
-    /// stays.</summary>
-    public static int Update(SqliteConnection db, string database, string? root = null, Action<string>? log = null)
+    /// stays. <paramref name="mods"/>: the sql folders of the mods that are on (<see cref="ModUpdates"/>).</summary>
+    public static int Update(SqliteConnection db, string database, string? root = null, Action<string>? log = null,
+        IEnumerable<string>? mods = null)
     {
         log ??= Console.WriteLine;
         Execute(db, """
@@ -107,23 +122,34 @@ public static class SqlUpdater
             ) STRICT
             """);
         root ??= Root;
-        var scripts = Scripts(database, root);
+        // The hashes only: a file's text is read again when it has to run (the client database's files are 300 MB).
+        var scripts = Scripts(database, root).Select(s => (Script: s, Hash: Hash(Text(s.Path)))).ToList();
+        // A mod's file with the text of a file already here (the repository's own first) is that file, not a second
+        // one: while a file moves between the two, a server may see both.
+        var texts = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (script, hash) in scripts) if (!script.Base) texts.TryAdd(hash, script.Name);
+        foreach (var script in ModUpdates(database, mods ?? []))
+        {
+            string hash = Hash(Text(script.Path));
+            if (texts.TryAdd(hash, script.Name)) scripts.Add((script, hash));
+            else log($"[sql] {database}: {script.Name} has the text of {texts[hash]}: not run beside it");
+        }
+        var present = scripts.Select(s => s.Script.Name).ToHashSet(StringComparer.Ordinal);
         var recorded = Recorded(db);
         // A large update may hold the write lock a while; another process waits for it.
         Execute(db, "PRAGMA busy_timeout=600000");
         int ran = 0;
         try
         {
-            foreach (var script in scripts)
+            foreach (var (script, hash) in scripts)
             {
-                string text = Text(script.Path);
-                string hash = Hash(text);
                 if (recorded.TryGetValue(script.Name, out string? had))
                 {
                     if (had != hash) throw Changed(database, script);
                     continue;
                 }
-                if (Apply(db, database, root, script, text, hash, log)) ran++;
+                string text = Text(script.Path);
+                if (Apply(db, database, root, script, text, Hash(text), log, present)) ran++;
                 recorded[script.Name] = hash;
             }
         }
@@ -147,7 +173,8 @@ public static class SqlUpdater
 
     // One file in one transaction, under the write lock taken at its start (BEGIN IMMEDIATE): another process that applied
     // it in the meantime is seen here, and the file is skipped.
-    static bool Apply(SqliteConnection db, string database, string root, Script script, string text, string hash, Action<string> log)
+    static bool Apply(SqliteConnection db, string database, string root, Script script, string text, string hash, Action<string> log,
+        HashSet<string> present)
     {
         using var tx = db.BeginTransaction(deferred: false);
         string? had = Lookup(db, tx, "SELECT hash FROM updates WHERE name = $v", script.Name);
@@ -157,9 +184,10 @@ public static class SqlUpdater
             if (had != hash) throw Changed(database, script);
             return false;
         }
-        // The same text under a new name: a pending update the merge renamed, whose file is gone. Rename the record.
-        if (!script.Base && Lookup(db, tx, "SELECT name FROM updates WHERE hash = $v AND state <> 'BASE'", hash) is { } old
-            && !File.Exists(System.IO.Path.Combine(root, old)) && old != script.Name)
+        // The same text under a new name: a pending update the merge renamed, or a file that moved between the
+        // repository and a mod, whose old file is gone. Rename the record.
+        if (!script.Base && Names(db, tx, hash).FirstOrDefault(name => name != script.Name && !present.Contains(name)
+                && !File.Exists(System.IO.Path.Combine(root, name))) is { } old)
         {
             Run(db, tx, "UPDATE updates SET name = $name, state = $state WHERE name = $old",
                 ("$name", script.Name), ("$state", State(script)), ("$old", old));
@@ -176,7 +204,8 @@ public static class SqlUpdater
         {
             tx.Rollback();
             throw new SqlUpdateException($"[sql] {database}: {script.Name} failed: {e.Message}. Nothing of it was applied; fix the file " +
-                "(a merged one with a new update) and start again", e);
+                (ModOf(script) is { } mod ? $"({script.Path}), or turn the mod {mod} off ({Off(mod)}), and start again"
+                    : "(a merged one with a new update) and start again"), e);
         }
         Run(db, tx, "INSERT INTO updates (name, hash, state, applied_utc, speed_ms) VALUES ($name, $hash, $state, $utc, $ms)",
             ("$name", script.Name), ("$hash", hash), ("$state", State(script)), ("$utc", DateTime.UtcNow.ToString("O")),
@@ -189,9 +218,31 @@ public static class SqlUpdater
     static string State(Script s) => s.Base ? "BASE" : s.Pending ? "PENDING" : "UPDATE";
 
     static SqlUpdateException Changed(string database, Script script) => new(
-        $"[sql] {database}: {script.Name} changed after it was applied. A merged file never changes: put it back and add a new " +
+        ModOf(script) is { } mod
+            ? $"[sql] {database}: {script.Name} ({script.Path}) changed after it was applied. A released file never changes: put it back " +
+                $"and add a new file, or turn the mod {mod} off ({Off(mod)}). While it is being written, delete its " +
+                "row from the updates table to run it again"
+            : $"[sql] {database}: {script.Name} changed after it was applied. A merged file never changes: put it back and add a new " +
         (script.Pending ? "update. While it is still pending, delete its row from the updates table (or the database) to run it again"
             : "update with the fix"), null);
+
+    // How a mod is turned off (ModFolders.On): the state file's line wins over its mod.json.
+    static string Off(string mod) => $"mod.json \"enabled\": false, or \"{mod} off\" in mod-state.txt when it is listed there";
+
+    // The mod a script is from (its name is mods/<id>/...), or null for the repository's own.
+    static string? ModOf(Script script) => script.Name.Split('/') is ["mods", var id, ..] ? id : null;
+
+    static List<string> Names(SqliteConnection db, SqliteTransaction tx, string hash)
+    {
+        using var c = db.CreateCommand();
+        c.Transaction = tx;
+        c.CommandText = "SELECT name FROM updates WHERE hash = $v AND state <> 'BASE' ORDER BY rowid";
+        c.Parameters.AddWithValue("$v", hash);
+        using var r = c.ExecuteReader();
+        var names = new List<string>();
+        while (r.Read()) names.Add(r.GetString(0));
+        return names;
+    }
 
     static string? Lookup(SqliteConnection db, SqliteTransaction tx, string sql, string value)
     {

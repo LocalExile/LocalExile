@@ -65,7 +65,7 @@ foreach (var release in releases)
             if (type.Scope is not AssemblyNameReference scope) continue;
             if (!scope.Name.StartsWith("GameServer.", StringComparison.Ordinal) && !dependencies.Contains(scope.Name)) continue;
             count++;
-            if (!Resolves(reference)) missing.Add($"{dll.Name} requires [{scope.Name}] {reference.FullName}");
+            if (!Resolves(reference)) missing.Add($"{dll.FullName} requires [{scope.Name}] {reference.FullName}");
         }
     }
     Console.WriteLine($"{owner}: checked {count} server references, {missing.Count} missing");

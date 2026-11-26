@@ -138,7 +138,7 @@ public static class SaveRows
         if (s.MainAscendancy is { } a)
             Run(db, "INSERT INTO character_ascendancies (save, family, ascendancy, revision, selection_unknown, nodes, awards, unknown) " +
                     "VALUES ($s, $f, $a, $r, $su, $n, $w, $u)", ("$s", id),
-                ("$f", Value(a.Selection is { } f ? JsonSerializer.SerializeToElement(f.Family, Json).ToString() : null)),
+                ("$f", Value(a.Selection is { } f ? f.Family.Name() : null)),
                 ("$a", Value(a.Selection?.Id)), ("$r", Value(a.Selection?.Revision)), ("$su", Value(JsonOf(a.Selection?.Unknown))),
                 ("$n", Value(JsonOf(a.Nodes))), ("$w", Value(JsonOf(a.Awards))), ("$u", Value(JsonOf(a.Unknown))));
 
@@ -167,7 +167,7 @@ public static class SaveRows
             t.Bool("chest_opened")!.Value, t.Bool("skill_claimed")!.Value, t.Bool("support_claimed")!.Value, t.Text("tutorial_id"),
             t.Bool("weapon_prompt_heard")!.Value, t.Bool("wake_up_shown")!.Value)).FirstOrDefault();
         var ascendancy = Rows(db, "SELECT * FROM character_ascendancies WHERE save = $s", id).Select(a => new AscendancyProgress(
-            a.Text("family") is { } family ? new AscendancyIdentity(JsonSerializer.Deserialize<AscendancyFamily>(JsonSerializer.Serialize(family), Json),
+            a.Text("family") is { } family ? new AscendancyIdentity(AscendancyFamilies.Named(family),
                 a.Text("ascendancy")!, a.Text("revision")!) { Unknown = a.Json<Dictionary<string, JsonElement>>("selection_unknown") } : null,
             a.Json<List<ushort>>("nodes"), a.Json<List<string>>("awards")) { Unknown = a.Json<Dictionary<string, JsonElement>>("unknown") }).FirstOrDefault();
         var hideouts = Rows(db, "SELECT * FROM character_hideout_placements WHERE save = $s ORDER BY area, key", id)

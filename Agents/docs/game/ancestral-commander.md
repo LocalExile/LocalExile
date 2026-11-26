@@ -257,5 +257,5 @@ With a `/spawn_mob <variety> unique` close by, a totem killed by those hits show
 which 45% of each hit comes from the next totem.
 Check that the totems rise and die with their animation, and that the client lets a third be placed.
 
-Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Coverage: `PhreciaFourClassesTests`, kept with the mod in `tests/` and not run yet (admission with the class's own opt-in, and its node stats). The class's earlier
 Gateway tests went with the Gateway test reset of `3877f119`.

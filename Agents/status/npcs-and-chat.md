@@ -133,30 +133,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components,
   read/close via `0x84`/`0x85` and fire `CharacterAudioEvents` lore reactions (not checked live).
   Docs: [17](../docs/protocol/17-npcs.md).
-- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
-  `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
+- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the mod
+  `nessadevelopmenttabs` in LocalExile-Mods: after her progression tabs or replacing them; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
-- **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
-  Town bots are not drawn: since the area replicates its own entities, a bot is not yet one of them (party followers,
-  which are controlled players, are).
-  Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
-  Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
-  Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
-  damage, resurrection and persisted kill/gem experience, shared for melee, projectile and owned kills.
-  Observers receive earned experience, level stats and the default level-up flash; active-party reload retains earned XP.
-  The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
-  from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
-  (a module reload clears that flag until the bot's next update).
-  Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
-  Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
-  Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
-  Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
-  Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
-  Human friends and town-invited bots share one six-member roster, including kicks, leader handover and area changes.
-  Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
-  trade, chat, ascendancy builds and advanced tactical AI remain open.
-  See [player bots](../docs/dev/player-bots.md).
+- **Player bots** are the mod `playerbots` in LocalExile-Mods (its README has what they do and what is open). Core
+  keeps what they use and any tool may: players the server drives (`Program.DriveByServer`, `Player.HasClient`), and
+  Social's one six-member roster for human friends and server-driven members (invites, kicks, leader handover).
 
 ## Not working yet
 

@@ -68,10 +68,10 @@ public static class InstanceNpcs
 
     public const ushort TalkTextId = 0x87;
 
-    /// <summary>S?C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
+    /// <summary>S→C 0x87: u32 reward inventory id (manager 1), u16 QuestRewardOffers row, with bit 15 an optional flag.
     /// Send 0xc0 for that inventory before opening it. The first field is NOT the NPC object id: a missing inventory
     /// crashes the reward window at 0x140c2ff60. Live verified 2026-10-25 with offers 0 and 8, inventory 0x600.
-    /// Selecting a reward uses C?S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
+    /// Selecting a reward uses C→S 0x88 (or Ctrl+click 0x8a), as with a shop.</summary>
     public static byte[] OpenQuestReward(uint inventoryId, ushort offer, bool flag = false) =>
         new LoginWriter().U16(TalkTextId).U32(inventoryId).U16((ushort)((offer & 0x7fff) | (flag ? 0x8000 : 0))).ToArray();
 
