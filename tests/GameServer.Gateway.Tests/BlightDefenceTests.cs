@@ -23,14 +23,23 @@ public sealed class BlightDefenceTests
         var encounter = new BlightEncounter();
         var d = area.Defend(encounter);
         await encounter.Enter(area.A);
-        // The area keeps the pump's records for whoever joins later.
+        // The area keeps the pump's records for whoever joins later, and spawns Sister Cassia beside it.
         Assert.True(area.A.Area.Objects.Has(d.Pump));
+        Assert.NotEqual(0u, d.CassiaId);
+        Assert.True(area.A.Area.Monsters.ContainsKey(d.CassiaId));
         await encounter.Start(area.B, d);
         Assert.Equal(Phase.Building, d.Phase);
         Assert.NotNull(d.Plan);
         Assert.NotEmpty(d.Plan!.Lanes);
         Assert.NotEmpty(d.Spots);
         Assert.Equal(BlightEncounter.StartResource, d.Resource);
+        Assert.Equal(d.Plan.Lanes.Count, d.LaneEncounterTypes.Count);
+        Assert.Contains(d.LaneRewards.Values, r => r is "Blight" or "HardModeBlight");
+
+        // All 30 buildable towers are classified into valid families (0 is foundation).
+        Assert.Equal(31, BlightTables.Towers.Count);
+        for (int row = 1; row < BlightTables.Towers.Count; row++)
+            Assert.NotEqual(TowerFamily.None, BlightTowers.FamilyOf(BlightTables.Towers[row].Id));
 
         // The client's choice of the first Chilling tower on a foundation (BlightTowers row 1), and a message too short to read.
         var spot = d.Spots.Values.First();
@@ -43,6 +52,28 @@ public sealed class BlightDefenceTests
         Assert.NotEqual(foundation, spot.Id);
         Assert.Equal(BlightEncounter.StartResource - (uint)BlightTables.Towers[1].Cost, d.Resource);
         Assert.False(d.Spots.ContainsKey(foundation));
+
+        // Build a Summoning Tower Mk I (row 21) and an Imbuing Tower (row 14) on another spot to verify minion + aura towers.
+        d.Resource += 2000;
+        var second = d.Spots.Values.First(s => s.Row == 0);
+        Assert.True(await encounter.Build(area.A, [0x02, 0x65, .. BitConverter.GetBytes(second.Id).Reverse(), 0, 0, 0, 21]));
+        Assert.Equal(21, second.Row);
+        double t = d.StartedAt;
+        for (int step = 0; step <= BlightEncounter.RaiseSteps + 2; step++)
+            await encounter.Tick(area.A, t += 1.0);
+        Assert.Equal(3, second.Minions.Count);
+        Assert.All(second.Minions, mid => Assert.True(area.A.Area.Monsters[mid].AlliedFighter));
+
+        // Imbuing tower (row 14) grants FinalStatsBuilding bonuses when the player stands inside its radius.
+        var third = d.Spots.Values.First(s => s.Row == 0);
+        third.Row = 14;
+        third.Raising = 0;
+        area.A.Walk.Teleport(third.X, third.Y, t);
+        await encounter.Tick(area.A, t += 1.0);
+        var playerStats = new Dictionary<uint, int>();
+        BlightTowers.ApplyPlayerImbuement(area.A, playerStats);
+        Assert.True(playerStats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) > 0);
+        await BlightTowers.ClearPlayerImbuement(area.A);
 
         // A client that comes back is told the resource and sent no create again: each client was sent the pump once, the state
         // each change made once, and its own bytes (the writer encrypts a buffer in place).
@@ -90,17 +121,38 @@ public sealed class BlightDefenceTests
         Assert.Equal(d.Monsters.Keys.Order(), kept.Monsters.Keys.Order());
         d = kept;
 
-        // One reaches the pump: it costs durability and leaves the instance; the rest are killed.
-        uint first = d.Monsters.Keys.First();
+        // One non-boss reaches the pump: it costs 1 durability (a boss costs 5) and leaves the instance; the rest are killed.
+        uint first = d.Monsters.First(kv => kv.Value.Rarity != MonsterRarity.Unique).Key;
         area.A.Area.Monsters[first].Walk.Teleport(d.Cell.X, d.Cell.Y, now);
         await encounter.Tick(area.A, now += 1);
         Assert.Equal(d.MaxDurability - 1, d.Durability);
         Assert.False(area.A.Area.Monsters.ContainsKey(first));
+
+        // Verify Smothering, Temporal, Glacial Cage and lane immunity on a living monster before finishing.
+        uint probe = d.Monsters.Keys.First(id => area.A.Area.Monsters.ContainsKey(id) && !area.A.Area.Monsters[id].Dead);
+        var probeMonster = area.A.Area.Monsters[probe];
+        int probeLane = d.Monsters[probe].Lane;
+        d.LaneEncounterTypes[probeLane] = 0; // Cold lane -> immune to Cold towers, affected by Smothering/Temporal.
+        Assert.True(BlightTowers.IsImmune(d, probeLane, TowerFamily.Cold));
+        Assert.False(BlightTowers.IsImmune(d, probeLane, TowerFamily.Physical));
+        var auraSpot = d.Spots.Values.First();
+        auraSpot.Row = 15; // Smothering Tower
+        auraSpot.Raising = 0;
+        probeMonster.Walk.Teleport(auraSpot.X, auraSpot.Y, now);
+        await encounter.Tick(area.A, now += 1);
+        Assert.True(probeMonster.TemporaryStats.ContainsKey(BlightTowers.SmotheringStatsKey));
+
         foreach (uint id in d.Monsters.Keys.Where(id => area.A.Area.Monsters.ContainsKey(id)).ToArray())
             area.A.Area.Monsters[id].Life = 0;
         await encounter.Tick(area.A, now += 1);
         Assert.Equal(Phase.Won, d.Phase);
         Assert.Equal(1, d.PumpStates[5]);
+        // Victory spawns end-of-lane Blight reward chests, and Blight chests roll real Oils from BlightCraftingItems.
+        Assert.Equal(d.Plan!.Lanes.Count * BlightChests.ChestsPerLane, d.Chests.Count);
+        var oil = BlightChests.RollOil(Game.ItemsFor(area.A), d.Level, new Random(1));
+        Assert.NotNull(oil);
+        var blightLoot = BlightChests.RollChestItems(area.A, "Blight", d.Level, new Random(2));
+        Assert.NotEmpty(blightLoot);
     }
 }
 

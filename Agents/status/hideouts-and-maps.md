@@ -218,7 +218,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
   client yet. The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
 
-- Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).
+- Blight: pump, lanes, foundations, all 30 towers (ailments, auras, minions, controls, type immunities), themed waves
+  with bosses, end-of-lane reward chests (Oils and Blighted maps), Sister Cassia, and campaign support (HUD and live
+  check pending).
 
 - Simulacrum: five arenas and a 15-wave controller; opening and the wave-start prompt checked in the client.
   Per-type reward bars drive the native HUD via `AfflictionEndGameRules` (S→C 0x1f row 103 + S→C 0x2c9 mode 1; live
