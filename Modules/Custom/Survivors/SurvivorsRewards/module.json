@@ -1,7 +1,0 @@
-{
-  "id": "SurvivorsRewards",
-  "version": "1.0.0",
-  "kind": "feature",
-  "depends": ["Game", "SurvivorsSkills"],
-  "assembly": "bin/survivorsrewards.dll"
-}
