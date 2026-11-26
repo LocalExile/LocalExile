@@ -606,7 +606,7 @@ public static partial class Game
         int speed = playerStat(Stat.CastSpeedPlusPct) + own(Stat.BaseCastSpeedPlusPct);
         speed += BrandCastSpeedBonusPct(player, effect, playerStat, own)
             + TaggedCastSpeedBonusPct(player, effect, playerStat, own);
-        speed = FinalCastSpeedPct(merged, () => HoldingFishingRod(player), speed);
+        speed = FinalCastSpeedPct(merged, player, speed);
         return own(Stat.BaseSpellCastTimeMsOverride) is int basis and > 0
             ? SpellCastTiming.Calculate(basis, speed) : SpellCastTiming.ForSkill(SkillsFor(player), effect, speed);
     }
@@ -663,19 +663,22 @@ public static partial class Game
     // "More" cast speed on the summed increases (the skill's own included), as the client's cast_speed_+% calculator
     // 0x1427101c0: round((increased + 100) × (final + 100) / 100 − 100), at least −99. Its combined final (0x14270ed40)
     // multiplies max(0, 1 + v / 100) of each source below in single precision and in this order, then rounds:
-    // Spell Echo's support_multicast_cast_speed_+%_final, Screaming Reels' only for main_hand_weapon_type 15 (a fishing
-    // rod), the totem supports' only off a totem, Fanaticism's only for a hand-cast spell, the Frostbolt one at most
-    // +200%, the metamorphosis boss's in permyriad. A total of −100% or less keeps its existing refusal.
+    // Spell Echo's support_multicast_cast_speed_+%_final, the totem supports' only off a totem, Fanaticism's only for a
+    // hand-cast spell, the Frostbolt one at most +200%, the metamorphosis boss's in permyriad. A module's own sources
+    // (GameEvents.CastSpeedMore) multiply after Fanaticism's, where the client has the one of a class a module gives; a
+    // call without a player (bare stats) has none. A total of −100% or less keeps its existing refusal.
     static int FinalCastSpeedPct(Player player, IReadOnlyDictionary<uint, int> stats, int increased) =>
-        FinalCastSpeedPct(name => name is var k ? stats.GetValueOrDefault(k) : 0, () => HoldingFishingRod(player), increased);
+        FinalCastSpeedPct(name => name is var k ? stats.GetValueOrDefault(k) : 0, player, increased);
 
-    public static int FinalCastSpeedPct(Func<uint, int> get, Func<bool> holdingFishingRod, int increased)
+    public static int FinalCastSpeedPct(Func<uint, int> get, Player? player, int increased)
     {
         if (increased <= -100) return increased;
         static float Factor(int value, float scale = 100) => Math.Max(0, (value + scale) / scale);
         float Final(uint name) => Factor(get(name));
         bool totem = get(Stat.IsTotem) != 0, handCast = get(Stat.CastingSpell) != 0 && get(Stat.IsNotHandCast) == 0;
-        int fishing = get(Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod);
+        float modules = 1;
+        if (player is not null && GameEvents.CastSpeedMore.Any)
+            foreach (var run in GameEvents.CastSpeedMore.For(player)) modules *= Factor(run(player, get));
         float final = Final(Stat.ActiveSkillCastSpeedPlusPctFinal) * 100 * Final(Stat.RighteousFireCastSpeedPlusPctFinal)
             * Final(Stat.SuppressingFireDebuffCastSpeedPlusPctFinal) * Final(Stat.SupportMulticastCastSpeedPlusPctFinal)
             * Final(Stat.EchoingShrineCastSpeedPlusPctFinal) * Final(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal)
@@ -684,7 +687,7 @@ public static partial class Game
             * (totem ? 1 : Final(Stat.SupportSpellTotemCastSpeedPlusPctFinal)) * (totem ? 1 : Final(Stat.SupportCrabTotemCastSpeedPlusPctFinal))
             * Factor(Math.Min(200, get(Stat.CastSpeedPlusPctFinalPerFrostboltDestroyedRecently) * get(Stat.NumberOfFrostboltsDestroyedRecently)))
             * (handCast ? Final(Stat.FanaticismHandCastSpeedPlusPctFinal) : 1)
-            * (fishing != 0 && holdingFishingRod() ? Factor(fishing) : 1)
+            * modules
             * Factor(get(Stat.MetamorphosisBossCastSpeedPlusPctFinalPermyriad), 10000) * Final(Stat.CastSpeedPlusPctFinalForMinion) - 100;
         int more = (int)MathF.Round(final, MidpointRounding.AwayFromZero);
         if (more == 0) return increased;

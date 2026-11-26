@@ -641,6 +641,19 @@ public static class GameEvents
     /// what it runs (the Pantheon's "pantheon").</summary>
     public static readonly GameEvent<Action<Player, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
     public static readonly GameEvent<Func<Player, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
+    /// <summary>The stat sources the player's pools (life, mana, energy shield) are about to be built from, with the final
+    /// attributes: a module turns its own per-attribute stats into the ordinary pool stats they are, on the sources. Only the
+    /// pools take the change.</summary>
+    public static readonly GameEvent<Action<Player, Dictionary<uint, int>, (int Strength, int Dexterity, int Intelligence)>> PoolSources = new();
+    /// <summary>The player's stats once the final attributes and the pools are in them, before the offence rows: a module derives
+    /// its own stats on the map, from the map alone (a stat rule's view: the rule runs again when what was read changes).</summary>
+    public static readonly GameEvent<Action<Player, StatMap>> DerivedStats = new();
+    /// <summary>An attack's hit by damage type, after conversion and the increases and before the roll, with the stats it was
+    /// built from: a module returns it changed. A hit is built without a connection, so this runs for every player's attacks:
+    /// a subscriber acts only on a stat of its own.</summary>
+    public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
+    /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
     public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
@@ -738,6 +751,12 @@ public static class GameEvents
     {
         foreach (var run in PlayerStatSources.For(player)) sources = run(player, sources);
         return sources;
+    }
+
+    public static DamagePacket WithAttackHit(DamagePacket hit, Func<uint, int> get)
+    {
+        foreach (var subscriber in AttackHit.Snapshot) hit = subscriber.Run(hit, get);
+        return hit;
     }
 
     public static DamagePacket WithOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster monster, DamagePacket rolled)

@@ -41,7 +41,7 @@ public static partial class Game
         return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
     }
 
-    // Whether the server applies this enemy aura: by name (Light of Divinity, the blind) or because every stat it has is a
+    // Whether the server applies this enemy aura: by name (a module's own, the blind) or because every stat it has is a
     // hit conversion (Born under Fire). The others' buffs would show effects that do not happen, so they are not sent
     // until their stats have consumers.
     public static bool EnemyAuraActs(PassiveBuffAuras.Aura aura) => aura.Enemies && aura.Radius > 0
