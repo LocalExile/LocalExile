@@ -272,7 +272,7 @@ public sealed class GameModule : IModule, IDisposable
             // The Kingsmarch rules carry the modding-layer player (World/KingsmarchTown.cs); the game's own
             // connection, layout and walk stay on the game's player.
             IPlayer me = Program.PlayerOf(player);
-            commands.Add("village", "/village [hire | assign <worker> <plot 1-6 | mine | smelter> | crop <plot> <crop>] (the Kingsmarch farm, mine and smeltery)",
+            commands.Add("village", "/village [hire | assign <worker> <plot 1-6 | mine | smelter | ship 1-3> | crop <plot> <crop>] (the Kingsmarch farm, mine, smeltery and ships)",
                 async args =>
                 {
                     if (args.Length > 0 && args[0] == "hire")
@@ -285,12 +285,20 @@ public sealed class GameModule : IModule, IDisposable
                     }
                     if (args.Length >= 2 && args[0] == "assign")
                     {
-                        if (!int.TryParse(args[1], out int worker)) { await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter>"); return; }
+                        if (!int.TryParse(args[1], out int worker)) { await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter | ship 1-3>"); return; }
+                        if (args.Length >= 3 && args[2] is "ship" or "shipping")
+                        {
+                            int ship = 1;
+                            if (args.Length >= 4 && (!int.TryParse(args[3], out ship) || ship < 1 || ship > 3))
+                            { await me.Tell("usage: /village assign <worker> ship <1-3>"); return; }
+                            await me.Tell("Kingsmarch: " + KingsmarchTown.AssignJob(me, worker, "ship", ship));
+                            return;
+                        }
                         if (args.Length >= 3 && args[2] is "mine" or "smelter")
                         { await me.Tell("Kingsmarch: " + KingsmarchTown.AssignJob(me, worker, args[2])); return; }
                         if (args.Length >= 3 && int.TryParse(args[2], out int plot))
                         { await me.Tell("Kingsmarch: " + await KingsmarchTown.Assign(me, worker, plot)); return; }
-                        await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter>"); return;
+                        await me.Tell("usage: /village assign <worker> <plot 1-6 | mine | smelter | ship 1-3>"); return;
                     }
                     await me.Tell($"Kingsmarch farm: {KingsmarchTown.StoreText(me)}");
                 });

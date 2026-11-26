@@ -39,12 +39,20 @@ public static class VillageProduction
     /// <summary>The <c>VillageJobTypes</c> rows this file runs (the client's own ids).</summary>
     public const int MiningKind = 1, SmeltingKind = 2;
 
+    /// <summary>The harbour's job type: the crew a port card's "+" badge assigns, whose workers stand in the
+    /// <c>VillageJobs</c> rows 21 to 23 (one per ship). No production line runs on it.</summary>
+    public const int ShippingKind = 6;
+
     /// <summary>The stats the lines read, by their <c>Stats</c> row: the two speed percentages
     /// (<c>VillageJobTypes.JobSpeedStat</c>), the worker caps and ore ranks of <c>VillageBaseStats</c>, and the gold one
     /// mined ore is worth.</summary>
     public const int MiningSpeed = 20695, SmithingSpeed = 20696;
     public const int MaxMiners = 20713, MineRank = 20714, MaxSmiths = 20715, SmithRank = 20716;
     public const int GoldPerOre = 20872;
+
+    /// <summary>How many crew one ship holds: <c>village_max_crew_per_ship</c> in <c>VillageBaseStats</c> (6, the
+    /// "/6" a port card's crew line shows).</summary>
+    public const int MaxCrewPerShip = 20724;
 
     /// <summary>How far one advance may jump: a town left alone for a day must not mint a day of ore at once.</summary>
     public const double MaxStep = 4 * 3600;

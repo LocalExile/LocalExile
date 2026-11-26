@@ -96,13 +96,15 @@ public static class KingsmarchTown
 
     /// <summary>Writes the town's numbers for the Village module, which pushes them to the panel.</summary>
     /// <summary>The <c>VillageJobs</c> row a worker's job is named by: the mine's veins are rows 1 to 5, the smeltery's
-    /// rows 6 to 10 and the six farm plots rows 11 to 16. Row 0 is the idling worker, whose row carries no job.</summary>
-    /// <param name="plot">The worker's slot (-1 and up are plots, -2 the mine, -3 the smeltery).</param>
+    /// rows 6 to 10, the six farm plots rows 11 to 16 and the harbour's three ships rows 21 to 23. Row 0 is the idling
+    /// worker, whose row carries no job.</summary>
+    /// <param name="plot">The worker's slot (-1 and up are plots, -2 the mine, -3 the smeltery, -4 to -6 the ships).</param>
     static int JobRow(int plot) => plot switch
     {
         >= 0 and < 6 => 11 + plot,
         MineJob => 1,
         SmelterJob => 6,
+        >= ShipJob - 2 and <= ShipJob => 21 + ShipOf(plot),
         _ => 0,
     };
 
@@ -1258,6 +1260,7 @@ public static class KingsmarchTown
         MineJob => 1,
         SmelterJob => 2,
         >= 0 => 3,
+        >= ShipJob - 2 and <= ShipJob => 6,
         _ => 0,
     };
 
@@ -1292,6 +1295,23 @@ public static class KingsmarchTown
     // so unlike a plot an assignment to them is only the saved worker's field.
     const int MineJob = -2;
     const int SmelterJob = -3;
+    // The harbour's three ships, stored the same way: ShipJob minus the ship's own place (0, 1, 2 -the cards the port
+    // window lists as 大海勇氣, KTS 東方之星 and 卡迪根之怒). The client's crew panel opens from a card's "+" badge and
+    // sends the VillageJobs row that belongs to that card (21, 22, 23), so a worker placed on a ship has to land in a
+    // slot this file can name or the very next tick rewrites the worker back to idle and the crew is thrown off again.
+    const int ShipJob = -4;
+
+    /// <summary>Whether a worker's slot is one of the harbour's ships.</summary>
+    static bool OnShip(int plot) => plot is >= ShipJob - 2 and <= ShipJob;
+
+    /// <summary>Which ship a slot stands for, counting from zero, or -1 when the slot is not a ship.</summary>
+    static int ShipOf(int plot) => OnShip(plot) ? ShipJob - plot : -1;
+
+    /// <summary>Whether a worker holds any job at all (a plot, the mine, the smeltery or a ship), as against idling.
+    /// Every place that asks "who is idle" has to ask this instead of <c>Plot &lt; 0</c>, or a ship's crew is offered
+    /// as available and can be placed a second time.</summary>
+    static bool Working(Worker worker) => worker.Plot >= 0 || worker.Plot == MineJob || worker.Plot == SmelterJob
+        || OnShip(worker.Plot);
 
     /// <summary>Unix epoch seconds, the clock the town's continuous production settles on. The town has to settle the
     /// time a character was away, which a process-local tick counter cannot do.</summary>
@@ -1590,9 +1610,14 @@ public static class KingsmarchTown
                 + (plot.Crop == 0 ? "" : $", {rate * 3600:0.#}/h, {plot.Produced} grown")
                 + (who.Length > 0 ? $" (worker {who})" : " (no one)"));
         }
-        var idle = progress.Workers.Where(w => w.Plot < 0 && w.Plot != MineJob && w.Plot != SmelterJob)
+        var idle = progress.Workers.Where(w => !Working(w))
             .Select(w => w.Order + 1).ToList();
         lines.Add(idle.Count == 0 ? "workers: none idle" : $"workers: idle {string.Join(",", idle)}");
+        var crews = Enumerable.Range(0, 3)
+            .Select(ship => progress.Workers.Where(w => w.Plot == ShipJob - ship).Select(w => w.Order + 1).ToList())
+            .ToList();
+        lines.Add("ships: " + string.Join(", ", crews.Select((crew, ship) =>
+            $"ship {ship + 1} " + (crew.Count == 0 ? "no one" : $"worker {string.Join(",", crew)}"))));
         var onMine = progress.Workers.Where(w => w.Plot == MineJob).Select(w => w.Order + 1).ToList();
         lines.Add("mine: " + (onMine.Count == 0 ? "no one"
             : $"worker {string.Join(",", onMine)}, next ore in {Math.Max(0, progress.MineStartedAt + MineSeconds - clock):0} s"));
@@ -1601,10 +1626,10 @@ public static class KingsmarchTown
             : $"worker {string.Join(",", atSmelter)}, next bar in {Math.Max(0, progress.SmeltStartedAt + SmeltSeconds - clock):0} s"));
         var store = progress.Store.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key} {kv.Value}").ToList();
         lines.Add("stored: " + (store.Count == 0 ? "nothing yet" : string.Join(", ", store)));
-        int worked = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        int worked = progress.Workers.Count(Working);
         lines.Add($"treasury: {KingsmarchPort.Gold(progress.Who)} gold, {WagesPerHour(progress)} an hour in wages"
             + (progress.WageDebt >= 1 ? $", {progress.WageDebt:0.#} due" : ""));
-        lines.Add("commands: /recruit ; /village assign <worker> <plot 1-6 | mine | smelter> ; /treasury [gold]");
+        lines.Add("commands: /recruit ; /village assign <worker> <plot 1-6 | mine | smelter | ship 1-3> ; /treasury [gold]");
         return string.Join(" | ", lines);
     }
 
@@ -1785,13 +1810,14 @@ public static class KingsmarchTown
     {
         Progress progress = State(player);
         // The panel names a job by its VillageJobs row: 1 to 5 are the mine's veins, 6 to 10 the smeltery, 11 to 16 the
-        // farm's six plots. Without the mine and smeltery rows a recruited miner would arrive idle and the panel would
-        // rewrite his job back to "idle" on the next tick.
+        // farm's six plots and 21 to 23 the harbour's three ships. Without the mine, smeltery and ship rows a recruited
+        // miner or a ship's crew would arrive idle and the panel would rewrite the job back to "idle" on the next tick.
         int plot = jobRow switch
         {
             >= 1 and <= 5 => MineJob,
             >= 6 and <= 10 => SmelterJob,
             >= 11 and <= 16 => jobRow - 11,
+            >= 21 and <= 23 => ShipJob - (jobRow - 21),
             _ => -1,
         };
         lock (_lock)
@@ -1814,7 +1840,7 @@ public static class KingsmarchTown
     public static Task<string> AssignIdle(IPlayer player, int index, int plotOrder)
     {
         Progress progress = State(player);
-        int[] idle = [.. progress.Workers.Select((w, i) => (Worker: w, Place: i + 1)).Where(pair => pair.Worker.Plot < 0).Select(pair => pair.Place)];
+        int[] idle = [.. progress.Workers.Select((w, i) => (Worker: w, Place: i + 1)).Where(pair => !Working(pair.Worker)).Select(pair => pair.Place)];
         if (idle.Length == 0) return Task.FromResult("every worker already has a job");
         int worker = index >= 0 && index < idle.Length ? idle[index] : idle[^1];
         return Assign(player, worker, plotOrder);
@@ -1841,17 +1867,28 @@ public static class KingsmarchTown
             $"0x02bc Kingsmarch plot {plot.Order + 1} num_workers {count}");
     }
 
-    /// <summary>Puts a worker on one of the town's two jobs -the mine (VillageJobTypes 1) or the smeltery (2) -instead
-    /// of a farm plot. Neither job has a client-side plot state to re-state (the mine hut and smeltery stand as plain
-    /// town furniture), so unlike <see cref="Assign"/> this only moves the worker and saves the farm.</summary>
-    public static string AssignJob(IPlayer player, int worker, string job)
+    /// <summary>Puts a worker on one of the town's jobs -the mine (VillageJobTypes 1), the smeltery (2) or one of the
+    /// harbour's three ships (6) -instead of a farm plot. None of these has a client-side plot state to re-state (the
+    /// mine hut and the smeltery stand as plain town furniture, and a ship's crew is one of the numbers the port card
+    /// counts), so unlike <see cref="Assign"/> this only moves the worker and saves the farm.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="worker">The worker's number in the town, counting from one.</param>
+    /// <param name="job">"mine", "smelter" or "ship".</param>
+    /// <param name="ship">Which ship, counting from one, when <paramref name="job"/> is "ship".</param>
+    public static string AssignJob(IPlayer player, int worker, string job, int ship = 1)
     {
         Progress progress = State(player);
         int slot;
         string what;
         if (job is "mine" or "mining") { slot = MineJob; what = "the mine"; }
         else if (job is "smelter" or "smelting" or "smelt" or "smeltery") { slot = SmelterJob; what = "the smeltery"; }
-        else return "the town's jobs are the mine and the smeltery (a number 1-6 is a farm plot)";
+        else if (job is "ship" or "shipping")
+        {
+            if (ship < 1 || ship > 3) return $"no ship {ship}: the harbour has three (1-3)";
+            slot = ShipJob - (ship - 1);
+            what = $"ship {ship}";
+        }
+        else return "the town's jobs are the mine, the smeltery and the three ships (a number 1-6 is a farm plot)";
         lock (_lock)
         {
             if (worker < 1 || worker > progress.Workers.Count)
@@ -1951,7 +1988,7 @@ public static class KingsmarchTown
         double now = UtcNow();
         double away = Math.Min(now - from, AwayCap);
         if (away <= 1) return;
-        int working = progress.Workers.Count(w => w.Plot >= 0 || w.Plot == MineJob || w.Plot == SmelterJob);
+        int working = progress.Workers.Count(Working);
         double worked = away;
         int perHour = WagesPerHour(progress);
         if (working > 0 && perHour > 0)

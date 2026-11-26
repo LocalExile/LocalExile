@@ -1071,6 +1071,15 @@ public sealed class VillageModule : IModule
         };
         if (cap > 0 && VillageProduction.CrewOf(settlement, kind) >= cap)
             return $"assign worker {worker}: the town already has {cap} on that job";
+        // A ship's crew is capped per ship rather than per job type: the harbour has three cards and each holds six
+        // (village_max_crew_per_ship), and the row it names is the card it belongs to (21, 22, 23 = ships 1, 2, 3).
+        if (kind == VillageProduction.ShippingKind)
+        {
+            int perShip = Math.Max(1, VillageProduction.Stat(settlement, VillageProduction.MaxCrewPerShip));
+            int aboard = VillageProduction.WorkersOn(settlement, row);
+            if (aboard >= perShip)
+                return $"assign worker {worker}: ship {row - 20} already has {aboard} crew";
+        }
         var idle = order.Where(pair => pair.Value == 0).ToList();
         // The index is a place in the available column, and that column shrinks as workers are placed, so it is
         // clamped rather than rejecting whoever is last -that was the worker nobody could ever place.

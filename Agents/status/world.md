@@ -113,9 +113,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   remove (a move between a plot, the mine, the smithy and the idle column), the treasury's add/remove, the population,
   the crops in the store and the wage line. The harbour window (`0x7b` kind `0x58`) draws its three ship cards from the
   dock slots the server pushes (`0x2c9` kind `0x9b`, subtag 2: slot, port row, failure row and the sixteen cargo counts),
-  but its own buttons (`貨物`, `選擇港口`, `啟航`, `遺棄`) never build a village action in this client build — they only
-  move the card's local state — so loading and sailing are the commands `/port route|load|sail|unload <slot> …` and the
-  window is the readout. A trip banks its barter when it is due and frees its slot, and the clock is the wall clock, so a
+  and its cargo and sailing buttons (`貨物`, `選擇港口`, `啟航`, `遺棄`) never build a village action in this client build —
+  they only move the card's local state — so loading and sailing are the commands `/port route|load|sail|unload <slot> …`
+  and the window is the readout. Its crew badge is the exception and does work: the `+` beside `船員: n/6` opens the
+  準備船員 panel and its 指派 button arrives as `0x2ca` action `0x03` with a `VillageJobs` row of 21, 22 or 23 (one per
+  ship), so a crew is town workers like any other job and stays aboard (`/village assign <worker> ship <1-3>` does the
+  same). A card with no crew reads 100% risk because the client computes that number itself from the shipment value and the
+  crew's Shipping skill, not from anything the server sends; a crewed card reads 0%. A trip banks its barter when it is due
+  and frees its slot, and the clock is the wall clock, so a
   saved trip is due after a restart. The farm window (`0x7b` kind `0x59`) does send: its crop dropdown arrives as `0x2ca`
   action `0x04` with the plot and a `VillageResources` row (10..14 a crop, `0xff` the list's 無 entry), so picking a crop
   plants it and picking 無 leaves the plot bare. A module reload no longer costs the town its plots: the save names each

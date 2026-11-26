@@ -119,7 +119,12 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   store (`Load`), and `Sail` turns it into a `Ship` at sea that ties up its crew, banks its barter when it is due and
   gives the slot back; `Unload` puts a dock's cargo back in the store. The clock is the wall clock in Unix seconds
   (`Clock()`), so a trip saved before a restart is still due after it.
-- Commands: `/village` (report), `/village hire`, `/village assign <worker> <plot>`, `/village crop <plot> <crop>`,
+- A worker's job is one number: a farm plot (0..5), the mine, the smeltery or one of the harbour's three ships. The
+  "who is idle" tests all go through one predicate (`KingsmarchTown.Working`), because a test written as `Plot < 0` offers
+  a ship's crew as available a second time. The mine and the smeltery are not objects in the town either — a worker's
+  saved slot is the whole of the assignment — and neither is a ship's crew: the port card counts it.
+- Commands: `/village` (report), `/village hire`, `/village assign <worker> <plot>`, `/village assign <worker> ship
+  <1-3>`, `/village crop <plot> <crop>`,
   `/recruit`, `/treasury`,
   `/port` (report), `/port route <slot> <port>`, `/port load <slot> <crop> <count>`, `/port sail <slot> [port]`,
   `/port unload <slot>`, `/port send <port> <crop> <count>`, `/port crew <n>`, `/port storm <percent>` (dev), `/unlock`.
@@ -210,18 +215,36 @@ sub-tag 2 above, re-read on every draw: a `setcargo` probe showed a card's `貨�
 straight out of its dock slot, and a pushed frame with slot 0, port row 1, failure row 6 and 40 Wheat drew the whole
 route row (destination `里本丘原`, travel time `01:47:00`, wage `0/h`) with a `啟航` button.
 
-**But the window's buttons never build a village action.** With the `0x2ca` builder sites (`0x141f9de33`,
+**The cargo and sailing buttons never build a village action.** With the `0x2ca` builder sites (`0x141f9de33`,
 `0x1421a1985` — the only two callers of the message constructor `0x141fa7a10`) and the dispatcher (`0x14176a8e0`) all
 hooked, clicking `貨物`, `選擇港口`, `啟航` and `遺棄` (including the "abandon this cargo?" confirm) produced no message,
 no log line and no change to the harbour's save; the card's `航行中/靠岸` state and that dialog are the widget's own local
 state. The recruitment window (`0x55`) does send from the same hooks — a click on `僱用` arrived as
-`0x02ca village action 0x01 hire worker … blob 0101` — so the channel works and the port window is the exception.
+`0x02ca village action 0x01 hire worker … blob 0101` — so the channel works.
 
-So the window is the readout and `/port …` is the input: `route <slot> <port>` picks a card's destination, `load
-<slot> <crop> <count>` moves crops out of the farm's store into that card's `貨物` box, `sail <slot> [port]` sends it
-(tying up its crew, `ceil(value / ExpectedShipmentValue)` hands, 1…6), `unload <slot>` puts the cargo back, and a trip
-that is due banks its barter and gives the slot back. The dock slots live in `data/kingsmarch-port.json`
-(`SavedPort.Docks`), the crew and barter beside them.
+**The crew badge on a card does send** — it is the one part of this window that reaches the server. Clicking the `+` beside
+`船員: n/6` opens the 準備船員 panel (可用工人 listing the idle workers), and its `指派` button arrives as `0x2ca` action
+`0x03` with `blob 03 <idle-column index> <VillageJobs row>`, where the row is 21, 22 or 23 for the first, second and third
+card (live 2026-11-26: `03 0E 16` = column place 14, ship 2; `03 0E 17` = ship 3). So a ship's crew is a `VillageJobs` row
+like any other job and the town has to be able to hold it, which is what `KingsmarchTown`'s `ShipJob` slots (-4, -5, -6 for
+ships 1, 2, 3) are for: `JobRow` names those rows back (21..23), `JobTypeOf` gives them `VillageJobTypes` 6 so the shipping
+row of the wage table bills, and `MoveTo` puts the worker there. Before those slots existed the row fell through to idle,
+the panel's snapshot wrote row 0 back on the next tick and the crew was thrown off again within seconds.
+
+So the cargo half of the window is the readout and `/port …` is the input: `route <slot> <port>` picks a card's
+destination, `load <slot> <crop> <count>` moves crops out of the farm's store into that card's `貨物` box, `sail <slot>
+[port]` sends it (tying up its crew, `ceil(value / ExpectedShipmentValue)` hands, 1…6), `unload <slot>` puts the cargo
+back, and a trip that is due banks its barter and gives the slot back. The dock slots live in
+`data/kingsmarch-port.json` (`SavedPort.Docks`), the crew and barter beside them.
+
+The crew and the cargo are separate things: a ship's crew is town workers (`/village assign <worker> ship <1-3>`, or the
+card's `+` badge), while `SavedPort.Crew` is the old harbour pool the `/port send`/`/port crew` commands still use.
+
+**The risk number on a card is the client's own.** No sub-tag 2 field carries it; the client computes it from the
+shipment's value and the crew's Shipping skill (`KalguurHarbourInfoHover`: a higher shipment value means greater risk,
+and "to reduce the Risk of this happening, crew your ship with recruits adept at Shipping"). A card with no crew therefore
+reads 100% and one with a crew reads 0%, which is why an uncrewed-looking ship looked catastrophic after loading a few ores
+while the server's own `Failure` for that route was 3%.
 
 ## The farm window
 
