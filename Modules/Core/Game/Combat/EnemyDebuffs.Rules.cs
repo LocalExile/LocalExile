@@ -447,7 +447,7 @@ public static partial class Game
             if (!on) until = double.NegativeInfinity;
             if (buff != 0 && (!on || shown != until))
             {
-                player.Area.Buffs.Clear(id, row, allowPermanent && double.IsPositiveInfinity(shown) ? id : player.Id);
+                player.Area.Buffs.Clear(id, row, player.Id);
                 buff = 0;
                 counts[1]++;
             }

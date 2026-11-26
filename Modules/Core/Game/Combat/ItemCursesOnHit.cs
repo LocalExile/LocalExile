@@ -43,9 +43,10 @@ public static partial class Game
         if (row < 0 || now < player.SkillReadyAt.GetValueOrDefault(row)) return;
         var own = ItemCurseStats(skills, sourceEffect, level);
         if (own.Count == 0) return;
+        var triggered = new SupportedGem(row, level, 0, [], own, Granted: true);
         var caster = FinalPlayerStats(player).ToDictionary(p => p.Item1, p => p.Item2);
         var paying = MergeSkillStats(caster, own, skills.IsChannelled(row), SkillCostMore(player, own),
-            CostEfficiencyFor(skills, row));
+            SkillCostScopeFor(skills, triggered));
         if (!SkillCostLocked(player, row, own, paying, out uint mana, out int life, out uint shield,
                 out uint fromShield, out int rage)
             || !PayResolvedSkillCostLocked(player, paying, mana, life, shield, fromShield, rage,

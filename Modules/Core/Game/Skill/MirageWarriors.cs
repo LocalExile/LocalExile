@@ -628,7 +628,8 @@ public static partial class Game
                     if (!m.Invulnerable)
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
-                            AreaRng(player), sourceEffect: gem.Effect, poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore),
+                            AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
+                            sourceEffect: gem.Effect, poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore),
                             sourceSkill: skillId, ownHit: false,
                             weaponWitherChance: local?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
