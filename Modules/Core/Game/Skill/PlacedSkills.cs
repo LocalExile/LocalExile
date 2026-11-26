@@ -161,7 +161,13 @@ public static partial class Game
     {
         var playerStats = CharacterPlayerStats(player);
         uint additional = mine ? Stat.NumberOfAdditionalMinesToPlace : Stat.NumberOfAdditionalTrapsToThrow;
-        return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional), 1, 200);
+        long count = 1L + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional);
+        if (mine)
+        {
+            if (player.Pools.Intelligence >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Int);
+            if (player.Pools.Dexterity >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Dex);
+        }
+        return (int)Math.Clamp(count, 1, 200);
     }
 
     // Throwing takes its own time, not the supported spell's cast time: 0.5 s for a trap (3.29.3c ThrowTrap::Start
