@@ -117,6 +117,9 @@ public static partial class Game
             }
             if (GetIn(stats, Stat.AdditiveLifeModifiersApplyToAttackDamageAt30PctValue) != 0)
                 AddTo(stats, Stat.AttackDamagePlusPct, GetIn(stats, Stat.MaximumLifePlusPct) * 30L / 100);
+            if (GetIn(stats, Stat.AttackDamagePlusPctPer75ArmourOrEvasionOnShield) is int shieldDamage and not 0
+                && ActiveShieldDefences(player) is { } shield)
+                AddTo(stats, Stat.AttackDamagePlusPct, (long)((shield.Armour + shield.Evasion) / 75) * shieldDamage);
             if (GetIn(stats, Stat.AdditiveEnergyShieldModifiersApplyToSpellDamageAt30PctValue) != 0)
                 AddTo(stats, Stat.SpellDamagePlusPct, GetIn(stats, Stat.MaximumEnergyShieldPlusPct) * 30L / 100);
             if (GetIn(stats, Stat.EsRegenerationPerMinutePctWhileStationary) is int stationaryRegen and not 0
