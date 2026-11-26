@@ -2283,8 +2283,16 @@ public static partial class Game
     {
         while (true)
         {
-            if (!MonsterPresent(player, id, m) || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
-                || m.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
+            double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
+            if (m.Invulnerable || m.CannotBeStunned || m.Effects.CannotBeStunned || HitReaction.Chance(stun, threshold) <= 0) return;
+            if (m.Life == 0 || m.Dead || m.HitAnimations is not { Count: > 0 })
+            {
+                if (CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired
+                    && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), m))
+                    HitReaction.TryFlinch(m, stun, AreaTime(player), AreaRng(player));
+                return;
+            }
+            if (!MonsterPresent(player, id, m)) return;
             bool checkedAtGate = false;
             await SendWorldRecord(player, id, [], null, atGate: () =>
             {

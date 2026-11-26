@@ -563,8 +563,8 @@ public static partial class Game
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(player).EffectId(effect)))
             {
-                // The player's base area is in the panel total already (AreaPlayerStats): only the gem's own counts here.
-                int AreaGet(uint name) => name == SkillArea.BaseIncreased ? own.GetValueOrDefault(name) : Get(name);
+                var areaStats = SkillAreaStats(player, own, effect, playerStats);
+                int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
                 int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(effect), AreaGet);
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
@@ -572,6 +572,9 @@ public static partial class Game
                 if (Stat.ActiveSkillBaseAreaOfEffectRadius is var baseKey) stats[baseKey] = baseRadius;
                 if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey)
                     stats[radiusKey] = radius;
+                if (areaStats.TryGetValue(Stat.VirtualCycloneSkillAreaOfEffectPlusPctFromMeleeRange, out int meleeRangeArea)
+                    && meleeRangeArea != 0)
+                    stats[Stat.VirtualCycloneSkillAreaOfEffectPlusPctFromMeleeRange] = meleeRangeArea;
                 // Channelled Cyclone's conditional-radius path reads these derived stats instead of 0x4876.
                 // Compute them before writing skill_area_of_effect_+%, or the base increase would count twice.
                 if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
@@ -636,9 +639,14 @@ public static partial class Game
                 // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
                 // AttackTime at the off hand's speed, without the main weapon's local attack speed.
                 var shieldWeapon = ShieldWeapon(player, id);
+                double chargeMore = ConditionalSupportMore(own, attack: SkillsFor(player).IsAttack(effect),
+                    chilled: false, lowLife: false, fullLife: false, lifetap: false,
+                    powerCharges: ChargesOf(player).Effective(ChargeType.Power),
+                    enduranceCharges: ChargesOf(player).Effective(ChargeType.Endurance));
+                double hitMore = bloodMore * chargeMore;
                 var inputs = SupportedHitInputsFor(player, id, weapon: shieldWeapon);
                 SupportedHitInputs? offInputs = null;
-                if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
+                if (inputs is not null && hitMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(hitMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
                 // The skill's per-hand more multipliers, as its hits take them (SupportedSwingHit).
                 var (mainHandMore, dualWieldMore) = SkillsFor(player).IsAttack(effect) && shieldWeapon is null
@@ -703,6 +711,8 @@ public static partial class Game
                         && OffhandWeaponFor(player) is { } offWeapon)
                     {
                         offInputs = SupportedHitInputsFor(player, id, weapon: offWeapon);
+                        if (offInputs is not null && chargeMore != 1)
+                            offInputs = offInputs with { Raw = offInputs.Raw.Scale(chargeMore) };
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
                         if (dualWieldMore != 1) offHit = offHit.Scale(dualWieldMore);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
@@ -780,10 +790,11 @@ public static partial class Game
             int RawPanel(uint key) => panelSources.Raw.GetValueOrDefault(key);
             int OwnPanel(uint key) => own.GetValueOrDefault(key);
             bool projectileAttack = SkillsFor(player).IsAttack(effect) && ResolveProjectilePanelParameters(effect) is not null;
+            bool cyclone = SkillArea.IsCyclone(SkillsFor(player).EffectId(effect));
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
                 panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
                 panelSources.MainArmed, panelSources.OffArmed, projectileAttack, projectileAttack && panelSources.OffArmed))
-                if (stat is var key)
+                if (stat is var key && !(cyclone && key == Stat.SkillAreaOfEffectPlusPct))
                     stats[key] = value;
             if (VaalSoulCost.Aura is var aura)
                 stats[aura] = VaalSoulInput(player, playerStats, own, VaalSoulCost.Aura);
