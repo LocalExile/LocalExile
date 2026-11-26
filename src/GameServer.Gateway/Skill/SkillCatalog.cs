@@ -857,10 +857,11 @@ public sealed class SkillCatalog
     /// 0x1419417c0 → 0x141f67770): the SkillArtVariations rows associated with the GrantedEffects row, then those
     /// associated with its ActiveSkills row, each in row order; the first whose ProjectileArt has the slot and whose
     /// ProjectilesArtVariations Id has a row at the variant gives that row's Projectiles (the first, when there are several:
-    /// none of the rows this is used for has more). Variant 0: a monster carries no art-variation stat. Null when no
+    /// none of the rows this is used for has more). The variant is the effect's <c>skill_art_variation</c> (<see cref="ArtVariation"/>), 0 without one (SynthesisColdrend 0, LegionVaalSergeantSoulrend 1). Null when no
     /// candidate has one: the client then flies nothing from this path.</summary>
-    public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int variant = 0)
+    public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int? artVariant = null)
     {
+        int variant = artVariant ?? ArtVariation(effectRow);
         var art = _skillArt;
         IEnumerable<int> candidates = art.ByEffect.GetValueOrDefault(effectRow, []);
         if (_activeSkillOfEffect.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
@@ -883,7 +884,10 @@ public sealed class SkillCatalog
     /// projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
     public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
     {
-        foreach (int row in SameActionEffects(effectRow))
+        // A generic monster_* ActiveSkill (monster_projectile_weapon) is shared by unrelated monsters: another effect's
+        // row is not this one's projectile. Its own row, then its variation row (VariationProjectile), only.
+        bool generic = IsGenericMonsterSkill(effectRow);
+        foreach (int row in generic ? [effectRow] : SameActionEffects(effectRow))
             if (ProjectileFor(row) is { } found)
             {
                 int radius = ClientTables.TableOrEmpty("Projectiles").FirstOrDefault(p => p.Text("Id") == found.Id).IntOrNull("CollisionRadius") ?? 1;
@@ -891,6 +895,23 @@ public sealed class SkillCatalog
             }
         return null;
     }
+
+    HashSet<int>? _genericMonsterSkills;
+
+    bool IsGenericMonsterSkill(int effectRow)
+    {
+        _genericMonsterSkills ??= ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
+            .Where(a => a.r.TextOrNull("Id") is { } id && id.StartsWith("monster_", StringComparison.Ordinal)).Select(a => a.i).ToHashSet();
+        return _activeSkillOfEffect.TryGetValue(effectRow, out int active) && _genericMonsterSkills.Contains(active);
+    }
+
+    /// <summary>The projectile the client's own path gives a weapon-attack effect: its <c>monster_projectile_variation</c>
+    /// names a MonsterProjectileAttack row, which names the Projectiles row (Roc Sentinel's dash 76 LegionMarakethRangedDash,
+    /// Lioneye's snipe 78 LegionLioneyeSnipeMedium). Resolved when the catalog loads. Null for an effect without a variation.
+    /// The server still publishes the object itself (Variation 0), as for a spell projectile.</summary>
+    public (string Id, int Speed, int CollisionRadius)? VariationProjectile(int effectRow) =>
+        _weaponMonsterProjectiles.TryGetValue(effectRow, out var p) && !_monsterProjectiles.ContainsKey(effectRow)
+            ? (p.Metadata, p.Speed, (int)Math.Max(1, p.CollisionRadius)) : null;
 
     /// <summary>The effect itself, then every other GrantedEffects row on its ActiveSkills row in table order: the effects
     /// whose action the client runs alike (a monster's ExileStormCall and the gem's StormCall are both storm_call). What

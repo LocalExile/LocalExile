@@ -141,6 +141,20 @@ public sealed class DiscordBugReportFixesTests : IDisposable
         int fairgravesThrow = skills.EffectRow("FairgravesThrownWeapon");
         Assert.Equal("Metadata/Projectiles/SpectralThrowFairgraves", skills.MonsterProjectile(fairgravesThrow)?.Metadata);
 
+        // Weapon projectiles come from monster_projectile_variation's MonsterProjectileAttack row, never from another
+        // monster's effect on the shared monster_projectile_weapon skill.
+        Assert.Equal("Metadata/Projectiles/LegionMarakethRangedDash", skills.VariationProjectile(1790)?.Id);
+        Assert.Equal("Metadata/Projectiles/LegionLioneyeSnipeMedium", skills.VariationProjectile(10691)?.Id);
+        int weaponSkill = ClientTables.Table("ActiveSkills").ToList().FindIndex(r => r.TextOrNull("Id") == "monster_projectile_weapon");
+        int borrowers = 0;
+        foreach (var (e, row) in ClientTables.Table("GrantedEffects").Select((r, i) => (r, i)))
+            if (e.IntOrNull("ActiveSkill") == weaponSkill && row != 801 && skills.VariationProjectile(row) is null)
+            {
+                borrowers++;
+                Assert.NotEqual("Metadata/Projectiles/AtlasBasiliskSnakeProjectile", skills.SharedProjectile(row)?.Id);
+            }
+        Assert.True(borrowers > 0);
+
         // 2. Merveil fires IceSpear and summons statues/daughters/spawn; Amarissa/Ambrosia start targetable (state 2);
         //    Brutus starts with dialogue_lines = 1.
         Assert.Equal("Metadata/Projectiles/IceSpear", skills.MonsterProjectile(skills.EffectRow("MerveilIceSpear"))?.Metadata);
