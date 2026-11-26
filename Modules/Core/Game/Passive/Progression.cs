@@ -1110,6 +1110,13 @@ public static partial class Game
             }
         }
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
+        if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctPer5Rage) is int rageSpeed and not 0)
+        {
+            var rageInputs = RageStats.Inputs(player, key => sources.GetValueOrDefault(key));
+            int rage = player.Rage.Read(ProjectileWorldTime(player), rageInputs).Current;
+            bonus = bonus with { MovementVelocityPct = ActorScale.Saturate(
+                bonus.MovementVelocityPct + (rage / 5) * (long)rageSpeed) };
+        }
         var map = MapModsOf(player);
         if (map?.Get(Stat.MapPlayerNonCurseAuraEffectPlusPct) is int auraEffect and not 0)
             bonus = bonus with { AuraEffectPct = ActorScale.Saturate((long)bonus.AuraEffectPct + auraEffect) };

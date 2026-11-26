@@ -136,6 +136,14 @@ public static partial class Game
             && (player.SentRage is not { } sent || sent.Maximum == 0 || sent.Current < sent.Maximum))
             LoyaltyMaxRageLocked(player, stats);
         if (player.SentRage == value && player.SentVaalPrevention == prevention) return [];
+        if (RageStat(stats, Stat.MovementSpeedPlusPctPer5Rage) != 0
+            && (player.SentRage?.Current ?? 0) / 5 != value.Current / 5)
+        {
+            // Update the predictive walk estimate now. Lockstep applies the same value with its stat frame.
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeedAt(AreaTime(player));
+            stats = CharacterPlayerStats(player);
+        }
         var bytes = new List<byte>();
         player.RageBuff = (ushort)(value.Current > 0 ? 1 : 0);
         if (value.Current > 0) player.Area.Buffs.Set(player.Id, new(1060, player.Id, Stacks: (ushort)Math.Min(ushort.MaxValue, value.Current)));
