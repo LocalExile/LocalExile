@@ -39,6 +39,7 @@ public static partial class Game
             CaptureMadnessExplosionLocked(player, m);
             double now = ProjectileWorldTime(player);
             m.Poisons.RememberDeath(now);
+            m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null;
             m.CursedAtDeath = false;
             m.NonAuraHexUntilAtDeath = 0;
             foreach (var curse in m.Curses.All.Values)

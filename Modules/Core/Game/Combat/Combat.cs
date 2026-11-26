@@ -4673,7 +4673,7 @@ public static partial class Game
             if (MapDeathMarkDuration(player, m) is > 0 and var markMs)
                 await ApplyMapDeathMarkOnKill(player, markMs);
             await GameEvents.RunMonsterKilled(new(player, monster));
-            if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
+            if (OnslaughtOnKill(player, AreaTime(player), m.TauntedAtDeath)) await SendKillOnslaught(player);
             ChargesOnKill(player, m);
             RecoverOnKill(player, m, tinctureKill);
             GainPhasingOnKill(player);

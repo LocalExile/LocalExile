@@ -177,7 +177,8 @@ public static partial class Game
             // the projectile step's world group, and the first kill's life update went a frame before the others.
             if (GameEvents.MonsterKilled.Any)
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
-            if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
+            if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
+                session.EnqueueLater(() => SendKillOnslaught(player));
             ChargesOnKill(player, monster);
             RecoverOnKill(player, monster, tinctureKill);
             GainPhasingOnKill(player);
