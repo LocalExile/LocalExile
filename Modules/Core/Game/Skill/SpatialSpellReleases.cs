@@ -4,7 +4,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+        IsPurifyingFlame(effect) || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
@@ -65,7 +65,15 @@ public static partial class Game
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter));
 
-                if (effect == "LightningConduitAltX")
+                if (IsPurifyingFlame(effect))
+                {
+                    SchedulePurifyingFlame(Player, this, gem.Effect, source.Stats, caster, from, aim, CurrentSource,
+                        (radius, filter, waveMore, onHit) => Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, from, aim,
+                            immediate: true, sequence: sequence, repeat: repeat, damageMore: damageMore, radiusOverride: radius,
+                            criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                            targetFilter: filter, hitAndAilmentMore: waveMore, onDirectHit: onHit)), repeat);
+                }
+                else if (effect == "LightningConduitAltX")
                 {
                     int radius = Radius(Own(Stat.ActiveSkillBaseAreaOfEffectRadius));
                     double now = ProjectileWorldTime(Player);

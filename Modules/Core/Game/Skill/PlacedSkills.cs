@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using GameServer.Core;
 
@@ -682,7 +683,8 @@ public static partial class Game
         bool frostBomb = effect == "FrostBomb";
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
-        if (bladefall)
+        bool purifyingFlame = IsPurifyingFlame(effect);
+        if (bladefall || purifyingFlame)
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
                 : PlacedSpellTarget(player, placed.At, 60, now);
@@ -694,7 +696,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead))
+                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -714,6 +716,17 @@ public static partial class Game
                 session.SchedulePlacedStaticBall(new(placed, inventionMore), Current);
             else if (bladefall)
                 session.SchedulePlacedBladefall(new(placed, inventionMore), aim, Current);
+            else if (purifyingFlame)
+            {
+                var impact = aim;
+                bool Casting() => player.PlayerLife > 0 && Current();
+                session.ScheduleContact(ProjectileRuntime.Time(now), Casting, () =>
+                    SchedulePurifyingFlame(player, session, placed.Effect, placed.Own,
+                        placed.Offense?.Caster ?? CharacterPlayerStats(player), placed.At, impact, Casting,
+                        (reach, filter, more, onHit) => PlacedAreaDamageLocked(player, placed, impact, reach,
+                            ProjectileWorldTime(player), inventionMore * more, currentSkill: true, spellDamage: true,
+                            targetFilter: filter, onHit: onHit)));
+            }
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, inventionMore), Current);
             else if (volatileDead)
@@ -816,7 +829,8 @@ public static partial class Game
 
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
         (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
-        uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null)
+        uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null,
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -858,6 +872,7 @@ public static partial class Game
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 || bearTarget is uint bear && bear != id || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), centre) > radius
                 || hexblast && (m.WorldHidden || !hexblastSplash && id != hexblastTarget!.Value.Key)
+                || targetFilter is not null && (m.WorldHidden || !targetFilter(id, m.Walk.Position(now)))
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
@@ -904,6 +919,7 @@ public static partial class Game
                 damage = ApplyPlayerImpaleContact(player, m, damage, physical, now, now, secondaryImpale, AreaRng(player)).Damage;
             }
             if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: centre, default, null, chaosDamage) is not { } hit) continue;
+            onHit?.Invoke(id);
             if (hit.Life == 0)
                 ReflectKillingBlowImpalesLocked(player, m, killingBlowImpale, now, playerStats, playerKill: false);
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
@@ -1079,7 +1095,7 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect));
+                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect) || IsPurifyingFlame(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null

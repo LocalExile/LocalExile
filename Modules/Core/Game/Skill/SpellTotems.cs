@@ -19,6 +19,7 @@ public static partial class Game
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
+                || IsPurifyingFlame(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -350,7 +351,7 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
-            if (BladefallEffect(effect) || FrostBombEffect(effect))
+            if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
@@ -358,8 +359,14 @@ public static partial class Game
                     if (!Current()) return;
                     var at = ReleaseAim();
                     if (BladefallEffect(effect)) session.ReleaseTotemBladefall(totem, at, sequence, Current);
-                    else session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
-                        (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence));
+                    else if (FrostBombEffect(effect))
+                        session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
+                            (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence));
+                    else
+                        SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
+                            TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,
+                            (radius, covers, more, onHit) => TotemNovaLocked(player, session, totem, at, radius, sequence,
+                                damageMore: more, targetFilter: covers, onHit: onHit));
                 });
                 continue;
             }

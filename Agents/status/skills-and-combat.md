@@ -193,6 +193,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
+- Purifying Flame variants hit along their path and at the impact, create Consecrated Ground and only hit fresh targets
+  on Consecrated Ground with the shockwave. Self, triggered, totem, trap and mine casts share the same targeting rules.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.

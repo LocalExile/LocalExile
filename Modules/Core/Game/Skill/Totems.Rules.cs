@@ -847,7 +847,8 @@ public static partial class Game
 
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
-        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0)
+        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -867,7 +868,7 @@ public static partial class Game
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
-                || covers?.Invoke(targetAt) == false) return;
+                || covers?.Invoke(targetAt) == false || targetFilter?.Invoke(id, targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
             if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
@@ -889,6 +890,7 @@ public static partial class Game
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
+            onHit?.Invoke(id);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
