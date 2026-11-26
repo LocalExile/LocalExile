@@ -32,10 +32,24 @@ public static partial class Game
         };
     }
 
-    static ProjectileUse CentreBallLightningOrbit(ProjectileUse use)
+    // The native projectile reconstructs speed from its final integer stat. Publish the same
+    // rounded total used by the runtime, including the skill and support multipliers.
+    static int OrbitingBallLightningSpeedPercent(Func<uint, int> player, Func<uint, int> own) =>
+        (int)Math.Clamp(Math.Floor(ProjectileSpeed.Scale(100, player, own) + .5) - 100, -99, int.MaxValue);
+
+    static ProjectileUse ReleaseOrbitingBallLightning(ProjectileReleaseContext context, ProjectileUse use)
     {
         var centre = new ProjectileVector(Math.Round(use.Origin.X), Math.Round(use.Origin.Y));
-        return use with { Origin = centre, Aim = centre + (use.Aim - use.Origin) };
+        use = use with { Origin = centre, Aim = centre + (use.Aim - use.Origin) };
+        if (context.NotHandCast) return use;
+
+        // 3.29.3c 0x141bac460 rolls the spell's zero-width off-hand range before the main range.
+        // This skill emits one projectile, with native action ordinal 2.
+        var random = new AnimationVariantSelector.NativeRandom([use.Sequence, 2, use.Emitter.Id, use.RepeatsLeft, 0, 0, 0, 0]);
+        random.Range(0, 0);
+        float variation = context.Get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal) / 200f;
+        float speed = (float)use.Profile.Speed * (1 + random.Range(-variation, variation));
+        return use with { Profile = use.Profile with { Speed = speed, SpeedVariationPercent = 0 } };
     }
 
     sealed class BallLightningOrbit(double nominalSpeed) : IProjectileLegs

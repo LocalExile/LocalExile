@@ -400,7 +400,11 @@ public static partial class Game
             ?? throw new InvalidOperationException("No projectile definition at release.");
         string metadata = definition.Metadata;
         int baseSpeed = SkillsFor(player).Projectile(metadata)?.Speed ?? 1000;
-        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED"));
+        string? speedOverride = Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED");
+        double speed = SkillsFor(player).EffectId(gem.Effect) == "BallLightningAltX"
+            ? ProjectileSpeed.SpeedOverride(speedOverride)
+                ?? baseSpeed * .092f * (1 + .01f * OrbitingBallLightningSpeedPercent(Player, Own))
+            : ProjectileSpeed.CellsPerSecond(baseSpeed, Player, Own, speedOverride);
         bool forbiddenRite = GatewayProjectileSkillProfiles.IsForbiddenRite(SkillsFor(player).EffectId(gem.Effect));
         if (forbiddenRite) speed *= Math.Max(.01, 1 + Get(Stat.ForbiddenRiteProjectileSpeedPlusPct) / 100d);
         if (!double.IsFinite(speed) || speed <= 0)

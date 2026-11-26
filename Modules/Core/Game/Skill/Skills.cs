@@ -789,6 +789,8 @@ public static partial class Game
                 stats[aura] = VaalSoulInput(player, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(player, playerStats, own, stats);
+            if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
+                stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
