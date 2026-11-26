@@ -27,6 +27,7 @@ public static class SkillArea
             : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
             : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
             : effect is "TectonicSlam" or "VaalBladeVortex" ? 15
+            : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20

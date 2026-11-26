@@ -24,6 +24,7 @@ public static partial class Game
     {
         internal IReadOnlyList<GemSupports.Applied> LivingLightningSupports { get; init; } = [];
         internal GameServer.Core.World.DamageType? WildStrikeFollowupElement { get; init; }
+        internal GameServer.Core.World.DamageType? PrismaticBurstElement { get; init; }
     }
 
     public sealed record PlayerSkillSource(ushort Id, int Effect, string Name, int Level, int Quality, uint Gem,
@@ -53,12 +54,14 @@ public static partial class Game
     {
         equipment ??= ItemsOf(player).EquipmentSnapshot();
         return [.. AllWornGrantedSkillsOf(player, equipment).Where(g => !g.Support && (g.ManuallyCast
-                || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect || TriggeredItemMinion(g) is not null)
+                || g.EffectId is SpiritBurstEffect or GuardianWeaponEffect or FoulgraspEffect or PrismaticBurstEffect
+                || TriggeredItemMinion(g) is not null)
             && LeagueFor(player).Rules.AllowsGemEffect(g.EffectId)
             && (g.EffectId == UnhingeEffect || g.EffectId == MadnessEffect || IsDashEffect(g.EffectId)
                 || SkillsFor(player).IsWarcry(g.Effect)
                 || IsSummonBeastialCompanionEffect(g.EffectId) || g.EffectId == TwisterEffect || g.EffectId == CatStealthCryEffect
-                || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or "DoryanisTouch" or ApproachingFlamesEffect
+                || g.EffectId is SnipeEffect or SpiritBurstEffect or FoulgraspEffect or PrismaticBurstEffect
+                    or "DoryanisTouch" or ApproachingFlamesEffect
                     or "BearTrap" or "WintertideBrand" or "DecoyTotem" or "Smite" or "Frostblink" or CallOfSteelEffect
                     or "SummonStoneGolem" or "Convocation" or "EnduringCry" or "IntimidatingCry" or GuardianWeaponEffect
                 || TriggeredItemMinion(g) is not null
@@ -1016,6 +1019,8 @@ public static partial class Game
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
         // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
         if (HasElementalOverload(stats)) AddElementalOverload(player, SkillsFor(player).EffectId(gem.Effect), stats);
+        if (gem.PrismaticBurstElement is { } burstElement)
+            raw = DamagePacket.Empty.Add(burstElement, raw[burstElement]);
         Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)

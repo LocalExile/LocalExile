@@ -794,9 +794,10 @@ public static partial class Game
                 stats[Stat.SpellUncastableIfTriggerable] = 1;
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             }
-            // These companion attacks have a native instant action, which checks the disabled flag too.
+            // These companion skills have a native instant action, which checks the disabled flag too.
             else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
-                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0 && TriggerOnlyReason(supported) is not null)
+                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredPrismaticBurst) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.

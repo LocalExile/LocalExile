@@ -68,6 +68,8 @@ public static partial class Game
             return "Falling Crystal triggers on a supported slam hit";
         if (GolemStat(gem.Stats, Stat.TriggeredByFoulgraspSupport) != 0)
             return "Foulgrasp triggers when a supported Brand is recalled";
+        if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
+            return "Prismatic Burst triggers on a supported attack hit";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
