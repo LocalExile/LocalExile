@@ -211,7 +211,7 @@ public static partial class Game
                 // Toxic Rain with Trap Support, throws 0.385 s apart against a 0.45 s attack).
                 bool attack = cast && gem.Name is not null && SkillsFor(player).IsAttack(gem.Effect)
                     && PlacedKind(SupportedSkill(player, use.SkillId)) is { Trap: false, Mine: false };
-                if (attack && (use.Flags & 0x1) == 0 && !SkillsFor(player).IsMovement(gem.Effect)
+                if (attack && (use.Flags & 0x1) == 0 && AttackUsesWalkUp(player, gem.Effect)
                     && (!SkillsFor(player).IsProjectile(gem.Effect) || GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
                     && WeaponProfileFor(player).Melee)
                 {

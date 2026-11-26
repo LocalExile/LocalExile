@@ -341,6 +341,9 @@ public static partial class Game
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
             QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
+        if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
+            && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
+            TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);

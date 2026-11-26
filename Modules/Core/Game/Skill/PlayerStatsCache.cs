@@ -386,7 +386,6 @@ public static partial class Game
         On([PlayerStatStep.SpiritLeadership], a => player.SpiritChieftains.Changed = a);
         On([PlayerStatStep.Ward], a => player.Ward.Changed = a);
         On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.WardBreak.Changed = a);
-        On([PlayerStatStep.TimedRecovery], a => player.EnduringCryRecovery.Changed = a);
         On([PlayerStatStep.TotemAura], a => player.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => player.Rampage.Changed = a);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.Leech], a => LeechOf(player).Changed = a);

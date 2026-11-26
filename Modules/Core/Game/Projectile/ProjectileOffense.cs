@@ -24,6 +24,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
+    internal int OtherWarcryExertions { get; init; }
     public double HitProfileMore { get; init; } = 1;
     public double AilmentProfileMore { get; init; } = 1;
     public double DotProfileMore { get; init; } = 1;
