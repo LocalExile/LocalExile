@@ -90,7 +90,7 @@ Modules sit in three folders, and each module in exactly one.
 |---|---|---|
 | `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
 | `Modules/Legacy/` | like Core, for GGG's past leagues and content | none: Idols and the Phrecia classes are mods |
-| `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/` |
+| `Modules/Custom/` | content GGG never had, which a custom league may list | none: Survivors is a mod |
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
 mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.

@@ -1,4 +1,3 @@
-using GameServer.Modules.Survivors;
 namespace GameServer.Gateway.Tests;
 
 // The survivors mode offers real uniques: every definition must resolve its Mods.dat rows, every equipment entry must

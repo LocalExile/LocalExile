@@ -125,7 +125,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | `re/*-coe.md` | each currency orb compared with Craft of Exile: [alchemy](re/alchemy-coe.md), [alteration](re/alteration-coe.md), [annulment](re/annulment-coe.md), [augmentation](re/augmentation-coe.md), [chance](re/chance-coe.md), [chaos](re/chaos-coe.md), [eldritch ember](re/eldritch-ember-coe.md), [eldritch ichor](re/eldritch-ichor-coe.md), [enkindling](re/enkindling-coe.md), [exalted](re/exalted-coe.md), [instilling](re/instilling-coe.md), [regal](re/regal-coe.md), [transmutation](re/transmutation-coe.md), [vaal](re/vaal-coe.md) |
 | [re/hinekora-lock.md](re/hinekora-lock.md) | Hinekora's Lock state, C→S 0x29d / S→C 0x2a0 preview and the native commit evidence |
 | [game/league-modes.md](game/league-modes.md) | Hardcore deaths, SSF isolation, Ruthless native rules and editable balance |
-| [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
+| [game/survivors-mode.md](game/survivors-mode.md) | the Survivors league (the mod `survivors`): run, rewards, native window/animations, limits |
 
 ## Working notes (history)
 - [re/007](re/007-login-is-custom-tcp.md)–[010](re/010-live-login-to-instance.md): the notes these documents were
