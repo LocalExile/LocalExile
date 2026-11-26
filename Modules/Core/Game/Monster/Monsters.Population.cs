@@ -37,6 +37,12 @@ public static partial class Game
 
     static readonly ConditionalWeakTable<InstanceState, InstancePackEntry> InstancePackCache = new();
 
+    internal static void ClearInstancePackCache()
+    {
+        InstancePackCache.Clear();
+        PopulationsAhead.Clear();
+    }
+
     /// <summary>Whether a pool pack has one variety this server can write. The draw asks no more than that, so every
     /// caller of <see cref="InstancePacks(Player)"/> draws the same packs; a pack's members are filtered again where
     /// they are placed.</summary>

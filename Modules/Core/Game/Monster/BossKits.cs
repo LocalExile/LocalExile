@@ -137,8 +137,29 @@ public static class BossKits
     /// its barrage, teleport and damage-taken trigger marks, and only the ones that do something. The variety's own default
     /// attack is not put in front: for a mercenary variety that attack is the effect it leaves by.</summary>
     public static IReadOnlyList<MonsterKitSkill> KitFromEffects(Player conn, MonsterCatalog.Variety variety, byte level,
-        IReadOnlyList<int> effects) =>
-        BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects), null, unique: true, keepFirst: false);
+        IReadOnlyList<int> effects)
+    {
+        var kit = BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects), null, unique: true, keepFirst: false);
+        if (kit.Count <= 1 || (kit[0].Attack.Use is null && kit[0].TriggerThreshold == 0 && kit[0].CooldownSeconds <= 0))
+            return kit;
+        // Put a direct attack at slot 0 (preferring zero cooldown): SpawnMonster and walk-up fallbacks treat kit[0] as
+        // the actor's default attack, so a build whose Skills1 starts with a hex or buff must not leave a Use skill there.
+        int primary = -1;
+        for (int i = 0; i < kit.Count; i++)
+            if (kit[i].Attack.Use is null && kit[i].TriggerThreshold == 0)
+            {
+                if (kit[i].CooldownSeconds <= 0) { primary = i; break; }
+                if (primary < 0) primary = i;
+            }
+        if (primary <= 0) return kit;
+        List<MonsterKitSkill> ordered = new(kit.Count) { kit[primary] with { Attack = kit[primary].Attack with { SkillId = 0x4000 } } };
+        for (int i = 0; i < kit.Count; i++)
+        {
+            if (i == primary) continue;
+            ordered.Add(kit[i] with { Attack = kit[i].Attack with { SkillId = (ushort)(0x4000 + ordered.Count) } });
+        }
+        return ordered;
+    }
 
     /// <summary>A monster's own kit with a caller's extra specials appended (SpawnMonster's <c>extraKit</c>). An effect the
     /// kit already plays is not a second copy; every appended entry takes the next free kit id (0x4000 + its index), the id

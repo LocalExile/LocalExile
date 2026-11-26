@@ -34,6 +34,10 @@ public static class MercenaryTables
     public static byte? EncounterRulesRow { get; private set; }
     public static byte? AreaRulesRow { get; private set; }
 
+    /// <summary>The GrantedEffects row of the plain melee hit (MeleeAtAnimationSpeed): the swing a duel opponent falls back
+    /// to when its build yields no direct attack.</summary>
+    public static int MeleeFallbackEffect { get; private set; } = -1;
+
     public static IReadOnlyList<Class> Classes => ClassesData;
     public static IReadOnlyList<Build> Builds => BuildsData;
 
@@ -45,6 +49,8 @@ public static class MercenaryTables
         (SkillRowsData, BuildSkillsData) = LoadSkills();
         EncounterRulesRow = RulesetRow("MercenaryEncounterRules");
         AreaRulesRow = RulesetRow("MercenaryAreaRules");
+        MeleeFallbackEffect = ClientTables.TableOrEmpty("GrantedEffects")
+            .Where(r => r.TextOrNull("Id") == "MeleeAtAnimationSpeed").Select(r => r.Index).DefaultIfEmpty(-1).First();
     }
 
     static byte? RulesetRow(string id)

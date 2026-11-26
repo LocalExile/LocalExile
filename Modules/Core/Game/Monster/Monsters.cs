@@ -576,7 +576,8 @@ public static partial class Game
         // controller through its own id.
         bool atlas = AtlasBosses.IsBoss(variety);
         // An owned kit is the whole of what the monster plays: its first entry is the default attack too, never the variety's own.
-        int effect = ownedKit is { Count: > 0 } && !scripted && !kingActor && !brine && !atlas ? ownedKit[0].Effect
+        bool hasOwnedKit = ownedKit is { Count: > 0 } && !scripted && !kingActor && !brine && !atlas;
+        int effect = hasOwnedKit ? ownedKit![0].Effect
             : brine ? BrineKing.MeleeEffect : atlas ? AtlasBosses.BasicEffect(variety)
             : !kingActor ? MavenNucleus.CombatEffect(catalog, variety)
             : variety.GrantedEffects is [int firstEffect, ..] ? firstEffect : -1;
@@ -607,7 +608,8 @@ public static partial class Game
         }
         // A summoning skill (the Immolator's) brings its monsters whenever the player is within its aggro range, at its
         // own cast time; it deals no hit.
-        var summon = variety.GrantedEffects is [int summonEffect, ..] ? MonsterSummonOf(catalog, summonEffect, level) : null;
+        var summon = hasOwnedKit ? MonsterSummonOf(catalog, effect, level)
+            : variety.GrantedEffects is [int summonEffect, ..] ? MonsterSummonOf(catalog, summonEffect, level) : null;
         // A totem whose body would have nothing to do is no summon: the monster would cast and nothing would rise.
         if (summon is { Effect: >= 0 } && BossKits.BodyAttack(player, Monsters.Find(summon.Variety.ToString()), level, summon.Effect, 0x4000) is null) summon = null;
         // A monster whose effect is a spell (the King's Death Effigy, fetish hazards) needs cast-time stats,
