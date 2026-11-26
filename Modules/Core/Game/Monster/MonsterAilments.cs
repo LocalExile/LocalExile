@@ -350,6 +350,10 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
+        if (owned && critical && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            && Player(Stat.GainFrenzyChargeOnCriticalStrikeAtCloseRangePct) is > 0 and var frenzyChance
+            && InCloseRange(player, m, now) && RandomRolls.Chance(frenzyChance, 100, random))
+            GainFromAttackAilmentLocked(player, true, ChargeType.Frenzy, Stat.GainFrenzyChargeOnCriticalStrikeAtCloseRangePct);
         // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
         double physRaw = mitigated[DamageType.Physical].Min;
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,
