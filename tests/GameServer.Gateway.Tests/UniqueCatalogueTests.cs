@@ -1,7 +1,8 @@
 namespace GameServer.Gateway.Tests;
 
-// The survivors mode offers real uniques: every definition must resolve its Mods.dat rows, every equipment entry must
-// create, and every equipment entry must leave at least one recognizable stat, including hidden overrides.
+// The Survivors league (the survivors mod) offers real uniques: every definition must resolve its Mods.dat rows, every
+// equipment entry must create, and every equipment entry must leave at least one recognizable stat, including hidden
+// overrides.
 public sealed class UniqueCatalogueTests
 {
     public void Every_unique_resolves_its_mods_and_every_equipment_unique_has_a_stat()
