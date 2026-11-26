@@ -52,6 +52,18 @@ public static partial class Game
         GameArea? damageGroundArea;
         bool groundFallbackScheduled;
 
+        internal static bool OnBurningDamageGround(GameArea area, SpawnedMonster target, double now)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state) || state.Grounds.Count == 0) return false;
+            long at = ProjectileRuntime.Time(now);
+            var atCell = Vector(target.Walk.Position(now));
+            foreach (var ground in state.Grounds)
+                if (ground.Type == DamageType.Fire && ground.Dps > 0 && ground.Start <= at && at < ground.End
+                    && ground.Source.Active && (atCell - ground.CurrentCentre).Length <= ground.Radius)
+                    return true;
+            return false;
+        }
+
         void ClearDamageGrounds()
         {
             if (damageGroundArea is not { } area) return;

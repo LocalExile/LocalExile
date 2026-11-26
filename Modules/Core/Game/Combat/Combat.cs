@@ -2891,6 +2891,9 @@ public static partial class Game
         if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0)
             areaStats = new Dictionary<uint, int>(skillStats) { [SkillArea.BaseIncreased] = skillStats.GetValueOrDefault(SkillArea.BaseIncreased) + perRepeat * repeat };
         var effectId = SkillsFor(player).EffectId(gem.Effect);
+        int flameSurgeBurningMore = effectId == "FlameSurge" ? Stat(global::Stat.FlameWhipDamagePlusPctFinalVsBurningEnemies) : 0;
+        int flameSurgeExistingIgnite = effectId == "FlameSurge" ? Stat(global::Stat.FlameSurgeIgniteDamageAsBurningGroundDamagePct) : 0;
+        int flameSurgeNewIgnite = effectId == "FlameSurgeAltX" ? Stat(global::Stat.FlameSurgeBurningGroundOnIgniteDamagePct) : 0;
         bool divineBlast = effectId is "DivineBlast" or "DivineBlastAltX";
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
@@ -3619,6 +3622,10 @@ public static partial class Game
                     var taken = MonsterTakenComponents(m, mitigated, spell, at);
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     double more = (infernalBlast is null ? damageMore : 1) * bloodMore;
+                    if (flameSurgeBurningMore != 0 && BurningTarget(player, m, at))
+                        more *= Math.Max(0, 1 + flameSurgeBurningMore / 100d);
+                    double flameSurgeGroundDps = flameSurgeExistingIgnite > 0
+                        ? m.Ignites.PerSecond(at) * flameSurgeExistingIgnite / 100d : 0;
                     int perChill = GolemStat(skillStats, global::Stat.FrostblinkDamagePlusPctFinalPer5PctChillEffectOnTarget);
                     if (perChill > 0)
                     {
@@ -3746,6 +3753,9 @@ public static partial class Game
                             m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
                             nativeKnockback = TakeNativeKnockbackLocked(m);
+                        if (flameSurgeGroundDps > 0)
+                            ProjectilesFor(player).PlaceFlameSurgeGround(m, gem.Effect, combusting: false, at,
+                                flameSurgeGroundDps, skillStats, playerStats);
                         // As a projectile's hit: a hit with fire that leaves the monster alive may ignite it, an attack with
                         // physical damage bleed it.
                         if (m.Life > 0 && (critical ? profile.Ignite.CriticalMax : profile.Ignite.Max) > 0
@@ -3753,15 +3763,9 @@ public static partial class Game
                                 AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)), out double igniteDps) is { } packets)
                         {
                             (ignited, igniteLog) = (packets, IgnitedLog(id, m, critical, at));
-                            if (Stat(global::Stat.FlameSurgeBurningGroundOnIgniteDamagePct) is > 0 and var burningPct)
-                            {
-                                var session = ProjectilesFor(player);
-                                double duration = SkillDurationModifiers.Seconds(Stat(global::Stat.BaseSkillEffectDuration),
-                                    key => playerStats.GetValueOrDefault(key), Stat);
-                                int groundRadius = SkillRadius(player, 25, skillStats, spell: true, gem.Effect, playerStats);
-                                session.PlaceDamageGround(ProjectileSession.Vector(m.Walk.Position(at)), groundRadius,
-                                    duration, DamageType.Fire, igniteDps * burningPct / 100d, session.Runtime.Now);
-                            }
+                            if (flameSurgeNewIgnite > 0)
+                                ProjectilesFor(player).PlaceFlameSurgeGround(m, gem.Effect, combusting: true, at,
+                                    igniteDps * flameSurgeNewIgnite / 100d, skillStats, playerStats);
                         }
                         if (m.Life > 0 && rolled[DamageType.Physical].Max > 0
                             && BleedOnHitLocked(player, id, m, profile.Bleed, critical, at,

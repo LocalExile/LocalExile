@@ -338,6 +338,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
 - Damage and stun triggers aim at the hit source when known. Arc of Surging keeps an eligible target through its delayed split.
 - Shock Nova releases a ring and a larger nova, including when cast by a totem, trap or mine. The ring applies the skill's shock chance, and the maximum shock modifier applies to both contacts.
+- Flame Surge hits forward and uses an existing ignite for burning ground. Combusting uses the ignite it inflicts, with its own creation interval.
 - Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets and grants a timed Lucky Arc buff.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.

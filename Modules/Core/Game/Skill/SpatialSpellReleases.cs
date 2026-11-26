@@ -5,7 +5,7 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or ArcSurgingEffect
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect
             || ShockNovaEffect(effect);
 
     // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
@@ -124,10 +124,10 @@ public static partial class Game
                             Hit(primary.At, distance, targetFilter: (id, _) => selected.Contains(id));
                         });
                 }
-                else if (effect == "FlameSurgeAltX")
+                else if (effect is "FlameSurge" or "FlameSurgeAltX")
                 {
-                    // The spell data describes a forward surge. The local reach and cone angle approximate its hitbox.
-                    int reach = Radius(46);
+                    // Both gems have the same base reach; the client data adds length with gem level.
+                    int reach = Radius(30 + Own(Stat.ActiveSkillBaseAreaLengthPlus));
                     Hit(from, reach, targetFilter: (_, at) => GroundSlamWave.Covers(direction, from, at, 25, reach));
                 }
                 else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
