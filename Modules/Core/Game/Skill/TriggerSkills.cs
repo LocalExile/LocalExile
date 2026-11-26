@@ -70,6 +70,8 @@ public static partial class Game
             return "Foulgrasp triggers when a supported Brand is recalled";
         if (GolemStat(gem.Stats, Stat.TriggeredPrismaticBurst) != 0)
             return "Prismatic Burst triggers on a supported attack hit";
+        if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
+            return "Combust triggers on an attack exerted by Infernal Cry";
         if (GolemStat(gem.Stats, Stat.InfernalBoltTriggeredWhenTotemWithThisSkillHitByEnemy) != 0)
             return "Avenging Flame triggers when its totem is hit by an enemy";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)

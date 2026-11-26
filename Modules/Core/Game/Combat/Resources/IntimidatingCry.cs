@@ -30,6 +30,8 @@ public static partial class Game
         internal readonly List<CryGift> Gifts = [];
         internal int Exerts, SeismicExerts, SeismicArea, AncestralExerts, AncestralTargets, PresentedMovement;
         internal int RallyingExerts, RallyingDamage;
+        internal int InfernalExerts;
+        internal CombustSource? Combust;
         internal ushort Buff;
     }
     static readonly Store<Player, CryRuntime> CryRuntimes = new();
@@ -44,7 +46,8 @@ public static partial class Game
             state.Rules = CombatLifetime;
             state.Epoch = player.ProjectileEpoch;
             state.Sources.Clear(); state.Pending.Clear(); state.Gifts.Clear();
-            state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = 0;
+            state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = state.InfernalExerts = 0;
+            state.Combust = null;
             if (initialized) while (state.Inbox.TryDequeue(out _)) { }
         }
         return state;
@@ -178,7 +181,11 @@ public static partial class Game
         while (state.Inbox.TryDequeue(out var gift))
             if (ReferenceEquals(gift.Instance, player.Instance.Presence) && gift.Until > now) { state.Gifts.Add(gift); CryGiftGained(player); }
         if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
-        { state.Gifts.Clear(); state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = 0; }
+        {
+            state.Gifts.Clear();
+            state.Exerts = state.SeismicExerts = state.AncestralExerts = state.RallyingExerts = state.InfernalExerts = 0;
+            state.Combust = null;
+        }
         state.Gifts.RemoveAll(g => !ReferenceEquals(g.Instance, player.Instance.Presence) || g.Until <= now);
         // The movement step runs again when the first gift ends (on the area's clock).
         if (state.Gifts.Count > 0) StatsChangeAt(state.Gifts.Min(g => g.Until), () => AreaTime(player));
@@ -254,11 +261,12 @@ public static partial class Game
     }
 
     static (bool Intimidating, int? SeismicArea, int AncestralTargets, int? RallyingDamage) ConsumeMeleeWarcryExertsLocked(
-        Player player, ushort skill, int effect, bool eligible)
+        Player player, ushort skill, int effect, SkillCriticalRoll attack, bool eligible)
     {
         if (!eligible || !WarcryCanExert(player, skill, effect)) return default;
         var cry = CryOf(player);
         IntimidatingCryMovementLocked(player);
+        ConsumeInfernalCry(cry, attack);
         bool intimidating = cry.Exerts > 0;
         if (intimidating) cry.Exerts--;
         var skills = SkillsFor(player);

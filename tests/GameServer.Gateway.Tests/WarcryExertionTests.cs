@@ -7,6 +7,68 @@ namespace GameServer.Gateway.Tests;
 public sealed class WarcryExertionTests
 {
     [Fact]
+    public async Task Infernal_Cry_releases_Combust_once_per_exerted_attack_that_hits()
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        var aim = (X: 120, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        fixture.Equip(("Infernal Cry", 1), ("Ground Slam", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "InfernalCry");
+        var combust = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "Combust");
+        var slam = Game.GemSkillEffects(player).Single(g => g.Name == "Ground Slam");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(6, own[Stat.SkillEmpowersNextXMeleeAttacks]);
+        Assert.NotNull(Game.GemSkillInstanceDisabled(player, combust.Effect, combust.Id));
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.GlobalAlwaysHit] = 1;
+                values[Stat.GlobalCannotCrit] = 1;
+            }
+            return values;
+        });
+        int fireHits = 0;
+        using var damage = GameEvents.OutgoingDamage.Add("Game", (owner, _, _, rolled) =>
+        {
+            if (ReferenceEquals(owner, player) && rolled[DamageType.Fire].Max > 0) fireHits++;
+            return rolled;
+        });
+        var foes = new[] { (Id: 901u, X: 109, Y: 100), (Id: 902u, X: 113, Y: 101) };
+        foreach (var foe in foes)
+            player.Area.Monsters.Add(foe.Id, new("Combust witness", new(foe.X, foe.Y, 0), 0, 0, 1_000_000));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            async Task Slam((int X, int Y) toward, int expectedFireHits)
+            {
+                foreach (var foe in foes) player.Area.Monsters[foe.Id].Walk.Teleport(foe.X, foe.Y, clock.At);
+                fireHits = 0;
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, slam.Id, origin, toward));
+                clock.At += 1;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                Assert.Equal(expectedFireHits, fireHits);
+            }
+
+            await Slam(aim, 0);
+            Game.GrantInfernalCryExertsLocked(player, cry.Id, own, new Dictionary<uint, int>());
+            await Slam((80, 100), 0); // one exertion was spent on a swing which did not hit
+            for (int i = 0; i < 5; i++) await Slam(aim, 2);
+            await Slam(aim, 0);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public async Task Seismic_Cry_extends_six_slam_waves_after_its_armour_buff_expires()
     {
         var clock = new ViperStrikeMambaTests.AttackClock();

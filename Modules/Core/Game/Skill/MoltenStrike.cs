@@ -329,7 +329,9 @@ public static partial class Game
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
-            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, ancestralTargets > 0 ? 1 : 0, rallyingDamage);
+            var infernal = InfernalExertionFor(criticalRoll);
+            int otherWarcries = (ancestralTargets > 0 ? 1 : 0) + (infernal is null ? 0 : 1);
+            double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage);
             ignite = RepeatAilment(ignite, ailmentMore);
             bleed = RepeatAilment(bleed, ailmentMore);
             poison = RepeatAilment(poison, ailmentMore);
@@ -369,7 +371,7 @@ public static partial class Game
                     rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                     m.HallowingFlameUntil = 0;
                 }
-                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, ancestralTargets > 0 ? 1 : 0, rallyingDamage);
+                rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted, otherWarcries, rallyingDamage);
                 int criticalChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId, hand),
                     SupportedCriticalChanceVsBlinded(player, skillId, release: false, SwingWeaponCritical(player, hand)),
                     SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
@@ -455,6 +457,7 @@ public static partial class Game
                 CombatRushOnHit(player, skillStats, now);
                 HallowOnMeleeHit(player, m, skillStats, now);
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);
+                if (isStrikeTarget) InfernalMeleeHitLocked(player, infernal, m.Walk.Position(now), now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));
             }
 

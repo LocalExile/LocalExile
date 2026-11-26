@@ -526,8 +526,10 @@ public static partial class Game
         bool eligibleWarcry = weapon.Melee && !ranged;
         cryExerted = ConsumeIntimidatingCryExertLocked(player, eligibleWarcry);
         var warcries = eligibleWarcry ? CryOf(player) : null;
+        if (warcries is not null) ConsumeInfernalCry(warcries, criticalRoll);
         int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries);
         double rallyingMore = 1 + (warcries is null ? 0 : ConsumeRallyingCry(warcries).GetValueOrDefault()) / 100d;
+        var infernal = InfernalExertionFor(criticalRoll);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -741,6 +743,7 @@ public static partial class Game
                         BleedReflected(playerStats)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
+                if (weapon.Melee) InfernalMeleeHitLocked(player, infernal, target, at);
                 if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
@@ -2215,7 +2218,8 @@ public static partial class Game
         // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
         if (IsSnipe(gem.Effect)) return Task.CompletedTask;
         if (IsChannelledScourgeArrow(gem.Effect)) return Task.CompletedTask;
-        var (cryExerted, seismicArea, ancestralTargets, rallyingDamage) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
+        criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
+        var (cryExerted, seismicArea, ancestralTargets, rallyingDamage) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect, criticalRoll,
             eligible: channelGeneration is null);
         // The paid charge owns one exertion decision for every path hit and its landing.
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
@@ -2232,7 +2236,6 @@ public static partial class Game
             else onShieldChargeReady(StartCharge);
             return Task.CompletedTask;
         }
-        criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
                 targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage);
@@ -3028,9 +3031,10 @@ public static partial class Game
             if (Current()) CastingIntensity(player, skillId)?.Complete();
             return;
         }
+        criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (cryExerted is null)
         {
-            var (intimidating, seismicArea, extraStrikes, rallying) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
+            var (intimidating, seismicArea, extraStrikes, rallying) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect, criticalRoll,
                 eligible: !immediate && triggeredCurrent is null && repeat == 0 && channelGeneration is null);
             cryExerted = intimidating;
             seismicExerted = seismicArea.HasValue;
@@ -3038,7 +3042,8 @@ public static partial class Game
             rallyingDamage = rallying;
             if (seismicArea is int area) radiusMore *= SkillArea.RadiusMultiplier(area);
         }
-        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0);
+        var infernal = InfernalExertionFor(criticalRoll);
+        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (infernal is null ? 0 : 1);
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(player));
         if (discharge is not null && discharge.Total == 0)
@@ -3046,7 +3051,6 @@ public static partial class Game
             Console.WriteLine($"[gateway] {player.Connection.Remote} {gem.Name}: no removable charges, nothing discharged");
             return;
         }
-        criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         // A dual-wielded attack's hand for this use (AttackHands): its weapon, time, hit, chance and local modifiers.
         var swingHands = lacerate?.Hand ?? retainedAttack?.Hand
             ?? (spell ? AttackHand.Main : AttackHandFor(player, skillId, sequence));
@@ -4118,6 +4122,8 @@ public static partial class Game
                             skillStats, playerStats: playerStats, secondWeaponClass: secondSweepWeaponClass);
                         if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         {
+                            if (infernal is not null && !splashMore.ContainsKey(id))
+                                InfernalMeleeHitLocked(player, infernal, m.Walk.Position(at), at);
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
                             CombatRushOnHit(player, skillStats, at);
                             HallowOnMeleeHit(player, m, skillStats, at);
