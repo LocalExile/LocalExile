@@ -49,14 +49,10 @@
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="pantheon" />
     <InternalsVisibleTo Include="portals" />
-    <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="shrines" />
     <InternalsVisibleTo Include="social" />
-    <InternalsVisibleTo Include="survivorsskills" />
-    <InternalsVisibleTo Include="survivorsrewards" />
-    <InternalsVisibleTo Include="survivorsrun" />
     <InternalsVisibleTo Include="tattoos" />
     <InternalsVisibleTo Include="uniquebelts" />
     <InternalsVisibleTo Include="vendors" />

@@ -24,13 +24,13 @@ public sealed class LeagueModTests
             Assert.Equal(["Core/Game", "listed"], catalog.FindLoaded("Shared")!.Modules);
             Assert.Contains("listed", ServerLeagues.Wanted(catalog));
             // The repository's Standard stays. A league does not load without a mod it names, with a module its mod cannot
-            // run with, or with a mode beside something the mode does not name.
+            // run with, or with a mod beside one whose "only" does not name it.
             Assert.Equal(
             [
                 "Clash: listed cannot run with Rival",
-                "Mode: solo is a mode and does not allow listed",
                 "NeedsAbsent: it needs the mod absent, which is not installed or is turned off",
                 "NeedsOff: it needs the mod off, which is not installed or is turned off",
+                "Only: solo allows only the modules and mods it names, not listed",
                 "Standard: a league of that name is already loaded",
             ], catalog.Errors.Order());
 
@@ -144,7 +144,7 @@ public sealed class LeagueModTests
     }
 
     // Leagues/Standard and Modules/Core/Rival as a repository has them, and mods/: one of the leagues that list it, which brings
-    // leagues and world data; one of every league; a mode; one no league lists; one with a module's id; two turned off.
+    // leagues and world data; one of every league; one with "only"; one no league lists; one with a module's id; two turned off.
     static string Fixture()
     {
         string root = Path.Combine(Path.GetTempPath(), "le-league-mods-" + Guid.NewGuid().ToString("N"));
@@ -178,7 +178,7 @@ public sealed class LeagueModTests
         AddLeague("mods/listed/Leagues", "Shared", """{ "parent": "Standard", "mods": ["listed"] }""", "Core/Game");
         AddLeague("mods/listed/Leagues", "Standard", "{}", "Core/Game");
         AddLeague("mods/listed/Leagues", "Clash", """{ "parent": "Standard", "mods": ["listed"] }""", "Core/Game", "Core/Rival");
-        AddLeague("mods/listed/Leagues", "Mode", """{ "parent": "Standard", "mods": ["solo", "listed"] }""", "Core/Game");
+        AddLeague("mods/listed/Leagues", "Only", """{ "parent": "Standard", "mods": ["solo", "listed"] }""", "Core/Game");
         AddLeague("mods/listed/Leagues", "NeedsAbsent", """{ "parent": "Standard", "mods": ["absent"] }""", "Core/Game");
         AddLeague("mods/listed/Leagues", "NeedsOff", """{ "parent": "Standard", "mods": ["off"] }""", "Core/Game");
         Put("mods/listed/sql/updates/world/2026_01_01_000000_listed.sql", "CREATE TABLE listed_things (name TEXT NOT NULL) STRICT; INSERT INTO listed_things VALUES ('listed');");

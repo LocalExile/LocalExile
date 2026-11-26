@@ -8,11 +8,12 @@ Ordinary exits and waypoint travel are refused during a run, so they cannot bypa
 Carry is bound to Auth's destination ticket, not the character name; a failed transfer retains the current run.
 Run progress is not saved across server restarts.
 
-The three modules under `Modules/Custom/Survivors/` separate automatic skills, rewards and the run's lifecycle.
+It is the mod `survivors` in LocalExile-Mods, which brings the league; its three parts (once the Custom modules
+`SurvivorsSkills`, `SurvivorsRewards` and `SurvivorsRun`) separate automatic skills, rewards and the run's lifecycle.
 The existing `/survivors` diagnostics and restart controls are available only to characters in this league.
 A run keeps the uniques it has collected: the equipment and bag carry over from run to run, and only the life flask is
 replaced with a fresh full one. Starting a run removes nothing else; stopping a run removes its transient skills.
-Ordinary leagues do not load these modules for their players.
+Ordinary leagues do not list the mod: it runs only for this league's players.
 
 ## Run shape
 
@@ -115,7 +116,7 @@ kill deals its windows one at a time and the clock resumes only after the last c
 The opening window is dealt before the runner starts, so the first reward pauses the run before any monster spawns:
 the horde is already frozen at the very first second, not after the first wave.
 Closing the window with a stray click or Escape accepts its first reward rather than leaving an invisible paused run.
-Disconnecting or unloading the run module releases its pause and cancels its ticker.
+Disconnecting or unloading the mod releases its pause and cancels its ticker.
 An expired run cannot finish an old reward or launch another projectile into a replacement run.
 
 ## Skill presentation

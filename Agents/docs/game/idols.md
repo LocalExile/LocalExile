@@ -2,7 +2,7 @@
 
 Legacy of Phrecia's Idols are items with map modifiers.
 While they lie in the Idol inventory they affect every map the character opens, and they are not used up.
-The module is `Modules/Legacy/Idols`; the Phrecia league lists it beside
+They are the mod `idols` in LocalExile-Mods (once the Legacy module `Idols`); the Phrecia league lists it beside
 [the ascendancies](phrecia-modules.md), and neither depends on the other.
 
 **The 3.29.3 clients have the Idols' data and rules but no Idol panel.**
