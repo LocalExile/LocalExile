@@ -99,6 +99,15 @@ public sealed class AtlasAndMapEntryTests
             Assert.Equal(1, lowTierMaven[Stat.MapAtlasPrimordialBossInfluence]);
             Assert.False(zeroTierBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
 
+            // A family's league block: carried once, for the tree's families and the ones the map names itself.
+            Assert.Contains("harvest", Game.MapLeagueBlockFamilies);
+            var named = new MapMods(new Dictionary<uint, int>()) { AtlasFamilies = new HashSet<string> { "harvest" } };
+            Assert.Equal(named.AtlasFamilies, named.WithFragmentStat(Stat.MapPackSizePlusPct, 5).AtlasFamilies);
+            foreach (var (mods, tree, block) in new[] { (rareMods, new HashSet<string>(), 0), (rareMods, new HashSet<string> { "harvest" }, 1),
+                (named, new HashSet<string>(), 1), (named, new HashSet<string> { "harvest" }, 1) })
+                Assert.Equal(block, Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), tree, 0)
+                    .GetValueOrDefault(Stat.MapHarvestSeedsAreTier1));
+
             player.Character.LeagueQuestFlags.Add(351); // MapDeviceTangleUnlocked
             Assert.Equal((byte)2, Game.EligibleBossOption(player, new MapDevice.Opening(area, rareMods), 2));
             Assert.Equal((byte)0, Game.EligibleBossOption(player, new MapDevice.Opening(nonAtlasArea, rareMods), 2));

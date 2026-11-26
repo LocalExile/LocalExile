@@ -250,7 +250,7 @@ static partial class QuestobjectsRules
                 // The others in the instance see him too: each gets its own bytes (a send encrypts them in place).
                 foreach (var peer in player.Instance.Presence.PlayersExcept(player.Id))
                 {
-                    if (peer is not { Controlled: false, Closed: false, LeavingArea: false } other) continue;
+                    if (peer is not { HasClient: true, Closed: false, LeavingArea: false } other) continue;
                     await Send(other, InstanceProtocol.RemoveObject(stale), $"0x02bd Izaro 0x{stale:x} is gone");
                 }
             }

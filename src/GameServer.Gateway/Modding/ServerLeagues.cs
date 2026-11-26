@@ -21,7 +21,7 @@ public sealed class LeagueRuntime(League definition, IReadOnlySet<string> module
     public LeagueRules Rules => ServerLeagues.RulesOf(definition, modules);
 }
 
-/// <summary>Which modules each league has, and the rules they give. Set when the Gateway starts: leagues are not loaded, unloaded,
+/// <summary>Which modules and mods each league has, and the rules they give. Set when the Gateway starts: leagues are not loaded, unloaded,
 /// added or removed while it runs. One copy of each module serves every league that lists it; its hooks run per player's league.</summary>
 public static class ServerLeagues
 {
@@ -46,7 +46,8 @@ public static class ServerLeagues
         return LeagueRules.Standard;
     }
 
-    /// <summary>A league's modules, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name.</summary>
+    /// <summary>What a league lists, by id: its modules.json lists paths under Modules/, and a module's id is its folder's name; a
+    /// mod is listed by its id.</summary>
     /// A league's list is fixed once it is loaded (init-only), so its ids are built once: every LeagueRuntime.Rules read
     /// built this set again, under the area's lock in the skill checks (CPU profile 2026-11-18: ~300 ms of other threads'
     /// lock waits in 25 s of Caustic Arrow).
@@ -58,7 +59,8 @@ public static class ServerLeagues
     }
     static System.Runtime.CompilerServices.ConditionalWeakTable<League, IReadOnlySet<string>>? moduleIds;
 
-    /// <summary>Every module any loaded league lists, and the game itself: the others do not load.</summary>
+    /// <summary>Every module and mod any loaded league lists, and the game itself: the other modules do not load, nor do the
+    /// other mods that run only where they are listed.</summary>
     public static IReadOnlySet<string> Wanted(LeagueCatalog leagues) =>
         leagues.Loaded.SelectMany(ModulesOf).Append(GameModule).ToHashSet(StringComparer.OrdinalIgnoreCase);
 

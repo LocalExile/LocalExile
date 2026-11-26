@@ -40,8 +40,8 @@ public sealed class BehemothRuntimeTests
     [Fact]
     public void Provider_retirement_releases_owned_state_and_old_generations_cannot_reclaim_a_worker()
     {
-        var definition = Assert.Single(new AscendancyCatalog().Definitions,
-            candidate => candidate.Identity.Family == AscendancyFamily.Phrecia && candidate.Name == "Behemoth");
+        var definition = Assert.Single(PhreciaFourClassesTests.PhreciaTree().Definitions,
+            candidate => candidate.Name == "Behemoth");
         Assert.Equal("Berserker", definition.Identity.Id);
         Assert.Equal((byte)1, definition.BaseClass); // Characters row0 is the Marauder (IntegerId1).
         Assert.Equal((byte)2, definition.ClassNo);

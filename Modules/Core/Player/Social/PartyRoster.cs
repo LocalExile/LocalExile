@@ -36,7 +36,7 @@ public static class PartyRoster
     static bool Same(Player a, Player b) => ReferenceEquals(a, b)
         || a.Character.Account is not null && string.Equals(a.Character.Account, b.Character.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
-    static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
+    static bool Available(Player c) => c.Listed && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
     static bool SameLeague(Player a, Player b) => a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
         && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
     static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b);
@@ -204,7 +204,7 @@ public static class PartyRoster
 
     public static async Task<bool> InviteHuman(Player from, string name)
     {
-        var to = InGame.Keys.FirstOrDefault(c => !c.Controlled && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
+        var to = InGame.Keys.FirstOrDefault(c => c.Listed && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
         if (to is null) return false; // Another module may own this character's name.

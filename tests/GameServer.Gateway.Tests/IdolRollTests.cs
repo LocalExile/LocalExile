@@ -9,6 +9,9 @@ public class IdolRollTests
     {
         var items = Program.Items;
         var rolls = new ItemRolls(items);
+        Assert.Equal((3, 3), rolls.RareMaxAffixes(ItemCatalog.Create(items.Find("Minor Idol")!)));
+        // As the Idols module does on load: the class has the jewels' caps while an owner asks for them.
+        using var caps = ItemRolls.UseJewelAffixCaps(new ModuleLifetime("Idols"), "AtlasRelic");
         string[] names = ["Minor Idol", "Kamasan Idol", "Totemic Idol", "Noble Idol", "Burial Idol", "Conqueror Idol"];
         foreach (string name in names)
         {

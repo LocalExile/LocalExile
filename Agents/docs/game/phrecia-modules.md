@@ -10,7 +10,8 @@ League lists are startup configuration; rebuilding the module reloads its code.
 
 The initial extraction preserves Gambler, Antiquarian and Aristocrat from main.
 Their class descriptors live under `Classes/<Name>`; a class is enabled only after its implementation is supported.
-The generic catalog still reads all 19 identities for save validation, without making unfinished classes playable.
+The module builds all 19 identities (`AscendancyCatalog.Build`) while it is loaded, without making unfinished classes
+playable; with the module away a saved choice is kept and the character is refused at entry.
 Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reusable stat-driven engines stay in Game.
 Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
 Harbinger remains separate work.

@@ -32,6 +32,10 @@ public sealed class MapMods
     public IReadOnlyDictionary<string, int> ScarabKinds { get; init; } = new Dictionary<string, int>();
     public ItemRarity MapRarity { get; init; }
     public bool Corrupted { get; init; }
+    /// <summary>The Atlas passive families the map counts as held beside the opener's tree ("blight", "harvest", the
+    /// second part of a node's id): what a module's own sources of those families' stats name. A family's league block is
+    /// carried once, whoever holds it.</summary>
+    public IReadOnlySet<string> AtlasFamilies { get; init; } = System.Collections.Frozen.FrozenSet<string>.Empty;
 
     public int Get(uint id) => Stats.GetValueOrDefault(id);
 
@@ -46,7 +50,7 @@ public sealed class MapMods
         {
             ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
             FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
-            MapRarity = MapRarity, Corrupted = Corrupted,
+            MapRarity = MapRarity, Corrupted = Corrupted, AtlasFamilies = AtlasFamilies,
         };
     }
 

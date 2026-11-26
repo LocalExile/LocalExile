@@ -6,15 +6,16 @@ using GameServer.Core.World;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
-/// whose league lists it, a mod's in every league while it is loaded. They run in that order: the league's code, then the modules', then the
-/// mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
+/// whose league lists it, a mod's in every league, or only in the leagues that list it when its mod.json says so. They run in
+/// that order: the league's code, the modules', the listed mods', then the other mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
     {
-        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner)
-            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+        // A league's code by the league alone: its list may hold a mod of its name in another case (the mod that brings it).
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.LeagueRank ? league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase)
+            : Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner);
     }
 
     ImmutableArray<Subscriber> _subscribers = [];
@@ -98,9 +99,9 @@ public static class GameEventOwners
     static ImmutableArray<IOwned> _events = [];
     static ImmutableDictionary<(int Rank, string Owner), ImmutableList<IDisposable>> _held = ImmutableDictionary<(int, string), ImmutableList<IDisposable>>.Empty;
 
-    /// <summary>The ranks: a league's code, a module, a mod. A host releases only its own rank, so a league and a module of the same
-    /// name (Ruthless) do not release each other's.</summary>
-    public const int LeagueRank = 0, ModuleRank = 1, ModRank = 2;
+    /// <summary>The ranks: a league's code, a module, a mod of the leagues that list it, a mod of every league. A host releases
+    /// only its own rank, so a league and a module of the same name (Ruthless) do not release each other's.</summary>
+    public const int LeagueRank = 0, ModuleRank = 1, LeagueModRank = 2, ModRank = 3;
 
     public static void Register(IOwned gameEvent) => ImmutableInterlocked.Update(ref _events, e => e.Add(gameEvent));
 
@@ -124,7 +125,7 @@ public static class GameEventOwners
     /// <summary>How many subscriptions the owner has (its "hooks" in /mod and /module).</summary>
     public static int Count(string owner) => _events.Sum(e => e.Count(owner));
 
-    // A league's code first, then the modules, then the mods, by the kind of host that runs the owner. An owner no host runs (a test, a
+    // A league's code first, then the modules, then the mods (the listed ones first), by what runs the owner. An owner no host runs (a test, a
     // helper) counts as a module, and so does a name that is both a module's and a league's.
     internal static int RankOf(string owner) => ModHost.RankOf(owner) ?? ModuleRank;
 
@@ -632,12 +633,34 @@ public static class GameEvents
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
+    /// <summary>The automatic quest conversation on a click or Continue. Null defers to the normal lookup,
+    /// true starts a conversation, and false skips the lookup so the caller can handle shortcuts or show options.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool?>>> NpcQuestConversation = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
     public static readonly GameEvent<Func<ChatCommands, Player, ChatCommands>> CommandsBuilding = new();
     /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
     /// what it runs (the Pantheon's "pantheon").</summary>
     public static readonly GameEvent<Action<Player, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
     public static readonly GameEvent<Func<Player, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
+    /// <summary>The stat sources the player's pools (life, mana, energy shield) are about to be built from, with the final
+    /// attributes: a module turns its own per-attribute stats into the ordinary pool stats they are, on the sources. Only the
+    /// pools take the change.</summary>
+    public static readonly GameEvent<Action<Player, Dictionary<uint, int>, (int Strength, int Dexterity, int Intelligence)>> PoolSources = new();
+    /// <summary>The player's stats once the final attributes and the pools are in them, before the offence rows: a module derives
+    /// its own stats on the map, from the map alone (a stat rule's view: the rule runs again when what was read changes).</summary>
+    public static readonly GameEvent<Action<Player, StatMap>> DerivedStats = new();
+    /// <summary>An attack's hit by damage type, after conversion and the increases and before the roll, with the stats it was
+    /// built from: a module returns it changed. A hit is built without a connection, so this runs for every player's attacks:
+    /// a subscriber acts only on a stat of its own.</summary>
+    public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
+    /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
+    /// <summary>A module's own final percent on the radius within which Beyond portals merge, from the stats the area
+    /// reads; the answers add to the Endless Tide keystone's.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> BeyondMergeRadiusFinal = new();
+    /// <summary>A module's own additional Rogue Exiles for the area, from the stats the area reads and with the
+    /// encounter's own draws (the same instance gets the same exiles); the answers add.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, Random, int>> AdditionalRogueExiles = new();
     public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
@@ -706,6 +729,13 @@ public static class GameEvents
         return false;
     }
 
+    public static async Task<bool?> ResolveNpcQuestConversation(Player player, uint id, SpawnedNpc npc)
+    {
+        foreach (var run in NpcQuestConversation.For(player))
+            if (await run(player, id, npc) is bool handled) return handled;
+        return null;
+    }
+
     public static ChatCommands RunCommandsBuilding(Player player, ChatCommands commands)
     {
         // With no connection, for the list tools read: every module's commands.
@@ -728,6 +758,12 @@ public static class GameEvents
     {
         foreach (var run in PlayerStatSources.For(player)) sources = run(player, sources);
         return sources;
+    }
+
+    public static DamagePacket WithAttackHit(DamagePacket hit, Func<uint, int> get)
+    {
+        foreach (var subscriber in AttackHit.Snapshot) hit = subscriber.Run(hit, get);
+        return hit;
     }
 
     public static DamagePacket WithOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster monster, DamagePacket rolled)

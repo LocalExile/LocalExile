@@ -54,7 +54,8 @@ Three legal eight-point builds cover all 18 non-start nodes:
   (0xb34) calculator before it.
   Bow shots resolve at projectile contact like other projectiles, so they reach `RollCriticalStrike` and the ailment
   consumers too; Baited Breath never applies to them only because a bow and a rod cannot be held together.
-- **Screaming Reels.** `FinalCastSpeedPct` applies the 60% more to the summed increases, the skill's own
+- **Screaming Reels.** `FinalCastSpeedPct` applies the 60% more (the module's answer to `GameEvents.CastSpeedMore`,
+  while the active main hand is a rod) to the summed increases, the skill's own
   `base_cast_speed_+%` included, the way the client's `cast_speed_+%` calculator `0x1427101c0` does it:
   `round((increased + 100) × (1 + more / 100) − 100)`, at least −99.
   Its combined final (`combined_cast_speed_+%_final`, `0x14270ed40`) reads key 0x529f only for weapon type 15.

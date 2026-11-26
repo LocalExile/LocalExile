@@ -98,7 +98,7 @@ public sealed class AbyssEncounter
         var players = player.Frames.Players();
         var cells = new List<(int X, int Y)>(players.Length + 1);
         foreach (var c in players)
-            if (!c.Controlled && Current(c)) cells.Add(c.Walk.Position(now));
+            if (c.HasClient && Current(c)) cells.Add(c.Walk.Position(now));
         if (cells.Count == 0) cells.Add(player.Walk.Position(now));
         return cells;
     }

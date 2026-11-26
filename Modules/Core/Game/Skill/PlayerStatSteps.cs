@@ -292,12 +292,12 @@ public static partial class Game
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
             double now = AreaTime(player);
-            if (player.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
+            if (player.WardBreak.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
             if (player.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(player.EnduringCryRecovery.Until - now);
             // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
             if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
-                    + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
+                    + (player.WardBreak.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
             var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
@@ -308,7 +308,13 @@ public static partial class Game
         });
         Step(PlayerStatStep.TailPanels, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Panels));
         Step(PlayerStatStep.Rampage, (player, stats, _) => WithRampage(player, stats));
-        Step(PlayerStatStep.TailOffence, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence));
+        Step(PlayerStatStep.TailOffence, (player, stats, _) =>
+        {
+            // A module's own derived stats (GameEvents.DerivedStats), from this fresh snapshot: never written to the raw sources.
+            if (GameEvents.DerivedStats.Any)
+                foreach (var run in GameEvents.DerivedStats.For(player)) run(player, stats);
+            ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence);
+        });
         Step(PlayerStatStep.TailCritical, (player, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);

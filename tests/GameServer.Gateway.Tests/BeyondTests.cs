@@ -168,6 +168,13 @@ public sealed class BeyondTests
         Assert.Equal(45.0, MapBeyond.MergeRadius(0, 0, false), 6);
         Assert.Equal(22.5, MapBeyond.MergeRadius(0, 0, true), 6);
         Assert.Equal(33.75, MapBeyond.MergeRadius(50, 0, true), 6);
+        // A module's own final percent (GameEvents.BeyondMergeRadiusFinal) reaches a player's radius: 45 * 0.6.
+        using (var radius = new TriggeredSummonTests.Fixture())
+        {
+            using (GameEvents.BeyondMergeRadiusFinal.Add("Game", (_, _) => -40))
+                Assert.Equal(27.0, MapBeyond.MergeRadius(radius.Player), 6);
+            Assert.Equal(45.0, MapBeyond.MergeRadius(radius.Player), 6);
+        }
 
         var atlas = new Dictionary<uint, int>
         {

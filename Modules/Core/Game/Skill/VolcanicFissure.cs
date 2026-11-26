@@ -20,12 +20,18 @@ public static class VolcanicFissureSweep
 
     public static double ContactDistance((int X, int Y) from, (int X, int Y) end, (int X, int Y) target, int radius)
     {
-        var direction = GroundSlamWave.Direction(from, end);
-        double length = Game.Dist(from, end);
-        double dx = target.X - from.X, dy = target.Y - from.Y;
-        double along = Math.Clamp(dx * direction.X + dy * direction.Y, 0, length);
-        double x = dx - direction.X * along, y = dy - direction.Y * along;
-        return x * x + y * y <= (double)radius * radius ? along : double.PositiveInfinity;
+        var origin = new ProjectileVector(from.X, from.Y);
+        var path = new ProjectileVector(end.X, end.Y) - origin;
+        return ContactDistance(origin, path.Unit, 0, path.Length, target, radius);
+    }
+
+    internal static double ContactDistance(ProjectileVector origin, ProjectileVector direction, double start, double end,
+        (int X, int Y) target, int radius)
+    {
+        var relative = new ProjectileVector(target.X, target.Y) - origin;
+        double along = Math.Clamp(relative.Dot(direction), start, end);
+        var offset = relative - direction * along;
+        return offset.Dot(offset) <= (double)radius * radius ? along : double.PositiveInfinity;
     }
 }
 

@@ -1326,7 +1326,7 @@ static partial class QuestobjectsRules
         long before = player.PlayerLife, lifeDamage = DamagePlayerHitTyped(player, damage, 0, 0, now, CharacterPlayerStats(player),
             GameServer.Core.World.DamagePacket.Of(GameServer.Core.World.DamageType.Physical, damage, damage));
         player.PlayerLife = (uint)Math.Max(0, before - lifeDamage);
-        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
         return player.PlayerLife;
     }
