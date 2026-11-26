@@ -64,11 +64,8 @@ public static partial class Game
         return at >= swing.At + swing.Hold;
     }
 
-    public static MonsterIgnites.Settings RepeatAilment(MonsterIgnites.Settings ailment, double more) => ailment with
-    {
-        Min = ailment.Min * more, Max = ailment.Max * more,
-        CriticalMin = ailment.CriticalMin * more, CriticalMax = ailment.CriticalMax * more,
-    };
+    public static MonsterIgnites.Settings RepeatAilment(MonsterIgnites.Settings ailment, double more) =>
+        ailment.ScaleDamage(more);
 
     public static MonsterPoisons.Settings RepeatAilment(MonsterPoisons.Settings ailment, double more) => ailment with
     {

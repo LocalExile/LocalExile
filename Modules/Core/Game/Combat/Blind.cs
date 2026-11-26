@@ -16,13 +16,26 @@ public readonly record struct BlindHitInput(long GlobalChance, long AttackChance
     }
     public static BlindHitInput Capture(Func<uint, int> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
-        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get));
+        get(Stat.PctChanceToBlindOnCriticalStrike), get(Stat.BlindEffectPlusPct), Game.BlindSeconds(get))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
     public static BlindHitInput Capture(Func<uint, long> get) => new(
         get(Stat.GlobalChanceToBlindOnHitPct), get(Stat.AttacksChanceToBlindOnHitPct),
         get(Stat.PctChanceToBlindOnCriticalStrike), Saturate(get(Stat.BlindEffectPlusPct)),
-        Game.BlindSeconds(name => Saturate(get(name))));
-    public int Chance(bool spell, bool critical) => (int)Math.Clamp(GlobalChance
-        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0), 0, 100);
+        Game.BlindSeconds(name => Saturate(get(name))))
+        {
+            GlobalVsBleedingChance = get(Stat.GlobalChanceToBlindOnHitPctVsBleedingEnemies),
+            AttackVsBleedingChance = get(Stat.AttackChanceToBlindOnHitPctVsBleedingEnemies),
+        };
+    public long GlobalVsBleedingChance { get; init; }
+    public long AttackVsBleedingChance { get; init; }
+    public int Chance(bool spell, bool critical) => Chance(spell, critical, bleeding: false);
+
+    public int Chance(bool spell, bool critical, bool bleeding) => (int)Math.Clamp(GlobalChance
+        + (spell ? 0 : AttackChance) + (critical ? CriticalChance : 0)
+        + (bleeding ? GlobalVsBleedingChance + (spell ? 0 : AttackVsBleedingChance) : 0), 0, 100);
 }
 
 public static partial class Game
@@ -119,12 +132,28 @@ public static partial class Game
         return (Math.Clamp(Get(Stat.GlobalChanceToBlindOnHitPct), 0, 100), Get(Stat.BlindEffectPlusPct),
             4 * Math.Max(0d, 1 + Get(Stat.BlindDurationPlusPct) / 100d));
     }
+
+    static void BlindOnElementalSkillUseLocked(Player player, int effect, double now, IReadOnlyDictionary<uint, int> sources)
+    {
+        int chance = sources.GetValueOrDefault(Stat.ElementalSkillChanceToBlindNearbyEnemiesPct);
+        if (chance <= 0) return;
+        var skills = SkillsFor(player);
+        if (!(skills.HasType(effect, "Fire") || skills.HasType(effect, "Cold") || skills.HasType(effect, "Lightning"))
+            || !RandomRolls.Chance(chance, 100, AreaRng(player))) return;
+        const int radius = 30;
+        var at = player.Walk.Position(now);
+        var input = (100, sources.GetValueOrDefault(Stat.BlindEffectPlusPct), BlindSeconds(sources.GetValueOrDefault));
+        foreach (var (id, enemy) in player.Area.MonstersNear(at, radius))
+            if (Dist(enemy.Walk.Position(now), at) <= radius) InflictMonsterBlind(player, id, enemy, now, input);
+    }
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         (int Chance, int Effect, double Seconds) input, Random? random = null)
         => InflictMonsterBlind(player, id, target, at, input.Chance, input.Effect, input.Seconds, random);
     public static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at,
         BlindHitInput input, bool spell, bool critical, Random? random = null)
-        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical), input.Effect, input.Seconds, random);
+        => InflictMonsterBlind(player, id, target, at, input.Chance(spell, critical,
+                (input.GlobalVsBleedingChance > 0 || !spell && input.AttackVsBleedingChance > 0) && target.Bleeds.IgnitedAt(at)),
+            input.Effect, input.Seconds, random);
     static bool InflictMonsterBlind(Player player, uint id, SpawnedMonster target, double at, int chance,
         int effect, double seconds, Random? random)
     {

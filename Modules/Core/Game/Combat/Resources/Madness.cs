@@ -138,9 +138,13 @@ public static partial class Game
         return result;
     }
 
-    public static async Task<bool> ToggleMadness(Player player, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null)
+    public static async Task<bool> ToggleMadness(Player player, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission = null) =>
+        (await ToggleMadnessWithActivation(player, skill, effect, current, admission)).Accepted;
+
+    static async Task<(bool Accepted, bool Activated)> ToggleMadnessWithActivation(
+        Player player, ushort skill, int effect, Func<bool> current, CooldownUseTicket? admission)
     {
-        bool accepted = false;
+        bool accepted = false, activated = false;
         await SendWorldRecords(player, player.Id, () =>
         {
             if (!current() || player.PlayerLife == 0 || player.Paused || InTown(player)
@@ -163,6 +167,7 @@ public static partial class Game
             }
             else
             {
+                activated = true;
                 state.Active = true;
                 state.Skill = skill;
                 state.NextTouch = now + MadnessSkillValue(player, Stat.GloriousMadnessTimerMs) / 1000d;
@@ -175,7 +180,7 @@ public static partial class Game
             accepted = true;
             return WithOwnAuraRecords(player, () => []);
         }, "Glorious Madness toggled");
-        return accepted;
+        return (accepted, activated);
     }
 
     // Glorious Madness (row 1535) and its four touches (1496-1499, their stacks and countdowns) while it is active. A touch

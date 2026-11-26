@@ -30,11 +30,7 @@ public static partial class Game
     public static MonsterIgnites.Settings WithOverheat(Player player, ushort skillId, MonsterIgnites.Settings settings)
     {
         double more = OverheatAilmentMore(player, skillId);
-        return more == 1 ? settings : settings with
-        {
-            Min = settings.Min * more, Max = settings.Max * more,
-            CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more,
-        };
+        return more == 1 ? settings : settings.ScaleDamage(more);
     }
 
     public static MonsterPoisons.Settings WithOverheat(Player player, ushort skillId, MonsterPoisons.Settings settings)
