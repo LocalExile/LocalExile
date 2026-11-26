@@ -179,19 +179,22 @@ public sealed class PhreciaFourClassesTests
             Assert.Equal(50, Speed());
         }
 
-        // The buff rows of the family's nodes (Ghost of the Deep 37553, Light of Divinity 13763) act while an owner
-        // applies them: one owner letting go does not take another's away.
+        // The buff rows of the family's nodes (Ghost of the Deep 37553, Light of Divinity 13763, Born under Fire 32105)
+        // act while an owner applies them: one owner letting go does not take another's away.
         bool Self() => PassiveBuffAuras.SelfBuffsFor([37553], false).Any(a => a.Template == "CustomAscendancyIllegalFisherman");
         bool Enemy() => PassiveBuffAuras.EnemyAurasFor([13763], false, Game.EnemyAuraActs)
             .Any(a => a.Template == "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
-        Assert.False(Self() || Enemy());
+        bool Converts() => PassiveBuffAuras.EnemyAurasFor([32105], false, Game.EnemyAuraActs)
+            .Any(a => a.Template == "CustomAscendancyEnemyPhysicalDamageConvertedToFire");
+        Assert.False(Self() || Enemy() || Converts());
         var one = PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyIllegalFisherman");
         using (PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyIllegalFisherman"))
         using (PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken"))
+        using (PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyEnemyPhysicalDamageConvertedToFire"))
         {
             one.Dispose();
-            Assert.True(Self() && Enemy());
+            Assert.True(Self() && Enemy() && Converts());
         }
-        Assert.False(Self() || Enemy());
+        Assert.False(Self() || Enemy() || Converts());
     }
 }
