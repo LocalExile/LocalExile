@@ -25,7 +25,7 @@ Decide the layer before writing code, and name it in the PR description ([module
 | **Framework** | `src/` (mainly Gateway) | plumbing, no game rules: connections, packets, message loop, game data, saves, connection state, and module/league/mod hosts |
 | **Module** | `Modules/Core/`, `Modules/Legacy/`, `Modules/Custom/` | a game system replicating the real game (`Core/`, `Legacy/`) or custom (`Custom/`), loaded for leagues that list it |
 | **League** | `Leagues/<Name>/` | a name, a `parent` (where characters go, not inheritance), and the list of modules making up its rules |
-| **Mod** | [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) into `Mods/` | opt-in custom content or dev/testing tools across all leagues |
+| **Mod** | [LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods) into `Mods/` | opt-in content or dev/testing tools, across all leagues or only in the leagues that list it |
 
 - **A GGG-like server needs zero mods** and a replicated league lists only `Core/` and `Legacy/` modules—never `Custom/` or mods.
 - **Game rules never go in the framework.** Expose a general hook or `GameEvents` entry naming no module, league, or mod.
