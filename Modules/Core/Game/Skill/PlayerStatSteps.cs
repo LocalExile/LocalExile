@@ -102,6 +102,9 @@ public static partial class Game
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            if (GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
+                && player.RecentEvents.Happened(UsedTravelSkillRecently, now))
+                AddTo(stats, Stat.DamagePlusPct, travelDamage);
             if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)
                 AddTo(stats, Stat.ChaosDamagePlusPct, Math.Min(80L, (player.Pools.Mana / 100L) * chaosPerMana));
             if (GetIn(stats, Stat.AdditiveArmourModifiersApplyToEnergyShieldRechargeRateAtPctValue) is int rechargeShare and not 0)

@@ -1684,6 +1684,8 @@ public static partial class Game
     static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
         RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
 
+    const string UsedTravelSkillRecently = "used_travel_skill";
+
     static void RecordNonInstantSpellUseLocked(Player player, int effect, double now)
     {
         player.RecentEvents.RecordNonInstantSpell(effect, now);
@@ -1698,6 +1700,7 @@ public static partial class Game
         RecordUsedSkillLocked(player, acceptedAt);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
+        if (SkillsFor(player).IsTravel(effect)) player.RecentEvents.Record(UsedTravelSkillRecently, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
             player.RecentEvents.Record(StatConditions.UsedDash, acceptedAt);
         if (SkillsFor(player).HasType(effect, "Fire"))
