@@ -313,8 +313,9 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, bool mayTriggerItemMark = true, int weaponWitherChance = 0)
+        bool areaHit = false, int glacialFreezeMore = 0, bool? ownHit = null, int weaponWitherChance = 0)
     {
+        bool owned = ownHit ?? playerHit;
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
@@ -323,7 +324,7 @@ public static partial class Game
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
             QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
-        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, mayTriggerItemMark, random);
+        CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, owned, random);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         bool criticalProjectileKnockback = critical && projectileDamage
             && (playerStats.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) != 0
@@ -447,6 +448,8 @@ public static partial class Game
         }
         // Fleeing (MonsterFlee): its own draws (AreaRng(player)), so a projectile's reaction draws stay in order.
         int fleeChance = MonsterFlee.Chance(spell, Player, Skill);
+        if (owned && m.Bleeds.IgnitedAt(now))
+            fleeChance = ActorScale.Saturate((long)fleeChance + Player(Stat.PctChanceToCauseBleedingEnemiesToFleeOnHit));
         if (TryFleeFromHitLocked(player, m, player.Walk.Position(now), fleeChance, now))
         {
             // Which hit made it run, and from what chance: the stat sources are not logged by the panel, and a fleeing
