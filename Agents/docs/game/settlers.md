@@ -107,13 +107,20 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
   town saved by one process is still at the right point in the next. An empty treasury halts the town: the plots stop
   growing (`PlotRate` returns 0) and the mine and the smeltery stop bringing anything up -their cycles are moved to the
   tick that notices the halt, so the hours it stood idle are not paid out as produce once it is funded again.
+  The save (`data/kingsmarch-farm.json`) names each plot's object id, so a module reload -which starts a fresh record
+  while the client still holds the town's objects- picks the plots back up under the ids the client knows (`Adopt`)
+  instead of sending new ones into a map that already has them. Only placement is opt-in per module load (`_armed`);
+  the farm, the mine and the smeltery keep running after a reload. A plot whose crop is being changed stays in the
+  record under its old id with `Plot.Replanting` set until the new object exists, so a report or a save written in that
+  second is never missing a plot.
 - `Modules/Core/Game/World/KingsmarchPort.cs`: the harbour — the seven ports of `VillageShippingPorts`, cargo value from
   `VillageExports`, crew, travel time and risk from distance, and the failure rows of `VillageShippingFailures`. The town
   has three dock slots (`Docks = 3`): a slot is bound for a port (`Route`), cargo is loaded into it out of the farm's
   store (`Load`), and `Sail` turns it into a `Ship` at sea that ties up its crew, banks its barter when it is due and
   gives the slot back; `Unload` puts a dock's cargo back in the store. The clock is the wall clock in Unix seconds
   (`Clock()`), so a trip saved before a restart is still due after it.
-- Commands: `/village` (report), `/village hire`, `/village assign <worker> <plot>`, `/recruit`, `/treasury`,
+- Commands: `/village` (report), `/village hire`, `/village assign <worker> <plot>`, `/village crop <plot> <crop>`,
+  `/recruit`, `/treasury`,
   `/port` (report), `/port route <slot> <port>`, `/port load <slot> <crop> <count>`, `/port sail <slot> [port]`,
   `/port unload <slot>`, `/port send <port> <crop> <count>`, `/port crew <n>`, `/port storm <percent>` (dev), `/unlock`.
 - `Modules/Core/Game/World/UnlockAll.cs`: grants the NPCTalk gate flags a completed campaign would have set (see
@@ -215,3 +222,17 @@ So the window is the readout and `/port …` is the input: `route <slot> <port>`
 (tying up its crew, `ceil(value / ExpectedShipmentValue)` hands, 1…6), `unload <slot>` puts the cargo back, and a trip
 that is due banks its barter and gives the slot back. The dock slots live in `data/kingsmarch-port.json`
 (`SavedPort.Docks`), the crew and barter beside them.
+
+## The farm window
+
+`0x7b` kind `0x59` shows one plot's farm page: a crop icon with `目前正在耕種`, a crop dropdown, `每小時產量` and `總數`.
+
+**Unlike the port window, this one does send.** Picking a crop from the dropdown arrives as `0x2ca` action `0x04`,
+`blob 04 <plot> <row>`, where the first byte is the plot order from 0 and the second is a `VillageResources` row:
+10..14 for Wheat, Corn, Pumpkin, Globulora and Orbisfera in the town's own crop order, `0xff` for the list's 無 entry.
+Live 2026-11-26: picking Corn on the first plot arrived as `04 00 0B`, and picking 無 as `04 00 FF`. The same action
+byte also carries the assign button (`u8 worker, u8 plot`), whose bytes are 0..5, so the two do not overlap and
+`VillageModule.Farm` tells them apart by range.
+
+The action lands in `KingsmarchTown`: a row of 10..14 is `Choose` (plant that crop on that plot), `0xff` is `Fallow`
+(take the crop off and leave the plot bare), anything else is `AssignIdle` (put that worker on that plot).

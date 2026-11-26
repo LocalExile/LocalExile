@@ -116,7 +116,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   but its own buttons (`貨物`, `選擇港口`, `啟航`, `遺棄`) never build a village action in this client build — they only
   move the card's local state — so loading and sailing are the commands `/port route|load|sail|unload <slot> …` and the
   window is the readout. A trip banks its barter when it is due and frees its slot, and the clock is the wall clock, so a
-  saved trip is due after a restart. The mine and smithy site counters still read the client's stat cache, which
+  saved trip is due after a restart. The farm window (`0x7b` kind `0x59`) does send: its crop dropdown arrives as `0x2ca`
+  action `0x04` with the plot and a `VillageResources` row (10..14 a crop, `0xff` the list's 無 entry), so picking a crop
+  plants it and picking 無 leaves the plot bare. A module reload no longer costs the town its plots: the save names each
+  plot's object id, so the plots are picked back up under the ids the client knows and the farm, the mine and the
+  smeltery keep running across a rebuild. The mine and smithy site counters still read the client's stat cache, which
   only grows with upgrades, so they show the base numbers rather than the workers standing there. The town's floor and
   buildings come from a client-side doodad patch (`scripts/dev/kingsmarch-doodads.py`), not from the protocol; the
   client's own walking ignores the server, so the walls, the props and the villagers stop a click where the baked hulls

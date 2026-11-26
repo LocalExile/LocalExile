@@ -972,14 +972,25 @@ public sealed class VillageModule : IModule
         return $"recruit (slot {index}): {said}";
     }
 
-    /// <summary>The farm panel's assign button: which worker tends which plot. The panel names the plot by its row in the
-    /// crop table, and the town's plots are numbered from 1, so the row is used as the plot's order.</summary>
+    /// <summary>The farm panel's crop list: which crop the plot named in the action grows. That list is the five
+    /// <c>VillageResources</c> rows the farm draws from (10..14, in the town's own crop order) with "none" as 0xff, so a
+    /// second byte of 10..14 or 0xff is a crop; the assign button names a plot instead (0..5) and the ranges do not
+    /// overlap, which is how one action byte tells the two apart. Live 2026-11-26: picking Corn on the panel arrived as
+    /// <c>04 00 0B</c> - the first plot, resource row 11.</summary>
     static string Farm(IPlayer player, ReadOnlySpan<byte> args)
     {
         if (args.Length < 2) return "assign farm (no arguments)";
-        int worker = args[0] + 1, plot = args[1] + 1;
-        string said = KingsmarchTown.AssignIdle(player, args[0], plot).GetAwaiter().GetResult();
-        return $"assign farm (worker {worker} → plot {plot}): {said}";
+        int plot = args[0] + 1, row = args[1];
+        if (row == 0xff)
+            return $"farm (plot {plot} left bare): {KingsmarchTown.Fallow(player, plot).GetAwaiter().GetResult()}";
+        if (row is >= 10 and <= 14)
+        {
+            string crop = KingsmarchTown.Crops[row - 10];
+            return $"farm (plot {plot} growing {crop}): {KingsmarchTown.Choose(player, plot, crop).GetAwaiter().GetResult()}";
+        }
+        int worker = args[0] + 1, target = row + 1;
+        string said = KingsmarchTown.AssignIdle(player, args[0], target).GetAwaiter().GetResult();
+        return $"assign farm (worker {worker} → plot {target}): {said}";
     }
 
     /// <summary>The town map's upgrade button: which <c>VillageUpgradeCategories</c> row was bought.</summary>

@@ -413,6 +413,8 @@ public static class KingsmarchTown
         // True once this session placed the town's plots. A save made before that (a module reload while the character
         // stands in the town) has no plots in memory, and writing it would wipe the crops a character left growing.
         public bool Placed;
+        // The reload-time pick-up has been tried for this record (it runs once, not on every tick).
+        public bool Adopted;
         // The settlement records (0x1f) and the village UI events (0x7b) were sent for this area load.
         public bool Records;
         public bool Ui;
@@ -470,12 +472,19 @@ public static class KingsmarchTown
         // When the client was last sent this plot. A plot is never removed again within a few seconds of being created: the
         // client's destroy is deferred and tearing down an object it has only just built is what corrupted its object map.
         public double CreatedAt;
+        // The plot is between two objects: its crop was changed, the old object was destroyed and the new one is waiting
+        // for the next tick. Its id is a dead one, so nothing may be written to it and a click only says to wait.
+        public bool Replanting;
         public int Produced;       // whole crops this plot has handed to the town's store
     }
 
     /// <summary>A plot as stored in <c>data/kingsmarch-farm.json</c>.</summary>
     sealed class SavedPlot
     {
+        // The object id the client knows this plot by. It is saved so a module reload, which starts a fresh record while
+        // the client still holds the town's objects, can pick the plots back up under the ids they were created with
+        // instead of sending new ones into a map the client already has.
+        public uint Id { get; set; }
         public int Crop { get; set; }
         public double Carry { get; set; }
         public double Settled { get; set; }
@@ -600,31 +609,42 @@ public static class KingsmarchTown
             }
         }
         _types ??= Types();
+        // A module load that did not come from an area load: the client still holds the town's objects, so the farm is
+        // picked back up from the save rather than placed again (see Adopt).
+        if (!_armed && !progress.Adopted)
+        {
+            progress.Adopted = true;
+            Adopt(progress);
+        }
         // The town panel is drawn from three file-driven things: the settlement records (0x1f), the village events (0x1e)
         // and the UI events (0x7b). A wrong kind crashes the client, so all three are data, not code.
         await EnsureSettlementRecords(player, progress);
         await EnsureVillageUi(player, progress);
         await ProbeLadder(player, progress, clock);
         PublishVillage(progress);
-        if (!_armed) return;
-        if (clock < progress.Ready) return;
+        // What the town *places* is opt-in per module load (see _armed); what it *does* is not. A reload picks the plots back
+        // up in Adopt, and from then on the farm, the mine and the smeltery keep running: gating those too is what left a
+        // reloaded town standing still -no ore, no crops, and a replant whose new object was never created.
+        bool placing = _armed && clock >= progress.Ready;
         // The boards are the town's buttons and stand on their own: they are created whatever the object limit says, so a
         // limit of 0 (no town furniture) still leaves a way to fund the treasury, hire a worker and read the farm.
-        await Boards(player, progress, clock);
+        if (placing) await Boards(player, progress, clock);
         int limit = Limit();
-        if (limit <= 0) return;
 
-        var objects = Ordered();
         await Flush(player, progress, clock);
         if (Work(progress) is { } news) await player.Tell(news);
         await TownJobs(player, progress, clock);
-        // The farm is a running rate, so it is written to disk on a timer rather than on every tick and every crop.
-        if (progress.PersistedAt == 0 || UtcNow() - progress.PersistedAt >= 60)
+        // The farm is a running rate, so it is written to disk on a timer rather than on every tick and every crop. A plot
+        // waiting for its new object is never saved: the id it holds is one the client has just been told to destroy, and
+        // a reload has to find ids it can pick up again.
+        if (progress.Pending.Count == 0 && (progress.PersistedAt == 0 || UtcNow() - progress.PersistedAt >= 60))
         {
             progress.PersistedAt = UtcNow();
             Persist(progress);
         }
+        if (!placing || limit <= 0) return;
 
+        var objects = Ordered();
         int created = 0;
         while (progress.Next < objects.Count && progress.Next < limit && created < 20)
         {
@@ -899,6 +919,49 @@ public static class KingsmarchTown
             });
     }
 
+    /// <summary>Picks the farm back up after a module reload: the client still holds the town's objects, so the plots are
+    /// rebuilt from the save under the ids they were created with and nothing is sent. A reload starts a fresh record, and
+    /// without this the plots only came back when the character left the town and returned, which meant a rebuild during
+    /// play left every plot unclickable and the panel saying the plots were not loaded.
+    ///
+    /// The one case it cannot be sure of is a reload inside the second a replanted plot waits for its new object: the save
+    /// then names the id the client has just been told to destroy, so that plot is handled as part of the store until the
+    /// next area load. No object is ever created here, which is what keeps the client's object map out of harm.</summary>
+    static void Adopt(Progress progress)
+    {
+        if (progress.Placed || progress.Plots.Count > 0 || progress.Saved.Count == 0 || _types is null) return;
+        // A save written before the ids were stored in it names no plot the client knows: there is nothing to pick up.
+        if (progress.Saved.Any(p => p.Id == 0)) return;
+        var rows = Ordered().Where(o => o.Type.EndsWith("/FarmingPlot", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (rows.Count == 0) return;
+        double now = UtcNow();
+        lock (_lock)
+        {
+            int order = 0;
+            foreach (var keep in progress.Saved.Take(rows.Count))
+            {
+                var o = rows[order];
+                if (!_types.TryGetValue(o.Type, out var type)) continue;
+                int stateIndex = Array.IndexOf(type.Components, "StateMachine");
+                if (stateIndex < 0) continue;
+                progress.Plots[keep.Id] = new Plot
+                {
+                    Who = progress.Who, ObjectId = keep.Id, Order = order, StateIndex = (byte)stateIndex,
+                    States = type.States, Row = o, Type = type,
+                    Crop = keep.Crop, Carry = keep.Carry, Produced = keep.Produced,
+                    // The gap since the last save is settled against the treasury the same way an area load does it, and
+                    // CreatedAt stays 0: these objects are old, so the guard against touching a fresh one does not apply.
+                    SettledAt = keep.Settled > 0 ? Math.Max(keep.Settled, now - AwayCap) : now,
+                    CreatedAt = 0,
+                };
+                order++;
+            }
+            progress.Placed = progress.Plots.Count > 0;
+        }
+        if (progress.Placed)
+            Console.WriteLine($"[gateway] kingsmarch: {progress.Plots.Count} plot(s) picked back up after a module reload");
+    }
+
     /// <summary>The objects with the surely-written types first, so a low limit only exercises those.</summary>
     static List<TownObject> Ordered()
     {
@@ -1094,8 +1157,9 @@ public static class KingsmarchTown
         return all;
     }
 
-    /// <summary>The town's farm crops, by the plot's <c>plant</c> state value (1..5).</summary>
-    static readonly string[] Crops = ["Wheat", "Corn", "Pumpkin", "Globulora", "Orbisfera"];
+    /// <summary>The town's farm crops, by the plot's <c>plant</c> state value (1..5). The client's own crop list is the
+    /// <c>VillageResources</c> rows 10..14 in the same order, which is what the farm panel's action names a crop by.</summary>
+    public static readonly string[] Crops = ["Wheat", "Corn", "Pumpkin", "Globulora", "Orbisfera"];
 
     /// <summary>One crop as the farming formula needs it: the <c>BaseProductionTime</c> of its VillageProduction row in
     /// seconds (how long one unit takes) and the <c>ShippingValue</c> of its VillageExports row (what the port charges for
@@ -1305,7 +1369,7 @@ public static class KingsmarchTown
         double now = UtcNow();
         // A plot the client has only just been sent is left alone for a while: its 0x2bd destroy is deferred, and removing
         // a fresh plot again right away is what corrupted the client's object map.
-        if (now - plot.CreatedAt < Quiet)
+        if (now - plot.CreatedAt < Quiet || plot.Replanting)
         {
             await player.Tell($"Plot {plot.Order + 1} is still settling ({plot.CreatedAt + Quiet - now:0} s).");
             return true;
@@ -1358,22 +1422,54 @@ public static class KingsmarchTown
                 ? $"the town's plots are not loaded yet: walk into Kingsmarch (/goto {Area}) and try again"
                 : $"no plot {plotOrder}: the town has {progress.Plots.Count} (1-{progress.Plots.Count})";
         double now = UtcNow();
-        if (now - plot.CreatedAt < Quiet)
+        if (now - plot.CreatedAt < Quiet || plot.Replanting)
             return $"plot {plotOrder} is still settling ({plot.CreatedAt + Quiet - now:0} s)";
+        // A replant leaves the plot in the record, so it can only be touched once its new object exists.
         if (plot.Crop == chosen)
             return $"plot {plotOrder} is already growing {Crops[chosen - 1]}";
         // What it has grown so far belongs to the town before the crop is swapped out.
         Settle(progress, plot, now);
+        // Saved before the crop changes and the object is destroyed: from here until the new object exists, the plot holds
+        // an id the client no longer knows, so the save must still describe the plot as it stands right now. A reload in
+        // that second then comes back to this plot under its live id with its old crop, which only loses the one change.
+        Persist(progress);
         uint id = plot.ObjectId;
         bool bare = plot.Crop == 0;
         plot.Crop = chosen;
         plot.SettledAt = now;
         await SetPlant(player, progress, id, plot);
-        Persist(progress);
         bool someone = progress.Workers.Any(w => w.Plot == plot.Order);
         return $"plot {plotOrder}: {(bare ? "now growing" : "switched to")} {Crops[chosen - 1]} "
             + $"({CropTable[chosen - 1].ExportValue} a unit at the port)"
             + (someone ? ", a worker is on it." : $", but nobody tends it (/village assign <worker> {plotOrder}).");
+    }
+
+    /// <summary>Stops a plot growing anything, the farm panel's "none" choice in its crop list: what it has grown so far goes
+    /// into the town's store and the plot is left bare, ready for another crop.</summary>
+    /// <param name="plotOrder">The plot, 1..6, as the report and the panel number them.</param>
+    public static async Task<string> Fallow(IPlayer player, int plotOrder)
+    {
+        var progress = State(player);
+        Plot? plot;
+        lock (_lock) plot = progress.Plots.Values.FirstOrDefault(p => p.Order == plotOrder - 1);
+        if (plot is null)
+            return progress.Plots.Count == 0
+                ? $"the town's plots are not loaded yet: walk into Kingsmarch (/goto {Area}) and try again"
+                : $"no plot {plotOrder}: the town has {progress.Plots.Count} (1-{progress.Plots.Count})";
+        if (plot.Crop == 0) return $"plot {plotOrder} is already bare";
+        double now = UtcNow();
+        if (now - plot.CreatedAt < Quiet || plot.Replanting)
+            return $"plot {plotOrder} is still settling ({plot.CreatedAt + Quiet - now:0} s)";
+        // Nothing is taken from a plot while it settles, so the last fraction of a crop is banked first.
+        Settle(progress, plot, now);
+        // As in Choose: the save stands at the plot's live id until the new object exists.
+        Persist(progress);
+        uint id = plot.ObjectId;
+        string was = Crops[plot.Crop - 1];
+        plot.Crop = 0;
+        plot.SettledAt = now;
+        await SetPlant(player, progress, id, plot);
+        return $"plot {plotOrder}: {was} taken off, the plot is bare.";
     }
 
     /// <summary>How fast a plot turns time into crops, in crops a second (RE C.1/C.2):
@@ -1423,7 +1519,7 @@ public static class KingsmarchTown
             if (progress.Placed)
             {
                 farm.Plots = [.. progress.Plots.Values.OrderBy(p => p.Order)
-                    .Select(p => new SavedPlot { Crop = p.Crop, Carry = p.Carry, Settled = p.SettledAt, Produced = p.Produced })];
+                    .Select(p => new SavedPlot { Id = p.ObjectId, Crop = p.Crop, Carry = p.Carry, Settled = p.SettledAt, Produced = p.Produced })];
                 progress.Saved = farm.Plots;
             }
             farm.Workers = [.. progress.Workers.Select(w => new SavedWorker { Plot = w.Plot, Harvests = w.Harvests, Name = w.Name, Rank = w.Rank })];
@@ -1934,7 +2030,11 @@ public static class KingsmarchTown
         await player.Send(InstanceProtocol.RemoveObject(objectId), $"0x02bd Kingsmarch plot 0x{objectId:x} removed to replant");
         lock (_lock)
         {
-            progress.Plots.Remove(objectId);
+            // The plot keeps its place in the record while its new object waits: one missing from the record for that
+            // second would drop out of the report and out of the save. The id it holds is the one the client was just
+            // told to destroy, so its timestamp says "not settled" until the new object exists, and a click waits.
+            plot.CreatedAt = UtcNow();
+            plot.Replanting = true;
             progress.Pending.Add((UtcNow() + 1.0, plot, x, y));
         }
     }
@@ -1955,7 +2055,9 @@ public static class KingsmarchTown
             lock (_lock)
             {
                 id = progress.Id++;
+                progress.Plots.Remove(plot.ObjectId);
                 plot.ObjectId = id;
+                plot.Replanting = false;
                 // UtcNow, the clock the click's Quiet guard reads; the queue's At is the area tick's own counter.
                 plot.CreatedAt = UtcNow();
                 progress.Plots[id] = plot;
@@ -1964,6 +2066,9 @@ public static class KingsmarchTown
             await player.Send(InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(plot.Row.Type),
                     Blob(x, y, plot.Row, plot.Type, plot.Crop, hands)),
                 $"0x02bb create Kingsmarch plot 0x{id:x} {plot.Row.Type} at ({x}, {y}) plant {plot.Crop} workers {hands}");
+            // The plot has a new id, and a reload has to pick it up under that one: the save is brought up to date here
+            // rather than on the minute, so the id a save names is the id the client was last sent.
+            Persist(progress);
         }
     }
 
