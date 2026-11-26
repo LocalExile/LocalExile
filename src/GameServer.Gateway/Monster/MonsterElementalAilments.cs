@@ -389,6 +389,22 @@ public sealed class MonsterElementalAilments
             RemoveAura(kind, source);
     }
 
+    /// <summary>Keep a permanent aura at its current magnitude while its source covers the target.</summary>
+    public bool KeepPermanentAura(Kind kind, ulong source, double now, Func<uint, int> attacker, Func<uint, int> target)
+    {
+        double magnitude = Grace || Immune(kind, target) ? 0 : BaseWithoutDamage(kind, attacker, target);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            if (effect.Kind != kind || effect.AuraSource != source) continue;
+            if (magnitude > 0 && effect.Magnitude == magnitude && double.IsPositiveInfinity(effect.Until)) return true;
+            RemoveAura(kind, source);
+            break;
+        }
+        return magnitude > 0 && Apply(new(kind, now, double.PositiveInfinity, magnitude) { AuraSource = source },
+            attacker, target) is not null;
+    }
+
     public void RemoveAura(Kind kind, ulong source) => effects.RemoveAll(e => e.Kind == kind && e.AuraSource == source);
 
     // Chill and shock without damage: 10% and 15% base unless the source states its own (wiki Chill and Shock), through
@@ -454,8 +470,10 @@ public sealed class MonsterElementalAilments
     {
         if (Grace) return null;
         var (kind, now) = (effect.Kind, effect.From);
-        double seconds = (effect.Until - now) * Math.Max(0, 1 + (attacker(Stat.Of($"virtual_{Name(kind)}_duration_+%"))
-            - target(Stat.Of($"base_self_{Name(kind)}_duration_-%"))) / 100.0);
+        double seconds = effect.Until - now;
+        if (!double.IsPositiveInfinity(seconds))
+            seconds *= Math.Max(0, 1 + (attacker(Stat.Of($"virtual_{Name(kind)}_duration_+%"))
+                - target(Stat.Of($"base_self_{Name(kind)}_duration_-%"))) / 100.0);
         if (effect.Magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, target)) return null;
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).

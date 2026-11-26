@@ -487,10 +487,15 @@ public static partial class Game
             + Own(PlayerHitDamage.VsBlindedDamageStat);
         var blindedRows = hitInputs is null || additionalBlindedIncreased == 0 ? null
             : SupportedAilmentRowsFrom(hitInputs, hand, additionalBlindedIncreased);
+        var ignite = hitInputs is null ? IgniteSettingsFrom(ailmentRows, hand, Get)
+            : IgniteWithTargetCondition(ailmentRows, hitInputs, hand, Get);
         bool weaponAttack = !spell && local is not null && SkillsFor(player).IsAttack(gem.Effect) && !SkillsFor(player).RequiresShield(gem.Effect);
         AttackAccuracyProfile? accuracy = spell ? null : SupportedAccuracy(player, skillId, swingHand);
         int rating = shield is not null && accuracy is { } shieldAccuracy ? shieldAccuracy.Rating
             : handWeapon is null ? PlayerAccuracy(player, playerStats) : HandAccuracy(player, swingHand, playerStats);
+        int damagePerChain = Get(Stat.ProjectileDamagePlusPctPerChain);
+        int damagePerPierce = Get(Stat.ProjectileDamagePlusPctPerPiercedEnemy);
+        bool trackTrajectoryDamage = damagePerChain != 0 || damagePerPierce != 0;
         var shot = new ProjectileOffense(
             hitInputs is null ? DamagePacket.Empty : SupportedHitFrom(hitInputs, suppress: false),
             spell, rating,
@@ -498,6 +503,7 @@ public static partial class Game
             SupportedCriticalMultiplier(player, skillId, handWeapon), gem.Name)
         {
             WeaponAttack = weaponAttack,
+            OffHandWeapon = swingHand == AttackHand.Off,
             TargetCritical = TargetCriticalBonuses.From(playerStats, own),
             SkeletonWeaponContactSource = weaponAttack && totem is null ? SkeletonWeaponContactSource(player, swingHand, local) : null,
             ProjectileAttack = projectileDamage && !spell && SkillsFor(player).IsProjectile(gem.Effect),
@@ -516,12 +522,16 @@ public static partial class Game
                 "FreezingPulse" or "FreezingPulseAltX" or "FreezingPulseAltY" or "FreezingPulseRoyale",
             RemainingChainDamagePercent = Own(Stat.CobraLashHitAndAilmentDamagePlusPctFinalForEachRemainingChain),
             CompletedChainDamagePercent = Own(Stat.SkillDamagePlusPctFinalPerChainFromSkillSpecificStat),
+            DamageIncreasePerChain = damagePerChain,
+            DamageIncreasePerPierce = damagePerPierce,
             Spider = hitInputs is null ? null : CaptureSpiderDamage(player, hitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
-                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
+                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
+                required: trackTrajectoryDamage),
             SpiderArea = areaHitInputs is null ? null : CaptureSpiderDamage(player, areaHitInputs,
                 AddedEffectiveness(player, gem.Effect, gem.Level), context: false, local: local,
-                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off),
+                bow: !spell && WeaponProfileFor(player, activeSet: true).Bow, offHand: swingHand == AttackHand.Off,
+                required: trackTrajectoryDamage),
             MirageSource = totem is null && Own(Stat.SupportMirageArcherBaseDuration) > 0 ? SupportedSkill(player, skillId) : null,
             CriticalTrigger = spell ? null : CaptureCriticalTriggerSource(player, skillId),
             Penetration = Penetration.Of(playerStats, Stats, !spell, own, local), ResistanceMods = HitResistMods(playerStats, own),
@@ -531,8 +541,9 @@ public static partial class Game
             Leech = HitLeechSources(playerStats, !spell, own, weaponAttack ? local : null), WeaponLocal = local,
             ImpaleChance = spell ? 0 : Get(Stat.ImpaleOnHitPctChance),
             // Burning Arrow's 25% base_chance_to_ignite_% and the caster's sources, with the panel's ignite range.
-            Ignite = WithOverheat(player, skillId, NotedIgnite(player, skillId, WithIgniteSpread(MonsterIgnites.Settings.From(ailmentRows, hand, Get), playerStats, own, spell, hand))),
-            Poison = WithOverheat(player, skillId, MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
+            Ignite = WithOverheat(player, skillId, NotedIgnite(player, skillId,
+                WithIgniteSpread(ignite, playerStats, own, spell, hand))),
+            Poison = WithOverheat(player, skillId, PoisonSettingsFrom(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
             GhorrDotMore = GhorrDotMore(player, skillId),
@@ -544,11 +555,12 @@ public static partial class Game
                     : SupportedHitFrom(areaHitInputs, suppress: false,
                         additionalIncreased: additionalBlindedIncreased),
                 WithOverheat(player, skillId, NotedIgnite(player, skillId, WithIgniteSpread(
-                    MonsterIgnites.Settings.From(blindedRows, hand, Get), playerStats, own, spell, hand))),
+                    IgniteWithTargetCondition(blindedRows, hitInputs, hand, Get, additionalBlindedIncreased),
+                    playerStats, own, spell, hand))),
                 spell ? MonsterIgnites.Settings.None
                     : WithOverheat(player, skillId, BleedSettings(blindedRows, "main_hand", Get, local, melee: false,
                         bow: WeaponProfileFor(player, activeSet: true).Bow, projectileAttack: projectileDamage)),
-                WithOverheat(player, skillId, MonsterPoisons.Settings.From(blindedRows, hand, Get, local, projectileAttack: projectileDamage && !spell))),
+                WithOverheat(player, skillId, PoisonSettingsFrom(blindedRows, hand, Get, local, projectileAttack: projectileDamage && !spell))),
             MaimChance = spell ? 0 : Get(Stat.ProjectileAttacksChanceToMaimOnHitPctIfYouHaveBeastMinion),
             AccuracyMoreUnique = player.Pools.AccuracyMoreVsUniquePct,
             LocalStunThresholdReduction = spell ? 0 : local?.GetValueOrDefault(Stat.LocalStunThresholdReductionPlusPct) ?? 0,

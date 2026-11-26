@@ -63,9 +63,11 @@ public static partial class Game
         var gem = captured ?? SupportedSkill(player, skill);
         var area = SkillAreaStats(player, gem.Stats, gem.Effect, sources ?? CharacterPlayerStats(player));
         int Get(uint n) => GolemStat(area, n);
+        long increased = (long)Get(SkillArea.BaseIncreased) + Get(Stat.CurseAreaOfEffectPlusPct)
+            + (aura ? Get(Stat.CurseAuraSkillAreaOfEffectPlusPct) : 0);
         // Hexes retain their own base radius when Blasphemy converts them to auras.
         return SkillArea.Radius(22,
-            n => Get(n) + (n == SkillArea.BaseIncreased ? Get(Stat.CurseAreaOfEffectPlusPct) : 0), spell: true);
+            n => n == SkillArea.BaseIncreased ? ActorScale.Saturate(increased) : Get(n), spell: true);
     }
 
     public static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,

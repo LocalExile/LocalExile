@@ -257,6 +257,11 @@ public static class RadiusJewelCatalogue
                     resistance = MakeResistance(Stat.BaseLightningDamageResistancePct, Stat.AdditionalSpellBlockPct, mod.Values[i]);
                     continue;
                 }
+                if (id == Stat.LocalUniqueJewelLightningResistanceAlsoGrantsMaximumEnergyShieldScaledPct)
+                {
+                    resistance = MakeResistance(Stat.BaseLightningDamageResistancePct, Stat.MaximumEnergyShieldPlusPct, mod.Values[i]);
+                    continue;
+                }
                 if (id == Stat.LocalUniqueJewelColdResistanceAlsoGrantsFrenzyChargeOnKillChance)
                 {
                     resistance = MakeResistance(Stat.BaseColdDamageResistancePct, Stat.AddFrenzyChargeOnKillPctChance, 100);
@@ -267,6 +272,11 @@ public static class RadiusJewelCatalogue
                     resistance = MakeResistance(Stat.BaseColdDamageResistancePct, Stat.BaseSpellSuppressionChancePct, mod.Values[i]);
                     continue;
                 }
+                if (id == Stat.LocalUniqueJewelColdResistanceAlsoGrantsMaximumManaScaledPct)
+                {
+                    resistance = MakeResistance(Stat.BaseColdDamageResistancePct, Stat.MaximumManaPlusPct, mod.Values[i]);
+                    continue;
+                }
                 if (id == Stat.LocalUniqueJewelFireResistanceAlsoGrantsEnduranceChargeOnKillChance)
                 {
                     resistance = MakeResistance(Stat.BaseFireDamageResistancePct, Stat.EnduranceChargeOnKillPct, 100);
@@ -275,6 +285,11 @@ public static class RadiusJewelCatalogue
                 if (id == Stat.LocalUniqueJewelFireResistanceAlsoGrantsBlockChanceScaledPct)
                 {
                     resistance = MakeResistance(Stat.BaseFireDamageResistancePct, Stat.AdditionalBlockPct, mod.Values[i]);
+                    continue;
+                }
+                if (id == Stat.LocalUniqueJewelFireResistanceAlsoGrantsMaximumLifeScaledPct)
+                {
+                    resistance = MakeResistance(Stat.BaseFireDamageResistancePct, Stat.MaximumLifePlusPct, mod.Values[i]);
                     continue;
                 }
                 if (id == Stat.LocalUniqueJewelNonKeystonePassiveInRadiusEffectPlusPct)

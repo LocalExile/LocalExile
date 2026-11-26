@@ -56,13 +56,16 @@ public static partial class Game
                 Get(Stat.BaseRageCostEfficiencyPlusPct), free));
         rage = ActorScale.Saturate((long)rage + ChainbreakerRageCost(Get));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
-        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(player, id).GetValueOrDefault(Stat.ManaCost));
-        // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
-        uint life = 0;
-        if (!free && Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(player)))
+        uint mana = 0, life = 0;
+        if (!free)
         {
-            life = mana;
-            mana = 0;
+            var costStats = SupportedStats(player, id);
+            mana = (uint)Math.Max(0, costStats.GetValueOrDefault(Stat.ManaCost));
+            if (Lifetap.ConvertsCostToLife(gem.Stats, costStats))
+            {
+                life = mana;
+                mana = 0;
+            }
         }
         if (Get(Stat.NoManaCost) != 0) mana = 0;
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
@@ -129,6 +132,12 @@ public static partial class Game
         player.PlayerMana -= plan.Mana;
         player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);
+        uint adrenaline = Stat.AdrenalineOnVaalSkillUseDurationMs;
+        if (player.WardBreak.GrantAdrenaline(now, stats.GetValueOrDefault(adrenaline), adrenaline))
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+        }
         if (plan.Life > 0 || plan.Mana > 0)
             ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
         uint sacrificed = SacrificeItemLifeLocked(player, plan.Effect, stats);

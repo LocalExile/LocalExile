@@ -9,6 +9,13 @@ public static class PlayerDamageTaken
     const DamageType P = DamageType.Physical, F = DamageType.Fire, C = DamageType.Cold, L = DamageType.Lightning,
         X = DamageType.Chaos;
 
+    static readonly (uint Stat, DamageType[] From, DamageType To)[] PurityShifts =
+    [
+        (Stat.ColdAndLightningHitAndDotDamagePctTakenAsFireWhileAffectedByPurityOfFire, [C, L], F),
+        (Stat.FireAndLightningHitAndDotDamagePctTakenAsColdWhileAffectedByPurityOfIce, [F, L], C),
+        (Stat.FireAndColdHitAndDotDamagePctTakenAsLightningWhileAffectedByPurityOfLightning, [F, C], L),
+    ];
+
     static readonly (uint Stat, DamageType[] From, DamageType To)[] Shifts =
     [
         (Stat.PhysicalDamageTakenPctAsFire, [P], F),
@@ -34,6 +41,7 @@ public static class PlayerDamageTaken
         (Stat.LightningHitAndDotDamagePctTakenAsFire, [L], F),
         (Stat.BaseLightningHitDamageTakenPctAsPhysical, [L], P),
         (Stat.ColdAndLightningDamageTakenPctAsFire, [C, L], F),
+        ..PurityShifts,
         (Stat.ElementalDamageTakenPctAsChaos, [F, C, L], X),
         (Stat.ElementalHitDamageTakenPctAsPhysical, [F, C, L], P),
         (Stat.ChaosHitAndDotDamagePctTakenAsFire, [X], F),
@@ -47,6 +55,7 @@ public static class PlayerDamageTaken
         (Stat.LightningDamageOverTimePctTakenAsChaos, [L], X),
         (Stat.ColdDamageOverTimePctTakenAsFire, [C], F),
         (Stat.LightningDamageOverTimePctTakenAsFire, [L], F),
+        ..PurityShifts,
     ];
 
     const uint Increased = Stat.BaseDamageTakenPlusPct, ElementalIncreased = Stat.ElementalDamageTakenPlusPct,
