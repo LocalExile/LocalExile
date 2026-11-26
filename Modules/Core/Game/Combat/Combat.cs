@@ -748,7 +748,7 @@ public static partial class Game
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
                 ExertedMeleeHitLocked(player, warcryTriggers, target, at);
-                if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass);
+                if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass, target: m);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
                 if (life == 0) RecordTinctureKill(m, TinctureKillBonusFor(player, playerStats, hand));
@@ -3336,6 +3336,15 @@ public static partial class Game
                     damageMore *= slam.HitFactor;
                 }
             }
+            if (!spell && retainedAttack is null && IsTrarthusChainHook(effectId))
+            {
+                if (GemSkillInstanceDisabled(player, gem.Effect, skillId) is null
+                    && SameTriggerSource(admittedGem, SupportedSkill(player, skillId)))
+                    AttachTrarthusLocked(player, gem, admittedGem, to, targetId, now, hand, weapon, offCritical,
+                        criticalRoll, sequence, radiusMore * chargeRadius, damageMore * hitAndAilmentMore,
+                        ruthless, cryExerted, rallyingDamage);
+                return;
+            }
             if (cleaveAttack)
             {
                 var cleaveFrom = player.Walk.Position(now);
@@ -4138,7 +4147,7 @@ public static partial class Game
                         stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                         if (!rageGranted) rageGranted = RageOnHitWithWeaponLocked(player, attack: !spell,
                             melee: !spell && SkillsFor(player).IsMelee(gem.Effect), critical, sweepWeaponClass,
-                            skillStats, playerStats: playerStats, secondWeaponClass: secondSweepWeaponClass);
+                            skillStats, playerStats: playerStats, secondWeaponClass: secondSweepWeaponClass, target: m);
                         if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         {
                             if (warcryTriggers is not null && !splashMore.ContainsKey(id))

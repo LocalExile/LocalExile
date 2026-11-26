@@ -482,7 +482,7 @@ public static partial class Game
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
-                || effectId is "ChainHookAltY" or "ChainHookAltMercenary"
+                || IsTrarthusChainHook(effectId)
                 || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
@@ -1364,7 +1364,8 @@ public static partial class Game
 
     // The projection channels from the player's current cell even without the Movement skill type.
     static bool AttackUsesWalkUp(Player player, int effect) =>
-        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect);
+        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect)
+        && !IsTrarthusChainHook(SkillsFor(player).EffectId(effect));
 
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
     // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (§5 of

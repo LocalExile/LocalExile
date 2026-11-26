@@ -455,7 +455,7 @@ public static partial class Game
                 stun = stun with { FortificationDamage = fortificationDamage, Fortified = fortifiedThisHit };
                 if (!rageGranted)
                     rageGranted = RageOnHitWithWeaponLocked(player, attack: true, melee: true, critical,
-                        weapon.ItemClass, skillStats, playerStats: playerStats);
+                        weapon.ItemClass, skillStats, playerStats: playerStats, target: m);
                 CombatRushOnHit(player, skillStats, now);
                 HallowOnMeleeHit(player, m, skillStats, now);
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);

@@ -239,6 +239,7 @@ public static partial class Game
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                         ReconcileBladestorms();
+                        ReconcileTrarthus();
                     }
                     finally
                     {
@@ -263,6 +264,7 @@ public static partial class Game
                     DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
                     ReconcileBladestorms();
+                    ReconcileTrarthus();
                 }
                 finally
                 {
@@ -346,6 +348,7 @@ public static partial class Game
             ClearDivineBlastOrbs();
             ClearConvictionWaves();
             ClearBladestorms();
+            ClearTrarthus();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -1101,7 +1104,8 @@ public static partial class Game
             if (shot.ActualCaster is null)
                 RageOnHitWithWeaponLocked(Player, attack: !shot.Spell, melee: false, critical,
                     shot.FromTrapOrMine || shot.FromTotem ? null : shot.WeaponClass, shot.SkillStats,
-                    contact.Projectile.ReactionRandomSource, player);
+                    contact.Projectile.ReactionRandomSource, player,
+                    target: !shot.FromTrapOrMine && !shot.FromTotem ? target : null);
             if (shot.ActualCaster is null) ChargesOnHit(Player, target, critical, shot.Spell, shot.Effect, shot.Level, shot.Quality, melee: false,
                 primary: shot.FirstHit?.Claim() ?? true, skillStats: shot.SkillStats);
             CommitProjectileHit(this, contact, target, hit.Value, damage, shot, critical,
