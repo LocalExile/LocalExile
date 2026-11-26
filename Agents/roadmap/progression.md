@@ -47,8 +47,8 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   IDs are PassiveSkillMasteryEffects rows. Totem2 and the Projectile speed effects are in open PRs (#1163, #1151).
 - **Known:** pinned ordinary/Phrecia topology is available as
   [read-only analysis artifacts](../docs/dev/passive-graph-data.md), without installing a client graph.
-- **Known:** existing Phrecia capabilities and node sources are extracted into `Modules/Legacy/PhreciaAscendancies`.
-  Its league composition is independent of Idols, which are their own module ([Idols](../docs/game/idols.md)).
+- **Known:** existing Phrecia capabilities and node sources are the mod `phreciaascendancies` in LocalExile-Mods.
+  Its league composition is independent of Idols, which are their own mod ([Idols](../docs/game/idols.md)).
   Behemoth now supplies its descriptor and sources with generation-bound shared Rampage/Vaal engines.
   Whisperer supplies its exact descriptor and generic Mana/Recoup/Blind consumers after the actual Behemoth merge.
   **Next:** review and replay Whisperer's reconciled current-main candidate, then adapt the remaining class PRs.

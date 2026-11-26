@@ -306,5 +306,5 @@ up 60% faster until they end.
 None of the three builds at the top has both Elemental Valiance and Deep Connections, so their links have nothing to
 target.
 
-Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Coverage: `PhreciaFourClassesTests`, kept with the mod in `tests/` and not run yet (admission with the class's own opt-in, and its node stats). The class's earlier
 Gateway tests went with the Gateway test reset of `3877f119`.
