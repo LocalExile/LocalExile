@@ -912,7 +912,8 @@ public static partial class Game
         }
         var plan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         if (plan.Kind == SkillHitKind.Spell
-            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage)
+            && gem.Stats.GetValueOrDefault(Stat.ManaVoidGainPctMissingUnreservedManaAsBaseLightningDamage) is > 0 and var manaDamage
+            && !totem && gem.Stats.GetValueOrDefault(Stat.IsTotem) == 0 && !placed.Trap && !placed.Mine)
         {
             long missing = Math.Max(0, (long)UnreservedMana(player) - player.PlayerMana);
             double lightning = Math.Floor(missing * (double)manaDamage / 100);

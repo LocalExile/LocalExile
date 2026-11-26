@@ -420,8 +420,11 @@ public static partial class Game
                 bool spellArea = !SkillsFor(player).IsAttack(gem.Effect);
                 var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
-                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(gem.Effect), Get);
-                payload[Stat.ActiveSkillBaseAreaOfEffectRadius] = baseRadius;
+                var effectId = SkillsFor(player).EffectId(gem.Effect);
+                int baseRadius = SkillArea.BaseRadius(effectId, Get);
+                // Manabond's action adds its built-in 18-cell radius to the transmitted base stat.
+                payload[Stat.ActiveSkillBaseAreaOfEffectRadius] = effectId == ManabondEffect
+                    ? Get(Stat.ActiveSkillBaseAreaOfEffectRadius) : baseRadius;
                 payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillArea.Radius(baseRadius, AreaGet, spellArea);
                 payload[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(AreaGet, spellArea);
                 payload[Stat.SkillAreaOfEffectPlusPct] = SkillArea.Increased(AreaGet, spellArea);
@@ -730,7 +733,8 @@ public static partial class Game
         bool bladeBlast = IsGroundBladeBlast(effect);
         bool unloading = IsBladeBlastOfUnloading(effect);
         bool lance = IsCracklingLance(effect);
-        if (bladefall || purifyingFlame || conviction || bladeBlast || lance)
+        bool manabond = effect == ManabondEffect;
+        if (bladefall || purifyingFlame || conviction || bladeBlast || lance || manabond)
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
                 : PlacedSpellTarget(player, placed.At, 60, now);
@@ -743,7 +747,7 @@ public static partial class Game
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
                 || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast
-                || unloading || lance))
+                || unloading || lance || manabond))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -784,6 +788,18 @@ public static partial class Game
                         (reach, filter) => PlacedAreaDamageLocked(player, placed, placed.At, reach,
                             ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
                             targetFilter: filter)));
+            }
+            else if (manabond)
+            {
+                var centre = aim;
+                bool Casting() => player.PlayerLife > 0 && Current();
+                session.ScheduleContact(ProjectileRuntime.Time(now), Casting, () =>
+                {
+                    var area = ManabondArea(player, placed.Effect, placed.Own, centre,
+                        placed.Offense?.Caster ?? CharacterPlayerStats(player));
+                    PlacedAreaDamageLocked(player, placed, centre, area.Reach, ProjectileWorldTime(player), inventionMore,
+                        currentSkill: true, spellDamage: true, targetFilter: area.Covers);
+                });
             }
             else if (lance)
             {
@@ -1188,7 +1204,8 @@ public static partial class Game
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
                     bool targetedTrap = !placed.Mine && (ArcProxyPayload(effect) || IsHexblastEffect(effect)
-                        || IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsCracklingLance(effect));
+                        || IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect)
+                        || IsCracklingLance(effect) || effect == ManabondEffect);
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null

@@ -203,6 +203,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Wave of Conviction resolves a travelling cone with the strongest elemental Exposure. Trarthus contacts once on each
   leg of the ring. Each caster's new wave replaces its previous one.
 - Crackling Lance resolves its beam geometry, native Intensity, proxy casts, and Disintegration Shock cap.
+- Manabond resolves its mana-based cross and base Lightning Damage on direct, triggered, and placed casts.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
   Docs: [11](../docs/protocol/11-skills.md), "Hit effects".
 - Seismic, Ancestral, Infernal and Battlemage's Cry grant their timed buffs to the caster and nearby allies.

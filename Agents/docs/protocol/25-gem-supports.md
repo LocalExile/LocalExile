@@ -342,6 +342,7 @@ The server estimates lance hitboxes, ring spacings, cascade spacings and the fir
 The base Cascade knocks enemies along the burst axis.
 
 The catalogue combines repeated per-level stat entries, including the cold adjustment for Vortex of Projection.
-Its ground can replace nearby Frostbolts. Manabond's cost uses maximum Mana, while its wing reach and added Lightning
-Damage read the filled and missing portions of unreserved Mana respectively.
+Its ground can replace nearby Frostbolts. Manabond pays a share of maximum Mana and reads unreserved Mana at contact.
+The client action 0x7dad uses an 18-cell base centre radius (3.29.3c, 0x141c90950). Each full quarter of unreserved Mana
+adds six cells to the reach of its four extensions. Mana-less proxies use full reach and gain zero missing-Mana damage.
 Triggered Firestorm uses the same storm and impact objects as the placed release.

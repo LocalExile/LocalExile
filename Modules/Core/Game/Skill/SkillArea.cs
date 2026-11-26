@@ -17,7 +17,8 @@ public static class SkillArea
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<uint, int> get) =>
-        get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+        effect == Game.ManabondEffect ? Math.Max(0, ActorScale.Saturate(18L + get(Stat.ActiveSkillBaseAreaOfEffectRadius)))
+            : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
         effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16

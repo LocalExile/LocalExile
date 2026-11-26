@@ -22,7 +22,7 @@ public static partial class Game
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
-                || IsCracklingLance(SkillsFor(player).EffectId(effect))
+                || IsCracklingLance(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == ManabondEffect
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -402,6 +402,19 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (effect == ManabondEffect)
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(ProjectileRuntime.Time(totem.NextCast), Current, () =>
+                {
+                    var centre = ReleaseAim();
+                    var spell = SupportedSkill(player, totem.SkillId);
+                    var area = ManabondArea(player, gem.Effect, spell.Stats, centre,
+                        TotemCasterStats(CharacterPlayerStats(player)));
+                    TotemNovaLocked(player, session, totem, centre, area.Reach, sequence, targetFilter: area.Covers);
+                });
+                continue;
+            }
             if (IsCracklingLance(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);

@@ -3,10 +3,33 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    internal const string ManabondEffect = "Manabond";
+
+    static (int Reach, Func<uint, (int X, int Y), bool>? Covers) ManabondArea(
+        Player player, int effect, IReadOnlyDictionary<uint, int> own, (int X, int Y) centre,
+        IReadOnlyDictionary<uint, int>? proxyCaster = null)
+    {
+        var area = SkillAreaStats(player, own, effect, proxyCaster);
+        int Radius(int @base) => SkillArea.Radius(@base, area.GetValueOrDefault, spell: true);
+        int radius = Radius(SkillArea.BaseRadius(ManabondEffect, own.GetValueOrDefault));
+        int unreserved = proxyCaster is null ? UnreservedMana(player) : 0;
+        // Totems, traps and mines have a full, empty mana pool of their own.
+        int quarters = unreserved > 0 ? (int)Math.Clamp((long)player.PlayerMana * 4 / unreserved, 0, 4) : 4;
+        if (quarters == 0) return (radius, null);
+        int reach = radius + 6 * quarters;
+        int halfWidth = Radius(6);
+        return ((int)Math.Ceiling(Math.Sqrt((double)reach * reach + (double)halfWidth * halfWidth)), (_, at) =>
+        {
+            int x = Math.Abs(at.X - centre.X), y = Math.Abs(at.Y - centre.Y);
+            return (double)x * x + (double)y * y <= (double)radius * radius
+                || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
+        });
+    }
+
     static bool SpatialSpellEffect(string? effect) =>
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
             || IsCracklingLance(effect) || effect is "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
+            or "LightningConduitAltX" or ManabondEffect or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
         SkillsFor(player).EffectId(effect) == "ShockNovaAltX"
@@ -103,21 +126,16 @@ public static partial class Game
                         .Take(Math.Max(0, Own(Stat.LightningConduitMaxNumTargets))).Select(p => p.Id).ToHashSet();
                     if (selected.Count > 0) Hit(aim, radius, targetFilter: (id, _) => selected.Contains(id));
                 }
-                else if (effect == "Manabond")
-                {
-                    int maximum = UnreservedMana(Player);
-                    int quarters = maximum > 0 ? (int)Math.Clamp((long)Player.PlayerMana * 4 / maximum, 0, 4) : 0;
-                    int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
-                    int reach = radius + 6 * quarters;
-                    int halfWidth = Radius(6);
-                    Hit(aim, (int)Math.Ceiling(Math.Sqrt((double)reach * reach + (double)halfWidth * halfWidth)),
-                        targetFilter: (_, at) =>
-                        {
-                            int x = Math.Abs(at.X - aim.X), y = Math.Abs(at.Y - aim.Y);
-                            return ((double)x * x + (double)y * y) <= (double)radius * radius
-                                || Math.Max(x, y) <= reach && Math.Min(x, y) <= halfWidth;
-                        });
-                }
+                else if (effect == ManabondEffect)
+                    Enqueue(() =>
+                    {
+                        if (!CurrentSource()) return Task.CompletedTask;
+                        // Resolve geometry and base lightning in the same contact, after the skill's payment.
+                        var area = ManabondArea(Player, gem.Effect, source.Stats, aim);
+                        return AreaSkillHitForUse(null, Player, gem.Id, gem, from, aim, immediate: true, sequence: sequence,
+                            repeat: repeat, damageMore: damageMore, radiusOverride: area.Reach, criticalRoll: critical,
+                            sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: area.Covers);
+                    });
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget);
