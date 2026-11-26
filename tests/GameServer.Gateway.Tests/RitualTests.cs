@@ -154,6 +154,9 @@ public class RitualTests
             Assert.Null(encounter.Populate(new AreaPopulated(player, 70, 1234, [])));
             await encounter.Placed(player);
             var state = encounter.Of(player)!;
+            var placedModSet = RitualTables.RuneModSet(state.Altars[0].Rune, state.Level);
+            Assert.Equal(placedModSet is null, state.ModSet is null);
+            Assert.Equal(placedModSet?.Mods.Count, state.ModSet?.Mods.Count);
             state.Owner = Program.CharacterName(player);
             Assert.Contains("IsMapOwner", encounter.QuestFlags(player));
 
@@ -223,14 +226,21 @@ public class RitualTests
             Assert.True(toDefer.DeferredThisPage);
             Assert.True(state.Tribute < tribBeforeDefer);
             Assert.Single(RitualFavours.LoadDeferred(player));
+            // League isolation: another league on the same account does not see Standard's deferred rewards.
+            var otherLeague = new Player(layout, 3, seed) { Instance = player.Instance };
+            otherLeague.Character.Account = player.Character.Account;
+            otherLeague.Character.League = "Hardcore";
+            Assert.Empty(RitualFavours.LoadDeferred(otherLeague));
 
             var toBuy = revealed[1];
             int tribBeforeBuy = state.Tribute;
+            // Requesting locked ExpandedInventory falls back to MainInventory (never deposits into ExpandedInventory).
             Assert.True(await RitualFavours.HandleBuy(player,
-                new LoginWriter().U16(RitualWire.BuyFavourId).U32(toBuy.ItemId).U32(0)
-                    .U32(unchecked((uint)-1)).U32(unchecked((uint)-1)).ToArray(), encounter));
+                new LoginWriter().U16(RitualWire.BuyFavourId).U32(toBuy.ItemId)
+                    .U32(PlayerInventories.ExpandedInventory).U32(0).U32(0).ToArray(), encounter));
             Assert.True(toBuy.Purchased);
             Assert.Equal(tribBeforeBuy - toBuy.BuyCost, state.Tribute);
+            Assert.Empty(Game.ItemsOf(player).Items(PlayerInventories.ExpandedInventory));
 
             Assert.True(await RitualFavours.HandleReroll(player, encounter));
             Assert.Equal(1, state.RerollsUsed);
@@ -265,21 +275,34 @@ public class RitualTests
             Assert.NotNull(mapReq.Opening?.ContentData);
             Assert.True(mapReq.Opening!.ContentData!.ContainsKey(RitualEncounter.VesselsContentKey));
             Assert.Equal(20, mapReq.Opening.Mods.Get(Stat.MapRitualMonsterSpawningSpeedPlusPct));
+            Assert.Equal(0, mapReq.Opening.Mods.Get(Stat.MapItemDropQuantityPlusPct)); // MapFragmentMods row 247 already adds +5% IIQ.
 
-            // Omen of Connections: Orb of Fusing links all sockets and consumes the Omen.
+            // Omen of Connections: Orb of Fusing links all linkable sockets (keeping Abyss sockets unlinked) and consumes the Omen.
             var omenType = Program.Items.Find(RitualOmens.Connections)!;
             inv.Add(PlayerInventories.MainInventory, 1, 0, ItemCatalog.Create(omenType));
             var bodyType = Program.Items.Find("Metadata/Items/Armours/BodyArmours/BodyStr1")!;
             var unlinked = ItemCatalog.Create(bodyType) with
             {
                 ItemLevel = 50,
-                Sockets = [new(SocketColour.Red), new(SocketColour.Red), new(SocketColour.Green), new(SocketColour.Blue)],
+                Sockets = [new(SocketColour.Red), new(SocketColour.Red), new(SocketColour.Green), new(SocketColour.Abyss)],
                 Links = [1, 1, 1, 1],
             };
             uint fusingHash = Program.Items.Find(CurrencyEffects.OrbOfFusing)!.Hash;
             var linked = await RitualOmens.OnCurrencyCrafting(player, unlinked, fusingHash, new Random(1));
             Assert.NotNull(linked);
-            Assert.Equal([4], linked!.Links);
+            Assert.Equal([3, 1], linked!.Links);
+
+            // Omen of Refreshment: refills flasks in-place via GainFlaskCharges (preserving item ID and per-flask MaxCharges).
+            var flaskType = Program.Items.Find("Metadata/Items/Flasks/FlaskLife1")!;
+            var addedFlask = inv.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(flaskType) with { Charges = 0 });
+            var refreshOmen = Program.Items.Find(RitualOmens.Refreshment)!;
+            inv.Add(PlayerInventories.MainInventory, 2, 0, ItemCatalog.Create(refreshOmen));
+            player.Pools = Game.PoolsFor(player, 70);
+            player.PlayerLife = Math.Max(1u, player.PlayerMaxLife / 5);
+            await RitualOmens.Tick(player);
+            var refilledFlask = inv.Items(PlayerInventories.Flask).Single(i => i.X == 0);
+            Assert.Equal(addedFlask.Id, refilledFlask.Id);
+            Assert.Equal(Program.Items.FlaskChargesOf(flaskType)!.MaxCharges, refilledFlask.Item.Charges);
         }
         finally
         {

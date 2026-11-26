@@ -44,11 +44,11 @@ public static class RitualFavours
         public int RevealAtAltar;
     }
 
-    // ---- AccountData deferred persistence ------------------------------------------------------------------------------
+    // ---- AccountData deferred persistence (league-isolated via PersonalStashOf) ----------------------------------------
 
     public static List<DeferredEntry> LoadDeferred(Player player)
     {
-        string? raw = AccountStash.For(AccountOf(player), ItemsFor(player)).ModuleData(DeferredDataKey);
+        string? raw = PersonalStashOf(player).ModuleData(DeferredDataKey);
         if (string.IsNullOrWhiteSpace(raw)) return [];
         try { return JsonSerializer.Deserialize<List<DeferredEntry>>(raw, Json) ?? []; }
         catch (JsonException) { return []; }
@@ -57,11 +57,8 @@ public static class RitualFavours
     public static void SaveDeferred(Player player, List<DeferredEntry> list)
     {
         string encoded = JsonSerializer.Serialize(list, Json);
-        AccountStash.For(AccountOf(player), ItemsFor(player)).ChangeModuleData(DeferredDataKey, _ => encoded);
+        PersonalStashOf(player).ChangeModuleData(DeferredDataKey, _ => encoded);
     }
-
-    static string AccountOf(Player player) =>
-        string.IsNullOrEmpty(player.Character.Account) ? CharacterName(player) : player.Character.Account;
 
     /// <summary>Decrements cooldown counters for deferred items once when a new Ritual area is populated.</summary>
     public static void TickDeferredCooldowns(Player player)
@@ -481,6 +478,8 @@ public static class RitualFavours
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, SavedRowSync> SavedRowStates = new();
 
+    public static void Clear() => SavedRowStates.Clear();
+
     /// <summary>Syncs Manager-0 row 57 (<c>RitualSavedRewards1</c>, invId 58) in place via <c>0x00bf</c> so the client's
     /// <c>50 - inv57.ItemCount</c> deferral cap indicator matches the persisted <c>AccountData</c> deferred list without
     /// replacing the row's initial registration.</summary>
@@ -574,14 +573,17 @@ public static class RitualFavours
             }
 
             var items = ItemsOf(player);
-            byte destRow = buy.DestInventoryRow == PlayerInventories.ExpandedInventory
+            bool expandedAllowed = ExpandedInventoryGranted(player);
+            bool explicitExpanded = buy.DestInventoryRow == PlayerInventories.ExpandedInventory;
+            byte destRow = explicitExpanded && expandedAllowed
                 ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory;
             List<uint> invRemoved = [];
             List<InventoryItem> invAdded = [];
             byte placedRow = destRow;
 
             bool placed = false;
-            if (buy.DestX >= 0 && buy.DestY >= 0 && buy.DestX <= byte.MaxValue && buy.DestY <= byte.MaxValue
+            if ((!explicitExpanded || expandedAllowed)
+                && buy.DestX >= 0 && buy.DestY >= 0 && buy.DestX <= byte.MaxValue && buy.DestY <= byte.MaxValue
                 && destRow < InstanceInventories.PlayerDefaults.Length)
             {
                 // Explicit cell placement from dragging/clicking into inventory.
@@ -598,10 +600,12 @@ public static class RitualFavours
             }
             if (!placed)
             {
-                // Ctrl+click (-1, -1) or fallback auto-place (with stacking).
-                byte[] tryRows = destRow == PlayerInventories.ExpandedInventory
-                    ? [PlayerInventories.ExpandedInventory, PlayerInventories.MainInventory]
-                    : [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
+                // Ctrl+click (-1, -1) or fallback auto-place (with stacking); ExpandedInventory is only eligible when granted.
+                byte[] tryRows = expandedAllowed
+                    ? (destRow == PlayerInventories.ExpandedInventory
+                        ? [PlayerInventories.ExpandedInventory, PlayerInventories.MainInventory]
+                        : [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory])
+                    : [PlayerInventories.MainInventory];
                 foreach (byte row in tryRows)
                 {
                     if (!items.Fits(row, offer.RealItem, ShapeOf)) continue;

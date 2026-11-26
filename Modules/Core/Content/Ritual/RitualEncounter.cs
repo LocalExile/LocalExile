@@ -86,6 +86,9 @@ public sealed class RitualEncounter
         public string Owner = "";
         public int Seed;
         public int Level;
+        /// <summary>The rune's mod set for the area's spawns, resolved once in <see cref="Populate"/>: every altar shares
+        /// one rune, so every spawn shares one set.</summary>
+        public MonsterModSet? ModSet;
         public int Completed;
         public int Tribute;
         public int RerollsUsed;
@@ -114,6 +117,7 @@ public sealed class RitualEncounter
         public int VesselCount;
         public readonly List<(string Path, MonsterRarity Rarity)> VesselMonsters = [];
         public double WispBuffUntil;
+        public bool WispBuffActive;
 
         public List<RitualFavours.Offer> Offers = [];
         public readonly HashSet<uint> ShopSentTo = [];
@@ -123,7 +127,6 @@ public sealed class RitualEncounter
         public Run? Run;
         public List<Revived> Revived = [];
         public readonly Dictionary<uint, (int Altar, string Path, MonsterRarity Rarity)> Tie = [];
-        public readonly HashSet<uint> Seen = [];
         public readonly HashSet<uint> Mine = [];
         public bool Done;
         public readonly SemaphoreSlim Gate = new(1, 1);
@@ -154,7 +157,7 @@ public sealed class RitualEncounter
             if (Distance(pos, altar.Cell) <= RitualTables.RadiusCells + 6)
                 sheet.Add(Stat.IsInRitual, 1);
         }
-        if (state.WispBuffUntil > state.Now)
+        if (state.WispBuffActive && state.WispBuffUntil > state.Now)
             sheet.Add(Stat.RitualTributePlusPct, 100);
     }
 
@@ -162,7 +165,7 @@ public sealed class RitualEncounter
 
     public IEnumerable<Player> InstanceClients(Player player)
     {
-        var members = InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
+        var members = InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c)).ToList();
         if (!members.Contains(player)) members.Insert(0, player);
         return members;
     }
@@ -176,8 +179,9 @@ public sealed class RitualEncounter
     // ---- Map Device Opening: Scarabs & Blood-filled Vessels ------------------------------------------------------------
 
     /// <summary>Handles <c>GameEvents.MapOpening</c>: claims <c>"Ritual"</c> content (silencing unhandled scarab warnings),
-    /// validates and extracts up to 4 Blood-filled Vessels (<c>RitualFragment</c>), applies their stacking bonuses
-    /// (+5% IIQ, +20% spawn speed, +20% max alive, +20% improved rewards), and forwards captured monsters to the map run.</summary>
+    /// validates and extracts up to 4 Blood-filled Vessels (<c>RitualFragment</c>), applies their Ritual stacking bonuses
+    /// (+20% spawn speed, +20% max alive; +5% IIQ per vessel is already applied from <c>MapFragmentMods</c> row 247 by
+    /// <see cref="MapRunCatalog.Of"/>), and forwards captured monsters to the map run.</summary>
     public void OnMapOpening(MapOpening request)
     {
         if (request.Opening is not { } opening || request.Campaign) return;
@@ -206,7 +210,6 @@ public sealed class RitualEncounter
         int n = Math.Min(4, vessels.Count);
         var mods = opening.Mods
             .WithFragmentStat(Stat.MapAreaContainsRituals, 1)
-            .WithFragmentStat(Stat.MapItemDropQuantityPlusPct, 5 * n)
             .WithFragmentStat(Stat.MapRitualMonsterSpawningSpeedPlusPct, 20 * n)
             .WithFragmentStat(Stat.MapRitualMaximumMonstersAliveAtOncePlusPct, 20 * n);
 
@@ -268,7 +271,7 @@ public sealed class RitualEncounter
         if (_states.TryGetValue(instance, out _)) return "the instance has its Ritual already";
         var layout = player.Layout;
         if (InTown(player) || HideoutCatalog.ByArea(layout.Hash) is not null) return "town or hideout";
-        if (layout.Walkable is not { } walkable || !RitualTables.Loaded) return "no walk map or no Ritual tables";
+        if (layout.Walkable is null || !RitualTables.Loaded) return "no walk map or no Ritual tables";
 
         bool isMap = MapDevices.IsMapArea(layout.Hash);
         var stats = instance.KeptAreaStats ?? AreaLeagueStats(player) ?? new Dictionary<uint, int>();
@@ -297,7 +300,6 @@ public sealed class RitualEncounter
         if (rune is null) return "no rune for the level";
 
         var taken = area.Taken.ToList();
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         int wanted = rng.Next(lo, hi + 1);
         var cells = new List<(int X, int Y)>();
         bool atArrival = Environment.GetEnvironmentVariable("Game_ENCOUNTERS_AT_ARRIVAL") == "1";
@@ -314,7 +316,9 @@ public sealed class RitualEncounter
             }
             else
             {
-                at = AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng);
+                // The cached sites: PopulationSites computes them at most once per AreaPopulated, so the retry loop no
+                // longer runs a full-map search on every attempt.
+                at = AreaPopulation.EncounterSpot(area, taken, rng);
                 if (at is null) break;
             }
             if (at is not { } spot) continue;
@@ -331,6 +335,7 @@ public sealed class RitualEncounter
             Owner = owner,
             Seed = area.Seed,
             Level = level,
+            ModSet = RitualTables.RuneModSet(rune, level),
             TributePct = S(Stat.MapRitualTributePlusPct),
             TributeMorePct = S(Stat.MapRitualTributePlusPctFinalFromAtlasKeystone),
             UniqueTributeMorePct = S(Stat.MapUniqueMonsterTributeMultiplierFinalPlusPct),
@@ -392,6 +397,9 @@ public sealed class RitualEncounter
     public async Task Placed(Player player)
     {
         if (Of(player) is not { } state) return;
+        // AreaPopulated runs after SendPlayer, so flush transient AreaQuestFlags (IsMapOwner) for the owner now.
+        if (IsOwner(player, state))
+            await SendPlayerQuestFlags(player, "0x02bc player quest flags (Ritual owner)");
         await RitualFavours.SyncSavedRewardsInventory(player);
         await RitualFavours.SendShopState(player, state, openWindow: false);
     }
@@ -464,13 +472,20 @@ public sealed class RitualEncounter
 
     public async Task Advance(Player runner, double seconds)
     {
-        if (runner.Paused || Of(runner) is not { Done: false, Altars.Count: > 0 } state || !IsMonsterRunner(runner) || !Current(runner)) return;
+        if (runner.Paused || Of(runner) is not { Altars.Count: > 0 } state || (state.Done && !state.WispBuffActive) || !IsMonsterRunner(runner) || !Current(runner)) return;
         if (!await state.Gate.WaitAsync(0)) return;
         try
         {
-            if (state.Done || !Current(runner)) return;
+            if ((state.Done && !state.WispBuffActive) || !Current(runner)) return;
             await Sync(runner, state);
             state.Now += Math.Max(0, seconds);
+            if (state.WispBuffActive && state.Now >= state.WispBuffUntil)
+            {
+                state.WispBuffActive = false;
+                foreach (var peer in InstanceClients(runner))
+                    await SendCharacterStats(peer, PlayerStatChange.Build);
+            }
+            if (state.Done) return;
             double now = AreaTime(runner);
             if (state.Now >= state.RevealAt && state.Altars.Any(a => !a.Shown))
             {
@@ -567,7 +582,6 @@ public sealed class RitualEncounter
                 uint id = await Spawn(player, state, row, rarity, c, mine: false, rune: altar.Rune);
                 if (id == 0) continue;
                 state.Tie[id] = (k, Monsters.All[row].Id, rarity);
-                state.Seen.Add(id);
                 altar.Tied.Add(id);
             }
         }
@@ -575,39 +589,44 @@ public sealed class RitualEncounter
 
     async Task Deaths(Player player, State state)
     {
-        var died = new List<(int Altar, string Path, MonsterRarity Rarity)>();
         int radius = RitualTables.RadiusCells;
         if (state.Now >= state.ScanAt && state.Altars.Any(a => a.State == Inactive && a.Shown))
         {
             state.ScanAt = state.Now + ScanSeconds;
             double now = AreaTime(player);
-            foreach (var (id, m) in player.Area.Monsters)
+            for (int a = 0; a < state.Altars.Count; a++)
             {
-                if (state.Seen.Contains(id) || state.Mine.Contains(id) || m.Life == 0) continue;
-                state.Seen.Add(id);
-                if (!m.Hostile || m.OwnerId is not null || m.SummonerId is not null || m.Variety is null) continue;
-                var cell = m.Walk.Position(now);
-                int best = -1;
-                double bestDistance = double.MaxValue;
-                for (int k = 0; k < state.Altars.Count; k++)
+                var srcAltar = state.Altars[a];
+                if (srcAltar.State != Inactive || !srcAltar.Shown) continue;
+                foreach (var (id, m) in player.Area.MonstersNear(srcAltar.Cell, radius))
                 {
-                    if (state.Altars[k].State != Inactive || !state.Altars[k].Shown) continue;
-                    double d = Distance(cell, state.Altars[k].Cell);
-                    if (d <= radius && d < bestDistance) (best, bestDistance) = (k, d);
+                    if (state.Tie.ContainsKey(id) || state.Mine.Contains(id) || m.Life == 0) continue;
+                    if (!m.Hostile || m.OwnerId is not null || m.SummonerId is not null || m.Variety is null) continue;
+                    var cell = m.Walk.Position(now);
+                    int best = -1;
+                    double bestDistance = double.MaxValue;
+                    for (int k = 0; k < state.Altars.Count; k++)
+                    {
+                        if (state.Altars[k].State != Inactive || !state.Altars[k].Shown) continue;
+                        double d = Distance(cell, state.Altars[k].Cell);
+                        if (d <= radius && d < bestDistance) (best, bestDistance) = (k, d);
+                    }
+                    if (best < 0) continue;
+                    state.Tie[id] = (best, m.Variety.Id, m.Rarity);
+                    state.Altars[best].Tied.Add(id);
                 }
-                if (best < 0) continue;
-                state.Tie[id] = (best, m.Variety.Id, m.Rarity);
-                state.Altars[best].Tied.Add(id);
             }
         }
+        List<(int Altar, string Path, MonsterRarity Rarity)>? died = null;
         foreach (var (id, (k, path, rarity)) in state.Tie)
         {
             var altar = state.Altars[k];
             if (altar.Dead.Contains(id) || Alive(player, id)) continue;
             altar.Dead.Add(id);
-            died.Add((k, path, rarity));
+            (died ??= []).Add((k, path, rarity));
         }
-        foreach (var (k, path, rarity) in died) await Credit(player, state, k, path, rarity);
+        if (died is not null)
+            foreach (var (k, path, rarity) in died) await Credit(player, state, k, path, rarity);
     }
 
     async Task Credit(Player player, State state, int k, string path, MonsterRarity rarity)
@@ -636,6 +655,7 @@ public sealed class RitualEncounter
     {
         var altar = state.Altars[k];
         if (altar.Tied.Any(id => !altar.Dead.Contains(id))) return;
+        if (altar.Tied.Count == 0 && altar.Credit.Count == 0) return;
         altar.State = Ready;
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Ready), $"0x165 Ritual altar 0x{altar.Interactable:x} ready");
         await States(player, altar, 1, [1, 1], 1);
@@ -730,6 +750,7 @@ public sealed class RitualEncounter
         if (Of(player) is not { } state) return false;
         var altar = state.Altars.FirstOrDefault(a => a.Interactable != 0 && a.Interactable == use.TargetObjectId);
         if (altar is null) return false;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
         var items = ItemsOf(player);
         if (PlayerInventories.Row(use.InventoryId) is not byte row
             || items.Items(row).FirstOrDefault(i => i.Id == use.ItemId) is not { } stack
@@ -768,7 +789,9 @@ public sealed class RitualEncounter
             var added = new List<InventoryItem>();
             if (consumed.Left is { } left) added.Add(left);
 
-            if (items.Fits(row, vesselItem, ShapeOf))
+            byte depositRow = row == PlayerInventories.ExpandedInventory && !ExpandedInventoryGranted(player)
+                ? PlayerInventories.MainInventory : row;
+            if (depositRow == row && items.Fits(row, vesselItem, ShapeOf))
             {
                 var placed = items.AddStacked(row, vesselItem, ShapeOf);
                 removed.AddRange(placed.Changed.Select(i => i.Id));
@@ -781,7 +804,18 @@ public sealed class RitualEncounter
             {
                 await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row), items.NextRevision(row), removed, added),
                     "0x00bf Ritual Vessel consumed");
-                await DropMadeItem(player, vesselItem, altar.Cell, "Ritual Vessel bottling");
+                if (depositRow != row && items.Fits(depositRow, vesselItem, ShapeOf))
+                {
+                    var placed = items.AddStacked(depositRow, vesselItem, ShapeOf);
+                    List<uint> depRemoved = [.. placed.Changed.Select(i => i.Id)];
+                    List<InventoryItem> depAdded = [.. placed.Changed, .. placed.Added];
+                    await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(depositRow), items.NextRevision(depositRow), depRemoved, depAdded),
+                        "0x00bf Ritual Vessel bottled -> Blood-filled Vessel (main)");
+                }
+                else
+                {
+                    await DropMadeItem(player, vesselItem, altar.Cell, "Ritual Vessel bottling");
+                }
             }
             await Send(player, InstanceChat.ChatLine("Captured the monsters of this Ritual Altar in a Blood-filled Vessel."),
                 "0x0017 Ritual Vessel bottled chat");
@@ -858,14 +892,16 @@ public sealed class RitualEncounter
         state.Revived = [];
 
         // Apply server-side circular arena containment ring + IsInRitual stat refresh for all clients in the instance.
+        if (state.SpawnWisp)
+        {
+            state.WispBuffUntil = state.Now + 60.0;
+            state.WispBuffActive = true;
+        }
         foreach (var peer in InstanceClients(player))
         {
             peer.SetRingBlocker(run.Blocker, altar.Cell.X, altar.Cell.Y, RitualTables.RadiusCells);
             if (state.SpawnWisp)
-            {
-                state.WispBuffUntil = state.Now + 60.0;
                 peer.Area.Buffs.Set(peer.Id, new(RitualTables.WispBuffRow, peer.Id, U68: Buff.Seconds(60.0)));
-            }
             await SendCharacterStats(peer, PlayerStatChange.Build);
         }
 
@@ -948,27 +984,41 @@ public sealed class RitualEncounter
             }
         }
 
-        // 3. Revived monster deaths -> Tribute calculation (Area +% + Wisp +% + Immutable Dogma MORE + Answered Appeals Unique MORE).
-        foreach (var (id, m) in run.Alive.Where(kv => !Alive(player, kv.Key)).ToList())
+        // 3. Revived monster deaths -> Tribute calculation (collected without allocating while nothing died).
+        List<(uint Id, Revived Monster)>? died = null;
+        foreach (var (id, m) in run.Alive)
         {
-            run.Alive.Remove(id);
-            run.Killed++;
-            int baseTribute = RitualTables.TributeOf(m.Rarity, m.N);
-            int incPct = state.TributePct + (state.WispBuffUntil > state.Now ? 100 : 0);
-            double gained = baseTribute * Math.Max(0, 100 + incPct) / 100.0;
-            if (state.TributeMorePct != 0)
-                gained *= Math.Max(0, 100 + state.TributeMorePct) / 100.0;
-            if (m.Rarity == MonsterRarity.Unique && state.UniqueTributeMorePct != 0)
-                gained *= Math.Max(0, 100 + state.UniqueTributeMorePct) / 100.0;
-            state.Tribute += (int)gained;
-            await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
-            state.Revived.Add(m);
+            if (Alive(player, id)) continue;
+            (died ??= []).Add((id, m));
+        }
+        if (died is not null)
+        {
+            foreach (var (id, m) in died)
+            {
+                run.Alive.Remove(id);
+                run.Killed++;
+                int baseTribute = RitualTables.TributeOf(m.Rarity, m.N);
+                int incPct = state.TributePct + (state.WispBuffActive && state.WispBuffUntil > state.Now ? 100 : 0);
+                double gained = baseTribute * Math.Max(0, 100 + incPct) / 100.0;
+                if (state.TributeMorePct != 0)
+                    gained *= Math.Max(0, 100 + state.TributeMorePct) / 100.0;
+                if (m.Rarity == MonsterRarity.Unique && state.UniqueTributeMorePct != 0)
+                    gained *= Math.Max(0, 100 + state.UniqueTributeMorePct) / 100.0;
+                state.Tribute += (int)gained;
+                await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
+                state.Revived.Add(m);
+            }
         }
 
-        foreach (var faded in altar.Faded.Where(f => state.Now - f.At >= RitualTables.PoolFadeFrames * RitualTables.Frame).ToList())
+        if (altar.Faded.Count > 0)
         {
-            await SendWorldRemoval(player, faded.Pool, $"0x2bd Ritual BloodPool 0x{faded.Pool:x}");
-            altar.Faded.Remove(faded);
+            for (int i = altar.Faded.Count - 1; i >= 0; i--)
+            {
+                var faded = altar.Faded[i];
+                if (state.Now - faded.At < RitualTables.PoolFadeFrames * RitualTables.Frame) continue;
+                await SendWorldRemoval(player, faded.Pool, $"0x2bd Ritual BloodPool 0x{faded.Pool:x}");
+                altar.Faded.RemoveAt(i);
+            }
         }
         if (run.Next >= run.Monsters.Count && run.Alive.Count == 0 && run.Waves.Count > 0 && t >= first)
             await Finish(player, state, run);
@@ -1081,12 +1131,12 @@ public sealed class RitualEncounter
         }
         if (!InMap(player.Layout, cell)) return 0;
         uint id = await SpawnMonster(player, variety, (byte)Math.Clamp(state.Level, 1, 100), rarity, cell.X, cell.Y, log: false,
-            extraStats: rune.BuffStats is { Count: > 0 } stats ? stats : null, extraMods: RitualTables.RuneModSet(rune, state.Level));
+            extraStats: rune.BuffStats is { Count: > 0 } stats ? stats : null, extraMods: state.ModSet);
         if (id != 0 && mine) state.Mine.Add(id);
         return id;
     }
 
-    static async Task<uint> CreateDaemon(Player player, State state, int row, (int X, int Y) cell)
+    async Task<uint> CreateDaemon(Player player, State state, int row, (int X, int Y) cell)
     {
         var all = Monsters.All;
         if (row < 0 || row >= all.Count || all[row] is not { Supported: true } variety || !InMap(player.Layout, cell)) return 0;
@@ -1095,8 +1145,16 @@ public sealed class RitualEncounter
         {
             var types = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
             string log = $"0x0020 {variety.Id}@{level}";
-            if (player.Area.Owned) player.Area.Delta.Add(0, types, log, AreaDelta.Kind.Message);
-            if (!player.Connection.WorldOutput.Started) await Send(player, types, log);
+            // The direct send encrypts its buffer in place, so the entry queued for the frame flush keeps the plaintext
+            // and the direct send gets a copy; a player sent one directly is left out of the flush, and peers of an area
+            // this connection does not own get copies, as no flush reaches them.
+            bool direct = !player.Connection.WorldOutput.Started;
+            if (player.Area.Owned) player.Area.Delta.Add(0, types, log, AreaDelta.Kind.Message, except: direct ? player : null);
+            if (direct) await Send(player, types.ToArray(), log);
+            if (!player.Area.Owned)
+                foreach (var peer in InstanceClients(player))
+                    if (!ReferenceEquals(peer, player))
+                        await Send(peer, types.ToArray(), log);
         }
         uint id = player.TakeObjectId();
         state.Mine.Add(id);

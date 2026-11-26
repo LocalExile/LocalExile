@@ -42,15 +42,20 @@ public static class RitualOmens
         public bool ConsumedInArea;
         public double DeathDancingUntil;
         public double AdrenalineUntil;
+        public bool AdrenalineActive;
         public double AccelerationUntil;
+        public bool AccelerationActive;
         public double SoulEaterUntil;
         public int SoulEaterStacks;
+        public int PublishedSoulEaterStacks;
         public double BrillianceUntil;
         public long CachedInventoryMutation = -1;
         public bool HasLowLifeOmen;
     }
 
     static readonly ConditionalWeakTable<Player, PlayerOmenState> States = new();
+
+    public static void Clear() => States.Clear();
 
     static PlayerOmenState StateOf(Player player) => States.GetOrCreateValue(player);
 
@@ -61,6 +66,15 @@ public static class RitualOmens
     {
         if (!combatLimit || !IsCombatArea(player)) return true;
         return !StateOf(player).ConsumedInArea;
+    }
+
+    static bool HasOmen(Player player, string omenId)
+    {
+        var items = ItemsOf(player);
+        if (ItemsFor(player).Find(omenId) is not { } type) return false;
+        foreach (byte row in BagRows)
+            if (items.Items(row).Any(i => i.Item.TypeHash == type.Hash)) return true;
+        return false;
     }
 
     static async Task<bool> TryConsumeOmen(Player player, string omenId, bool combatLimit = true)
@@ -108,57 +122,99 @@ public static class RitualOmens
         var targetType = catalog.ByHash(target.TypeHash);
         if (curr is null || targetType is null || target.Corrupted || target.Mirrored || target.Vestigial) return null;
 
-        // Omen of Fortune: Orb of Chance -> guaranteed Unique of that base type.
-        if (curr.Id == CurrencyEffects.OrbOfChance && target.Rarity == ItemRarity.Normal)
+        // Omen of Fortune: Orb of Chance -> guaranteed Unique of that base type (create first so Omen is only consumed on success).
+        if (curr.Id == CurrencyEffects.OrbOfChance && target.Rarity == ItemRarity.Normal && HasOmen(player, Fortune))
         {
             var uniques = UniquesFor(player).All.Where(u => u.BaseTypeId.Equals(targetType.Id, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (uniques.Count > 0 && await TryConsumeOmen(player, Fortune, combatLimit: false))
+            if (uniques.Count > 0)
             {
                 var def = uniques[random.Next(uniques.Count)];
-                if (UniquesFor(player).Create(def, random) is { } created)
+                if (UniquesFor(player).Create(def, random) is { } created
+                    && await TryConsumeOmen(player, Fortune, combatLimit: false))
                     return created with { ItemLevel = target.ItemLevel, Quality = target.Quality, Sockets = target.Sockets, Links = target.Links };
             }
         }
 
-        // Omen of the Jeweller: Jeweller's Orb -> maximum possible sockets.
+        // Omen of the Jeweller: Jeweller's Orb -> maximum possible sockets (preserving any Abyssal sockets).
         if (curr.Id == CurrencyEffects.JewellersOrb)
         {
             int maxSockets = CurrencyEffects.MaximumSockets(target, targetType);
-            if (maxSockets > 0 && target.Sockets.Count < maxSockets && target.Sockets.All(s => s.Gem is null)
+            int capacity = CurrencyEffects.SocketCapacity(target, targetType);
+            var abyss = target.Sockets.Where(s => s.Colour == SocketColour.Abyss).ToArray();
+            bool blockedByAbyssOnly = abyss.Length > 0
+                && ItemModStats.Local(target, catalog.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets);
+            if (!blockedByAbyssOnly && maxSockets > 0 && target.Sockets.Count < Math.Min(maxSockets, capacity)
+                && target.Sockets.All(s => s.Gem is null)
                 && await TryConsumeOmen(player, Jeweller, combatLimit: false))
             {
                 var req = catalog.Requirements(targetType);
-                var sockets = Enumerable.Range(0, maxSockets).Select(_ => new ItemSocket(SocketColours.Colour(req, random))).ToArray();
+                int ordinaryCount = Math.Max(0, maxSockets - abyss.Length);
+                var sockets = new ItemSocket[maxSockets];
+                for (int i = 0; i < ordinaryCount; i++)
+                    sockets[i] = new ItemSocket(SocketColours.Colour(req, random));
+                for (int i = 0; i < abyss.Length && ordinaryCount + i < maxSockets; i++)
+                    sockets[ordinaryCount + i] = abyss[i];
                 return target with { Sockets = sockets, Links = [.. Enumerable.Repeat((byte)1, maxSockets)] };
             }
         }
 
-        // Omen of Connections: Orb of Fusing -> all sockets linked.
-        if (curr.Id == CurrencyEffects.OrbOfFusing && target.Sockets.Count >= 2)
+        // Omen of Connections: Orb of Fusing -> all linkable (non-Abyssal) sockets linked.
+        if (curr.Id == CurrencyEffects.OrbOfFusing && target.Sockets.Count >= 2
+            && target.Sockets.Count <= CurrencyEffects.SocketCapacity(target, targetType))
         {
-            bool alreadyFull = target.Links is { Count: 1 } l && l[0] == target.Sockets.Count;
-            if (!alreadyFull && await TryConsumeOmen(player, Connections, combatLimit: false))
-                return target with { Links = [(byte)target.Sockets.Count] };
+            var fullLinks = MaxLinkLayout(target.Sockets);
+            bool alreadyFull = target.Links is { } curLinks && curLinks.SequenceEqual(fullLinks);
+            bool hasLinkablePair = fullLinks.Any(g => g >= 2);
+            if (hasLinkablePair && !alreadyFull && await TryConsumeOmen(player, Connections, combatLimit: false))
+                return target with { Links = fullLinks };
         }
 
-        // Omen of Trichromatism: Chromatic Orb -> 3 white sockets (or all sockets if < 3).
+        // Omen of Trichromatism: Chromatic Orb -> up to 3 ordinary sockets become white (Abyssal sockets stay intact).
         if (curr.Id == CurrencyEffects.ChromaticOrb && target.Sockets.Count >= 1)
         {
-            if (await TryConsumeOmen(player, Trichromatism, combatLimit: false))
+            var ordinary = Enumerable.Range(0, target.Sockets.Count)
+                .Where(i => target.Sockets[i].Colour != SocketColour.Abyss).ToArray();
+            if (ordinary.Length > 0 && await TryConsumeOmen(player, Trichromatism, combatLimit: false))
             {
                 var req = catalog.Requirements(targetType);
-                int whites = Math.Min(3, target.Sockets.Count);
+                int whitesRemaining = Math.Min(3, ordinary.Length);
                 var next = new List<ItemSocket>(target.Sockets.Count);
                 for (int i = 0; i < target.Sockets.Count; i++)
                 {
-                    var colour = i < whites ? SocketColour.White : SocketColours.Colour(req, random);
-                    next.Add(new ItemSocket(colour, target.Sockets[i].Gem));
+                    var existing = target.Sockets[i];
+                    if (existing.Colour == SocketColour.Abyss)
+                    {
+                        next.Add(existing);
+                        continue;
+                    }
+                    var colour = whitesRemaining-- > 0 ? SocketColour.White : SocketColours.Colour(req, random);
+                    next.Add(new ItemSocket(colour, existing.Gem));
                 }
                 return target with { Sockets = next };
             }
         }
 
         return null;
+    }
+
+    static byte[] MaxLinkLayout(IReadOnlyList<ItemSocket> sockets)
+    {
+        var groups = new List<byte>();
+        byte run = 0;
+        foreach (var socket in sockets)
+        {
+            if (socket.Colour == SocketColour.Abyss)
+            {
+                if (run > 0) { groups.Add(run); run = 0; }
+                groups.Add(1);
+            }
+            else
+            {
+                run++;
+            }
+        }
+        if (run > 0) groups.Add(run);
+        return [.. groups];
     }
 
     // ---- 2. On-Death Omens (DeathPenaltyPct + PlayerDied) --------------------------------------------------------------
@@ -193,20 +249,35 @@ public static class RitualOmens
             }
             return;
         }
-        // Omen of Bequeathal: grant bonus experience to socketed gems.
+        // Omen of Bequeathal: grant bonus experience to socketed gems (persisted & synced via GainGemExperience).
         if (await TryConsumeOmen(player, Bequeathal))
         {
             uint bonus = (uint)Math.Clamp(player.Pools.Level * 25000L, 10000, 5_000_000);
-            await Send(player, InstanceItems.GemExperience(bonus), $"0x00c3 Omen of Bequeathal gem XP +{bonus}");
+            await GainGemExperience(player, bonus);
         }
     }
 
-    // ---- 3. Critical Life (<= 25%) Omens (checked in AreaTick) ---------------------------------------------------------
+    // ---- 3. Critical Life (<= 25%) Omens & Timed Buff Refresh (checked in AreaTick) ------------------------------------
 
     public static async Task Tick(Player player)
     {
-        if (player.Closed || player.LeavingArea || player.PlayerLife == 0 || !IsCombatArea(player)) return;
+        if (player.Closed || player.LeavingArea || !IsCombatArea(player)) return;
         var st = StateOf(player);
+        double now = AreaTime(player);
+
+        // Refresh client stats whenever a timed Omen buff expires or Soul Eater stacks change (independent of ConsumedInArea).
+        bool adrenalineNow = now < st.AdrenalineUntil;
+        bool accelNow = now < st.AccelerationUntil;
+        int soulStacksNow = now < st.SoulEaterUntil ? st.SoulEaterStacks : 0;
+        if (adrenalineNow != st.AdrenalineActive || accelNow != st.AccelerationActive || soulStacksNow != st.PublishedSoulEaterStacks)
+        {
+            st.AdrenalineActive = adrenalineNow;
+            st.AccelerationActive = accelNow;
+            st.PublishedSoulEaterStacks = soulStacksNow;
+            await SendCharacterStats(player, PlayerStatChange.Build);
+        }
+
+        if (player.PlayerLife == 0) return;
         var items = ItemsOf(player);
         if (items.Mutations != st.CachedInventoryMutation)
         {
@@ -216,36 +287,26 @@ public static class RitualOmens
         if (!st.HasLowLifeOmen || st.ConsumedInArea) return;
         if (player.PlayerMaxLife == 0 || player.PlayerLife * 4 > player.PlayerMaxLife) return;
 
-        double now = AreaTime(player);
         // Priority order: Resurgence -> Refreshment -> Adrenaline -> Death's Door -> Death-dancing.
         if (await TryConsumeOmen(player, Resurgence))
         {
-            player.PlayerLife = LifeCap(player);
+            var stats = CharacterPlayerStats(player);
+            int ceilingPct = PetrifiedBlood.RecoveryCeilingPct(k => stats.GetValueOrDefault(k));
+            uint cap = LifeCap(player);
+            if (ceilingPct is > 0 and < 100)
+                cap = Math.Min(cap, Math.Max(player.PlayerLife, (uint)((long)player.PlayerMaxLife * ceilingPct / 100)));
+            if (player.PlayerLife < cap) player.PlayerLife = cap;
+            player.Frames.Area?.Life.Resend(player);
             await Send(player, InstanceChat.ChatLine("Omen of Resurgence restored your Life!"), "0x0017 Omen of Resurgence");
         }
         else if (await TryConsumeOmen(player, Refreshment))
         {
-            var flasks = items.Items(PlayerInventories.Flask);
-            var catalog = ItemsFor(player);
-            var removed = new List<uint>();
-            var added = new List<InventoryItem>();
-            foreach (var fl in flasks)
-            {
-                if (catalog.ByHash(fl.Item.TypeHash) is not { } ft) continue;
-                int maxCharges = Math.Max(fl.Item.Charges, 60);
-                if (fl.Item.Charges >= maxCharges) continue;
-                var refilled = fl.Item with { Charges = maxCharges };
-                items.Remove(PlayerInventories.Flask, fl.Id);
-                removed.Add(fl.Id);
-                added.Add(items.Add(PlayerInventories.Flask, fl.X, fl.Y, refilled));
-            }
-            if (added.Count > 0)
-                await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Flask),
-                    items.NextRevision(PlayerInventories.Flask), removed, added), "0x00bf Omen of Refreshment refilled flasks");
+            await GainFlaskCharges(player, int.MaxValue, "Omen of Refreshment");
         }
         else if (await TryConsumeOmen(player, Adrenaline))
         {
             st.AdrenalineUntil = now + 20.0;
+            st.AdrenalineActive = true;
             player.Area.Buffs.Set(player.Id, new(RitualTables.AdrenalineBuffRow, player.Id, U68: Buff.Seconds(20.0)));
             await SendCharacterStats(player, PlayerStatChange.Build);
         }
@@ -270,10 +331,12 @@ public static class RitualOmens
         {
             st.SoulEaterUntil = now + 60.0;
             st.SoulEaterStacks = 0;
+            st.PublishedSoulEaterStacks = 0;
         }
         else if (await TryConsumeOmen(player, Acceleration))
         {
             st.AccelerationUntil = now + 45.0;
+            st.AccelerationActive = true;
             await SendCharacterStats(player, PlayerStatChange.Build);
         }
         else if (await TryConsumeOmen(player, Brilliance))

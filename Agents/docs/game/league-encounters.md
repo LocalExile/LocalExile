@@ -96,8 +96,9 @@ ceilings), spawns rune daemons/hazards, and grants Tribute (`S→C 0x167`).
 `u8 totalAltars`, `u8 completedAltars` (`buyCost=0xffff` = hidden placeholder `HiddenItem*Ritual`, `originalCost=0xffff` = not
 deferrable; `flag` 0 normal / 1 deferred / 2 warning / 3 final warning). `S→C 0x007b` kind `0x38` opens `RitualRewardWindow`
 bound to a Manager-1 shop inventory (`0x620`, `flags=0x60`); Manager-0 row 57 (`RitualSavedRewards1`, `invId=58`) mirrors the
-account's persisted deferred items (`AccountData["ritual.deferred"]`) for the client's 50-item defer cap (`0x14032049e`).
-`QuestFlags` row 2020 (`IsMapOwner`) is granted to the instance owner via `GameEvents.AreaQuestFlags`. Client actions: `C→S 0x0169`
+league-isolated persisted deferred items (`PersonalStashOf(player)` `ModuleData["ritual.deferred"]`) for the client's 50-item
+defer cap (`0x14032049e`). `QuestFlags` row 2020 (`IsMapOwner`) is granted to the instance owner via `GameEvents.AreaQuestFlags`
+and flushed in `Placed` after `AreaPopulated`. Client actions: `C→S 0x0169`
 (open), `0x0168` (reroll, base cost from `RitualBalancePerLevel.__col13`), `0x0283` (buy/claim, 18 B), `0x0284` (defer, 6 B,
 min area level 47).
 
@@ -105,9 +106,9 @@ min area level 47).
 captures its first-kill monsters into a `Blood-filled Vessel` (`RitualFragment`, item component 157 `RitualEncounter`: `u8 count`,
 `u32 LE monsterLevel`, `count × (u16 LE MonsterVarieties HASH16, u16 LE count)`, `u16 LE WorldAreas HASH16`, persisted in
 `items.ritual_encounter`). Placing up to 4 Blood-filled Vessels in the Map Device injects their captured monsters and stacking
-bonuses (+5% IIQ, +20% spawn speed/max alive/rewards). All 4 Ritual Scarabs, Ritual Atlas passives (`Immutable Dogma`, `Arbitrary
-Tenets`, `Occult Devotion`, `Sacrificial Due`, `Answered Appeals`, `Flexible Dogma`, `Secular Focus`, Wisps buff `2501`), and all
-16 `AncestralOmen*` Omens (1 per combat area) are wired.
+bonuses (+5% IIQ via `MapFragmentMods` row 247, +20% spawn speed/max alive/rewards). All 4 Ritual Scarabs, Ritual Atlas passives
+(`Immutable Dogma`, `Arbitrary Tenets`, `Occult Devotion`, `Sacrificial Due`, `Answered Appeals`, `Flexible Dogma`, `Secular
+Focus`, Wisps buff `2502`), and all 16 `AncestralOmen*` Omens (1 per combat area) are wired.
 
 ## Mercenaries (CoreLeagues row 28)
 

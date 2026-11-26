@@ -21,7 +21,12 @@ public sealed class RitualModule : IModule
     {
         LoadData();
         string id = module.Manifest.Id;
-        module.Lifetime.Own(new Cleanup(_encounter.Clear));
+        module.Lifetime.Own(new Cleanup(() =>
+        {
+            _encounter.Clear();
+            RitualFavours.Clear();
+            RitualOmens.Clear();
+        }));
 
         // Encounter lifecycle & area integration (campaign + maps).
         GameEvents.AreaPopulated.Add(id, async area =>
