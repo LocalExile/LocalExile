@@ -36,7 +36,7 @@ import ot_components as oc  # noqa: E402
 
 REPO = oc.REPO
 CACHE = os.path.join(REPO, "Tools", "re", "out", "monster-files")
-MAX_ORDINARY = 5  # MonsterKits.MaxOrdinaryKitSkills
+MAX_ORDINARY = 16  # MonsterKits.MaxOrdinaryKitSkills
 CATEGORIES = ["campaign", "map", "league", "ordinary"]
 
 USABLE_TOKENS_ALWAYS = ["Teleport", "MemoryGame", "Bond", "Mark", "Souls", "Emerge", "Retreat", "EmptyAction"]
@@ -277,11 +277,14 @@ def main():
     exact, prefixes = load_controllers()
 
     contacts = clientdb.table("monster_contacts")
-    contact_row = {r["variety"]: i for i, r in enumerate(contacts)}
-    pools = defaultdict(lambda: defaultdict(list))  # variety row -> pool -> [contact]
-    for r in clientdb.table("monster_contact_clips"):
+    clips_rows = clientdb.table("monster_contact_clips")
+    by_profile = bool(contacts and "profile" in contacts[0] and clips_rows and "profile" in clips_rows[0])
+    contact_row = {r["variety"]: (r.get("profile") if by_profile else i) for i, r in enumerate(contacts)}
+    pools = defaultdict(lambda: defaultdict(list))  # profile or variety row -> pool -> [contact]
+    owner_col = "profile" if by_profile else "monster"
+    for r in clips_rows:
         if r.get("animation") is not None and r.get("index") is not None and (r.get("length") or 0) > 0:
-            pools[r["monster"]][r["pool"]].append(r.get("contact"))
+            pools[r[owner_col]][r["pool"]].append(r.get("contact"))
     state_cache, act_cache, parsed_cache = {}, {}, {}
 
     def shared_states(vid):
