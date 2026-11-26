@@ -67,14 +67,15 @@ public static partial class Game
         var skills = SkillsFor(player);
         int effect = source.Effect;
         if (!skills.IsSpell(effect) || skills.IsInstant(effect) || skills.IsChannelled(effect)
+            || skills.IsVaal(effect) || skills.IsBrand(effect)
             || skills.HasType(effect, "Triggered") || IsTotemSkill(player, skill) || TriggerOnlyReason(source) is not null
             || PlacedKind(source) != (false, false)) return null;
 
         bool projectile = skills.HasType(effect, "Projectile") && UsesProjectileRuntime(effect)
             && !skills.HasType(effect, "ProjectilesNumberModifiersNotApplied");
         string? id = skills.EffectId(effect);
-        bool beam = PlacedArcPayload(id) || id == VaalArcEffect || IsDarkBargain(player, effect);
-        bool area = skills.HasType(effect, "Cascadable") && !skills.IsBrand(effect) && !skills.HasType(effect, "Minion");
+        bool beam = PlacedArcPayload(id) || IsDarkBargain(player, effect);
+        bool area = skills.HasType(effect, "Cascadable") && !skills.HasType(effect, "Minion");
         if (!projectile && !area && !beam) return null;
 
         using (ProjectileMutation(player, advance: false))

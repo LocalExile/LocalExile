@@ -504,8 +504,8 @@ static partial class Game
             await WinterOrbImpact(player, at);
             var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == runtime.SkillId);
             if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-            await AreaSkillHit(player, runtime.SkillId, gem, from, at,
-                immediate: true, sequence: player.ChannelSkillSequence, damageMore: damageMore);
+            await AreaSkillHitForUse(null, player, runtime.SkillId, gem, from, at,
+                immediate: true, sequence: player.ChannelSkillSequence, hitAndAilmentMore: damageMore);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }

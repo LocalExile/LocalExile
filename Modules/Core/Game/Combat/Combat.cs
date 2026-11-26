@@ -2347,8 +2347,8 @@ public static partial class Game
                 centre, immediate: channelled, sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse,
                 criticalRoll: criticalRoll, channelGeneration: channelGeneration, targetId: targetId, repeat: repeat, swingAt: swingAt,
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: fistRadius, sacrifice: sacrifice,
-                damageMore: fistMore * more * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
-                discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: beidat?.More ?? 1));
+                damageMore: fistMore * (reoccurrence ? reoccurrenceMore : 1) * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
+                discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: (beidat?.More ?? 1) * useDamageMore));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -2521,10 +2521,11 @@ public static partial class Game
                         $"0x01b3 Divine Ire stage {divineIreStages}");
                 }
                 var at = player.Walk.Position(AreaTime(player));
-                await AreaSkillHit(player, skillId, gem, at, at,
+                await AreaSkillHitForUse(null, player, skillId, gem, at, at,
                     immediate: true, sequence: player.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
-                    damageMore: (lycia?.Pact.DamageMore ?? 1) * FocusedChannelMore(now - channelStarted,
-                        GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct)));
+                    damageMore: FocusedChannelMore(now - channelStarted,
+                        GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct)),
+                    hitAndAilmentMore: lycia?.Pact.DamageMore ?? 1);
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }

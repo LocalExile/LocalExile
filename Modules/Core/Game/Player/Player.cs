@@ -240,6 +240,7 @@ public static partial class Game
         ClearRageOnDeath(player);
         ClearGhorrHunger(player);
         ClearPactConditionsOnDeath(player);
+        player.Area.Buffs.Clear(player.Id, LuckyArcBuffRow, player.Id);
         if (player.ProjectileRuntime is ProjectileSession projectiles)
         {
             ClearBeidatEmpowerment(projectiles);

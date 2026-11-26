@@ -93,12 +93,16 @@ public static partial class Game
                 {
                     long chaos = GainTrarthanRuin(Player, Player.Id, gem.Id, source.Stats,
                         Player.PlayerLife, Player.PlayerMaxLife, out uint paid);
-                    if (paid > 0) Player.PlayerLife -= paid;
+                    if (paid > 0)
+                    {
+                        Player.PlayerLife -= paid;
+                        PresentStats(Player);
+                    }
                     var centre = SpellCentre(Player, gem.Effect, from, aim);
                     Hit(centre, SkillRadius(Player, source.Stats, spell: true, gem.Effect), centred: true, baseChaos: chaos);
                 }
                 else if (ShockNovaEffect(effect))
-                    ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, from, aim, source.Stats, caster, CurrentSource,
+                    ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, SpellCentre(Player, gem.Effect, from, aim), aim, source.Stats, caster, CurrentSource,
                         pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
                             targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance));
                 else if (effect == ArcSurgingEffect)

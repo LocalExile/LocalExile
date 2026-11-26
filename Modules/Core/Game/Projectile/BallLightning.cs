@@ -49,7 +49,7 @@ public static partial class Game
         // This skill emits one projectile, with native action ordinal 2.
         var random = new AnimationVariantSelector.NativeRandom([use.Sequence, 2, use.Emitter.Id, use.RepeatsLeft, 0, 0, 0, 0]);
         random.Range(0, 0);
-        float variation = context.Get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal) / 200f;
+        float variation = Math.Clamp(context.Get(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal) / 200f, 0f, 0.99f);
         float speed = (float)use.Profile.Speed * (1 + random.Range(-variation, variation));
         return use with { Profile = use.Profile with { Speed = speed, SpeedVariationPercent = 0 } };
     }

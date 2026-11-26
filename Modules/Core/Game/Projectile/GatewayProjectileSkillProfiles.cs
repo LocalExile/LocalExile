@@ -247,13 +247,12 @@ public static class GatewayProjectileSkillProfiles
                 p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
         }
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
-        if (effect is "SpectralThrow" or "SpectralThrowRoyale") p = p with { Pierce = -1, Returns = true };
-        if (IsSpectralThrowTrap(effect))
+        if (effect is "SpectralThrow" or "SpectralThrowRoyale" || IsSpectralThrowTrap(effect))
         {
             int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
             p = p with { Pierce = -1, Returns = true,
                 HitRule = repeatMs > 0
-                    ? new(ProjectileHitScope.Projectile, ProjectileRepeat.Window, ProjectileRuntime.Time(repeatMs / 1000d))
+                    ? new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(repeatMs / 1000d))
                     : p.HitRule };
         }
         if (effect == "SpectralThrowAltX")

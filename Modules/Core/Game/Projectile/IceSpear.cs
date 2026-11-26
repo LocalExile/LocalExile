@@ -24,7 +24,11 @@ public static partial class Game
         {
             // The first spear releases with the cast, then each extra spear after its share of the cast-speed-scaled window.
             double interval = .35 / profile.Count * duration / (timing.BaseMilliseconds / 1000d);
-            profile = profile with { SequentialDelay = Math.Max(1, ProjectileRuntime.Time(interval)) };
+            profile = profile with
+            {
+                SequentialDelay = Math.Max(1, ProjectileRuntime.Time(interval)),
+                NativeVolley = profile.NativeVolley ?? new() { FixedDegrees = -1 },
+            };
         }
         var shot = (ProjectileOffense)use.Payload!;
         int increase = context.Get(Stat.IceSpearSecondFormCriticalStrikeChancePlusPct);

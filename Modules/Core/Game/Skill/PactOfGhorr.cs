@@ -57,6 +57,7 @@ public static partial class Game
         if (!catalog.IsSpell(effect) || catalog.IsInstant(effect) || catalog.IsBrand(effect)
             || catalog.HasType(effect, "Vaal") || catalog.HasType(effect, "Triggered")
             || IsTotemSkill(player, skill) || TriggerOnlyReason(spell) is not null
+            || PlacedKind(spell) != (false, false)
             || !GhorrSpellHasNonAilmentDamage(catalog, spell))
             return null;
         using (ProjectileMutation(player))
@@ -104,7 +105,7 @@ public static partial class Game
         var player = session.Player;
         int Own(uint stat) => source.Stats.GetValueOrDefault(stat);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.SkillGrantsBloodriteForBaseXMsOnUse),
-            stat => stats.GetValueOrDefault(stat), Own);
+            stat => stats.GetValueOrDefault(stat), Own, DurationKinds(player, source.Effect));
         int frequency = Own(Stat.BloodriteBaseTriggerFrequencyMs);
         long now = session.Runtime.Now;
         if (seconds > 0 && frequency > 0)

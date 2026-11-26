@@ -65,8 +65,9 @@ public static partial class Game
     static LyciaChannel? StartLyciaChannel(Player player, ushort skill, int effect, int action, int generation,
         (int X, int Y) aim, double started)
     {
+        var skills = SkillsFor(player);
         if (player.ProjectileRuntime is not ProjectileSession { LyciaSpells: not null } session
-            || !SkillsFor(player).IsSpell(effect)) return null;
+            || !skills.IsSpell(effect) || skills.IsVaal(effect) || skills.IsBrand(effect)) return null;
         using (ProjectileMutation(player, advance: false))
         {
             if (session.LyciaSpells is not { } pact || !session.Active

@@ -480,6 +480,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             {
                 p.Chain--;
                 p.CompletedChains++;
+                p.TerrainLeg = null;
                 p.Position += c.Normal * .001;
                 p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
                 p.Remaining = p.Profile.Range;
@@ -488,6 +489,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             else if (p.TerrainBounces > 0)
             {
                 p.TerrainBounces--;
+                p.TerrainLeg = null;
                 p.Direction = (p.Direction - c.Normal * (2 * p.Direction.Dot(c.Normal))).Unit;
                 p.Position += c.Normal * .001;
                 Publish(ProjectileEventKind.Redirect, p);

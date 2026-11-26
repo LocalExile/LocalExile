@@ -112,10 +112,21 @@ public static partial class Game
             * more * Math.Max(0, multiplier);
         double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Character, Own);
         var damage = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Physical, dps, duration));
-        int radius = SkillArea.Radius(FleshrendRadius, Get, spell: true);
+        int radius = SkillRadius(player, FleshrendRadius, skillStats, spell: true, effect, caster);
         const long interval = ProjectileRuntime.TickQuanta;
         int count = Get(Stat.NumberOfProjectilesOverride);
-        if (count <= 0) count = Get(Stat.BaseNumberOfProjectiles) + Get(Stat.NumberOfAdditionalProjectiles);
+        if (count <= 0)
+        {
+            int baseCount = Get(Stat.BaseNumberOfProjectiles);
+            count = Get(Stat.ModifiersToProjectileCountDoNotApply) != 0
+                ? baseCount
+                : baseCount + Get(Stat.NumberOfAdditionalProjectiles) + Get(Stat.SpellsNumberOfAdditionalProjectiles);
+        }
+        if (Get(Stat.MaximumNumberOfProjectilesToFireIs1) != 0) count = Math.Min(1, count);
+
+        int baseSpeed = SkillsFor(player).Projectile("Metadata/Projectiles/Fleshrend")?.Speed ?? 500;
+        double speed = ProjectileSpeed.CellsPerSecond(baseSpeed, Character, Own);
+        if (!double.IsFinite(speed) || speed <= 0) return;
 
         long now = session.Runtime.Now;
         var from = player.Walk.Position(now / (double)ProjectileRuntime.QuantaPerSecond);
@@ -138,9 +149,6 @@ public static partial class Game
             if (aim == from) aim = (from.X + SoulrendSeekRadius, from.Y);
         }
         var target = ProjectileSession.Vector(aim);
-        var direction = (target - origin).Unit;
-        origin += direction * NativeProjectileForwardCells(Get, null);
-        if ((target - origin).Dot(direction) <= 0) target = origin + direction * 30;
         bool lockstep = player.Connection.LockstepClient;
         ushort sequence = lockstep ? NextLockstepSequence(player) : (ushort)(++session.PactTriggerSequence & 0x7fff);
         var key = new ProjectileActorKey(player.Id, player.ProjectileEpoch);
@@ -148,8 +156,8 @@ public static partial class Game
         {
             Count = Math.Clamp(count, 1, 253),
             NativeVolley = new() { Nova = true },
-            Speed = ProjectileSpeed.CellsPerSecond(800, Character, Own),
-            SpeedVariationPercent = Math.Clamp(Own(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal), 0, 99),
+            Speed = speed,
+            SpeedVariationPercent = Math.Clamp(Own(Stat.ActiveSkillProjectileSpeedPlusPctVariationFinal) / 2, 0, 99),
             Range = Get(Stat.ProjectileMaximumRangeOverride) is > 0 and var range ? range : 150,
             DirectDamage = false,
             Steering = SoulrendSteering(session),
@@ -169,7 +177,12 @@ public static partial class Game
         session.WorldRecords(player.Id, () => [InstanceProtocol.InstantAction(player.Id, skill, aim.X, aim.Y,
             sequence: sequence, flags: lockstep ? (ushort)0x101 : (ushort)0, triggered: true)],
             ServerTrace.Projectiles ? $"Fleshrend trigger seq={sequence}" : null);
-        session.ReleaseNow(new(profile, key, key, 1, origin, target) { Sequence = sequence, Payload = shot });
+        session.ReleaseNow(new(profile, key, key, 1, origin, target)
+        {
+            Sequence = sequence,
+            Payload = shot,
+            RadialLaunchOffset = NativeProjectileForwardCells(Get, null),
+        });
     }
 
     static ProjectileHitResult ApplyFleshrendDamage(ProjectileDamage contact, SpawnedMonster monster, FleshrendCast cast)

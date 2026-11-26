@@ -231,6 +231,8 @@ public static partial class Game
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
             if (effect == TrarthanBargain)
                 range = Math.Min(range, SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
+            else if (effect is "ShockNova" or "ShockNovaRoyale")
+                range = Math.Min(range, SkillRadius(player, 26, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
             var target = PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null);
             if (target.Monster is null && summon is null && golem is null
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds)
@@ -328,7 +330,11 @@ public static partial class Game
                     {
                         var skill = SupportedSkill(player, totem.SkillId);
                         long chaos = GainTrarthanRuin(player, totem.Id, 0x4000, skill.Stats, totem.Life, totem.MaxLife, out uint paid);
-                        totem.Life -= paid;
+                        if (paid > 0)
+                        {
+                            totem.Life -= paid;
+                            session.World(totem.Id, InstanceProtocol.LifeUpdate(totem.Id, totem.Life));
+                        }
                         int radius = SkillRadius(player, skill.Stats, spell: true, skill.Effect);
                         TotemNovaLocked(player, session, totem, totem.At, radius, sequence, baseChaos: chaos);
                     }

@@ -511,6 +511,7 @@ public static partial class Game
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
         RemovePyroclastAura(player.Area, placed.Id);
+        player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id))
             bytes.Remove(placed.Id);
         player.Placed.Dirty = true;
@@ -523,6 +524,7 @@ public static partial class Game
     {
         if (!player.Placed.All.Remove(placed.Id)) return;
         RemovePyroclastAura(player.Area, placed.Id);
+        player.Area.Buffs.Clear(placed.Id, TrarthanRuin, placed.Id);
         if (!player.Placed.Grounds.Any(g => g.Object == placed.Id)) player.Placed.Leaving.Add((placed.Id, now + .6));
         player.Placed.Dirty = true;
         player.Minions.StatRevision++;

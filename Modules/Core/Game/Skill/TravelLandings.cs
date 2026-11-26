@@ -107,7 +107,7 @@ public static partial class Game
         // Immediate hits with a scheduled session commit on this frame and queue their presentation.
         void Hit((int X, int Y) at, IReadOnlyDictionary<uint, SpawnedMonster> eligible) =>
             _ = AreaSkillHitForUse(null, player, gem.Id, gem, at, at, immediate: true, criticalRoll: critical, radiusOverride: radius,
-                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: session, damageMore: damageMore, targetFilter: (id, _) =>
+                sacrifice: sacrifice, triggeredCurrent: Current, scheduledSession: session, hitAndAilmentMore: damageMore, targetFilter: (id, _) =>
                     eligible.TryGetValue(id, out var target) && ReferenceEquals(target, player.Area.Monsters.GetValueOrDefault(id)));
         Hit(origin, targets);
         if (!Current()) return;

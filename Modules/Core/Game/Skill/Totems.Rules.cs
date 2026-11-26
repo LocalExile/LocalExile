@@ -384,6 +384,7 @@ public static partial class Game
                     StopTotemChannel(old, bytes);
                     StopSearingBond(old, bytes);
                     TotemChannels.Remove(old);
+                    player.Area.Buffs.Clear(old.Id, TrarthanRuin, old.Id);
                 }
                 PresentNearby(player);
                 TotemsDiedLocked(player, now, playerStats);
@@ -645,6 +646,7 @@ public static partial class Game
                 StopTotemChannel(t, bytes);
                 StopSearingBond(t, bytes);
                 TotemChannels.Remove(t);
+                player.Area.Buffs.Clear(t.Id, TrarthanRuin, t.Id);
                 // Source 0 takes it off the roster; once, in the batch that carries its death.
                 if (!t.RosterRemovalSent)
                 {
@@ -689,6 +691,7 @@ public static partial class Game
             {
                 player.RemoveBlocker(totem.Id);
                 TotemChannels.Remove(totem);
+                player.Area.Buffs.Clear(totem.Id, TrarthanRuin, totem.Id);
                 if (SearingBondSources.TryGetValue(totem, out var source))
                 {
                     foreach (uint beam in source.Beams.Values) retired.Add(beam);

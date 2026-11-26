@@ -26,6 +26,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;
     public double AilmentProfileMore { get; init; } = 1;
+    public double DotProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
@@ -171,8 +172,16 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     {
         Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
         HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        DotProfileMore = DotProfileMore * more,
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
         Soulrend = Soulrend is { } cast ? cast with { DamagePerSecond = cast.DamagePerSecond * more } : null,
+    };
+
+    public ProjectileOffense ScaleHitAndAilmentDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
     };
 
     static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value.ScaleDamage(more);

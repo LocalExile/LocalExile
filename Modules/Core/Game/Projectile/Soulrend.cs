@@ -31,9 +31,10 @@ public static partial class Game
             + get(Stat.DamageOverTimePlusPct) + get(Stat.ChaosDamageOverTimePlusPct)
             + get(Stat.DamageOverTimePlusPctWithSpells) + get(Stat.SoulrendDamagePlusPct);
         if (own(Stat.SpellDamageModifiersApplyToSkillDot) != 0) increased += get(Stat.SpellDamagePlusPct);
+        if (shot.FromTotem) increased += get(Stat.TotemDamagePlusPct);
         if (placed.Trap || placed.Mine)
             increased += (double)get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + get(Stat.TrapOrMineDamagePlusPct);
-        double more = shot.HitProfileMore;
+        double more = shot.DotProfileMore;
         foreach (uint stat in EssenceDrainSupportMore) more *= Math.Max(0, 1 + own(stat) / 100d);
         if (placed.Trap || placed.Mine)
             more *= Math.Max(0, 1 + own(Stat.SupportTrapAndMineDamagePlusPctFinal) / 100d)

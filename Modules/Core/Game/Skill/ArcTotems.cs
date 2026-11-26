@@ -148,7 +148,7 @@ public static partial class Game
                 && player.ActionInterruptionGeneration == paid.RecoveryGeneration
                 && SameTriggerSource(source, SupportedSkill(player, gem.Id)), target,
                 Math.Max(session.Runtime.Now, ProjectileRuntime.Time(contact)), sequence, paid.CriticalRoll, sacrifice,
-                beamChains: paid.Beidat?.Chains ?? 0, hitAndAilmentMore: paid.PactDamageMore);
+                beamChains: 0, hitAndAilmentMore: paid.PactDamageMore);
         }
     }
 
@@ -183,7 +183,7 @@ public static partial class Game
         int extraRolls = ArcExtraRolls(player, effect, caster);
         void Land(uint id, int remaining, (int X, int Y) from)
         {
-            var m = player.Area.Monsters[id];
+            if (!player.Area.Monsters.TryGetValue(id, out var m) || m.Dead || m.Life == 0) return;
             if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true)) return;
             double more = damageMore * Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,

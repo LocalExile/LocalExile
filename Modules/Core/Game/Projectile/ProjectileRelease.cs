@@ -35,7 +35,9 @@ public static partial class Game
             {
                 Width = get(Stat.TotalProjectileSpreadAngleOverride) is > 0 and var width
                     ? width / 10.869565 : 60 / 10.869565,
-                FixedDegrees = get(Stat.ProjectileRemoveDefaultSpread) != 0 ? -1 : get(Stat.FixedProjectileSpread),
+                FixedDegrees = get(Stat.ProjectileRemoveDefaultSpread) != 0 ? -1
+                    : get(Stat.FixedProjectileSpread) is int spread and not 0 ? spread
+                    : profile.NativeVolley?.FixedDegrees == -1 ? -1 : 0,
                 SpreadPercent = get(Stat.MultipleProjectilesProjectileSpreadPlusPct),
                 Nova = profile.NativeVolley?.Nova == true || get(Stat.ProjectilesNova) != 0
             }
@@ -165,8 +167,7 @@ public static partial class Game
                 var own = SupportedSkill(player, skillId).Stats;
                 // The default profile substitutes one shot for a missing base count. Vaal Spark
                 // already supplies that base as its hundred-shot stream; quality adds to the stream.
-                int extra = use.Profile.Count - (GolemStat(own, Stat.BaseNumberOfProjectiles) > 0 ? 0 : 1)
-                    + (paid.Beidat?.Projectiles ?? 0);
+                int extra = use.Profile.Count - (GolemStat(own, Stat.BaseNumberOfProjectiles) > 0 ? 0 : 1);
                 int count = Math.Clamp(GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova) + extra, 1, 256);
                 long interval = ProjectileRuntime.Time(GolemStat(own, Stat.ProjectileSpiralNovaTimeMs) / (1000d * count));
                 var profile = use.Profile with { Count = count, SequentialDelay = interval, ShareSequentialHits = true };
@@ -182,8 +183,7 @@ public static partial class Game
             if (player.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
                 return Task.CompletedTask;
             var own = SupportedSkill(player, skillId).Stats;
-            int nativeCount = GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova);
-            int count = nativeCount + (paid.Beidat?.Projectiles ?? 0);
+            int count = GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova);
             int span = GolemStat(own, Stat.ProjectileSpiralNovaTimeMs);
             int degrees = GolemStat(own, Stat.ProjectileSpiralNovaAngle);
             // Capture once at the cast contact. Walking after release cannot interrupt a paid spiral.
@@ -191,8 +191,6 @@ public static partial class Game
             for (int i = 0; i < count; i++)
             {
                 double turn = i / (double)count;
-                // Interleave the pact's individual shots with the skill's existing volleys.
-                bool extra = (i + 1) * nativeCount / count == i * nativeCount / count;
                 session.Schedule(ProjectileRuntime.Time(acceptedAt + delay + turn * span / 1000d),
                     () => session.Active && player.PlayerLife > 0 && (captured is not null || Valid() && VaalAdmissionCurrent(player, paid)),
                     () =>
@@ -200,8 +198,7 @@ public static partial class Game
                         captured ??= CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
                             sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
                         var direction = (captured.Aim - captured.Origin).Unit.Rotate(turn * degrees * Math.PI / 180);
-                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range,
-                            Profile = extra ? captured.Profile with { Count = 1 } : captured.Profile };
+                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
                     });
             }
             return Task.CompletedTask;
@@ -215,7 +212,8 @@ public static partial class Game
         {
             int ordinal = Math.Max(0, release - seals);
             int left = repeats - ordinal;
-            double more = (beidat?.More ?? 1) * (release > 0 && release <= seals ? reoccurrenceMore : 1);
+            double more = release > 0 && release <= seals ? reoccurrenceMore : 1;
+            double beidatMore = beidat?.More ?? 1;
             double castOffset = ordinal + Math.Min(release, seals) * .1;
             session.Schedule(ProjectileRuntime.Time(acceptedAt + castOffset * cast.Value / 1000d + delay), Valid,
                 () =>
@@ -224,8 +222,9 @@ public static partial class Game
                     using var pact = ghorr is null ? null : new GhorrCastScope(ghorr);
                     using var beidatScope = beidat is null ? null : new BeidatCastScope(beidat);
                     return ClientDrawnVolley(player, session, skillId, gem,
-                        CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
-                            cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
+                        CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, (uint)left, delay,
+                            cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more,
+                            hitAndAilmentMore: beidatMore),
                         sequence, (uint)left);
                 }, completed);
         }
@@ -250,7 +249,7 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (CastingBeidatSpell(player, skillId) is { Projectiles: > 0 })
+        if (CastingBeidatSpell(player, skillId) is { Projectiles: > 0 } && use.Profile.NativeVolley?.Angles is null)
             use = use with { Profile = use.Profile with { NativeVolley = new() { Nova = true } } };
         else if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)
             && use.Profile.NativeVolley is { Angles: null, Nova: false })
@@ -384,7 +383,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
-        (int X, int Y)? from = null, SupportedGem? capturedSkill = null)
+        (int X, int Y)? from = null, SupportedGem? capturedSkill = null, double hitAndAilmentMore = 1)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
         // A delayed release reads current combat state once, independently of the input handler's earlier snapshot.
@@ -465,7 +464,8 @@ public static partial class Game
             profile = profile with { Speed = Math.Max(0.001, flight / untilLanding) };
         }
         if (!spell) profile = NativeVolley(profile, Get, sequence, target - origin, totem?.Id ?? player.Id, repeatsLeft);
-        else if (extraBeidatProjectiles > 0) profile = profile with { NativeVolley = new() { Nova = true } };
+        else if (extraBeidatProjectiles > 0 && profile.NativeVolley?.Angles is null)
+            profile = profile with { NativeVolley = new() { Nova = true } };
         int variation = SkillArtVariation(player, gem.Gem);
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
@@ -627,10 +627,12 @@ public static partial class Game
                 Leech = totem is null ? shot.Leech : new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty),
             };
         }
+        if (hitAndAilmentMore != 1) shot = shot.ScaleHitAndAilmentDamage(hitAndAilmentMore);
         uint emitter = totem?.Id ?? player.Id;
-        var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
+        int epoch = player.ProjectileEpoch;
+        var use = new ProjectileUse(profile, new(emitter, epoch), new(emitter, epoch), 1, origin, target)
         {
-            Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
+            Payload = shot, ReturnAnchor = new(emitter, epoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
             RadialLaunchOffset = radialRelease && totem is null && from is null ? ahead : 0,
         };
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own)
@@ -639,6 +641,13 @@ public static partial class Game
         };
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
-        return definition.SpecializeRelease?.Invoke(context, use) ?? use;
+        use = definition.SpecializeRelease?.Invoke(context, use) ?? use;
+        if (use.Profile.SequentialDelay > 0 && use.CanEmit is null)
+            use = use with
+            {
+                CanEmit = () => session.Active && player.PlayerLife > 0 && player.ProjectileActive(epoch)
+                    && (totem is null || SpellTotemCurrent(player, totem)),
+            };
+        return use;
     }
 }

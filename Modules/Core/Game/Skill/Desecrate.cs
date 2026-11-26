@@ -69,20 +69,26 @@ public static partial class Game
             int Caster(uint stat) => caster.GetValueOrDefault(stat);
             int Get(uint stat) => ActorScale.Saturate((long)Own(stat) + Caster(stat));
             if (DamageStats.Prohibited(DamageType.Chaos, Get)) return;
+            var placed = PlacedKind(gem);
             double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.ChaosDamagePlusPct) + Get(Stat.AreaDamagePlusPct)
                 + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct)
                 + Get(Stat.DamageOverTimePlusPctWithSpells) + Get(Stat.DesecrateDamagePlusPct);
+            if (placed.Trap || placed.Mine)
+                increased += (double)Get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
             double more = ghorrMore * Math.Max(0, 1 + Own(Stat.SupportAreaConcentrateAreaDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportVoidManipulationChaosDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportRapidDecayDamageOverTimePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportEfficacyDamageOverTimePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.CrueltyDamageOverTimePlusPctFinal) / 100d);
+            if (placed.Trap || placed.Mine)
+                more *= Math.Max(0, 1 + Own(Stat.SupportTrapAndMineDamagePlusPctFinal) / 100d)
+                    * Math.Max(0, 1 + Own(placed.Mine ? Stat.SupportRemoteMine2DamagePlusPctFinal : Stat.SupportTrapDamagePlusPctFinal) / 100d);
             double multiplier = Math.Max(0, 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)
                 + Get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100d);
             double dps = Own(Stat.BaseChaosDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d) * more * multiplier;
             double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Caster, Own);
             var damage = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Chaos, dps, seconds));
-            int radius = SkillRadius(Player, 12, gem.Stats, spell: true, gem.Effect, caster);
+            int radius = SkillRadius(Player, 20, gem.Stats, spell: true, gem.Effect, caster);
             if (damage.DamagePerSecond > 0 && seconds > 0 && radius > 0)
                 AddDamageGround(Vector(aim), radius, seconds, DamageType.Chaos, damage.DamagePerSecond,
                     Runtime.Now, desecrated: true);
