@@ -20,7 +20,7 @@ public static partial class Game
             || (ArcProxyPayload(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
-                || IsGroundBladeBlast(SkillsFor(player).EffectId(effect))
+                || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeVortex(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -310,6 +310,18 @@ public static partial class Game
                         else await CastGolem(player, totem.SkillId, golem!, aim,
                             player.ActionInterruptionGeneration, Current, triggered: true);
                     });
+                });
+                continue;
+            }
+            if (IsBladeVortex(effect))
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), Current, () =>
+                {
+                    var spell = SupportedSkill(player, totem.SkillId);
+                    session.ReleaseBladeVortex(totem.Id, totem.SkillId, SkillArtVariation(player, gem.Gem), spell, TotemCasterStats(CharacterPlayerStats(player)), Current,
+                        (radius, scale, critIncrease) => TotemNovaLocked(player, session, totem, totem.At, radius, sequence,
+                            damageMore: scale, extraCriticalIncrease: critIncrease));
                 });
                 continue;
             }

@@ -332,6 +332,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
 - Blade Blast chains through up to 50 landed blades across direct, triggered and proxy casts, honoring blade retention.
+- Blade Vortex stacks individually timed blades on the caster, scales its pulse with the blade count, and supports
+  repeats, triggered casts, and spell totems.
 - Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
 - Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
 - Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.

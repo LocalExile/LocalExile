@@ -333,6 +333,7 @@ public static partial class Game
             ClearPods();
             ClearDamageGrounds();
             ClearProjectileBladeSources();
+            ClearBladeVortices();
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
