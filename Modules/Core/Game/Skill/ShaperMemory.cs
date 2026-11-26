@@ -135,7 +135,11 @@ public static partial class Game
             var raw = SupportedAttackDamage.Raw(weapon, Get, default, coefficient, effectiveness, melee: true);
             var hit = PlayerHitDamage.Resolve(raw, Get, SupportedAttackDamage.WithWeaponGains(new(), weapon), spell: false,
                 melee: true, area: true, additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),
-                additional: new() { MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills) });
+                additional: new()
+                {
+                    MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
+                    MaximumMore = (DamageTypeHistory.Physical, Get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
+                });
             session.Runtime.Schedule(finish, () =>
             {
                 if (Alive())
