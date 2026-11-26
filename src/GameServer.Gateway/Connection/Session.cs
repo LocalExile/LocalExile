@@ -13,7 +13,8 @@ public sealed class Session(string remote, NetworkStream stream, ConnectionCiphe
     public string Remote { get; } = remote;
     public NetworkStream Stream { get; } = stream;
     public ConnectionCiphers Ciphers { get; } = ciphers;
-    public bool Connected => Stream is not null && Ciphers is not null;
+    /// <summary>A client's, or a player's the server drives (Program.DriveByServer), which has ciphers and no stream.</summary>
+    public bool Connected => Ciphers is not null && (Stream is not null || Program.HasNoWire(Ciphers));
 
     /// <summary>The bytes after the last whole message read (ClientInbox).</summary>
     public byte[] Carry = [];

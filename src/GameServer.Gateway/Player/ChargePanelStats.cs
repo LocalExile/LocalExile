@@ -4,8 +4,8 @@
 /// from Metadata/Characters/Character.ot's base 3 plus unconditional maximum-charge bonuses from passives and items.
 /// The per-type bonuses add to the base, as BASE mods in Path of Building's charge calculation do, and so does
 /// <c>maximum_frenzy_power_endurance_charges</c> ("+1 to Maximum Endurance, Frenzy and Power Charges") to all three. Their Stats.dat
-/// Semantics 2 means OVERRIDE_VALUE; it does not establish that addition rule. The combined power/endurance and
-/// power/frenzy bonuses add to both rows; the former is reachable through the ordinary Warstaff base implicit.
+/// Semantics 2 means OVERRIDE_VALUE; it does not establish that addition rule. The combined power/endurance bonus adds
+/// to both its rows; it is reachable through the ordinary Warstaff base implicit.
 /// Conditional stats (while affected by ...) and the mechanics that replace the maximum with 0 are outside the standard
 /// contribution. The three explicitly sourced special-charge maximum mirrors are a separate, later projection
 /// (<see cref="MirroredMaximums"/>); the special counts come from the converted standard charges
@@ -27,10 +27,9 @@ public static class ChargePanelStats
     public static List<(uint Stat, int Value)> Compute(Func<uint, int> get)
     {
         int powerAndEndurance = get(Stat.MaximumPowerAndEnduranceChargesPlus);
-        int powerAndFrenzy = get(Stat.MaximumPowerAndFrenzyChargesPlus);
         int all = get(Stat.MaximumFrenzyPowerEnduranceCharges);
         static int Maximum(long value) => (int)Math.Clamp(value, 0, int.MaxValue);
-        int frenzy = Maximum((long)BaseMaximumCharges + get(Stat.MaxFrenzyCharges) + powerAndFrenzy + all);
+        int frenzy = Maximum((long)BaseMaximumCharges + get(Stat.MaxFrenzyCharges) + all);
         return
         [
             // Masterful Form: the endurance maximum is the frenzy one instead of its own sum (client 0x142811290).
@@ -38,7 +37,7 @@ public static class ChargePanelStats
                 : Maximum((long)BaseMaximumCharges + get(Stat.MaxEnduranceCharges) + powerAndEndurance + all)),
             (Stat.VirtualMaximumFrenzyCharges, frenzy),
             (Stat.VirtualMaximumPowerCharges,
-                Maximum((long)BaseMaximumCharges + get(Stat.MaxPowerCharges) + powerAndEndurance + powerAndFrenzy + all)),
+                Maximum((long)BaseMaximumCharges + get(Stat.MaxPowerCharges) + powerAndEndurance + all)),
         ];
     }
 

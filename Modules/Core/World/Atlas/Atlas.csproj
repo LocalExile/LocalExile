@@ -2,4 +2,8 @@
 
   <!-- The Atlas passive tree's choices and the completed maps. (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+
 </Project>

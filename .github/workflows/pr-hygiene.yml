@@ -1,0 +1,108 @@
+# Validates PR title, template sections, diff hygiene, and CODEOWNERS protection (.github/scripts/check-pr.py).
+# pull_request_target runs this file and the checker as they are on main, so a pull request cannot edit its own check.
+# Never check out or run the pull request's code here: this job holds a token that can write to the repository's PRs.
+name: PR hygiene
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  pr-hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the pull request without checking it out
+        run: |
+          git fetch --no-tags "https://github.com/$REPO" "refs/pull/$PR/head" \
+            "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"
+          git cat-file -e "$HEAD_SHA^{commit}"
+
+      - name: Run PR hygiene checks
+        id: check
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 -I -c 'import os, pathlib; pathlib.Path("pr_body.txt").write_text(os.environ.get("PR_BODY", ""), encoding="utf-8")'
+          code=0
+          python3 -I .github/scripts/check-pr.py \
+            --base "origin/$BASE_REF" \
+            --head "$HEAD_SHA" \
+            --title="$PR_TITLE" \
+            --body-file pr_body.txt \
+            --json-out result.json \
+            --report report.md || code=$?
+          if [ "$code" -gt 1 ] || [ ! -f result.json ]; then exit 1; fi
+          python3 -I - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json
+          with open("result.json", encoding="utf-8") as fh:
+              data = json.load(fh)
+          print(f"ok={'true' if data['ok'] else 'false'}")
+          print(f"protected={'true' if data['protected'] else 'false'}")
+          print(f"has_findings={'true' if (data['errors'] or data['warnings']) else 'false'}")
+          EOF
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Sync protected-files label
+        env:
+          PROTECTED: ${{ steps.check.outputs.protected }}
+        run: |
+          has_label=$(gh api --paginate "repos/$REPO/issues/$PR/labels" \
+            --jq '.[] | select(.name == "protected-files") | .name' | head -n 1)
+          if [ "$PROTECTED" = "true" ] && [ -z "$has_label" ]; then
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=protected-files" > /dev/null
+          elif [ "$PROTECTED" = "false" ] && [ -n "$has_label" ]; then
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/protected-files" > /dev/null
+          fi
+
+      - name: Update the pull request's comment
+        env:
+          HAS_FINDINGS: ${{ steps.check.outputs.has_findings }}
+        run: |
+          marker='<!-- pr-hygiene -->'
+          existing=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | head -n 1)
+          if [ "$HAS_FINDINGS" = "false" ] && [ -z "$existing" ]; then
+            exit 0
+          fi
+          {
+            echo "$marker"
+            echo "### PR hygiene"
+            echo
+            if [ "$HAS_FINDINGS" = "false" ]; then
+              echo "All PR hygiene checks pass."
+            else
+              cat report.md
+            fi
+          } > comment.md
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@comment.md > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@comment.md > /dev/null
+          fi
+
+      - name: Decide
+        env:
+          OK: ${{ steps.check.outputs.ok }}
+        run: |
+          if [ "$OK" != "true" ]; then
+            echo "::error::PR hygiene checks failed; see the comment on the pull request."
+            exit 1
+          fi

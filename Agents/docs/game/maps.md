@@ -86,7 +86,7 @@ When a Voidstone is socketed into the Atlas:
 
 - **Implemented first slice (2026-10-27):** generic `MapKeyTierN` items (MapKey component) carry their map tier and can
   be created with `/item Map (Tier N)`; the map device accepts them, the native Atlas panel selects a starting layout
-  (C?S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
+  (C→S 0x00e7), and the device opens that layout at the map tier. The selected layout is saved with the character.
   The area level follows the tier (`tier + 67`), and the area instance/monsters use it. Every character has the epilogue
   flag `EndGameAvailable` that the client requires for Atlas activation and map areas (before Kitava only in a hideout
   and the maps: `Quests.EndgameOnly`). Basic map drops from monsters use a local

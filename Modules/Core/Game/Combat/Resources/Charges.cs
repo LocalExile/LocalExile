@@ -320,7 +320,7 @@ public static partial class Game
             reduction.Physical, reduction.Elemental, effectiveArmour, PlayerHitMitigation.ArmourPercent(player.Pools, type, Get),
             imbalancedGuard: Get(Stat.KeystoneSacredBastion) != 0)
             + PlayerDamageTaken.Flat(type, attack, Get));
-        if (type == DamageType.Physical) value = AntiquarianEffects.RangedPhysical(value, ranged, Get);
+        if (type == DamageType.Physical) value = WardBreakEffects.RangedPhysical(value, ranged, Get);
         double now = AreaTime(player);
         return (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now, increased)
             * WindDancerHitFactor(player, attack, now, stats));
@@ -412,7 +412,7 @@ public static partial class Game
                 * buffEffect;
             if (!callToArms && !suppressBuffs) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
             Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
-                + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
+                + $"{percentPerMinute:0.###}% Life/min");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
             if (charges > 0 && !callToArms && !suppressBuffs) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));

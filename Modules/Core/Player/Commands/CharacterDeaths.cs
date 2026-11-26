@@ -24,7 +24,7 @@ public sealed class CharacterDeaths
     /// <summary>Persists a newly observed death for <paramref name="player"/> once per distinct death epoch.</summary>
     public void Observe(Player player)
     {
-        if (player.Controlled || player.Character.Name is not { Length: > 0 } name) return;
+        if (!player.EarnsProgress || player.Character.Name is not { Length: > 0 } name) return;
         long epoch = player.DeathNotificationEpoch;
         if (epoch < 0) return;
         // Fast lock-free short-circuit on every AreaTick once this death epoch has been committed.

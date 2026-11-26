@@ -2,14 +2,18 @@ using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
-using ControlledIntent = ControlledPlayerIntent;
 
-public static partial class Game
+using static Game;
+
+namespace GameServer.Modules.PlayerBots;
+
+// How a bot plays: the game's own rules, run for a player the server drives.
+public static partial class BotPlay
 {
     public sealed record ControlledReceipt(string Id, string State, string Detail, double At);
     sealed class ControlledBrain
     {
-        public ControlledIntent? Intent;
+        public ControlledPlayerIntent? Intent;
         public ControlledReceipt? Receipt;
     }
     static readonly Store<Player, ControlledBrain> ControlledBrains = new();
@@ -24,9 +28,9 @@ public static partial class Game
         return ControlledBrains.TryGetValue(player, out var brain) ? brain.Receipt : null;
     }
 
-    public static void QueueControlledIntent(Player player, ControlledIntent intent)
+    public static void QueueControlledIntent(Player player, ControlledPlayerIntent intent)
     {
-        if (!player.Controlled || player.Closed || player.LeavingArea || player.PlayerLife == 0)
+        if (player.HasClient || player.Closed || player.LeavingArea || player.PlayerLife == 0)
             throw new InvalidOperationException("The party bot is not ready for an order.");
         if (intent.Action is not ("auto" or "hold" or "move" or "attack" or "cast" or "flask" or "focus" or "pickup"))
             throw new ArgumentException("Unknown bot action.");
@@ -38,7 +42,7 @@ public static partial class Game
         brain.Receipt = new(intent.Id, intent.Action == "auto" ? "applied" : "queued", intent.Action, now);
     }
 
-    public static ControlledIntent? CurrentControlledIntent(Player player, double now)
+    public static ControlledPlayerIntent? CurrentControlledIntent(Player player, double now)
     {
         if (!ControlledBrains.TryGetValue(player, out var brain) || brain.Intent is not { } intent) return null;
         if (now < intent.Until && (intent.WallDeadline == 0 || System.Diagnostics.Stopwatch.GetTimestamp() < intent.WallDeadline)) return intent;
@@ -47,7 +51,7 @@ public static partial class Game
         return null;
     }
 
-    static void FinishControlledIntent(Player player, ControlledIntent intent, string state, string detail, double now)
+    static void FinishControlledIntent(Player player, ControlledPlayerIntent intent, string state, string detail, double now)
     {
         var brain = ControlledBrains.GetOrCreateValue(player);
         // A newer external decision may have arrived while the previous action was being dispatched.
@@ -213,12 +217,12 @@ public static partial class Game
         return new
         {
             gameTime = now, paused = player.Paused, area = player.Layout.Id,
-            self = new { id = player.Id, name = CharacterName(player), level = player.Pools.Level,
+            self = new { id = player.Id, name = Program.CharacterName(player), level = player.Pools.Level,
                 position = Cell(here), destination = Cell(player.Walk.Destination), moving = player.Walk.Moving(now),
                 life = player.PlayerLife, maxLife = player.Pools.Life, mana = player.PlayerMana, maxMana = player.Pools.Mana,
                 energyShield = player.EnergyShield.Current, maxEnergyShield = player.EnergyShield.Maximum, alive = player.PlayerLife > 0,
                 strength = player.Pools.Strength, dexterity = player.Pools.Dexterity, intelligence = player.Pools.Intelligence },
-            leader = new { id = leader.Id, name = CharacterName(leader), position = Cell(origin), destination = Cell(leader.Walk.Destination),
+            leader = new { id = leader.Id, name = Program.CharacterName(leader), position = Cell(origin), destination = Cell(leader.Walk.Destination),
                 moving = leader.Walk.Moving(now), life = leader.PlayerLife, maxLife = leader.Pools.Life,
                 energyShield = leader.EnergyShield.Current, distance = Dist(here, origin) },
             skills = GemSkillEffects(player).Select(g => new { id = g.Id, name = g.Name, level = g.Level, quality = g.Quality,

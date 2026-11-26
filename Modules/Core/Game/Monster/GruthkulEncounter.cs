@@ -145,10 +145,21 @@ public static class GruthkulEncounter
             await ResolveHits(runner, hits, effects, now, () => !stopped);
             fissures.RemoveAll(f => now >= f.Ends);
 
-            var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
-            if (entry.Value is not { } boss)
+            // Read the boss by its remembered id first; scan the area only when that lookup is gone.
+            SpawnedMonster? boss = null;
+            if (bossId != 0 && runner.Area.Monsters.TryGetValue(bossId, out var cached) && cached.Hostile && cached.Variety?.Id == Boss)
+                boss = cached;
+            else
+            {
+                var entry = runner.Area.Monsters.FirstOrDefault(p => p.Value.Hostile && p.Value.Variety?.Id == Boss);
+                if (entry.Value is { } found)
+                {
+                    bossId = entry.Key;
+                    boss = found;
+                }
+            }
+            if (boss is null)
                 return;
-            bossId = entry.Key;
 
             if (!Alive(boss))
             {

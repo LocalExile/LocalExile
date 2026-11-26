@@ -8,6 +8,22 @@ public static partial class Game
     public const uint TinctureDamageVsLowLife = Stat.TincturedWeaponDamagePlusPctVsEnemiesThatAreOnLowLife;
     public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && MonsterOnLowLife(target);
 
+    // Use the target's life before this contact for both damage and the shared critical roll.
+    readonly record struct DualStrikeBonuses(int DamagePct, int CriticalPct)
+    {
+        internal static DualStrikeBonuses From(IReadOnlyDictionary<uint, int> skill) =>
+            new(skill.GetValueOrDefault(Stat.DualStrikeDamagePlusPctFinalAgainstEnemiesOnFullLife),
+                skill.GetValueOrDefault(Stat.DualStrikeCriticalStrikeChancePlusPctFinalAgainstEnemiesOnFullLife));
+
+        internal DualStrikeBonuses Against(SpawnedMonster target) =>
+            target.MaxLife > 0 && target.Life >= target.MaxLife ? this : default;
+
+        internal double DamageMore => DamageFactor(DamagePct);
+
+        internal int CriticalChance(int chance) => CriticalPct == 0 ? chance
+            : (int)Math.Clamp(chance * (100L + CriticalPct) / 100, 0, 10_000);
+    }
+
     const uint FireVsBleeding = Stat.FireDamagePlusPctVsBleedingEnemies;
 
     static bool HasTypedTargetDamage(Func<uint, int> get) => get(PhysicalVsIgnited) != 0 || get(FireVsBleeding) != 0
