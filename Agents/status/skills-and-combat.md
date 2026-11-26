@@ -479,6 +479,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Base Penance Brand and Brand Recall were exercised against Amarissa in Predictive and Lockstep on the
   3.29.3d DX12 client. Conduction currently spreads only from its attached monster to two nearby targets.
   Arcanist Brand requires a supported trigger executor for each linked spell.
+  Recalling a brand supported by Foulgrasp creates hands that detonate once when an enemy enters range.
   Docs: [11](../docs/protocol/11-skills.md).
 - Snipe (`channelled_snipe` gem and Assailum) stage channelling (`snipe_stacks` 1494) and staged bow attack release,
   and General's Cry (`generals_cry` + variants) corpse selection and non-blocking Mirage Warrior melee execution
