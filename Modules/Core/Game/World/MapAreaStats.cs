@@ -27,11 +27,8 @@ public static partial class Game
         ["harvest"] = [(Stat.MapHarvestSeedsAreTier1, 1), (Stat.MapHarvestSeedsOfOtherColoursHaveChanceToUpgradeOnCompletingPlot, 1)],
     };
 
-    // [inferred] The league blocks' families by stat: each stat a node of a block's family grants (both catalogues), left
-    // out when nodes of two families grant it or a MapFragmentMods row's mod does (a scarab's own stats, such as the
-    // Harvest Scarab's map_chance_for_area_%_to_contain_harvest, turn on no block). Idols carry the Atlas passives' stats,
-    // so a map whose mods hold one of them gets the same block a node of that family gives.
-    static Dictionary<uint, string> LeagueBlockStats = [];
+    /// <summary>The families with a league block.</summary>
+    public static IReadOnlyCollection<string> MapLeagueBlockFamilies => MapLeagueBlocks.Keys;
     static Dictionary<byte, int> BossOptionMinTiers = new() { [1] = 1, [2] = 9, [3] = 9 };
     static Dictionary<byte, int> BossOptionUnlockFlags = new() { [1] = 225, [2] = 351, [3] = 352 };
 
@@ -57,29 +54,6 @@ public static partial class Game
         unlockFlags.TryAdd(2, 351);
         unlockFlags.TryAdd(3, 352);
         BossOptionUnlockFlags = unlockFlags;
-
-        var fragmentStats = new HashSet<uint>();
-        var fragmentMods = new HashSet<int>();
-        foreach (var row in ClientTables.TableOrEmpty("MapFragmentMods"))
-            foreach (int mod in row.Ints("ModsKeys")) fragmentMods.Add(mod);
-        if (fragmentMods.Count > 0)
-            foreach (var row in ClientTables.TableOrEmpty("Mods"))
-                if (fragmentMods.Contains(row.Index))
-                    for (int i = 1; i <= 8 && row.IntOrNull($"StatsKey{i}") is int stat; i++) fragmentStats.Add((uint)stat + 1);
-        var families = new Dictionary<uint, string>();
-        var shared = new HashSet<uint>();
-        foreach (var node in (AtlasPassiveNodes?.Nodes ?? []).Concat(HardModeAtlasPassives?.Nodes ?? []))
-        {
-            string family = global::AtlasStats.Family(node);
-            if (!MapLeagueBlocks.ContainsKey(family)) continue;
-            foreach (var (key, _) in node.Stats)
-            {
-                if (fragmentStats.Contains(key)) continue;
-                if (!families.TryAdd(key, family) && families[key] != family) shared.Add(key);
-            }
-        }
-        foreach (uint key in shared) families.Remove(key);
-        LeagueBlockStats = families;
     }
 
     /// <summary>Minimum map tier for an AtlasPrimordialBossOptions selection (1 Maven = T1, 2 Eater / 3 Exarch from AtlasPrimordialBossInfluence.MinMapTier).</summary>
@@ -218,13 +192,9 @@ public static partial class Game
         Set(Stat.MapDeviceType, 1);
         // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
         if (IsBossOptionEligible(bossOption, tier, mods.MapRarity)) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
-        // The league blocks of the tree's families and of the families whose stats the map's own sources (Idols,
-        // fragments, mods) carry; a flag set by several sources is set once.
-        HashSet<string>? withMods = null;
-        foreach (var (id, value) in mods.Stats)
-            if (value != 0 && LeagueBlockStats.TryGetValue(id, out string? family) && !families.Contains(family))
-                (withMods ??= new(families, StringComparer.Ordinal)).Add(family);
-        foreach (string family in withMods ?? families)
+        // The league blocks of the tree's families and of the families the map names itself (MapMods.AtlasFamilies);
+        // a family both hold is carried once.
+        foreach (string family in mods.AtlasFamilies.Count == 0 ? families : families.Union(mods.AtlasFamilies, StringComparer.Ordinal))
             if (MapLeagueBlocks.TryGetValue(family, out var block))
                 foreach (var (stat, value) in block) Add(stat, value);
         if (Stat.MapIncursionLeague is var incursion && stats.GetValueOrDefault(incursion) > 1) stats[incursion] = 1;

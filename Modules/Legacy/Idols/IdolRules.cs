@@ -66,8 +66,59 @@ public static class IdolRules
         return placed >= limit ? $"this unique Idol is limited to {limit}" : null;
     }
 
+    /// <summary>The stats only Idols give, at the game's hand-overs. Endless Tide (a unique Idol): "#% less Beyond
+    /// Portal merging radius", the rolled value.</summary>
+    public static int BeyondMergeRadiusFinal(Player player, Func<uint, int> get) => get(Stat.MapBeyondPortalSearchRadiusPlusPctFinal);
+
+    /// <summary>"#% chance for 20 additional Rogue Exiles" (an Idol prefix): rolled with the encounter's own draws.</summary>
+    public static int AdditionalRogueExiles(Player player, Func<uint, int> get, Random rng) =>
+        get(Stat.MapSpawn20AdditionalExilesChancePct) is int chance and > 0 && rng.Next(100) < chance ? 20 : 0;
+
+    // One reference, so a reader never sees the catalogues of one build with the families of another.
+    sealed record FamilyStats(AtlasPassives? Normal, AtlasPassives? HardMode, Dictionary<uint, string> Families);
+    static FamilyStats familyStats = new(null, null, []);
+
+    /// <summary>The Atlas passive families these stats belong to, of the families with a league block: Idols carry the
+    /// Atlas passives' stats, so a map that holds one gets the block a node of that family gives. [inferred] A stat
+    /// counts for a family when a node of it grants the stat (both catalogues), not when nodes of two families do or a
+    /// MapFragmentMods row's mod does (a scarab's own stats turn on no block).</summary>
+    public static IReadOnlySet<string> AtlasFamilies(IReadOnlyDictionary<uint, int> stats)
+    {
+        var known = familyStats;
+        var (normal, hardMode) = (AtlasPassiveNodes, HardModeAtlasPassives);
+        if (!ReferenceEquals(known.Normal, normal) || !ReferenceEquals(known.HardMode, hardMode))
+        {
+            var fragmentMods = new HashSet<int>();
+            foreach (var row in ClientTables.TableOrEmpty("MapFragmentMods"))
+                foreach (int mod in row.Ints("ModsKeys")) fragmentMods.Add(mod);
+            var fragmentStats = new HashSet<uint>();
+            if (fragmentMods.Count > 0)
+                foreach (var row in ClientTables.TableOrEmpty("Mods"))
+                    if (fragmentMods.Contains(row.Index))
+                        for (int i = 1; i <= 8 && row.IntOrNull($"StatsKey{i}") is int stat; i++) fragmentStats.Add((uint)stat + 1);
+            var families = new Dictionary<uint, string>();
+            var shared = new HashSet<uint>();
+            foreach (var node in (normal?.Nodes ?? []).Concat(hardMode?.Nodes ?? []))
+            {
+                string family = global::AtlasStats.Family(node);
+                if (!MapLeagueBlockFamilies.Contains(family)) continue;
+                foreach (var (key, _) in node.Stats)
+                {
+                    if (fragmentStats.Contains(key)) continue;
+                    if (!families.TryAdd(key, family) && families[key] != family) shared.Add(key);
+                }
+            }
+            foreach (uint key in shared) families.Remove(key);
+            familyStats = known = new(normal, hardMode, families);
+        }
+        var held = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (id, value) in stats)
+            if (value != 0 && known.Families.TryGetValue(id, out string? family)) held.Add(family);
+        return held;
+    }
+
     /// <summary>The map's modifiers with the Idols' stats added: unscaled, as the device's fragments are, so the map's
-    /// modifier effect does not multiply them.</summary>
+    /// modifier effect does not multiply them. The map names the Atlas families its stats belong to.</summary>
     public static MapMods With(MapMods mods, IReadOnlyDictionary<uint, int> idols)
     {
         static Dictionary<uint, int> Added(IReadOnlyDictionary<uint, int> to, IReadOnlyDictionary<uint, int> more)
@@ -79,8 +130,10 @@ public static class IdolRules
         }
         // A map without a breakdown is composed from its flat stats alone: it stays without one.
         bool flat = mods.ExplicitMods.Count == 0 && mods.Implicit.Count == 0 && mods.Fragments.Count == 0;
-        return new MapMods(Added(mods.Stats, idols), mods.Quality)
+        var stats = Added(mods.Stats, idols);
+        return new MapMods(stats, mods.Quality)
         {
+            AtlasFamilies = mods.AtlasFamilies.Union(AtlasFamilies(stats)).ToHashSet(StringComparer.Ordinal),
             ExplicitMods = mods.ExplicitMods, Implicit = mods.Implicit,
             Fragments = flat ? mods.Fragments : Added(mods.Fragments, idols),
             FragmentCount = mods.FragmentCount, ScarabCount = mods.ScarabCount, ScarabKinds = mods.ScarabKinds,
