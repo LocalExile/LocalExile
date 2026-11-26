@@ -422,7 +422,7 @@ public static partial class Game
                     blind: BlindHitInput.Capture(playerStats, skillStats),
                     attackGains: AttackAilmentGains.Capture(playerStats, attack: true),
                     projectileDamage: false, projectileFreezeChance: 0,
-                    weaponWitherChance: local?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
+                    weaponWitherChance: local?.GetValueOrDefault(global::Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical) TryDeathmarkedLocked(player, m, now, playerStats);
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";

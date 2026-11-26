@@ -923,7 +923,8 @@ public static partial class Game
                 targetAilmentMore *= Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
             var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
-                AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own),
+                AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
+                poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own),
                 playerHit: false, weaponWitherChance: weaponWither);
             if (!m.Dead && profile.Ignite.Max > 0)
             {

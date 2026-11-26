@@ -1498,16 +1498,16 @@ public static partial class Game
             && pools.BlockChance > 0)
         {
             long flat = (long)defencePerBlock * pools.BlockChance;
-            var defences = CharacterStats.For(classInfo, level, bonus with
+            var blockDerivedDefences = CharacterStats.For(classInfo, level, bonus with
             {
                 Armour = bonus.Armour + flat,
                 Evasion = bonus.Evasion + flat,
             }, ResolveAccuracy);
             pools = pools with
             {
-                Armour = defences.Armour,
-                Evasion = defences.Evasion,
-                EvasionWhileMoving = defences.EvasionWhileMoving,
+                Armour = blockDerivedDefences.Armour,
+                Evasion = blockDerivedDefences.Evasion,
+                EvasionWhileMoving = blockDerivedDefences.EvasionWhileMoving,
             };
         }
         if (!bonus.NoEnergyShield && pools.SpellBlockChance > 0
