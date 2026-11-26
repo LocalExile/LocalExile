@@ -225,6 +225,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Intimidating Cry applies War Bringer's exertion count and carries the spent exertion
   to the attack's melee and projectile hits for Overexertion. Docs: [11](../docs/protocol/11-skills.md) Â§10i.
 - Seismic Cry gives six melee slams more area after release, independently of the timed armour buff (predictive and lockstep).
+- Ancestral Cry gives eight melee strikes two additional targets after release, independently of the resistance buff (predictive and lockstep).
 - Strike targeting: spirit strikes and the previous location. Frost Blades and Lightning Strike resolve their extra
   melee contacts and projectile volleys. Docs: [11](../docs/protocol/11-skills.md) Â§10d.
 - Passive enemy auras. Docs: [11](../docs/protocol/11-skills.md) Â§10e.

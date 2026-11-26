@@ -523,7 +523,9 @@ public static partial class Game
         bool cryExerted;
         NotePlayerAttack(player);
         RecordUsedSkillLocked(player, begun);
-        cryExerted = ConsumeIntimidatingCryExertLocked(player, weapon.Melee && !ranged);
+        bool eligibleWarcry = weapon.Melee && !ranged;
+        cryExerted = ConsumeIntimidatingCryExertLocked(player, eligibleWarcry);
+        int ancestralTargets = eligibleWarcry ? ConsumeAncestralCry(CryOf(player)) : 0;
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -551,7 +553,7 @@ public static partial class Game
         byte[]? memoryBuff;
         using (ProjectileMutation(player))
             (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, use.SkillId, attackEffect, ownPenetration ?? new Dictionary<uint, int>(), stop, target,
-                use.Sequence, use.TargetId, ProjectileWorldTime(player));
+                use.Sequence, use.TargetId, ProjectileWorldTime(player), exertedTargets: ancestralTargets);
         if (memoryBuff is not null)
             await SendWorldRecord(player, player.Id, memoryBuff, $"0x01c1 player buff skill_location_memory for skill 0x{use.SkillId:x4}");
         // The hit lands at the attack animation's contact keyframe (data/animation-contacts.json), not a fixed half: the
@@ -2203,7 +2205,7 @@ public static partial class Game
         // Snipe charges stages while channelling and fires on release (Snipe.cs), not at channel start.
         if (IsSnipe(gem.Effect)) return Task.CompletedTask;
         if (IsChannelledScourgeArrow(gem.Effect)) return Task.CompletedTask;
-        var (cryExerted, seismicArea) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
+        var (cryExerted, seismicArea, ancestralTargets) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
             eligible: channelGeneration is null);
         // The paid charge owns one exertion decision for every path hit and its landing.
         int chargeBonus = ShieldChargeBonusPct(player, skillId, gem.Effect);
@@ -2223,20 +2225,20 @@ public static partial class Game
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
-                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted);
+                targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets);
         if (IsLightningStrike(gem.Effect) || IsFrostBlades(gem.Effect) || IsWildStrike(gem.Effect))
             return ScheduleProjectileStrike(player, skillId, gem, from, to, targetId,
                 recoveryGeneration, cooldownUse, criticalRoll,
-                sequence, swingAt, cryExerted);
+                sequence, swingAt, cryExerted, ancestralTargets);
         if (IsSmite(gem.Effect))
             return ScheduleSmite(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets);
         if (IsStaticStrike(gem.Effect))
             return ScheduleStaticStrike(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets);
         if (IsBoneshatter(gem.Effect))
             return ScheduleBoneshatter(player, skillId, gem, from, to, targetId,
-                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted);
+                recoveryGeneration, cooldownUse, criticalRoll, sequence, swingAt, cryExerted, ancestralTargets);
         var supported = SupportedSkill(player, skillId);
         var beidat = CastingBeidatSpell(player, skillId);
         int seals = UnleashSeals(player, skillId, supported, ProjectileWorldTime(player), spend: true);
@@ -2325,7 +2327,7 @@ public static partial class Game
                 jobs.Add(AreaSkillHitForUse(repeatRuthless, player, skillId, gem, from, to,
                     sequence: sequence, actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll,
                     targetId: targetId, repeat: pair, swingAt: pairAt, sacrifice: sacrifice, cryExerted: cryExerted,
-                    damageMore: MeleeRepeatDamageMore(player, skillId, pair), strikeSeconds: duration));
+                    damageMore: MeleeRepeatDamageMore(player, skillId, pair), strikeSeconds: duration, ancestralTargets: ancestralTargets));
                 pairAt += duration;
             }
             await Task.WhenAll(jobs);
@@ -2408,7 +2410,7 @@ public static partial class Game
                 repeatDelay: repeat * repeatInterval + sealDelay, radiusMore: radiusMore, sacrifice: sacrifice,
                 damageMore: fistMore * (reoccurrence ? reoccurrenceMore : 1) * (meleeRepeats > 0 ? MeleeRepeatDamageMore(player, skillId, repeat) : 1),
                 discharge: discharge, cryExerted: cryExerted, hitAndAilmentMore: (beidat?.More ?? 1) * useDamageMore,
-                seismicExerted: seismicArea.HasValue));
+                seismicExerted: seismicArea.HasValue, ancestralTargets: ancestralTargets));
             Hit(to);
             foreach (var area in cascadeAreas) Hit(area);
         }
@@ -2910,7 +2912,7 @@ public static partial class Game
         double hitAndAilmentMore = 1, Action<uint>? onDirectHit = null, bool allowMeleeSplash = true,
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
-        BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false) =>
+        BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -2920,7 +2922,7 @@ public static partial class Game
             hitAndAilmentMore: hitAndAilmentMore, onDirectHit: onDirectHit, allowMeleeSplash: allowMeleeSplash,
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
-            flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted);
+            flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -2939,7 +2941,8 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
-        LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false)
+        LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
+        int ancestralTargets = 0)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -3014,12 +3017,14 @@ public static partial class Game
         }
         if (cryExerted is null)
         {
-            var (intimidating, seismicArea) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
+            var (intimidating, seismicArea, extraStrikes) = ConsumeMeleeWarcryExertsLocked(player, skillId, gem.Effect,
                 eligible: !immediate && triggeredCurrent is null && repeat == 0 && channelGeneration is null);
             cryExerted = intimidating;
             seismicExerted = seismicArea.HasValue;
+            ancestralTargets = extraStrikes;
             if (seismicArea is int area) radiusMore *= SkillArea.RadiusMultiplier(area);
         }
+        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0);
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(player));
         if (discharge is not null && discharge.Total == 0)
@@ -3164,10 +3169,11 @@ public static partial class Game
         ((int X, int Y) Player, (int X, int Y) Centre)? echo = null;
         byte[]? memoryBuff = null;
         if (retainedAttack is null && infernalBlast is null && !spell && channelGeneration is null && singleStrikeTarget is null
-            && strikeIndex == 0 && shieldUse is null && hammer is null && boneshatter?.Pulse != true && !IsSmite(gem.Effect))
+            && strikeIndex == 0 && additionalStrikeTargets is null && shieldUse is null && hammer is null
+            && boneshatter?.Pulse != true && !IsSmite(gem.Effect))
             using (ProjectileMutation(player, advance: scheduledSession is null))
                 (spirit, echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skillStats, from, centre, sequence,
-                    targetId, ProjectileWorldTime(player));
+                    targetId, ProjectileWorldTime(player), exertedTargets: ancestralTargets);
         if (memoryBuff is not null)
         {
             string description = $"0x01c1 player buff skill_location_memory for skill 0x{skillId:x4}";
@@ -3784,7 +3790,7 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
-                    double overexertionMore = OverexertionMore(skillStats, cryExerted == true, seismicExerted);
+                    double overexertionMore = OverexertionMore(skillStats, cryExerted == true, otherWarcries);
                     if (overexertionMore != 1)
                         profile = profile with
                         {
@@ -3863,7 +3869,7 @@ public static partial class Game
                         rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                         m.HallowingFlameUntil = 0;
                     }
-                    rolled = WithOverexertion(rolled, skillStats, cryExerted == true, seismicExerted);
+                    rolled = WithOverexertion(rolled, skillStats, cryExerted == true, otherWarcries);
                     // The shared roll meets each target's current chance: a source can change between targets.
                     if (!linkedSource && retainedAttack is { } source)
                     {
@@ -4245,7 +4251,7 @@ public static partial class Game
                 targetFilter: targetFilter, extraStunThresholdReduction: extraStunThresholdReduction, extraStunDurationPct: extraStunDurationPct,
                 extraKnockbackDistancePct: extraKnockbackDistancePct, removeStunAndKnockback: removeStunAndKnockback,
                 offHandWeapon: offHandWeapon, shieldUse: shieldUse, additionalStrikeTargets: additionalStrikeTargets,
-                lacerate: lacerate, seismicExerted: seismicExerted);
+                lacerate: lacerate, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets);
         }
     }
 

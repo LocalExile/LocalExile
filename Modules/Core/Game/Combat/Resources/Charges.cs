@@ -416,6 +416,8 @@ public static partial class Game
                 ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
             if (effectId == "SeismicCry")
                 GrantSeismicCryExertsLocked(player, own, playerStats);
+            else if (effectId == "AncestralCry")
+                GrantAncestralCryExertsLocked(player, own, playerStats);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

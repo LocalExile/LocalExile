@@ -68,6 +68,58 @@ public sealed class WarcryExertionTests
     }
 
     [Fact]
+    public async Task Ancestral_Cry_exerts_eight_strikes_and_targets_two_additional_enemies()
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        var aim = (X: 110, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        fixture.Equip(("Ancestral Cry", 1), ("Ground Slam", 1), ("Heavy Strike", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => g.Name == "Ancestral Cry");
+        var slam = Game.GemSkillEffects(player).Single(g => g.Name == "Ground Slam");
+        var strike = Game.GemSkillEffects(player).Single(g => g.Name == "Heavy Strike");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(8, own[Stat.SkillEmpowersNextXMeleeAttacks]);
+        Assert.Equal(2, own[Stat.AncestralCryEmpoweredAttacksStrikeXAdditionalEnemies]);
+        using var accuracy = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        {
+            if (ReferenceEquals(owner, player)) stats[Stat.GlobalAlwaysHit] = 1;
+            return stats;
+        });
+        (int X, int Y)[] cells = [aim, (100, 114), (100, 86)];
+        var monsters = cells.Select(cell => new SpawnedMonster("Ancestral Cry witness", new(cell.X, cell.Y, 0), 0, 0, 1_000_000)).ToArray();
+        for (int i = 0; i < monsters.Length; i++) player.Area.Monsters.Add((uint)(901 + i), monsters[i]);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            async Task Strike(bool hitsExtras, ushort sequence)
+            {
+                for (int i = 0; i < monsters.Length; i++) monsters[i].Walk.Teleport(cells[i].X, cells[i].Y, clock.At);
+                uint[] life = monsters.Select(m => m.Life).ToArray();
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, strike.Id, origin, aim, 901, sequence: sequence));
+                Assert.True(monsters[0].Life < life[0]);
+                for (int i = 1; i < monsters.Length; i++) Assert.Equal(hitsExtras, monsters[i].Life < life[i]);
+            }
+
+            await Strike(false, 0x8100);
+            Game.GrantAncestralCryExertsLocked(player, own, new Dictionary<uint, int>());
+            player.NextAttackAt = 0;
+            Assert.True(await Game.CastGemSkill(player, slam.Id, origin, aim));
+            for (int i = 0; i < 8; i++) await Strike(true, (ushort)(0x8101 + i));
+            await Strike(false, 0x8109);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public void War_bringer_doubles_the_native_count_and_each_eligible_attack_spends_one()
     {
         using var f = new TriggeredSummonTests.Fixture();

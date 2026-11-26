@@ -63,7 +63,7 @@ public static partial class Game
                 Origin = origin, Aim = aim, Profile = profile,
                 Payload = shot with
                 {
-                    Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more), SeismicCryExerted = seismicExerted
+                    Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more), OtherWarcryExertions = seismicExerted ? 1 : 0
                 }
             });
     }
