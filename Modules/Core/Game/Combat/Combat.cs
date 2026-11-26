@@ -2319,7 +2319,8 @@ public static partial class Game
                     * (repeat + Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject));
                 var session = ProjectilesFor(player);
                 foreach (var area in cascadeAreas.Prepend(to))
-                    session.ScheduleSpatialSpell(gem, from, area, windup, Current, sacrifice, criticalRoll, sequence, repeat, more);
+                    session.ScheduleSpatialSpell(gem, from, area, windup, Current, sacrifice, criticalRoll, sequence, repeat, more,
+                        targetId: area == to ? targetId : 0);
                 continue;
             }
             void Hit((int X, int Y) centre) => jobs.Add(AreaSkillHitForUse(repeatRuthless, player, skillId, gem, from,
@@ -4297,7 +4298,10 @@ public static partial class Game
             && windup.Recovery == player.ActionInterruptionGeneration && windup.Epoch == player.ProjectileEpoch;
 
     // Cancellation belongs to the hit boundary; the native animation is a projection of that committed interval.
-    public static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now)
+    public static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now) =>
+        CommitPlayerHitRecoveryLocked(player, damage, now, attacker: 0);
+
+    static PlayerRecoveryIntent? CommitPlayerHitRecoveryLocked(Player player, int damage, double now, uint attacker)
     {
         if (damage <= 0) return null;
         var stats = CharacterPlayerStats(player);
@@ -4349,7 +4353,7 @@ public static partial class Game
             if (wasCharging) player.Walk.Cancel(now);
             else player.Walk.Pause(now, seconds);
         }
-        RecordIncomingHitTriggers(player, 0, now, stunned: true);
+        RecordIncomingHitTriggers(player, 0, now, stunned: true, attacker: attacker);
         return new(player.ProjectileEpoch, action, player.HitRecovery.Until, seconds);
     }
 

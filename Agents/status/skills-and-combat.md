@@ -336,7 +336,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Cremation variants place finite geysers and resolve their corpse and impact effects.
 - Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
 - Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
-- Cast when Damage Taken releases Arc from the triggering enemy when that enemy is still available.
+- Damage and stun triggers aim at the hit source when known. Arc of Surging keeps an eligible target through its delayed split.
 - Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets and grants a timed Lucky Arc buff.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.

@@ -45,7 +45,7 @@ public static partial class Game
         internal void ScheduleSpatialSpell((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) from, (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice,
             SkillCriticalRoll? critical, ushort sequence = 0, int repeat = 0, double damageMore = 1,
-            SpawnedMonster? brandedTarget = null)
+            SpawnedMonster? brandedTarget = null, uint targetId = 0)
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
@@ -54,7 +54,7 @@ public static partial class Game
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(released, () =>
             {
-                if (!current() || !CurrentSource()) return;
+                if (!CurrentSource() || !sacrifice.Triggered && !current()) return;
                 int Own(uint key) => source.Stats.GetValueOrDefault(key);
                 var caster = CharacterPlayerStats(Player);
                 var effect = SkillsFor(Player).EffectId(gem.Effect);
@@ -127,9 +127,17 @@ public static partial class Game
                         {
                             if (!CurrentSource()) return;
                             double now = ProjectileWorldTime(Player);
-                            var primary = Player.Area.MonstersNear(from, distance).Where(p => ArcProxyTarget(Player, p.Key, p.Value))
-                                .Select(p => (p.Key, At: p.Value.Walk.Position(now))).Where(p => Dist(p.At, from) <= distance)
-                                .OrderBy(p => Dist(p.At, aim)).ThenBy(p => p.Key).FirstOrDefault();
+                            var primary = (Key: 0u, At: (X: 0, Y: 0));
+                            if (targetId != 0 && Player.Area.Monsters.TryGetValue(targetId, out var target)
+                                && ArcProxyTarget(Player, targetId, target))
+                            {
+                                var at = target.Walk.Position(now);
+                                if (Dist(at, from) <= distance) primary = (targetId, at);
+                            }
+                            if (primary.Key == 0)
+                                primary = Player.Area.MonstersNear(from, distance).Where(p => ArcProxyTarget(Player, p.Key, p.Value))
+                                    .Select(p => (p.Key, At: p.Value.Walk.Position(now))).Where(p => Dist(p.At, from) <= distance)
+                                    .OrderBy(p => Dist(p.At, aim)).ThenBy(p => p.Key).FirstOrDefault();
                             if (primary.Key == 0) return;
                             var selected = ArcSplitTargets(Player, primary.Key, primary.At, now, distance, splits).ToHashSet();
                             selected.Add(primary.Key);
@@ -192,6 +200,7 @@ public static partial class Game
             });
 
             bool CurrentSource() => Active && !Player.Paused && Player.PlayerLife > 0 && sacrifice.Current
+                && (!sacrifice.Triggered || current())
                 && SameTriggerSource(source, SupportedSkill(Player, gem.Id));
         }
     }
