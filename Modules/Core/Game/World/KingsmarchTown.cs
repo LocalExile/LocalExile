@@ -89,7 +89,7 @@ public static class KingsmarchTown
     /// <summary>What the client's town panel is told about the town. The farm, the workers and the treasury live in this
     /// module and the panel is pushed by the Village module, so the numbers are handed over in a small file: a file
     /// rather than a reference, so neither module needs the other's assembly loaded.</summary>
-    const string VillageFile = "data/kingsmarch-village.json";
+    const string VillageFile = "data/kingsmarch-panel.json";
 
     /// <summary>When the village file was last written: the town's numbers move every tick, one write a second is enough.</summary>
     static double _villageAt;

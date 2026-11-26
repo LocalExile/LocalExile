@@ -245,7 +245,7 @@ public sealed class VillageModule : IModule
     /// <summary>Where the farm module writes the town's numbers (its gold, its workers and their jobs, its crops). The
     /// farm lives in the Game module and the panel is pushed from this one, so the numbers cross in a small file: a file
     /// rather than a reference, so neither module has to load the other's assembly.</summary>
-    public const string FarmFile = "data/kingsmarch-village.json";
+    public const string FarmFile = "data/kingsmarch-panel.json";
 
     /// <summary>What the farm file said last, per connection: the settlement is only pushed again when it changes.</summary>
     static readonly ConditionalWeakTable<IPlayer, string> _farm = new();
@@ -285,9 +285,25 @@ public sealed class VillageModule : IModule
             int version = settlement.Version;
             if (root.TryGetProperty("gold", out var gold)) settlement.Gold = (uint)Math.Max(0, gold.GetInt64());
             if (root.TryGetProperty("capacity", out var capacity)) settlement.Capacity = (byte)capacity.GetInt32();
-            settlement.Assignments.Clear();
-            settlement.Ranks.Clear();
-            if (root.TryGetProperty("workers", out var workers))
+            // The panel file carries the farm's workers, not the town's own save (SaveFile is a different
+            // file): only the farm's rows are replaced here, so the mine's and the smeltery's lines keep the
+            // jobs the panel gave them.
+            JsonElement workers = default;
+            var listed = new HashSet<byte>();
+            if (root.TryGetProperty("workers", out workers))
+            {
+                foreach (var worker in workers.EnumerateArray()) listed.Add((byte)worker.GetProperty("order").GetInt32());
+            }
+            foreach (byte gone in settlement.Assignments
+                .Where(row => row.Value == 0 || row.Value >= 11)
+                .Select(row => row.Key)
+                .Where(order => !listed.Contains(order))
+                .ToList())
+            {
+                settlement.Assignments.Remove(gone);
+                settlement.Ranks.Remove(gone);
+            }
+            if (root.TryGetProperty("workers", out workers))
             {
                 foreach (var worker in workers.EnumerateArray())
                 {
