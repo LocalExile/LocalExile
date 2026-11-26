@@ -327,6 +327,9 @@ public static partial class Game
         bool areaHit = false, int glacialFreezeMore = 0, bool? ownHit = null, int weaponWitherChance = 0)
     {
         bool owned = ownHit ?? playerHit;
+        int blindChilled = owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
+            ? Math.Max(0, playerStats.GetValueOrDefault(Stat.BlindChilledEnemiesOnHitPct)) : 0;
+        bool chilledBeforeHit = blindChilled > 0 && m.Ailments.Magnitude(Kind.Chill, now) > 0;
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
@@ -445,6 +448,11 @@ public static partial class Game
             return;
         }
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
+        if (chilledBeforeHit)
+        {
+            if (blind == default) blind = BlindHitInput.Capture(playerStats, skill);
+            blind = blind with { GlobalChance = blind.GlobalChance + blindChilled };
+        }
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure);
         WitherOnHitLocked(m, name => ActorScale.Saturate((long)Player(name) + Skill(name)
