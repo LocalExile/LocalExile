@@ -1393,8 +1393,7 @@ public static partial class Game
             (int)RawAccuracy(PlayerAccuracyModifiers.BootsMore), blindLess: 0, areaMorePct: areaAccuracy,
             weaponMorePct: weaponAccuracy, chargeMorePct: chargeAccuracyMore);
         var pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
-        // Reservation-derived defences are a second, explicit projection from the completed full maximum Life. The
-        // added Energy Shield is a global flat source and cannot feed back into Life conversion or reservation.
+        // Life-derived defences use the completed maximum Life. Their flat grants cannot feed back into it.
         int itemReservationPercent = EquipmentStat(LifeReservation.ItemPercentStat);
         var reservedLife = LifeReservation.FromInputs((int)pools.Life, itemReservationPercent,
             pools.LifeReservationEfficiencyPct, player.Auras.Values, AdditionalLifeReservation(player));
@@ -1402,11 +1401,10 @@ public static partial class Game
             ? sources.GetValueOrDefault(reservedEsKey) : 0;
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
         int lifeArmourPct = EquipmentInput(Stat.MaximumLifePctToAddAsMaximumArmour);
-        decimal lifeArmour = pools.Life * (decimal)lifeArmourPct / 100m;
-        if (reservationEnergyShield != 0 || lifeArmour != 0)
+        if (reservationEnergyShield != 0 || lifeArmourPct != 0)
             pools = CharacterStats.For(classInfo, level, bonus with
             {
-                Armour = bonus.Armour + lifeArmour,
+                Armour = bonus.Armour + pools.Life * (decimal)lifeArmourPct / 100m,
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
             }, ResolveAccuracy);
         pools = pools with { MapTemporalChainsActionSpeedPct = mapTemporalChains };
@@ -1482,6 +1480,18 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
+        if (!bonus.NoEnergyShield && pools.SpellBlockChance > 0
+            && EquipmentInput(Stat.MaximumEnergyShieldIncreasedBySpellBlockChance) != 0)
+        {
+            // Vile Bastion uses the final capped spell block chance as increased maximum Energy Shield.
+            // Reuse the ordinary shield calculation so the increase joins each local and global source once.
+            var shieldPools = CharacterStats.For(classInfo, level, bonus with
+            {
+                EnergyShield = ActorScale.Saturate((long)bonus.EnergyShield + reservationEnergyShield),
+                EnergyShieldPct = ActorScale.Saturate((long)bonus.EnergyShieldPct + pools.SpellBlockChance),
+            }, ResolveAccuracy);
+            pools = pools with { EnergyShield = shieldPools.EnergyShield, EnergyShieldPct = shieldPools.EnergyShieldPct };
+        }
         if (map?.Get(Stat.MapPlayersArmourPlusPctFinal) is int armourMore and not 0)
             pools = pools with { Armour = ActorScale.Saturate((pools.Armour * Math.Max(0, 100L + armourMore) + 50) / 100) };
         player.AppliedAdrenaline = player.WardBreak.Adrenaline(AreaTime(player));
