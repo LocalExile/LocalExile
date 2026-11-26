@@ -34,6 +34,7 @@ public sealed class GolemState
         public int Combo;
         public uint Target;
         public readonly Dictionary<uint, double> Taunts = [];
+        public GameServer.Core.World.DamageType? LastPrismaticElement;
         public bool CorpseEmpowered;
         public bool DeathBurstDone, DeathEffectsApplied;
         public double WrathUntil, NextOrb;

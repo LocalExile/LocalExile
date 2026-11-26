@@ -77,7 +77,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         // A connection that has left the area keeps none of it: the cloud went with the area.
         if (player.LeavingArea)
         {
-            DropZones(player, player.Id, CloudZones);
+            DropZones(player, shrine.ObjectId, CloudZones);
             _cloud = 0;
             _nextBlind = 0;
             return;
@@ -99,11 +99,11 @@ sealed class SmokeCloudEffect : IShrineEffect
         // The cloud is a zone at it (OwnedZones): the unclaimed shrine's reaches the players, the claimed one's the
         // hostile monsters.
         var hostile = ReachesHostileMonsters(player, body: false);
-        SyncZones(player, player.Id, CloudZones, [(shrine.ObjectId, (int)Math.Round(reach), _at)],
+        SyncZones(player, shrine.ObjectId, CloudZones, [(shrine.ObjectId, (int)Math.Round(reach), _at)],
             new(id => shrine.State == ShrineState.Inactive ? IsPlayerId(id.Value) ? 0 : null : hostile(id)));
         if (now < _nextBlind) return;
         _nextBlind = now + BlindRefresh;
-        var members = ZoneMembers(player, player.Id, CloudZones, shrine.ObjectId).Select(e => e.Value).ToArray();
+        var members = ZoneMembers(player, shrine.ObjectId, CloudZones, shrine.ObjectId).Select(e => e.Value).ToArray();
         // The unclaimed shrine's fog blinds whoever walks into it; the claimed shrine's blinds the monsters in it.
         if (shrine.State == ShrineState.Inactive) fogged = [.. members.Select(id => AreaPlayer(player, id)).OfType<Player>().Where(p => p.PlayerLife > 0)];
         else
@@ -122,13 +122,13 @@ sealed class SmokeCloudEffect : IShrineEffect
     }
 
     /// <summary>Claiming and expiring both end the cloud this effect laid.</summary>
-    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
+    public Task OnActivation(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player, shrine.ObjectId);
 
-    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
+    public Task OnExpired(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player, shrine.ObjectId);
 
-    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player);
+    public Task OnMapUnload(ShrineContext ctx, ShrineInstance shrine) => Clear(ctx.Player, shrine.ObjectId);
 
-    Task Clear(Player player)
+    Task Clear(Player player, uint shrineId)
     {
         if (_cloud != 0)
         {
@@ -137,7 +137,7 @@ sealed class SmokeCloudEffect : IShrineEffect
         }
         _nextBlind = 0;
         _blindedCount = -1;
-        DropZones(player, player.Id, CloudZones);
+        DropZones(player, shrineId, CloudZones);
         return Task.CompletedTask;
     }
 }

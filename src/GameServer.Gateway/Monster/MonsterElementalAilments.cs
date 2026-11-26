@@ -254,14 +254,17 @@ public sealed class MonsterElementalAilments
                 Spread = SpreadRadius(Kind.Chill, attacker, area),
             });
         // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
-        int freezeChance = attacker(Stat.ChanceToFreezePct)
-            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0);
+        int freezeChance = (int)Math.Clamp((long)attacker(Stat.ChanceToFreezePct)
+            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0)
+            + target(Stat.ChanceToBeFrozenPct), int.MinValue, int.MaxValue);
         if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
             Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
+        int shockChance = (int)Math.Clamp((long)attacker(Stat.ChanceToShockPct) + target(Stat.ChanceToBeShockedPct),
+            int.MinValue, int.MaxValue);
         if (shocking > 0 && (critical || attacker(Stat.AlwaysShock) != 0
-                || RandomRolls.Chance(attacker(Stat.ChanceToShockPct), 100, random))
+                || RandomRolls.Chance(shockChance, 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
                 EffectModifier(Kind.Shock, attacker, target), ShockCap(attacker), attacker(Stat.ShockMinimumDamageTakenIncreasePct)))
@@ -440,13 +443,13 @@ public sealed class MonsterElementalAilments
         AsThoughStats[kind].Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + attacker(name) / 100.0));
 
     // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
-    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
-    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value.
     static int ChillCap(Func<uint, int> attacker) =>
         attacker(Stat.ElementalistChillMaximumMagnitudeOverride) is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<uint, int> attacker) =>
-        50 + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0);
+        (int)Math.Clamp(50L + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0)
+            + attacker(Stat.ShockMaximumMagnitudePlus), 0, int.MaxValue);
 
     static double EffectModifier(Kind kind, Func<uint, int> attacker, Func<uint, int> target) =>
         Math.Max(0, 1 + attacker(Stat.Of($"virtual_{Name(kind)}_effect_+%")) / 100.0)

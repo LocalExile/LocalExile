@@ -242,7 +242,7 @@ public sealed partial class DeliriumModule : IModule
         int count = run.Active ? run.Rewards.Length : 0;
         string log = $"0x02c9 ruleset AfflictionEndGameRules mode 1 ({count} tile(s))";
         foreach (var peer in Clients(player))
-            await PlayerOf(peer).Send(packet, log);
+            await PlayerOf(peer).Send((byte[])packet.Clone(), log);
     }
 
     Run State(Player player) => runs.GetValue(player.Instance, instance =>

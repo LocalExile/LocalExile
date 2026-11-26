@@ -141,6 +141,7 @@ public static partial class Game
     {
         double now = at ?? ProjectileWorldTime(player);
         if (m.Ignites.IgnitedAt(now) || m.HeraldBurns.IgnitedAt(now)
+            || ProjectileSession.OnBurningDamageGround(player.Area, m, now)
             || InfernalLegionFields.TryGetValue(player, out var field) && field.Burning.Contains(m)) return true;
         foreach (var other in player.Instance?.Presence.PlayersExcept(player.Id) ?? [])
             if (other.PlayerLife > 0 && other.Instance == player.Instance

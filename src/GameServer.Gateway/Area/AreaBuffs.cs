@@ -83,9 +83,13 @@ public sealed class AreaBuffs(GameArea area)
     }
 
     /// <summary>Whether the entity has that buff now (as set this frame, or written and not run out).</summary>
-    public bool Has(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0)
+    public bool Has(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0) =>
+        Get(entity, row, source, auraSource, tag) is not null;
+
+    /// <summary>The active buff under the same key used by <see cref="Set"/> and <see cref="Clear"/>.</summary>
+    public Buff? Get(uint entity, ushort row, uint source = 0, bool auraSource = false, ushort tag = 0)
     {
-        lock (gate) return Current(new(entity, row, source, auraSource, tag)) is not null;
+        lock (gate) return Current(new(entity, row, source, auraSource, tag));
     }
 
     /// <summary>Whether the entity has a buff of that row now, from any source.</summary>

@@ -238,12 +238,26 @@ public static partial class Game
         FortificationOf(player).Clear();
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
+        ClearGhorrHunger(player);
+        ClearPactConditionsOnDeath(player);
+        player.Area.Buffs.Clear(player.Id, LuckyArcBuffRow, player.Id);
+        if (player.ProjectileRuntime is ProjectileSession projectiles)
+        {
+            ClearBeidatEmpowerment(projectiles);
+            ClearGhorrEmpowerment(projectiles);
+            ClearKtashEmpowerment(projectiles);
+            ClearLyciaEmpowerment(projectiles);
+            projectiles.LyciaChannel = null;
+        }
         player.Rampage.Clear();
         // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel
         // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely
         // returns on the zero life, so nothing else clears ChannelSkill).
         WinterOrbRetire(player);
+        ClearCycloneStages(player);
+        ClearReaveStages(player);
         SnipeRetire(player);
+        RetireBladeFlurry(player, player.ChannelGeneration);
         MirageWarriorsRetire(player);
         player.RetireOwnedCombat();
         player.ChannelSkill = 0;
@@ -621,6 +635,7 @@ public static partial class Game
         return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
+            + (Total(Stat.PactCastSpeedPlusPct) is int pact and not 0 && skills.HasType(effect, "Pact") ? pact : 0)
             + ElementSpeed("Fire", Stat.CastSpeedForFireSkillsPlusPct)
             + ElementSpeed("Cold", Stat.CastSpeedForColdSkillsPlusPct)
             + ElementSpeed("Lightning", Stat.CastSpeedForLightningSkillsPlusPct)

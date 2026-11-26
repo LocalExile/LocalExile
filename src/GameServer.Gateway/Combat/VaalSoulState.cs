@@ -54,10 +54,16 @@ public sealed class VaalSoulState
     /// <summary>Later executors can atomically check and pay a source's effective requirement under the caller's lock.
     /// No currently unsupported Vaal cast calls this seam.</summary>
     public bool TryConsume(uint row, uint required)
+        => TryConsume(row, required, refund: false);
+
+    public bool TryConsume(uint row, uint required, bool refund)
     {
         if (!budgets.TryGetValue(row, out var budget) || budget.Current < required) return false;
-        budgets[row] = budget with { Current = budget.Current - required };
-        Revision++;
+        if (!refund)
+        {
+            budgets[row] = budget with { Current = budget.Current - required };
+            Revision++;
+        }
         return true;
     }
 
