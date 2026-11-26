@@ -83,6 +83,7 @@ Nothing yet.
   curse, mark, link and retaliation speed bonuses.
   Retaliation hits apply their damage, stun and ailment duration modifiers.
   Divine Retribution opens after a block, lights its skill button and releases four waves of terrain-limited bursts.
+  Enduring Cry grants Endurance Charges to nearby allied players and regenerates the life of nearby allies.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
