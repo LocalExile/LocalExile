@@ -253,7 +253,8 @@ warning).
 
 A project mod compiles against the Gateway, Core and the Game module beside `GameServer.Modding` (`Mod.props`, and
 LocalExile-Mods' `mods/Directory.Build.props`), and lists `"Game"` in `depends` when it uses the game's rules: it then
-reloads whenever the Game module does. It subscribes to `GameEvents` with its id as the owner, as a module does with its
+reloads whenever the Game module does. It references another module's project as `$(LocalExileDir)Modules\...\<Name>.csproj`
+(`Private="false"`), which both build files resolve, and lists that module in `depends`. It subscribes to `GameEvents` with its id as the owner, as a module does with its
 own, and those subscriptions run for its leagues while it is loaded; the host releases them when it unloads.
 
 A player with no client: `Program.DriveByServer(player, name, takesPartIn)` makes a `Player` one the server drives. The
