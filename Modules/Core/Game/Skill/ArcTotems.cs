@@ -4,7 +4,15 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    const string VaalArcEffect = "VaalArc";
+    const ushort LuckyArcBuffRow = 1152;
+
     static bool PlacedArcPayload(string? effect) => effect is "Arc" or "ArcAltY";
+
+    static int ArcExtraRolls(Player player, string? effect, IReadOnlyDictionary<uint, int> caster) =>
+        effect is "Arc" or "ArcAltX" or "ArcAltY" or VaalArcEffect
+            ? Math.Max(caster.GetValueOrDefault(Stat.ArcExtraDamageRolls),
+                player.Area.Buffs.Has(player.Id, LuckyArcBuffRow, player.Id) ? 1 : 0) : 0;
 
     static void ReleaseArcTotem(Player player, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence) =>
         ReleaseArcProxy(player, session, totem.SkillId, totem.Id, totem.At, totem.BodySize,
@@ -51,6 +59,17 @@ public static partial class Game
             bool Current() => session.Active && current() && sacrifice.Current;
             if (!Current()) return;
             double now = ProjectileWorldTime(player);
+            string? effect = SkillsFor(player).EffectId(gem.Effect);
+            var source = SupportedSkill(player, gem.Id);
+            var caster = CharacterPlayerStats(player);
+            if (effect == VaalArcEffect)
+            {
+                double duration = SkillDurationModifiers.Seconds(source.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+                    key => caster.GetValueOrDefault(key), key => source.Stats.GetValueOrDefault(key),
+                    DurationKinds(player, gem.Effect) | SkillDurationModifiers.Kinds.Buff);
+                if (duration > 0) player.Area.Buffs.Set(player.Id, new(LuckyArcBuffRow, player.Id, gem.Id,
+                    Values: [1], U68: Buff.Seconds(duration)));
+            }
             var origin = brandOrigin ?? player.Walk.Position(now);
             uint first = triggerTarget != 0 && player.Area.Monsters.TryGetValue(triggerTarget, out var enemy)
                 && ArcProxyTarget(player, triggerTarget, enemy) ? triggerTarget : player.Area.MonstersNear(aim, PlacedArcTargetRange)
@@ -59,22 +78,44 @@ public static partial class Game
                 .Where(p => p.Distance <= PlacedArcTargetRange)
                 .OrderBy(p => p.Distance).ThenBy(p => p.Key).Select(p => p.Key).FirstOrDefault();
             if (first == 0) return;
-            var stats = MergeSkillStats(CharacterPlayerStats(player), SupportedSkill(player, gem.Id).Stats);
+            var stats = MergeSkillStats(caster, source.Stats);
             int Get(uint key) => stats.GetValueOrDefault(key);
-            ArcChainTargets(player, first, origin, now, Get(Stat.ArcChainDistance),
-                Math.Max(0, Get(Stat.NumberOfChains)) + beamChains, Get(Stat.ArcEnhancedBehaviour) != 0,
-                (victim, remaining, from) =>
-                {
-                    var at = player.Area.Monsters[victim].Walk.Position(now);
-                    double more = damageMore * Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
-                    var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: sequence,
-                        radiusOverride: 1, damageMore: more, criticalRoll: critical, sacrifice: sacrifice,
-                        triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim,
-                        hitAndAilmentMore: hitAndAilmentMore);
-                    if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Arc hit must not yield.");
-                    task.GetAwaiter().GetResult();
-                });
+            int range = Get(Stat.ArcChainDistance);
+            int chains = Math.Max(0, Get(Stat.NumberOfChains)) + beamChains;
+            if (effect == VaalArcEffect) VaalArcChainTargets(player, first, origin, now, range, chains, Land);
+            else ArcChainTargets(player, first, origin, now, range, chains, effect == "ArcAltY", Land);
+
+            void Land(uint victim, int remaining, (int X, int Y) from)
+            {
+                var at = player.Area.Monsters[victim].Walk.Position(now);
+                double chainMore = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
+                var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: sequence,
+                    radiusOverride: 1, damageMore: damageMore, criticalRoll: critical, sacrifice: sacrifice,
+                    triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim,
+                    hitAndAilmentMore: hitAndAilmentMore * chainMore);
+                if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Arc hit must not yield.");
+                task.GetAwaiter().GetResult();
+            }
         });
+    }
+
+    static void ScheduleVaalArc(Player player, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
+        (int X, int Y) aim, uint target, ushort sequence, int castMs, double acceptedAt, VaalUseReservation paid,
+        Func<bool> current)
+    {
+        using (ProjectileMutation(player, advance: false))
+        {
+            var session = ProjectilesFor(player);
+            var source = SupportedSkill(player, gem.Id);
+            var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem);
+            double contact = acceptedAt + castMs / 1000d
+                * Animations.SpellAreaRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject);
+            ScheduleArcContact(player, session, gem, aim, null, () => current() && PlayerStateAllowsAction(player)
+                && player.ActionInterruptionGeneration == paid.RecoveryGeneration
+                && SameTriggerSource(source, SupportedSkill(player, gem.Id)), target,
+                Math.Max(session.Runtime.Now, ProjectileRuntime.Time(contact)), sequence, paid.CriticalRoll, sacrifice,
+                beamChains: paid.Beidat?.Chains ?? 0, hitAndAilmentMore: paid.PactDamageMore);
+        }
     }
 
     static bool ArcProxyTarget(Player player, uint id, SpawnedMonster m) =>
@@ -102,13 +143,15 @@ public static partial class Game
         var resistance = HitResistMods(caster, skill.Stats);
         int range = Get(Stat.ArcChainDistance);
         int chains = Math.Max(0, Get(Stat.NumberOfChains));
+        string? effect = SkillsFor(player).EffectId(skill.Effect);
+        int extraRolls = ArcExtraRolls(player, effect, caster);
         void Land(uint id, int remaining, (int X, int Y) from)
         {
             var m = player.Area.Monsters[id];
             if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true)) return;
             double more = damageMore * Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
             var rolled = WithConditionalSupportDamageLocked(player, skill.Stats, false, m,
-                GameEvents.WithOutgoingDamage(player, caster, m, hit.Scale(more).Roll(AreaRng(player))), now);
+                GameEvents.WithOutgoingDamage(player, caster, m, hit.Scale(more).Roll(AreaRng(player), extraRolls)), now);
             int chance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                 SupportedCriticalChanceVsBlinded(player, skillId, false), SupportedCriticalChanceVsGround(player, skillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack: false, skillRoll: criticalRoll, playerStats: caster);
@@ -139,7 +182,7 @@ public static partial class Game
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, totem ? "Arc totem" : "placed Arc", playerKill: false);
         }
 
-        ArcChainTargets(player, first, origin, now, range, chains, Get(Stat.ArcEnhancedBehaviour) != 0, Land);
+        ArcChainTargets(player, first, origin, now, range, chains, effect == "ArcAltY", Land);
     }
 
     static void ArcChainTargets(Player player, uint first, (int X, int Y) origin, double now, int range, int chains,
@@ -164,6 +207,30 @@ public static partial class Game
             origin = at;
             previous = current;
             current = next;
+        }
+    }
+
+    static void VaalArcChainTargets(Player player, uint first, (int X, int Y) origin, double now, int range, int chains,
+        Action<uint, int, (int X, int Y)> land)
+    {
+        var targeted = new HashSet<uint> { first };
+        var pending = new Queue<(uint Id, int Remaining, (int X, int Y) From)>();
+        pending.Enqueue((first, chains, origin));
+        while (pending.TryDequeue(out var branch))
+        {
+            if (!player.Area.Monsters.TryGetValue(branch.Id, out var monster) || !ArcProxyTarget(player, branch.Id, monster)) continue;
+            var at = monster.Walk.Position(now);
+            land(branch.Id, branch.Remaining, branch.From);
+            if (branch.Remaining == 0) continue;
+            var next = player.Area.MonstersNear(at, range)
+                .Where(p => !targeted.Contains(p.Key) && ArcProxyTarget(player, p.Key, p.Value))
+                .Select(p => (Id: p.Key, Distance: Dist(p.Value.Walk.Position(now), at)))
+                .Where(p => p.Distance <= range).OrderBy(p => p.Distance).ThenBy(p => p.Id).Take(2);
+            foreach (var target in next)
+            {
+                targeted.Add(target.Id);
+                pending.Enqueue((target.Id, branch.Remaining - 1, at));
+            }
         }
     }
 }

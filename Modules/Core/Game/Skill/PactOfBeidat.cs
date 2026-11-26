@@ -73,7 +73,7 @@ public static partial class Game
         bool projectile = skills.HasType(effect, "Projectile") && UsesProjectileRuntime(effect)
             && !skills.HasType(effect, "ProjectilesNumberModifiersNotApplied");
         string? id = skills.EffectId(effect);
-        bool beam = PlacedArcPayload(id) || IsDarkBargain(player, effect);
+        bool beam = PlacedArcPayload(id) || id == VaalArcEffect || IsDarkBargain(player, effect);
         bool area = skills.HasType(effect, "Cascadable") && !skills.IsBrand(effect) && !skills.HasType(effect, "Minion");
         if (!projectile && !area && !beam) return null;
 

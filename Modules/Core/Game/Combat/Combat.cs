@@ -1652,6 +1652,11 @@ public static partial class Game
             StartVaalArcticArmour(player, skillId, CastMs(player, gem.Effect, skillId) ?? SkillsFor(player).CastTimeMs(gem.Effect), AreaTime(player));
             return true;
         }
+        if (vaalUse is not null && spellCastMs is int arcCast && SkillsFor(player).EffectId(gem.Effect) == VaalArcEffect)
+        {
+            ScheduleVaalArc(player, gem, to, targetId, sequence, arcCast, swingAt ?? AreaTime(player), vaalUse, Current);
+            return CompleteSupportedUse(true);
+        }
         if (gem.Name is not null && vaalUse is not null && VaalImmortalCallSpell(player, gem.Effect))
         {
             var session = ProjectilesFor(player);
@@ -3266,6 +3271,7 @@ public static partial class Game
         IReadOnlyDictionary<uint, int>? ailmentSkillStats = null;
         Penetration.PerType pen = default;
         HitResistances.Mods mods = default;
+        int extraArcRolls = 0;
         AreaSkillDamageProfile sweepProfile = default!;
         AreaSkillDamageProfile? blindedProfile = null;
         SpiderDamageSource? sweepSpider = null, sweepOffSpider = null;
@@ -3328,6 +3334,7 @@ public static partial class Game
                     {
                         sweepStats = new PlayerStatScope(player, fresh: true);
                         playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
+                        if (spell) extraArcRolls = ArcExtraRolls(player, effectId, playerStats);
                         // Capture the admitted gem and actual source weapon once. The ordinary main hand keeps its local
                         // sources; a shield skill's off hand intentionally carries none of the main hand's local values.
                         var shield = spell || aftershock is not null ? null : ShieldWeapon(player, skillId);
@@ -3544,6 +3551,10 @@ public static partial class Game
                         continue;
                     }
                     var hitRolls = HitRollsFor(playerStats);
+                    if (extraArcRolls > 0) hitRolls = hitRolls with
+                    {
+                        DamageExtraRolls = hitRolls.DamageExtraRolls < 0 ? 0 : Math.Max(hitRolls.DamageExtraRolls, extraArcRolls)
+                    };
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
                             .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),

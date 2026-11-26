@@ -337,6 +337,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
 - Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
 - Cast when Damage Taken releases Arc from the triggering enemy when that enemy is still available.
+- Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split targets. Vaal Arc branches twice without reusing targets and grants a timed Lucky Arc buff.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
