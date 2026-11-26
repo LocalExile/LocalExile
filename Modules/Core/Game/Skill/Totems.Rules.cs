@@ -322,6 +322,14 @@ public static partial class Game
             if (TotemNova(player, effect)) strike = new(TotemActionSkill, radius);
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
+        var flamewood = TotemFlamewood(player, skillId);
+        GrantedSkill[] totemSkills = (action, flamewood) switch
+        {
+            ({ } primary, { } flame) => [primary, flame.Grant],
+            ({ } primary, null) => [primary],
+            (null, { } flame) => [flame.Grant],
+            _ => [],
+        };
         // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
         int Perk(uint name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
         TotemState.Devour? devour = SkillsFor(player).EffectId(effect) == "DevouringTotem"
@@ -366,6 +374,7 @@ public static partial class Game
             placed.BonusSlots = BonusSlots(ordinaryLimit, singleTotem);
             if (spellTotem) BindTotemSource(player, placed);
             BindFocusedBallista(player, placed);
+            if (flamewood is not null) FlamewoodTotems.Add(placed, flamewood with { });
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
             // The owner's minion roster lists a placed totem, as the official servers do; the client's totem counter counts
             // these. Written where the totem enters its state, so a cancelled placement never lists one, and in the same
@@ -433,7 +442,7 @@ public static partial class Game
                 place = requested;
                 place = ClearPosition(objectId);
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-                    TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
+                    TransitionState: variety.TransitionStates, Team: 0, Skills: totemSkills.Length == 0 ? null : totemSkills,
                     Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));

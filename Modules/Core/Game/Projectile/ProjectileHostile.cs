@@ -229,10 +229,10 @@ public static partial class Game
         {
             var totems = player.Totems.All;
             for (int i = 0; i < totems.Count; i++)
-                if (totems[i].Id == contact.Target.Id && totems[i].DecoyRadius > 0)
+                if (totems[i].Id == contact.Target.Id)
                 {
                     double now = contact.At / (double)ProjectileRuntime.QuantaPerSecond;
-                    return DecoyTakeHitLocked(player, totems[i], shot.Monster, shot.Attack, now, contact.Multiplier)
+                    return TotemTakeHitLocked(player, totems[i], shot.MonsterId, shot.Monster, shot.Attack, now, contact.Multiplier)
                         ? ProjectileHitResult.Hit : ProjectileHitResult.Miss;
                 }
             return ProjectileHitResult.Miss;
