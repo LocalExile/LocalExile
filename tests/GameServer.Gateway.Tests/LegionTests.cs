@@ -161,7 +161,8 @@ public sealed class LegionTests
             LegionDomain.ResolveOpening(req);
             Assert.NotNull(req.Opening);
             Assert.Equal(expectedDomainAreas[n - 2], req.Opening!.Area.Id);
-            Assert.Equal(80, req.Opening.Area.Level);
+            Assert.Equal(80 + Math.Max(0, n - 3), req.Opening.Area.Level);
+            Assert.Equal(req.Opening.Area.Level, LegionDomain.AreaLevelFor(80, n));
             Assert.False(req.Opening.Area.UsesAtlas);
             Assert.True(req.ReturnToSource);
             Assert.Equal(15.0 + 60.0 * n, LegionDomain.TimerSecondsFor(req.Opening.Mods.Stats, n));

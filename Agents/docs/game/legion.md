@@ -130,7 +130,7 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   no `MonsterPacks`, `Environments` 1177). Timer `15 + 60 * emblemCount` s, from `map_legion_endless_mode_+_s`.
   3.29.0 removed the Unrelenting Timeless Emblems ("existing items have been converted to regular Timeless Emblems"): the five
   Unrelenting rows count as their faction's regular emblem (its family and mods), with no uber Domain, drop or reward scaling.
-  GUESS: area level `80 + min(4, uberCount)` (`WorldAreas` say 80; no level stat is in the emblem mods).
+  Area level (3.22.0): at least 80, +1 with 4 emblems, +2 with 5 (`WorldAreas` say 80; no level stat is in the emblem mods).
 - The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal`
   (`active`) at `LegionEndgame_EncounterLocator`; quest flag `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`.
   The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells

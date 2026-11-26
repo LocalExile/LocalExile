@@ -252,7 +252,7 @@ static class LegionDomain
         }
 
         var domainArea = data.DomainAreas[Math.Clamp(emblems.Count - 2, 0, data.DomainAreas.Count - 1)];
-        int areaLevel = Math.Clamp(domainArea.BaseLevel, 1, 100);
+        int areaLevel = AreaLevelFor(domainArea.BaseLevel, emblems.Count);
         var mods = ComposeDomainMods(domainArea, emblems, Program.Items.Mods);
         var mapArea = new MapDevice.MapArea(domainArea.Hash16, domainArea.Id, domainArea.Name, 0)
         {
@@ -265,6 +265,10 @@ static class LegionDomain
         request.Reason = "";
         request.ReturnToSource = true;
     }
+
+    /// <summary>3.22.0: the Domain's area level is at least 80, +1 with 4 emblems and +2 with 5.</summary>
+    public static int AreaLevelFor(int baseLevel, int emblemCount) =>
+        Math.Clamp(Math.Max(80, baseLevel) + Math.Max(0, emblemCount - 3), 1, 100);
 
     static MapMods ComposeDomainMods(LegionData.DomainArea area, IReadOnlyList<LegionData.EmblemInfo> emblems, ModCatalog catalog)
     {
