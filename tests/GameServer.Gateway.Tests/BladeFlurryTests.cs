@@ -80,13 +80,24 @@ public sealed class BladeFlurryTests
             }
             Assert.True(upper.Life < 20_000);
             uint before = upper.Life, mana = player.PlayerMana;
-            await Game.ReleaseBladeFlurry(player, clock.At);
+            double releaseAt = clock.At;
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task first = ReleaseAfterSignal();
+            Task second = ReleaseAfterSignal();
+            release.SetResult();
+            await Task.WhenAll(first, second);
             Assert.False(player.Area.Buffs.Has(player.Id, 640, player.Id));
             Assert.InRange((double)(before - upper.Life), fullStageHit * 5.6, fullStageHit * 6.4);
             Assert.Equal(mana, player.PlayerMana);
             before = upper.Life;
             await Game.ReleaseBladeFlurry(player, clock.At);
             Assert.Equal(before, upper.Life);
+
+            async Task ReleaseAfterSignal()
+            {
+                await release.Task;
+                await Game.ReleaseBladeFlurry(player, releaseAt);
+            }
 
             SpawnedMonster Target(uint objectId, int x, int y)
             {

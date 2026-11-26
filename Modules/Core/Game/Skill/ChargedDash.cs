@@ -92,9 +92,12 @@ public static partial class Game
         public int Interruption { get; } = interruption;
         public ChargedDashPath Path { get; } = new(origin, travelPct);
         public (int X, int Y) Aim = aim;
+        public (int X, int Y)? Landing;
         public double At = at, StageDistance;
         public int PaidSteps, Stages = 1;
     }
+
+    readonly record struct ChargedDashWavePath((int X, int Y)[] Points, double Progress, bool Stopped, int Stages);
 
     static bool IsChargedDash(Player player, int effect) => SkillsFor(player).ActionHash(effect) == ChargedDashAction
         && SkillsFor(player).EffectId(effect) is "ChargedDash" or "ChargedDashAltX";
@@ -124,45 +127,72 @@ public static partial class Game
 
     static bool AimChargedDash(Player player, (int X, int Y) aim, double at)
     {
-        var dash = CurrentChargedDash(player);
-        if (dash is null || dash.Aim == aim) return false;
-        AdvanceChargedDash(player, dash, at);
-        dash.Aim = aim;
-        return true;
+        if (!ChargedDashChannels.TryGetValue(player, out _)) return false;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            var dash = CurrentChargedDash(player);
+            if (dash is null || dash.Aim == aim) return false;
+            AdvanceChargedDash(player, dash, at);
+            dash.Aim = aim;
+            return true;
+        }
     }
 
     static void StepChargedDash(Player player, ChargedDashChannel dash, double now, double focusedMore)
     {
-        AdvanceChargedDash(player, dash, now);
-        if (!dash.Path.Stopped && dash.Path.Distance > dash.StageDistance) dash.Stages++;
-        dash.StageDistance = dash.Path.Distance;
-        if ((++dash.PaidSteps & 1) == 0) _ = ChargedDashWave(player, dash, now, false, focusedMore);
+        ChargedDashWavePath wave;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (!ReferenceEquals(CurrentChargedDash(player), dash)) return;
+            AdvanceChargedDash(player, dash, now);
+            if (!dash.Path.Stopped && dash.Path.Distance > dash.StageDistance) dash.Stages++;
+            dash.StageDistance = dash.Path.Distance;
+            if ((++dash.PaidSteps & 1) != 0) return;
+            wave = CaptureChargedDashWave(dash);
+        }
+        _ = ChargedDashWave(player, dash, wave, now, false, focusedMore);
     }
 
-    static void RetireChargedDash(Player player, int generation)
+    static void RetireChargedDashLocked(Player player, int generation)
     {
         if (ChargedDashChannels.TryGetValue(player, out var dash) && dash.Generation == generation)
             ChargedDashChannels.Remove(player);
     }
 
-    static (int X, int Y)? ReleaseChargedDash(Player player, double at)
+    // EndChannel holds the combat mutation gate until the release and channel generation are committed.
+    static (int X, int Y)? ReleaseChargedDashLocked(Player player, double at)
     {
         if (CurrentChargedDash(player) is not { } dash) return null;
-        RetireChargedDash(player, dash.Generation);
+        ChargedDashChannels.Remove(player);
         double now = ProjectileWorldTime(player);
         at = Math.Max(at, now);
         if (!player.ProjectileActive(dash.AreaEpoch) || player.PlayerLife == 0) return null;
         if (!ChargedDashWaveCurrent(player, dash) || PlayerActionBlocked(player, at, now))
-            return player.Walk.Position(at);
+            return dash.Landing = player.Walk.Position(at);
         AdvanceChargedDash(player, dash, at);
         var landing = SkillsFor(player).IsMovement(dash.Source.Effect)
             ? dash.Path.Landing(player.Layout, player.Barrier, player.Blockers)
             : player.Walk.Position(at);
         player.Walk.Teleport(landing.X, landing.Y, at);
+        dash.Landing = landing;
         int focus = dash.Source.Stats.GetValueOrDefault(Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct);
         double startedAt = player.PaidChannel?.StartedAt ?? dash.At;
-        _ = ChargedDashWave(player, dash, at, true, FocusedChannelMore(at - startedAt, focus));
+        _ = ChargedDashWave(player, dash, CaptureChargedDashWave(dash), at, true, FocusedChannelMore(at - startedAt, focus));
         return landing;
+    }
+
+    static ChargedDashWavePath CaptureChargedDashWave(ChargedDashChannel dash) =>
+        new(dash.Path.WavePoints(), dash.Path.Progress, dash.Path.Stopped, dash.Stages);
+
+    static void StartChargedDashWave(Player player, ChargedDashChannel dash, double at)
+    {
+        ChargedDashWavePath wave;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (!ReferenceEquals(CurrentChargedDash(player), dash)) return;
+            wave = CaptureChargedDashWave(dash);
+        }
+        _ = ChargedDashWave(player, dash, wave, at, false, 1);
     }
 
     static bool ChargedDashWaveCurrent(Player player, ChargedDashChannel dash) => CurrentGameWork
@@ -186,13 +216,13 @@ public static partial class Game
         return (stopped ? Math.Max(0, 1 + stats.GetValueOrDefault(Stat.ChargedDashChannellingDamageAtFullStacksPlusPctFinal) / 100d) : 1, 1);
     }
 
-    static async Task ChargedDashWave(Player player, ChargedDashChannel dash, double start, bool release, double focusedMore)
+    static async Task ChargedDashWave(Player player, ChargedDashChannel dash, ChargedDashWavePath wave,
+        double start, bool release, double focusedMore)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == dash.Skill);
         if (gem.Name is null || !ChargedDashWaveCurrent(player, dash)) return;
-        var points = dash.Path.WavePoints();
-        double progress = dash.Path.Progress;
-        var (hitMore, hitAndAilmentMore) = ChargedDashDamage(dash.Source.Stats, release, dash.Path.Stopped, dash.Stages);
+        var points = wave.Points;
+        var (hitMore, hitAndAilmentMore) = ChargedDashDamage(dash.Source.Stats, release, wave.Stopped, wave.Stages);
         var stats = SkillAreaStats(player, dash.Source.Stats, gem.Effect);
         int scale = 100 + SkillArea.RadiusPercent(stats.GetValueOrDefault, spell: false);
         int final = stats.GetValueOrDefault(Stat.ChargedDashAreaOfEffectRadiusPlusOfFinalExplosion);
@@ -206,7 +236,7 @@ public static partial class Game
             await WhilePaused(player);
             if (!ChargedDashWaveCurrent(player, dash)) return;
             var centre = points[i];
-            int radius = ChargedDashRadius(progress, scale, i == points.Length - 1 ? final : 0);
+            int radius = ChargedDashRadius(wave.Progress, scale, i == points.Length - 1 ? final : 0);
             if (radius <= 0) continue;
             await AreaSkillHitForUse(1, player, dash.Skill, gem, centre, centre, immediate: true,
                 sequence: dash.Sequence, damageMore: hitMore * focusedMore, hitAndAilmentMore: hitAndAilmentMore,

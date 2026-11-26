@@ -46,10 +46,14 @@ public static partial class Game
     internal static void BeginBladeFlurry(Player player, SupportedGem gem, ushort skill, int action, int generation,
         ushort sequence, (int X, int Y) aim)
     {
-        if (BladeFlurryChannels.TryGetValue(player, out var previous))
-            RetireBladeFlurry(player, previous.Generation);
-        BladeFlurryChannels.AddOrUpdate(player, new(gem, skill, action, generation, player.ProjectileEpoch,
-            player.ActionInterruptionGeneration, sequence, aim, BladeFlurryMaxStages(gem.Stats, CharacterPlayerStats(player))));
+        int maximum = BladeFlurryMaxStages(gem.Stats, CharacterPlayerStats(player));
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (BladeFlurryChannels.TryGetValue(player, out var previous))
+                RetireBladeFlurryLocked(player, previous);
+            BladeFlurryChannels.AddOrUpdate(player, new(gem, skill, action, generation, player.ProjectileEpoch,
+                player.ActionInterruptionGeneration, sequence, aim, maximum));
+        }
     }
 
     static bool IsBladeFlurryChannelling(Player player, ushort skill, int generation, int action) =>
@@ -58,12 +62,16 @@ public static partial class Game
 
     static bool AimBladeFlurry(Player player, (int X, int Y) aim)
     {
-        if (!BladeFlurryChannels.TryGetValue(player, out var flurry)
-            || flurry.Generation != player.ChannelGeneration || flurry.Action != player.ActionCount
-            || aim == flurry.Aim) return false;
-        flurry.Aim = aim;
-        flurry.SearchCentre = null;
-        return true;
+        if (!BladeFlurryChannels.TryGetValue(player, out _)) return false;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (!BladeFlurryChannels.TryGetValue(player, out var flurry)
+                || flurry.Generation != player.ChannelGeneration || flurry.Action != player.ActionCount
+                || aim == flurry.Aim) return false;
+            flurry.Aim = aim;
+            flurry.SearchCentre = null;
+            return true;
+        }
     }
 
     static void GainBladeFlurryStage(Player player, BladeFlurryChannel flurry)
@@ -77,7 +85,14 @@ public static partial class Game
 
     static void RetireBladeFlurry(Player player, int generation)
     {
-        if (!BladeFlurryChannels.TryGetValue(player, out var flurry) || flurry.Generation != generation) return;
+        if (!BladeFlurryChannels.TryGetValue(player, out _)) return;
+        lock (LevelUpdatesFor(player).Gate)
+            if (BladeFlurryChannels.TryGetValue(player, out var flurry) && flurry.Generation == generation)
+                RetireBladeFlurryLocked(player, flurry);
+    }
+
+    static void RetireBladeFlurryLocked(Player player, BladeFlurryChannel flurry)
+    {
         BladeFlurryChannels.Remove(player);
         if (flurry.Stages > 0 && flurry.Epoch == player.ProjectileEpoch && !player.LeavingArea && !player.Closed)
         {
@@ -139,10 +154,16 @@ public static partial class Game
 
     internal static Task ReleaseBladeFlurry(Player player, double at)
     {
-        if (!BladeFlurryChannels.TryGetValue(player, out var flurry)
-            || !IsBladeFlurryChannelling(player, player.ChannelSkill, player.ChannelGeneration, player.ActionCount))
-            return Task.CompletedTask;
-        RetireBladeFlurry(player, flurry.Generation);
+        if (!BladeFlurryChannels.TryGetValue(player, out _)) return Task.CompletedTask;
+        BladeFlurryChannel flurry;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (!BladeFlurryChannels.TryGetValue(player, out var current) || current.Skill != player.ChannelSkill
+                || current.Generation != player.ChannelGeneration || current.Action != player.ActionCount)
+                return Task.CompletedTask;
+            RetireBladeFlurryLocked(player, current);
+            flurry = current;
+        }
         return flurry.Stages == 0 || PlayerActionBlocked(player, at, at)
             ? Task.CompletedTask : RunBladeFlurryRelease(player, flurry, at);
     }

@@ -1514,12 +1514,15 @@ public static partial class Game
                 // single cast. Starting an owner channel would tie the placement to the input that movement clears.
                 if (paid && Supports.Of(gem.Effect)?.Types.Contains(47) == true && !IsTotemSkill(player, skillId))
                 {
-                    channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
-                    if (IsBladeFlurry(player, gem.Effect))
-                        BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
-                    if (IsChargedDash(player, gem.Effect))
-                        BeginChargedDash(player, paymentGem, skillId, sequence, action, channelGeneration.Value,
-                            player.Walk.Position(AreaTime(player)), to, AreaTime(player));
+                    lock (LevelUpdatesFor(player).Gate)
+                    {
+                        channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
+                        if (IsBladeFlurry(player, gem.Effect))
+                            BeginBladeFlurry(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
+                        if (IsChargedDash(player, gem.Effect))
+                            BeginChargedDash(player, paymentGem, skillId, sequence, action, channelGeneration.Value,
+                                player.Walk.Position(AreaTime(player)), to, AreaTime(player));
+                    }
                     if (paidMomentum is { } channelMomentum)
                     {
                         GainMomentumOnUse(player, skillId, channelMomentum, action, channelGeneration, AreaTime(player));
@@ -2375,14 +2378,20 @@ public static partial class Game
         bool snipe = IsSnipe(gem.Effect);
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
         bool firstStagePaid = snipe;
-        var dash = CurrentChargedDash(player);
-        (int X, int Y)? dashLanding = null;
+        ChargedDashChannel? dash;
+        lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
+        bool OwnsChannel() => player.ChannelGeneration == generation && player.ChannelSkill == skillId && player.ActionCount == action;
         async Task EndPaidDash(double now)
         {
-            dashLanding = EndChannel(player, now);
-            player.PaidChannel = null;
-            if (!player.Connection.LockstepClient) return;
-            player.LockstepSkill.Clear();
+            (int X, int Y)? dashLanding;
+            lock (LevelUpdatesFor(player).Gate)
+            {
+                if (!OwnsChannel()) return;
+                dashLanding = EndChannel(player, now);
+                player.PaidChannel = null;
+                if (!player.Connection.LockstepClient) return;
+                player.LockstepSkill.Clear();
+            }
             await SendWorldRecord(player, player.Id, ChannelFinishedRecord(player, channelSequence, dashLanding),
                 $"0x01ae Charged Dash 0x{channelSequence:x4} ended");
         }
@@ -2391,7 +2400,7 @@ public static partial class Game
         int divineIreStages = 0;
         try
         {
-            if (dash is not null) _ = ChargedDashWave(player, dash, channelStarted, false, 1);
+            if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
             else if (snipe)
@@ -2459,10 +2468,14 @@ public static partial class Game
                     if (dash is not null) await EndPaidDash(now);
                     else
                     {
-                        _ = ReleaseBladeFlurry(player, now);
-                        player.ChannelSkill = 0;
-                        player.ChannelGeneration++;
-                        player.PaidChannel = null;
+                        lock (LevelUpdatesFor(player).Gate)
+                        {
+                            if (!OwnsChannel()) return;
+                            _ = ReleaseBladeFlurry(player, now);
+                            player.ChannelSkill = 0;
+                            player.ChannelGeneration++;
+                            player.PaidChannel = null;
+                        }
                     }
                 }
                 else
@@ -2541,7 +2554,13 @@ public static partial class Game
             if (scourge) RetireScourgeChannel(player, generation, action);
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
-            if (dash is not null) RetireChargedDash(player, generation);
+            (int X, int Y)? dashLanding = null;
+            if (dash is not null)
+                lock (LevelUpdatesFor(player).Gate)
+                {
+                    RetireChargedDashLocked(player, generation);
+                    dashLanding = dash.Landing;
+                }
             if (!player.Connection.LockstepClient)
                 await EmitPredictiveChannelFinished(player, generation, channelSequence, dashLanding);
             if (divineIreStages > 0 && !player.Closed && !player.LeavingArea
@@ -2649,19 +2668,22 @@ public static partial class Game
 
     static (int X, int Y)? EndChannel(Player player, double at)
     {
-        var landing = ReleaseChargedDash(player, at);
-        ReleaseScourgeChannel(player, at);
-        _ = ReleaseBladeFlurry(player, at);
-        if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
+        lock (LevelUpdatesFor(player).Gate)
         {
-            var (x, y) = player.Walk.Position(at);
-            player.Walk.Order(x, y, at);
+            var landing = ReleaseChargedDashLocked(player, at);
+            ReleaseScourgeChannel(player, at);
+            _ = ReleaseBladeFlurry(player, at);
+            if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
+            {
+                var (x, y) = player.Walk.Position(at);
+                player.Walk.Order(x, y, at);
+            }
+            player.ChannelSkill = 0;
+            EndCycloneStages(player, player.ChannelGeneration, at);
+            player.ChannelGeneration++;
+            SnipeWakeChannel(player);
+            return landing;
         }
-        player.ChannelSkill = 0;
-        EndCycloneStages(player, player.ChannelGeneration, at);
-        player.ChannelGeneration++;
-        SnipeWakeChannel(player);
-        return landing;
     }
 
     public static bool ChannelCurrent(Player player, ushort skill, int action, int generation)

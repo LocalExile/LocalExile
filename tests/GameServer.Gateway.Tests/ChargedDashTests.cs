@@ -76,8 +76,12 @@ public sealed class ChargedDashTests
                 Assert.Equal((100, 100), player.Walk.Position(clock.At));
                 uint mana = player.PlayerMana;
                 clock.At += 1.1;
-                Game.ChannelReleased(player, clock.At);
-                Game.ChannelReleased(player, clock.At);
+                double releaseAt = clock.At;
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task first = ReleaseAfterSignal();
+                Task second = ReleaseAfterSignal();
+                release.SetResult();
+                await Task.WhenAll(first, second);
                 clock.Advance(1);
                 Assert.Equal(0, player.ChannelSkill);
                 Assert.Equal(mana, player.PlayerMana);
@@ -93,6 +97,12 @@ public sealed class ChargedDashTests
                 Assert.Equal(0, player.ChannelSkill);
                 Assert.Equal((100, 100), player.Walk.Position(clock.At));
                 Assert.Equal(beforeStun, target.Life);
+
+                async Task ReleaseAfterSignal()
+                {
+                    await release.Task;
+                    Game.ChannelReleased(player, releaseAt);
+                }
             }
             finally { Game.AreaUpdateContext.Value = saved; }
 

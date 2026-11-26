@@ -805,10 +805,17 @@ public static partial class Game
             }
             else if (id == InstanceProtocol.ChannelEndId)
             {
-                bool hadChannel = player.ChannelSkill != 0;
-                int channelGen = player.ChannelGeneration;
-                ushort endedSequence = player.ChannelSkillSequence;
-                var landing = EndChannel(player, player.ClockAt(readAt));
+                bool hadChannel;
+                int channelGen;
+                ushort endedSequence;
+                (int X, int Y)? landing;
+                lock (LevelUpdatesFor(player).Gate)
+                {
+                    hadChannel = player.ChannelSkill != 0;
+                    channelGen = player.ChannelGeneration;
+                    endedSequence = player.ChannelSkillSequence;
+                    landing = EndChannel(player, player.ClockAt(readAt));
+                }
                 if (hadChannel && !player.Connection.LockstepClient)
                     await EmitPredictiveChannelFinished(player, channelGen, endedSequence, landing);
             }
