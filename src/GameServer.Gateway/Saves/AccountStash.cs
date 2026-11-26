@@ -1013,13 +1013,19 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) { why = "no such tab"; return null; }
             var t = _tabs[tab];
             if (shapeOf(item) is not { } shape) { why = "unknown item type"; return null; }
-            if (CellIn(t, item, 0, 0, out why) is not var (slotX, slotY)) return null;
-            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             bool slotted = _rules.Slotted(t.Saved.Type);
+            List<(int X, int Y)> spots;
+            if (CellIn(t, item, 0, 0, out why) is var (slotX, slotY))
+                spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
+            else if (slotted && _rules.Holds(t.Saved.Type, item.TypeHash) && _rules.OverflowFallbackSlots(t.Saved.Type) is { Count: > 0 } overflow)
+            {
+                why = "";
+                spots = [.. overflow.Select(s => (s, 0))];
+            }
+            else return null;
+            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
             left = item.StackSize;
-            // A slotted tab's cells for it, in order: its own slot, then the spare slots (left to right, top to bottom).
-            List<(int X, int Y)> spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
             if (max > 1)
                 foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && i.Item.StackSize < max && (!slotted || spots.Contains((i.X, i.Y))))
                              .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
