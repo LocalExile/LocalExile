@@ -1718,7 +1718,7 @@ public static class KingInMists
         // is re-staged at 25% when the player returns; the treant only emerges after the maze.
         async Task RunMaze(double now)
         {
-            boss.BusyUntil = double.PositiveInfinity;   // the phase controller owns the King until phase 3
+            (boss.BusyUntil, boss.ScriptHeld) = (double.PositiveInfinity, true);   // the phase controller owns the King until phase 3
             await Say("Embrace nothingness!");
             await Cast(K.Slam, "slams his staff", seconds: 2.5);
             await AreaDelay(player, 1);
@@ -1793,7 +1793,7 @@ public static class KingInMists
 
         async Task BecomeTreant(double now)
         {
-            boss.BusyUntil = now + 10;
+            (boss.BusyUntil, boss.ScriptHeld) = (now + 10, false);
             var at = boss.Walk.Position(now);
             int action;
             action = ++boss.ActionGeneration;

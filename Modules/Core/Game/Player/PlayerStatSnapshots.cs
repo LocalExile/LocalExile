@@ -6,11 +6,15 @@ public static partial class Game
 {
     // The player's stats as its client gets them. Under a trap's degeneration the pools only fall: the client steps them
     // up by these rates between updates, so they go as 0.
+    // Whether the client is sent its life and energy shield recovery as 0 (ClientStats): then it predicts no rise.
+    public static bool ClientLifeRecoveryZeroed(Player player) =>
+        player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
+        || HerEmbraceOf(player).Until > ResourceEffectsTime(player) || FlameTouchedActive(player)
+        || player.UtilityFlaskEffects.HasSelfDamage;
+
     public static List<(uint, int)> ClientStats(Player player, List<(uint Key, int Value)> stats)
     {
-        if (player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
-            || HerEmbraceOf(player).Until > ResourceEffectsTime(player) || FlameTouchedActive(player)
-            || player.UtilityFlaskEffects.HasSelfDamage)
+        if (ClientLifeRecoveryZeroed(player))
             for (int i = 0; i < stats.Count; i++)
                 if (stats[i].Key == Stat.LifeRecoveryPerMinute || stats[i].Key == Stat.EnergyShieldRecoveryPerMinute)
                     stats[i] = (stats[i].Key, 0);

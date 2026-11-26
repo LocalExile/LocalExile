@@ -1693,8 +1693,10 @@ public static partial class Game
             return CompleteSupportedUse(ScheduleLightningWarp(player, gem, to, Current, criticalRoll, vaalUse?.PactDamageMore ?? 1));
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ShaperMemoryEffect)
             return CompleteSupportedUse(await CastShaperMemory(player, skillId, to, Current));
+        // A summon's mana is paid at the cast's start and its minion arrives after the cast time, as a totem placement's does: the
+        // next action (the held key's next cast, a walk) must not cancel it, so it takes the placement's gate, not the action token.
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && SummonData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } summon)
-            return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, Current,
+            return await CastSummon(player, skillId, summon, to, targetId, recoveryGeneration, TotemPlacementCurrent,
                 plannedCorpse: plannedCorpse);
         if (gem.Name is not null && IsDesecrateEffect(SkillsFor(player).EffectId(gem.Effect)))
             return CompleteSupportedUse(await Desecrate(player, skillId, to, Current));

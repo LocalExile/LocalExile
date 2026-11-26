@@ -633,7 +633,7 @@ static partial class QuestobjectsRules
                     continue;
                 }
                 uint mob = await SpawnMonster(player, monster, level, MonsterRarity.Normal, statue.X, statue.Y, log: false);
-                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro) = (double.PositiveInfinity, false);
+                if (player.Area.Monsters.TryGetValue(mob, out var m)) (m.BusyUntil, m.Aggro, m.ScriptHeld) = (double.PositiveInfinity, false, true);
                 await global::Game.SendWorldRecord(player, mob, InstanceProtocol.Orientation(mob, statue.Angle), null);
                 if (Emerges.ClipIndex(monster) is uint clip) await global::Game.SendWorldRecord(player, mob, InstanceProtocol.AnimationUpdate(mob, 0, clip, 0), null);
                 waiting.Add((mob, statue, monster));
@@ -654,7 +654,7 @@ static partial class QuestobjectsRules
                     if (!gone && !near && !hit) continue;
                     waiting.Remove(w);
                     if (gone) continue;
-                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro) = (now + Emerges.Seconds(w.Monster) + 0.3, true);
+                    if (player.Area.Monsters.TryGetValue(w.Mob, out var woken)) (woken.BusyUntil, woken.Aggro, woken.ScriptHeld) = (now + Emerges.Seconds(w.Monster) + 0.3, true, false);
                     if (Emerges.SkillId is ushort emerge)
                         await Send(player, [.. InstanceProtocol.ActionStarted(w.Mob, w.Statue.X, w.Statue.Y, w.Statue.X, w.Statue.Y, emerge, 0xffff, player.MonsterOrderFlags),
                             .. InstanceProtocol.ActionEnded(w.Mob)], $"0x01ab statue monster 0x{w.Mob:x} {w.Monster.Name} at ({w.Statue.X}, {w.Statue.Y}) steps down");
