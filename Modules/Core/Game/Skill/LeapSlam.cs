@@ -92,7 +92,7 @@ public static partial class Game
     public static Task ScheduleLeapSlam(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         LeapSlam.Use use, SkillCriticalRoll criticalRoll, ushort sequence, double damageMore, double radiusMore,
-        bool cryExerted = false)
+        bool cryExerted = false, bool seismicExerted = false)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -111,7 +111,7 @@ public static partial class Game
             var hit = AreaSkillHit(player, skillId, gem, use.Landing, use.Landing,
                 immediate: true, sequence: sequence, criticalRoll: criticalRoll,
                 damageMore: damageMore, radiusMore: radiusMore, triggeredCurrent: Valid,
-                onHit: _ => count++, scheduledSession: session, cryExerted: cryExerted);
+                onHit: _ => count++, scheduledSession: session, cryExerted: cryExerted, seismicExerted: seismicExerted);
             if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Leap Slam landing must not yield.");
             hit.GetAwaiter().GetResult();
             Console.WriteLine($"[gateway] {player.Connection.Remote} skill 0x{skillId:x4} {gem.Name}: landed sequence=0x{sequence:x4} "

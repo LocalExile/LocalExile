@@ -7,6 +7,67 @@ namespace GameServer.Gateway.Tests;
 public sealed class WarcryExertionTests
 {
     [Fact]
+    public async Task Seismic_Cry_extends_six_slam_waves_after_its_armour_buff_expires()
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        var aim = (X: 168, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, _ => ItemCatalog.Create(Program.Items.Find("Driftwood Club")!));
+        fixture.Equip(("Seismic Cry", 1), ("Ground Slam", 1), ("Heavy Strike", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => g.Name == "Seismic Cry");
+        var slam = Game.GemSkillEffects(player).Single(g => g.Name == "Ground Slam");
+        var strike = Game.GemSkillEffects(player).Single(g => g.Name == "Heavy Strike");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(6, own[Stat.SkillEmpowersNextXMeleeAttacks]);
+        Assert.Equal(50, own[Stat.SeismicCryBaseSlamSkillAreaPlusPctFinal]);
+        using var accuracy = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
+        {
+            if (ReferenceEquals(owner, player)) stats[Stat.GlobalAlwaysHit] = 1;
+            return stats;
+        });
+        var near = new SpawnedMonster("inside either wave", new(115, 100, 0), 0, 0, 1_000_000);
+        var far = new SpawnedMonster("outside the regular wave", new(167, 100, 0), 0, 0, 1_000_000);
+        player.Area.Monsters.Add(901, near);
+        player.Area.Monsters.Add(902, far);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            async Task Slam(bool reachesFar)
+            {
+                uint nearLife = near.Life, farLife = far.Life;
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, slam.Id, origin, aim));
+                Assert.True(near.Life < nearLife);
+                Assert.Equal(reachesFar, far.Life < farLife);
+            }
+
+            await Slam(false);
+            Assert.True(Game.UseWarcry(player, cry.Effect, own, cry.Id, triggered: true));
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            while (!player.Area.Buffs.Has(player.Id, 1544, player.Id))
+                await Task.Delay(1, deadline.Token);
+            clock.At += 10;
+            Game.ExpireWarcryBuffs(player);
+            Assert.False(player.Area.Buffs.Has(player.Id, 1544, player.Id));
+
+            player.NextAttackAt = 0;
+            uint previousLife = near.Life;
+            Assert.True(await Game.CastGemSkill(player, strike.Id, origin, (115, 100), 901));
+            Assert.True(near.Life < previousLife);
+            for (int i = 0; i < 6; i++) await Slam(true);
+            await Slam(false);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
+    [Fact]
     public void War_bringer_doubles_the_native_count_and_each_eligible_attack_spends_one()
     {
         using var f = new TriggeredSummonTests.Fixture();

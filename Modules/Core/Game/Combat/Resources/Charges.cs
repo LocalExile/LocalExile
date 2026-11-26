@@ -414,6 +414,8 @@ public static partial class Game
                 ApplyIntimidatingCryLocked(player, own, CharacterPlayerStats(player), now, applyMovementBuff: !suppressBuffs);
             else if (!suppressBuffs)
                 ApplyWarcryBuffLocked(player, effectId, own, playerStats, here, radius, now, duration, buffEffect);
+            if (effectId == "SeismicCry")
+                GrantSeismicCryExertsLocked(player, own, playerStats);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

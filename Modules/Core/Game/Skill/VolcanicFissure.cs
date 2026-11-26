@@ -42,7 +42,7 @@ public static partial class Game
     static void ScheduleFissureEruption(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) end, double now, int epoch, SkillCriticalRoll roll,
-        ushort sequence, int repeat, double more, bool cryExerted)
+        ushort sequence, int repeat, double more, bool cryExerted, bool seismicExerted, double radiusMore)
     {
         var origin = ProjectileSession.Vector(end);
         var direction = (origin - ProjectileSession.Vector(from)).Unit;
@@ -53,14 +53,18 @@ public static partial class Game
         var shot = (ProjectileOffense)use.Payload!;
         var profile = use.Profile with
         {
-            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, player.Id, aim - origin, (uint)repeat) }
+            NativeVolley = new() { Angles = RandomVolleyAngles(sequence, use.Profile.Count, player.Id, aim - origin, (uint)repeat) },
+            EndArea = use.Profile.EndArea is { } area ? area with { Radius = area.Radius * radiusMore } : null
         };
         session.Schedule(ProjectileRuntime.Time(now + GroundSlamWave.AdvanceSeconds(Dist(from, end))),
             () => player.ProjectileActive(epoch) && player.PlayerLife > 0,
             () => use with
             {
                 Origin = origin, Aim = aim, Profile = profile,
-                Payload = shot with { Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more) }
+                Payload = shot with
+                {
+                    Hit = shot.Hit.Scale(more), AreaHit = shot.AreaHit?.Scale(more), SeismicCryExerted = seismicExerted
+                }
             });
     }
 }
