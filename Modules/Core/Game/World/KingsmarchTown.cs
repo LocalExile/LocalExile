@@ -1460,6 +1460,17 @@ public static class KingsmarchTown
         return taken;
     }
 
+    /// <summary>Puts produce back in the town's store, the way the port does when a loaded ship is unloaded again. Returns
+    /// how many units the store took.</summary>
+    public static int AddToStore(IPlayer player, string crop, int count)
+    {
+        if (count <= 0) return 0;
+        var progress = State(player);
+        lock (progress.Store) progress.Store[crop] = progress.Store.GetValueOrDefault(crop) + count;
+        Persist(progress);
+        return count;
+    }
+
     /// <summary>The town's farm as one report: each plot's crop and rate, who tends it, and what is stored.</summary>
     public static string StoreText(IPlayer player)
     {
@@ -1560,7 +1571,7 @@ public static class KingsmarchTown
             name = CandidateName(progress.Who, progress.Workers.Count + index);
             if (!KingsmarchPort.PayBarter(progress.Who, RecruitCost))
                 return Task.FromResult($"a hire costs {RecruitCost} barter and the harbour has {KingsmarchPort.Barter(progress.Who)} "
-                    + "(ship crops with /port send <port> <crop> <count>)");
+                    + "(ship crops with /port load <slot> <crop> <count>, then /port sail <slot>)");
             progress.Workers.Add(new Worker { Order = progress.Workers.Count, Name = name });
             number = progress.Workers.Count;
             Persist(progress);

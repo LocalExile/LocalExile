@@ -102,13 +102,19 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Kingsmarch (Settlers of Kalguur): the hub's villagers stand on their room's own lines (the cells, the facings and the
   models of `kingsmarch.arm`; the client's own type table gives the farmer Isla's model) and talk, the farm plots grow and
   harvest at a rate (workers with ranks, wages, a saved store), the treasury takes gold from Johan's "Fund the Treasury",
-  and the harbour sends crops to the seven ports with travel time, risk and the shipping failure rows. The town panel
+  and the harbour loads crops onto the town's three ships and sails them to the seven ports with travel time, risk and the
+  shipping failure rows. The town panel
   opens: the server sends the settlement records with the area's own messages (`0x1f`, kind `0x9b`, before `0x21`), which
   the client reads once when it builds the area, and then `0x7b` kind `0x56` shows the window — a record that arrives
   after the area is never read. The panel draws and works: the workers (name, job, level, wage), the recruits (price,
   wage, level), the reroll, the hire (the price out of the treasury, then the player's own gold), the assign and the
   remove (a move between a plot, the mine, the smithy and the idle column), the treasury's add/remove, the population,
-  the crops in the store and the wage line. The mine and smithy site counters still read the client's stat cache, which
+  the crops in the store and the wage line. The harbour window (`0x7b` kind `0x58`) draws its three ship cards from the
+  dock slots the server pushes (`0x2c9` kind `0x9b`, subtag 2: slot, port row, failure row and the sixteen cargo counts),
+  but its own buttons (`貨物`, `選擇港口`, `啟航`, `遺棄`) never build a village action in this client build — they only
+  move the card's local state — so loading and sailing are the commands `/port route|load|sail|unload <slot> …` and the
+  window is the readout. A trip banks its barter when it is due and frees its slot, and the clock is the wall clock, so a
+  saved trip is due after a restart. The mine and smithy site counters still read the client's stat cache, which
   only grows with upgrades, so they show the base numbers rather than the workers standing there. The town's floor and
   buildings come from a client-side doodad patch (`scripts/dev/kingsmarch-doodads.py`), not from the protocol; the
   client's own walking ignores the server, so the walls, the props and the villagers stop a click where the baked hulls

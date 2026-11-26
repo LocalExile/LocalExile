@@ -104,9 +104,14 @@ RVAs `0x148938`, `0x148ad3`, `0x148b38`, `0x1ec7701`).
 - `Modules/Core/Game/World/KingsmarchTown.cs`: the town's server objects (farm plots, then optionally the noticeboards),
   crop growth per plot, workers, wages, the treasury, and a click on a plot to plant or harvest.
 - `Modules/Core/Game/World/KingsmarchPort.cs`: the harbour — the seven ports of `VillageShippingPorts`, cargo value from
-  `VillageExports`, crew, travel time and risk from distance, and the failure rows of `VillageShippingFailures`.
+  `VillageExports`, crew, travel time and risk from distance, and the failure rows of `VillageShippingFailures`. The town
+  has three dock slots (`Docks = 3`): a slot is bound for a port (`Route`), cargo is loaded into it out of the farm's
+  store (`Load`), and `Sail` turns it into a `Ship` at sea that ties up its crew, banks its barter when it is due and
+  gives the slot back; `Unload` puts a dock's cargo back in the store. The clock is the wall clock in Unix seconds
+  (`Clock()`), so a trip saved before a restart is still due after it.
 - Commands: `/village` (report), `/village hire`, `/village assign <worker> <plot>`, `/recruit`, `/treasury`,
-  `/port` (report), `/port send <port> <crop> <count>`, `/port crew <n>`, `/port storm <percent>` (dev), `/unlock`.
+  `/port` (report), `/port route <slot> <port>`, `/port load <slot> <crop> <count>`, `/port sail <slot> [port]`,
+  `/port unload <slot>`, `/port send <port> <crop> <count>`, `/port crew <n>`, `/port storm <percent>` (dev), `/unlock`.
 - `Modules/Core/Game/World/UnlockAll.cs`: grants the NPCTalk gate flags a completed campaign would have set (see
   [progression](../../status/progression.md)); `data/unlock-all.txt` makes the safe set automatic.
 
@@ -147,7 +152,7 @@ binary (full table in `Tools/re/tmp/kmre/KALGUUR_SHIPPING_FRAMEWORK.md` §4):
 |---|---|---|---|
 | 0 | `u8 count`, then `count` worker rows | replaces the whole worker vector at `+0x160` (0xb8 stride) | confirmed |
 | 1 | `u8 A`, `u8 count`, then `count` recruits | the recruit list at `+0x178` | confirmed |
-| 2 | `u8 slot, u8 port row, u8 failure row, 16 × u32` | one dock slot (`+0x2c0 + 96·slot`), the 16 u32 indexed by `VillageExports` row | candidate |
+| 2 | `u8 slot, u8 port row, u8 failure row, 16 × u32` | one dock slot (`+0x2c0 + 96·slot`), the 16 u32 indexed by `VillageExports` row | confirmed |
 | 3 | `u8 idx, 3 × u64` | `+0x3e0 + 24·idx` | candidate |
 | 4 | the 245-byte state block, then `u64 sentTime` | the counters at `+0x190`…`+0x22f` and the clock at `+0x190` | confirmed |
 | 5 | one worker row | appends to the worker vector at `+0x160` | confirmed |
@@ -185,3 +190,24 @@ executable alone.
 `Modules/Core/Village/VillageModule.cs` builds these frames (`StateFrame`) from the settlement it keeps in memory, and
 `data/kingsmarch-state.txt` still lets a hand-written frame be tried against a live client without a rebuild. Sub-tag 9
 stays unused until the missing table is understood.
+
+## The port window
+
+`0x7b` kind `0x58` shows the harbour: a parchment map of the seven ports and three ship cards (大海勇氣, KTS 東方之星,
+卡迪根之怒), each with `船隻: n/6` (crew), a `貨物` box, a destination line and one button. The cards are drawn from
+sub-tag 2 above, re-read on every draw: a `setcargo` probe showed a card's `貨物` box take a crop icon and a count
+straight out of its dock slot, and a pushed frame with slot 0, port row 1, failure row 6 and 40 Wheat drew the whole
+route row (destination `里本丘原`, travel time `01:47:00`, wage `0/h`) with a `啟航` button.
+
+**But the window's buttons never build a village action.** With the `0x2ca` builder sites (`0x141f9de33`,
+`0x1421a1985` — the only two callers of the message constructor `0x141fa7a10`) and the dispatcher (`0x14176a8e0`) all
+hooked, clicking `貨物`, `選擇港口`, `啟航` and `遺棄` (including the "abandon this cargo?" confirm) produced no message,
+no log line and no change to the harbour's save; the card's `航行中/靠岸` state and that dialog are the widget's own local
+state. The recruitment window (`0x55`) does send from the same hooks — a click on `僱用` arrived as
+`0x02ca village action 0x01 hire worker … blob 0101` — so the channel works and the port window is the exception.
+
+So the window is the readout and `/port …` is the input: `route <slot> <port>` picks a card's destination, `load
+<slot> <crop> <count>` moves crops out of the farm's store into that card's `貨物` box, `sail <slot> [port]` sends it
+(tying up its crew, `ceil(value / ExpectedShipmentValue)` hands, 1…6), `unload <slot>` puts the cargo back, and a trip
+that is due banks its barter and gives the slot back. The dock slots live in `data/kingsmarch-port.json`
+(`SavedPort.Docks`), the crew and barter beside them.

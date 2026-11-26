@@ -3,12 +3,18 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using GameServer.Modding;
 
-/// <summary>Kingsmarch's port: shipments of what the farm grows, sent to one of the Kalguuran ports and paid back in
-/// barter. The client's own port window cannot be built in this client build (its S→C 0x7b kind 0x58 maps to an empty
-/// stub), so the whole flow lives on <c>/port …</c>, the way the farm lives on <c>/village</c>.
-/// Shipments are the town's own state: a ship leaves with the cargo the farm's store gave up, takes time proportional to
-/// the port's distance, may be lost to the risks the port is known for, and pays barter when it comes home. A lost trip is
-/// not a coin flip with no story: the client's own failure table says what went wrong and what it cost.</summary>
+/// <summary>Kingsmarch's port: shipments of what the farm grows, loaded onto one of the town's three ships, sent to a
+/// Kalguuran port and paid back in barter.
+/// The client's port window draws (0x7b kind 0x58 opens it) and its three ship cards read the dock slots the server
+/// pushes (0x2c9 kind 0x9b subtag 2), but its buttons (<c>貨物</c>, <c>選擇港口</c>, <c>啟航</c>, <c>遺棄</c>) never build a
+/// village action in this client build: clicking them only moves the card's own local state. So the window is the
+/// readout and <c>/port …</c> is the input, the way the town map and <c>/village</c> are split.
+/// A dock slot holds a ship: cargo loaded from the farm's store, the port it is bound for, and the crew it needs. Sailing
+/// it moves that ship to sea, where it takes time proportional to the port's distance, may be lost to the risks the port
+/// is known for, and pays barter when it comes home. A lost trip is not a coin flip with no story: the client's own
+/// failure table says what went wrong and what it cost.
+/// Time is the wall clock in Unix seconds, so a ship saved yesterday is due today instead of waiting for the process to
+/// have been up as long as its trip.</summary>
 public static class KingsmarchPort
 {
     const string Area = "KalguuranSettlersLeague";
@@ -33,6 +39,11 @@ public static class KingsmarchPort
     static int _minShipmentValue = 50000;
     static int _maxShipmentValue = 50000000;
 
+    /// <summary>What the tables expect one shipment to be worth, from <c>VillageSharedConstants.ExpectedShipmentValue</c>
+    /// (150 in 3.29.3c): the divisor a trip's crew requirement is measured in, so a harbour's three hands can sail a
+    /// cargo of about three hundred worth and a full hold wants more hands than the town starts with.</summary>
+    static int _expectedShipmentValue = 150;
+
     static readonly Regex Markup = new("<[^>]*>|[{}\"]", RegexOptions.Compiled);
 
     static readonly object _lock = new();
@@ -46,6 +57,13 @@ public static class KingsmarchPort
     static readonly Dictionary<string, SavedPort> _saved = [];
     static bool _loaded;
 
+    /// <summary>The town owns three ships, and the port window draws one card per dock slot.</summary>
+    public const int Docks = 3;
+
+    /// <summary>The clock every trip is timed by: Unix seconds on the wall clock, so a saved trip is due when the world
+    /// says so and not when this process has been up for long enough.</summary>
+    static double Clock() => DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
     sealed record Port(string Id, string Name, int Distance, double Risk);
 
     /// <summary>One way a shipment can go wrong, straight out of <c>VillageShippingFailures.json</c>:
@@ -57,6 +75,8 @@ public static class KingsmarchPort
     /// <summary>A ship on its way: what it carries, where to and when it is due back.</summary>
     sealed class Ship
     {
+        /// <summary>The dock slot the ship left from, so its card comes back to the same place (0 to 2).</summary>
+        public int Slot { get; set; }
         public string Port { get; set; } = "";
         public int Value { get; set; }
         public int Crew { get; set; }
@@ -69,7 +89,16 @@ public static class KingsmarchPort
         public Dictionary<string, int> Cargo { get; set; } = [];
     }
 
-    /// <summary>One character's harbour: the crew it has, the barter it earned, and the ships at sea.</summary>
+    /// <summary>One ship at the dock: the cargo loaded onto it and the port it will sail for once the player says so.
+    /// This is the "装货" half the port window draws in its 貨物 box.</summary>
+    sealed class Dock
+    {
+        /// <summary>The VillageShippingPorts Id the player picked, empty until a port is chosen.</summary>
+        public string Port { get; set; } = "";
+        public Dictionary<string, int> Cargo { get; set; } = [];
+    }
+
+    /// <summary>One character's harbour: the crew it has, the barter it earned, the three docks, and the ships at sea.</summary>
     sealed class SavedPort
     {
         public int Crew { get; set; } = 3;
@@ -79,11 +108,17 @@ public static class KingsmarchPort
         /// <summary>Wages the treasury could not pay yet; they are paid from the next funding.</summary>
         public int Wages { get; set; }
         public List<Ship> Ships { get; set; } = [];
-        /// <summary>What came home and has not been collected yet: the port panel's "collect" button takes one, or all.</summary>
+        /// <summary>The three ships the town owns, each a dock slot the port window draws as a card. A slot is a ship
+        /// being loaded until it sails, and the slot is empty again when that ship comes home.</summary>
+        public List<Dock> Docks { get; set; } = [];
+        /// <summary>What came home and has not been collected yet. Kept for the tables' collect rows; a trip's barter is
+        /// banked the moment it is due, because the panel's collect button cannot be reached in this build.</summary>
         public List<Reward> Rewards { get; set; } = [];
         /// <summary>Each port's shipment quota, by <c>VillageShippingPorts</c> Id: six numbers the panel shows per port and
         /// the reroll button replaces. Absent until the port is first looked at.</summary>
         public Dictionary<string, int[]> Quotas { get; set; } = [];
+        /// <summary>Bumped whenever a card or the purse changes, so the tower tells the panel once and not once a frame.</summary>
+        public int Version { get; set; }
     }
 
     /// <summary>One shipment that came home, waiting to be collected.</summary>
@@ -152,6 +187,7 @@ public static class KingsmarchPort
                     int value = row.GetProperty("Value").GetInt32();
                     if (id == "MinShipmentValue") _minShipmentValue = value;
                     else if (id == "MaxShipmentValue") _maxShipmentValue = value;
+                    else if (id == "ExpectedShipmentValue") _expectedShipmentValue = Math.Max(1, value);
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException or KeyNotFoundException)
@@ -195,22 +231,29 @@ public static class KingsmarchPort
     {
         lock (_saved)
         {
-            if (_saved.TryGetValue(who, out var port)) return port;
+            if (_saved.TryGetValue(who, out var port)) return Ready(port);
             try
             {
                 if (File.Exists(DataFile))
                 {
                     var all = JsonSerializer.Deserialize<Dictionary<string, SavedPort>>(File.ReadAllBytes(DataFile));
                     if (all is not null) foreach (var (key, value) in all) _saved[key] = value;
-                    if (_saved.TryGetValue(who, out var loaded)) return loaded;
+                    if (_saved.TryGetValue(who, out var loaded)) return Ready(loaded);
                 }
             }
             catch (Exception ex) when (ex is IOException or JsonException)
             {
                 Console.WriteLine($"[gateway] {DataFile} is unreadable, starting the harbour over: {ex.Message}");
             }
-            return _saved[who] = new SavedPort();
+            return Ready(_saved[who] = new SavedPort());
         }
+    }
+
+    /// <summary>A harbour saved before the town owned docks has fewer than three of them: give it the rest.</summary>
+    static SavedPort Ready(SavedPort port)
+    {
+        while (port.Docks.Count < Docks) port.Docks.Add(new Dock());
+        return port;
     }
 
     static void Save()
@@ -321,8 +364,11 @@ public static class KingsmarchPort
         return _storm < 0 ? "The ports are back to their own risks." : $"Every trip now loses its cargo with probability {_storm * 100:0}%.";
     }
 
-    /// <summary>How many of the town's workers a shipment ties up: a small cargo needs one, a rich one a full complement.</summary>
-    static int CrewRequired(int value) => Math.Clamp((int)Math.Ceiling(value / (double)MinCargoValue), 1, 5);
+    /// <summary>How many of the town's crew a shipment ties up, in the tables' own units: one hand per
+    /// <c>ExpectedShipmentValue</c> (150) a cargo is worth, at least one and at most six, which is what one ship's card
+    /// can hold (船員 0/6). The harbour starts with three, so a cargo of about four hundred sails without a hire and a
+    /// full hold is what the crew limit is for.</summary>
+    static int CrewRequired(int value) => Math.Clamp((int)Math.Ceiling(value / (double)_expectedShipmentValue), 1, 6);
 
     /// <summary>The value a <see cref="Ship"/> carries: the cargo's value held inside the client's own shipment bounds
     /// (<c>VillageSharedConstants.json</c>). The ceiling is that table's <c>MaxShipmentValue</c>; the floor is the lower of
@@ -359,7 +405,7 @@ public static class KingsmarchPort
     {
         if (!string.Equals(player.AreaId, Area, StringComparison.Ordinal)) return Task.CompletedTask;
         Load();
-        double clock = Environment.TickCount64 / 1000.0;
+        double clock = Clock();
         List<Ship> due;
         var harbour = Harbour(player.Character ?? "");
         lock (_lock)
@@ -402,11 +448,13 @@ public static class KingsmarchPort
             // The crew is tied up while the ship is away and comes home with it.
             harbour.Crew += ship.Crew;
             int barter = (int)Math.Round(ship.Value * BarterMultiplier);
-            // The barter is not banked here: it waits at the dock, and the port panel's collect button is what moves it,
-            // so a player who never collects never gets paid (the client draws the row as a reward).
-            harbour.Rewards.Add(new Reward { Port = ship.Port, Barter = barter, At = clock });
-            lines.Add($"A ship came back from {to}: {barter} barter waiting to be collected ({ship.Value} value sent, {ship.Crew} crew home).");
+            // The barter is banked the moment the ship is due: the port panel's collect button is the only other way to
+            // move it, and that button never reaches the server in this build (its clicks only move the card's own local
+            // state), so a trip that paid into a reward row would be a trip that never paid at all.
+            harbour.Barter += barter;
+            lines.Add($"A ship came back from {to}: {barter} barter for {ship.Value} value ({ship.Crew} crew home, {harbour.Barter} in the purse).");
         }
+        harbour.Version++;
         Save();
         return lines.Count == 0 ? Task.CompletedTask : player.Tell(string.Join(" | ", lines));
     }
@@ -414,23 +462,41 @@ public static class KingsmarchPort
     /// <summary>The table's texts carry the client's own markup (<c>&lt;kalguurred&gt;{…}</c>); chat shows them plain.</summary>
     static string Clean(string text) => Markup.Replace(text, "").Trim();
 
-    /// <summary>The harbour as one report: the ports with their distance and risk, the ships at sea and what is banked.</summary>
+    /// <summary>The harbour as one report: the docks the port window draws as cards, the ports with their distance and risk,
+    /// the ships at sea and what is banked.</summary>
     public static string Report(IPlayer player)
     {
         Load();
         var harbour = Harbour(player.Character ?? "");
-        double clock = Environment.TickCount64 / 1000.0;
+        double clock = Clock();
         var lines = new List<string>();
-        for (int i = 0; i < _ports.Count; i++)
-            lines.Add($"{i + 1} {_ports[i].Name} (distance {_ports[i].Distance}, risk {Failure(_ports[i]) * 100:0}%)");
         lock (_lock)
         {
-            if (harbour.Ships.Count == 0) lines.Add("ships at sea: none");
-            foreach (var ship in harbour.Ships)
-                lines.Add($"at sea: {ship.Cargo.Count} kind(s) worth {ship.Value} → {ship.Port}, back in {Math.Max(0, ship.Returns - clock):0} s");
+            // The three cards, in the order the port window draws them: what each holds and where it is bound.
+            for (int slot = 0; slot < Docks; slot++)
+            {
+                var atSea = harbour.Ships.FirstOrDefault(s => s.Slot == slot);
+                if (atSea is not null)
+                {
+                    string bound = _ports.FirstOrDefault(p => p.Id == atSea.Port)?.Name ?? atSea.Port;
+                    lines.Add($"dock {slot}: at sea for {bound}, {atSea.Value} worth, back in {Math.Max(0, atSea.Returns - clock):0} s");
+                    continue;
+                }
+                var dock = harbour.Docks[slot];
+                if (dock.Cargo.Count == 0)
+                {
+                    lines.Add($"dock {slot}: empty");
+                    continue;
+                }
+                string cargo = string.Join(", ", dock.Cargo.Select(c => $"{c.Value} {c.Key}"));
+                string destination = dock.Port.Length == 0 ? "no port chosen" : (_ports.FirstOrDefault(p => p.Id == dock.Port)?.Name ?? dock.Port);
+                lines.Add($"dock {slot}: {cargo} worth {Worth(dock.Cargo)}, {destination}");
+            }
         }
+        for (int i = 0; i < _ports.Count; i++)
+            lines.Add($"{i + 1} {_ports[i].Name} (distance {_ports[i].Distance}, risk {Failure(_ports[i]) * 100:0}%)");
         lines.Add($"crew {harbour.Crew}, barter {harbour.Barter}");
-        lines.Add("commands: /port send <port> <crop> <count>");
+        lines.Add("commands: /port route <slot> <port> | /port load <slot> <crop> <count> | /port sail <slot> | /port unload <slot>");
         return string.Join(" | ", lines);
     }
 
@@ -460,7 +526,7 @@ public static class KingsmarchPort
         lock (_lock) if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
         int taken = KingsmarchTown.TakeFromStore(player, crop, count);
         if (taken <= 0) return $"the town has no {crop} to send";
-        double clock = Environment.TickCount64 / 1000.0;
+        double clock = Clock();
         var ship = new Ship
         {
             Port = port.Id, Value = ShipmentValue(each * taken), Crew = crew, Sent = clock, Returns = clock + Travel(port),
@@ -471,8 +537,160 @@ public static class KingsmarchPort
             harbour.Crew -= crew;
             harbour.Ships.Add(ship);
         }
+        harbour.Version++;
         Save();
         return $"Sent {taken} {crop} (value {ship.Value}, {crew} crew) to {port.Name}; back in {Travel(port):0} s.";
+    }
+
+    // ---- The two halves of a trip the port window draws: loading a dock slot, then sailing it ----
+
+    /// <summary>Loads farm produce onto one of the town's three ships: the 貨物 box the port window draws from the dock
+    /// slots. The cargo leaves the farm's store here and is only taken off the map when the ship comes back with barter.
+    /// </summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="slot">The dock slot (0 to 2), which is the ship card the port window draws.</param>
+    /// <param name="crop">The store's own name for what is being loaded, as <c>/village store</c> lists it.</param>
+    /// <param name="count">How many units to load.</param>
+    public static string Load(IPlayer player, int slot, string crop, int count)
+    {
+        Load();
+        if (slot < 0 || slot >= Docks) return $"no dock slot {slot}: the harbour has {Docks}";
+        if (count <= 0) return "count must be positive";
+        if (!_values.TryGetValue(crop, out int each)) return $"{crop} is not something the ports buy";
+        var harbour = Harbour(player.Character ?? "");
+        lock (_lock)
+            if (harbour.Ships.Any(s => s.Slot == slot))
+                return $"slot {slot} is at sea; it has to come home before it takes cargo";
+        int have = KingsmarchTown.Stored(player, crop);
+        if (have < count) return $"the town has {have} {crop}, not {count}";
+        int taken = KingsmarchTown.TakeFromStore(player, crop, count);
+        if (taken <= 0) return $"the town has no {crop} to load";
+        int value;
+        lock (_lock)
+        {
+            var dock = harbour.Docks[slot];
+            dock.Cargo[crop] = dock.Cargo.GetValueOrDefault(crop) + taken;
+            value = Worth(dock.Cargo);
+        }
+        harbour.Version++;
+        Save();
+        // Say what the hold is worth and, when it is not yet worth a trip, what a port asks for: the panel's own
+        // MinShipmentValue gate gives the same answer, and a player who has loaded too little finds out here.
+        return value < MinCargoValue
+            ? $"Loaded {taken} {crop} into slot {slot}; its cargo is worth {value}, and a port wants at least {MinCargoValue}."
+            : $"Loaded {taken} {crop} into slot {slot}; its cargo is worth {value}, enough for a trip.";
+    }
+
+    /// <summary>Sails the ship in a dock slot for one of the ports: the trip starts here, the crew is tied up until it
+    /// comes home, and the slot is free again once it does.
+    /// </summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="slot">The dock slot whose cargo sails (0 to 2).</param>
+    /// <param name="portNumber">The port as <c>/port</c> numbers it, 1 for the first row of
+    /// <c>VillageShippingPorts.json</c>; 0 sails for the port already chosen with <see cref="Route"/>, which is the
+    /// order the client's own window does it in.</param>
+    public static string Sail(IPlayer player, int slot, int portNumber)
+    {
+        Load();
+        if (slot < 0 || slot >= Docks) return $"no dock slot {slot}: the harbour has {Docks}";
+        var harbour = Harbour(player.Character ?? "");
+        if (portNumber == 0)
+        {
+            // No port on the command line: the card's own choice is the destination, the way the panel's
+            // 選擇港口 button sets it before 啟航 is offered.
+            string chosen;
+            lock (_lock) chosen = harbour.Docks[slot].Port;
+            int row = _ports.FindIndex(p => p.Id == chosen);
+            if (row < 0) return $"no port chosen for slot {slot}: /port route {slot} <port>, or give one on this command";
+            portNumber = row + 1;
+        }
+        if (portNumber < 0 || portNumber > _ports.Count) return $"no port {portNumber}: /port lists them 1 to {_ports.Count}";
+        var port = _ports[portNumber - 1];
+        Dictionary<string, int> cargo;
+        int worth;
+        lock (_lock)
+        {
+            if (harbour.Ships.Any(s => s.Slot == slot)) return $"slot {slot} is already at sea";
+            cargo = new Dictionary<string, int>(harbour.Docks[slot].Cargo, StringComparer.OrdinalIgnoreCase);
+            worth = Worth(cargo);
+        }
+        if (worth < MinCargoValue)
+            return cargo.Count == 0
+                ? $"slot {slot} is empty: /port load {slot} <crop> <count> puts the cargo in it"
+                : $"slot {slot} carries {worth} worth of cargo; a port wants at least {MinCargoValue}";
+        int value = ShipmentValue(worth);
+        int crew = CrewRequired(value);
+        lock (_lock) if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
+        double clock = Clock();
+        var ship = new Ship
+        {
+            Slot = slot, Port = port.Id, Value = value, Crew = crew, Sent = clock, Returns = clock + Travel(port), Cargo = cargo,
+        };
+        lock (_lock)
+        {
+            harbour.Crew -= crew;
+            harbour.Ships.Add(ship);
+            harbour.Docks[slot] = new Dock();
+        }
+        harbour.Version++;
+        Save();
+        return $"Slot {slot} sails for {port.Name} with {value} worth of cargo ({crew} crew); back in {Travel(port):0} s.";
+    }
+
+    /// <summary>Picks the port a dock slot is bound for, the panel's <c>選擇港口</c> step: the card then draws the
+    /// destination and its travel time before anything is loaded, and <c>/port sail &lt;slot&gt;</c> needs nothing else.
+    /// </summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="slot">The dock slot to bind (0 to 2).</param>
+    /// <param name="portNumber">The port as <c>/port</c> numbers it.</param>
+    public static string Route(IPlayer player, int slot, int portNumber)
+    {
+        Load();
+        if (slot < 0 || slot >= Docks) return $"no dock slot {slot}: the harbour has {Docks}";
+        if (portNumber < 1 || portNumber > _ports.Count) return $"no port {portNumber}: /port lists them 1 to {_ports.Count}";
+        var port = _ports[portNumber - 1];
+        var harbour = Harbour(player.Character ?? "");
+        lock (_lock)
+        {
+            if (harbour.Ships.Any(s => s.Slot == slot)) return $"slot {slot} is at sea; its destination is already set";
+            harbour.Docks[slot].Port = port.Id;
+        }
+        harbour.Version++;
+        Save();
+        return $"Slot {slot} is bound for {port.Name} (distance {port.Distance}, risk {Failure(port) * 100:0}%, {Travel(port):0} s each way).";
+    }
+
+    /// <summary>Empties a dock slot back into the farm's store, the stand-in for the port window's drop button.</summary>
+    /// <param name="player">The player whose town it is.</param>
+    /// <param name="slot">The dock slot to empty (0 to 2).</param>
+    public static string Unload(IPlayer player, int slot)
+    {
+        Load();
+        if (slot < 0 || slot >= Docks) return $"no dock slot {slot}: the harbour has {Docks}";
+        var harbour = Harbour(player.Character ?? "");
+        Dictionary<string, int> cargo;
+        lock (_lock)
+        {
+            if (harbour.Ships.Any(s => s.Slot == slot)) return $"slot {slot} is at sea; there is nothing to unload";
+            cargo = new Dictionary<string, int>(harbour.Docks[slot].Cargo, StringComparer.OrdinalIgnoreCase);
+            // Only the hold is emptied: the port the card is bound for is what the player picked with /port route, and
+            // taking the cargo back out to load a different amount should not cost them that choice again.
+            harbour.Docks[slot].Cargo.Clear();
+        }
+        if (cargo.Count == 0) return $"slot {slot} is already empty";
+        int back = 0;
+        foreach (var (crop, count) in cargo) back += KingsmarchTown.AddToStore(player, crop, count);
+        harbour.Version++;
+        Save();
+        return $"Unloaded slot {slot}: {back} unit(s) back in the farm's store.";
+    }
+
+    /// <summary>What a pile of cargo is worth, by <c>VillageExports.json</c>'s ShippingValue per row.</summary>
+    static int Worth(Dictionary<string, int> cargo)
+    {
+        int value = 0;
+        foreach (var (crop, count) in cargo) value += _values.GetValueOrDefault(crop, 0) * count;
+        return value;
     }
 
     // ---- What the town window draws, as the client wants it on the wire (S→C 0x2c9) --------------
@@ -481,9 +699,11 @@ public static class KingsmarchPort
     /// <c>VillageShippingPorts.json</c>, which is what the panel refers to a port by.</summary>
     public sealed record PortView(int Row, string Id, string Name, int Distance, double Risk);
 
-    /// <summary>A ship in a dock slot: the 16 <c>Cargo</c> entries are indexed by <c>VillageExports.json</c> row, the same
-    /// sixteen u32 the panel's own send action carries (<c>0x06</c>: slot, port, failure, 16 × u32).</summary>
-    public sealed record ShipView(int Slot, int PortRow, int FailureRow, int Value, int Crew, double Sent, double Returns,
+    /// <summary>One of the town's three ships as the port window draws it: <c>Cargo</c> is the 16-entry array indexed by
+    /// <c>VillageExports.json</c> row, the same sixteen u32 the panel's own send action carries
+    /// (<c>0x06</c>: slot, port, failure, 16 × u32). A dock that has not sailed yet carries the port chosen for it and
+    /// what has been loaded; one at sea carries the trip. <c>FailureRow</c> is -1 until a trip goes wrong.</summary>
+    public sealed record CardView(int Slot, int PortRow, int FailureRow, int Value, int Crew, double Returns, bool AtSea,
         int[] Cargo);
 
     /// <summary>Every port the town can ship to, in table order.</summary>
@@ -496,30 +716,45 @@ public static class KingsmarchPort
         return list;
     }
 
-    /// <summary>The ships in the three dock slots (index 0 first), each with its cargo as a 16-entry array.</summary>
-    public static IReadOnlyList<ShipView> ShipList(string who)
+    /// <summary>The three ships, one per card the port window draws whether or not anything is loaded in it.</summary>
+    public static IReadOnlyList<CardView> Cards(string who)
     {
         Load();
         var harbour = Harbour(who);
-        var list = new List<ShipView>();
+        var list = new List<CardView>(Docks);
         lock (_lock)
         {
-            for (int slot = 0; slot < harbour.Ships.Count && slot < 3; slot++)
+            for (int slot = 0; slot < Docks; slot++)
             {
-                var ship = harbour.Ships[slot];
-                var cargo = new int[16];
-                foreach (var (key, count) in ship.Cargo)
-                    if (_export.TryGetValue(key, out int row) && row >= 0 && row < 16) cargo[row] += count;
-                int portRow = _ports.FindIndex(p => p.Id == ship.Port);
-                int failureRow = ship.Loss.Length == 0 ? -1 : _losses.FindIndex(l => l.Id == ship.Loss);
-                list.Add(new ShipView(slot, portRow, failureRow, ship.Value, ship.Crew, ship.Sent, ship.Returns, cargo));
+                var atSea = harbour.Ships.FirstOrDefault(s => s.Slot == slot);
+                if (atSea is not null)
+                {
+                    list.Add(new CardView(slot, _ports.FindIndex(p => p.Id == atSea.Port),
+                        atSea.Loss.Length == 0 ? -1 : _losses.FindIndex(l => l.Id == atSea.Loss),
+                        atSea.Value, atSea.Crew, atSea.Returns, true, Pack(atSea.Cargo)));
+                    continue;
+                }
+                var dock = harbour.Docks[slot];
+                list.Add(new CardView(slot, _ports.FindIndex(p => p.Id == dock.Port), -1, Worth(dock.Cargo), 0, 0, false,
+                    Pack(dock.Cargo)));
             }
         }
         return list;
     }
 
-    /// <summary>Takes a ship out of its dock slot without paying for it (the panel's abandon button).</summary>
-    /// <summary>One shipment waiting to be collected, as the port panel lists it.</summary>
+    /// <summary>How many versions of this harbour have been drawn: what tells a push that nothing has changed.</summary>
+    public static int Version(string who) => Harbour(who).Version;
+
+    /// <summary>A cargo pile as the wire wants it: 16 counts, one per <c>VillageExports.json</c> row.</summary>
+    static int[] Pack(Dictionary<string, int> cargo)
+    {
+        var wire = new int[16];
+        foreach (var (key, count) in cargo)
+            if (_export.TryGetValue(key, out int row) && row >= 0 && row < 16) wire[row] += count;
+        return wire;
+    }
+
+    /// <summary>One shipment that came home, waiting to be collected, as the port panel lists it.</summary>
     public sealed record RewardView(int Index, string Port, int Barter);
 
     /// <summary>What came home and waits to be collected.</summary>
@@ -595,14 +830,19 @@ public static class KingsmarchPort
         return $"{_ports[portRow].Name} quota rerolled for {cost} gold";
     }
 
+    /// <summary>Drops the ship in a dock slot without paying for it: what the panel's <c>遺棄</c> button asks for, and the
+    /// irreversible end of a trip. The slot is what the card is drawn under, so the ship is found by its own
+    /// <see cref="Ship.Slot"/> and not by its place in the list.</summary>
     public static bool DropShip(string who, int slot)
     {
         var harbour = Harbour(who);
         lock (_lock)
         {
-            if (slot < 0 || slot >= harbour.Ships.Count) return false;
-            harbour.Ships.RemoveAt(slot);
+            int at = harbour.Ships.FindIndex(s => s.Slot == slot);
+            if (at < 0) return false;
+            harbour.Ships.RemoveAt(at);
         }
+        harbour.Version++;
         Save();
         return true;
     }
@@ -642,14 +882,23 @@ public static class KingsmarchPort
         value = ShipmentValue(value);
         crew = CrewRequired(value);
         var harbour = Harbour(player.Character ?? "");
-        lock (_lock) if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
-        double clock = Environment.TickCount64 / 1000.0;
-        var ship = new Ship { Port = port.Id, Value = value, Crew = crew, Sent = clock, Returns = clock + Travel(port), Cargo = taken };
+        int slot;
+        lock (_lock)
+        {
+            if (harbour.Crew < crew) return $"that cargo needs {crew} crew, the harbour has {harbour.Crew}";
+            // A shipment the panel described has no slot of its own, so it takes the first free one: the card it is
+            // drawn under is the slot, and two ships sharing one would hide the second.
+            slot = Enumerable.Range(0, Docks).FirstOrDefault(i => !harbour.Ships.Any(s => s.Slot == i), -1);
+            if (slot < 0) return $"all {Docks} slots are at sea; a harbour this size sails {Docks} ships at once";
+        }
+        double clock = Clock();
+        var ship = new Ship { Slot = slot, Port = port.Id, Value = value, Crew = crew, Sent = clock, Returns = clock + Travel(port), Cargo = taken };
         lock (_lock)
         {
             harbour.Crew -= crew;
             harbour.Ships.Add(ship);
         }
+        harbour.Version++;
         Save();
         return $"Sent {value} worth of cargo to {port.Name} ({crew} crew, back in {Travel(port):0} s).";
     }

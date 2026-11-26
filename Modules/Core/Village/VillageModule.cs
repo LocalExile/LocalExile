@@ -392,6 +392,11 @@ public sealed class VillageModule : IModule
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, string> _opened = new();
 
+    /// <summary>The harbour version each player has already been told about, so the dock cards go out on change only.</summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<IPlayer, Stamp> _portStamps = new();
+
+    sealed class Stamp { public int Version = -1; }
+
 
     static async Task OpenPort(IPlayer player)
     {
@@ -606,6 +611,30 @@ public sealed class VillageModule : IModule
         return frame.ToArray();
     }
 
+    /// <summary>Tells the port window what is in the town's three dock slots (S→C 0x2c9, kind 0x9b, subtag 2): a slot that
+    /// is still loading draws the cargo in its 貨物 box and the port already picked for it, and a slot that is at sea
+    /// draws the trip. The panel's own buttons never build a village action in this client build (they only move the
+    /// card's own local state), so <c>/port load</c> and <c>/port sail</c> are the input and this push is what makes the
+    /// window tell the truth about them.</summary>
+    /// <param name="player">The player whose port window is open.</param>
+    async Task PushPorts(IPlayer player)
+    {
+        if (player.AreaId != "KalguuranSettlersLeague") return;
+        string who = player.Character ?? "";
+        int version = KingsmarchPort.Version(who);
+        var stamp = _portStamps.GetOrCreateValue(player);
+        if (stamp.Version == version) return;
+        stamp.Version = version;
+        foreach (var card in KingsmarchPort.Cards(who))
+        {
+            var frame = new List<byte> { (byte)card.Slot, (byte)(card.PortRow < 0 ? 0xff : card.PortRow),
+                (byte)(card.FailureRow < 0 ? 0xff : card.FailureRow) };
+            foreach (int count in card.Cargo) frame.AddRange(BitConverter.GetBytes((uint)count)[..4]);
+            await player.Send(StateFrame(TownRecordKind, 2, frame.ToArray()),
+                $"0x02c9 village ship slot {card.Slot}: {(card.AtSea ? "at sea" : "loading")}, port {card.PortRow}, {card.Value} worth");
+        }
+    }
+
     /// <summary>The frames the town window would need, built from the settlement the server holds. The ship frames are
     /// exact (subtag 2: slot, port row, failure row, then the 16 cargo counts the panel's own send action carries); the
     /// port frames (subtag 9) are the same six numbers the pin's quota update takes, whose meaning is still unknown, so
@@ -629,11 +658,11 @@ public sealed class VillageModule : IModule
             lines.Add($"9b 09 {Convert.ToHexString(six.ToArray())}");
         }
         var who = player.Character ?? "";
-        foreach (var ship in KingsmarchPort.ShipList(who))
+        foreach (var card in KingsmarchPort.Cards(who))
         {
-            var frame = new List<byte> { (byte)ship.Slot, (byte)(ship.PortRow < 0 ? 0xff : ship.PortRow),
-                (byte)(ship.FailureRow < 0 ? 0xff : ship.FailureRow) };
-            foreach (int count in ship.Cargo) frame.AddRange(BitConverter.GetBytes((uint)count)[..4]);
+            var frame = new List<byte> { (byte)card.Slot, (byte)(card.PortRow < 0 ? 0xff : card.PortRow),
+                (byte)(card.FailureRow < 0 ? 0xff : card.FailureRow) };
+            foreach (int count in card.Cargo) frame.AddRange(BitConverter.GetBytes((uint)count)[..4]);
             lines.Add($"9b 02 {Convert.ToHexString(frame.ToArray())}");
         }
         var vault = KingsmarchPort.Vault(who);
@@ -734,6 +763,7 @@ public sealed class VillageModule : IModule
             await PushWorkers(player);
             await PushRecruits(player);
             await PushState(player);
+            await PushPorts(player);
             MappingEngine.Advance(player.Character ?? "", now);
         }));
         GameEvents.Packet(ActionId).Add(module.Manifest.Id, async (conn, bytes) =>

@@ -314,7 +314,7 @@ public sealed class GameModule : IModule, IDisposable
                 { await me.Tell("Kingsmarch: " + await KingsmarchTown.FundTreasury(me, amount)); return; }
                 await me.Tell($"Kingsmarch treasury: {KingsmarchTown.TreasuryText(me)}");
             });
-            commands.Add("port", "/port [send <port> <crop> <count> | storm <percent> | crew <count>] (Kingsmarch shipping)",
+            commands.Add("port", "/port [route <slot> <port> | load <slot> <crop> <count> | sail <slot> [port] | unload <slot> | send <port> <crop> <count> | storm <percent> | crew <count>] (Kingsmarch shipping)",
                 async args =>
                 {
                     if (args.Length > 0 && args[0] == "storm")
@@ -327,6 +327,17 @@ public sealed class GameModule : IModule, IDisposable
                         if (args.Length < 2 || !int.TryParse(args[1], out int hands)) { await me.Tell("usage: /port crew <count>"); return; }
                         await me.Tell("Kingsmarch: " + KingsmarchPort.Crew(me, hands)); return;
                     }
+                    // The port window's 貨物 box: produce goes into a dock slot, where the card draws it until it sails.
+                    if (args.Length >= 4 && args[0] == "load" && int.TryParse(args[1], out int slot) && int.TryParse(args[3], out int units))
+                    { await me.Tell("Kingsmarch: " + KingsmarchPort.Load(me, slot, args[2], units)); return; }
+                    // The port window's 選擇港口 button: the card is bound for a port before it is loaded.
+                    if (args.Length >= 3 && args[0] == "route" && int.TryParse(args[1], out int routeSlot) && int.TryParse(args[2], out int routePort))
+                    { await me.Tell("Kingsmarch: " + KingsmarchPort.Route(me, routeSlot, routePort)); return; }
+                    // The port window's 啟航 button: the loaded slot becomes a ship at sea.
+                    if (args.Length >= 2 && args[0] == "sail" && int.TryParse(args[1], out int sailSlot))
+                    { await me.Tell("Kingsmarch: " + KingsmarchPort.Sail(me, sailSlot, args.Length >= 3 && int.TryParse(args[2], out int sailPort) ? sailPort : 0)); return; }
+                    if (args.Length >= 2 && args[0] == "unload" && int.TryParse(args[1], out int unloadSlot))
+                    { await me.Tell("Kingsmarch: " + KingsmarchPort.Unload(me, unloadSlot)); return; }
                     if (args.Length >= 4 && args[0] == "send" && int.TryParse(args[1], out int port) && int.TryParse(args[3], out int count))
                     { await me.Tell("Kingsmarch: " + KingsmarchPort.Send(me, port, args[2], count)); return; }
                     await me.Tell($"Kingsmarch port: {KingsmarchPort.Report(me)}");
