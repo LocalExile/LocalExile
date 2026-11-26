@@ -568,7 +568,7 @@ public static class SaveRows
         "type", "item_level", "quality", "charges", "stack_size", "sockets", "links", "gem_experience", "rarity", "identified",
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
-        "heist_blueprint", "deepwater_chart",
+        "heist_blueprint", "deepwater_chart", "ritual_encounter",
         "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash",
     ];
 
@@ -577,7 +577,7 @@ public static class SaveRows
         i.Type, i.ItemLevel, i.Quality, i.Charges, i.StackSize, JsonOf(i.Sockets?.Select(s => s.Colour).ToList()), JsonOf(i.Links),
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
-        i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart),
+        i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart), JsonOf(i.RitualEncounter),
         i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash,
     ];
 
@@ -637,7 +637,8 @@ public static class SaveRows
                 { SkinTransferSource = donors.GetValueOrDefault(r.Id),
                     MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
                     RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style"),
-                    ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"), Chart = v.Json<ChartData?>("deepwater_chart") };
+                    ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"), Chart = v.Json<ChartData?>("deepwater_chart"),
+                    RitualEncounter = v.Json<RitualEncounterData?>("ritual_encounter") };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];

@@ -2509,6 +2509,21 @@ public static partial class Game
         if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
         double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
         int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
+        return CommitGemShare(player, share, projectRows);
+    }
+
+    // A direct gem XP award is already the amount for each eligible gem.
+    public static async Task GrantGemExperience(Player player, int share)
+    {
+        if (HardcoreProgressBlocked(player)) return;
+        var (packets, leveled) = CommitGemShare(player, share, null);
+        foreach (var packet in packets) await Send(player, packet, "gem experience");
+        if (leveled) await SendSkills(player);
+    }
+
+    static (List<byte[]> Packets, bool Leveled) CommitGemShare(Player player, int share,
+        List<(byte Row, uint[] Items)>? projectRows)
+    {
         if (share <= 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
