@@ -52,11 +52,49 @@ public interface IPlayerWorld
     /// <summary>Moves the player to an area by its <c>WorldAreas</c> id; false when it has no known way in.</summary>
     Task<bool> TravelTo(string areaId, string reason);
 
+    /// <summary>Moves the player using an explicit <see cref="PendingTransfer"/> (supporting target instance id,
+    /// new-instance creation, custom arrival coordinates, and transfer callbacks).</summary>
+    Task<bool> TravelToAsync(PendingTransfer transfer, string reason);
+
+    /// <summary>Spawns a clickable standalone portal at <c>(x, y)</c> leading to <paramref name="targetAreaId"/>
+    /// (with optional target instance, use count, and automatic return portal back to the parent instance).
+    /// Returns the portal object id, or null if the target area is unknown or the connection is closed.</summary>
+    Task<uint?> SpawnPortalAsync(int x, int y, string targetAreaId, PortalOptions? options = null);
+
+    /// <summary>Removes a standalone custom portal spawned via <see cref="SpawnPortalAsync"/>.</summary>
+    Task<bool> RemovePortalAsync(uint objectId);
+
+    /// <summary>Finds a walkable cell near <paramref name="near"/> (defaulting to the player's current position)
+    /// between <paramref name="minRadius"/> and <paramref name="maxRadius"/> cells, respecting optional avoidance points.</summary>
+    (int X, int Y)? FindOpenSpot((int X, int Y)? near = null, int minRadius = 0, int maxRadius = 40,
+        IReadOnlyList<(int X, int Y)>? avoid = null, int minAvoidDistance = 12);
+
+    /// <summary>Spawns an interactable or decorative world object (<see cref="QuestObject"/>) for a stock or
+    /// runtime-overlaid <c>.ot</c> type at <c>(x, y)</c>, wakes it, and optionally registers collision.
+    /// Returns the created object id, or null when the type is unknown or cannot be serialized.</summary>
+    Task<uint?> SpawnWorldObjectAsync(string metadataPath, int x, int y, WorldObjectOptions? options = null);
+
+    /// <summary>Removes a world object and any blocker registered for it.</summary>
+    Task<bool> RemoveWorldObjectAsync(uint objectId, string? reason = null);
+
+    /// <summary>Spawns a monster matching <paramref name="varietyQuery"/> (row, id, or name; including runtime
+    /// <see cref="MonsterCatalog"/> overlays) at <c>(x, y)</c>. Returns the monster object id, or null if unknown.</summary>
+    Task<uint?> SpawnMonsterAsync(string varietyQuery, int x, int y, MonsterSpawnOptions? options = null);
+
+    /// <summary>Applies a timed visual buff (<c>BuffDefinitions</c> row, including runtime <see cref="BuffRows"/>
+    /// overlays) and optional stat modifiers to a player or monster entity for <paramref name="seconds"/>,
+    /// automatically clearing both the icon and stats when it expires.</summary>
+    Task<bool> ApplyTimedBuffAsync(uint targetObjectId, ushort buffRow, IReadOnlyDictionary<uint, int>? stats,
+        double seconds, uint sourceObjectId = 0);
+
     /// <summary>What this module keeps per account and league, as text under keys it chooses.</summary>
     ISavedData AccountData { get; }
 
     /// <summary>What this module keeps per character.</summary>
     ISavedData CharacterData { get; }
+
+    /// <summary>What this module keeps shared across all accounts and characters in this player's league.</summary>
+    ISavedData LeagueData { get; }
 
     /// <summary>The item rules of the player's data set.</summary>
     IItemCrafting Crafting { get; }
@@ -157,7 +195,52 @@ public interface ISavedData
 
     /// <summary>Changes a key's text atomically; a null result changes nothing and returns false.</summary>
     bool Change(string key, Func<string?, string?> change);
+
+    /// <summary>Removes a key atomically; true when the key existed and was removed.</summary>
+    bool Remove(string key) => false;
+
+    /// <summary>Lists saved keys (optionally filtered by ordinal <paramref name="prefix"/>), sorted ordinally.</summary>
+    IReadOnlyList<string> Keys(string? prefix = null) => [];
 }
+
+/// <summary>Options for <see cref="IPlayerWorld.SpawnPortalAsync"/>.</summary>
+public sealed record PortalOptions(
+    ulong TargetInstance = 0,
+    bool NewInstance = true,
+    (int X, int Y)? ArriveAt = null,
+    int? UsesLeft = null,
+    bool SpawnReturnPortal = false,
+    string? Owner = null,
+    ushort? Variation = null);
+
+/// <summary>Options for <see cref="IPlayerWorld.SpawnWorldObjectAsync"/>.</summary>
+public sealed record WorldObjectOptions(
+    float Rotation = 0,
+    float? Height = null,
+    string? Model = null,
+    byte TransitionState = 1,
+    bool Opened = false,
+    bool Blocked = false,
+    int BlockerSize = 0,
+    bool Awake = true,
+    bool HideMinimapIcon = false,
+    StateMachineData? StateMachine = null,
+    IReadOnlyList<(uint Key, int Value)>? Stats = null,
+    IReadOnlyList<EntityVariable>? Variables = null);
+
+/// <summary>Options for <see cref="IPlayerWorld.SpawnMonsterAsync"/>.</summary>
+public sealed record MonsterSpawnOptions(
+    byte Level = 0,
+    MonsterRarity Rarity = MonsterRarity.Normal,
+    string? Name = null,
+    bool Friendly = false,
+    float Rotation = 0,
+    int? LifePercent = null,
+    MonsterModSet? Mods = null,
+    MonsterModSet? ExtraMods = null,
+    IReadOnlyList<(uint Key, int Value)>? ExtraStats = null,
+    bool NonBlocking = false,
+    bool InstanceOwned = true);
 
 /// <summary>The item rules a crafting module builds on, for one data set.</summary>
 public interface IItemCrafting

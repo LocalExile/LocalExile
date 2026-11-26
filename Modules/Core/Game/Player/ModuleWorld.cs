@@ -10,10 +10,16 @@ public static partial class Game
         StandardCrafting = new(Items!, Rolls!);
     }
 
-    public sealed class ModuleSave(Func<string, string?> get, Func<string, Func<string?, string?>, bool> change) : ISavedData
+    public sealed class ModuleSave(
+        Func<string, string?> get,
+        Func<string, Func<string?, string?>, bool> change,
+        Func<string, bool>? remove = null,
+        Func<string?, IReadOnlyList<string>>? keys = null) : ISavedData
     {
         public string? Get(string key) => get(key);
         public bool Change(string key, Func<string?, string?> apply) => change(key, apply);
+        public bool Remove(string key) => remove?.Invoke(key) ?? false;
+        public IReadOnlyList<string> Keys(string? prefix = null) => keys?.Invoke(prefix) ?? [];
     }
 
     public static ModuleItemCrafting StandardCrafting = default!;
@@ -79,10 +85,179 @@ public static partial class Game
             return true;
         }
 
-        public ISavedData AccountData => new ModuleSave(key => PersonalStashOf(player).ModuleData(key), (key, change) => PersonalStashOf(player).ChangeModuleData(key, change));
+        public async Task<bool> TravelToAsync(PendingTransfer transfer, string reason)
+        {
+            ArgumentNullException.ThrowIfNull(transfer);
+            if (player.Closed || player.LeavingArea || transfer.Area == 0) return false;
+            await ChangeArea(player, transfer, reason);
+            return true;
+        }
 
-        public ISavedData CharacterData => new ModuleSave(key => CharacterSaves.ModuleData(CharacterName(player), key),
-            (key, change) => CharacterSaves.ChangeModuleData(CharacterName(player), key, change));
+        public async Task<uint?> SpawnPortalAsync(int x, int y, string targetAreaId, PortalOptions? options = null)
+        {
+            if (AreaTransitionCatalog.HashOf(targetAreaId) is not { } hash) return null;
+            return await SpawnCustomPortal(player, x, y, hash, options);
+        }
+
+        public Task<bool> RemovePortalAsync(uint objectId) => RemoveCustomPortal(player, objectId);
+
+        public (int X, int Y)? FindOpenSpot((int X, int Y)? near = null, int minRadius = 0, int maxRadius = 40,
+            IReadOnlyList<(int X, int Y)>? avoid = null, int minAvoidDistance = 12)
+        {
+            if (player.Layout.Walkable is not { } walkable) return null;
+            var origin = near ?? player.Walk.Position(AreaTime(player));
+            int minR = Math.Max(0, minRadius);
+            int maxR = Math.Max(minR, maxRadius);
+            long minRSq = (long)minR * minR;
+            long maxRSq = (long)maxR * maxR;
+            long avoidSq = (long)Math.Max(0, minAvoidDistance) * Math.Max(0, minAvoidDistance);
+            bool ClearOfAvoid(int cx, int cy)
+            {
+                if (avoid is null || avoid.Count == 0 || avoidSq <= 0) return true;
+                for (int i = 0; i < avoid.Count; i++)
+                {
+                    long dx = cx - avoid[i].X, dy = cy - avoid[i].Y;
+                    if (dx * dx + dy * dy < avoidSq) return false;
+                }
+                return true;
+            }
+            for (int r = minR; r <= maxR; r++)
+            {
+                if (r == 0)
+                {
+                    if (origin.X >= 0 && origin.Y >= 0 && origin.X < player.Layout.GridW && origin.Y < player.Layout.GridH
+                        && walkable(origin.X, origin.Y) && ClearOfAvoid(origin.X, origin.Y))
+                        return origin;
+                    continue;
+                }
+                for (int dy = -r; dy <= r; dy++)
+                {
+                    for (int dx = -r; dx <= r; dx++)
+                    {
+                        if (Math.Abs(dx) != r && Math.Abs(dy) != r) continue;
+                        long distSq = (long)dx * dx + (long)dy * dy;
+                        if (distSq < minRSq || distSq > maxRSq) continue;
+                        int cx = origin.X + dx, cy = origin.Y + dy;
+                        if (cx < 0 || cy < 0 || cx >= player.Layout.GridW || cy >= player.Layout.GridH) continue;
+                        if (walkable(cx, cy) && ClearOfAvoid(cx, cy)) return (cx, cy);
+                    }
+                }
+            }
+            return null;
+        }
+
+        public async Task<uint?> SpawnWorldObjectAsync(string metadataPath, int x, int y, WorldObjectOptions? options = null)
+        {
+            if (player.Closed || player.LeavingArea || string.IsNullOrWhiteSpace(metadataPath)) return null;
+            var opts = options ?? new WorldObjectOptions();
+            var info = QuestObjectTypes.Find(metadataPath);
+            var overlay = ObjectTypes.FindOverlay(metadataPath);
+            IReadOnlyList<string>? components = info?.Components ?? overlay?.Components;
+            StateMachineData? stateMachine = opts.StateMachine ?? overlay?.StateMachine;
+            if (components is null || !QuestObject.CanSerialize(components, stateMachine is not null)) return null;
+            uint id = player.TakeObjectId();
+            var obj = new QuestObject(x, y, components, opts.Rotation, opts.Height,
+                Model: opts.Model ?? info?.Model ?? overlay?.Model,
+                TransitionState: opts.TransitionState,
+                Opened: opts.Opened,
+                Blocked: opts.Blocked)
+            {
+                Awake = opts.Awake,
+                HideMinimapIcon = opts.HideMinimapIcon,
+                StateMachine = stateMachine,
+                Stats = opts.Stats ?? [],
+                Variables = opts.Variables ?? [],
+            };
+            uint typeHash = InstanceEntities.ObjectTypeHash(metadataPath);
+            await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, typeHash, obj.Blob()),
+                $"0x02bb create world object 0x{id:x} ({metadataPath}) at ({x}, {y})", wake: true, awaitBirth: false);
+            int blockerSize = opts.BlockerSize > 0 ? opts.BlockerSize : info is { Blocking: true } ? info.Size : 0;
+            if (blockerSize > 0) player.SetBlocker(id, x, y, blockerSize);
+            return id;
+        }
+
+        public async Task<bool> RemoveWorldObjectAsync(uint objectId, string? reason = null)
+        {
+            if (objectId == 0) return false;
+            player.RemoveBlocker(objectId);
+            if (!player.Closed && !player.LeavingArea)
+                await SendWorldRemoval(player, objectId, reason ?? $"0x02bd remove world object 0x{objectId:x}");
+            return true;
+        }
+
+        public async Task<uint?> SpawnMonsterAsync(string varietyQuery, int x, int y, MonsterSpawnOptions? options = null)
+        {
+            if (player.Closed || player.LeavingArea || string.IsNullOrWhiteSpace(varietyQuery)) return null;
+            if (Monsters.Find(varietyQuery) is not { Supported: true } variety) return null;
+            var opts = options ?? new MonsterSpawnOptions();
+            byte level = opts.Level > 0
+                ? opts.Level
+                : (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
+            uint id = await SpawnMonster(player, variety, level, opts.Rarity, x, y,
+                name: opts.Name,
+                friendly: opts.Friendly,
+                mods: opts.Mods,
+                rotation: opts.Rotation,
+                extraStats: opts.ExtraStats,
+                extraMods: opts.ExtraMods,
+                lifePercent: opts.LifePercent,
+                instanceOwned: opts.InstanceOwned,
+                nonBlocking: opts.NonBlocking);
+            return id == 0 ? null : id;
+        }
+
+        public async Task<bool> ApplyTimedBuffAsync(uint targetObjectId, ushort buffRow, IReadOnlyDictionary<uint, int>? stats,
+            double seconds, uint sourceObjectId = 0)
+        {
+            if (player.Closed || player.LeavingArea || targetObjectId == 0 || seconds <= 0 || !double.IsFinite(seconds))
+                return false;
+            bool isPlayer = targetObjectId == player.Id;
+            if (!isPlayer && !player.Area.Monsters.ContainsKey(targetObjectId)) return false;
+
+            ushort tag = isPlayer ? player.NextBuff++ : (ushort)0;
+            uint source = sourceObjectId != 0 ? sourceObjectId : player.Id;
+            if (buffRow != 0)
+                player.Area.Buffs.Set(targetObjectId, BuffRows.Spec(buffRow, source, stats, seconds, tag));
+
+            if (stats is { Count: > 0 })
+            {
+                var owner = new object();
+                var entity = new EntityId(targetObjectId);
+                var copy = new Dictionary<uint, int>(stats);
+                player.Area.SetStatBuff(entity, owner, copy);
+                if (isPlayer) await RefreshStats();
+                _ = AreaFrames.Start(async () =>
+                {
+                    try
+                    {
+                        await AreaDelay(player, seconds);
+                        player.Area.RemoveStatBuff(entity, owner);
+                        if (isPlayer && !player.Closed && !player.LeavingArea)
+                            await RefreshStats();
+                    }
+                    catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
+                });
+            }
+            return true;
+        }
+
+        public ISavedData AccountData => new ModuleSave(
+            key => PersonalStashOf(player).ModuleData(key),
+            (key, change) => PersonalStashOf(player).ChangeModuleData(key, change),
+            key => PersonalStashOf(player).RemoveModuleData(key),
+            prefix => PersonalStashOf(player).ModuleDataKeys(prefix));
+
+        public ISavedData CharacterData => new ModuleSave(
+            key => CharacterSaves.ModuleData(CharacterName(player), key),
+            (key, change) => CharacterSaves.ChangeModuleData(CharacterName(player), key, change),
+            key => CharacterSaves.RemoveModuleData(CharacterName(player), key),
+            prefix => CharacterSaves.ModuleDataKeys(CharacterName(player), prefix));
+
+        public ISavedData LeagueData => new ModuleSave(
+            key => AccountStash.ForLeague(player.Character.League, ItemsFor(player)).ModuleData(key),
+            (key, change) => AccountStash.ForLeague(player.Character.League, ItemsFor(player)).ChangeModuleData(key, change),
+            key => AccountStash.ForLeague(player.Character.League, ItemsFor(player)).RemoveModuleData(key),
+            prefix => AccountStash.ForLeague(player.Character.League, ItemsFor(player)).ModuleDataKeys(prefix));
 
         public IItemCrafting Crafting => LeagueFor(player).HardMode ? HardModeCrafting : StandardCrafting;
 

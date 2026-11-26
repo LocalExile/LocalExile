@@ -240,6 +240,17 @@ public static class GameEvents
     /// <summary>Evaluates a vendor sale quote for a list of offered items (implemented by the Vendors module).</summary>
     public static readonly GameEvent<Func<Player, IReadOnlyList<InventoryItem>, VendorQuoteResult?>> VendorQuote = new();
 
+    /// <summary>Evaluates custom vendor recipes on items offered in an NPC sell window before built-in recipes and
+    /// basic sale pricing run.</summary>
+    public static readonly GameEvent<Action<VendorRecipeContext>> VendorRecipe = new();
+
+    /// <summary>The player died in an area, carrying rich context (death kind, count, hardcore flag, XP lost), after death state, XP penalty, and death screen presentation.</summary>
+    public static readonly GameEvent<Func<PlayerDiedContext, Task>> PlayerDeath = new();
+
+    /// <summary>Whether an item (<paramref name="player"/> when known, <c>BaseItemTypes</c> hash, item class) may be
+    /// placed into and activated in the map device beyond the stock accepted classes and recipes.</summary>
+    public static readonly GameEvent<Func<Player?, uint, string, bool>> MapDeviceAcceptsItem = new();
+
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
     /// client's flag set (the player's create and every quest flag update) and the server's checks
@@ -1145,5 +1156,41 @@ public static class GameEvents
                 return result;
         }
         return null;
+    }
+
+    public static void RunVendorRecipes(VendorRecipeContext context)
+    {
+        if (!VendorRecipe.Any) return;
+        foreach (var (owner, run) in VendorRecipe.Subscribers(context.Player))
+            GameEventOwners.Guard(owner, nameof(VendorRecipe), () => run(context));
+    }
+
+    public static async Task RunPlayerDeath(PlayerDiedContext context)
+    {
+        if (!PlayerDeath.Any) return;
+        foreach (var (owner, run) in PlayerDeath.Subscribers(context.Player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDeath), () => run(context));
+    }
+
+    public static bool AllowsMapDeviceItem(Player? player, uint typeHash, string itemClass)
+    {
+        if (!MapDeviceAcceptsItem.Any) return false;
+        if (player is not null)
+        {
+            foreach (var (owner, run) in MapDeviceAcceptsItem.Subscribers(player))
+            {
+                bool allowed = false;
+                if (GameEventOwners.Guard(owner, nameof(MapDeviceAcceptsItem), () => allowed = run(player, typeHash, itemClass)) && allowed)
+                    return true;
+            }
+            return false;
+        }
+        foreach (var subscriber in MapDeviceAcceptsItem.Snapshot)
+        {
+            bool allowed = false;
+            if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
+                return true;
+        }
+        return false;
     }
 }

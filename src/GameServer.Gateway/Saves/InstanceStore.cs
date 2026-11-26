@@ -32,12 +32,14 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
     /// so it still expires after <c>lifetime</c> if the client never connects.</summary>
     public InstanceState Prepare(ulong id, long created, string? soloOwner = null)
     {
+        InstanceState state;
+        List<InstanceState>? evicted;
         lock (_instances)
         {
             var now = clock.GetUtcNow();
-            PruneLocked(now);
+            evicted = PruneLocked(now);
             var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
-            if (!_instances.TryGetValue(instanceKey, out var state))
+            if (!_instances.TryGetValue(instanceKey, out state!))
             {
                 var presence = _instances.Where(e => e.Key.Id == id && e.Key.Created == created)
                     .Select(e => e.Value.Presence).FirstOrDefault();
@@ -48,8 +50,9 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
                 // Refresh expiry so an empty instance near its lifetime is not pruned between Prepare and Enter.
                 state.EmptySince = now;
             }
-            return state;
         }
+        NotifyClosing(evicted);
+        return state;
     }
 
     /// <summary>Releases any cached pre-generated layout on an empty instance (e.g. a transfer abandoned before 0x27).</summary>
@@ -62,19 +65,36 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 
     internal bool Remove(ulong id, long created, string? soloOwner = null)
     {
-        lock (_instances) return _instances.Remove((id, created, soloOwner?.ToUpperInvariant()));
+        InstanceState? removed;
+        lock (_instances)
+            _instances.Remove((id, created, soloOwner?.ToUpperInvariant()), out removed);
+        if (removed is null) return false;
+        InstanceEvents.RunInstanceClosing(removed);
+        return true;
+    }
+
+    /// <summary>Prunes expired empty instances immediately and returns how many were evicted, invoking
+    /// <see cref="InstanceEvents.InstanceClosing"/> outside the store lock.</summary>
+    public int Prune()
+    {
+        List<InstanceState>? evicted;
+        lock (_instances) evicted = PruneLocked(clock.GetUtcNow());
+        NotifyClosing(evicted);
+        return evicted?.Count ?? 0;
     }
 
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
+        InstanceState state;
+        List<InstanceState>? evicted;
         lock (_instances)
         {
             var now = clock.GetUtcNow();
-            PruneLocked(now);
+            evicted = PruneLocked(now);
             // SSF towns may share their social instance, but never their dropped items or other mutable world state.
             var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
-            if (!_instances.TryGetValue(instanceKey, out var state))
+            if (!_instances.TryGetValue(instanceKey, out state!))
             {
                 // Auth assigns distinct instance IDs to private non-town areas. A shared ID/creation pair is the
                 // social boundary; only player presence crosses the per-character world-state boundary in towns.
@@ -84,19 +104,32 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
             }
             state.Connections++;
             state.EmptySince = null;
-            return state;
         }
+        NotifyClosing(evicted);
+        return state;
     }
 
-    void PruneLocked(DateTimeOffset now)
+    List<InstanceState>? PruneLocked(DateTimeOffset now)
     {
+        List<InstanceState>? evicted = null;
         foreach (var (key, state) in _instances.ToList())
         {
             if (state.EmptySince is { } t && now - t >= lifetime)
-                _instances.Remove(key);
+            {
+                if (_instances.Remove(key)) (evicted ??= []).Add(state);
+            }
             else if (state.Connections == 0)
+            {
                 state.ExpirePreparedLayout(now, PreparedLayoutLifetime);
+            }
         }
+        return evicted;
+    }
+
+    static void NotifyClosing(List<InstanceState>? evicted)
+    {
+        if (evicted is null) return;
+        foreach (var state in evicted) InstanceEvents.RunInstanceClosing(state);
     }
 
     /// <summary>A connection left the instance; the lifetime starts when the last one leaves.</summary>

@@ -131,6 +131,18 @@ public sealed partial class AccountStash
     /// data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
     public static AccountStash For(string account, ItemCatalog catalog) => Create(account, catalog, FirstInventoryId, FirstItemId, StarterTabs);
 
+    /// <summary>Shared league-wide storage key for <see cref="IPlayerWorld.LeagueData"/> (across all accounts in the league).</summary>
+    public static string LeagueKey(string? league)
+    {
+        string normalized = string.IsNullOrWhiteSpace(league) ? GameServer.Core.Accounts.LeagueCatalog.Standard : league.Trim();
+        return "league:" + normalized;
+    }
+
+    /// <summary>Shared league-wide module data container persisted in <c>characters.db</c>, shared across all accounts
+    /// and characters playing in <paramref name="league"/>.</summary>
+    public static AccountStash ForLeague(string? league, ItemCatalog catalog) =>
+        Create(LeagueKey(league), catalog, FirstInventoryId, FirstItemId, []);
+
     /// <summary>The guild stash of the account (no guilds yet: each account is its own guild), scoped to the full league.
     /// Standard retains the legacy "guild:&lt;account&gt;" key. SSF never opens or creates a guild stash.</summary>
     public static AccountStash ForGuild(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
@@ -396,7 +408,7 @@ public sealed partial class AccountStash
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
-    /// <summary>A module's saved text (IPlayerWorld.AccountData).</summary>
+    /// <summary>A module's saved text (IPlayerWorld.AccountData / IPlayerWorld.LeagueData).</summary>
     public string? ModuleData(string key) { lock (_lock) return _moduleData.GetValueOrDefault(key); }
 
     /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
@@ -410,6 +422,27 @@ public sealed partial class AccountStash
         Persist();
         return true;
     });
+
+    /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
+    public bool RemoveModuleData(string key) => Saves.Atomically(() =>
+    {
+        lock (_lock)
+            if (!_moduleData.Remove(key)) return false;
+        Persist();
+        return true;
+    });
+
+    /// <summary>Lists saved module data keys (optionally filtered by ordinal <paramref name="prefix"/>), sorted ordinally.</summary>
+    public IReadOnlyList<string> ModuleDataKeys(string? prefix = null)
+    {
+        lock (_lock)
+        {
+            IEnumerable<string> keys = _moduleData.Keys;
+            if (!string.IsNullOrEmpty(prefix))
+                keys = keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal));
+            return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];
+        }
+    }
 
     /// <summary>The league quest flags saved for the account's characters in this stash's league.</summary>
     public IReadOnlyList<int> LeagueQuestFlags { get { lock (_lock) return [.. _leagueQuestFlags]; } }

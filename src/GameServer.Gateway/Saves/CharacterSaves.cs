@@ -193,6 +193,31 @@ public static class CharacterSaves
         return true;
     }
 
+    /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
+    public static bool RemoveModuleData(string character, string key) => Saves.Atomically(() =>
+    {
+        var current = Look(character);
+        if (current?.ModuleData is null || !current.ModuleData.ContainsKey(key)) return false;
+        Update(character, s =>
+        {
+            if (s.ModuleData is null || !s.ModuleData.ContainsKey(key)) return s;
+            var next = new Dictionary<string, string>(s.ModuleData);
+            next.Remove(key);
+            return s with { ModuleData = next };
+        });
+        return true;
+    });
+
+    /// <summary>Lists saved module data keys for <paramref name="character"/> (optionally filtered by ordinal <paramref name="prefix"/>).</summary>
+    public static IReadOnlyList<string> ModuleDataKeys(string character, string? prefix = null)
+    {
+        if (Look(character)?.ModuleData is not { Count: > 0 } data) return [];
+        IEnumerable<string> keys = data.Keys;
+        if (!string.IsNullOrEmpty(prefix))
+            keys = keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal));
+        return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];
+    }
+
     /// <summary>A saved-vitals writer. Retired transfer owners retain their token so only that exact failed
     /// transfer can resume; a newer area's token can never be reclaimed by the old connection.</summary>
     public sealed record VitalsSession(Guid CharacterId, Guid SessionId, bool Retired = false);

@@ -302,3 +302,100 @@ public sealed record VendorQuoteResult(
     IReadOnlyList<GameServer.Core.Protocol.Instance.Item> Rewards,
     IReadOnlyList<string> Recipes,
     string? Error = null);
+
+/// <summary>The player died in an area (<see cref="GameEvents.PlayerDeath"/>), after death state and death screen presentation.</summary>
+public sealed record PlayerDiedContext(Player Player, byte DeathKind, int DeathCount, bool Hardcore, uint ExperienceLost = 0)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+}
+
+/// <summary>
+/// Offered vendor sale items evaluated by <see cref="GameEvents.VendorRecipe"/> subscribers before built-in vendor
+/// recipes and basic sale pricing run. Consumed counts reduce what later subscribers and built-in recipes see.
+/// </summary>
+public sealed class VendorRecipeContext
+{
+    readonly List<GameServer.Core.Protocol.Instance.InventoryItem> _offered;
+    readonly Dictionary<uint, int> _remaining;
+    readonly List<GameServer.Core.Protocol.Instance.Item> _rewards = [];
+    readonly List<string> _recipes = [];
+
+    public VendorRecipeContext(
+        Player player,
+        IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> offered,
+        ItemCatalog catalog,
+        Random random)
+    {
+        Player = player;
+        Catalog = catalog;
+        Random = random;
+        _offered = [.. offered];
+        _remaining = new Dictionary<uint, int>(_offered.Count);
+        foreach (var item in _offered)
+            _remaining[item.Id] = item.Item.StackSize;
+    }
+
+    public Player Player { get; }
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public ItemCatalog Catalog { get; }
+    public Random Random { get; }
+
+    /// <summary>All items originally offered in the sale window (check <see cref="Remaining"/> for unconsumed stacks).</summary>
+    public IReadOnlyList<GameServer.Core.Protocol.Instance.InventoryItem> Offered => _offered;
+
+    /// <summary>Rewards added by custom vendor recipes so far.</summary>
+    public IReadOnlyList<GameServer.Core.Protocol.Instance.Item> Rewards => _rewards;
+
+    /// <summary>Recipe names matched so far.</summary>
+    public IReadOnlyList<string> Recipes => _recipes;
+
+    /// <summary>Remaining unconsumed stack count for the offered item <paramref name="itemId"/>.</summary>
+    public int Remaining(uint itemId) => _remaining.GetValueOrDefault(itemId);
+
+    /// <summary>Consumes <paramref name="count"/> items from offered stack <paramref name="itemId"/>; false if insufficient.</summary>
+    public bool TryConsume(uint itemId, int count = 1)
+    {
+        if (count <= 0) return false;
+        if (_remaining.GetValueOrDefault(itemId) < count) return false;
+        _remaining[itemId] -= count;
+        return true;
+    }
+
+    /// <summary>Atomically consumes all requested <c>(ItemId, Count)</c> entries or consumes none and returns false.</summary>
+    public bool TryConsumeAll(IEnumerable<(uint ItemId, int Count)> items)
+    {
+        var needed = new Dictionary<uint, int>();
+        foreach (var (id, count) in items)
+        {
+            if (count <= 0) return false;
+            needed[id] = needed.GetValueOrDefault(id) + count;
+        }
+        if (needed.Count == 0) return false;
+        foreach (var (id, count) in needed)
+            if (_remaining.GetValueOrDefault(id) < count) return false;
+        foreach (var (id, count) in needed)
+            _remaining[id] -= count;
+        return true;
+    }
+
+    /// <summary>Adds a single reward item and records the matched recipe name.</summary>
+    public void AddReward(GameServer.Core.Protocol.Instance.Item item, string recipeName)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        _rewards.Add(item);
+        if (!string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
+    }
+
+    /// <summary>Adds multiple reward items and records the matched recipe name once.</summary>
+    public void AddRewards(IEnumerable<GameServer.Core.Protocol.Instance.Item> items, string recipeName)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        bool any = false;
+        foreach (var item in items)
+        {
+            _rewards.Add(item);
+            any = true;
+        }
+        if (any && !string.IsNullOrWhiteSpace(recipeName)) _recipes.Add(recipeName);
+    }
+}

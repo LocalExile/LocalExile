@@ -182,7 +182,7 @@ public sealed class VendorsModule : IModule
             try
             {
                 var quote = VendorsRules.VendorSales.Evaluate(offered, global::Game.AreaRng(player),
-                    basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier);
+                    basicSaleMultiplier: LeagueFor(player).Rules.VendorRewardMultiplier, player: player);
                 return new VendorQuoteResult(quote.Rewards, quote.Recipes);
             }
             catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or ArgumentException)

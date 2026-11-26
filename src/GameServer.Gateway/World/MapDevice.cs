@@ -18,8 +18,9 @@ public sealed class MapDevice
         CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
     public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
 
-    public static bool AcceptsItem(uint typeHash, string itemClass) =>
-        typeHash == CampaignMapHash || IsRecipeItem(typeHash) || AcceptsClass(itemClass);
+    public static bool AcceptsItem(uint typeHash, string itemClass, Player? player = null) =>
+        typeHash == CampaignMapHash || IsRecipeItem(typeHash) || AcceptsClass(itemClass)
+        || GameEvents.AllowsMapDeviceItem(player, typeHash, itemClass);
 
     /// <summary>ItemClasses Ids the slots take.</summary>
     public const string MapClass = "Map", MapKeyClass = "MapKey", FragmentClass = "MapFragment",
@@ -291,7 +292,7 @@ public sealed class MapDevice
             && AreaOfWorld(earlyRecipe) is { } earlyArea)
             return new Opening(earlyArea, mods is null ? MapMods.None : _runs.OfRecipe(earlyRecipe, mods),
                 slots.Count > 0 ? slots[0].BaseRow : 0);
-        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0) is { Class: not null } wrong)
+        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0 && !AcceptsItem(s.TypeHash, s.Class)) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;
