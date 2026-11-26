@@ -37,6 +37,7 @@ public static partial class Game
         // Changing Seasons lets any hit chill (all_damage_taken_can_chill), so a physical one is not skipped, and so does
         // physical damage taken as an element (PlayerDamageTaken.Shift).
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
+            || Get(Stat.ImmuneToElementalAilmentsWhileBleeding) != 0 && player.IncomingAilments.Bleeding(now)
             || !baseHit.Components.Concat(taken.Components).Any(c => DamageTypes.IsElemental(c.Type))
                 && !settings.AllDamageCanIgnite && !settings.AllDamageCanFreeze && !settings.AllDamageCanShock
                 && Get(Stat.AllDamageTakenCanChill) == 0) return;
@@ -63,6 +64,7 @@ public static partial class Game
     public static void ApplyPlayerAilmentsLocked(Player player, double now, Action<PlayerElementalAilments> apply)
     {
         if (player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0) return;
+        if (player.IncomingAilments.Bleeding(now) && PlayerStat(player, Stat.ImmuneToElementalAilmentsWhileBleeding) != 0) return;
         var previousAilments = player.ElementalAilments.Snapshot(now);
         double previousFreeze = player.ElementalAilments.FreezeStatusUntil(now);
         double previousAction = player.ElementalAilments.ActionFactor(now);
