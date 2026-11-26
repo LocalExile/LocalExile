@@ -85,14 +85,20 @@ public static class ShrineManager
                         greedChancePct: MapModsOf(player)?.Get(Stat.MapShrinesChanceToBeGreedShrinePct) ?? 0))
                         await Create(player, NewInstance(placed.Shrine, placed.X, placed.Y, placed.Rotation, placed.Model));
                 if (player.Instance is { } instance)
-                    foreach (var (key, value) in instance.ContentState.Where(p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)))
+                    foreach (var (key, value) in instance.ContentState.Where(p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)).ToArray())
                     {
                         var kept = JsonSerializer.Deserialize<KeptLesser>(value)!;
-                        if (kept.Until <= AreaTime(player)) { instance.ContentState.TryRemove(key, out _); continue; }
+                        uint id = uint.Parse(key["Shrines/lesser/".Length..]);
+                        if (kept.Until <= AreaTime(player))
+                        {
+                            instance.ContentState.TryRemove(key, out _);
+                            if (state.Area.Shown.Remove(id)) await SendWorldRemoval(player, id, null);
+                            continue;
+                        }
                         if (ShrineCatalog.Find(kept.Type) is not { Lesser: true } type) continue;
                         var lesser = NewInstance(type, kept.X, kept.Y, 0, null);
                         lesser.ExpiresAt = kept.Until;
-                        await Create(player, lesser, uint.Parse(key["Shrines/lesser/".Length..]));
+                        await Create(player, lesser, id);
                     }
             }
             foreach (var shrine in state.Instances.Values) await Present(player, shrine);

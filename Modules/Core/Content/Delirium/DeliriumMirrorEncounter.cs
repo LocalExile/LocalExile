@@ -148,7 +148,7 @@ public sealed class DeliriumMirrorEncounter
                 int seed = HashCode.Combine(MirrorX, MirrorY, Kills, nextTotal);
                 while (list.Count < desiredTiles)
                 {
-                    int pick = MirrorRewardPool[Math.Abs(seed = unchecked(seed * 31 + 17)) % MirrorRewardPool.Length];
+                    int pick = MirrorRewardPool[(int)((uint)(seed = unchecked(seed * 31 + 17)) % (uint)MirrorRewardPool.Length)];
                     if (list.Contains(pick)) pick = MirrorRewardPool.First(p => !list.Contains(p));
                     list.Add(pick);
                     pts.Add(0);
