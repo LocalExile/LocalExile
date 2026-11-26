@@ -16,7 +16,7 @@ public static partial class Game
         foreach (string effect in new[] { "EnsnaringArrow", "EnsnaringArrowAltX", "EnsnaringArrowAltY", "EnsnaringArrowRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, tetheringArrow, SkillProjectileParameters(effect, tetheringArrow));
         const string holyFlameProjectile = "Metadata/Projectiles/TotemHolyFireSpray";
-        foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX" })
+        foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX", "HolyFlameTotemRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, holyFlameProjectile,
                 SkillProjectileParameters(effect, holyFlameProjectile));
         const string frostBlade = "Metadata/Projectiles/IceStrikeProjectileNew";
@@ -26,7 +26,11 @@ public static partial class Game
         foreach (string effect in new[] { "GalvanicArrow", "GalvanicArrowAltX", "GalvanicArrowAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, galvanicArrow, SkillProjectileParameters(effect, galvanicArrow));
         const string ember = "Metadata/Projectiles/Ember";
-        definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
+        foreach (string effect in new[] { "BlazingSalvo", "BlazingSalvoRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, ember, SkillProjectileParameters(effect, ember));
+        foreach (string effect in new[] { "BallLightning", "BallLightningAltX", "BallLightningRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, PlayerBallLightningProjectile,
+                SkillProjectileParameters(effect, PlayerBallLightningProjectile));
         foreach (string effect in new[] { "ForbiddenRite", "ForbiddenRiteAltX" })
             definitions[effect] = SkillProjectileDefinition(effect, ForbiddenRitePrimary,
                 SkillProjectileParameters(effect, ForbiddenRitePrimary));
@@ -151,7 +155,9 @@ public static partial class Game
                 if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
-                if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
+                if (IsIceSpear(effect)) return IceSpearRelease(context, use);
+                if (effect == "BallLightningAltX") return ReleaseOrbitingBallLightning(context, use);
+                if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)) return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")
                 {
@@ -163,6 +169,7 @@ public static partial class Game
                     return use with { Profile = profile };
                 }
                 var shot = (ProjectileOffense)use.Payload!;
+                if (effect is "Soulrend" or "SoulrendAltY") return SoulrendRelease(context, use, shot, Get);
                 if (GatewayProjectileSkillProfiles.UnearthEffect(effect))
                 {
                     int level = Math.Clamp(context.Own(Stat.UnearthBaseCorpseLevel)
@@ -203,9 +210,15 @@ public static partial class Game
                 if (context.Own(Stat.EtherealKnivesBladeLeftInGroundForEveryXProjectiles) is > 0 and var every
                     && context.Own(Stat.MaximumNumberOfBladesLeftInGround) is > 0 and var maximum)
                 {
+                    if (context.NotHandCast || context.Get(Stat.IsNotHandCast) != 0)
+                    {
+                        // The native interval grows inversely with the number of blades left by proxies (0x1428affa0).
+                        long factor = 100L + context.Get(Stat.BladesLeftInGroundPlusPctFinalIfNotHandCast);
+                        every = factor > 0 ? (int)Math.Min(int.MaxValue, 100L * every / factor) : 0;
+                    }
                     double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration),
                         context.PlayerStat, context.Own);
-                    if (duration > 0)
+                    if (every > 0 && duration > 0)
                         return use with { Payload = shot with { GroundBlade = new(every, maximum, ProjectileRuntime.Time(duration)) } };
                 }
                 if (!GatewayProjectileSkillProfiles.IsFireball(metadata)) return use;

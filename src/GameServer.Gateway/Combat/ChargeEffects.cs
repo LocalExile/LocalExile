@@ -182,6 +182,17 @@ public static class ChargeEffects
         new(Stat.AdditionalMaximumAllResistancesPctWithNoEnduranceCharges, ChargeType.Endurance, true, [Stat.AdditionalMaximumAllResistancesPct]),
     ];
 
+    static readonly HashSet<uint> ConditionalStats = [.. Conditional.Select(c => c.Stat)];
+
+    /// <summary>True if <paramref name="stats"/> contains any expandable per-charge or conditional charge stat.</summary>
+    public static bool HasAny(IReadOnlyDictionary<uint, int> stats, IReadOnlySet<uint>? extra = null)
+    {
+        foreach (uint key in stats.Keys)
+            if (Expanded.Contains(key) || ConditionalStats.Contains(key) || (extra?.Contains(key) ?? false))
+                return true;
+        return false;
+    }
+
     /// <summary>
     /// What the charges held add to the character's stats (<paramref name="get"/>: passives, items and auras with
     /// <see cref="Inherent"/>; <paramref name="held"/>: the effective count per type, Charges.State.Effective), by
@@ -195,7 +206,7 @@ public static class ChargeEffects
     /// count (none without it).
     /// </summary>
     public static Dictionary<uint, int> Expand(Func<uint, int> get, Func<ChargeType, int> held, Func<ChargeType, bool>? converted = null,
-        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null)
+        IEnumerable<Rule>? rules = null, Func<ChargeType, int>? maximum = null, bool includePhysicalReduction = true)
     {
         var added = new Dictionary<uint, int>();
         void Add(uint stat, long value)
@@ -217,7 +228,8 @@ public static class ChargeEffects
         foreach (var c in Conditional)
             if (get(c.Stat) is int value and not 0 && (Standard(c.Type) == 0) == c.WhenNone)
                 foreach (uint target in c.Targets) Add(target, value);
-        Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
+        if (includePhysicalReduction)
+            Add(AdditionalPhysicalReduction, (long)get(PhysicalReduction) + added.GetValueOrDefault(PhysicalReduction));
         return added;
     }
 

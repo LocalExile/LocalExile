@@ -21,7 +21,10 @@ public static partial class Game
 
     public sealed record ProjectileReleaseContext(Player Player, ProjectileSession Session, ushort SkillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem,
-        int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own);
+        int Variation, Func<uint, int> Get, Func<uint, int> PlayerStat, Func<uint, int> Own)
+    {
+        internal bool NotHandCast { get; init; }
+    }
 
     public sealed record ProjectilePresentation
     {

@@ -136,6 +136,24 @@ public static class InstanceHideoutEditing
     public static byte[] RebuildCollision() =>
         new GameServer.Core.Protocol.Login.LoginWriter().U16(0x161).U32(0).U32(0).U16(0).ToArray();
 
+    /// <summary>S→C 0x214 (vtable 0x1435e6ea0, write 0x1421b2a70, read 0x1421b2b00, dispatcher case 0xa1 at
+    /// 0x142159e5d): syncs in-use bit 0 on personal (+0xd618) or guild (+0xd630) hideout decoration MTX records.
+    /// Wire: u16 BE 0x0214, u16 BE hideoutId, u8 inUse (bool), u16 BE count, count × u32 BE recordId.</summary>
+    public const ushort InUseDecorationsId = 0x214;
+
+    public static byte[] InUseDecorations(ushort hideoutId, bool inUse, IReadOnlyList<uint> recordIds)
+    {
+        if (recordIds.Count > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(recordIds), recordIds.Count, "0x0214 counts record ids in u16");
+        var w = new GameServer.Core.Protocol.Login.LoginWriter()
+            .U16(InUseDecorationsId)
+            .U16(hideoutId)
+            .Bool(inUse)
+            .U16((ushort)recordIds.Count);
+        foreach (uint id in recordIds) w.U32(id);
+        return w.ToArray();
+    }
+
     /// <summary>S→C / C→S 0x0213 (class 0x1435ca770, writer 0x141fa3630 → 0x141fab3f0, reader 0x141fa36e0 → 0x141fab5f0):
     /// hideout template export/import. u16 BE hideout_hash (Hideouts.HASH16), u16 BE music_hash (Music.HASH16, 0 = default),
     /// u8 environment, u16 BE count, count × (u32 BE MtxTypeGameSpecific.HASH32, u16 BE x, u16 BE y, u16 BE rotation, u8 fv).</summary>

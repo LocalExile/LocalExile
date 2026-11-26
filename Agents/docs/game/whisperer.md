@@ -1,10 +1,10 @@
 # Whisperer
 
-Whisperer is the Phrecia `Deadeye@3.29.3b` capability in
-`Modules/Legacy/PhreciaAscendancies/Classes/Whisperer`.
+Whisperer is the Phrecia `Deadeye@3.29.3b` capability in the mod `phreciaascendancies` (LocalExile-Mods),
+`Classes/Whisperer`.
 The actual Ascendancy catalog row is 4, Characters row 3 (Ranger), BaseClass 2, ClassNo 2, start 56856.
 The displayed name is not its stable ID; normal Deadeye remains a separate family.
-Admission requires `PhreciaAscendancies` in the league and `Game_VERIFIED_WHISPERER=1`.
+Admission requires `phreciaascendancies` in the league and `Game_VERIFIED_WHISPERER=1`.
 The existing policy verifies the reviewed ordinary/combined graph hashes in `data/game-files.zip` read-only.
 That extracted pack attests its captured bytes, not a subsequently modified native installation.
 No runtime GGPK decoder, client directory, archive installation or archive repair is introduced.
@@ -12,7 +12,7 @@ Idols remains independent.
 
 ## Ownership and consumers
 
-The optional module supplies the exact descriptor and mode-aware allocated node stats through the current policy.
+The mod supplies the exact descriptor and mode-aware allocated node stats through the current policy.
 It owns no autonomous class worker.
 Reusable Mana, Recoup, spending and Blind rules live in `Modules/Core/Game` and also accept ordinary/item sources.
 Gateway only exposes an opaque transfer-capable resource slot, a keyed lifetime lease, synchronous cleanup,

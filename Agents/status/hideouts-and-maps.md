@@ -5,7 +5,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Works (verified with the real client)
 
-- Idols (Legacy of Phrecia): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
+- Idols (Legacy of Phrecia; the mod `idols` in LocalExile-Mods): they drop in maps, the 41 unique ones too, can be gambled at Faustus, lie in the Atlas screen's side panel and add their modifiers to the maps opened.
   The 3.29.3 clients have no Idol panel, so the Idol inventory is the map device's storage grid: 4 by 5 cells, one loadout.
   Docs: [Idols](../docs/game/idols.md).
 - Heist Locker is placed in each hideout and opens its native window (0x7b kind 0x37).
@@ -203,7 +203,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   seeds; Corpse-Grown (Faridun) seeds replace Tier 3 seeds wherever `map_harvest_%_chance_for_faridun_seed` is granted.
   Tier 4 bosses drop the Sacred Blossom, which opens `HarvestLeagueBoss`: the soul tree starts Oshabi's four colour
   phases (Sacred first) and their adds, the Root Wall cage held by the walls' bodies (sent unblocked); her death sets
-  `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The opt-in Legacy module `HarvestHeartOfTheGrove` (3.13) rarely puts her in a map's grove.
+  `HarvestOshabiDefeated`, opens the Groveseed Altar (Oshabi Bloodline) and drops her world.db rewards. The 3.13 Heart of the Grove, which rarely puts her in a map's grove, is the mod `harvestheartofthegrove` in LocalExile-Mods.
   Live 2026-11-18 (tier 16 Cage): the gate labelled "The Sacred Grove" leads in and back; the grove needs the client's
   HarvestRules ruleset (S→C 0x1f), without which an Extractor crashes the client once targetable; a Collector shows its
   seed list, one click hatched 23 Vivid monsters and withered the pair, and their lifeforce reached the Horticrafting
@@ -252,6 +252,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Decorations panel loads its list in the owner's hideout (0x21 own-hideout bit; it stayed on "Loading…" without it,
   live 2026-11-22). Placing (`C→S 0x59` by owned record, `0x5a` by hash), deleting (`0x5c` Delete key, `0x5d`) and
   resetting (`0x5e`) custom decorations, capped at 750, are saved per account; pets stand as ownerless pet objects.
+  Entry, placement, removal, layout import (`0x0213`), and reset emit `S→C 0x0214` in-use decoration record updates.
   A placed map device variant replaces the working device, with its button from MapDevices.dat, a blocker that stops
   short of the button, and its model's own portal places or ring radius; the Puzzle Cube is refused.
   `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),

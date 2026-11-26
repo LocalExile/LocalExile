@@ -775,9 +775,12 @@ public static partial class Game
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
 
-        bool Wall(int x, int y) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
+        bool Wall(int x, int y) => Wall(x, y, 1);
+
+        bool Wall(int x, int y, int clearance) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
             || Player.Layout.GridH > 0 && y >= Player.Layout.GridH
-            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y) == true || Player.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y, clearance) == true
+            || Player.ProjectileWalls.Contains((x, y));
 
         int? Height(int x, int y)
         {
@@ -810,17 +813,28 @@ public static partial class Game
             if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
             if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
                 return null;
-            if (ProjectileAimHeight.Primary(p.Use.Origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height) is not { } primary)
+            var origin = p.Use.Origin;
+            ProjectileAimHeight.Ray? primary = p.Profile.TerrainSteps is { } steps
+                ? Height((int)Math.Round(origin.X), (int)Math.Round(origin.Y)) is int ground
+                    ? new(origin, p.Direction, ground + steps.LaunchHeight, 0) : null
+                : ProjectileAimHeight.Primary(origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height);
+            if (primary is not { } launch)
                 return null;
-            var ray = primary.WithLeg(p.Position, p.Direction);
+            var ray = launch.WithLeg(p.Position, p.Direction);
             flightRays[p.Id] = ray;
             return ray;
         }
 
-        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
-            FlightRayFor(p) is { } ray
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to)
+        {
+            var rayForFlight = FlightRayFor(p);
+            if (p.Phase == 0 && p.Profile.TerrainSteps is { } steps && p.TerrainLeg is { } leg)
+                return ProjectileGeometry.TraceTerrainSteps(leg.Start, leg.Target, from, to,
+                    (x, y) => Wall(x, y, steps.Clearance) || rayForFlight?.Blocks(x, y, Height) == true);
+            return rayForFlight is { } ray
                 ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ray.Blocks(x, y, Height))
                 : TraceTerrain(from, to);
+        }
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
@@ -835,6 +849,11 @@ public static partial class Game
                 return ProjectileHitResult.Miss;
             if (!Player.Area.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Player, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
+            if (contact.Stage == SoulrendPulseStage && shot.Soulrend is { } soulrend)
+                return ApplySoulrendDamage(Player, contact.Target.Id, target, soulrend,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+            if (contact.Stage == FleshrendPulseStage && shot.Fleshrend is { } fleshrend)
+                return ApplyFleshrendDamage(contact, target, fleshrend);
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
             if (MonsterAvoidsProjectile(target, random)) return ProjectileHitResult.Miss;
@@ -882,7 +901,17 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats, spider.Local) : default;
+            TargetContact conditional = default;
+            if (shot.Spider is { } spider)
+            {
+                conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
+                long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
+                    + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
+                conditional = conditional with
+                {
+                    HitIncrease = conditional.HitIncrease + trajectoryIncrease,
+                };
+            }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
@@ -928,20 +957,28 @@ public static partial class Game
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var hitRolls = HitRollsFor(player);
+            var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
+                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted).ForWeapon(shot.WeaponLocal);
+            long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(player, shot.SkillStats);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
-                    .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
-                    .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
+                GameEvents.WithOutgoingDamage(Player, player, target,
+                    damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
             rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
-            int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
+            bool secondForm = contact.Projectile.Form > 0;
+            var formCrit = secondForm ? shot.SecondFormOptions : null;
+            int chance = secondForm && shot.SecondFormCriticalChance is int second
+                ? CriticalChanceOn(Player, contact.Target.Id, second, formCrit?.VsBlinded, formCrit?.VsGround)
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
+            rolled = damageRoll.CompleteCriticalMultiplier(rolled, random, critical, criticalDoubleDamage);
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
-            int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
+            int criticalMultiplier = formCrit?.MultiplierPlus is int bonus and not 0
+                ? ActorScale.Saturate((long)shot.CriticalMultiplier + bonus) : shot.CriticalMultiplier;
+            int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
@@ -952,18 +989,21 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+            bool ownHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage;
+            int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
                 resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
-                additionalTakenPct: additionalTaken);
+                additionalTakenPct: additionalTaken, additionalElementalTakenPct: witheredElemental);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
-                additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
+            int directDamage = damage;
+            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage, takenRules);
             bool immune = target.Invulnerable;
             if (shot.FromMine)
-                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id, takenRules);
             else if (!shot.FromTrapOrMine)
-                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                LeechOnHitTargetLocked(Player, target,
+                    MonsterTakenComponents(target, mitigated, shot.Spell, at, takenRules), damage,
                     shot.Leech, contact.Target.Id);
             if (!immune)
             {
@@ -980,6 +1020,7 @@ public static partial class Game
                 cullPlayer: null, chaosDamage: chaosDamage,
                 preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (shot.FromTotem && !immune) LeechFromTotemHitLocked(Player, target, directDamage, at, player);
             if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
@@ -993,7 +1034,8 @@ public static partial class Game
                 CrueltyOnHitLocked(Player, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Player, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
-            else ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            else if (!shot.FromTrapOrMine)
+                ArcaneSurgeOnSpellHitLocked(Player, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -1019,19 +1061,24 @@ public static partial class Game
                 SacredWispsOnHit(shot);
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
+            if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
+                && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage
+                && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect)))
+                CaptureAttackKillExplosionLocked(target, player);
             if (!immune)
             {
                 var emitterTotem = shot.FromTotem
                     ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
                     : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
-                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    WithWeaponAilmentStats(shot.SkillStats, weaponLocal, offHand: shot.OffHandWeapon),
+                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea);
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
@@ -1129,8 +1176,8 @@ public static partial class Game
             else if (value.Kind == ProjectileEventKind.Redirect && flightRays.TryGetValue(p.Id, out var prevRay))
             {
                 double currentSteps = prevRay.StepsAt(p.Position);
-                if (p.Phase > 0 && p.Use.ReturnAnchor is { } anchorKey && Actor(anchorKey, value.At) is { } anchor)
-                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, anchor.Position(value.At), currentSteps, Height)
+                if (p.Phase > 0 && p.Use.ReturnPosition(this, value.At) is { } destination)
+                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, destination, currentSteps, Height)
                         ?? prevRay.WithLeg(p.Position, p.Direction);
                 else
                     flightRays[p.Id] = new ProjectileAimHeight.Ray(p.Position, p.Direction.Unit, currentSteps, 0);
@@ -1417,7 +1464,7 @@ public static partial class Game
                 startHeight = arc.Height(fraction);
             }
             if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlight(p, p.Position, end) is { } wall)
-                end = p.Position + (end - p.Position) * wall.Fraction;
+                end = wall.StopPosition ?? p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)

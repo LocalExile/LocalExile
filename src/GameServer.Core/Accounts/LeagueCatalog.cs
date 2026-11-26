@@ -39,13 +39,35 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
 
     /// <summary>Optional LeagueCategory id sent in S→C 0x1b LeagueEntry.C1 (+0xc1), configured per league in league.json.</summary>
     public byte LaunchCategory { get; init; }
+    /// <summary>Private league flag (S→C 0x1b Flags0 bit 0 and Flags2 bit 0 for login+0xe58 pagination count).</summary>
+    public bool Private { get; init; }
+    /// <summary>Optional password for a private league, verified against C→S 0x12 PasswordDigest (SHA-256 of UTF-16LE).</summary>
+    public string? Password { get; init; }
+    /// <summary>Optional league timestamps (Unix seconds) written into S→C 0x1b +0xd0, +0xd8, +0xc8 when non-zero.</summary>
+    public long StartTimeUnix { get; init; }
+    public long EndTimeUnix { get; init; }
+    public long RegisterTimeUnix { get; init; }
+
+    public bool PasswordMatches(ReadOnlySpan<byte> digest)
+    {
+        if (string.IsNullOrEmpty(Password)) return true;
+        return digest.Length == 32
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(digest, AccountService.ClientPasswordDigest(Password));
+    }
 
     /// <summary>The S→C 0x1b entry. Main leagues get a card on the create screen; variants are reached through its check
     /// boxes. The client has one check box for a league form, and its wire names call it Ruthless.</summary>
-    public LeagueEntry Entry() => new(Name, Description, SsfParent, HardcoreParent, FormParent, 0, 0, 0,
-        (byte)((IsMain ? LeagueEntry.Main : 0) | (Hardcore ? LeagueEntry.Hardcore : 0)),
-        (byte)((IsMain ? 0 : LeagueEntry.Variant) | (Form is not null ? LeagueEntry.Ruthless : 0)),
-        0, 0, LaunchCategory, 0xd1);
+    public LeagueEntry Entry()
+    {
+        bool timed = EndTimeUnix > 0 || RegisterTimeUnix > 0;
+        byte flags0 = (byte)((Private ? LeagueEntry.Private : 0) | (Hardcore ? LeagueEntry.Hardcore : 0)
+            | (timed ? LeagueEntry.Timed : 0) | (IsMain ? LeagueEntry.Main : 0));
+        byte flags1 = (byte)((IsMain ? 0 : LeagueEntry.Variant) | (Form is not null ? LeagueEntry.Ruthless : 0));
+        byte flags2 = Private ? LeagueEntry.PrivateCounted : (byte)0;
+        return new(Name, Description, SsfParent, HardcoreParent, FormParent,
+            (ulong)Math.Max(0, StartTimeUnix), (ulong)Math.Max(0, EndTimeUnix), (ulong)Math.Max(0, RegisterTimeUnix),
+            flags0, flags1, flags2, 0, LaunchCategory, 0xd1);
+    }
 }
 
 /// <summary>
@@ -181,6 +203,7 @@ public sealed class LeagueCatalog
         string? Text(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool Flag(string n, bool or = false) => r.TryGetProperty(n, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : or;
         byte Byte(string n, byte or = 0) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetByte(out byte b) ? b : or;
+        long Int64(string n, long or = 0) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out long l) ? l : or;
         string name = Text("name") ?? folderName;
         string? entryOf = Text("entryOf"), kind = Text("entryKind");
         // Beside league.json: the modules the league loads.
@@ -197,6 +220,8 @@ public sealed class LeagueCatalog
             Parent = Text("parent"), EntryOf = entryOf, CardText = Text("description"), DeathLeague = Text("deathLeague"),
             Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), Modules = [.. listed, .. mods],
             LaunchCategory = Byte("launchCategory"), Mods = mods,
+            Private = Flag("private"), Password = Text("password"),
+            StartTimeUnix = Int64("startTime"), EndTimeUnix = Int64("endTime"), RegisterTimeUnix = Int64("registerTime"),
         };
     }
 
@@ -230,5 +255,20 @@ public sealed class LeagueCatalog
     public League? ResolveSavedLeague(string? name) => name is null ? null : FindLoaded(name)
         ?? new League(name, name, false, false) { Loaded = false };
 
+    /// <summary>Ended (past) loaded leagues, available for past-league filtering and migration.</summary>
+    public IReadOnlyList<League> PastLeagues => [.. Loaded.Where(l => l.Ended)];
+
     public IReadOnlyList<LeagueEntry> Entries() => [.. All.Select(l => l.Entry())];
+
+    /// <summary>Private creatable leagues sliced for C→S 0x1c pagination (offset = client's login+0xe58 count).</summary>
+    public IReadOnlyList<LeagueEntry> PrivateEntries(int offset = 0, int? limit = null)
+    {
+        if (limit is <= 0) return [];
+        IEnumerable<League> q = All.Where(l => l.Private);
+        if (offset > 0) q = q.Skip(offset);
+        if (limit is int take) q = q.Take(take);
+        return [.. q.Select(l => l.Entry())];
+    }
+
+    public IReadOnlyList<LeagueEntry> PastEntries() => [.. PastLeagues.Select(l => l.Entry())];
 }

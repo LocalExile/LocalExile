@@ -274,7 +274,7 @@ public static partial class Game
         {
             player.Minions.OutputQueue.Add(new([], "minion takes reflected physical damage", g.Id, m, PlayerMinions.OutputKind.Life));
             if (m.Life == 0) GolemDieLocked(player, g, now);
-            else MinionInstabilityLocked(player, g, now);
+            else if (!MinionInstabilityLocked(player, g, now)) ShatteringIceGolemBurstLocked(player, g, now);
             return true;
         }
         StealMapChargesLocked(player, attacker, source, g, now, random);
@@ -307,13 +307,7 @@ public static partial class Game
             angle: HitAngle(to.X - from.X, to.Y - from.Y)), null, g.Id, m, WorldId: attacker));
         player.Minions.OutputQueue.Add(new([], "golem takes damage", g.Id, m, PlayerMinions.OutputKind.Life));
         if (m.Life == 0) GolemDieLocked(player, g, now);
-        else if (MinionInstabilityLocked(player, g, now)) return true;
-        else if (g.Definition.Kind == "Ice" && g.Definition.Special && !g.DeathBurstDone && m.Life * 2L <= m.MaxLife)
-        {
-            g.DeathBurstDone = true;
-            if (g.Abilities.FirstOrDefault(a => a.Effect == 4839) is { } death)
-                GolemReserveLocked(player, g, death, 0, null, m.Walk.Position(now), now);
-        }
+        else if (MinionInstabilityLocked(player, g, now) || ShatteringIceGolemBurstLocked(player, g, now)) return true;
         else if (!attack.Secondary && source.Effects[Stat.CannotStun] == 0
             && !(critical && mitigated[DamageType.Cold].Min > 0)
             && HitReaction.TryFlinch(m, MinionIncomingStun(source, attack, damage, mitigated), now, random))
@@ -321,6 +315,16 @@ public static partial class Game
             g.Pending = null; g.Pulses.RemoveAll(p => p.Follows);
             player.Minions.OutputQueue.Add(new([], null, g.Id, m, PlayerMinions.OutputKind.Flinch, Until: m.FlinchUntil, Action: m.ActionGeneration));
         }
+        return true;
+    }
+
+    static bool ShatteringIceGolemBurstLocked(Player player, GolemState.Golem g, double now)
+    {
+        if (g.Definition.Kind != "Ice" || !g.Definition.Special || g.DeathBurstDone
+            || g.Monster.Life * 2L > g.Monster.MaxLife
+            || g.Abilities.FirstOrDefault(a => a.Effect == 4839) is not { } burst) return false;
+        g.DeathBurstDone = true;
+        GolemReserveLocked(player, g, burst, 0, null, g.Monster.Walk.Position(now), now);
         return true;
     }
 

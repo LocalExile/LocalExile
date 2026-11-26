@@ -167,6 +167,7 @@ public static partial class Game
             && CrueltyDotStat is var crueltyKey)
             own[crueltyKey] = own.GetValueOrDefault(crueltyKey) + crueltyPct;
         ApplyBloodAndSandMeleeStats(player, selected.Effect, own);
+        ApplyLacerateBleed(player, selected.Effect, own);
         if (SkillsFor(player).IsAura(selected.Effect, supports.Select(s => s.Effect.Row)))
             own[OwnAuraRestriction.BaseAura] = 1;
         own[OwnAuraRestriction.Aura] = OwnAuraRestriction.IsAura(own) ? 1 : 0;
@@ -324,14 +325,6 @@ public static partial class Game
         foreach (uint stat in new[] { Stat.ManaCost, Stat.BaseManaCost, Stat.LifeCost, Stat.BaseLifeCost, Stat.EsCost, Stat.BaseEsCost,
             Stat.ManaCostPerMinute, Stat.BaseManaCostPerMinute, Stat.BaseManaCostPctPerMinute, Stat.BaseRageCost, Stat.TotalBaseRageCost })
             if (stat is var k && own.TryGetValue(k, out int cost)) own[k] = (int)Math.Floor(cost * costMultiplier);
-        // Global added damage on support gems applies to this skill, not to the character or other link groups.
-        foreach (string type in new[] { "physical", "fire", "cold", "lightning", "chaos" })
-            foreach (string bound in new[] { "minimum", "maximum" })
-                if (Stats.Key($"global_{bound}_added_{type}_damage") is uint k && own.TryGetValue(k, out int damage))
-                    foreach (string kind in new[] { "attack", "spell" })
-                        if (Stats.Key($"{kind}_{bound}_added_{type}_damage") is uint target)
-                            own[target] = own.GetValueOrDefault(target) + damage;
-
     }
 
     // The Squire ("Socketed Support Gems can also Support Skills from your Main Hand"): every support gem in an active
@@ -393,7 +386,7 @@ public static partial class Game
         MergeSkillStatsInto(playerStats.GetValueOrDefault, (key, value) => playerStats[key] = value,
             WithManaPoolCost(player, skill, WithBlessingCost(player, skill), ManaCostPool(player, skill)),
             skills.IsChannelled(skill.Effect), SkillCostMore(player, skill.Stats),
-            CostEfficiencyFor(skills, skill.Effect));
+            SkillCostScopeFor(skills, skill));
         return playerStats;
     }
 
@@ -420,13 +413,15 @@ public static partial class Game
     }
 
     [Flags]
-    enum CostEfficiency { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8 }
+    enum SkillCostScope { None = 0, Spell = 1, Curse = 2, Spectre = 4, Minion = 8, Trap = 16, Mark = 32 }
 
-    static CostEfficiency CostEfficiencyFor(SkillCatalog skills, int effect) =>
-        (skills.IsSpell(effect) ? CostEfficiency.Spell : CostEfficiency.None)
-        | (skills.HasType(effect, "AppliesCurse") ? CostEfficiency.Curse : CostEfficiency.None)
-        | (skills.EffectId(effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? CostEfficiency.Spectre : CostEfficiency.None)
-        | (skills.HasType(effect, "Minion") ? CostEfficiency.Minion : CostEfficiency.None);
+    static SkillCostScope SkillCostScopeFor(SkillCatalog skills, SupportedGem skill) =>
+        (skills.IsSpell(skill.Effect) ? SkillCostScope.Spell : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "AppliesCurse") ? SkillCostScope.Curse : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "Mark") ? SkillCostScope.Mark : SkillCostScope.None)
+        | (skills.EffectId(skill.Effect) is "RaiseSpectre" or "RaiseSpectreAltX" ? SkillCostScope.Spectre : SkillCostScope.None)
+        | (skills.HasType(skill.Effect, "Minion") ? SkillCostScope.Minion : SkillCostScope.None)
+        | (PlacedKind(skill).Trap ? SkillCostScope.Trap : SkillCostScope.None);
 
     static double SkillCostMore(Player player, IReadOnlyDictionary<uint, int> own)
     {
@@ -445,13 +440,13 @@ public static partial class Game
 
     public static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
         bool? channelled = null, double costMore = 1) =>
-        MergeSkillStats(player, own, channelled, costMore, CostEfficiency.None);
+        MergeSkillStats(player, own, channelled, costMore, SkillCostScope.None);
 
     static Dictionary<uint, int> MergeSkillStats(IReadOnlyDictionary<uint, int> player, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, CostEfficiency efficiency)
+        bool? channelled, double costMore, SkillCostScope scope)
     {
         var result = new Dictionary<uint, int>(player);
-        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, efficiency);
+        MergeSkillStatsInto(result.GetValueOrDefault, (key, value) => result[key] = value, own, channelled, costMore, scope);
         return result;
     }
 
@@ -459,10 +454,10 @@ public static partial class Game
     /// until the skill's wrote it), <paramref name="write"/> sets one. Only the skill's own stats and its costs are written.</summary>
     public static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
         bool? channelled = null, double costMore = 1) =>
-        MergeSkillStatsInto(read, write, own, channelled, costMore, CostEfficiency.None);
+        MergeSkillStatsInto(read, write, own, channelled, costMore, SkillCostScope.None);
 
     static void MergeSkillStatsInto(Func<uint, int> read, Action<uint, int> write, IReadOnlyDictionary<uint, int> own,
-        bool? channelled, double costMore, CostEfficiency efficiency)
+        bool? channelled, double costMore, SkillCostScope scope)
     {
         foreach (var (key, value) in own)
         {
@@ -475,15 +470,20 @@ public static partial class Game
             write(key, replace ? value : ArcaneMight.IsGrant(key)
                 ? ArcaneMight.Combine(key, read(key), value) : read(key) + value);
         }
-        long conditionalEfficiency = ((efficiency & CostEfficiency.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
-            + ((efficiency & CostEfficiency.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
-            + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
+        if ((scope & SkillCostScope.Trap) != 0 && read(Stat.TrapThrowSkillsHaveBloodMagic) > 0)
+            write(Stat.SkillCostLifeInsteadOfMana, 1);
+        if ((scope & SkillCostScope.Curse) != 0 && read(Stat.CurseSkillsCostLifeInsteadOfMana) > 0)
+            write(Stat.SkillCostLifeInsteadOfMana, 1);
+        long conditionalEfficiency = ((scope & SkillCostScope.Spell) != 0 ? (long)read(Stat.BaseSpellManaCostEfficiencyPlusPct) : 0)
+            + ((scope & SkillCostScope.Curse) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfCurseSkills) : 0)
+            + ((scope & SkillCostScope.Mark) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMarkSkills) : 0)
+            + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.BaseManaCostEfficiencyPlusPctOfMinionSkills) : 0);
         if (conditionalEfficiency != 0)
             write(ItemChargeCosts.ManaEfficiency, ActorScale.Saturate(read(ItemChargeCosts.ManaEfficiency) + conditionalEfficiency));
         if (Stat.ManaCost is var mana && own.TryGetValue(mana, out int baseCost))
         {
-            long scopedCost = ((efficiency & CostEfficiency.Spectre) != 0 ? (long)read(Stat.RaiseSpectreManaCostPlusPct) : 0)
-                + ((efficiency & CostEfficiency.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
+            long scopedCost = ((scope & SkillCostScope.Spectre) != 0 ? (long)read(Stat.RaiseSpectreManaCostPlusPct) : 0)
+                + ((scope & SkillCostScope.Minion) != 0 ? read(Stat.MinionSkillManaCostPlusPct) : 0);
             int ManaInput(uint name) => name == Stat.ManaCostPlusPct
                 ? ActorScale.Saturate(read(name) + scopedCost) : read(name);
             write(mana, ManaRecoveryRules.Cost(baseCost, ManaInput, channelled, costMore));
@@ -521,7 +521,7 @@ public static partial class Game
         if (!SkillsFor(player).IsAttack(gem.Effect) || !SkillsFor(player).IsMelee(gem.Effect)
             || SkillsFor(player).IsChannelled(gem.Effect)
             || Stat(global::Stat.DisableAttackRepeats) != 0 || Stat(global::Stat.DisableSkillRepeats) != 0) return 0;
-        if (SkillsFor(player).EffectId(gem.Effect) == "VaalSweep")
+        if (SkillsFor(player).EffectId(gem.Effect) is "VaalSweep" or VaalReaveEffect)
             return Math.Clamp(gem.Stats.GetValueOrDefault(global::Stat.BaseAttackRepeatCount), 0, 64);
         return Math.Clamp(global::Stat.BaseMeleeAttackRepeatCount is var key
             ? gem.Stats.GetValueOrDefault(key) : 0, 0, 3);
@@ -659,6 +659,8 @@ public static partial class Game
             // Vicious Projectiles: "10% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportProjectileAttackSpeedPlusPctFinal) / 100.0);
         if (proxy) more *= Math.Max(.01, 1 + Get(Stat.SupportAttackTotemAttackSpeedPlusPctFinal) / 100d);
+        if (!proxy && Get(Stat.CycloneAttackSpeedPlusPctFinalPerStage) is int cycloneSpeed and not 0)
+            more *= Math.Max(.01, 1 + cycloneSpeed * (double)CycloneStageCount(player, skillId) / 100);
         if (!proxy && gem.Stats.GetValueOrDefault(Stat.DoubleStrikeAttackSpeedPlusPctFinalPerStage) is int stageSpeed and not 0)
         {
             int stages = doubleStrikeStages ?? DoubleStrikeStageCount(player, AreaTime(player));
@@ -819,7 +821,10 @@ public static partial class Game
         var skills = SkillsFor(player);
         int manaPool = ManaCostPool(player, gem);
         var stats = MergeSkillStats(caster, WithManaPoolCost(player, gem, gem.Stats, manaPool),
-            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), CostEfficiencyFor(skills, gem.Effect));
+            skills.IsChannelled(gem.Effect), SkillCostMore(player, gem.Stats), SkillCostScopeFor(skills, gem));
+        if (gem.Stats.Count > 0 && ExpandSkillChargeStats(player, caster, gem.Stats) is { Count: > 0 } expanded)
+            foreach (var (stat, bonus) in expanded)
+                stats[stat] = ActorScale.Saturate((long)stats.GetValueOrDefault(stat) + bonus);
         if (manaPool >= 0)
         {
             AddManaPoolDamage(Stat.ArchmageGainLightningDamagePctOfMaxUnreservedMana,
@@ -915,6 +920,7 @@ public static partial class Game
         bool secondary = plan.Kind == SkillHitKind.Secondary;
         var attackWeapon = attack ? weapon ?? WeaponFor(player) : null;
         var coefficients = SkillsFor(player).DamageCoefficients(gem.Effect, gem.Level);
+        int attackAccuracy = attackWeapon is null || secondary ? 0 : WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect);
         var spellBase = secondary || attackWeapon is null
             ? plan.SpellBaseWith(Get) : GameServer.Core.World.DamagePacket.Empty;
         if (GatewayProjectileSkillProfiles.IsForbiddenRite(skills.EffectId(gem.Effect)))
@@ -928,7 +934,7 @@ public static partial class Game
         }
         var raw = secondary ? SecondaryRawHit(player, gem, spellBase, Get)
             : attackWeapon is not null
-            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(WeaponAccuracyFor(player, weapon, caster, gem.Stats, gem.Effect)),
+            ? SupportedAttackDamage.Raw(attackWeapon, Get, new(attackAccuracy),
                 coefficients.Base, coefficients.Added, melee: types.Contains(19) && !SkillsFor(player).RequiresShield(gem.Effect))
             : DamageStats.RawAdded(spellBase, Get, spell: true, AddedEffectiveness(player, gem.Effect, gem.Level));
         if (!attack && !secondary && gem.Stats.GetValueOrDefault(Stat.SpellBaseFireDamagePctMaximumLife) is int lifePct and > 0)
@@ -1001,12 +1007,14 @@ public static partial class Game
             raw = raw.Scale(Math.Max(0, 1 + magmaMore / 100d));
         if (gem.Stats.GetValueOrDefault(Stat.ActiveSkillDamagePlusPctFinal) is int skillDamage and not 0)
             raw = raw.Scale(Math.Max(0, 1 + skillDamage / 100d));
+        if (gem.Stats.GetValueOrDefault(Stat.UniqueReplicaTheStampedeTravelSocketedSkillDamagePlusPctFinal) is int travelDamage and not 0)
+            raw = raw.Scale(Math.Max(0, 1 + travelDamage / 100d));
         var modifiers = gem.Supports.SelectMany(s => s.Stats).Select(s => (s.Key, s.Value)).ToList();
         modifiers.AddRange(gem.Stats.Where(s => s.Key == Stat.BloodSandStanceMeleeSkillsAreaDamagePlusPctFinal).Select(s => (s.Key, s.Value)));
         // Elemental Overload's per-skill window (see WithElementalOverload): this skill's hits and ailments, including a
         // totem's or a trap's use of it, gain the bonus while its own eight-second crit window is open.
         if (HasElementalOverload(stats)) AddElementalOverload(player, SkillsFor(player).EffectId(gem.Effect), stats);
-        Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get);
+        Func<uint, int> hitStats = attackWeapon is null || secondary ? Get : SupportedAttackDamage.HitModifiers(attackWeapon, Get, attackAccuracy);
         var conversion = DamageStats.Conversion(stats, Stats, secondary ? null : attack);
         if (attackWeapon is not null && !secondary)
             SupportedAttackDamage.WithWeaponGains(conversion, attackWeapon, Get);
@@ -1079,10 +1087,13 @@ public static partial class Game
     public static List<(uint Stat, int Value)> SupportedAilmentRowsFrom(SupportedHitInputs inputs, string hand,
         long additionalIncreased = 0)
     {
-        var context = new AilmentPanelStats.Context(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
-        { WeaponStats = inputs.WeaponStats };
-        return AilmentPanelStats.Compute(context, inputs.Raw, inputs.Conversion, inputs.Get, additionalIncreased);
+        return AilmentPanelStats.Compute(AilmentContext(inputs, hand), inputs.Raw, inputs.Conversion, inputs.Get,
+            additionalIncreased);
     }
+
+    static AilmentPanelStats.Context AilmentContext(SupportedHitInputs inputs, string hand) =>
+        new(inputs.Secondary ? "secondary" : hand, Spell: !inputs.Attack && !inputs.Secondary, inputs.Melee)
+        { WeaponStats = inputs.WeaponStats };
 
     public static AttackAccuracyProfile SupportedAccuracy(Player player, ushort skillId)
     {
@@ -1207,6 +1218,9 @@ public static partial class Game
         if (effectId == "TemporalChains" && Get(Stat.TemporalChainsNoReservation) != 0)
             manaFlat = manaPercent = 0;
         decimal factor = gem.Supports.Aggregate(1m, (v, support) => v * support.CostMultiplier / 100m);
+        if (!lifeInstead && (manaFlat != 0 || manaPercent != 0) && HasFixedManaReservation(effectId, Get))
+            return new(0, 4500, (int)Math.Floor(lifeFlat * factor), (int)Math.Floor(lifePercent * factor))
+                { FixedMana = true };
         decimal manaFactor = Get(Stat.KeystoneSupremeEgo) != 0
             && SkillsFor(player).IsAura(gem.Effect, gem.Supports.Select(s => s.Effect.Row)) ? factor * 1.4m : factor;
         return new((int)Math.Floor(manaFlat * manaFactor), (int)Math.Floor(manaPercent * manaFactor),

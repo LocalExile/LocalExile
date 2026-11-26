@@ -132,7 +132,7 @@ public class PartyKickTests
             await PartyRoster.LeaveHuman(member, PartyRoster.PartyOf(member));
         }
 
-        // A player in no party is another module's (the PlayerBots one owns its bots' parties): leave it alone.
+        // A player in no party is another owner's (the playerbots mod owns its bots' parties): leave it alone.
         Assert.False(await PartyRoster.Kick(member, "SomeBot"));
     }
 }

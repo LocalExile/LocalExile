@@ -96,7 +96,7 @@ Effect text and numbers are the wiki's (from the game's stat descriptions) and t
   The client derives `virtual_unaffected_by_shock` (0x380e, `FUN_1427862f0`), which only stops a shock counting in
   `num_different_ailments_affecting_you` (`FUN_1428cbcb0`).
 - **Devout of Ryslatha, 30% more Maximum Attack Damage** (`maximum_attack_damage_+%_final_from_ascendancy`):
-  the module's `PhreciaStats.MaximumAttackDamage` (`GameEvents.AttackHit`) scales the maximum of every final component
+  the phreciaascendancies mod's `PhreciaStats.MaximumAttackDamage` (`GameEvents.AttackHit`) scales the maximum of every final component
   of an attack hit, after conversion, next to
   Rage's final multiplier: the default attack and its panel rows (`AttackHitConverted`), the native main/off-hand
   physical bounds (`WeaponStats`), attack gems (`SupportedHitFor`), `AttackSkillHit` and ordinary bows. Minimum damage
@@ -323,5 +323,5 @@ The ring A build (`27664 22056 26231 32742 21979 61900 59443 46465`) has Garukha
 - With Gruthkul (on another Polytheist Templar, `/add_passive 59443 61900 30769 5266`) nothing explodes; refund 5266
   and 30769 in the ascendancy tree and the explosions come back.
 
-Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Coverage: `PhreciaFourClassesTests`, kept with the mod in `tests/` and not run yet (admission with the class's own opt-in, and its node stats). The class's earlier
 Gateway tests went with the Gateway test reset of `3877f119`.

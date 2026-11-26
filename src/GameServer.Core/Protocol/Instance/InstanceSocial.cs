@@ -28,6 +28,42 @@ public static class InstanceSocial
     public const ushort DuelChallengeId = 0x155;
     public static string ReadDuelChallenge(ReadOnlySpan<byte> m) => new LoginReader(m[2..]).WStr();
 
+    /// <summary>C→S 0x156 (3 bytes, writer 0x140e27920, senders 0x140b10ed0 / 0x140b10f40): accept (1) or decline (0) a duel challenge.</summary>
+    public const ushort DuelResponseId = 0x156;
+    public const int DuelResponseLength = 3;
+    public static bool ReadDuelResponse(ReadOnlySpan<byte> m) => m[2] != 0;
+
+    /// <summary>C→S 0xac (3 bytes, writer 0x140e27920, senders 0x140a6da30 / 0x140a6fa30): refresh the public party noticeboard.
+    /// Wire: u8 filter/act byte (+0xcf20).</summary>
+    public const ushort PublicPartiesRefreshId = 0xac;
+    public const int PublicPartiesRefreshLength = 3;
+    public static byte ReadPublicPartiesRefresh(ReadOnlySpan<byte> m) => m[2];
+
+    /// <summary>C→S 0xa2 (6 bytes, writer 0x140911210, senders 0x140a6d910 / 0x140a6d9d0): inspect a public party on the
+    /// noticeboard (u32 BE partyId; 0 collapses/unsubscribes).</summary>
+    public const ushort PublicPartyInspectId = 0xa2;
+    public const int PublicPartyInspectLength = 6;
+    public static uint ReadPublicPartyInspect(ReadOnlySpan<byte> m) => System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(m[2..]);
+
+    /// <summary>S→C 0xad (vtable 0x1435e6ca8, write 0x1421ab590 → 0x1421c0bf0, read 0x1421ab5e0 → 0x1421c0e10, dispatcher
+    /// case 0x2d at 0x142154f52): public party noticeboard listing. Wire: u16 BE count, then per entry: u32 BE partyId
+    /// (+0x20), wstr description (+0x00), u8 memberCount (+0x26), u8 minLevel (+0x27), u8 maxLevel (+0x28),
+    /// u8 flagsA (+0x24, default 1), u8 flagsB (+0x25).</summary>
+    public const ushort PublicPartiesId = 0xad;
+
+    public sealed record PublicPartyEntry(uint PartyId, string Description, byte MemberCount, byte MinLevel,
+        byte MaxLevel, byte FlagsA = 1, byte FlagsB = 0);
+
+    public static byte[] PublicParties(IReadOnlyList<PublicPartyEntry> entries)
+    {
+        if (entries.Count > ushort.MaxValue)
+            throw new ArgumentOutOfRangeException(nameof(entries), entries.Count, "0x00ad counts public parties in u16");
+        var w = new LoginWriter().U16(PublicPartiesId).U16((ushort)entries.Count);
+        foreach (var e in entries)
+            w.U32(e.PartyId).WStr(e.Description).U8(e.MemberCount).U8(e.MinLevel).U8(e.MaxLevel).U8(e.FlagsA).U8(e.FlagsB);
+        return w.ToArray();
+    }
+
     /// <summary>S→C 0x157 (class 0x1435ca710, read 0x141f9bb70): duel challenge popup ("{name} challenges you to PvP").
     /// Wire: wstr challenger, u8 partyFlag.</summary>
     public const ushort DuelChallengeNotifyId = 0x157;
@@ -194,11 +230,11 @@ public static class InstanceSocial
     /// frame (+0xb0) and the portrait (+0xb2), which the party portraits (0x14020b5a0) and social rows (0x140af7970) draw;
     /// the client's own writer leaves the pair out when both are 0.
     /// </summary>
-    public static byte[] KnownPlayer(string account, string character, ushort area, byte packedClass = 0, ushort frame = 0, ushort portrait = 0, string status = "")
+    public static byte[] KnownPlayer(string account, string character, ushort area, byte packedClass = 0, ushort frame = 0, ushort portrait = 0, string status = "", byte level = 0)
     {
         bool look = frame != 0 || portrait != 0;
         var w = new LoginWriter().U16(KnownPlayerId).WStr(account).WStr(status).U8((byte)(look ? 0x06 : 0x04))
-            .WStr(character).U8(0).U8(packedClass).U16(area).U16(0).WStr("").U8(0);
+            .WStr(character).U8(level).U8(packedClass).U16(area).U16(0).WStr("").U8(0);
         if (look) w.U16(frame).U16(portrait);
         return w.ToArray();
     }

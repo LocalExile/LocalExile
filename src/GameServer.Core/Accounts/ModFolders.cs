@@ -3,8 +3,8 @@ using System.Text.Json;
 namespace GameServer.Core.Accounts;
 
 /// <summary>What a <c>module.json</c> or a <c>mod.json</c> says about the company it keeps in a league's list: the modules and
-/// mods it cannot share a league with, and, for a mode (one that changes the whole game), the only ones that may (the game
-/// itself always may).</summary>
+/// mods it cannot share a league with, and, for one that names them ("only"), the only ones that may (the game itself
+/// always may).</summary>
 public sealed record ModuleLimits(IReadOnlyList<string> Conflicts, IReadOnlyList<string>? Only);
 
 /// <summary>
@@ -99,7 +99,7 @@ public static class ModFolders
             if (own.Conflicts.FirstOrDefault(c => ids.Contains(c, StringComparer.OrdinalIgnoreCase)) is { } other) return $"{id} cannot run with {other}";
             if (own.Only is { } only && ids.FirstOrDefault(o => !o.Equals(id, StringComparison.OrdinalIgnoreCase)
                 && !o.Equals("Game", StringComparison.OrdinalIgnoreCase) && !only.Contains(o, StringComparer.OrdinalIgnoreCase)) is { } extra)
-                return $"{id} is a mode and does not allow {extra}";
+                return $"{id} allows only the modules and mods it names, not {extra}";
         }
         return null;
     }

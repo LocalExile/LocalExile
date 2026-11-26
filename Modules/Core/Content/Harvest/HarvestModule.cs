@@ -14,8 +14,24 @@ public sealed class HarvestModule : IModule, IDisposable
     public const byte Slot = 43;
 
     sealed class State { public uint Station; }
-    readonly ConditionalWeakTable<IPlayer, State> _states = new();
+    // Key by GameArea (plus HideoutEditor fallback) so re-entering, guest visits, and module reloads resolve the station.
+    readonly ConditionalWeakTable<GameArea, State> _states = new();
     readonly ConditionalWeakTable<ItemCatalog, HarvestCrafting> _recipes = new();
+
+    uint? StationOf(Player player)
+    {
+        if (_states.TryGetValue(player.Area, out var state) && state.Station != 0)
+            return state.Station;
+        foreach (var (id, entry) in player.HideoutEditor.All())
+        {
+            if (entry.Key == "harvest")
+            {
+                _states.GetOrCreateValue(player.Area).Station = id;
+                return id;
+            }
+        }
+        return null;
+    }
 
     public void Dispose()
     {
@@ -39,7 +55,7 @@ public sealed class HarvestModule : IModule, IDisposable
         {
             var modPlayer = PlayerOf(player);
             if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Large, StationType, "harvest", "Horticrafting Station") is { } id)
-                _states.GetOrCreateValue(modPlayer).Station = id;
+                _states.GetOrCreateValue(player.Area).Station = id;
         });
         GameEvents.FeatureFilled.Add(module.Manifest.Id, (_, row) => SacredGrove.FeatureRows.Contains(row));
         GameEvents.MapOpening.Add(module.Manifest.Id, SacredGrove.Opening);
@@ -70,10 +86,10 @@ public sealed class HarvestModule : IModule, IDisposable
         module.Lifetime.Own(MonsterModEffects.HandOverMore([SacredGrove.LevelMoreLife, SacredGrove.SextantMoreLife], []));
         GameEvents.ObjectUse.Add(module.Manifest.Id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Station == 0 || use.TargetId != state.Station)
+            if (StationOf(player) is not uint station || use.TargetId != station)
                 return await SacredGrove.Use(player, use, at) || await OshabiEncounter.Use(player, use, at);
             var world = WorldOf(player);
-            if (await world.WalkUpToStation(state.Station, at))
+            if (await world.WalkUpToStation(station, at))
                 await world.OpenWindow(Window, InstanceWaypoints.HorticraftingUi, "0x007b open Horticrafting Station recipe browser");
             return true;
         });
@@ -165,7 +181,7 @@ public sealed class HarvestModule : IModule, IDisposable
     {
         var modPlayer = PlayerOf(player);
         var world = WorldOf(modPlayer);
-        if (world.OpenWindowOwner != Window || !_states.TryGetValue(modPlayer, out var state) || state.Station == 0) return;
+        if (world.OpenWindowOwner != Window || StationOf(player) is null) return;
         // ItemsFor(player) is one catalog instance per game mode, so the cached recipes keep the mode they were made for.
         var catalog = ItemsFor(player);
         var rolls = RollsFor(player);

@@ -51,11 +51,11 @@ public static class AbyssTables
 
     /// <summary>An arm starts closing when a monster dies this close to one of its pieces [capture: in the level 45 area the
     /// first arm closed after kills of monsters created 62, 75 and 85 cells from a piece, and a kill of one created 91
-    /// away started none; the death cells are not in the capture, so 85 is an [ESTIMATE] inside that bracket], or when
-    /// another arm is closing and the player is this close to it [ESTIMATE: the three arms there started within 115
-    /// records of one another with the player 119 to 205 cells from their far ends; the capture has no clock to say
-    /// more]. Walking on a crack started nothing [capture].</summary>
-    public const double InfluenceDistance = 85, ArmNearDistance = 120;
+    /// away started none; the death cells are not in the capture, so 85 is an [ESTIMATE] inside that bracket], when a
+    /// player walks onto/near an arm's start node (<see cref="StartNodeDistance"/>), or when another arm is closing and the
+    /// player is this close to it [ESTIMATE: the three arms there started within 115 records of one another with the
+    /// player 119 to 205 cells from their far ends; the capture has no clock to say more].</summary>
+    public const double InfluenceDistance = 85, ArmNearDistance = 120, StartNodeDistance = 20;
 
     /// <summary>25 arm monsters per encounter [capture 25 and 25], 3-8 cells from their piece [capture 3.2 to 8.1].</summary>
     public const int ArmMonsters = 25;

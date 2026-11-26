@@ -99,6 +99,7 @@ public sealed class ScarabEncounterTests
         var packNotes = new List<string>();
         var cloisterRequest = Assert.Single(MapScarabPacks.Requests(Open(5, cloister).Opening!.Mods));
         var ordinary = Game.Packs.For(area.Id)!;
+        var instancePacks = AreaPopulation.ForInstance(ordinary, 0x505);
         var extra = AreaPopulation.Plan(ordinary, generated.Width, generated.Height, layout.Walkable!,
             (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, packNotes, additionalPacks: [cloisterRequest]);
         var packIds = MapScarabPacks.Packs.Select(p => p.Id).ToHashSet();
@@ -112,7 +113,7 @@ public sealed class ScarabEncounterTests
             (layout.SpawnX, layout.SpawnY), [], [], 0x505, _ => true, [], additionalPacks: [cloisterRequest], ordinaryPacks: false);
         Assert.Contains(noOrdinary, s => packIds.Contains(s.Pack));
         Assert.DoesNotContain(noOrdinary, s => s.Rarity != GameServer.Core.Protocol.Instance.MonsterRarity.Unique
-            && ordinary.Scattered.Any(p => p.Pack.Id == s.Pack) && !packIds.Contains(s.Pack));
+            && instancePacks.Scattered.Any(p => p.Pack.Id == s.Pack) && !packIds.Contains(s.Pack));
         Assert.Same(kept, instance.AreaStats(() => throw new InvalidOperationException("recomposed the map")));
 
         TestEnvironment.OpenOwnSaves("scarab-shrines");
@@ -225,7 +226,7 @@ public sealed class ScarabEncounterTests
             Assert.Equal(sealedMonoliths.Select(m => m.Id), Monoliths().Select(m => m.Id));
             var firstMonolith = sealedMonoliths[0];
             var naturalRare = extra.First(s => s.Rarity == GameServer.Core.Protocol.Instance.MonsterRarity.Rare
-                && ordinary.Scattered.Any(p => p.Pack.Id == s.Pack));
+                && instancePacks.Scattered.Any(p => p.Pack.Id == s.Pack));
             Assert.True(await MapEssences.Imprison(essenceOwner.Player, naturalRare));
             Assert.Equal(sealedMonoliths.Length + 1, Monoliths().Length);
             var converted = Monoliths()[^1];

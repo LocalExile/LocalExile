@@ -63,7 +63,7 @@ public sealed class MonsterContagion
     public void Apply(double now, Cast cast) => Apply(now, cast, trackContagion: true);
 
     // Other strongest-only chaos debuffs can use this integrator without enabling the Contagion/Bane scan.
-    public void Apply(double now, Cast cast, bool trackContagion)
+    public void Apply(double now, Cast cast, bool trackContagion, double durationRate = 1)
     {
         if (!(cast.DamagePerSecond > 0) || !(cast.Seconds > 0)) return;
         if (trackContagion) Interlocked.Increment(ref applied);
@@ -73,9 +73,22 @@ public sealed class MonsterContagion
             carry = 0;
         }
         // A cast timed before the last advance counts from that advance (that time is already paid).
-        double start = Math.Max(now, last), until = start + cast.Seconds;
-        // An application no stronger than this one that ends no later can never deal damage again.
-        instances.RemoveAll(i => i.Start <= start && i.Cast.DamagePerSecond <= cast.DamagePerSecond && i.Until <= until);
+        double start = Math.Max(now, last), until = start + cast.Seconds / Math.Max(.25, durationRate);
+        for (int i = instances.Count - 1; i >= 0; i--)
+        {
+            var existing = instances[i];
+            if (ReferenceEquals(existing.Cast, cast) && existing.Start <= start && existing.Until >= start)
+            {
+                instances[i] = existing with { Until = Math.Max(existing.Until, until) };
+                return;
+            }
+            if (existing.Until <= last || (existing.Start == start && existing.Cast.DamagePerSecond <= cast.DamagePerSecond
+                && existing.Until <= until))
+                instances.RemoveAt(i);
+            else if (existing.Start < start && existing.Until > start && existing.Until <= until
+                && existing.Cast.DamagePerSecond <= cast.DamagePerSecond)
+                instances[i] = existing with { Until = start };
+        }
         instances.Add((cast, start, until));
     }
 

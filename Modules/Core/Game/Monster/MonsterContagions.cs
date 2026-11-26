@@ -17,6 +17,7 @@ static partial class Game
 
     /// <summary>Whether the debuff icon is shown on affected monsters (false: the damage and spread only).</summary>
     const bool ContagionBuffShown = false;
+    sealed record AreaChaosDot(SpawnedMonster Monster, MonsterContagion Damage);
 
     // More multipliers for an area spell's chaos damage over time.
     static readonly uint[] ChaosAreaDotSupportMore =
@@ -56,7 +57,8 @@ static partial class Game
             increased += (double)Get(placed.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct) + Get(Stat.TrapOrMineDamagePlusPct);
         double more = ChaosAreaDotSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)) / 100.0;
-        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
+        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier)
+            * GhorrDotMore(player, skillId);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own);
         int radius = SkillRadius(player, own, spell: true, effect);
         return new(dps, seconds, radius, id == "ContagionAltX" ? 0.75 : 1, skillId, Caster: player)
@@ -255,7 +257,8 @@ static partial class Game
 
     internal static async Task TickContagions(Player player)
     {
-        if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area)) return;
+        if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area) && !HasSoulrendDamage(player.Area)
+            && !HasFleshrendDamage(player.Area)) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
@@ -272,12 +275,37 @@ static partial class Game
                     }
                 }
             if (PestilentDots.TryGetValue(player.Area, out var pestilent))
+                TickIndexed(pestilent, "Pestilent Strike", PestilentStrikeDamageRow);
+            if (SoulrendDots.TryGetValue(player.Area, out var soulrend))
+                TickIndexed(soulrend, "Soulrend", SoulrendBuffRow);
+            if (FleshrendMonsters.TryGetValue(player.Area, out var fleshrend))
+                foreach (var (id, m) in fleshrend)
+                {
+                    if (!FleshrendDebuffs.TryGetValue(m, out var state) || player.Area.Monsters.GetValueOrDefault(id) != m)
+                    {
+                        FleshrendDebuffs.Remove(m);
+                        fleshrend.Remove(id);
+                        continue;
+                    }
+                    if (!m.Dead && m.Life > 0)
+                    {
+                        state.Accrue(m, now);
+                        Commit(id, m, state.Damage(), DotOwner(player, state.DamagingCaster), "Fleshrend", chaos: false);
+                    }
+                    if (m.Dead || m.Life == 0) state.Stacks.Clear();
+                    PresentFleshrend(player.Area, id, state);
+                    if (state.Stacks.Count != 0) continue;
+                    FleshrendDebuffs.Remove(m);
+                    fleshrend.Remove(id);
+                }
+
+            void TickIndexed(Dictionary<uint, AreaChaosDot> dots, string by, ushort row)
             {
                 List<uint>? expired = null;
-                foreach (var (id, entry) in pestilent)
+                foreach (var (id, entry) in dots)
                 {
                     if (player.Area.Monsters.GetValueOrDefault(id) == entry.Monster)
-                        Tick(id, entry.Monster, entry.Damage, "Pestilent Strike", PestilentStrikeDamageRow);
+                        Tick(id, entry.Monster, entry.Damage, by, row);
                     else
                     {
                         (expired ??= []).Add(id);
@@ -285,44 +313,37 @@ static partial class Game
                     }
                     if (entry.Damage.Idle) (expired ??= []).Add(id);
                 }
-                if (expired is not null) foreach (uint id in expired) pestilent.Remove(id);
+                if (expired is not null) foreach (uint id in expired) dots.Remove(id);
             }
 
             void Tick(uint id, SpawnedMonster m, MonsterContagion dot, string by, ushort row = 0)
             {
                 if (dot.Idle) return;
-                var previous = row == PestilentStrikeDamageRow ? dot.Active : null;
+                var previous = row is PestilentStrikeDamageRow or SoulrendBuffRow ? dot.Active : null;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) dot.Clear();
                 else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
                 if (damage > 0)
                 {
-                    uint lifeBefore = m.Life;
-                    double fraction = Math.Min(1.0, (double)lifeBefore / damage);
+                    double fraction = Math.Min(1.0, (double)m.Life / damage);
                     // The kill and its owner-only gains (Rampage, Vaal soul, the kill itself) go to the owner of the
                     // application whose damage landed it, never to this connection for running the world.
                     var owner = DotOwner(player, dot.WinnerAt(fraction)?.Caster);
-                    int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
-                    bool stageStarts = false;
-                    if (lifeDamage > 0) (m.Life, stageStarts) = owner is null ? TakeDamageLocked(m, lifeDamage) : TakeOwnerDamageLocked(owner, m, lifeDamage);
-                    m.Aggro = m.Life > 0;
-                    if (m.Life == 0)
-                    {
-                        m.Dead = true;
-                        CleanupDeadMonsterLocked(player.Area, id, m);
-                        m.LastHitBy = owner;
-                        if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
-                        // Its own damage killed it partway through the tick: what affected it then spreads, with the
-                        // time it had left then (also when this tick ended it).
-                        dot.Died(fraction);
-                    }
-                    hits.Add((id, m, m.Life, damage, owner, by));
-                    if (stageStarts) CommitBossStage(player, id, m, now);
+                    Commit(id, m, damage, owner, by, chaos: true);
+                    // Its own damage killed it partway through the tick: what affected it then spreads, with the
+                    // time it had left then (also when this tick ended it).
+                    if (m.Life == 0) dot.Died(fraction);
                 }
                 if (row == PestilentStrikeDamageRow)
                 {
                     if (m.Dead || m.Life == 0 || !ReferenceEquals(previous, dot.Active))
                         PresentPestilentDamage(player, id, m, dot, now);
+                    return;
+                }
+                if (row == SoulrendBuffRow)
+                {
+                    if (m.Dead || m.Life == 0 || !ReferenceEquals(previous, dot.Active))
+                        PresentSoulrendDamage(player, id, dot, now);
                     return;
                 }
                 if (row != ContagionBuffRow) return;
@@ -336,6 +357,25 @@ static partial class Game
                     ShowDot(player, id, ref dot.Buff, ref dot.BuffSource, new(ContagionBuffRow, player.Id,
                         dot.Active.SkillId, U68: Buff.Seconds(dot.Until - now)));
                 }
+            }
+
+            void Commit(uint id, SpawnedMonster m, int damage, Player? owner, string effect, bool chaos)
+            {
+                if (damage <= 0) return;
+                int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos, AreaTime(player));
+                bool stageStarts = false;
+                if (lifeDamage > 0)
+                    (m.Life, stageStarts) = owner is null ? TakeDamageLocked(m, lifeDamage) : TakeOwnerDamageLocked(owner, m, lifeDamage);
+                m.Aggro = m.Life > 0;
+                if (m.Life == 0)
+                {
+                    m.Dead = true;
+                    CleanupDeadMonsterLocked(player.Area, id, m);
+                    m.LastHitBy = owner;
+                    if (owner is not null) CollectVaalSoulAtDeathLocked(owner, m);
+                }
+                hits.Add((id, m, m.Life, damage, owner, effect));
+                if (stageStarts) CommitBossStage(player, id, m, now);
             }
         }
         foreach (var (id, m, life, damage, owner, effect) in hits)

@@ -1,3 +1,5 @@
+using GameServer.Core.World;
+
 namespace GameServer.Core.Projectiles;
 
 public static class ProjectileGeometry
@@ -52,6 +54,34 @@ public static class ProjectileGeometry
                 return new(Math.Max(0, Math.Min(tx, ty)), new ProjectileVector(cx ? -sx : 0, cy ? -sy : 0).Unit);
             if (cx) { x += sx; tx += stepX; }
             if (cy) { y += sy; ty += stepY; }
+        }
+        return null;
+    }
+
+    // The client's Positioned walk checks Bresenham cells at equally spaced times along each whole leg.
+    // Keep the original endpoints when advancing a leg across multiple simulation ticks.
+    public static TerrainContact? TraceTerrainSteps(ProjectileVector start, ProjectileVector target,
+        ProjectileVector from, ProjectileVector to, Func<int, int, bool> blocked)
+    {
+        var a = ((int)Math.Round(start.X), (int)Math.Round(start.Y));
+        var b = ((int)Math.Round(target.X), (int)Math.Round(target.Y));
+        int count = Math.Max(Math.Abs(b.Item1 - a.Item1), Math.Abs(b.Item2 - a.Item2));
+        var delta = target - start;
+        double lengthSquared = delta.Dot(delta);
+        if (count == 0 || lengthSquared == 0) return null;
+        double first = (from - start).Dot(delta) / lengthSquared * count;
+        double last = (to - start).Dot(delta) / lengthSquared * count;
+        if (last <= first) return null;
+
+        var cells = new ClientPathfinder.LineCells(a, b);
+        cells.Next(out int previousX, out int previousY);
+        for (int i = 1; i <= count && i <= last + 1e-9 && cells.Next(out int x, out int y); i++)
+        {
+            if (i > first + 1e-9 && blocked(x, y))
+                return new TerrainContact(Math.Clamp((i - first) / (last - first), 0, 1),
+                    new ProjectileVector(previousX - x, previousY - y).Unit)
+                { StopPosition = new(previousX, previousY) };
+            (previousX, previousY) = (x, y);
         }
         return null;
     }

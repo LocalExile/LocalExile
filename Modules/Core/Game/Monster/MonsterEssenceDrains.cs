@@ -24,7 +24,7 @@ static partial class Game
     internal static MonsterEssenceDrain.Cast? EssenceDrainCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY")) return null;
+        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY" or "EssenceDrainRoyale")) return null;
         var own = SupportedSkill(player, skillId).Stats;
         var playerStats = CharacterPlayerStats(player);
         var merged = MergeSkillStats(playerStats, own);
@@ -40,7 +40,8 @@ static partial class Game
         double more = EssenceDrainSupportMore.Aggregate(1.0, (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
         double multiplier = 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)
             + Get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100.0;
-        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier);
+        double dps = perSecond * Math.Max(0, 1 + increased / 100.0) * more * Math.Max(0, multiplier)
+            * GhorrDotMore(player, skillId);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Player, Own)
             * Math.Max(0, 1 + Get(Stat.SiphonDurationPlusPct) / 100.0);
         return new(dps, seconds, Math.Max(0, Get(Stat.SiphonLifeLeechFromDamagePermyriad)), skillId, player)
