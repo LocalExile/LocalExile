@@ -74,6 +74,7 @@ static partial class LegionMonolith
             }
             target.OnNonLethalZero = null;
             target.EntranceGrace = true;
+            target.ScriptHeld = true;
             var runner = ResolveRunner(player, instance);
             if (runner is null) return;
             global::Game.SpreadContagionAtFloorLocked(runner, target);
@@ -81,6 +82,7 @@ static partial class LegionMonolith
                 ResolveRunner(runner, instance) is { } live ? BreakOut(module, live, hold, target) : Task.CompletedTask);
         };
         monster.EntranceGrace = false;
+        monster.ScriptHeld = false;
     }
 
     /// <summary>Registers a frozen member's hold. Hidden and already-broken members stay under EntranceGrace; revealed unbroken
@@ -96,7 +98,7 @@ static partial class LegionMonolith
         });
         monster.EncounterStats = LegionStasis.FrozenStats(e.FrozenDamageTakenPct);
         if (hold.Revealed && !hold.Broken) ArmFloor(module, player, hold, monster);
-        else { monster.OnNonLethalZero = null; monster.EntranceGrace = true; }
+        else { monster.OnNonLethalZero = null; monster.EntranceGrace = true; monster.ScriptHeld = true; }
     }
 
     static async Task BreakOut(IModuleContext module, Player player, Hold hold, SpawnedMonster monster)
@@ -191,6 +193,7 @@ static partial class LegionMonolith
             hold.Member = hold.Member with { Broken = true, BreakOutCount = hold.Member.BreakOutCount + 1 };
             monster.OnNonLethalZero = null;
             monster.EntranceGrace = true;
+            monster.ScriptHeld = true;
             // The break-out carries the life percent the client reads its threshold shards from; 1 at least, as the last hit left 1 life.
             uint percent = (uint)Math.Max(1, (long)monster.Life * 100 / Math.Max(1, monster.MaxLife));
             LegionStasis.SetOriginState(player, id, LegionStasis.BreakingOut);

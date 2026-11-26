@@ -11,9 +11,10 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     public bool WeaponLifeLeechInstant { get; init; }
     public int InstantLeechPerEnemyPower { get; init; }
     public int LifeOnBlindedHit { get; init; }
+    public int LifeLeechVsBleeding { get; init; }
+    public int LifeOnBleedingHit { get; init; }
     // Life, Mana and Energy Shield gained per enemy hit, instantly: "Gain X Life per Enemy Hit with Attacks" and a
-    // weapon's local "Grants X Life per Enemy Hit". Every 3.29 source is an attack's (PoB SkillStatMap maps
-    // base_life_gain_per_target to LifeOnHit for attacks; the mana and energy shield mods say "with Attacks").
+    // weapon's local "Grants X Life per Enemy Hit". The aura-conditioned jewel stats apply to attacks and spells.
     public (int Life, int Mana, int EnergyShield) GainOnHit { get; init; }
     // "X% of Overkill Damage is Leeched as Life" (Slayer's Endless Hunger): the share of a killing hit's damage beyond
     // the target's remaining Life.
@@ -51,14 +52,13 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
     public static LeechSources From(Func<uint, int> get, bool attack, Func<uint, int>? local = null)
     {
         int Local(uint name) => local?.Invoke(name) ?? 0;
-        var gain = attack ? (Math.Max(0, get(Stat.BaseLifeGainPerTarget) + Local(Stat.LocalLifeGainPerTarget)
-                + Local(Stat.LocalLifeAndManaGainPerTarget)),
-            Math.Max(0, get(Stat.ManaGainPerTarget) + Local(Stat.LocalManaGainPerTarget)
-                + Local(Stat.LocalLifeAndManaGainPerTarget)),
-            Math.Max(0, get(Stat.EnergyShieldGainPerTarget)))
-            // "Gain # Life/Mana/Energy Shield per Enemy Hit with Spells".
-            : (Math.Max(0, get(Stat.BaseLifeGainedOnSpellHit)), Math.Max(0, get(Stat.ManaGainedOnSpellHit)),
-                Math.Max(0, get(Stat.EnergyShieldGainedOnSpellHit)));
+        long lifeOnHit = attack ? (long)get(Stat.BaseLifeGainPerTarget) + Local(Stat.LocalLifeGainPerTarget)
+            + Local(Stat.LocalLifeAndManaGainPerTarget) : get(Stat.BaseLifeGainedOnSpellHit);
+        long manaOnHit = attack ? (long)get(Stat.ManaGainPerTarget) + Local(Stat.LocalManaGainPerTarget)
+            + Local(Stat.LocalLifeAndManaGainPerTarget) : get(Stat.ManaGainedOnSpellHit);
+        long shieldOnHit = get(attack ? Stat.EnergyShieldGainPerTarget : Stat.EnergyShieldGainedOnSpellHit);
+        var gain = (Positive(lifeOnHit + get(Stat.LifeGainPerTargetHitWhileAffectedByVitality)), Positive(manaOnHit),
+            Positive(shieldOnHit + get(Stat.EnergyShieldGainPerTargetHitWhileAffectedByDiscipline)));
         return new(Coefficients("life", get, attack, local), Coefficients("mana", get, attack, local),
             Coefficients("energy_shield", get, attack, local))
         {
@@ -66,7 +66,11 @@ public sealed record LeechSources(DamagePacket Life, DamagePacket Mana, DamagePa
             WeaponLifeLeechInstant = attack && Local(Stat.LocalLifeLeechIsInstant) != 0,
             InstantLeechPerEnemyPower = attack ? Local(Stat.HitsHaveLeechPctIsInstantPerMonsterPower) : 0,
             LifeOnBlindedHit = attack ? Math.Max(0, Local(Stat.LocalLifeGainPerTargetVsBlindedEnemies)) : 0,
+            LifeLeechVsBleeding = attack ? Math.Max(0, get(Stat.LifeLeechFromAttackDamagePermyriadVsBleedingEnemies)) : 0,
+            LifeOnBleedingHit = Math.Max(0, get(Stat.LifeGainedOnBleedingEnemyHit)),
         };
+
+        static int Positive(long amount) => (int)Math.Clamp(amount, 0, int.MaxValue);
     }
 
     // Preserve the existing whole direct-hit total while retaining its post-mitigation type proportions.

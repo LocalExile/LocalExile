@@ -63,9 +63,11 @@ public static partial class Game
         var gem = captured ?? SupportedSkill(player, skill);
         var area = SkillAreaStats(player, gem.Stats, gem.Effect, sources ?? CharacterPlayerStats(player));
         int Get(uint n) => GolemStat(area, n);
+        long increased = (long)Get(SkillArea.BaseIncreased) + Get(Stat.CurseAreaOfEffectPlusPct)
+            + (aura ? Get(Stat.CurseAuraSkillAreaOfEffectPlusPct) : 0);
         // Hexes retain their own base radius when Blasphemy converts them to auras.
         return SkillArea.Radius(22,
-            n => Get(n) + (n == SkillArea.BaseIncreased ? Get(Stat.CurseAreaOfEffectPlusPct) : 0), spell: true);
+            n => n == SkillArea.BaseIncreased ? ActorScale.Saturate(increased) : Get(n), spell: true);
     }
 
     public static bool ApplyCurseLocked(Player player, SpawnedMonster monster, ushort skill, double now, bool aura,
@@ -92,7 +94,7 @@ public static partial class Game
         int Own(uint n) => GolemStat(curseStats, n);
         int Get(uint n) => GolemStat(playerStats, n) + Own(n);
         bool hexMaster = Get(Stat.KeystoneHexMaster) != 0;
-        if (monster.Mods.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Mods.Effects[Stat.Hexproof] != 0
+        if (monster.Effects[Stat.ImmuneToCurses] != 0 || !definition.Mark && monster.Effects[Stat.Hexproof] != 0
             && Get(Stat.IgnoreHexproof) == 0 && Get(Stat.Of("hexes_ignore_hexproof")) == 0
             && (effect != "ElementalWeakness" || Get(Stat.ElementalWeaknessIgnoresHexproof) == 0)
             && !RandomRolls.Chance(Get(Stat.ChanceToIgnoreHexproofPct), 100, AreaRng(player))) return false;
@@ -125,10 +127,6 @@ public static partial class Game
             && existing.PreventsCriticalStrikes == preventsCritical
             && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         bool newlyCursed = !monster.HasCurses || !monster.Curses.HasActive(now);
-        if (definition.Mark)
-            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
-                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
-                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         double until = aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate;
         int amplify = double.IsFinite(until) ? Get(Stat.WhileCurseIs50PctExpiredCurseEffectPlusPct) : 0;
         var curse = new MonsterCurses.Curse(caster, effect, skill, definition.Buff, player.NextBuff++, now, until, aura, definition.Mark, stats)
@@ -145,7 +143,13 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
-        if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
+        if (curse.Mark)
+        {
+            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
+                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == caster && c.Mark).ToArray())
+                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
+            if (caster == player.Id) TrackMarkTarget(player, monster);
+        }
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
@@ -286,7 +290,19 @@ public static partial class Game
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
                 RecordCompletedCurseCast(player, effect, AreaTime(player));
-                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats);
+                var curse = CurseCatalog.All[effect];
+                if (CastingBeidatSpell(player, skill) is { ExtraAreas: > 0 } pact && !curse.Mark)
+                {
+                    int radius = CurseRadius(player, skill, false, currentGem, playerStats);
+                    var centres = new List<(int X, int Y)> { aim };
+                    AppendBeidatAreas(player.Walk.Position(now), aim, radius, pact.ExtraAreas, centres);
+                    var applied = new HashSet<uint>();
+                    foreach (var centre in centres)
+                        foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                            if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
+                                ApplyCurseLocked(player, monster, skill, now, false, currentGem, playerStats);
+                }
+                else ApplyCurseTargetsLocked(player, skill, currentGem, curse, aim, target, now, playerStats);
                 break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
@@ -431,6 +447,8 @@ public static partial class Game
                 m.SpiderWebs.SetExpiryRate(now, rate);
                 m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 RetimePestilentStrike(player, id, m, now, oldRate, rate);
+                RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
+                RetimeFleshrendDamage(m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }

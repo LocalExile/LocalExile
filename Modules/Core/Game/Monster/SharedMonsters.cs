@@ -84,14 +84,21 @@ public static partial class Game
             return minion.G is null ? (distance, false)
                 : (Math.Min(distance, minion.Distance), minion.G.Taunts.GetValueOrDefault(id) > now);
         }
-        if (DecoyTarget(m, now) is { } decoy)
+        var forcedOwner = DecoyTarget(m, now)?.Owner;
+        if (forcedOwner is null && m.TauntedUntil > now && m.TauntingPlayerId is uint source)
         {
-            if (!ReferenceEquals(player, decoy.Owner)) return false;
+            var taunter = source == player.Id ? player : player.Instance.Player(source);
+            if (taunter is not null && TargetLive(taunter, player) && ReferenceEquals(taunter.Area, player.Area)
+                && !InGracePeriod(taunter)) forcedOwner = taunter;
+        }
+        if (forcedOwner is not null)
+        {
+            if (!ReferenceEquals(player, forcedOwner)) return false;
             if (!ReferenceEquals(m.Target, player))
             {
                 (m.LastTarget, m.SwingGeneration) = (null, null);
                 m.ActionGeneration++;
-                if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+                if (double.IsPositiveInfinity(m.BusyUntil)) (m.BusyUntil, m.ScriptHeld) = (now, false);
                 m.Target = player;
             }
             return true;
@@ -119,7 +126,7 @@ public static partial class Game
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
-            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+            if (double.IsPositiveInfinity(m.BusyUntil)) (m.BusyUntil, m.ScriptHeld) = (now, false);
         }
         m.Target = player;
         return true;
@@ -231,6 +238,14 @@ public static partial class Game
 
     /// <summary>Whether the monster is out of every player's wake zone (StepAreaWake).</summary>
     public static bool MonsterAsleep(Player player, uint id) => player.Area.Monsters.GetValueOrDefault(id)?.Asleep == true;
+
+    /// <summary>Whether a minion may pick this monster as its target: a living hostile one that can be damaged, is awake and
+    /// is not held by a script. BusyUntil is not asked, so a monster lurking until it rises (hitting it makes it rise) or
+    /// winding up a skill is a target; one a script holds forever (ScriptHeld while BusyUntil is infinite) is not.</summary>
+    public static bool MinionMayTarget(SpawnedMonster m) =>
+        m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+        && m.Effects[Stat.BaseCannotBeDamaged] == 0
+        && !(m.ScriptHeld && double.IsPositiveInfinity(m.BusyUntil));
 
     // What the area has shown every client once: bosses' life bars and scene objects (by object id).
     sealed class AreaShown
@@ -393,6 +408,13 @@ public static partial class Game
             var gone = InstanceProtocol.RemoveObject(id);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(gone.AsSpan(6), uint.MaxValue);
             player.Area.Delta.Add(id, gone, null, AreaDelta.Kind.Remove, except: player);
+            // A body waiting to go has been taken away just now (the area's frame, as the minion tick's own removal).
+            using (ProjectileMutation(player, advance: false))
+                if (player.Minions.Bodies.RemoveAll(b => b.Id == id) > 0)
+                {
+                    player.Area.Monsters.Remove(id);
+                    player.MinionOrigins.TryRemove(id, out _);
+                }
         }
     }
 

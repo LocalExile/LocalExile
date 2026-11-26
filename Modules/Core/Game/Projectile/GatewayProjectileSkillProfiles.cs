@@ -30,9 +30,14 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
+    internal static bool IsBlazingSalvo(string? effect) => effect is "BlazingSalvo" or "BlazingSalvoRoyale";
+    internal static bool IsSelfThrownSpectralWeapon(string? effect) =>
+        effect is "SpectralThrow" or "SpectralThrowAltX" or "SpectralThrowRoyale";
+    internal static bool IsSpectralThrowTrap(string? effect) => effect == "SpectralThrowAltY";
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
     internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
-    internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
+    internal static bool IsHolyFlameTotem(string? effect) =>
+        effect is "HolyFlameTotem" or "HolyFlameTotemAltX" or "HolyFlameTotemRoyale";
     internal static bool IsForbiddenRite(string? effect) => effect is "ForbiddenRite" or "ForbiddenRiteAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
@@ -71,7 +76,7 @@ public static class GatewayProjectileSkillProfiles
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
         else if (Game.IsCreepingFrost(effect))
             p = p with { EndArea = new("creeping-frost-burst", 0), EndAreaReasons = TerminalStops };
-        else if (effect == "BlazingSalvo")
+        else if (IsBlazingSalvo(effect))
             p = p with
             {
                 Lobbed = true,
@@ -187,8 +192,9 @@ public static class GatewayProjectileSkillProfiles
                 => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
-            "BlazingSalvo" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
+            "BlazingSalvo" or "BlazingSalvoRoyale" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             "ForbiddenRite" or "ForbiddenRiteAltX" => get(Stat.ForbiddenRiteNumberOfAdditionalProjectiles),
+            "SoulrendAltY" => Math.Max(0, get(Stat.BaseNumberOfProjectilesInSpiralNova) - 1),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
@@ -203,6 +209,9 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (effect == "SoulrendAltY") p = SoulrendSpiral(p, get);
+        if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(effect, p, get);
+        if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);
         if (IsShatteringSteel(effect) && p.ParallelOrigins is null
             && get(Stat.ActiveSkillAdditionalProjectilesFireParallelXDist) is > 0 and var parallelGap)
             p = p with
@@ -229,16 +238,18 @@ public static class GatewayProjectileSkillProfiles
         if (Game.IsCreepingFrost(effect) && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Its chains bounce on the ground instead of seeking another monster.
-        if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
-        if (effect == "HolyFlameTotemAltX")
-        {
-            if (get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
-                p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
-            if (get(Stat.ActiveSkillProjectileSpeedPlusPctFinal) is int speedFinal and not 0)
-                p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
-        }
+        if (effect is "RollingMagma" or "RollingMagmaRoyale") p = p with { GroundChains = p.Chain, Chain = 0 };
+        if (effect == "HolyFlameTotemAltX" && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
-        if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect is "SpectralThrow" or "SpectralThrowRoyale" || IsSpectralThrowTrap(effect))
+        {
+            int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
+            p = p with { Pierce = -1, Returns = true,
+                HitRule = repeatMs > 0
+                    ? new(ProjectileHitScope.Emission, ProjectileRepeat.Window, ProjectileRuntime.Time(repeatMs / 1000d))
+                    : p.HitRule };
+        }
         if (effect == "SpectralThrowAltX")
         {
             int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
@@ -257,6 +268,27 @@ public static class GatewayProjectileSkillProfiles
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
+    }
+
+    static ProjectileProfile SoulrendSpiral(ProjectileProfile profile, Func<uint, int> get)
+    {
+        int basis = get(Stat.BaseNumberOfProjectilesInSpiralNova);
+        int milliseconds = get(Stat.ProjectileSpiralNovaTimeMs);
+        if (basis < 2 || profile.Count < 2 || milliseconds <= 0) return profile;
+
+        // 3.29.3c: 0x141bb6690 keeps the base angular step when supports add bolts and scales the
+        // total duration by the final projectile count. 0x141bb6940 distributes the wait across the gaps.
+        double radians = Math.PI / 180;
+        double start = get(Stat.ProjectileSpiralNovaStartingAngleOffset) * radians;
+        double step = get(Stat.ProjectileSpiralNovaAngle) * radians / (basis - 1);
+        double duration = milliseconds / 1000d * profile.Count / basis;
+        var angles = new double[profile.Count];
+        for (int i = 0; i < angles.Length; i++) angles[i] = start + i * step;
+        return profile with
+        {
+            SequentialDelay = ProjectileRuntime.Time(duration / (profile.Count - 1)),
+            NativeVolley = new() { Angles = angles },
+        };
     }
 
     public static ProjectileProfile WithKineticBoltLegs(ProjectileProfile parent, ushort sequence = 0)
@@ -396,6 +428,11 @@ public static class GatewayProjectileSkillProfiles
     public static ProjectileProfile ScaleAreas(ProjectileProfile p, string effect, Func<uint, int> get, bool spell)
     {
         int Value(uint key, int fallback) => get(key) is > 0 and var value ? value : fallback;
+        if (Game.MovingBallLightning(effect) && p.Pulse is { } pulse)
+        {
+            int basis = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, effect == "BallLightningRoyale" ? 18 : 20);
+            return p with { Pulse = pulse with { Radius = SkillArea.Radius(basis, get, spell) } };
+        }
         if (IsKineticBlast(effect) && p.ContactArea is { } contact)
         {
             bool clustering = effect == "KineticBlastAltX";
@@ -429,8 +466,18 @@ public static class GatewayProjectileSkillProfiles
         if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
             return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
-            return p with { EndArea = terminal with
-                { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
+        {
+            int basis = SkillArea.BaseRadius(effect, get);
+            terminal = terminal with { Radius = SkillArea.Radius(basis, get, spell) };
+            if (terminal.Stage == "fireball-explosion"
+                && get(Stat.FireballBaseRadiusUpToPlusAtLongerRanges) is int maxTravelBonus and not 0)
+            {
+                // The client adds flat base radius before area scaling and reaches the full bonus at 50 cells.
+                terminal = terminal with { RadiusForTravel = distance => SkillArea.Radius(
+                    basis + (int)(Math.Clamp((float)distance / 50, 0, 1) * maxTravelBonus), get, spell) };
+            }
+            return p with { EndArea = terminal };
+        }
         return p;
     }
 }

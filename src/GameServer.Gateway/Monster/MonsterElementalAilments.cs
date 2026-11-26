@@ -254,14 +254,17 @@ public sealed class MonsterElementalAilments
                 Spread = SpreadRadius(Kind.Chill, attacker, area),
             });
         // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
-        int freezeChance = attacker(Stat.ChanceToFreezePct)
-            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0);
+        int freezeChance = (int)Math.Clamp((long)attacker(Stat.ChanceToFreezePct)
+            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0)
+            + target(Stat.ChanceToBeFrozenPct), int.MinValue, int.MaxValue);
         if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
             Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
+        int shockChance = (int)Math.Clamp((long)attacker(Stat.ChanceToShockPct) + target(Stat.ChanceToBeShockedPct),
+            int.MinValue, int.MaxValue);
         if (shocking > 0 && (critical || attacker(Stat.AlwaysShock) != 0
-                || RandomRolls.Chance(attacker(Stat.ChanceToShockPct), 100, random))
+                || RandomRolls.Chance(shockChance, 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
                 EffectModifier(Kind.Shock, attacker, target), ShockCap(attacker), attacker(Stat.ShockMinimumDamageTakenIncreasePct)))
@@ -389,6 +392,22 @@ public sealed class MonsterElementalAilments
             RemoveAura(kind, source);
     }
 
+    /// <summary>Keep a permanent aura at its current magnitude while its source covers the target.</summary>
+    public bool KeepPermanentAura(Kind kind, ulong source, double now, Func<uint, int> attacker, Func<uint, int> target)
+    {
+        double magnitude = Grace || Immune(kind, target) ? 0 : BaseWithoutDamage(kind, attacker, target);
+        for (int i = 0; i < effects.Count; i++)
+        {
+            var effect = effects[i];
+            if (effect.Kind != kind || effect.AuraSource != source) continue;
+            if (magnitude > 0 && effect.Magnitude == magnitude && double.IsPositiveInfinity(effect.Until)) return true;
+            RemoveAura(kind, source);
+            break;
+        }
+        return magnitude > 0 && Apply(new(kind, now, double.PositiveInfinity, magnitude) { AuraSource = source },
+            attacker, target) is not null;
+    }
+
     public void RemoveAura(Kind kind, ulong source) => effects.RemoveAll(e => e.Kind == kind && e.AuraSource == source);
 
     // Chill and shock without damage: 10% and 15% base unless the source states its own (wiki Chill and Shock), through
@@ -424,13 +443,13 @@ public sealed class MonsterElementalAilments
         AsThoughStats[kind].Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + attacker(name) / 100.0));
 
     // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
-    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
-    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value.
     static int ChillCap(Func<uint, int> attacker) =>
         attacker(Stat.ElementalistChillMaximumMagnitudeOverride) is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<uint, int> attacker) =>
-        50 + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0);
+        (int)Math.Clamp(50L + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0)
+            + attacker(Stat.ShockMaximumMagnitudePlus), 0, int.MaxValue);
 
     static double EffectModifier(Kind kind, Func<uint, int> attacker, Func<uint, int> target) =>
         Math.Max(0, 1 + attacker(Stat.Of($"virtual_{Name(kind)}_effect_+%")) / 100.0)
@@ -454,8 +473,10 @@ public sealed class MonsterElementalAilments
     {
         if (Grace) return null;
         var (kind, now) = (effect.Kind, effect.From);
-        double seconds = (effect.Until - now) * Math.Max(0, 1 + (attacker(Stat.Of($"virtual_{Name(kind)}_duration_+%"))
-            - target(Stat.Of($"base_self_{Name(kind)}_duration_-%"))) / 100.0);
+        double seconds = effect.Until - now;
+        if (!double.IsPositiveInfinity(seconds))
+            seconds *= Math.Max(0, 1 + (attacker(Stat.Of($"virtual_{Name(kind)}_duration_+%"))
+                - target(Stat.Of($"base_self_{Name(kind)}_duration_-%"))) / 100.0);
         if (effect.Magnitude <= 0 || seconds <= 0 || kind == Kind.Freeze && seconds < .3 || Immune(kind, target)) return null;
         // Brine Bound (freeze_minimum_duration_X_ms): a freeze that passes the threshold lasts at least this long, which no
         // duration modifier changes (wiki Brine Bound).

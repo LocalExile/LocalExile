@@ -19,6 +19,9 @@ public static class ClientPathfinder
     public readonly record struct Blocker(int X, int Y, int Size)
     {
         public double? CollisionRadius { get; init; }
+        /// <summary>Hollow circular arena wall: blocks cells on the ring perimeter <c>|dist - RingRadius| &lt; threshold + 1.5</c>
+        /// while leaving interior and exterior cells walkable.</summary>
+        public double? RingRadius { get; init; }
     }
 
     /// <summary>How long a search may run (0x141e50f90, from the mover's components).</summary>
@@ -419,6 +422,12 @@ public static class ClientPathfinder
 
     internal static bool BlockerBlocks(Blocker b, int x, int y, int threshold, int radius, int tx0, int tx1, int ty0, int ty1)
     {
+        if (b.RingRadius is double ring)
+        {
+            double dx = b.X - x, dy = b.Y - y;
+            double dist = Math.Sqrt(dx * dx + dy * dy);
+            return Math.Abs(dist - ring) < threshold + 1.5;
+        }
         if (b.CollisionRadius is double hull)
         {
             double dx = b.X - x, dy = b.Y - y, clearance = hull + threshold;
@@ -456,7 +465,7 @@ public static class ClientPathfinder
 
     // The cells of Line one at a time, with no iterator object: a search's line tests walk thousands of short lines
     // (the coarse pass alone up to 2400 of a dozen cells each).
-    struct LineCells
+    internal struct LineCells
     {
         readonly bool steep;
         readonly int majorEnd, majorLen, minorLen, majorStep, minorStep;

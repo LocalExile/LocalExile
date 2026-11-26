@@ -16,7 +16,7 @@ public static partial class Game
         {
             player.Minions.Bodies.Remove(body);
             if (!player.Area.Monsters.TryGetValue(body.Id, out var dead) || !ReferenceEquals(dead, body.Monster) || !dead.Dead) continue;
-            player.Area.Monsters.Remove(body.Id);
+            player.Area.Monsters.Remove(body.Id); player.MinionOrigins.TryRemove(body.Id, out _);
             player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(body.Id), "minion body removed", body.Id, dead, PlayerMinions.OutputKind.Remove, WorldId: body.Id, RemovesObject: true));
         }
     }

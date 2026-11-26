@@ -8,6 +8,8 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
     public long WorkGeneration;
     public int RecoveryGeneration;
     public bool RageConverted;
+    internal Game.KtashEmpowerment? Ktash { get; init; }
+    internal double PactDamageMore => Ktash?.DamageMore ?? 1;
 }
 
 public static partial class Game
@@ -16,10 +18,10 @@ public static partial class Game
     public static bool VaalExecutor(Player player, int effect)
     {
         string id = SkillsFor(player).EffectId(effect) ?? "";
-        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep"
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep" or VaalReaveEffect
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
             or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect or VaalLightningWarpEffect
-            or VaalAncestralWarchiefEffect or "VaalDetonateDead"
+            or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalArcEffect
             || IsVaalMinion(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
@@ -53,13 +55,16 @@ public static partial class Game
                 Get(Stat.BaseRageCostEfficiencyPlusPct), free));
         rage = ActorScale.Saturate((long)rage + ChainbreakerRageCost(Get));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
-        uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(player, id).GetValueOrDefault(Stat.ManaCost));
-        // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
-        uint life = 0;
-        if (!free && Lifetap.ConvertsCostToLife(gem.Stats, CharacterPlayerStats(player)))
+        uint mana = 0, life = 0;
+        if (!free)
         {
-            life = mana;
-            mana = 0;
+            var costStats = SupportedStats(player, id);
+            mana = (uint)Math.Max(0, costStats.GetValueOrDefault(Stat.ManaCost));
+            if (Lifetap.ConvertsCostToLife(gem.Stats, costStats))
+            {
+                life = mana;
+                mana = 0;
+            }
         }
         if (Get(Stat.NoManaCost) != 0) mana = 0;
         int preventionMs = SkillsFor(player).SoulGainPreventionMs(gem.Effect, gem.Level);
@@ -117,12 +122,21 @@ public static partial class Game
         if (plan.Souls > 0)
         {
             var definition = SkillsFor(player).VaalBudget(plan.Effect, SupportedSkill(player, plan.Skill).Level)!.Value;
-            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls))
+            bool refund = plan.Ktash is { RefundChance: > 0 } empowerment
+                && (empowerment.RefundChance == 100 || AreaRng(player).Next(100) < empowerment.RefundChance);
+            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls, refund))
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
+        if (plan.Ktash is { } admitted) UseKtashEmpowerment(player, admitted);
         player.PlayerMana -= plan.Mana;
         player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);
+        uint adrenaline = Stat.AdrenalineOnVaalSkillUseDurationMs;
+        if (player.WardBreak.GrantAdrenaline(now, stats.GetValueOrDefault(adrenaline), adrenaline))
+        {
+            player.Pools = PoolsFor(player, player.Pools.Level);
+            player.ApplyMovementSpeed();
+        }
         if (plan.Life > 0 || plan.Mana > 0)
             ApplyPaidSupportCostsLocked(player, plan.Skill, SupportedSkill(player, plan.Skill).Stats, plan.Mana, (int)plan.Life, now);
         uint sacrificed = SacrificeItemLifeLocked(player, plan.Effect, stats);

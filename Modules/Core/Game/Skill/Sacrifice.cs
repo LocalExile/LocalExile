@@ -32,6 +32,7 @@ static partial class Game
         }
 
         bool OwnerCurrent => CurrentGameWork && ReferenceEquals(owner, CombatLifetime) && caster.ProjectileActive(epoch);
+        internal bool Triggered => triggered;
         internal bool Current => OwnerCurrent
             && (original.SourceGem is null || sources.Length > 0 && sources.All(source =>
                 ItemsOf(caster).SocketedGemPlaces().Any(p => p.ItemId == source.Host && p.Socket == source.Socket

@@ -46,7 +46,9 @@ public static partial class Game
     }
 
     // Marks every corruptible item in a monster's drop list as corrupted (DropRoll.Corrupted): equipment, jewels, gems and maps.
-    public static void CorruptDrops(List<ItemDrops.Drop> drops)
+    public static void CorruptDrops(List<ItemDrops.Drop> drops) => CorruptDrops(drops, 100);
+
+    static void CorruptDrops(List<ItemDrops.Drop> drops, int chance, Random? rng = null)
     {
         for (int i = 0; i < drops.Count; i++)
         {
@@ -54,9 +56,10 @@ public static partial class Game
             if (d.Item.Corrupted || d.Item.Mirrored || d.Item.Vestigial || d.Type.Stackable || d.Type.Unmodifiable
                 || d.Type.Components.Contains("Charges") || d.Type.Components.Contains("Quest")
                 || d.Type.Components.Contains("DeepwaterChart") || d.Type.Components.Contains("HeistBlueprint")) continue;
-            if (d.Type.CanBeCorrupted || d.Type.Components.Contains("Mods")
+            if ((d.Type.CanBeCorrupted || d.Type.Components.Contains("Mods")
                 || d.Type.Components.Contains("SkillGem") || d.Type.Components.Contains("Map")
                 || d.Type.Components.Contains("MapKey"))
+                && (chance >= 100 || rng is not null && rng.Next(100) < chance))
                 drops[i] = d with { Item = d.Item with { Corrupted = true } };
         }
     }

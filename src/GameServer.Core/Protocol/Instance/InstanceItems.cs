@@ -130,6 +130,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// writes 00 00 00 (row 0).</summary>
     public ChartData? Chart { get; init; }
 
+    /// <summary>The RitualEncounter component (157, Blood-filled Vessel; write 0x1425121e0 → 0x14250eab0, read 0x142512230 → 0x14250ebc0):
+    /// u8 monster count, u32 LE monster level, count × (u16 LE MonsterVarieties HASH16, u16 LE count), u16 LE WorldAreas HASH16.</summary>
+    public RitualEncounterData? RitualEncounter { get; init; }
+
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
     /// bit 1 the tooltip's second marker icon (0x140c998a0); bit 3 → +0x2b, refused in every inventory; bit 4 the
@@ -170,7 +174,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -272,6 +276,14 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     var chart = Chart ?? new ChartData(0, 0, 0);
                     w.U8(chart.AreaLevel).U8(chart.Rotation).U8(chart.Room);
                     break;
+                case "RitualEncounter":
+                    var ritual = RitualEncounter;
+                    int ritualCount = Math.Min(ritual?.Monsters.Count ?? 0, byte.MaxValue);
+                    w.U8((byte)ritualCount).U32((uint)Math.Max(0, ritual?.MonsterLevel ?? 0));
+                    for (int ri = 0; ri < ritualCount; ri++)
+                        w.U16(ritual!.Monsters[ri].VarietyHash).U16(ritual.Monsters[ri].Count);
+                    w.U16(ritual?.AreaHash ?? 0);
+                    break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
@@ -319,6 +331,16 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public byte[] Wire() => new LoginWriter().Blob(Payload()).ToArray();
 }
 
+/// <summary>A monster variety captured inside a Blood-filled Vessel (RitualEncounter component 157).</summary>
+public sealed record RitualEncounterMonster(ushort VarietyHash, ushort Count);
+
+/// <summary>The RitualEncounter item component (157, Blood-filled Vessel): captured monster level, source area HASH16,
+/// and monster variety counts.</summary>
+public sealed record RitualEncounterData(int MonsterLevel, ushort AreaHash, IReadOnlyList<RitualEncounterMonster> Monsters)
+{
+    public IReadOnlyList<RitualEncounterMonster> Monsters { get; init => field = Owned.List(value); } = Owned.List(Monsters);
+}
+
 /// <summary>
 /// An equipped item as the player's model shows it (Inventories component entry, 0x141e22490 → 0x1424fb090). u8 slot
 /// (Inventories.dat column 7: Weapon1 0, Offhand1 1, BodyArmour1 2, Helm1 4, Gloves1 5, Boots1 6, Ring1 8, Ring2 9,
@@ -330,16 +352,19 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
 public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance = 0xff, byte Type = 1)
 {
     /// <summary>
-    /// A worn skin (the first reference, 0x1424fab70 → entry +0x18): the cosmetic's ItemVisualIdentity HASH16 and its
-    /// MTXTypeGameSpecific HASH32, which the client also looks up for tiered cosmetics. 0 shows the item's own art.
+    /// A worn skin (the first reference, 0x1424fab70 → entry +0x18): the cosmetic's ItemVisualIdentity HASH16, its
+    /// MTXTypeGameSpecific HASH32, and its 1-based TieredMicrotransactions tier (+0x38; 0 for non-tiered cosmetics).
+    /// 0 visual shows the item's own art.
     /// </summary>
     public ushort SkinVisual { get; init; }
     public uint SkinHash { get; init; }
+    public byte SkinTier { get; init; }
 
     /// <summary>A worn effect (the second reference, 0x1424fae00 → entry +0x40): an ItemVisualEffect HASH16 (weapon
-    /// effects) and its MTXTypeGameSpecific HASH32; 0 for none.</summary>
+    /// effects), its MTXTypeGameSpecific HASH32, and its 1-based tier (+0x60); 0 for none.</summary>
     public ushort EffectVisual { get; init; }
     public uint EffectHash { get; init; }
+    public byte EffectTier { get; init; }
 
     /// <summary>An empty slot (tag 0): what clears an unequipped item from the model. A slot left out of the list keeps
     /// whatever the model showed before.</summary>
@@ -349,8 +374,8 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
     {
         if (VisualIdentity == 0) { w.U8(Slot).U8(0); return; }
         w.U8(Slot).U8(Type)
-            .U16(SkinVisual != 0 ? SkinVisual : VisualIdentity).U32(SkinHash).U8(0)
-            .U16(EffectVisual).U32(EffectHash).U8(0)
+            .U16(SkinVisual != 0 ? SkinVisual : VisualIdentity).U32(SkinHash).U8(SkinTier)
+            .U16(EffectVisual).U32(EffectHash).U8(EffectTier)
             .U8(Stance).U16(VisualIdentity).U8(0);
     }
 }

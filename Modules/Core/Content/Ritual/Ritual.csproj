@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ritual as a module (Agents/docs/dev/modules.md). Everything else is in Directory.Build.props. -->
+
+  <ItemGroup>
+    <ProjectReference Include="../../World/Shrines/Shrines.csproj" Private="false" />
+    <!-- The altar's bodies and messages, and its tables (RitualTests). -->
+    <InternalsVisibleTo Include="GameServer.Gateway.Tests" />
+  </ItemGroup>
+
+</Project>

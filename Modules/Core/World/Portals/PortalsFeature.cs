@@ -181,8 +181,9 @@ static class PortalsFeature
             {
                 AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id, NameWords = i.Item.NameWords,
+                SourceItem = i.Item,
             }
-            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
+            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0) { SourceItem = i.Item })];
         byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;
         var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: campaign);
         if (opening is not null && bossOption != 0)
@@ -245,7 +246,8 @@ static class PortalsFeature
             // Back next to the device, never on it: its own cell is inside its collision hull and the player could not move.
             campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
-            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount, portalVariation: opening.PortalVariation);
+            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount,
+            portalVariation: opening.PortalVariation, contentData: opening.ContentData);
         if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         else if (!ClientHasQuestFlag(player, "MapDeviceActive"))

@@ -916,8 +916,12 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        int? deathEpoch = null;
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get, appliesToPlayer, during));
+            spent => deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get,
+                appliesToPlayer, during));
+        if (deathEpoch is int epoch)
+            await RunOnAreaFrame(player, () => PlayerDiedAtEpoch(player, $"death from {type.Name}", epoch));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for
@@ -1926,7 +1930,9 @@ public static partial class Game
                 ? (ItemsFor(player).ByHash(target.Item.TypeHash) is { } lensGemType
                     ? CurrencyEffects.ApplyFacetorsLens(target.Item, ItemsFor(player).Gem(lensGemType), used.Item.GemExperience)
                     : null)
-            : CurrencyResult(player, target.Item, used.Item.TypeHash, random);
+            : (!foreseeing && await GameEvents.ResolveCurrencyCrafting(player, target.Item, used.Item.TypeHash, random) is { } crafted
+                ? crafted
+                : CurrencyResult(player, target.Item, used.Item.TypeHash, random));
         // Hinekora's Lock: the next currency commits exactly the previewed result (from 0x29d/0x2a0) and clears the
         // state; without a stored preview the seeded result is the same item. A refused currency keeps the state.
         if (foreseeing && type?.Id != CurrencyEffects.HinekorasLock)

@@ -105,6 +105,14 @@ public sealed class CosmeticEffects(string folder = "data")
         /// <summary>A portrait frame's variation (MicrotransactionSocialFrameVariations <c>Index</c>), 0 otherwise: the
         /// client draws <c>Art/2DArt/UIImages/Common/MTX/SupporterIconFrame{Frame}</c> around the portrait.</summary>
         public ushort Frame { get; init; }
+
+        /// <summary>Maximum tier count from <c>TieredMicrotransactions.TierCount</c> (0 for non-tiered cosmetics).</summary>
+        public byte TierCount { get; init; }
+
+        /// <summary>Resolves the 1-based tier byte written into <see cref="VisibleItem"/> (0 for non-tiered cosmetics
+        /// with no explicit tier option).</summary>
+        public byte ResolveTier(byte option) =>
+            TierCount > 0 ? (byte)Math.Clamp(option == 0 ? 1 : option, 1, TierCount) : option;
     }
 
     public sealed record SkillRestriction(int SlotType, IReadOnlyList<int> Gems, IReadOnlyList<int> Classes);
@@ -186,6 +194,10 @@ public sealed class CosmeticEffects(string folder = "data")
             if (Int(row, "MtxTypeGameSpecific") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
                 && Int(row, "Index") is int frame and > 0 and <= ushort.MaxValue)
                 effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { Frame = (ushort)frame };
+        foreach (var row in Rows("TieredMicrotransactions"))
+            if (Int(row, "MTX") is int mtx && mtx >= 0 && mtx < gameSpecific.Count && gameSpecific[mtx] is uint hash
+                && Int(row, "TierCount") is int count and > 0 and <= byte.MaxValue)
+                effects[hash] = (effects.GetValueOrDefault(hash) ?? new Effect(0, 0, [])) with { TierCount = (byte)count };
         foreach (var row in Rows("MicrotransactionSlot"))
             if (Int(row, "Id") is int id and > 0 and < InstanceMicrotransactions.SlotCount)
                 slots[(byte)id] = new Slot(row.TextOrNull("Name") ?? "",

@@ -48,12 +48,12 @@ Live, with a Conqueror Idol held over it and a Minor Idol put into it:
 | 0x3b, the Idols' | takes it only on the layout's cells: 11 of the panel's 20 with `UnlockedMapDevice`, and red elsewhere |
 | 0x0f, the crafting slots' generic kind | takes any item in any cell |
 
-The module registers the row as 0x0f (`GameEvents.InventorySlot`) and refuses what is not an Idol itself
+The mod registers the row as 0x0f (`GameEvents.InventorySlot`) and refuses what is not an Idol itself
 (`GameEvents.InventoryRefusal`).
 The panel binds to the inventory object of the row's first S→C 0xc0 in an area: an inventory registered again later
 (0xc1, then 0xc0) holds its items but is not drawn until the next area. So the kind is chosen as the player enters.
 
-## What the module does
+## What the mod does
 
 - **Effect.** When the map device is activated (`GameEvents.MapOpening`), the stats of the identified Idols in row 62
   are added to the map, unscaled, as the device's fragments are.
@@ -64,8 +64,8 @@ The panel binds to the inventory object of the row's first S→C 0xc0 in an area
   merging radius (`GameEvents.BeyondMergeRadiusFinal`) and the chance of 20 more Rogue Exiles
   (`GameEvents.AdditionalRogueExiles`).
 - **Drops.** Monsters in maps drop Idols unidentified, magic or rare, of a base whose drop level they reach
-  (`GameEvents.Drops`), scaled by the map's item quantity (`MapMods.QuantityFactor`) and the module's `dropRate` setting.
-  GGG does not publish the rates: the module's are its own (`IdolRules`).
+  (`GameEvents.Drops`), scaled by the map's item quantity (`MapMods.QuantityFactor`) and the mod's `dropRate` setting.
+  GGG does not publish the rates: the mod's are its own (`IdolRules`).
 - **Rolls.** Idols have the jewels' affix caps, two a side and three or four on a rare (`ItemRolls`).
 - **Unique Idols.** One Idol drop in 50 is a unique one, each as likely as the next, and the Idol inventory takes one
   of each (`UniqueMapRelicLimits`; the client's tooltip says "Limited to: 1" by itself).
