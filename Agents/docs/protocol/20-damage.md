@@ -699,7 +699,7 @@ target modifiers/Blind, source removal and noncritical impale storage.
 
 ## 2i. More maximum attack damage
 
-A module's more maximum attack damage (`GameEvents.AttackHit`; the Phrecia module's Devout of Ryslatha, 30%) scales the
+A module's more maximum attack damage (`GameEvents.AttackHit`; the phreciaascendancies mod's Devout of Ryslatha, 30%) scales the
 maximum of the attack's base and added damage, which for a hit is the maximum of every final component after conversion;
 minima and spells are unchanged.
 It also scales the damaging ailments an attack inflicts (the wiki; PoB builds an ailment's base through the same
