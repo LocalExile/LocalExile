@@ -10,14 +10,24 @@ namespace GameServer.Modules.Legion;
 /// The generals whose fight is more than one monster (R17, R18). Aukuna (E45) starts mounted (MonsterVarietiesKey2 of her
 /// LegionMonsterVarieties row: no drops or experience); the mount's death clip is <c>dismount_01</c>, and on its events the server
 /// leaves the Invisible bird object (frozen in the mount's pose by its own .ot, then its <c>explodeepk</c> state) and puts her on foot
-/// (MapBoss, the loot) where the mount fell. The planned monster (the form on foot) keeps the plan's place everywhere: the fighter's
-/// drops, the Domain slot, its ghost and its revival. The state is per area, saved in the instance's ContentState for a module reload.
+/// (MapBoss, the loot) where the mount fell. Hyrri (E46) is two objects: the Fish, the targetable body that carries the loot and moves,
+/// and the rider who shoots (untargetable, cannot be damaged, no drops, non-blocking), kept by the server on the Fish's cell; her water
+/// clone mortar leaves a clone. The planned monster (the form on foot, the Fish) keeps the plan's place everywhere: the fighter's drops,
+/// the Domain slot, its ghost and its revival. The state is per area, saved in the instance's ContentState for a module reload.
 /// </summary>
 static class LegionGenerals
 {
     /// <summary>GUESS: the dismount_01 events (R17: spawnbird 1.73 s, birdepk 1.945 s, phase 2.64 s; the server has no clip clock), and how
     /// long the bird stays after the phase.</summary>
     const double SpawnBirdSeconds = 1.73, BirdExplodeSeconds = 1.945, PhaseSeconds = 2.64, BirdLingerSeconds = 2.0;
+    /// <summary>GUESS: a water clone stands where the mortar lands, this long after the rider fires it (the server does not follow the
+    /// mortar's flight), lives this long (DiesAfterTime has no duration in the client data), plays its <c>dying</c> state this long
+    /// before it goes, and at most this many stand per Hyrri; it lands this far from the target at most (cells).</summary>
+    const double CloneFlightSeconds = 1.0, CloneLifeSeconds = 8.0, CloneDyingSeconds = 1.0;
+    const int MaxClones = 3, CloneScatter = 8;
+    /// <summary>The rider follows the Fish at most this often (a travel moves the Fish over a few frames; one teleport per frame would
+    /// flood the clients).</summary>
+    const double FollowSeconds = 0.2;
     const string SaveKey = "LegionGenerals";
     static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
 
@@ -39,26 +49,51 @@ static class LegionGenerals
         [System.Text.Json.Serialization.JsonIgnore] public IReadOnlyDictionary<uint, int>? Stats { get; set; }
     }
 
-    /// <summary>A short-lived object (the bird): it goes at Until.</summary>
+    /// <summary>Hyrri's rider on her Fish, the effect of its water clone mortar (-1: none) and when it was last used.</summary>
+    sealed class Rider
+    {
+        public uint Body { get; set; }
+        public uint Id { get; set; }
+        public int Mortar { get; set; } = -1;
+        public double MortarUsed { get; set; } = double.NegativeInfinity;
+        public double FollowedAt { get; set; } = double.NegativeInfinity;
+        public int Clones { get; set; }
+    }
+
+    /// <summary>A short-lived object (the bird, a clone): at Until its Dying state (if any) is set, at RemoveAt it goes.</summary>
     sealed class Expiring
     {
         public uint Id { get; set; }
         public uint Owner { get; set; }
         public double Until { get; set; }
+        public double RemoveAt { get; set; } = double.PositiveInfinity;
+        public string? Dying { get; set; }
+    }
+
+    sealed class PendingClone
+    {
+        public uint Rider { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public double At { get; set; }
     }
 
     sealed class Saved
     {
         public List<Mount> Mounts { get; set; } = [];
+        public List<Rider> Riders { get; set; } = [];
         public List<Expiring> Expiring { get; set; } = [];
+        public List<PendingClone> Pending { get; set; } = [];
     }
 
     sealed class AreaGenerals(Saved s)
     {
         public readonly Dictionary<uint, Mount> Mounts = s.Mounts.ToDictionary(m => m.Id);
+        public readonly Dictionary<uint, Rider> Riders = s.Riders.ToDictionary(r => r.Body);
         public readonly List<Expiring> Expiring = s.Expiring;
-        public bool Empty => Mounts.Count == 0 && Expiring.Count == 0;
-        public Saved Snapshot() => new() { Mounts = [.. Mounts.Values], Expiring = [.. Expiring] };
+        public readonly List<PendingClone> Pending = s.Pending;
+        public bool Empty => Mounts.Count == 0 && Riders.Count == 0 && Expiring.Count == 0 && Pending.Count == 0;
+        public Saved Snapshot() => new() { Mounts = [.. Mounts.Values], Riders = [.. Riders.Values], Expiring = [.. Expiring], Pending = [.. Pending] };
     }
 
     static readonly ConditionalWeakTable<GameArea, AreaGenerals> Areas = new();
@@ -100,7 +135,7 @@ static class LegionGenerals
     }
 
     /// <summary>A general just started fighting (woken in a map encounter, spawned or revived in the Domain): a mounted one is followed to
-    /// its dismount.</summary>
+    /// its dismount, a Fish gets its rider.</summary>
     public static async Task Woken(Player player, uint id)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var monster) || monster.Variety is not { } variety) return;
@@ -117,9 +152,45 @@ static class LegionGenerals
                 Keep(player, g);
             }
         }
+        else if (data.Riders.TryGetValue(variety.Row, out var rows))
+            await SpawnRider(player, id, monster, rows);
     }
 
-    /// <summary>The area's frame: each mount's dismount and the bird.</summary>
+    /// <summary>The rider on the Fish's cell, with the body's encounter states (present, breakout, activated, owning_initiator).</summary>
+    static async Task SpawnRider(Player player, uint bodyId, SpawnedMonster body, LegionData.RiderRows rows)
+    {
+        if (Monsters.Find(rows.Rider.ToString()) is not { Supported: true } variety) return;
+        var (x, y) = body.Walk.Position(global::Game.AreaTime(player));
+        var bodyStates = player.Instance.World.MonsterOrigins.TryGetValue(bodyId, out var origin) ? origin.Object.StateMachine : body.States;
+        uint id = await SpawnMonster(player, variety, body.Level, body.Rarity, x, y,
+            friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, nonBlocking: true,
+            placement: MonsterPlacement.Established, extraStats: [(Stat.HideMiniLifeBar, 1)],
+            shape: o => o with { StateMachine = Carry(bodyStates, o.StateMachine ?? variety.StateMachine) });
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var rider)) return;
+        // Its .ot: untargetable, base_cannot_be_damaged, no drops. The server keeps hits, minions and rewards off it too.
+        rider.DamageImmune = true;
+        rider.NoRewards = true;
+        var catalog = global::Game.SkillsFor(player);
+        int mortar = rider.Kit.FirstOrDefault(k => catalog.EffectId(k.Effect)?.EndsWith("WaterCloneMortar", StringComparison.Ordinal) == true)?.Effect ?? -1;
+        var g = Of(player);
+        lock (g)
+        {
+            g.Riders[bodyId] = new Rider { Body = bodyId, Id = id, Mortar = mortar, MortarUsed = mortar >= 0 ? rider.KitReadyAt.GetValueOrDefault(mortar, double.NegativeInfinity) : 0 };
+            Keep(player, g);
+        }
+        Module?.Log($"Hyrri: rider 0x{id:x} ({variety.Id}) on the body 0x{bodyId:x} at ({x},{y}), kit [{string.Join(",", rider.Kit.Select(k => k.Effect))}]");
+    }
+
+    /// <summary>The encounter states of <paramref name="from"/> written onto <paramref name="to"/> (each name both have).</summary>
+    static StateMachineData? Carry(StateMachineData? from, StateMachineData? to)
+    {
+        if (from is null || to is null) return to;
+        foreach (string name in (string[])["present", "breakout", "activated", "owning_initiator"])
+            if (from.IndexOf(name) is int i and >= 0 && i < from.SharedStates.Count && to.IndexOf(name) >= 0) to = to.Set(name, from.SharedStates[i]);
+        return to;
+    }
+
+    /// <summary>The area's frame: each mount's dismount, each rider's follow and mortar, the clones and the bird.</summary>
     static Task Tick(Player player)
     {
         if (player.Closed || player.LeavingArea) return Task.CompletedTask;
@@ -132,7 +203,9 @@ static class LegionGenerals
         double now = global::Game.AreaTime(player);
         var monsters = player.Area.Monsters;
         List<(Mount Mount, SpawnedMonster? Corpse, int Step)>? dismount = null;
-        List<Expiring>? expiring = null;
+        List<(Rider Rider, SpawnedMonster? Body, SpawnedMonster? Self, bool Gone)>? riders = null;
+        List<PendingClone>? clones = null;
+        List<(Expiring E, bool Remove)>? expiring = null;
         bool changed = false;
         List<uint>? ended = null;
         lock (g)
@@ -157,15 +230,48 @@ static class LegionGenerals
                 int due = now >= mount.DiedAt + PhaseSeconds ? 4 : now >= mount.DiedAt + BirdExplodeSeconds ? 3 : now >= mount.DiedAt + SpawnBirdSeconds ? 2 : 1;
                 if (due > mount.Step) { (dismount ??= []).Add((mount, m, due)); changed = true; }
             }
-            foreach (var e in g.Expiring)
-                if (now >= e.Until) (expiring ??= []).Add(e);
-            if (expiring is not null) { foreach (var e in expiring) g.Expiring.Remove(e); changed = true; }
+            foreach (var r in g.Riders.Values)
+            {
+                monsters.TryGetValue(r.Body, out var body);
+                monsters.TryGetValue(r.Id, out var self);
+                bool gone = body is null || body.Dead || body.Life == 0 || self is null;
+                (riders ??= []).Add((r, body, self, gone));
+            }
+            for (int i = g.Pending.Count - 1; i >= 0; i--)
+                if (now >= g.Pending[i].At) { (clones ??= []).Add(g.Pending[i]); g.Pending.RemoveAt(i); changed = true; }
+            // A clone plays its dying state, then goes; the bird goes at once.
+            for (int i = g.Expiring.Count - 1; i >= 0; i--)
+            {
+                var e = g.Expiring[i];
+                if (now >= e.RemoveAt) { (expiring ??= []).Add((e, true)); g.Expiring.RemoveAt(i); changed = true; }
+                else if (now >= e.Until && double.IsPositiveInfinity(e.RemoveAt))
+                {
+                    e.RemoveAt = now + (e.Dying is null ? 0 : CloneDyingSeconds);
+                    if (e.Dying is null) g.Expiring.RemoveAt(i);
+                    (expiring ??= []).Add((e, e.Dying is null));
+                    changed = true;
+                }
+            }
+            foreach (var (e, remove) in expiring ?? [])
+                if (remove && g.Riders.Values.FirstOrDefault(r => r.Id == e.Owner) is { } owner) owner.Clones = Math.Max(0, owner.Clones - 1);
             if (ended is not null) { foreach (uint id in ended) g.Mounts.Remove(id); changed = true; }
             if (changed) Keep(player, g);
         }
         if (dismount is not null)
             foreach (var (mount, corpse, step) in dismount) await Dismount(player, g, mount, corpse, step, now);
-        if (expiring is not null) await LegionRevive.Remove(player, [.. expiring.Select(e => e.Id)]);
+        if (riders is not null)
+            foreach (var (r, body, self, gone) in riders)
+                await StepRider(player, g, r, body, self, gone, now);
+        if (clones is not null)
+            foreach (var pending in clones) await SpawnClone(player, g, pending, now);
+        if (expiring is not null)
+        {
+            foreach (var (e, remove) in expiring)
+                if (!remove && e.Dying is { } dying && monsters.TryGetValue(e.Id, out var m) && !m.Dead)
+                    await LegionStasis.SetState(player, e.Id, m, dying);
+            if (expiring.Where(x => x.Remove).Select(x => x.E.Id).ToList() is { Count: > 0 } gone)
+                await LegionRevive.Remove(player, gone);
+        }
     }
 
     /// <summary>The steps of dismount_01 due now, from the mount's step up to <paramref name="due"/> (a late frame plays several).</summary>
@@ -233,14 +339,80 @@ static class LegionGenerals
         return id;
     }
 
-    /// <summary>An object that only shows (the bird): no AI, no body, no hits, no rewards, no bar.</summary>
-    static async Task<uint> SpawnInert(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity, int x, int y)
+    /// <summary>An object that only shows (the bird; a clone can be hit): no AI, no body, no rewards; the bird no hits and no bar.</summary>
+    static async Task<uint> SpawnInert(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity, int x, int y, bool hittable = false)
     {
         uint id = await SpawnMonster(player, variety, level, rarity, x, y, nonBlocking: true,
             friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false,
-            placement: MonsterPlacement.Established, extraStats: [(Stat.HideMiniLifeBar, 1), (Stat.VirtualIsHiddenMonster, 1)]);
+            placement: MonsterPlacement.Established, extraStats: hittable ? null : [(Stat.HideMiniLifeBar, 1), (Stat.VirtualIsHiddenMonster, 1)]);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var m)) return 0;
-        m.NoRewards = true; m.Attack = null; m.Aggro = false; m.BusyUntil = double.PositiveInfinity; m.EntranceGrace = true;
+        m.NoRewards = true; m.Attack = null; m.Aggro = false; m.BusyUntil = double.PositiveInfinity;
+        m.EntranceGrace = !hittable;
         return id;
+    }
+
+    /// <summary>The rider: gone with its Fish; else on the Fish's cell, its own teleports held (the Fish is the one that moves), and a
+    /// water clone queued when its mortar was fired.</summary>
+    static async Task StepRider(Player player, AreaGenerals g, Rider r, SpawnedMonster? body, SpawnedMonster? self, bool gone, double now)
+    {
+        if (gone)
+        {
+            lock (g) { if (!g.Riders.Remove(r.Body)) return; Keep(player, g); }
+            if (self is not null) await LegionRevive.Remove(player, [r.Id]);
+            Module?.Log($"Hyrri: the body 0x{r.Body:x} is {(body is null ? "gone" : "dead")}: rider 0x{r.Id:x} removed");
+            return;
+        }
+        foreach (var entry in self!.Kit)
+            if (entry.IsTeleport) self.KitReadyAt[entry.Effect] = now + 0.5;   // within the cooldown (Choose reads it as used long ago)
+        (int X, int Y)? move = null;
+        bool clone = false;
+        lock (g)
+        {
+            var at = body!.Walk.Position(now);
+            if (at != self.Walk.Position(now) && now - r.FollowedAt >= FollowSeconds) { r.FollowedAt = now; move = at; }
+            if (r.Mortar >= 0 && self.KitReadyAt.GetValueOrDefault(r.Mortar, double.NegativeInfinity) is var used && used != r.MortarUsed)
+            {
+                r.MortarUsed = used;
+                if (self.Target is { } target && r.Clones < MaxClones)
+                {
+                    var (tx, ty) = target.Walk.Position(now);
+                    var rng = global::Game.AreaRng(player);
+                    g.Pending.Add(new PendingClone { Rider = r.Id, X = tx + rng.Next(-CloneScatter, CloneScatter + 1), Y = ty + rng.Next(-CloneScatter, CloneScatter + 1), At = now + CloneFlightSeconds });
+                    r.Clones++;
+                    clone = true;
+                }
+                Keep(player, g);
+            }
+        }
+        if (move is var (x, y))
+        {
+            self.Walk.Teleport(x, y, now);
+            await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, r.Id, InstanceProtocol.Teleport(r.Id, x, y), null));
+        }
+        if (clone) Module?.Log($"Hyrri: rider 0x{r.Id:x} fired its water clone mortar: a clone in {CloneFlightSeconds} s");
+    }
+
+    /// <summary>A water clone where the mortar landed (GUESS: near the target), hittable, no AI; it plays <c>dying</c> at its end.</summary>
+    static async Task SpawnClone(Player player, AreaGenerals g, PendingClone pending, double now)
+    {
+        Rider? owner;
+        lock (g) owner = g.Riders.Values.FirstOrDefault(r => r.Id == pending.Rider);
+        if (owner is null || !player.Area.Monsters.TryGetValue(owner.Id, out var rider) || rider.Variety is not { } variety
+            || LegionData.Current.Riders.Values.FirstOrDefault(rr => rr.Rider == variety.Row) is not { } rows
+            || Monsters.Find(rows.WaterClone.ToString()) is not { Supported: true } cloneVariety)
+        {
+            if (owner is not null) lock (g) owner.Clones = Math.Max(0, owner.Clones - 1);
+            return;
+        }
+        var (x, y) = (pending.X, pending.Y);
+        if (player.Layout.Walkable?.Invoke(x, y) == false) (x, y) = player.Layout.Near((x, y));
+        uint id = await SpawnInert(player, cloneVariety, rider.Level, rider.Rarity, x, y, hittable: true);
+        lock (g)
+        {
+            if (id == 0) owner.Clones = Math.Max(0, owner.Clones - 1);
+            else g.Expiring.Add(new Expiring { Id = id, Owner = owner.Id, Until = now + CloneLifeSeconds, Dying = "dying" });
+            Keep(player, g);
+        }
+        if (id != 0) Module?.Log($"Hyrri: water clone 0x{id:x} at ({x},{y}) for {CloneLifeSeconds} s");
     }
 }

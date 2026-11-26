@@ -220,7 +220,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Domain of Timeless Conflict (3.29 rules: no Unrelenting emblems, area level 80 to 82, soldiers as `LegionRevive`
   ghosts, revival waves in the 60-cell control zone, 100 reward crystals that light up, the generals' lines, the end at
   00:00 also after the player left), the scarabs and the Atlas passives are built, not checked in the client yet.
-  Aukuna fights mounted and dismounts on the mount's death (bird, then her form on foot with the loot), not checked in the client yet.
+  Aukuna fights mounted and dismounts on the mount's death (bird, then her form on foot with the loot), and Hyrri is her Fish with
+  the rider shooting from it (water clones near the target), not checked in the client yet.
   Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, enemies, foundations; only 17 of 30 towers act (HUD and chests pending).

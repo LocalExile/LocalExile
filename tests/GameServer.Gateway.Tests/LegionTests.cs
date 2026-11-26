@@ -202,6 +202,9 @@ public sealed class LegionTests
         var mounted = Game.Monsters.Find("7753")!.StateMachine!;
         Assert.Equal((1, 0), (mounted.SharedStates[mounted.IndexOf("use_arrow2")], mounted.SharedStates[mounted.IndexOf("nobird")]));
         Assert.True(Game.Monsters.Find("7756")!.StateMachine!.IndexOf("explodeepk") >= 0);
+        // E46: Hyrri is planned as her Fish (7704, the body); her rider 7702 and water clone 7703 are found by name.
+        Assert.Equal(new LegionData.RiderRows(7704, 7702, 7703), Assert.Single(data.Riders).Value);
+        Assert.True(Game.Monsters.Find("7703")!.StateMachine!.IndexOf("dying") >= 0);
         }
     }
 

@@ -184,4 +184,12 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   GUESS: the event times 1.73, 1.945 and 2.64 s (names only; the server has no clip clock), the bird going 2 s after the phase; the
   bird's `DinosaurExplosion` / `LandingBurningGround` hits are not played. Live check: does the bird copy the pose without a
   `reference` object, and does the client play `dismount_01` from the mount's ordinary death.
+- Hyrri is two objects (R17): the plan's 7704 `LegionKaruiGeneralFish` (targetable, the loot, the travel kit; `MovementSpeed` 0) and the
+  rider 7702 `LegionKaruiGeneral` (.ot: untargetable, `base_cannot_be_damaged`, no drops, non-blocking, immobile), spawned on the Fish
+  when it wakes or is revived; the server keeps hits, minions and rewards off the rider, removes it with the Fish, and holds the
+  rider's own teleports (10063/10064) so the Fish is the one that moves. The Domain slot, ghost and revival are the Fish's.
+  GUESS: no client link between the two (the server teleports the rider onto the Fish's cell, at most every 0.2 s); a water clone
+  7703 (NoAi, `dying` state) where the mortar 9988 lands is placed near the rider's target 1 s after it fires (the server does not
+  follow the mortar), lives 8 s, at most 3 per Hyrri. Live check: does the rider ride the Fish or float beside it, and does the
+  frozen Fish (no rider in stasis) look right.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).
