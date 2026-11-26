@@ -294,10 +294,11 @@ public sealed class ExpeditionEncounter : IDisposable
             uint leader = state.LeaderId;
             // This player's talk entry goes whatever the others do: the client leaving has no use for it.
             lock (player.Npcs) player.Npcs.Remove(leader);
-            player.RemoveBlocker(leader);
             if (player.TalkingTo == leader) { player.TalkingTo = 0; player.InNpcTalk = false; }
             // Anyone still in the instance keeps the leader: only the last one out removes its bodies.
             if (Clients(player).Any(c => !ReferenceEquals(c, player))) return;
+            if (player.Area.Monsters.Remove(leader, out var body)) { body.Dead = true; body.Life = 0; body.ActionGeneration++; }
+            player.Instance.World.MonsterOrigins.TryRemove(leader, out _);
             await SendWorldRemoval(player, leader, $"Expedition leader 0x{leader:x} removed: {why}");
             state.LeaderId = 0;
             state.LeaderNpc = null;
@@ -343,7 +344,6 @@ public sealed class ExpeditionEncounter : IDisposable
     /// <summary>The leader's cell from the detonator's, and the way it faces: the same in every measured encounter.</summary>
     const int LeaderCellDx = 17, LeaderCellDy = 3;
     const float LeaderFacing = 5.2360f;
-    /// <summary>The leader's twin, standing on the leader's cell.</summary>
 
     /// <summary>The leader's type for a measured faction, else null: an unmeasured faction spawns no leader.</summary>
     static string? LeaderType(string factionId) => factionId switch
@@ -353,11 +353,24 @@ public sealed class ExpeditionEncounter : IDisposable
         _ => null,
     };
 
-    /// <summary>The talk entry for a leader spawned as a monster. No NPCs row names the leader, so the entry carries the
-    /// leader's own type path and the variety's name; the talk rows resolve by that name when the catalog has them, and the
-    /// interaction size comes from the monster body, not the entry.</summary>
-    static NpcCatalog.Npc LeaderNpc(MonsterCatalog.Variety variety) =>
-        new(-1, variety.Id, variety.Name, null, null, 1);
+    /// <summary>The talk entry for a leader spawned as a monster: the talk-owning NPC row of the faction
+    /// (Haggler for Faction2, Saga for Faction4), so TalkSource resolves its dialogue options. Only when the
+    /// catalog has no such row does the entry fall back to the synthetic one, whose Row -1 resolves nothing;
+    /// the interaction size comes from the monster body, not the entry.</summary>
+    static NpcCatalog.Npc LeaderNpc(string factionId, MonsterCatalog.Variety variety)
+    {
+        if (LeaderTalkId(factionId) is { } talkId && Npcs.Find(talkId) is { } npc && npc.Id == talkId) return npc;
+        return new(-1, variety.Id, variety.Name, null, null, 1);
+    }
+
+    /// <summary>The talk-owning NPC row for a measured faction, else null: the row the leader's own NPCs row
+    /// points at with __col10 (ExpeditionTujen 517 → Haggler 513, ExpeditionDannig 515 → Saga 511).</summary>
+    static string? LeaderTalkId(string factionId) => factionId switch
+    {
+        "Faction2" => "Metadata/NPC/League/Expedition/Haggler",
+        "Faction4" => "Metadata/NPC/League/Expedition/Saga",
+        _ => null,
+    };
 
     /// <summary>Spawns the faction's leader once per area, at the detonator's cell + (17, 3) and facing
     /// 5.2360 rad. The leader is a friendly, scripted monster with the talk flag, so it stands where it is put and can be
@@ -376,10 +389,11 @@ public sealed class ExpeditionEncounter : IDisposable
             friendly: true, unrisen: false, rotation: LeaderFacing, scripted: true, instanceOwned: true,
             shape: m => m with { HasDialogue = true });
         if (id == 0) return;
+        if (player.Area.Monsters.TryGetValue(id, out var body)) at = body.Walk.Position(AreaTime(player));
         state.LeaderId = id;
         state.LeaderCell = at;
-        state.LeaderNpc = LeaderNpc(variety);
-        state.LeaderBodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
+        state.LeaderNpc = LeaderNpc(plan.FactionId, variety);
+        state.LeaderBodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127);
     }
 
     /// <summary>Registers the leader's monster body in this player's talk dictionary, so a click on it opens the dialogue.
