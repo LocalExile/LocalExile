@@ -135,7 +135,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Combat load: input-checked caches and snapshots; pathfinding and load spikes are still under investigation.
   Docs: [performance](../docs/dev/performance.md).
-- Survivors league and its three optional modules. Docs: [Survivors mode](../docs/game/survivors-mode.md).
+- Survivors league, the mod `survivors` in LocalExile-Mods. Docs: [Survivors league](../docs/game/survivors-mode.md).
 - Attack-speed admission and projectile speed for gem attacks. Docs: [11](../docs/protocol/11-skills.md) Â§10.
 - Skill area and duration scaling: the player's increased area counted once at every area site, type-scoped area,
   supports' more or less area, Duration masteries and warcry and Vaal duration (not checked live).

@@ -5,7 +5,7 @@ using GameServer.Core.Accounts;
 // What they hook into is GameEvents (GameEvents.cs): one hook system, each subscriber running for its league's players.
 public partial class Program
 {
-    // A league (Leagues/<Name>/) is a set of modules (Modules/Core/, Legacy/, Custom/) and of the mods it lists; a mod (Mods/) is
+    // A league (Leagues/<Name>/) is a set of modules (Modules/Core/) and of the mods it lists; a mod (Mods/) is
     // the user's opt-in content, in every league or in the leagues that list it. Agents/docs/dev/modules.md. The leagues and their module lists are read when the Gateway starts, and do not change
     // while it runs; the code of a loaded league, module or mod hot-reloads.
     public static string ModulesFolder => Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules";

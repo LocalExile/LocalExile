@@ -77,7 +77,6 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | [dev/modules.md](dev/modules.md) | the layers: leagues and their `league.json`, what stays in the Gateway, modules, what a module sees |
 | [dev/modding.md](dev/modding.md) | mods in `Mods/Binaries/<id>/`: `mod.json`, writing one (LocalExile-Mods), the hooks, reloading, limits |
 | [dev/item-crafter.md](dev/item-crafter.md) | the item crafter hook for tools: the Gateway's `crafter` mode (bases, mod pools, stat descriptions) and `/item_give` |
-| [dev/player-bots.md](dev/player-bots.md) | the PlayerBots module: server-driven characters that play the campaign and visit towns, settings, logs, the client findings behind their walk and stance |
 | [dev/campaign-automation.md](dev/campaign-automation.md) | the campaign driver: `campaign.ps1`, the runner, quest step files and verbs, `/state`, `/kill`, `/quest_preset`, its own ports and client session |
 | [dev/headless-client.md](dev/headless-client.md) | cheap clients for agent sessions: the engine's Null renderer, per-client settings, frame cap, process limits, `nullifier.py`, measurements |
 | [dev/live-testing.md](dev/live-testing.md) | running the client against our servers: rules, several stacks and clients (`-Session`, `-PortBase`), hot reload, a good run, troubleshooting, env vars |
@@ -126,7 +125,7 @@ Its citations of `Agents/docs/re/client-*.md` at fixed commits, and 11-skills' `
 | `re/*-coe.md` | each currency orb compared with Craft of Exile: [alchemy](re/alchemy-coe.md), [alteration](re/alteration-coe.md), [annulment](re/annulment-coe.md), [augmentation](re/augmentation-coe.md), [chance](re/chance-coe.md), [chaos](re/chaos-coe.md), [eldritch ember](re/eldritch-ember-coe.md), [eldritch ichor](re/eldritch-ichor-coe.md), [enkindling](re/enkindling-coe.md), [exalted](re/exalted-coe.md), [instilling](re/instilling-coe.md), [regal](re/regal-coe.md), [transmutation](re/transmutation-coe.md), [vaal](re/vaal-coe.md) |
 | [re/hinekora-lock.md](re/hinekora-lock.md) | Hinekora's Lock state, C→S 0x29d / S→C 0x2a0 preview and the native commit evidence |
 | [game/league-modes.md](game/league-modes.md) | Hardcore deaths, SSF isolation, Ruthless native rules and editable balance |
-| [game/survivors-mode.md](game/survivors-mode.md) | Survivors league and modules: run, rewards, native window/animations, limits |
+| [game/survivors-mode.md](game/survivors-mode.md) | the Survivors league (the mod `survivors`): run, rewards, native window/animations, limits |
 
 ## Working notes (history)
 - [re/007](re/007-login-is-custom-tcp.md)–[010](re/010-live-login-to-instance.md): the notes these documents were
