@@ -114,9 +114,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   load context of its own per version and reloads it, with its dependents, when its folder changes; `/mod`, `/mod_reload`,
   `/mod_enable` and `/mod_disable` in chat (the last two last across restarts, in `mod-state.txt`; a running Gateway also
   applies that file when a launcher rewrites it).
-  Packages: a mod's folder with `Leagues/` and `Modules/` adds them to the repository's at start; modules declare
-  `conflicts` and `only`, a league the `mods` it takes (`PackageTests`). Live: a package's league on the create screen, a
-  character played in it, its module's command there only, a mod's held back by `"mods": "none"`, a hot reload.
+  A mod with `"leagues": "listed"` loads and runs only where a league lists it (`league.json` `mods`), between the modules and the
+  other mods; a mod's `Leagues/` and `sql/` (world data) join the repository's at start; modules and mods declare `conflicts` and
+  `only` (`LeagueModTests`). Live: a module rebuilt as a listed mod, its source unchanged, with a league of its own; a
+  character made and played in that league got the mod's content in a map, a Standard character did not.
   Loose `.cs` files in a mod's folder compile with Roslyn when it loads, so saving one reloads it; errors go to `/mod`, the log and chat.
   Live: a script saved into a running Gateway's `Mods/Binaries/` loaded, and a broken edit reported its line.
   Settings: a mod's or module's `settings.json` declares what can be tuned (ten types, defaults, limits); the user's values
@@ -132,7 +133,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   `example`, `hello`, `bossloot` and `doubleexperience` were later removed; Waypoint installs mods. A release ships none.
   A mod reaches what a module reaches (the Gateway and Game are public; `depends` may name a module). `GameEvents` is
   the one hook system for modules and mods (chat commands, tick, client messages, area generated, monster killed, drop,
-  experience and stat modifiers among it); a mod's subscriptions run in every league, and the host releases everything
+  experience and stat modifiers among it); a mod's subscriptions run in every league (a listed mod's in the leagues that list it), and the host releases everything
   an id holds (subscriptions, `ChatRoutes.Use`, `ExchangeRateStore.Use`) when it unloads. `GameServer.Modding` is only
   the loader contract and host services (`IMod`, `IModule`, `League`, the context) and depends on nothing of the server;
   `IPlayer`, `IPlayerWorld` (`Program.WorldOf`) and build imports (`CharacterBuildApi.For(mod)`) are the Gateway's. A subscriber that throws is logged and skipped.

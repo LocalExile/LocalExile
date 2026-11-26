@@ -2715,7 +2715,7 @@ blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, n
 Only templates whose stats have a consumer are applied, through three views:
 
 - **Enemy auras** (`EnemyAurasFor`, `Game.EnemyAuraActs`): a module's own (`PassiveBuffAuras.Apply`: the Phrecia
-  module's 672, Augury of Penitence 2551, `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
+  module's 672, Augury of Penitence 2551, `elemental_damage_taken_+%`, and its hit conversion, Born under Fire: 674,
   BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
   Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
   The others, such as the Occultist's resistances and Kaom's Binding's
@@ -2727,7 +2727,7 @@ Only templates whose stats have a consumer are applied, through three views:
   increased damage taken ([20](20-damage.md) §4).
 - **Player-and-ally auras** (`AllyAurasFor`, targets `[1, 2]`): Elemental Valiance's and Unwavering Crusade's relic
   trigger (546, `GuardianAlliesSpawnRelicsForYouOnKill`; §12, Passive-granted skills).
-- **Self buffs** (`SelfBuffsFor`, radius 0): a module's own (`PassiveBuffAuras.Apply`: the Phrecia module's 671 →
+- **Self buffs** (`SelfBuffsFor`, radius 0): a module's own (`PassiveBuffAuras.Apply`: the phreciaascendancies mod's 671 →
   Torment Touched 2550); §12, Passive self buffs.
 
 ## 10f. Skills that passives grant or trigger
@@ -2985,7 +2985,8 @@ node is refunded. This is the same LocalExile policy, not proven GGG behaviour.
 A Righteous Fire already burning keeps burning: it deals the enemies no damage (`spell_skills_deal_no_damage`, 20-damage
 §2g) and still burns the player, as the wiki describes for spells cast before Gruthkul's Pelt was equipped. Real-game
 handling of an aura that is running when the restriction starts is unverified.
-Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
+Coverage: `PhreciaFourClassesTests`, kept with the `phreciaascendancies` mod in `tests/` and not run yet (Polytheist's
+admission).
 
 ## 10k. Shield Charge: the charge action
 
@@ -3720,7 +3721,7 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
 The panel's 387 rows depend on 357 virtual stats and 134 nonvirtual ones. A matching source name or a historical
 native run does not make a virtual stat complete; each needs its sources, consumers and lifecycle traced.
 
-Whaletooth Bangle's owner duration is projected by the Phrecia module (`GameEvents.DerivedStats`) in `CharacterPlayerStats`:
+Whaletooth Bangle's owner duration is projected by the phreciaascendancies mod (`GameEvents.DerivedStats`) in `CharacterPlayerStats`:
 `skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
 It adds to ordinary raw duration once per rebuild, after attribute resolution; explicit final-stat overrides win.
 The resulting stat reaches the normal player/GrantedSkill stat publication without changing message layouts.
