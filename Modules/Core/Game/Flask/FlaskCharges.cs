@@ -112,6 +112,21 @@ public static partial class Game
                 if (player.EntryProtection.End(now, player.Walk.Position(now), action: true) is ushort)
                     player.Area.Buffs.Clear(player.Id, GracePeriod.BuffRow, player.Id);
                 accepted(done);
+                if (player.PlayerLife > 0 && player.PlayerLife < player.PlayerMaxLife)
+                {
+                    var stats = CharacterPlayerStats(player);
+                    int Recover(uint key) => stats.GetValueOrDefault(key);
+                    int percent = Recover(Stat.RecoverPctMaximumLifeOnFlaskUse);
+                    if (percent > 0 && !LifeRecovery.NonLeechBlocked(Recover))
+                    {
+                        double carry = 0;
+                        uint before = player.PlayerLife;
+                        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before,
+                            player.PlayerMaxLife * (percent / 100d), ref carry);
+                        if (player.PlayerLife != before)
+                            Automation(player).Packets.Add(new([], $"0x01b1 player life {player.PlayerLife} (on flask use)", FlaskOutputPool.Life));
+                    }
+                }
             }
             return ([done.Id], [done]);
         }, changed => $"0x00c6 flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
