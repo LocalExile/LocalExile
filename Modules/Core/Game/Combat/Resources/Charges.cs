@@ -422,7 +422,10 @@ public static partial class Game
             else if (effectId == "RallyingCry")
                 GrantRallyingCryExertsLocked(player, own, playerStats, affectedAllies);
             else if (effectId == "InfernalCry")
+            {
                 GrantInfernalCryExertsLocked(player, skillId, own, playerStats);
+                ApplyInfernalCryDebuffLocked(player, skillId, effect, own, here, radius, now);
+            }
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;

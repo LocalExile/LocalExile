@@ -6,6 +6,51 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class WarcryExertionTests
 {
+    [Theory]
+    [InlineData(2.49, 80)]
+    [InlineData(2.50, 0)]
+    public void Infernal_Cry_uses_the_debuff_at_death_even_when_the_caster_did_not_kill(
+        double timeUntilDeath, int damage)
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        player.ProjectileRuntimeState = fixture.Session;
+        player.Walk.Teleport(100, 100, clock.At);
+        fixture.Equip(("Infernal Cry", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "InfernalCry");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(2500, own[Stat.BaseSecondarySkillEffectDuration]);
+
+        const uint Victim = 901, Close = 902, Far = 903;
+        var corpse = new SpawnedMonster("Infernal Cry corpse", new(110, 100, 0), 0, 0, 1000);
+        var close = new SpawnedMonster("within the explosion", new(127, 100, 0), 0, 0, 10000);
+        var far = new SpawnedMonster("outside the explosion", new(136, 100, 0), 0, 0, 10000);
+        player.Area.Monsters.Add(Victim, corpse);
+        player.Area.Monsters.Add(Close, close);
+        player.Area.Monsters.Add(Far, far);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            Game.ApplyInfernalCryDebuffLocked(player, cry.Id, cry.Effect, own, (100, 100), 60, clock.At);
+            Assert.True(player.Area.Buffs.Has(Victim, 1539, player.Id));
+            clock.At += timeUntilDeath;
+            Assert.Equal(0u, Game.ApplyMonsterHitLocked(player, corpse, 1000)?.Life);
+            long at = ProjectileRuntime.Time(clock.At);
+            Game.CommitProjectileKill(fixture.Session, Victim, corpse, at, Random.Shared, playerKill: false);
+
+            // The output can arrive after the debuff's deadline. The actual time of death decides.
+            clock.At += .1;
+            fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.Equal((uint)damage, close.MaxLife - close.Life);
+            Assert.Equal(far.MaxLife, far.Life);
+            Assert.Equal(damage != 0, corpse.CorpseConsumed);
+            Assert.False(player.Area.Buffs.Has(Victim, 1539, player.Id));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Fact]
     public async Task Infernal_Cry_releases_Combust_once_per_exerted_attack_that_hits()
     {

@@ -235,6 +235,7 @@ public static partial class Game
                     {
                         DrainPendingExplosiveDetonations();
                         DrainInfernalBlowDeaths();
+                        DrainInfernalCryDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
                     }
@@ -258,6 +259,7 @@ public static partial class Game
                 {
                     DrainPendingExplosiveDetonations();
                     DrainInfernalBlowDeaths();
+                    DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
                 }
                 finally
