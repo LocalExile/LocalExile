@@ -165,7 +165,8 @@ public static partial class Game
                 var own = SupportedSkill(player, skillId).Stats;
                 // The default profile substitutes one shot for a missing base count. Vaal Spark
                 // already supplies that base as its hundred-shot stream; quality adds to the stream.
-                int extra = use.Profile.Count - (GolemStat(own, Stat.BaseNumberOfProjectiles) > 0 ? 0 : 1);
+                int extra = use.Profile.Count - (GolemStat(own, Stat.BaseNumberOfProjectiles) > 0 ? 0 : 1)
+                    + (paid.Beidat?.Projectiles ?? 0);
                 int count = Math.Clamp(GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova) + extra, 1, 256);
                 long interval = ProjectileRuntime.Time(GolemStat(own, Stat.ProjectileSpiralNovaTimeMs) / (1000d * count));
                 var profile = use.Profile with { Count = count, SequentialDelay = interval, ShareSequentialHits = true };
@@ -181,7 +182,8 @@ public static partial class Game
             if (player.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
                 return Task.CompletedTask;
             var own = SupportedSkill(player, skillId).Stats;
-            int count = GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova);
+            int nativeCount = GolemStat(own, Stat.BaseNumberOfProjectilesInSpiralNova);
+            int count = nativeCount + (paid.Beidat?.Projectiles ?? 0);
             int span = GolemStat(own, Stat.ProjectileSpiralNovaTimeMs);
             int degrees = GolemStat(own, Stat.ProjectileSpiralNovaAngle);
             // Capture once at the cast contact. Walking after release cannot interrupt a paid spiral.
@@ -189,6 +191,8 @@ public static partial class Game
             for (int i = 0; i < count; i++)
             {
                 double turn = i / (double)count;
+                // Interleave the pact's individual shots with the skill's existing volleys.
+                bool extra = (i + 1) * nativeCount / count == i * nativeCount / count;
                 session.Schedule(ProjectileRuntime.Time(acceptedAt + delay + turn * span / 1000d),
                     () => session.Active && player.PlayerLife > 0 && (captured is not null || Valid() && VaalAdmissionCurrent(player, paid)),
                     () =>
@@ -196,7 +200,8 @@ public static partial class Game
                         captured ??= CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
                             sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
                         var direction = (captured.Aim - captured.Origin).Unit.Rotate(turn * degrees * Math.PI / 180);
-                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range };
+                        return captured with { Aim = captured.Origin + direction * captured.Profile.Range,
+                            Profile = extra ? captured.Profile with { Count = 1 } : captured.Profile };
                     });
             }
             return Task.CompletedTask;

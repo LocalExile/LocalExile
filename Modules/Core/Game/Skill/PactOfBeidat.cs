@@ -16,7 +16,7 @@ public static partial class Game
         internal readonly double More = more;
     }
 
-    sealed record BeidatCast(Player Player, ushort Skill, int Projectiles, int ExtraAreas, int Chains, double More);
+    internal sealed record BeidatCast(Player Player, ushort Skill, int Projectiles, int ExtraAreas, int Chains, double More);
     static readonly AsyncLocal<BeidatCast?> BeidatCastInUse = new();
 
     sealed class BeidatCastScope : IDisposable
@@ -66,7 +66,7 @@ public static partial class Game
         if (player.ProjectileRuntime is not ProjectileSession { BeidatSpells: not null } session) return null;
         var skills = SkillsFor(player);
         int effect = source.Effect;
-        if (!skills.IsSpell(effect) || skills.IsInstant(effect) || skills.IsChannelled(effect) || skills.IsVaal(effect)
+        if (!skills.IsSpell(effect) || skills.IsInstant(effect) || skills.IsChannelled(effect)
             || skills.HasType(effect, "Triggered") || IsTotemSkill(player, skill) || TriggerOnlyReason(source) is not null
             || PlacedKind(source) != (false, false)) return null;
 

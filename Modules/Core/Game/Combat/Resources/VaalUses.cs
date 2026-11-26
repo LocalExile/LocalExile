@@ -9,7 +9,8 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
     public int RecoveryGeneration;
     public bool RageConverted;
     internal Game.KtashEmpowerment? Ktash { get; init; }
-    internal double PactDamageMore => Ktash?.DamageMore ?? 1;
+    internal Game.BeidatCast? Beidat { get; init; }
+    internal double PactDamageMore => (Ktash?.DamageMore ?? 1) * (Beidat?.More ?? 1);
 }
 
 public static partial class Game
@@ -134,10 +135,13 @@ public static partial class Game
         if (plan.Life + sacrificed > 0) PresentStats(player);
         if (attackDeadline is double next) player.NextAttackAt = next;
         player.VaalPreventionUntil = Math.Max(player.VaalPreventionUntil, now + plan.PreventionSeconds);
+        var beidat = player.ProjectileRuntime is ProjectileSession { BeidatSpells: not null }
+            ? TakeBeidatSpell(player, plan.Skill, SupportedSkill(player, plan.Skill)) : null;
         Console.WriteLine($"[gateway] Vaal use paid: skill 0x{plan.Skill:x4} {SkillsFor(player).EffectId(plan.Effect)}, " +
             $"-{plan.Souls} souls, -{plan.Rage} Rage, soul gain prevention {plan.PreventionSeconds:0.##} s (until t={player.VaalPreventionUntil:0.000})");
         player.VaalUse = plan with { Action = player.ActionCount, Epoch = player.ProjectileEpoch, Life = plan.Life + sacrificed,
-            CriticalRoll = CaptureSkillCriticalRoll(player, plan.Skill), RecoveryGeneration = player.ActionInterruptionGeneration };
+            CriticalRoll = CaptureSkillCriticalRoll(player, plan.Skill), RecoveryGeneration = player.ActionInterruptionGeneration,
+            Beidat = beidat };
     }
 
     public const uint MaximumPowerOnVaalUse = Stat.GainMaximumPowerChargesOnVaalSkillUse;
