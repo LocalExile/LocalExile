@@ -166,6 +166,17 @@ public sealed class CooldownAdmissionTests
         // Dash crosses the walk-only door too when SightBarrier is supplied.
         Assert.Equal((130, 100), Game.DashLanding(openLayout, c.Barrier, (100, 100), (140, 100), 0, false,
             sightBarriers: c.SightBarrier));
+        // When the direct endpoint behind a walk-only grate is unwalkable, IceDash's 0x141c04830 aborts at layer 0
+        // (before the grate) rather than crossing into the blocked room and desyncing from the client's 0x01ce check.
+        var walledBehindGrate = new AreaLayout(1, "prison-door-wall", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && x < 135, [])
+        {
+            Sight = (x, y) => x >= 135 ? (byte)0 : (x == 134 ? (byte)1 : (byte)5)
+        };
+        c.Use(walledBehindGrate);
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeGrate));
+        Assert.Equal((119, 100), beforeGrate);
+        c.Use(openLayout);
         // A solid door with projectile-blocking cells (SightDoorBarriers non-empty) blocks travel and falls back before it.
         c.SightDoorBarriers[1] = doorCells;
         c.UpdateBarrier();
@@ -176,6 +187,16 @@ public sealed class CooldownAdmissionTests
         c.DoorBarriers.Clear();
         c.SightDoorBarriers.Clear();
         c.UpdateBarrier();
+        // Even on a walkable floor, a sight-0 curtain terminates the fallback instead of being skipped by sight < 2.
+        var sightZeroCurtain = new AreaLayout(3, "sight-curtain", 200, 200, 100, 100,
+            (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200, [])
+        {
+            Sight = (x, y) => x == 120 ? (byte)0 : (x == 119 || x == 121 ? (byte)1 : (byte)5)
+        };
+        c.Use(sightZeroCurtain);
+        Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeCurtain));
+        Assert.Equal((118, 100), beforeCurtain);
+
         var wallLayout = new AreaLayout(2, "prison-wall", 200, 200, 100, 100,
             (x, y) => x >= 0 && y >= 0 && x < 200 && y < 200 && (x < 118 || x > 122), [])
         {

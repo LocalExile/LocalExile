@@ -131,20 +131,23 @@ public static class InstantLocationSkill
         bool directClear = directAllowed && ClearSightLine(endpoint);
         if (!directClear)
         {
-            // Without a sight map, ordinary Frostblink keeps fail-closed behavior on unwalkable direct endpoints;
-            // when a sight map is present (real areas) or terrain fallback is requested (FrostblinkAltX), run the
-            // native forward trace (0x141c04830) so casting at a wall stops cleanly in front of it instead of blinking
-            // through or desyncing.
+            // Unlike Dash's 0x141b43d90 (0x141b43eea breaks on layer 1 < 2, 0x141b43f78 records layer 0 >= 2),
+            // IceDash's 0x141c04830 checks the layers in reverse order: 0x141c0498a (r8 = 0) aborts the trace as soon
+            // as layer 0 < 2 (!Allowed, including walk-only grates and chasms when the direct endpoint failed), while
+            // 0x141c04a1c (r8 = 1) skips recording cells with layer 1 == 1 and updates the landing only where
+            // layer 1 >= 2. 0x141c00440 then re-checks dx^2 + dy^2 >= 25 and 0x141c006d0 (layer 1 >= 1 along the line),
+            // so sight == 0 or a SightBarrier also terminates the trace instead of being skipped over.
             if (!allowTerrainFallback && sight is null) return false;
             (int X, int Y)? terrain = null;
             foreach (var cell in ClientPathfinder.Line(from, endpoint))
             {
+                if (sightBarrier.Contains(cell) || sight is not null && sight(cell.X, cell.Y) < 1) break;
                 if (cell == from) continue;
-                if (!Allowed(cell.X, cell.Y) || sightBarrier.Contains(cell)) break;
+                if (!Allowed(cell.X, cell.Y)) break;
                 if (sight is not null && sight(cell.X, cell.Y) < 2) continue;
                 if (!Blocked(cell.X, cell.Y)) terrain = cell;
             }
-            if (terrain is not { } valid || !FarEnough(valid)) return false;
+            if (terrain is not { } valid || !FarEnough(valid) || !ClearSightLine(valid)) return false;
             to = valid;
             return true;
         }
