@@ -54,7 +54,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Discharge and Discharge of Misery. Docs: [11](../docs/protocol/11-skills.md) Â§15.
 - Character panel sums. Docs: [11](../docs/protocol/11-skills.md) Â§14.
 - Character-panel leech limits and hit leech. Docs: [20](../docs/protocol/20-damage.md) Â§5b.
-- Life and Mana regeneration, and Zealot's Oath. Docs: [20](../docs/protocol/20-damage.md) Â§5.
+- Life and Mana regeneration, and Zealot's Oath; plain regeneration skips per-frame Life writes (client-predicted).
+  Docs: [20](../docs/protocol/20-damage.md) Â§5.
 - Determination and Grace. Docs: [11](../docs/protocol/11-skills.md) Â§13.
 - Discipline. Docs: [11](../docs/protocol/11-skills.md) Â§13,
   [20](../docs/protocol/20-damage.md), "Player energy shield".
@@ -88,6 +89,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
+- Held summon casts each raise their minion: the next cast or a walk does not cancel a cast whose mana was paid.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Increased and reduced damage over time taken on enemies combine with other damage-taken modifiers for persistent
   damage.
@@ -379,6 +381,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   minion being one without a duration.
   Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
   in reach is refused before its cost is paid (not checked live).
+  A summon that ends in play dies where it stands, and its body is removed 21 frames later (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane

@@ -456,7 +456,7 @@ public static partial class Game
     {
         // Keep current alive target if still within aggro range.
         if (currentTarget != 0 && player.Area.Monsters.TryGetValue(currentTarget, out var kept)
-            && kept.Hostile && !kept.Dead && kept.Life > 0 && kept.OwnerId is null && !kept.WorldHidden)
+            && MinionMayTarget(kept) && kept.OwnerId is null && !kept.WorldHidden)
         {
             var keptAt = kept.Walk.Position(now);
             if (Dist(from, keptAt) <= MirageWarriorAggroRange)
@@ -467,8 +467,7 @@ public static partial class Game
         double bestDistance = double.MaxValue;
         foreach (var (id, m) in player.Area.Monsters)
         {
-            if (!m.Hostile || m.Dead || m.Life == 0 || m.OwnerId is not null || m.WorldHidden
-                || double.IsPositiveInfinity(m.BusyUntil)) continue;
+            if (!MinionMayTarget(m) || m.OwnerId is not null || m.WorldHidden) continue;
             var at = m.Walk.Position(now);
             double d = Dist(from, at);
             if (d > MirageWarriorAggroRange) continue;

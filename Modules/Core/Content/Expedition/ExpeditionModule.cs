@@ -30,6 +30,7 @@ public sealed class ExpeditionModule : IModule
         GameEvents.AreaQuestFlags.Add(id, encounter.QuestFlags);
         GameEvents.AreaGenerated.Add(id, player => encounter.OnAreaGenerated(module.Log, player));
         GameEvents.PlayerEntered.Add(id, player => encounter.OnPlayerEntered(module.Log, player));
+        GameEvents.PlayerLeaving.Add(id, (player, why) => encounter.OnPlayerLeaving(module.Log, player, why));
         GameEvents.AreaTick.Add(id, encounter.TickFor);
         GameEvents.Kill.Add(id, encounter.OnKill);
         GameEvents.ObjectUse.Add(id, encounter.OnUse);

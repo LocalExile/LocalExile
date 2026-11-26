@@ -360,10 +360,14 @@ public static partial class Game
     // The player's pools go out through the Life component at the frame's end (AreaLife), with their reserved amounts.
     // An explicit send is for a client that changed its own pools ahead of the server (a cost it paid and was given back,
     // Eldritch Battery): they are written even unchanged. The aura records an aura change brings go with it.
-    public static async Task SendPlayerMana(Player player,
-        string? log = null)
+    public static Task SendPlayerMana(Player player,
+        string? log = null) => SendPlayerMana(player, log, lifeToo: true);
+
+    // lifeToo false: the recovery step resends only what it changed (mana); the client predicted no Life write for its
+    // regeneration. A separate overload, so the two-argument signature mods call stays as it was.
+    public static async Task SendPlayerMana(Player player, string? log, bool lifeToo)
     {
-        player.Frames.Area?.Life.Resend(player);
+        if (lifeToo) player.Frames.Area?.Life.Resend(player); else player.Frames.Area?.Life.ResendPools(player);
         Note(log);
         if (!player.Closed && !player.LeavingArea && !player.RageRetired)
             await SendWorldRecords(player, player.Id, () => WithOwnAuraRecords(player, () => []), null);
@@ -1153,6 +1157,12 @@ public static partial class Game
             double now;
             int? ailmentDeathEpoch = null;
             bool pbDeath = false, pbRateChanged = false, pbRateBlocked = false;
+            // What moved Life this step: a source or a loss the client does not predict, new rates, and whether anything else
+            // already marked the life this frame (a hit before the step).
+            bool lifeUnpredicted = false, lifeLost = false, ratesRead = false, lifeMarkedBefore = false;
+            // Life as the regeneration left it; what the rest of the step does to Life (ailments and the like) is a loss or
+            // a source the client does not predict, so a different Life at the end of the step is sent.
+            uint lifeCommitted = 0;
             List<uint>? deactivatedTinctures = null;
             using (ProjectileMutation(player))
             {
@@ -1182,7 +1192,7 @@ public static partial class Game
                 // Righteous Fire started or ended, not every step.
                 if (rates.Stale || rf != cachedRf)
                 {
-                    rates.Stale = false;
+                    rates.Stale = false; ratesRead = true;
                     recoveryStats = CharacterPlayerStatsCore(player, out lifeRate);
                     manaRate = PanelStats.ManaPerMinute(
                         PanelStats.WhileMoving(RecoveryStat, player.Walk.Moving(AreaTime(player))), player.Pools.Mana) / 60;
@@ -1207,7 +1217,7 @@ public static partial class Game
                 double life, mana;
                 (life, mana, ended) = AdvanceFlaskRecovery(player, last, now);
                 last = now;
-                lifeBefore = player.PlayerLife;
+                lifeBefore = player.PlayerLife; lifeMarkedBefore = player.Frames.Area?.Life.LifeChanged(player) ?? true;
                 manaBefore = player.PlayerMana;
                 manaCap = (uint)UnreservedMana(player);
                 var leech = LeechOf(player);
@@ -1311,6 +1321,10 @@ public static partial class Game
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
                     // conversions under Zealot's Oath above still apply (the stats are not removed).
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
+                    // Only the base regeneration rate is known to the client; every other source reaches it by the update.
+                    lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
+                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0 || enduringCryLife > 0
+                        || unhingedHitLife > 0 || preventedLife > 0;
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
                     uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
@@ -1335,6 +1349,8 @@ public static partial class Game
                     // same death gates as trap degeneration.
                     double pbLoss = player.PetrifiedBlood.Take(now);
                     if (InGracePeriod(player)) pbLoss = 0;
+                    lifeLost = lifeBurn > 0 || lifeTrap > 0 || tinctureLifeDrain > 0 || pbLoss > 0
+                        || player.BladefallTrarthus is { PaysLife: true, Ended: false };
                     if (pbLoss > 0 && lifeAfter > 0 && !HardcoreProgressBlocked(player))
                     {
                         player.PlayerLife = lifeAfter = VaalImmortalCallLife(player,
@@ -1342,6 +1358,7 @@ public static partial class Game
                         if (pbDeath = lifeAfter == 0) { player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
                         RecordHardcoreDeath(player);
                     }
+                    lifeCommitted = player.PlayerLife;
                     bool survived = CompleteResourceRecoveryLocked(player, recoveryFrom, now, recoveryStats,
                         mana + manaRate * seconds + leeched.Mana - BladefallManaSpent(player, seconds) - tinctureManaDrain, manaBefore, manaCap, ref manaCarry);
                     lifeAfter = player.PlayerLife;
@@ -1371,6 +1388,13 @@ public static partial class Game
                         manaAfter = player.PlayerMana;
                         leech.ClearFull(now, lifeAfter >= lifeCap, manaAfter >= manaCap,
                             player.EnergyShield.Current >= player.EnergyShield.Maximum);
+                        // The client predicts a plain regeneration step from its life recovery rate: no update for it,
+                        // until a source it cannot know, a loss, new rates, Petrified Blood's blocked rate, the cap, or
+                        // the sent rate rounding to zero (then the client predicts nothing and the orb would freeze).
+                        if (!lifeMarkedBefore && !lifeUnpredicted && !lifeLost && !ratesRead && !pbRateChanged
+                            && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter == lifeCommitted
+                            && lifeAfter < lifeCap && Math.Round(lifeRate * 60) > 0 && !ClientLifeRecoveryZeroed(player))
+                            player.Frames.Area?.Life.LifePredicted(player);
                     }
                 }
             }
@@ -1406,7 +1430,7 @@ public static partial class Game
             if (!PlayerUpdatesCurrent(player, updates)) return;
             if ((lifeAfter != lifeBefore || instantLifeChanged) && ailmentDeathEpoch is null) Note(null);
             if (!PlayerUpdatesCurrent(player, updates)) return;
-            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(player, null);
+            if (manaAfter != manaBefore || instantManaChanged) await SendPlayerMana(player, null, lifeToo: false);
             if (!PlayerUpdatesCurrent(player, updates)) return;
             bool lifeFull = lifeAfter == LifeCap(player), manaFull = manaAfter == manaCap;
             if (!PlayerUpdatesCurrent(player, updates)) return;

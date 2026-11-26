@@ -190,6 +190,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Expedition in maps and Acts 6-10 supports placing explosives, detonating markers and opening excavated chests.
   The installed client produced chest loot in Forbidden Woods in Lockstep and on the Act 6 Coast in Predictive.
+- Expedition's faction leader (Tujen, Dannig) stands at an encounter and can be talked to; the other factions place
+  none yet (ExpeditionEncounter.cs).
 - Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
 - Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 

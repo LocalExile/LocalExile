@@ -267,6 +267,7 @@ static class LegionStasis
         {
             monster.NoRewards = true; monster.Attack = null; monster.Aggro = false; monster.EntranceGrace = true;
             monster.BusyUntil = double.PositiveInfinity;
+            monster.ScriptHeld = true;
             monster.EncounterStats = frozenStats;
         }
         ushort buff = player.NextBuff++;
