@@ -48,8 +48,8 @@ $manifest = @(
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
                 'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
                 'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
-                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
-       UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 14; Needs = @('tables', 'area-transitions', 'room-points')
+       UsedBy = 'monsters (emergence, inherited Life corpse flags, Actor slow-animation policy, and StateMachine shared-state metadata), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 4; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }

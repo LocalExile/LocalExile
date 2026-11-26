@@ -73,12 +73,15 @@ def room_points(doc):
 
 
 def object_types(doc):
-    types, states = [], []
+    types, states, state_meta = [], [], []
     for t, record in enumerate(doc["types"]):
         # positioned: whether the type has Positioned at all (897 have it with none of its fields set).
-        types.append({**flat(record, skip=("shared_states",)), "positioned": isinstance(record.get("positioned"), dict)})
+        types.append({**flat(record, skip=("shared_states", "state_meta")), "positioned": isinstance(record.get("positioned"), dict)})
         states += [{"type": t, "ord": i, "name": s[0], "value": s[1]} for i, s in enumerate(record["shared_states"])]
-    return {"object_types": types, "object_type_shared_states": states, **info("object_types_info", doc, ["generator"])}
+        state_meta += [{"type": t, "ord": i, "name": m[0], "flags": m[1], "enable_value": m[2]}
+                       for i, m in enumerate(record.get("state_meta") or [])]
+    return {"object_types": types, "object_type_shared_states": states, "object_type_state_meta": state_meta,
+            **info("object_types_info", doc, ["generator"])}
 
 
 def item_types(doc):

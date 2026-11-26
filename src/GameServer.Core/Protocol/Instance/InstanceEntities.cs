@@ -1530,7 +1530,22 @@ public sealed record StateMachineData(IReadOnlyList<int> SharedStates, int Share
     public IReadOnlySet<int> Overridden { get; init; } = new HashSet<int>();
 
     /// <summary>The state's index by name, or −1.</summary>
-    public int IndexOf(string name) => Names is null ? -1 : Names.ToList().IndexOf(name);
+    public int IndexOf(string name)
+    {
+        if (Names is null) return -1;
+        for (int i = 0; i < Names.Count; i++)
+            if (Names[i] == name) return i;
+        return -1;
+    }
+
+    /// <summary>Gets the current value of a named shared state, or false if the name is unknown.</summary>
+    public bool TryGet(string name, out int value)
+    {
+        int i = IndexOf(name);
+        if ((uint)i >= (uint)SharedStates.Count) { value = 0; return false; }
+        value = SharedStates[i];
+        return true;
+    }
 
     /// <summary>A copy with this state set; unknown names change nothing.</summary>
     public StateMachineData Set(string name, int value)

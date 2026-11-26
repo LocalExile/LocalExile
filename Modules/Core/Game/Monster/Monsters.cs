@@ -761,7 +761,15 @@ public static partial class Game
             (stats ??= []).Add((maximumEnergyShield, (int)maximumEnergyShieldValue));
         bool waitingForBanditChoice = !friendly && BanditChoices.In(player) is { } bandit
             && bandit.Variety == variety.Id && variety.ComponentsOrBase.Contains("NPC") && BanditChoices.Held(player, bandit);
-        var states = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety) ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null) ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety) ?? variety.StateMachine;
+        var bespokeStates = Sirus.StartStates(variety) ?? DoedreSewers.StartStates(variety) ?? DepravedTrinity.StartStates(variety)
+            ?? (player.Layout.Id == "2_6_15" ? BrineKing.StartStates(variety) : brine ? variety.StateMachine?.Set("rock_mode", 1) : null)
+            ?? MavenNucleus.StartStates(variety) ?? MapBeyond.StartStates(variety) ?? BossKits.StartStates(variety);
+        var states = bespokeStates
+            ?? (!scripted && shape is null && !IsBossControllerVariety(variety)
+                ? MonsterStates.DefaultVisibleStates(variety, variety.StateMachine)
+                : variety.StateMachine);
+        if (MonsterKitHooks.HasStateProviders)
+            states = MonsterKitHooks.ApplyStateTransitions(variety, states);
         // MonsterObject.Blob() omits Actor's two dead-on-birth bytes, so a create packet must carry life >= 1;
         // a dead-on-arrival owned spawn is born with life 1 and immediately zeroed by LifeUpdate(id, 0).
         uint initialLife = Math.Min(damagedLife ?? life, life);
@@ -2568,6 +2576,17 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
+        if (MonsterKitHooks.HasActionLifecycleObservers && BossKits.EffectOf(m, a) is int observedEffect)
+        {
+            MonsterKitHooks.NotifyActionLifecycle(player, id, m, observedEffect, MonsterKitHooks.ActionLifecyclePhase.Started, startedAt);
+            double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
+            SendAfter(player, remaining, () =>
+            {
+                if (MonsterActionCurrent(player, id, m, action))
+                    MonsterKitHooks.NotifyActionLifecycle(player, id, m, observedEffect, MonsterKitHooks.ActionLifecyclePhase.Ended, AreaTime(player));
+                return Task.CompletedTask;
+            });
+        }
         if (a.Summon is null && BossKits.EffectOf(m, a) is int channelEffect && SkillsFor(player).IsChannelled(channelEffect))
         {
             double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));

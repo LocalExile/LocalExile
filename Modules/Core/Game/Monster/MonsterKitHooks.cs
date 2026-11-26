@@ -30,6 +30,13 @@ public static class MonsterKitHooks
     /// modules needing synchronized VFX/state reactions).</summary>
     public delegate void ClipEventObserver(Player player, uint monsterId, SpawnedMonster monster, int parentEffect, string eventName, double now);
 
+    /// <summary>Phase of a monster skill action for <see cref="ActionLifecycleObserver"/>.</summary>
+    public enum ActionLifecyclePhase : byte { Started, Ended }
+
+    /// <summary>Observer notified when a monster starts or completes a skill action (enables modules to drive
+    /// skill-scoped <c>StateMachine</c> flags via <see cref="Game.SetMonsterStateAsync"/>).</summary>
+    public delegate void ActionLifecycleObserver(Player player, uint monsterId, SpawnedMonster monster, int effect, ActionLifecyclePhase phase, double now);
+
     /// <summary>Provider of additional state-machine defaults/transitions for a variety (used by S5 and encounter
     /// modules).</summary>
     public delegate StateMachineData? StateTransitionProvider(MonsterCatalog.Variety variety, StateMachineData? current);
@@ -38,6 +45,7 @@ public static class MonsterKitHooks
     static ImmutableArray<EffectFilter> effectFilters = [];
     static ImmutableArray<ComboBindingProvider> comboProviders = [];
     static ImmutableArray<ClipEventObserver> clipObservers = [];
+    static ImmutableArray<ActionLifecycleObserver> actionObservers = [];
     static ImmutableArray<StateTransitionProvider> stateProviders = [];
     static int effectFilterVersion;
     static int comboProviderVersion;
@@ -45,6 +53,7 @@ public static class MonsterKitHooks
     public static bool HasEffectFilters => !effectFilters.IsEmpty;
     public static bool HasComboProviders => !comboProviders.IsEmpty;
     public static bool HasClipObservers => !clipObservers.IsEmpty;
+    public static bool HasActionLifecycleObservers => !actionObservers.IsEmpty;
     public static bool HasStateProviders => !stateProviders.IsEmpty;
 
     /// <summary>Monotonic version incremented whenever effect filters change (for cache-key invalidation).</summary>
@@ -96,6 +105,13 @@ public static class MonsterKitHooks
         return new Token(() => { lock (Gate) clipObservers = clipObservers.Remove(observer); });
     }
 
+    public static IDisposable AddActionLifecycleObserver(ActionLifecycleObserver observer)
+    {
+        ArgumentNullException.ThrowIfNull(observer);
+        lock (Gate) actionObservers = actionObservers.Add(observer);
+        return new Token(() => { lock (Gate) actionObservers = actionObservers.Remove(observer); });
+    }
+
     public static IDisposable AddStateTransitions(StateTransitionProvider provider)
     {
         ArgumentNullException.ThrowIfNull(provider);
@@ -133,6 +149,14 @@ public static class MonsterKitHooks
             list[i](player, monsterId, monster, parentEffect, eventName, now);
     }
 
+    /// <summary>Notifies registered action-lifecycle observers when a monster skill starts or ends.</summary>
+    public static void NotifyActionLifecycle(Player player, uint monsterId, SpawnedMonster monster, int effect, ActionLifecyclePhase phase, double now)
+    {
+        var list = actionObservers;
+        for (int i = 0; i < list.Length; i++)
+            list[i](player, monsterId, monster, effect, phase, now);
+    }
+
     /// <summary>Applies registered state-transition providers in registration order.</summary>
     public static StateMachineData? ApplyStateTransitions(MonsterCatalog.Variety variety, StateMachineData? current)
     {
@@ -150,6 +174,7 @@ public static class MonsterKitHooks
             effectFilters = [];
             comboProviders = [];
             clipObservers = [];
+            actionObservers = [];
             stateProviders = [];
             Interlocked.Increment(ref effectFilterVersion);
             Interlocked.Increment(ref comboProviderVersion);
