@@ -448,8 +448,8 @@ public sealed class MonsterElementalAilments
         attacker(Stat.ElementalistChillMaximumMagnitudeOverride) is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<uint, int> attacker) =>
-        (int)Math.Clamp(50L + attacker(Stat.ShockMaximumMagnitudePlus)
-            + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0), 0, int.MaxValue);
+        (int)Math.Clamp(50L + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0)
+            + attacker(Stat.ShockMaximumMagnitudePlus), 0, int.MaxValue);
 
     static double EffectModifier(Kind kind, Func<uint, int> attacker, Func<uint, int> target) =>
         Math.Max(0, 1 + attacker(Stat.Of($"virtual_{Name(kind)}_effect_+%")) / 100.0)

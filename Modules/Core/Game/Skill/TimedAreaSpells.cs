@@ -14,6 +14,7 @@ public static partial class Game
             SkillCriticalRoll? critical, SacrificeUse sacrifice, double more, int repeat)
         {
             var intensity = CastingIntensity(Player, gem.Id);
+            double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
             var source = SupportedSkill(Player, gem.Id);
             string? effect = SkillsFor(Player).EffectId(gem.Effect);
             var lifetime = CombatLifetime;
@@ -49,14 +50,14 @@ public static partial class Game
                 }
                 if (VolatileDeadEffect(effect))
                 {
-                    ReleaseVolatileDead(gem.Id, aim, now, Current, (at, radius, time) => Hit(at, radius, time), more: more);
+                    ReleaseVolatileDead(gem.Id, aim, now, Current, (at, radius, time) => Hit(at, radius, time), more: more * beidatMore);
                     return;
                 }
 
                 if (CremationEffect(effect))
                 {
                     ReleaseCremation(gem.Id, aim, target, effect == "CremationAltY", now, Current,
-                        (at, radius, time) => Hit(at, radius, time), more);
+                        (at, radius, time) => Hit(at, radius, time), more * beidatMore);
                     return;
                 }
                 if (FrostBombEffect(effect))
@@ -103,7 +104,7 @@ public static partial class Game
                     ConsumeSpellCorpse(corpse.Key, corpse.Value, at);
                     Effect(pos.X, pos.Y, DetonateDeadArt, ProjectileRuntime.Time(.75), radius);
                     if (!scavenging) Hit(pos, radius, at);
-                    ApplyCorpseExplosion(gem.Id, corpse.Value.MaxLife, pos, radius, at, more: more);
+                    ApplyCorpseExplosion(gem.Id, corpse.Value.MaxLife, pos, radius, at, more: more * beidatMore);
                     if (index + 1 >= limit || !Current()) return;
                     double gap = vaal ? .16 + .055 * index : Math.Max(.04, .22 - .023 * index);
                     Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(gap), () =>
@@ -119,7 +120,7 @@ public static partial class Game
                 var task = AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, sequence: sequence,
                     radiusOverride: radius, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Current,
                     scheduledSession: this, repeat: repeat, damageMore: more * stageMore,
-                    extraCriticalIncrease: extraCriticalIncrease);
+                    extraCriticalIncrease: extraCriticalIncrease, hitAndAilmentMore: beidatMore);
                 if (!task.IsCompleted) throw new InvalidOperationException("Scheduled timed area spell hit must not yield.");
                 task.GetAwaiter().GetResult();
             }

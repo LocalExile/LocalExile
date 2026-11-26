@@ -84,6 +84,8 @@ public static partial class Game
         if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
                 or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
             scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
+        if (Bonus(Stat.PactCooldownSpeedPlusPct) is long pact and not 0 && skills.HasType(effect, "Pact"))
+            scoped += pact;
         uint scopedRecovery = skills.IsGuard(effect) ? Stat.GuardSkillCooldownRecoveryPlusPct
             : retaliation ? Stat.CounterattacksCooldownRecoveryPlusPct : 0;
         if (scopedRecovery != 0 || scoped != 0)
@@ -286,6 +288,8 @@ public static partial class Game
                     var world = player.RampageWorld;
                     if (!player.OwnedCombatWorker.Bind(player, CombatLifetime!, world.SourceOwner, world, out long generation))
                         return false;
+                    if (KtashSpellFor(player, requested, vaal.Effect) is { } ktash)
+                        vaal = vaal with { Ktash = ktash, PreventionSeconds = vaal.PreventionSeconds * ktash.PreventionMore };
                     vaal.WorkGeneration = generation;
                 }
             }

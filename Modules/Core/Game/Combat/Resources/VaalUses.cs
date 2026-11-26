@@ -9,6 +9,8 @@ public sealed record VaalUseReservation(ushort Skill, int Effect, int Action, in
     public int RecoveryGeneration;
     public bool RageConverted;
     public int? TotemPlacements;
+    internal Game.KtashEmpowerment? Ktash { get; init; }
+    internal double PactDamageMore => Ktash?.DamageMore ?? 1;
 }
 
 public static partial class Game
@@ -20,7 +22,7 @@ public static partial class Game
         return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep" or VaalReaveEffect
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
             or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect or VaalLightningWarpEffect
-            or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalBladeVortexEffect
+            or VaalAncestralWarchiefEffect or "VaalDetonateDead" or VaalArcEffect or VaalBladeVortexEffect
             || IsVaalMinion(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
@@ -121,9 +123,12 @@ public static partial class Game
         if (plan.Souls > 0)
         {
             var definition = SkillsFor(player).VaalBudget(plan.Effect, SupportedSkill(player, plan.Skill).Level)!.Value;
-            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls))
+            bool refund = plan.Ktash is { RefundChance: > 0 } empowerment
+                && (empowerment.RefundChance == 100 || AreaRng(player).Next(100) < empowerment.RefundChance);
+            if (!player.VaalSouls.TryConsume(definition.ActiveSkillsRow, plan.Souls, refund))
                 throw new InvalidOperationException("Vaal soul reservation changed inside admission");
         }
+        if (plan.Ktash is { } admitted) UseKtashEmpowerment(player, admitted);
         player.PlayerMana -= plan.Mana;
         player.PlayerLife -= plan.Life;
         ManaSpentLocked(player, plan.Mana, stats);
