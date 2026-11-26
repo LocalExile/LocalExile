@@ -38,7 +38,12 @@ public sealed partial class DelveModule
 
     void RegisterSulphite(IModuleContext module)
     {
-        GameEvents.MapOpening.Add(module.Manifest.Id, request => request.HandledContent.Add(MapScarabContent.Sulphite));
+        GameEvents.MapOpening.Add(module.Manifest.Id, request =>
+        {
+            if (!request.Campaign && request.Opening is { } opening && MapSulphite.Eligible(opening.Area.Id)
+                && ClientTables.Has("DelveResourcePerLevel") && ClientTables.Has("DelveUpgrades"))
+                request.HandledContent.Add(MapScarabContent.Sulphite);
+        });
         GameEvents.AreaGenerated.Add(module.Manifest.Id, player => EnsureSulphite(module, PlayerOf(player)));
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player => EnsureSulphite(module, PlayerOf(player)));
         GameEvents.PlayerLeaving.Add(module.Manifest.Id, (player, _) => { _playerSulphite.Remove(player); return Task.CompletedTask; });
@@ -74,7 +79,7 @@ public sealed partial class DelveModule
             List<(uint Id, ushort Buff)> shown = [];
             foreach (uint id in player.Area.Monsters.Where(e => !e.Value.Dead && !e.Value.Asleep).Select(e => e.Key))
                 if (player.Area.Monsters.TryGetValue(id, out var m) && m.Life > 0
-                    && m.EncounterStats?.GetValueOrDefault(MapSulphite.EnragedQuantity) >= MapSulphite.FumesQuantity
+                    && MapSulphite.Enraged(player.Instance, id)
                     && encounter.Enraged.Add(id)) shown.Add((id, 1));
             foreach (var (id, buff) in shown)
                 player.Area.Buffs.Set(id, new(2420));
@@ -90,6 +95,8 @@ public sealed partial class DelveModule
                 ["owner"] = encounter.Owner,
                 ["yield"] = MapSulphite.Yield(encounter.AreaLevel, encounter.Mods, CharacterName(player).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase)),
                 ["fumes"] = MapSulphite.Fumes(encounter.Mods),
+                ["enraged"] = new JsonArray(player.Area.Monsters.Keys.Where(id => MapSulphite.Enraged(player.Instance, id))
+                    .Select(id => (JsonNode)JsonValue.Create(id)!).ToArray()),
                 ["deposits"] = new JsonArray(encounter.Deposits.Select(d => (JsonNode)new JsonObject
                 {
                     ["id"] = d.Id, ["x"] = d.X, ["y"] = d.Y, ["type"] = d.Type,
@@ -213,34 +220,37 @@ public sealed partial class DelveModule
             && LeagueFor(p).Modules.Contains(module.Manifest.Id) && MapSulphite.Distance(p.Walk.Position(AreaTime(p)), (deposit.X, deposit.Y)) <= 150).ToList();
         if (!recipients.Contains(player)) recipients.Add(player);
         List<(Player Player, ushort Before, ushort After)> awards = [];
-        // The instance lock serializes simultaneous clicks, claims and the durable resource credit. No network awaits here.
-        if (!module.Lifetime.IsActive || player.Closed || player.LeavingArea || player.PlayerLife == 0 || player.Instance.HasState(MinedKey(deposit.Index))) return true;
-        Saves.Atomically(() =>
+        // Serialize the claim even when uses arrive outside the normal instance message loop.
+        await state.Gate.WaitAsync();
+        try
         {
-            foreach (var recipient in recipients)
+            if (!module.Lifetime.IsActive || player.Closed || player.LeavingArea || player.PlayerLife == 0 || player.Instance.HasState(MinedKey(deposit.Index))) return true;
+            Saves.Atomically(() =>
             {
-                var recipientWorld = WorldOf(PlayerOf(recipient));
-                int gain = MapSulphite.Yield(encounter.AreaLevel, encounter.Mods,
-                    CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
-                ushort before = 0, after = 0;
-                recipientWorld.CharacterData.Change(SulphiteKey, old =>
+                foreach (var recipient in recipients)
                 {
-                    before = ushort.TryParse(old, out var n) ? n : (ushort)0;
-                    after = MapSulphite.Credit(before, gain, Capacity(recipientWorld));
-                    return after.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                });
-                awards.Add((recipient, before, after));
-            }
-            return true;
-        });
-        player.Instance.SetState(MinedKey(deposit.Index));
-        if (MapSulphite.Fumes(encounter.Mods))
-            foreach (var monster in player.Area.Monsters.Values.Where(m => m.Hostile && m.Life > 0 && MapSulphite.Distance(m.Walk.Position(AreaTime(player)), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius))
-            {
-                var stats = monster.EncounterStats is null ? new Dictionary<uint, int>() : new Dictionary<uint, int>(monster.EncounterStats);
-                stats[MapSulphite.EnragedQuantity] = Math.Max(MapSulphite.FumesQuantity, stats.GetValueOrDefault(MapSulphite.EnragedQuantity));
-                monster.EncounterStats = stats;
-            }
+                    var recipientWorld = WorldOf(PlayerOf(recipient));
+                    int gain = MapSulphite.Yield(encounter.AreaLevel, encounter.Mods,
+                        CharacterName(recipient).Equals(encounter.Owner, StringComparison.OrdinalIgnoreCase), recipients.Count);
+                    ushort before = 0, after = 0;
+                    recipientWorld.CharacterData.Change(SulphiteKey, old =>
+                    {
+                        before = ushort.TryParse(old, out var n) ? n : (ushort)0;
+                        after = MapSulphite.Credit(before, gain, Capacity(recipientWorld));
+                        return after.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                    });
+                    awards.Add((recipient, before, after));
+                }
+                return true;
+            });
+            player.Instance.SetState(MinedKey(deposit.Index));
+            if (MapSulphite.Fumes(encounter.Mods))
+                foreach (var (id, monster) in player.Area.Monsters)
+                    if (monster.Hostile && monster.Life > 0 && !monster.Dead
+                        && MapSulphite.Distance(monster.Walk.Position(AreaTime(player)), (deposit.X, deposit.Y)) <= MapSulphite.FumesRadius)
+                        MapSulphite.Enrage(player.Instance, id, monster);
+        }
+        finally { state.Gate.Release(); }
         foreach (var (recipient, before, after) in awards)
         {
             var p = PlayerOf(recipient);
