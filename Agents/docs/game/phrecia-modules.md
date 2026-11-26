@@ -11,8 +11,8 @@ League lists are startup configuration; rebuilding the mod reloads its code.
 
 The initial extraction preserves Gambler, Antiquarian and Aristocrat from main.
 Their class descriptors live under `Classes/<Name>`; a class is enabled only after its implementation is supported.
-The module builds all 19 identities (`AscendancyCatalog.Build`) while it is loaded, without making unfinished classes
-playable; with the module away a saved choice is kept and the character is refused at entry.
+The mod builds all 19 identities (`AscendancyCatalog.Build`) while it is loaded, without making unfinished classes
+playable; with the mod away a saved choice is kept and the character is refused at entry.
 Behemoth adds its descriptor and node sources under `Classes/Behemoth`; its reusable stat-driven engines stay in Game.
 Whisperer adds its exact Deadeye/Ranger descriptor and reusable Mana/Recoup/Blind engines in a separate dependent PR.
 Harbinger remains separate work.
@@ -25,7 +25,7 @@ opt-ins still require the reviewed combined 3.29.3b graph installed separately.
 Behemoth uses the same read-only boundary behind `Game_VERIFIED_BEHEMOTH=1`.
 Whisperer uses `Game_VERIFIED_WHISPERER=1` and the current packed graph boundary; see [Whisperer](whisperer.md).
 Harbinger uses `Game_VERIFIED_HARBINGER=1`; see [Harbinger](harbinger.md).
-The module verifies the original and alternate graph bytes read-only.
+The mod verifies the original and alternate graph bytes read-only.
 It never installs, repairs or writes the client archive.
 Normal and unascended characters have no alternate-graph verification requirement.
 
@@ -44,7 +44,7 @@ Selection, pre-inventory admission, point awards and passive mutations use that 
 The command lists available choices only.
 A missing provider or unsupported saved identity refuses admission before inventory preparation and save normalization.
 It never substitutes a normal class, trims optional nodes or deletes progress.
-Restoring the module allows the existing progress to be admitted again.
+Restoring the mod allows the existing progress to be admitted again.
 
 ## Reload ownership
 
