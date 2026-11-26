@@ -250,5 +250,5 @@ hit roll it.
 Hit a normal monster: it runs about 5 m away from you without attacking (`0x01ab monster … flees`), then comes back.
 A rare or unique monster never flees, and a magic one flees from about half of the hits.
 
-Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Coverage: `PhreciaFourClassesTests`, kept with the mod in `tests/` and not run yet (admission with the class's own opt-in, and its node stats). The class's earlier
 Gateway tests went with the Gateway test reset of `3877f119`.

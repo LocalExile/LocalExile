@@ -49,7 +49,6 @@
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="pantheon" />
     <InternalsVisibleTo Include="portals" />
-    <InternalsVisibleTo Include="phreciaascendancies" />
     <InternalsVisibleTo Include="questobjects" />
     <InternalsVisibleTo Include="ruthless" />
     <InternalsVisibleTo Include="shrines" />
