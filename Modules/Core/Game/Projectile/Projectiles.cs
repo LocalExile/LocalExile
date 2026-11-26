@@ -1482,8 +1482,11 @@ public static partial class Game
                 Console.WriteLine($"[gateway] {Player.Connection.Remote} projectile glide object={visual.Id} entity={p.Id}"
                     + $" from={start} to={end} duration={duration:0.###}"
                     + $" speed={p.Speed:0.##} first={first}");
-            return first ? [move]
-                : [startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y)), move];
+            if (first) return [move];
+            var stop = startHeight.StopAt(visual.Id, (int)Math.Round(p.Position.X), (int)Math.Round(p.Position.Y));
+            if (p.Direction.Length <= 0) return [stop, move];
+            var orient = InstanceProtocol.Orientation(visual.Id, (float)Math.Atan2(p.Direction.X, -p.Direction.Y));
+            return [stop, orient, move];
         }
         public static ProjectileVector Vector((int X, int Y) p) => new(p.X, p.Y);
         static string? PayloadLabel(object? payload) => payload switch
