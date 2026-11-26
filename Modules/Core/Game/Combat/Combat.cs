@@ -709,7 +709,12 @@ public static partial class Game
                     stageStarts = false;
                 }
                 life = m.Life;
-                if (weapon.Melee) GainValourFromMeleeLocked(player, m, life == 0, at, playerStats);
+                if (weapon.Melee)
+                {
+                    GainValourFromMeleeLocked(player, m, life == 0, at, playerStats);
+                    if (GoreShockwaveForHit(player, playerStats) is { } gore)
+                        TriggerGoreShockwaveLocked(player, gore, m.Walk.Position(at), at);
+                }
                 player.LastEnemyHitAt = m.PlayerHitAt = AreaTime(player);
                 // The "recently" stats (issue #504): hit an enemy, and crit with it when the roll was a critical one.
                 player.RecentEvents.RecordHit(m.PlayerHitAt, critical, attack: true);
@@ -3591,6 +3596,7 @@ public static partial class Game
         LeechSources? leech = null;
         bool weaponAttack = false;
         Item? weaponContactSource = null, secondWeaponContactSource = null;
+        PlayerSkillSource? goreShockwave = null;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<uint, int>? weaponLocal = null;
         string? sweepWeaponClass = null, secondSweepWeaponClass = null;
@@ -3644,6 +3650,9 @@ public static partial class Game
                     {
                         sweepStats = new PlayerStatScope(player, fresh: true);
                         playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
+                        if (!spell && linkedSource && SkillsFor(player).IsMelee(gem.Effect)
+                            && admittedGem.WornGrant is not { EffectId: GoreShockwaveEffect })
+                            goreShockwave = GoreShockwaveForHit(player, playerStats);
                         if (spell) extraArcRolls = ArcExtraRolls(player, effectId, playerStats);
                         // Capture the admitted gem and actual source weapon once. The ordinary main hand keeps its local
                         // sources; a shield skill's off hand intentionally carries none of the main hand's local values.
@@ -4127,6 +4136,8 @@ public static partial class Game
                                 ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(at), at);
                             if (shockwaveSupport)
                                 TriggerShockwaveLocked(player, skillId, admittedGem, hand, weapon, offCritical, m.Walk.Position(at), at);
+                            if (goreShockwave is { } gore)
+                                TriggerGoreShockwaveLocked(player, gore, m.Walk.Position(at), at);
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
                             CombatRushOnHit(player, skillStats, at);
                             HallowOnMeleeHit(player, m, skillStats, at);

@@ -6,6 +6,7 @@ public static partial class Game
 {
     const string ShockwaveEffect = "SupportBluntWeaponShockwave";
     const string VoidShockwaveEffect = "TriggeredSupportVoidShockwave";
+    const string GoreShockwaveEffect = "GoreShockwave";
     const string VoidShockwaveArt = "Metadata/Effects/Spells/supports/void_shockwave/void_shockwave.ao";
 
     static void TriggerShockwaveLocked(Player player, ushort drivingSkill, SupportedGem parent,
@@ -22,18 +23,36 @@ public static partial class Game
             source = PlayerSkillSourcesLocked(player).FirstOrDefault(row => row.Active && row.Level == support.Gem.Level
                 && row.WornGrant is { } grant && grant.Host == (parent.WornGrant?.Host ?? parent.Host)
                 && grant.EffectId == ShockwaveEffect && grant.ModId.StartsWith("WeaponTreeSupportShockwave", StringComparison.Ordinal));
-        if (source is null || GemSkillInstanceDisabled(player, source.Effect, source.Id, triggered: true) is not null
+        ScheduleShockwaveLocked(player, source, parent.Stats.GetValueOrDefault(chance), hand, weapon, offCritical, at, now);
+    }
+
+    static PlayerSkillSource? GoreShockwaveForHit(Player player, IReadOnlyDictionary<uint, int> playerStats) =>
+        playerStats.GetValueOrDefault(Stat.LocalDisplayTriggerLevelXGoreShockwaveOnMeleeHitWithAtleast150Strength) > 0
+            ? PlayerSkillSourcesLocked(player).FirstOrDefault(row => row.Active && row.WornGrant is { EffectId: GoreShockwaveEffect })
+            : null;
+
+    static void TriggerGoreShockwaveLocked(Player player, PlayerSkillSource source, (int X, int Y) at, double now)
+    {
+        if (player.Pools.Strength < 150) return;
+        int chance = SupportedSkill(player, source.Id).Stats.GetValueOrDefault(Stat.AttackTriggerOnMeleeHitWithAtleast150StrengthPct);
+        ScheduleShockwaveLocked(player, source, chance, AttackHand.Main, HandWeapon(player, AttackHand.Main), null, at, now);
+    }
+
+    static void ScheduleShockwaveLocked(Player player, PlayerSkillSource? source, int chance,
+        AttackHand hand, SkillCatalog.Unarmed weapon, int? offCritical, (int X, int Y) at, double now)
+    {
+        if (source is null || chance <= 0 || GemSkillInstanceDisabled(player, source.Effect, source.Id, triggered: true) is not null
             || CooldownForSkill(player, source.Id) is not { } cooldown) return;
 
         var session = ProjectilesFor(player);
         if (!session.Active || player.PlayerLife == 0 || player.Paused || player.Closed || player.LeavingArea) return;
         int key = CooldownKey(player, source.Effect, source.Id);
         var state = CooldownStateLocked(player, key, cooldown, now);
-        if (!state.Ready || !RandomRolls.Chance(parent.Stats.GetValueOrDefault(chance), 100, AreaRng(player))
+        if (!state.Ready || !RandomRolls.Chance(chance, 100, AreaRng(player))
             || !state.TryUse(now, cooldown)) return;
 
         var gem = SupportedSkill(player, source.Id);
-        string label = isVoid ? "Void Shockwave" : "Shockwave";
+        string label = source.Name;
         var attack = CaptureAreaAttack(player, source.Id, gem, hand, weapon, offCritical, 1, 1, label);
         var lifetime = CaptureGemSourceLifetimeLocked(player, source);
         var critical = CaptureSkillCriticalRoll(player, source.Id);

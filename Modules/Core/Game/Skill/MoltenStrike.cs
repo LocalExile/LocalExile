@@ -314,6 +314,7 @@ public static partial class Game
             }
 
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
+            var goreShockwave = GoreShockwaveForHit(player, playerStats);
             var attackSource = HandWeapon(player, hand);
             var local = attackSource.LocalSources;
             var ailmentStats = WithWeaponAilmentStats(skillStats, local, offHand: hand == AttackHand.Off);
@@ -463,6 +464,8 @@ public static partial class Game
                 if (skillStats.GetValueOrDefault(global::Stat.SupportBluntChanceToTriggerShockwaveOnHitPct) > 0)
                     TriggerShockwaveLocked(player, skillId, supported, hand, weapon,
                         SwingWeaponCritical(player, hand), m.Walk.Position(now), now);
+                if (goreShockwave is { } gore)
+                    TriggerGoreShockwaveLocked(player, gore, m.Walk.Position(now), now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));
             }
 
