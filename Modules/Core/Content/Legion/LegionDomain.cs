@@ -514,12 +514,35 @@ static class LegionDomain
                 if (state.Slots[i] is { GhostId: 0, Alive: false } && !state.NoSpawn.Contains(i) && state.Spawning.Add(i))
                     missing.Add(i);
         }
-        int made = 0;
-        foreach (int i in missing)
-            if (await SpawnGhost(player, state, i, fall: false) != 0) made++;
+        int made = 0, processed = 0;
+        var lateWake = new List<int>();
+        try
+        {
+            foreach (int i in missing)
+            {
+                processed++;
+                if (await SpawnGhost(player, state, i, fall: false) == 0) continue;
+                made++;
+                lock (state)
+                    if (state.Phase == DomainPhase.Active && state.Slots[i] is { GhostId: not 0, RiseStep: 0 })
+                        lateWake.Add(i);
+            }
+        }
+        finally
+        {
+            if (processed < missing.Count)
+                lock (state)
+                    for (int k = processed; k < missing.Count; k++) state.Spawning.Remove(missing[k]);
+        }
         // Saved now: the tick flushes only a running Domain, and a reload before the start would lose every ghost's id.
         if (made > 0) lock (state) Keep(player, state);
         if (missing.Count > 0) module.Log($"Domain revive: {made}/{missing.Count} ghosts created lying before the start (state 4, the client poses them)");
+        // If a player started the Domain while waiting ghosts were still spawning, wake every ghost StartDomain skipped.
+        if (lateWake.Count > 0)
+        {
+            int woken = await StartRising(module, player, state, lateWake, revival: false);
+            if (woken > 0) lock (state) Keep(player, state);
+        }
     }
 
     static MonsterCatalog.Variety? VarietyOf(DomainState state, int monsterRow)
@@ -544,7 +567,11 @@ static class LegionDomain
         try
         {
             FighterSlot slot; byte level;
-            lock (state) (slot, level) = (state.Slots[i], (byte)Math.Clamp(state.Level, 1, 100));
+            lock (state)
+            {
+                if (!fall && state.Phase == DomainPhase.Finished) return 0;
+                (slot, level) = (state.Slots[i], (byte)Math.Clamp(state.Level, 1, 100));
+            }
             if (VarietyOf(state, slot.MonsterRow) is not { Supported: true } variety)
             {
                 lock (state) state.NoSpawn.Add(i);
@@ -573,6 +600,7 @@ static class LegionDomain
         double now = global::Game.AreaTime(player);
         lock (state)
         {
+            if (state.Phase != DomainPhase.Active) return 0;
             foreach (int i in slots)
             {
                 var s = state.Slots[i];

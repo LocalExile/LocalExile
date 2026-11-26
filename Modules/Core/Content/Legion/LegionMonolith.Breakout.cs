@@ -58,6 +58,8 @@ static partial class LegionMonolith
         return null;
     }
 
+    internal static Player? LiveRunner(Player fallback, InstanceState? instance) => ResolveRunner(fallback, instance);
+
     /// <summary>Arms the non-lethal floor and clears EntranceGrace so every combat damage path (hits, DoTs, minions, totems,
     /// traps, mines, brands, culling strike) can damage this revealed frozen member and break it out at 1 life.</summary>
     static void ArmFloor(IModuleContext module, Player player, Hold hold, SpawnedMonster monster)

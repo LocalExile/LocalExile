@@ -188,6 +188,12 @@ public sealed class LegionTests
         LegionDomain.ResolveOpening(dupReq);
         Assert.Null(dupReq.Opening);
         Assert.NotEmpty(dupReq.Reason);
+        // General Defeat speech is claimed once per monster id per area (handles both Killed-first and Drops-first kill orders).
+        Assert.True(LegionStasis.TryClaimDefeat(opener, 0x999u));
+        Assert.False(LegionStasis.TryClaimDefeat(opener, 0x999u));
+        LegionStasis.ClearFighters();
+        Assert.True(LegionStasis.TryClaimDefeat(opener, 0x999u));
+        LegionStasis.ClearFighters();
         }
     }
 

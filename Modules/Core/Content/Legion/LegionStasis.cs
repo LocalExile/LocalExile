@@ -46,6 +46,8 @@ static class LegionStasis
     /// <summary>The members that woke and fight, by the new monster's id, per AREA (ids restart in every area instance; the table goes with its area).
     /// Also persisted in Instance.ContentState["LegionFighters"] so module hot-reloads keep sergeant/general rewards intact.</summary>
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter>> FightersByArea = new();
+    /// <summary>Map generals whose Defeat line was already claimed in this area (guards against duplicate speech when both Killed and Drops run).</summary>
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<GameArea, System.Collections.Concurrent.ConcurrentDictionary<uint, byte>> DefeatSpokenByArea = new();
     static volatile bool anyFighter;
     const string FightersSaveKey = "LegionFighters";
     static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
@@ -53,7 +55,10 @@ static class LegionStasis
     /// <summary>True once any fighter was registered (the drops' cheap first test); false after the module's cleanup.</summary>
     public static bool AnyFighter => anyFighter;
 
-    public static void ClearFighters() { FightersByArea.Clear(); anyFighter = false; }
+    public static void ClearFighters() { FightersByArea.Clear(); DefeatSpokenByArea.Clear(); anyFighter = false; }
+
+    /// <summary>Claims the map General's Defeat voiceline once per monster id in the area (whichever of Killed or Drops runs first).</summary>
+    public static bool TryClaimDefeat(Player player, uint id) => DefeatSpokenByArea.GetOrCreateValue(player.Area).TryAdd(id, 0);
 
     static void PersistFighters(Player player, System.Collections.Concurrent.ConcurrentDictionary<uint, Fighter> fighters)
     {

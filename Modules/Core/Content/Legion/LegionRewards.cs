@@ -296,12 +296,13 @@ static class LegionRewards
     static bool warned;
 
     /// <summary>GameEvents.MonsterKilled: a fighter's reward symbols end at its death (the area's Buffs end them only at removal). Only reads the entry:
-    /// Drops may have run first and taken it, and then cleared them itself.</summary>
+    /// Drops may have run first and taken it, and then cleared them and scheduled the General's Defeat line itself.</summary>
     public static async Task Killed(MonsterKill kill)
     {
         if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is not { } fighter) return;
         if (fighter.Rewards.Length > 0) kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
-        if (fighter.Tier == 3) await LegionSpeech.Say(kill.Player, kill.Monster.VarietyId, "Defeat");
+        if (fighter.Tier == 3 && LegionStasis.TryClaimDefeat(kill.Player, kill.Monster.ObjectId))
+            await LegionSpeech.Say(kill.Player, kill.Monster.VarietyId, "Defeat");
     }
 
     /// <summary>GameEvents.Drops: the common path is a volatile flag, then one lookup in the area's table.</summary>
@@ -310,6 +311,14 @@ static class LegionRewards
         if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(drop.Player, drop.Monster.ObjectId, remove: true) is not { } fighter) return;
         var player = drop.Player;
         if (fighter.Rewards.Length > 0) player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
+        // Projectile kills run Drops before MonsterKilled (taking the fighter entry first): play the General's Defeat line here when unclaimed.
+        if (fighter.Tier == 3 && LegionStasis.TryClaimDefeat(player, drop.Monster.ObjectId))
+        {
+            var inst = player.Instance;
+            string? varietyId = drop.Monster.VarietyId;
+            global::Game.SendAfter(player, 0, () =>
+                LegionMonolith.LiveRunner(player, inst) is { } runner ? LegionSpeech.Say(runner, varietyId, "Defeat") : Task.CompletedTask);
+        }
         if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0") return;
         var rules = Program.LeagueFor(player).Rules;
         var stats = LegionMonolith.AreaStats(player);
