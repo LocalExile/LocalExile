@@ -67,7 +67,6 @@ public sealed class GuardSkillTests
     public async Task Casting_immortal_call_applies_its_buff_and_holds_the_shared_guard_cooldown()
     {
         using var f = new MinionUtilityTests.Fixture();
-        f.Player.Clock.Stop();
         f.Equip(("Immortal Call", 1));
         var gem = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "ImmortalCall");
         var charges = Game.ChargesOf(f.Player);
@@ -76,6 +75,7 @@ public sealed class GuardSkillTests
         double now = Game.AreaTime(f.Player);
         uint mana = f.Player.PlayerMana;
         await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(now));
+        f.Player.Clock.Stop();
         double castAt = Game.AreaTime(f.Player);
         Assert.Equal(limits.Minimum, charges.Effective(ChargeType.Endurance));
         Assert.True(f.Player.PlayerMana < mana);

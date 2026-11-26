@@ -127,8 +127,8 @@ Life/damage increase by 50% per repeated breakout and 100% for spreading; these 
 The existing army population and chest/drop weights remain estimates.
 
 The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
-extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and the first two Abyssal Crystals. Depths has
-a return to the parent instance; Wretched guarantees its existing boss variant. The new inputs reuse the captured
+extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and non-final pits' Abyssal Crystals. Depths has
+a return to the parent instance. The new inputs reuse the captured
 crack/pit lifecycle. Extra-pit placement, rare-monster distribution, crystal reward count and the uncaptured Depths
 layout are local models; the base encounter's recorded capture evidence does not establish retail parity for them.
 
