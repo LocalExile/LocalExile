@@ -1,3 +1,5 @@
+using GameServer.Core.Accounts;
+using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 
 namespace GameServer.Gateway.Tests;
@@ -56,6 +58,7 @@ public sealed class ReaveTests
         using var f = new TriggeredSummonTests.Fixture(clock);
         var player = f.Player;
         var skill = Equip(f, "Vaal Reave", vaal: true);
+        clock.AdvanceAreaWhileWaiting = player;
         using var accuracy = AlwaysHit(player);
         var old = Game.AreaUpdateContext.Value;
         Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
@@ -116,11 +119,13 @@ public sealed class ReaveTests
     sealed class ReaveClock : IPlayerUpdateSchedule
     {
         double at = 1;
+        public Player? AdvanceAreaWhileWaiting { get; set; }
         public double Now(Player player) => at;
         public Task Wait(int milliseconds, CancellationToken stopping)
         {
             stopping.ThrowIfCancellationRequested();
             at += milliseconds / 1000d;
+            if (AdvanceAreaWhileWaiting is { } player) Step(player);
             return Task.CompletedTask;
         }
         public void Step(Player player) => player.Area.Step((long)(at * 1000 / Program.FrameMs), at);

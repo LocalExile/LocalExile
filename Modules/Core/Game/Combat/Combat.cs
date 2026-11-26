@@ -2898,11 +2898,12 @@ public static partial class Game
         }
         criticalRoll ??= CaptureSkillCriticalRoll(player, skillId);
         // A dual-wielded attack's hand for this use (AttackHands): its weapon, time, hit, chance and local modifiers.
-        var hand = lacerate?.Hand ?? retainedAttack?.Hand
+        var swingHands = lacerate?.Hand ?? retainedAttack?.Hand
             ?? (spell ? AttackHand.Main : AttackHandFor(player, skillId, sequence));
         if (lacerate is null && !immediate && !spell && LacerateEffect(SkillsFor(player).EffectId(gem.Effect)))
-            lacerate = StartLacerate(player, admittedGem, skillId, from, to, hand,
+            lacerate = StartLacerate(player, admittedGem, skillId, from, to, swingHands,
                 (swingAt ?? AreaTime(player)) + repeatDelay, radiusMore);
+        var hand = lacerate?.Hand ?? swingHands;
         var itemCriticalTrigger = spell ? null : CaptureItemCriticalTriggerSource(player, skillId, hand);
         var weapon = retainedAttack?.Weapon ?? HandWeapon(player, hand);
         // Read once per use: the per-victim hit log and the target-conditional critical chances reuse them.
@@ -2949,7 +2950,6 @@ public static partial class Game
         var effectId = SkillsFor(player).EffectId(gem.Effect);
         bool divineBlast = effectId is "DivineBlast" or "DivineBlastAltX";
         bool reave = IsReave(effectId);
-        int openingReaveStages = reave && repeat == 0 ? ReaveStages(player) : 0;
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
         bool pestilentStrike = IsPestilentStrike(effectId);
@@ -3163,7 +3163,7 @@ public static partial class Game
             }
             if (reave)
             {
-                int stages = repeat == 0 ? openingReaveStages : ReaveStages(player);
+                int stages = ReaveStages(player);
                 var reaveStats = SkillAreaStats(player, skillStats, gem.Effect);
                 double stageMore = 1 + Stat(global::Stat.ReaveAreaOfEffectPlusPctFinalPerStage) * stages / 100d;
                 // The client scans from one body radius behind the player (FUN_141bdd210),

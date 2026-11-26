@@ -1,3 +1,4 @@
+using GameServer.Core.Diagnostics;
 using GameServer.Core.Projectiles;
 
 /// <summary>
