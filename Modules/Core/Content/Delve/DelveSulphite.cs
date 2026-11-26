@@ -79,6 +79,7 @@ public sealed partial class DelveModule
             if (!MapSulphite.Fumes(encounter.Mods) || encounter.Depleted.Count == 0) return;
             foreach (var (id, m) in player.Area.Monsters)
                 if (!m.Dead && !m.Asleep && m.Life > 0 && !encounter.Enraged.Contains(id)
+                    && m.EncounterStats is { } stats && stats.ContainsKey(MapSulphite.EnragedQuantity)
                     && MapSulphite.Enraged(player.Instance, id) && encounter.Enraged.Add(id))
                     player.Area.Buffs.Set(id, new(2420));
         }));
