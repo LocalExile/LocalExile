@@ -12,6 +12,8 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
     {
         public int PoisonedLifePct { get; init; }
         public int LifePermyriadPerPoison { get; init; }
+        public int CursedLifePct { get; init; }
+        public int CursedEnergyShieldPct { get; init; }
     }
     public Ailing When { get; init; }
 
@@ -32,6 +34,8 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
             {
                 PoisonedLifePct = life ? get(Stat.RecoverPctMaximumLifeOnKillingPoisonedEnemy) : 0,
                 LifePermyriadPerPoison = life ? get(Stat.RecoverPermyriadMaximumLifePerPoisonOnEnemyOnKill) : 0,
+                CursedLifePct = life ? get(Stat.RecoverPctMaximumLifeOnKillingCursedEnemy) : 0,
+                CursedEnergyShieldPct = shield ? get(Stat.RecoverPctMaximumEnergyShieldOnKillingCursedEnemy) : 0,
             },
         };
     }
@@ -60,19 +64,25 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
-        var poisonRecovery = session.OnKill.When;
-        int poisonStacks = poisonRecovery.PoisonedLifePct != 0 || poisonRecovery.LifePermyriadPerPoison != 0
+        var conditions = session.OnKill.When;
+        if (m.CursedAtDeath)
+            k = k with
+            {
+                LifePct = ActorScale.Saturate((long)k.LifePct + conditions.CursedLifePct),
+                EnergyShieldPct = ActorScale.Saturate((long)k.EnergyShieldPct + conditions.CursedEnergyShieldPct),
+            };
+        int poisonStacks = conditions.PoisonedLifePct != 0 || conditions.LifePermyriadPerPoison != 0
             ? m.Poisons.StacksAtDeath(now) : 0;
         if (poisonStacks > 0)
-            k = k with { LifePct = ActorScale.Saturate((long)k.LifePct + poisonRecovery.PoisonedLifePct) };
+            k = k with { LifePct = ActorScale.Saturate((long)k.LifePct + conditions.PoisonedLifePct) };
         k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
             Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
         static double Amount(int flat, int pct, uint maximum) => Math.Max(0, Math.Floor(flat + maximum * (double)pct / 100));
         uint life = player.PlayerLife, mana = player.PlayerMana;
-        double lifeRecovery = poisonRecovery.LifePermyriadPerPoison == 0 || poisonStacks == 0
+        double lifeRecovery = conditions.LifePermyriadPerPoison == 0 || poisonStacks == 0
             ? Amount(k.Life, k.LifePct, player.PlayerMaxLife)
             : (double)Math.Max(0m, decimal.Floor(k.Life + player.PlayerMaxLife
-                * (k.LifePct * 100m + poisonStacks * (decimal)poisonRecovery.LifePermyriadPerPoison) / 10_000m));
+                * (k.LifePct * 100m + poisonStacks * (decimal)conditions.LifePermyriadPerPoison) / 10_000m));
         player.PlayerLife = PetrifiedBlood.RecoverLife(player, life, lifeRecovery, ref session.LifeInstantCarry, minimum: 1);
         player.PlayerMana = RecoveryPool.Advance(mana, (uint)UnreservedMana(player), Amount(k.Mana, k.ManaPct, player.Pools.Mana),
             ref session.ManaInstantCarry);
