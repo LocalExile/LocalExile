@@ -234,9 +234,6 @@ public static partial class Game
                 break;
             case StatInput.Walk:
                 graph.MarkRule((int)PlayerStatStep.TotemAura);
-                if (graph.Values.GetValueOrDefault(Stat.EsRegenerationPerMinutePctWhileStationary) != 0
-                    || graph.Values.GetValueOrDefault(Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) != 0)
-                    graph.MarkRule((int)PlayerStatStep.Sources);
                 double clock = AreaTime(player);
                 frame.MovingCheckAt = player.Walk.MovingChangesIn(clock) is double next ? clock + next : double.PositiveInfinity;
                 CheckConditions(player, frame, graph);
