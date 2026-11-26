@@ -46,7 +46,6 @@
     <InternalsVisibleTo Include="harvest" />
     <InternalsVisibleTo Include="heist" />
     <InternalsVisibleTo Include="hideoutediting" />
-    <InternalsVisibleTo Include="nessadevelopmenttabs" />
     <InternalsVisibleTo Include="npcdialogue" />
     <InternalsVisibleTo Include="pantheon" />
     <InternalsVisibleTo Include="portals" />

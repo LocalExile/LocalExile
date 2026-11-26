@@ -46,7 +46,6 @@
     <Project Path="Modules/Core/NPC/CurrencyExchange/CurrencyExchange.csproj" />
     <Project Path="Modules/Core/NPC/NpcDialogue/NpcDialogue.csproj" />
     <Project Path="Modules/Core/Ruthless/Ruthless.csproj" />
-    <Project Path="Modules/Custom/NessaDevelopmentTabs/NessaDevelopmentTabs.csproj" />
     <Project Path="Modules/Custom/Survivors/SurvivorsSkills/SurvivorsSkills.csproj" />
     <Project Path="Modules/Custom/Survivors/SurvivorsRewards/SurvivorsRewards.csproj" />
     <Project Path="Modules/Custom/Survivors/SurvivorsRun/SurvivorsRun.csproj" />
