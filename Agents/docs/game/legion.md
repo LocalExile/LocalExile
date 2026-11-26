@@ -131,8 +131,11 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   3.29.0 removed the Unrelenting Timeless Emblems ("existing items have been converted to regular Timeless Emblems"): the five
   Unrelenting rows count as their faction's regular emblem (its family and mods), with no uber Domain, drop or reward scaling.
   Area level (3.22.0): at least 80, +1 with 4 emblems, +2 with 5 (`WorldAreas` say 80; no level stat is in the emblem mods).
-- The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal`
-  (`active`) at `LegionEndgame_EncounterLocator`; quest flag `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`.
+- The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) at `LegionEndgame_EncounterLocator`; quest flag
+  `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`. Reward tracker (3.29.0: 100 small crystals at the centre light up, one per 3
+  reward icons, past 100 still counts): the server creates 100 `LegionDomainRewardCrystal` (`active`, server_only) and sets `active` 1 on
+  one more per 3 reward units banked; a unit is one reward icon times (100 + the emblems' `uber_domain_monster_reward_chance_+%`)/100,
+  fractions kept; only newly lit crystals are sent. GUESS: their positions, a ring of radius 12 cells, evenly spaced.
   The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells
   (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
   there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
@@ -159,8 +162,8 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   GUESS: the cap of 10 revival stacks.
 - The end at 00:00 (rewards on the ground around the centre) runs once, at the first tick of any player in the area after the timer, or
   when a player enters an area whose timer ran out while it was empty (it has no frames then); a dead player's tick runs it too.
-  At the end the server sets the initiator's `obelisk_state` 5 (the `inactive` clip), makes the crystal active and plays its `explode`
-  clip (S->C 0x1b2 kind 0), and drops the rewards; it prints no chat summary (the real game has none; the log has one). `Environments` 1177 is the
+  At the end the server sets the initiator's `obelisk_state` 5 (the `inactive` clip), lights what is owed and plays `explode` on all 100
+  reward crystals (S->C 0x1b2 kind 0), and drops the rewards; it prints no chat summary (the real game has none; the log has one). `Environments` 1177 is the
   arena's own base environment, so the server sends no `0xdf` for it. GUESS: the `explode` clip index 2 (`SmallCentralCrystal01.ao` views
   unlit, lit_up, explode). Live check: the crystal's explode, the 3357 effect we play at the end (the real beams, `LegionSoulercoaster1..6`,
   are not known: not built), and the obelisk's `inactive` look.

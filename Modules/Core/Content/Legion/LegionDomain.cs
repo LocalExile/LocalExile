@@ -73,11 +73,20 @@ static class LegionDomain
         string[] Factions, double TimerSeconds, double WaveSeconds,
         double StartedAt, double EndsAt, double LastWaveAt,
         int Waves, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
-        FighterSlot[] Slots, uint ZoneId = 0, uint PerimeterId = 0);
+        FighterSlot[] Slots, uint ZoneId = 0, uint PerimeterId = 0, uint[]? Crystals = null, double RewardProgress = 0);
 
     sealed class DomainState(SavedDomain s)
     {
         public uint InitiatorId = s.InitiatorId, CrystalId = s.CrystalId, ZoneId = s.ZoneId, PerimeterId = s.PerimeterId;
+        /// <summary>The ids of the 100 reward-tracker crystals (<see cref="CrystalCount"/>; empty when the type is unsupported).
+        /// CrystalId is the old single crystal of earlier saves and is no longer used.</summary>
+        public uint[] Crystals = s.Crystals ?? [];
+        /// <summary>Reward units banked, times the emblems' progress bonus (<see cref="CrystalCount"/>).</summary>
+        public double RewardProgress = s.RewardProgress;
+        /// <summary>How many crystals the clients have been told to light (not saved: from the progress on a reload, as the creates carry it).</summary>
+        public int LitSent = LitCrystals(s.RewardProgress);
+        /// <summary>The emblems' reward-progress bonus in percent, read from the area's stats on the first kill (-1: not read yet; not saved).</summary>
+        public int RewardBonusPct = -1;
         public int X = s.X, Y = s.Y, Level = s.Level;
         public float? Z = s.Z;
         public DomainPhase Phase = (DomainPhase)s.Phase;
@@ -137,8 +146,17 @@ static class LegionDomain
 
         public SavedDomain Snapshot() => new(InitiatorId, CrystalId, X, Y, Z, Level, (int)Phase,
             Factions, TimerSeconds, WaveSeconds, StartedAt, EndsAt, LastWaveAt,
-            Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ZoneId, PerimeterId);
+            Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ZoneId, PerimeterId, Crystals, RewardProgress);
     }
+
+    /// <summary>The reward tracker (3.29.0): 100 small crystals at the centre light up, one per 3 reward units; progress past 100 crystals
+    /// still counts. A reward unit is one reward icon of a killed monster (one entry of its Rewards), times (100 + the emblems' reward
+    /// progress)/100 (20% per emblem, stat uber_domain_monster_reward_chance_+%), so fractions add up across kills.</summary>
+    const int CrystalCount = 100, RewardsPerCrystal = 3;
+    /// <summary>GUESS: the ring of crystals around the initiator, in cells (the real positions are the server's; no room places them).</summary>
+    const double CrystalRingRadius = 12.0;
+
+    static int LitCrystals(double progress) => progress <= 0 ? 0 : (int)Math.Min(CrystalCount, progress / RewardsPerCrystal);
 
     static readonly ConditionalWeakTable<object, DomainState> Domains = new();
     static readonly JsonSerializerOptions Json = new() { NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals };
@@ -430,10 +448,10 @@ static class LegionDomain
             int packSizePct = stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct);
             var plan = LegionArmy.PlanEndless(LegionData.Current, factions, level, packSizePct, rng);
             var slots = BuildRadialSlots(player, near.X, near.Y, plan, rng);
-            var saved = new SavedDomain(player.TakeObjectId(), CrystalSupported ? player.TakeObjectId() : 0,
+            var saved = new SavedDomain(player.TakeObjectId(), 0,
                 near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions,
                 timerSec, waveSec, 0, 0, double.NegativeInfinity,
-                0, 0, [], [], slots, player.TakeObjectId(), player.TakeObjectId());
+                0, 0, [], [], slots, player.TakeObjectId(), player.TakeObjectId(), TakeCrystalIds(player));
             state = Domains.GetValue(instance, _ => new DomainState(saved));
             lock (state) Keep(player, state);
             module.Log($"{PlayerOf(player).Character}: Domain of Timeless Conflict ({player.Layout.Id}, L{level}) ready at ({state.X}, {state.Y}) — {string.Join("+", factions)}, timer {timerSec:0}s, {slots.Length} soldiers planned");
@@ -445,6 +463,9 @@ static class LegionDomain
             var stats = LegionMonolith.AreaStats(player);
             var rng = global::Game.AreaRng(player);
             lock (state)
+            {
+                // A Domain saved with the old single crystal: the tracker's ids are taken now.
+                if (state.Crystals.Length == 0 && CrystalSupported) { state.Crystals = TakeCrystalIds(player); Keep(player, state); }
                 if (state.Phase == DomainPhase.Waiting && state.Slots.Length == 0)
                 {
                     var plan = LegionArmy.PlanEndless(LegionData.Current, state.Factions, state.Level,
@@ -452,6 +473,7 @@ static class LegionDomain
                     state.Slots = BuildRadialSlots(player, state.X, state.Y, plan, rng);
                     Keep(player, state);
                 }
+            }
         }
 
         await ShowObjects(player, state);
@@ -462,6 +484,21 @@ static class LegionDomain
         await SyncRulesToPlayer(player, state);
         if (due) { await FinishDomain(module, player, state); return; }
         await SpawnWaitingGhosts(module, player, state);
+    }
+
+    static uint[] TakeCrystalIds(Player player)
+    {
+        if (!CrystalSupported) return [];
+        var ids = new uint[CrystalCount];
+        for (int i = 0; i < ids.Length; i++) ids[i] = player.TakeObjectId();
+        return ids;
+    }
+
+    /// <summary>Crystal i of the ring: evenly spaced angles, each on the nearest walkable cell.</summary>
+    static (int X, int Y) CrystalAt(Player player, DomainState state, int i)
+    {
+        double angle = Math.Tau * i / CrystalCount;
+        return player.Layout.Near((state.X + (int)Math.Round(Math.Cos(angle) * CrystalRingRadius), state.Y + (int)Math.Round(Math.Sin(angle) * CrystalRingRadius)));
     }
 
     /// <summary>Before the start: every reviving slot without a ghost gets one, lying ready (state 4).</summary>
@@ -720,14 +757,22 @@ static class LegionDomain
             await ShowZoneEffect(player, state.PerimeterId, PerimeterKey, state.X, state.Y);
         }
 
-        if (state.CrystalId != 0 && CrystalSupported && !player.Area.Objects.Has(state.CrystalId)
-            && BuildCrystalObject(state.X, state.Y, state.Z, phase == DomainPhase.Finished) is { } crysObj)
+        if (state.Crystals.Length == CrystalCount && CrystalSupported && !player.Area.Objects.Has(state.Crystals[0]))
         {
-            var create = InstanceEntities.CreateObject(state.CrystalId, InstanceEntities.ObjectTypeHash(RewardCrystalType), crysObj.Blob());
+            // The ring is created once for the area (a later player gets it from the area), the earned ones already lit.
+            int lit; lock (state) lit = LitCrystals(state.RewardProgress);
+            var creates = new (uint Id, byte[] Create)[CrystalCount];
+            var hash = InstanceEntities.ObjectTypeHash(RewardCrystalType);
+            for (int i = 0; i < CrystalCount; i++)
+            {
+                var at = CrystalAt(player, state, i);
+                creates[i] = (state.Crystals[i], InstanceEntities.CreateObject(state.Crystals[i], hash, BuildCrystalObject(at.X, at.Y, state.Z, i < lit)!.Blob()));
+            }
             await LegionOutput.ToArea(player, async p =>
             {
-                if (await global::Game.SendWorldCreate(PlayerOf(p), state.CrystalId, create, $"0x02bb LegionDomainRewardCrystal 0x{state.CrystalId:x}"))
-                    await global::Game.SendWorldRecord(PlayerOf(p), state.CrystalId, InstanceProtocol.EnterWakeZone(state.CrystalId));
+                foreach (var (id, create) in creates)
+                    if (await global::Game.SendWorldCreate(PlayerOf(p), id, create, null))
+                        await global::Game.SendWorldRecord(PlayerOf(p), id, InstanceProtocol.EnterWakeZone(id));
             });
         }
     }
@@ -744,12 +789,16 @@ static class LegionDomain
         });
     }
 
-    /// <summary>The reward crystal's explode clip at 00:00 (after its state turned active: lit_up).</summary>
+    /// <summary>Every reward crystal's explode clip at 00:00 (the lit ones lit up first), one batch for the area.</summary>
     static async Task PlayCrystalExplode(Player player, DomainState state)
     {
-        uint id = state.CrystalId;
-        if (id == 0 || !player.Area.Objects.Has(id)) return;
-        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceProtocol.AnimationUpdate(id, 0, CrystalExplodeClip, 1f), $"0x01b2 reward crystal 0x{id:x}: explode"));
+        var ids = state.Crystals;
+        if (ids.Length == 0 || !player.Area.Objects.Has(ids[0])) return;
+        await LegionOutput.ToArea(player, async p =>
+        {
+            foreach (uint id in ids)
+                await global::Game.SendWorldRecord(p, id, InstanceProtocol.AnimationUpdate(id, 0, CrystalExplodeClip, 1f), null);
+        });
     }
 
     /// <summary>Plays control_zone.ao's revival_wave once, then its idle again.</summary>
@@ -819,8 +868,16 @@ static class LegionDomain
         int action = 0; // 1 = start, 2 = finish, 3 = revival wave
         List<int>? wave = null;
         ReviveWork? work = null;
+        int litFrom = 0, litTo = 0;
         lock (state)
         {
+            if (state.Phase == DomainPhase.Active)
+            {
+                // The tracker: only the crystals that newly earned their 3 units are sent.
+                litTo = LitCrystals(state.RewardProgress);
+                if (litTo > state.LitSent) { litFrom = state.LitSent; state.LitSent = litTo; }
+                else litTo = 0;
+            }
             if (state.Phase == DomainPhase.Waiting)
             {
                 if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
@@ -855,6 +912,7 @@ static class LegionDomain
                 }
             }
         }
+        if (litTo > litFrom) await LightCrystals(player, state, litFrom, litTo);
         if (work is not null) await StepRising(module, player, state, work);
         if (action == 1) await StartDomain(module, player, state);
         else if (action == 2) await FinishDomain(module, player, state);
@@ -907,12 +965,17 @@ static class LegionDomain
             InstanceEntities.StateMachineUpdate(state.InitiatorId, (byte)InitiatorStateIndex, sm), null));
     }
 
-    static async Task UpdateCrystalState(Player player, DomainState state, bool active)
+    /// <summary>Lights crystals [from, to) (active = 1): only the ones that changed are sent, in one batch.</summary>
+    static async Task LightCrystals(Player player, DomainState state, int from, int to)
     {
-        if (state.CrystalId == 0 || !CrystalSupported || !player.Area.Objects.Has(state.CrystalId)) return;
-        var sm = CrystalDefaults!.Set("active", active ? 1 : 0);
-        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(PlayerOf(p), state.CrystalId,
-            InstanceEntities.StateMachineUpdate(state.CrystalId, (byte)CrystalStateIndex, sm), null));
+        if (!CrystalSupported || state.Crystals.Length != CrystalCount || to <= from || !player.Area.Objects.Has(state.Crystals[0])) return;
+        var sm = CrystalDefaults!.Set("active", 1);
+        await LegionOutput.ToArea(player, async p =>
+        {
+            for (int i = from; i < to; i++)
+                await global::Game.SendWorldRecord(PlayerOf(p), state.Crystals[i],
+                    InstanceEntities.StateMachineUpdate(state.Crystals[i], (byte)CrystalStateIndex, sm), null);
+        });
     }
 
     static async Task PlayEffect(Player player, string? model, int x, int y, float scale = 1f)
@@ -1111,7 +1174,17 @@ static class LegionDomain
             if (state.Phase == DomainPhase.Active) state.Fallen.Enqueue((idx, monsterId));
             state.TotalKills++;
             if (slot.Tier == 3) state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
-            if (slot.Rewards is { Length: > 0 }) state.BankedRewards.AddRange(slot.Rewards);
+            if (slot.Rewards is { Length: > 0 })
+            {
+                state.BankedRewards.AddRange(slot.Rewards);
+                if (state.RewardBonusPct < 0)
+                {
+                    var stats = LegionMonolith.AreaStats(player);
+                    state.RewardBonusPct = Math.Max(0, stats.GetValueOrDefault(Stat.UberDomainMonsterRewardChancePlusPct)
+                        + stats.GetValueOrDefault(Stat.MapLegionMonsterRewardChancePlusPct));
+                }
+                state.RewardProgress += slot.Rewards.Length * (100 + state.RewardBonusPct) / 100.0;
+            }
             Keep(player, state, flush: false);
             return true;
         }
@@ -1226,7 +1299,9 @@ static class LegionDomain
         await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
         foreach (uint zone in new[] { state.ZoneId, state.PerimeterId })
             if (zone != 0 && player.Area.Objects.Has(zone)) await LegionOutput.Remove(player, zone);
-        await UpdateCrystalState(player, state, active: true);
+        int litFrom, litTo;
+        lock (state) { litFrom = state.LitSent; litTo = LitCrystals(state.RewardProgress); state.LitSent = Math.Max(litFrom, litTo); }
+        await LightCrystals(player, state, litFrom, litTo);
         await PlayCrystalExplode(player, state);
         await PlayEffect(player, PulseModel, state.X, state.Y, scale: 6f);
         if (LegionData.Current.MiscAnimatedModels.GetValueOrDefault(SoulercoasterKey) is { } soulAo)
