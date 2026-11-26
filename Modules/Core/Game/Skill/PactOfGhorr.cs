@@ -99,48 +99,31 @@ public static partial class Game
                 || Own(Stat.BaseRighteousFirePctOfMaxManaToDealToNearbyPerMinute) > 0);
     }
 
-    static bool SchedulePactOfGhorr(Player player, ushort id, (int X, int Y)? aim,
-        int castMs, int recovery, double? startedAt, Func<bool> current)
+    static void StartPactOfGhorr(ProjectileSession session, ushort id, SupportedGem source, (int X, int Y)? aim,
+        IReadOnlyDictionary<uint, int> stats)
     {
-        var source = SupportedSkill(player, id);
-        if (source.SourceGem is null) return false;
+        var player = session.Player;
         int Own(uint stat) => source.Stats.GetValueOrDefault(stat);
-        var stats = CharacterPlayerStats(player);
         double seconds = SkillDurationModifiers.Seconds(Own(Stat.SkillGrantsBloodriteForBaseXMsOnUse),
             stat => stats.GetValueOrDefault(stat), Own);
         int frequency = Own(Stat.BloodriteBaseTriggerFrequencyMs);
-        if (seconds <= 0 || frequency <= 0) return false;
-
-        using (ProjectileMutation(player))
+        long now = session.Runtime.Now;
+        if (seconds > 0 && frequency > 0)
         {
-            var session = ProjectilesFor(player);
-            session.Advance();
-            double contact = (startedAt ?? ProjectileWorldTime(player)) + castMs / 1000d
-                * Animations.SpellRelease(SkillsFor(player).ClassFor(player.Character.ClassRow).AnimatedObject);
-            session.ScheduleContact(ProjectileRuntime.Time(contact),
-                () => current() && PlayerStateAllowsAction(player) && player.ActionInterruptionGeneration == recovery
-                    && SameTriggerSource(source, SupportedSkill(player, id)),
-                () =>
-                {
-                    long now = session.Runtime.Now;
-                    var hunger = new GhorrHunger(id, source, aim, now + ProjectileRuntime.Time(seconds),
-                        ProjectileRuntime.Time(frequency / 1000d), Math.Max(0, Own(Stat.BloodriteTriggerFrequencyPlusPctPerStage)));
-                    session.HungerOfGhorr = hunger;
-                    ShowGhorrHunger(player, hunger, now, keepInstance: false);
-                    ScheduleGhorrTrigger(session, hunger, now + hunger.Interval);
-                    int charges = Math.Clamp(Own(Stat.SkillEmpowersNextXSpellsCast), 0, ushort.MaxValue);
-                    if (charges > 0)
-                    {
-                        var empowerment = new GhorrEmpowerment(id, source, now + ProjectileRuntime.Time(15), charges,
-                            Math.Max(0, 1 + Own(Stat.PactSkillGrantDamageOverTimePlusPctFinalToSpells) / 100d));
-                        session.GhorrSpells = empowerment;
-                        ShowGhorrEmpowerment(session, empowerment, now, keepInstance: false);
-                        session.ScheduleContact(empowerment.Ends, () => session.GhorrSpells == empowerment,
-                            () => ClearGhorrEmpowerment(session));
-                    }
-                });
+            var hunger = new GhorrHunger(id, source, aim, now + ProjectileRuntime.Time(seconds),
+                ProjectileRuntime.Time(frequency / 1000d), Math.Max(0, Own(Stat.BloodriteTriggerFrequencyPlusPctPerStage)));
+            session.HungerOfGhorr = hunger;
+            ShowGhorrHunger(player, hunger, now, keepInstance: false);
+            ScheduleGhorrTrigger(session, hunger, now + hunger.Interval);
         }
-        return true;
+        int charges = Math.Clamp(Own(Stat.SkillEmpowersNextXSpellsCast), 0, ushort.MaxValue);
+        if (charges <= 0) return;
+        var empowerment = new GhorrEmpowerment(id, source, now + pactEmpowermentTime, charges,
+            Math.Max(0, 1 + Own(Stat.PactSkillGrantDamageOverTimePlusPctFinalToSpells) / 100d));
+        session.GhorrSpells = empowerment;
+        ShowGhorrEmpowerment(session, empowerment, now, keepInstance: false);
+        session.ScheduleContact(empowerment.Ends, () => session.GhorrSpells == empowerment,
+            () => ClearGhorrEmpowerment(session));
     }
 
     static void ScheduleGhorrTrigger(ProjectileSession session, GhorrHunger hunger, long trigger)

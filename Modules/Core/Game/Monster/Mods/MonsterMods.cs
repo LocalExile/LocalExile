@@ -119,12 +119,18 @@ public static partial class Game
     /// charge more damage (+4% per charge), and Executioner's missing-life scaling. Call in the area's frame.</summary>
     public static DamagePacket MonsterModHit(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife, Random random,
         out bool critical, Func<int>? selfCriticalReduction = null, double now = double.NaN, bool cannotCrit = false,
-        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null, int baseCritPermyriad = -1)
+        int additionalCritical = 0, Func<int>? extraCriticalMultiplier = null, int baseCritPermyriad = -1) =>
+        MonsterModHitAgainstTarget(m, rolled, playerLife, playerMaxLife, random, out critical, selfCriticalReduction, now,
+            cannotCrit, additionalCritical, extraCriticalMultiplier, baseCritPermyriad, increasedCriticalAgainstTarget: 0);
+
+    static DamagePacket MonsterModHitAgainstTarget(SpawnedMonster m, DamagePacket rolled, uint playerLife, uint playerMaxLife,
+        Random random, out bool critical, Func<int>? selfCriticalReduction, double now, bool cannotCrit, int additionalCritical,
+        Func<int>? extraCriticalMultiplier, int baseCritPermyriad, int increasedCriticalAgainstTarget)
     {
         var e = m.Effects;
         // additionalCritical: the target's Brittle (PlayerBrittleCriticalChance), in hundredths as the mods' chance.
         int basePermyriad = baseCritPermyriad >= 0 ? baseCritPermyriad : MonsterBaseCritChancePermyriad;
-        int baseCrit = e.CriticalChanceWith(basePermyriad);
+        int baseCrit = e.CriticalChanceWith(basePermyriad, increasedCriticalAgainstTarget);
         int chance = baseCrit + additionalCritical;
         critical = !cannotCrit && chance > 0 && !(m.HasCurses && m.Curses.PreventsCritical(now))
             && random.Next(10_000) < chance;

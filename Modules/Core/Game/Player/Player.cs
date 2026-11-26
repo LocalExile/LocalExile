@@ -238,6 +238,7 @@ public static partial class Game
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
         ClearGhorrHunger(player);
+        ClearPactConditionsOnDeath(player);
         if (player.ProjectileRuntime is ProjectileSession projectiles) ClearGhorrEmpowerment(projectiles);
         player.Rampage.Clear();
         // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel
@@ -617,6 +618,7 @@ public static partial class Game
         return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
+            + (Total(Stat.PactCastSpeedPlusPct) is int pact and not 0 && skills.HasType(effect, "Pact") ? pact : 0)
             + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0)
             + TaggedAttackAndCastSpeedPct(skills, effect, playerStat, own);
     }

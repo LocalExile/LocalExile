@@ -1662,8 +1662,8 @@ public static partial class Game
         // the send gate first. Its readiness was admitted before any cost or cooldown use was spent (Cooldowns.cs).
         if (gem.Name is not null && guardStart is not null && GuardSpellEffect(SkillsFor(player).EffectId(gem.Effect)))
             return true;
-        if (SkillsFor(player).EffectId(gem.Effect) == PactOfGhorrEffect && spellCastMs is int ghorrCast)
-            return CompleteSupportedUse(SchedulePactOfGhorr(player, skillId, to == from ? null : to, ghorrCast,
+        if (spellCastMs is int pactCast && IsPactSkill(player, gem.Effect))
+            return CompleteSupportedUse(SchedulePact(player, skillId, to == from ? null : to, pactCast,
                 recoveryGeneration, swingAt, Current));
         // The self buffs a player casts by hand: the guards, Phase Run, Blood Rage.
         if (gem.Name is not null && await CastSelfBuff(player, skillId, gem.Effect)) return true;

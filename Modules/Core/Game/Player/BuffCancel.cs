@@ -50,6 +50,7 @@ public static partial class Game
                 ClearGhorrHunger(player);
                 return true;
             }
+            if (activeBuff.Source == player.Id && CancelPactBoon(player, activeBuff.Row)) return true;
 
             // 1. Grace Period (row 6, Removable = 1).
             if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id
