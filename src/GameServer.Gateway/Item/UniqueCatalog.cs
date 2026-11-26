@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
@@ -12,12 +13,88 @@ public sealed partial class UniqueCatalog
 {
     readonly ItemCatalog items;
     readonly string folder;
+    readonly Lock _snapshotLock = new();
+
+    sealed record RegisteredOverlay(long Id, string Owner, Definition Definition, double? DropWeight, double? RuthlessDropWeight);
+    sealed record UniqueSnapshot(
+        long DataRevision,
+        long LocalRevision,
+        long SharedRevision,
+        IReadOnlyList<Definition> All,
+        Dictionary<string, (double? Normal, double? Ruthless)> OverlayWeights,
+        HashSet<string> OverlayNames);
+
+    static ImmutableArray<RegisteredOverlay> _sharedOverlays = [];
+    static long _sharedNextId;
+    static long _sharedRevision;
+
+    ImmutableArray<RegisteredOverlay> _localOverlays = [];
+    long _localNextId;
+    long _localRevision;
+    UniqueSnapshot? _snapshot;
 
     public UniqueCatalog(ItemCatalog items, string folder = "data")
     {
         this.items = items;
         this.folder = folder;
         _names = LoadNames(folder);
+    }
+
+    /// <summary>Advances whenever shared runtime unique overlays change.</summary>
+    public static long OverlayRevision => Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Advances whenever <see cref="GameDataCatalog"/> reloads or runtime unique overlays change.</summary>
+    public long Revision => GameDataCatalog.Revision + Volatile.Read(ref _localRevision) + Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Registers a runtime unique definition visible to every <see cref="UniqueCatalog"/> instance, preserved
+    /// across <c>/reload</c> and automatically removed when <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public static IDisposable RegisterOverlay(string owner, Definition definition, double? dropWeight = null, double? ruthlessDropWeight = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(definition);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        double? normalWeight = dropWeight ?? definition.DropWeight;
+        double? hardWeight = ruthlessDropWeight ?? definition.RuthlessDropWeight ?? normalWeight;
+        ImmutableInterlocked.Update(ref _sharedOverlays, list => list.Add(new(id, owner, definition, normalWeight, hardWeight)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime unique definition on this <see cref="UniqueCatalog"/> instance, preserved across
+    /// <c>/reload</c> and automatically removed when <paramref name="owner"/> unloads via <see cref="GameEventOwners"/>.</summary>
+    public IDisposable Register(string owner, Definition definition, double? dropWeight = null, double? ruthlessDropWeight = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(definition);
+        long id = Interlocked.Increment(ref _localNextId);
+        double? normalWeight = dropWeight ?? definition.DropWeight;
+        double? hardWeight = ruthlessDropWeight ?? definition.RuthlessDropWeight ?? normalWeight;
+        ImmutableInterlocked.Update(ref _localOverlays, list => list.Add(new(id, owner, definition, normalWeight, hardWeight)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    static void ValidateOverlay(Definition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        if (string.IsNullOrWhiteSpace(definition.Name))
+            throw new ArgumentException("Unique definition Name must be non-empty.", nameof(definition));
+        if (string.IsNullOrWhiteSpace(definition.BaseTypeId))
+            throw new ArgumentException("Unique definition BaseTypeId must be non-empty.", nameof(definition));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        Action? _undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
     }
 
     // Several native names use a typographic apostrophe while the definition export uses ASCII; one ends in a space
@@ -47,6 +124,20 @@ public sealed partial class UniqueCatalog
         [System.Text.Json.Serialization.JsonIgnore]
         public string? CreationVariant { get; init; }
         public Variant[]? Variants { get; init; }
+        /// <summary>Optional flavour text metadata for runtime overlay uniques.</summary>
+        public string? FlavourText { get; init; }
+        /// <summary>Optional custom wire name (<see cref="Item.CustomName"/>) applied when creating this unique.</summary>
+        public string? CustomName { get; init; }
+        /// <summary>Optional explicit <c>Words.HASH32</c> for runtime overlay uniques not present in stock <c>Words</c>.</summary>
+        public uint? NameWordHash { get; init; }
+        /// <summary>Optional explicit <c>ItemVisualIdentity.HASH16</c> for runtime overlay uniques.</summary>
+        public ushort? VisualIdentityHash { get; init; }
+        /// <summary>Optional drop weight metadata for Standard mode (used by <see cref="ItemDrops.UniqueWeight"/>).</summary>
+        public double? DropWeight { get; init; }
+        /// <summary>Optional drop weight metadata for HardMode (falls back to <see cref="DropWeight"/>).</summary>
+        public double? RuthlessDropWeight { get; init; }
+        /// <summary>Optional explicit minimum drop level floor for runtime overlay uniques.</summary>
+        public int? MinDropLevel { get; init; }
     }
 
     public sealed record Variant(string Name, string? BaseTypeId, string[] Mods, int Weight = 0);
@@ -80,7 +171,88 @@ public sealed partial class UniqueCatalog
 
     readonly Dictionary<string, UniqueName> _names;
 
-    public IReadOnlyList<Definition> All => GameDataCatalog.Uniques;
+    UniqueSnapshot CurrentSnapshot()
+    {
+        long dataRev = GameDataCatalog.Revision;
+        long localRev = Volatile.Read(ref _localRevision);
+        long sharedRev = Volatile.Read(ref _sharedRevision);
+        var current = Volatile.Read(ref _snapshot);
+        if (current is not null
+            && current.DataRevision == dataRev
+            && current.LocalRevision == localRev
+            && current.SharedRevision == sharedRev)
+            return current;
+        lock (_snapshotLock)
+        {
+            dataRev = GameDataCatalog.Revision;
+            localRev = Volatile.Read(ref _localRevision);
+            sharedRev = Volatile.Read(ref _sharedRevision);
+            current = _snapshot;
+            if (current is not null
+                && current.DataRevision == dataRev
+                && current.LocalRevision == localRev
+                && current.SharedRevision == sharedRev)
+                return current;
+
+            var stock = GameDataCatalog.Uniques;
+            var shared = _sharedOverlays;
+            var local = _localOverlays;
+            if (shared.IsEmpty && local.IsEmpty)
+            {
+                var stockSnap = new UniqueSnapshot(dataRev, localRev, sharedRev, stock,
+                    new Dictionary<string, (double?, double?)>(StringComparer.OrdinalIgnoreCase),
+                    new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                Volatile.Write(ref _snapshot, stockSnap);
+                return stockSnap;
+            }
+
+            var merged = new List<Definition>(stock.Length + shared.Length + local.Length);
+            merged.AddRange(stock);
+            var indexByKey = new Dictionary<(string Name, string Base), int>(merged.Count);
+            for (int i = 0; i < merged.Count; i++)
+                indexByKey[(NameKey(merged[i].Name).ToUpperInvariant(), merged[i].BaseTypeId.ToUpperInvariant())] = i;
+            var weights = new Dictionary<string, (double? Normal, double? Ruthless)>(StringComparer.OrdinalIgnoreCase);
+            var overlayNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Apply(ImmutableArray<RegisteredOverlay> entries)
+            {
+                for (int i = 0; i < entries.Length; i++)
+                {
+                    var e = entries[i];
+                    string nameKey = NameKey(e.Definition.Name);
+                    overlayNames.Add(nameKey);
+                    var key = (nameKey.ToUpperInvariant(), e.Definition.BaseTypeId.ToUpperInvariant());
+                    if (indexByKey.TryGetValue(key, out int idx))
+                        merged[idx] = e.Definition;
+                    else
+                    {
+                        indexByKey[key] = merged.Count;
+                        merged.Add(e.Definition);
+                    }
+                    if (e.DropWeight is not null || e.RuthlessDropWeight is not null)
+                        weights[nameKey] = (e.DropWeight, e.RuthlessDropWeight);
+                }
+            }
+
+            Apply(shared);
+            Apply(local);
+
+            var built = new UniqueSnapshot(dataRev, localRev, sharedRev, merged, weights, overlayNames);
+            Volatile.Write(ref _snapshot, built);
+            return built;
+        }
+    }
+
+    public IReadOnlyList<Definition> All => CurrentSnapshot().All;
+
+    /// <summary>The drop weight registered on a runtime overlay unique, or null when none was specified.</summary>
+    public double? OverlayWeight(string name, bool hardMode) =>
+        CurrentSnapshot().OverlayWeights.TryGetValue(NameKey(name), out var weight)
+            ? (hardMode ? weight.Ruthless ?? weight.Normal : weight.Normal)
+            : null;
+
+    bool IsOverlayUnique(Definition definition) =>
+        CurrentSnapshot().OverlayNames.Contains(NameKey(definition.Name));
 
     /// <summary>Creatable collection entries include the named-map catalogue as well as equipment and jewels.</summary>
     public IReadOnlyList<(string Name, Item? Item)> CollectionItems(Random random)
@@ -144,13 +316,14 @@ public sealed partial class UniqueCatalog
                 Mods = [.. definition.Mods.Where(id => !variantMods.Contains(id)), .. selected.Mods] };
         }
         if (items.Find(definition.BaseTypeId) is not { Supported: true } type) return null;
-        if (Identity(definition) is not { } unique) return null;
+        if (Identity(definition, type) is not { } unique) return null;
         var item = ItemCatalog.Create(type) with
         {
             ItemLevel = definition.ItemLevel, Rarity = ItemRarity.Unique, Identified = true,
             Corrupted = definition.Corrupted, Mirrored = definition.Mirrored, Influences = definition.Influences,
             FracturedCount = definition.Fractured,
             NameWords = [unique.Word], VisualIdentity = unique.VisualIdentity,
+            CustomName = string.IsNullOrEmpty(definition.CustomName) ? null : definition.CustomName,
         };
         if (definition.BaseTypeId == TimelessJewelCatalog.BaseId)
         {
@@ -279,8 +452,8 @@ public sealed partial class UniqueCatalog
 
     /// <summary>The rolls of the unique an item is, for currency that rerolls its values; null for any other item.</summary>
     public StatRoll? RollsOf(Item item) =>
-        item.Rarity == ItemRarity.Unique && All.FirstOrDefault(d => items.Find(d.BaseTypeId)?.Hash == item.TypeHash
-            && _names.TryGetValue(NameKey(d.Name), out var name) && item.NameWords.Contains(name.Word)) is { } definition
+        item.Rarity == ItemRarity.Unique && All.FirstOrDefault(d => items.Find(d.BaseTypeId) is { } baseType && baseType.Hash == item.TypeHash
+            && Identity(d, baseType) is { } id && item.NameWords.Contains(id.Word)) is { } definition
             ? (mod, section, stat) => RollOf(definition, mod, section, stat) : null;
 
     /// <summary>Ancient Orb ("Reforges a unique equipment as another of the same item class"): another unique of the class,
@@ -298,7 +471,7 @@ public sealed partial class UniqueCatalog
             if (definition.EncounterOnly || definition.Corrupted || definition.Name.StartsWith("Replica ", StringComparison.Ordinal)
                 || weight(definition.Name) is not (> 0 and var chance) || items.Find(definition.BaseTypeId) is not { Supported: true } type
                 || type.Class != current.Class || type.Width != current.Width || type.Height != current.Height
-                || !_names.TryGetValue(NameKey(definition.Name), out var name) || item.NameWords.Contains(name.Word)
+                || Identity(definition, type) is not { } name || item.NameWords.Contains(name.Word)
                 || item.Sockets.Count > CurrencyEffects.SocketCapacity(item, type)) continue;
             candidates.Add((definition, chance));
         }
