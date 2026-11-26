@@ -450,7 +450,12 @@ static class LegionDomain
         }
 
         await ShowObjects(player, state);
+        // A Domain whose timer ran out while nobody was in it (the player died and left, or left): the end runs now, once, for whoever
+        // comes in (a running one for the players already in it is the tick's). The area has no frames without a player.
+        bool due;
+        lock (state) due = TakeEnd(player, state, global::Game.AreaTime(player));
         await SyncRulesToPlayer(player, state);
+        if (due) { await FinishDomain(module, player, state); return; }
         await SpawnWaitingGhosts(module, player, state);
     }
 
@@ -815,12 +820,7 @@ static class LegionDomain
                 if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
                 if (state.Rising.Count > 0 || state.Fallen.Count > 0 || state.Falls.Count > 0)
                     work = TakeReviveWork(state, now);
-                if (now >= state.EndsAt)
-                {
-                    state.Phase = DomainPhase.Finished;
-                    Keep(player, state);
-                    action = 2;
-                }
+                if (TakeEnd(player, state, now)) action = 2;
                 // 3.29: a wave only while a player stands in the zone (no wave without one), at most every WaveSeconds; the slots
                 // are scanned only then.
                 else if (now - state.LastWaveAt >= state.WaveSeconds && now >= state.NextWaveCheck)
@@ -1142,6 +1142,16 @@ static class LegionDomain
         if (!IsDomainArea(kill.Player.Layout.Id) || StateOf(kill.Player) is not { } state) return Task.CompletedTask;
         RecordKill(kill.Player, state, kill.Monster.ObjectId, out _);
         return Task.CompletedTask;
+    }
+
+    /// <summary>When a running Domain's timer has run out: marks it finished (so the end pays once) and saves it; true for the one
+    /// caller that must run <see cref="FinishDomain"/>. Call under lock(state).</summary>
+    static bool TakeEnd(Player player, DomainState state, double now)
+    {
+        if (state.Phase != DomainPhase.Active || now < state.EndsAt) return false;
+        state.Phase = DomainPhase.Finished;
+        Keep(player, state);
+        return true;
     }
 
     static async Task FinishDomain(IModuleContext module, Player player, DomainState state)

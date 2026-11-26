@@ -157,4 +157,6 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   and cast speed 5, Eternal accuracy 10 and area of effect 5, Templar penetrate all resistances 3, Vaal phys-as-chaos 5.
   The Unrelenting rows' own mods (`Mods` 21238-21242, `maximum_life_+%` 10 and other stats) are not applied (3.29.0 removed them).
   GUESS: the cap of 10 revival stacks.
+- The end at 00:00 (rewards on the ground around the centre) runs once, at the first tick of any player in the area after the timer, or
+  when a player enters an area whose timer ran out while it was empty (it has no frames then); a dead player's tick runs it too.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).
