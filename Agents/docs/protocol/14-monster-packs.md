@@ -444,8 +444,8 @@ same (area, hash, seed).
 **One set per instance.** `ForInstance` answers an `AreaPacks` whose `Scattered` is the signature packs followed by this
 instance's draw and whose `Pool` is empty, so a second call changes nothing. Everything that picks a monster "out of the
 area's packs" asks `Game.InstancePacks` (kept per instance) rather than reading the catalogue's `Scattered`: the
-scattered population, a strongbox's guards and summons, an Essence's monster, a Harbinger's wave, the Torment dig and the
-Survivors roster, wherever they run. The Harbinger and Torment on/off checks read the instance's own packs
+scattered population, a strongbox's guards and summons, an Essence's monster, a Harbinger's wave and the Torment dig,
+wherever they run. The Harbinger and Torment on/off checks read the instance's own packs
 (`Game.InstancePacks`: the signature packs plus this instance's draw from the pool), and the Essence opening checks the
 signature packs and the pool alike, so on an ordinary map whose list is empty they start from the pool draw. Unique map
 areas (WorldAreas `IsUniqueMapArea`: The Shaper's Realm, Tower of Ordeals, The Beachhead) have an empty list and get no

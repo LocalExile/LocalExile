@@ -37,7 +37,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   suit the area's `AreaTypeTags`: before that Forbidden Woods had only `chaos-vendigo1` and every monster of the map was
   a Vendigo. The draw is the instance's one set of packs (`AreaPopulation.ForInstance`, asked for through
   `Game.InstancePacks`): the scattered monsters, a strongbox's guards and summons, an Essence's monster, a Harbinger's
-  wave, the Torment dig and the Survivors roster pick from it where they run. The Harbinger and Torment on/off checks
+  wave and the Torment dig pick from it where they run. The Harbinger and Torment on/off checks
   read the instance's own packs, and the Essence opening checks the signature packs and the pool alike, so on an
   ordinary map whose list is empty they start from the pool draw.
   Unique map areas (WorldAreas `IsUniqueMapArea`) get no pool. Which key the areas whose `AreaTypeTags` is not their
@@ -205,8 +205,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
   The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.
-  A hire made by a player with Noble Blood (a Luminary notable, read once at the hire) is kept across an instance
-  restore; it does not follow the player to other areas, and a hire killed in a live instance stays dead.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
