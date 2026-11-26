@@ -173,4 +173,7 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   general, Defeat on death, Dismount when Aukuna on foot spawns, BattleCry when a revived general spawns. GUESS: the stem is the trigger,
   the 8 s start delay plus 5 s per further general, one BattleCry/Dismount per 30 s per general; AttackN, Taunt and Injured are not played
   (no clean trigger); object id 0 (global) rather than the general's id.
+- Cost at the start (a 5-way Domain has 165 soldiers; the log showed an area tick of 173 ms): the 0x2c8 updates of all ghosts (wake, stand
+  up, fall) go to the area in one pass, not one member scan each, and the start saves the Domain once. Fighters are still spawned at most 24
+  per tick. The "Domain started" log line prints its own time; not measured live yet.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

@@ -69,6 +69,15 @@ static class LegionRevive
     public static Task Send(Player player, uint id, ushort sequence, byte[] payload, string? log = null) =>
         LegionOutput.ToArea(player, p => global::Game.SendActionData(p, id, ActionType, ActionSkill, sequence, 0, payload, log));
 
+    /// <summary>Sends many ghosts' 0x2c8 updates to the area in one pass (the members are looked up once, not per ghost: the start's
+    /// 165 ghosts cost 165 member scans before).</summary>
+    public static Task SendBatch(Player player, IReadOnlyList<(uint Ghost, ushort Sequence, byte[] Payload)> items) =>
+        items.Count == 0 ? Task.CompletedTask : LegionOutput.ToArea(player, async p =>
+        {
+            foreach (var (ghost, sequence, payload) in items)
+                await global::Game.SendActionData(p, ghost, ActionType, ActionSkill, sequence, 0, payload, null);
+        });
+
     /// <summary>Spawns a ghost lying ready (state 4): no AI, no body, no hits, no rewards, no bar. Returns its id, or 0.</summary>
     public static async Task<uint> SpawnGhost(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity,
         int x, int y, float facing, ushort sequence)

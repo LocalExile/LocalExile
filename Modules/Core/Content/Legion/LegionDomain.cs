@@ -586,11 +586,13 @@ static class LegionDomain
             Keep(player, state, flush: false);
         }
         byte[] payload = LegionRevive.RevivingPayload();
-        foreach (var (i, ghost, sequence) in send)
+        var batch = new List<(uint, ushort, byte[])>(send.Count);
+        foreach (var (_, ghost, sequence) in send)
         {
             LegionRevive.SetOrigin(player, ghost, sequence, LegionRevive.Reviving, LegionRevive.VanishSeconds, revive: true);
-            await LegionRevive.Send(player, ghost, sequence, payload, null);
+            batch.Add((ghost, sequence, payload));
         }
+        await LegionRevive.SendBatch(player, batch);
         if (send.Count > 0)
             module.Log($"Domain revive: {send.Count} ghosts -> state 5 (vanish {LegionRevive.VanishSeconds} s){(send.Count == 1 ? $", 0x{send[0].Ghost:x} slot {send[0].Slot}" : "")}");
         return send.Count;
@@ -661,11 +663,13 @@ static class LegionDomain
         if (revived.Count > 0)
         {
             byte[] payload = LegionRevive.RevivedPayload(LegionRevive.StandSeconds);
+            var batch = new List<(uint, ushort, byte[])>(revived.Count);
             foreach (var (_, ghost, sequence) in revived)
             {
                 LegionRevive.SetOrigin(player, ghost, sequence, LegionRevive.Revived, LegionRevive.StandSeconds, revive: false);
-                await LegionRevive.Send(player, ghost, sequence, payload, null);
+                batch.Add((ghost, sequence, payload));
             }
+            await LegionRevive.SendBatch(player, batch);
             module.Log($"Domain revive: {revived.Count} ghosts -> state 1 (revived, beam){(revived.Count == 1 ? $", 0x{revived[0].Ghost:x}" : "")}");
         }
         if (swaps.Count > 0)
@@ -729,8 +733,7 @@ static class LegionDomain
         }
         if (falls.Count > 0)
         {
-            foreach (var (i, ghost, sequence, timer) in falls)
-                await LegionRevive.Send(player, ghost, sequence, LegionRevive.FallenPayload(timer), null);
+            await LegionRevive.SendBatch(player, [.. falls.Select(f => (f.Ghost, f.Sequence, LegionRevive.FallenPayload(f.Timer)))]);
             module.Log($"Domain revive: {falls.Count} ghosts -> state 3 (fall, cooldown){(falls.Count == 1 ? $", 0x{falls[0].Ghost:x} for {falls[0].Timer:0.#} s" : "")}");
         }
     }
@@ -1041,8 +1044,9 @@ static class LegionDomain
                     state.Speech.Add((general.Id, "MapIntro", introDelay));
                     introDelay += LegionSpeech.DomainIntroStaggerMs;
                 }
-            Keep(player, state);
+            Keep(player, state, flush: false);   // saved once, after the wake below (not twice: 165 slots a time)
         }
+        long startedTicks = System.Diagnostics.Stopwatch.GetTimestamp();
 
         foreach (var m in LegionOutput.Members(player))
         {
@@ -1058,7 +1062,7 @@ static class LegionDomain
         // Every soldier wakes at once: its ghost stands up and becomes its fighter (StepRising).
         int woken = await StartRising(module, player, state, rising, revival: false);
         lock (state) Keep(player, state);
-        module.Log($"Domain started: {string.Join("+", state.Factions)} ({woken}/{plannedSlots.Length} soldiers waking, timer {state.TimerSeconds:0}s)");
+        module.Log($"Domain started: {string.Join("+", state.Factions)} ({woken}/{plannedSlots.Length} soldiers waking, timer {state.TimerSeconds:0}s) in {System.Diagnostics.Stopwatch.GetElapsedTime(startedTicks).TotalMilliseconds:0} ms");
     }
 
     static FighterSlot[] BuildRadialSlots(Player player, int cx, int cy, LegionArmy.ArmyPlan plan, Random rng)
