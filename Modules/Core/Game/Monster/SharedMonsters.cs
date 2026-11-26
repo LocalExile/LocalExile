@@ -393,6 +393,13 @@ public static partial class Game
             var gone = InstanceProtocol.RemoveObject(id);
             System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(gone.AsSpan(6), uint.MaxValue);
             player.Area.Delta.Add(id, gone, null, AreaDelta.Kind.Remove, except: player);
+            // A body waiting to go has been taken away just now (the area's frame, as the minion tick's own removal).
+            using (ProjectileMutation(player, advance: false))
+                if (player.Minions.Bodies.RemoveAll(b => b.Id == id) > 0)
+                {
+                    player.Area.Monsters.Remove(id);
+                    player.MinionOrigins.TryRemove(id, out _);
+                }
         }
     }
 

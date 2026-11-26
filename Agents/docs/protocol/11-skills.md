@@ -2880,8 +2880,10 @@ The Spirit chieftains are the first (section 10f).
   and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
   kill it).
   A minion's hit does not count as the player hitting.
-- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
-  removed a second later (0x2bd).
+- End: when it ends in play (its time is up, it is killed, its owner dies, or a new one replaces it past the
+  limit) it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is removed 21 frames later (0x2bd).
+  The 21 frames are the Gateway's implemented value (SummonBodySeconds); no live or capture source for the 21 frames
+  is cited yet.
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
@@ -3585,7 +3587,7 @@ The client reads these two to know the player's minion (the link-target filter 0
 `Player.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
 lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
-- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) 21 frames later.
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
   living owner's links to it end without killing him.
 - The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his

@@ -340,6 +340,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   minion being one without a duration.
   Owned minions are created as the official servers send them; a raise removes its corpse, and a raise with no corpse
   in reach is refused before its cost is paid (not checked live).
+  A summon that ends in play dies where it stands, and its body is removed 21 frames later (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
   Vaal minion casts linked to a totem, trap or mine support are refused before spending souls or starting an action.
 - Removable player buffs can be right-click cancelled via C→S `0x4b` (Grace Period, Shrines, guards, auras, Arcane

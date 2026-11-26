@@ -691,7 +691,7 @@ public static partial class Game
                 {
                     var oldest = player.Summons.Fighters.Values.Where(SameLimit).MinBy(g => g.SummonedAt)!;
                     if (!oldest.Monster.Dead && oldest.Monster.Life > 0) OwnedMinionDeathEffectsLocked(player, oldest, committed);
-                    RemoveSummonLocked(player, oldest, committed, reconcileBlessing: false);
+                    RemoveSummonLocked(player, oldest, committed, reconcileBlessing: false, dies: true);
                 }
                 SummonReplacementResources? committedResources = replacement is null
                     ? null : CaptureReplacementResources(replacement.Old, committed);
@@ -761,8 +761,29 @@ public static partial class Game
         if (playerConsumesCorpse) NoteCorpseConsumedLocked(player, corpse);
     }
 
-    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true)
+    /// <summary>How long the body of a summon that died stays before it is removed: 21 frames.</summary>
+    public const double SummonBodySeconds = 21 * Program.TickSeconds;
+
+    /// <summary>A summon that ended in play (its time is up, it was killed, its owner died, a new one replaced it past the
+    /// limit) dies where it stands: its life goes to 0 (not again when it was killed, which showed it already), it is not a
+    /// corpse anyone can use, and RemoveMinionBodiesLocked takes the body away later, once. Under the Monsters lock.</summary>
+    static void SummonBodyDiesLocked(Player player, GolemState.Golem golem, bool shown, double now)
     {
+        var m = golem.Monster;
+        m.CorpseConsumed = true;
+        if (!shown)
+        {
+            SetStats(player, golem.Id, [(Stat.HideMiniLifeBar, 1)]);
+            player.Minions.OutputQueue.Add(new([], "summon life 0", golem.Id, m, PlayerMinions.OutputKind.Life));
+        }
+        if (!player.Minions.Bodies.Exists(b => b.Id == golem.Id))
+            player.Minions.Bodies.Add((golem.Id, m, now + SummonBodySeconds));
+    }
+
+    // dies: see SummonBodyDiesLocked. Not for one already dead and waiting to be re-formed (a Spectre with a finite ReviveAt).
+    static void RemoveSummonLocked(Player player, GolemState.Golem fighter, double now, bool reconcileBlessing = true, bool dies = false)
+    {
+        bool diesHere = dies && !double.IsFinite(fighter.ReviveAt);   // each summon by its own ReviveAt; its children by theirs
         if (fighter.Definition.Kind == "Phantasm")
             player.Area.Buffs.Clear(player.Id, PhantasmalMightBuff, fighter.Id);
         if (fighter.Definition.Kind == "Spectre")
@@ -770,14 +791,14 @@ public static partial class Game
             ClearTurtleBoonLocked(player, fighter);
             ClearSpectreTimedPayloadsLocked(player, fighter);
             foreach (var child in player.Summons.Fighters.Values.Where(child => child.Monster.SummonerId == fighter.Id).ToArray())
-                RemoveSummonLocked(player, child, now, reconcileBlessing: false);
+                RemoveSummonLocked(player, child, now, reconcileBlessing: false, dies);
         }
         ClearEffigyHexesLocked(fighter);
         if (fighter.Definition.Kind == ItemHarbingerFamily) ClearItemHarbingerLocked(player, fighter);
         SpectreChildParents.Remove(fighter);
         player.Summons.Fighters.Remove(fighter.Id); player.Summons.Until.Remove(fighter.Id);
         player.Summons.Definitions.Remove(fighter.Id); player.Summons.Weapons.Remove(fighter.Id);
-        RemoveGolemLocked(player, fighter, now, reconcileBlessing);
+        RemoveGolemBodyLocked(player, fighter, now, reconcileBlessing, diesHere);
         player.Minions.StatRevision++;
     }
 
@@ -976,7 +997,7 @@ public static partial class Game
                     if (state.Definitions.TryGetValue(fighter.Id, out var def) && def.Persistent
                         && double.IsPositiveInfinity(until))
                         state.LostPersistentOnDeath = true;
-                    RemoveSummonLocked(player, fighter, now);
+                    RemoveSummonLocked(player, fighter, now, dies: true);
                     changed = true;
                     continue;
                 }
@@ -988,7 +1009,8 @@ public static partial class Game
                             ReleaseVolatileAnomalyLocked(player, fighter, now);
                         else OwnedMinionDeathEffectsLocked(player, fighter, now);
                     }
-                    RemoveSummonLocked(player, fighter, now); changed = true; continue;
+                    // A Spectre child whose parent is gone dies where it stands too; only a Volatile Anomaly is removed at once.
+                    RemoveSummonLocked(player, fighter, now, dies: fighter.Definition.Kind != VolatileAnomalyFamily); changed = true; continue;
                 }
                 if (fighter.Monster.Dead || fighter.Monster.Life == 0)
                 {
@@ -1001,7 +1023,7 @@ public static partial class Game
                             continue;
                         }
                     }
-                    RemoveSummonLocked(player, fighter, now); changed = true; continue;
+                    RemoveSummonLocked(player, fighter, now, dies: true); changed = true; continue;
                 }
                 if (playerStats is null) { GolemStepLocked(player, fighter, now); continue; }
                 if (state.Definitions[fighter.Id] is { Id: "SummonSkeletons", Persistent: true } definition
