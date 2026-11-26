@@ -590,7 +590,10 @@ public static partial class Game
         uint emitter = totem?.Id ?? player.Id;
         var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
             { Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
-        var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own);
+        var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own)
+        {
+            NotHandCast = totem is not null || from is not null || sacrifice?.Triggered == true,
+        };
         if (IsExplosiveArrow(SkillsFor(player).EffectId(gem.Effect)) && areaHitInputs is not null)
             use = use with { Payload = shot with { ExplosiveFuse = CaptureExplosiveFuse(context, areaHitInputs, playerStats, own, hand, local) } };
         return definition.SpecializeRelease?.Invoke(context, use) ?? use;

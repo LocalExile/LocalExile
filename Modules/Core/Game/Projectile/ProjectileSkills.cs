@@ -205,9 +205,15 @@ public static partial class Game
                 if (context.Own(Stat.EtherealKnivesBladeLeftInGroundForEveryXProjectiles) is > 0 and var every
                     && context.Own(Stat.MaximumNumberOfBladesLeftInGround) is > 0 and var maximum)
                 {
+                    if (context.NotHandCast || context.Get(Stat.IsNotHandCast) != 0)
+                    {
+                        // The native interval grows inversely with the number of blades left by proxies (0x1428affa0).
+                        long factor = 100L + context.Get(Stat.BladesLeftInGroundPlusPctFinalIfNotHandCast);
+                        every = factor > 0 ? (int)Math.Min(int.MaxValue, 100L * every / factor) : 0;
+                    }
                     double duration = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration),
                         context.PlayerStat, context.Own);
-                    if (duration > 0)
+                    if (every > 0 && duration > 0)
                         return use with { Payload = shot with { GroundBlade = new(every, maximum, ProjectileRuntime.Time(duration)) } };
                 }
                 if (!GatewayProjectileSkillProfiles.IsFireball(metadata)) return use;
