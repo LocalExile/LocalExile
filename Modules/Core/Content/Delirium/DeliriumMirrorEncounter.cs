@@ -25,7 +25,7 @@ public sealed class DeliriumMirrorEncounter
     static int MaxRewardTiles => MirrorRewardPool.Length;
 
     static readonly string[] FallbackMirrorComponents = ["Positioned", "BaseEvents", "Functions", "Animated", "MinimapIcon", "StateMachine"];
-    static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
+    internal static readonly int[] MirrorRewardPool = [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 13, 14, 15, 17, 22, 23, 24, 25];
     static readonly string[] DeliriumMonsterIds =
     [
         "AfflictionMinion1", "AfflictionMinion2", "AfflictionMinion3",
@@ -61,6 +61,9 @@ public sealed class DeliriumMirrorEncounter
         public int[] RewardCounts { get; set; } = [];
         public int InitialRewards { get; set; }
         public HashSet<uint> Monsters { get; set; } = [];
+        public HashSet<string> SpawnedBosses { get; set; } = [];
+        public Dictionary<uint, string> Bosses { get; set; } = [];
+        public HashSet<uint> RewardedBosses { get; set; } = [];
         public string Why { get; set; } = "";
 
         [System.Text.Json.Serialization.JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
@@ -101,7 +104,19 @@ public sealed class DeliriumMirrorEncounter
             return Math.Max(12, 18 + completed * 8);
         }
 
-        public void RecordKill(MonsterRarity rarity, int progressBonusPct)
+        public bool AddReward(Random rng)
+        {
+            var pool = MirrorRewardPool.Where(p => !Rewards.Contains(p)).ToArray();
+            if (pool.Length == 0) return false;
+            Rewards = [.. Rewards, pool[rng.Next(pool.Length)]];
+            RewardPoints = [.. RewardPoints, 0];
+            RewardCounts = [.. RewardCounts, 0];
+            InitialRewards = Math.Max(1, InitialRewards) + 1;
+            TilesDirty = true;
+            return true;
+        }
+
+        public void RecordKill(MonsterRarity rarity, int progressBonusPct, int counterBonusPct = 0)
         {
             if (Stage != MirrorStage.Active) return;
             int basePoints = rarity switch
@@ -112,7 +127,7 @@ public sealed class DeliriumMirrorEncounter
                 _ => 1,
             };
             int depthBonus = 100 + DepthPercent / 2 + Math.Max(0, progressBonusPct);
-            int points = Math.Max(1, (basePoints * depthBonus) / 100);
+            int points = (int)Math.Clamp(basePoints * (long)depthBonus * Math.Max(0L, 100L + counterBonusPct) / 10000, 1, int.MaxValue / 100);
             Kills++;
             KillPoints += points;
             EnsureRewardArrays();
@@ -175,9 +190,8 @@ public sealed class DeliriumMirrorEncounter
             || LabyrinthTrials.InLabyrinth(id)) return null;
 
         int S(uint stat) => stats.GetValueOrDefault(stat);
-        if (S(Stat.MapDisableLeagues) > 0 || S(Stat.AtlasKeystoneNoExtraContent) > 0
-            || S(Stat.MapNukeEverything) > 0 || S(Stat.MapAreaUnderlevelled) > 0) return null;
-        if (S(Stat.MapAfflictionLeague) <= 0)
+        if (!DeliriumScarabs.Eligible(request.Area, stats) || S(Stat.MapAreaUnderlevelled) > 0) return null;
+        if (S(Stat.MapAfflictionLeague) <= 0 && S(Stat.MapSpawnAfflictionMirror) <= 0)
         {
             if (S(Stat.MapDisableDeliriumFromChance) > 0) return null;
             var rng = new Random(AreaPopulation.PopulationSeed(request.Area, request.Seed) ^ 0x44656c69);
@@ -576,7 +590,12 @@ public sealed class DeliriumMirrorEncounter
         lock (state)
         {
             if (state.Stage != MirrorStage.Active) return;
-            state.RecordKill(kill.Monster.Rarity, bonusPct);
+            bool boss = state.Bosses.ContainsKey(kill.Monster.ObjectId);
+            if (boss && !state.RewardedBosses.Add(kill.Monster.ObjectId)) return;
+            state.RecordKill(kill.Monster.Rarity, bonusPct, stats.GetValueOrDefault(Stat.MapAfflictionRewardKillsPlusPct));
+            if (boss
+                && RandomRolls.Chance(stats.GetValueOrDefault(Stat.MapAfflictionPctChanceAdditionalRewardOnAfflictionUniqueMonsterKilled), 100, AreaRng(kill.Player)))
+                state.AddReward(AreaRng(kill.Player));
             state.Monsters.Remove(kill.Monster.ObjectId);
             SaveLocked(kill.Player, state);
         }
@@ -684,7 +703,9 @@ public sealed class DeliriumMirrorEncounter
             level = state.Level > 0 ? state.Level : (byte)Math.Clamp(ServerLevels.AreaLevel(player.Layout.Id), 68, 84);
             packSize = Math.Min(5, Math.Min(MaxActiveMonsters - state.Monsters.Count, MaxSpawnTotal - state.Spawned));
             spawnedBase = state.Spawned;
-            delirious = Math.Clamp(state.DepthPercent / 100.0, 0.05, 1.0);
+            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
+            delirious = Math.Max(0.05, DeliriumScarabs.MonsterDepth(state.DepthPercent,
+                stats.GetValueOrDefault(Stat.MapAfflictionEncounterMonsterDepthPlusPct)) / 100.0);
         }
         if (packSize <= 0) return;
 
@@ -702,10 +723,16 @@ public sealed class DeliriumMirrorEncounter
         for (int i = 0; i < packSize; i++)
         {
             if (!_context.Lifetime.IsActive || !Current(player) || !IsActive(state)) break;
-            var variety = pool[rng.Next(pool.Length)];
+            var stats = player.Instance.AreaStats(() => AreaLeagueStats(player));
+            string? boss = null;
+            lock (state)
+                if (stats.GetValueOrDefault(Stat.MapAfflictionContainsBosses) > 0)
+                    boss = new[] { SimulacrumRules.Omniphobia, SimulacrumRules.Kosis }.FirstOrDefault(b => !state.SpawnedBosses.Contains(b));
+            var variety = boss is null ? pool[rng.Next(pool.Length)] : Monsters.Find(boss);
+            if (variety is not { Supported: true }) break;
             variety = variety with { StateMachine = DeliriumModule.MonsterStates(variety.StateMachine), AggroRange = Math.Max(90, variety.AggroRange) };
             int roll = rng.Next(100);
-            var rarity = roll < 8 ? MonsterRarity.Rare : roll < 30 ? MonsterRarity.Magic : MonsterRarity.Normal;
+            var rarity = boss is not null ? MonsterRarity.Unique : roll < 8 ? MonsterRarity.Rare : roll < 30 ? MonsterRarity.Magic : MonsterRarity.Normal;
             var rolledMods = MonsterModsFor(player, variety, level, rarity, null, true);
             var extraStats = new Dictionary<uint, int>
             {
@@ -730,6 +757,11 @@ public sealed class DeliriumMirrorEncounter
                         if (state.Stage != MirrorStage.Active) return;
                         state.Monsters.Add(spawnedId);
                         state.Spawned++;
+                        if (boss is not null)
+                        {
+                            state.SpawnedBosses.Add(boss);
+                            state.Bosses[spawnedId] = boss;
+                        }
                         spawnedAny = true;
                     }
                 });

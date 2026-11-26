@@ -366,6 +366,21 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
 /// </summary>
 public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
+    Item contents = Item;
+    public Item Item { get => contents; init => contents = value; }
+    bool prepared;
+
+    /// <summary>Finalizes a newly generated drop before it is published; recovery and stack remainders keep it.</summary>
+    public void Prepare(Func<Item, Item> transform)
+    {
+        lock (this)
+        {
+            if (prepared) return;
+            contents = transform(contents);
+            prepared = true;
+        }
+    }
+
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
 
     /// <summary>The player placed this item on the ground, rather than a monster or script drop.</summary>

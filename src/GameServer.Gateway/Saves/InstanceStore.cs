@@ -392,6 +392,7 @@ public sealed class InstanceGround
     // Where they lie, by grid cell: a pickup looks at the cells its radius covers, not at every item.
     readonly AreaGrid _cells = new();
     uint _nextId = FirstItemId;
+    readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, Item> preparedItems = new();
     long birthVersion;
     readonly Dictionary<uint, long> births = [];
     sealed record Observer(long Since);
@@ -431,6 +432,8 @@ public sealed class InstanceGround
 
     public uint Add(WorldItemObject item, object? by, bool shared, bool justDropped)
     {
+        if (justDropped && !item.PlayerDropped && by is Player player)
+            item.Prepare(contents => preparedItems.GetValue(contents, original => GameEvents.PrepareGroundItem(player, original)));
         lock (_items)
         {
             uint id = _nextId++;

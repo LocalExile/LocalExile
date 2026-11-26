@@ -95,3 +95,21 @@ the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
 mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.
+
+## Delirium scarabs
+
+The five current scarabs use the existing map Mirror encounter and composed instance stats. Only the base scarab
+guarantees a mirror. Mania scales reward-counter points and monster depth (capped at 100%); Paranoia adds two initial
+types. Neuroses places Omniphobia and Kosis through the ordinary monster path and adds a distinct reward type per
+boss killed. Their ids, spawn and reward flags survive module reload and reentry; repeated boss callbacks pay once.
+
+Delusions prepares newly generated map drops before ground publication, including containers and encounter rewards.
+The ground hook has no game rules. Player drops and restored ground objects bypass it; duplicate references to the same
+generated item share its result. Unique maps and maps already carrying Delirium layers keep their original modifiers.
+The enchant uses `AfflictionMapDeliriumStacks` and `AfflictionRewardMapMods`, with the reward formatter's one-based values.
+It applies independently of whether the map contains a mirror.
+
+Fidelity limits: the existing Mirror's fog, population, depth scaling and reward rates remain calibrated estimates.
+Neuroses uses the existing boss kits and places both bosses in the first spawned group. Found maps draw 1–5 layers and
+reward types uniformly; the client tables supply their identities and 20% layer size, not the retail distribution.
+Permanent Delirium-map gameplay is a separate engine from this scarab's found-item enchant.
