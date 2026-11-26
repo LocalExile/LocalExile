@@ -43,12 +43,11 @@ public static partial class Game
             caster.GetValueOrDefault, own.GetValueOrDefault, DurationKinds(player, effect));
         if (ground > 0 && duration > 0)
         {
-            var kind = FlaskGrounds.Kind.ConsecratedGround;
-            int taken = OwnConsecratedGroundCreatedLocked(player, caster)
+            var created = CreateOwnConsecratedGroundLocked(player, aim, ground, now + duration, caster);
+            int taken = ActorScale.Saturate((long)created.EnemyDamageTakenPct
                 + own.GetValueOrDefault(Stat.SanctifyConsecratedGroundEnemyDamageTakenPlusPct)
-                + caster.GetValueOrDefault(Stat.SanctifyConsecratedGroundEnemyDamageTakenPlusPct);
-            player.FlaskGrounds.Add(new(kind, aim.X, aim.Y, ground, now + duration,
-                QueueGroundArtLocked(player, kind, aim, ground), taken));
+                + caster.GetValueOrDefault(Stat.SanctifyConsecratedGroundEnemyDamageTakenPlusPct));
+            player.FlaskGrounds.Add(created with { EnemyDamageTakenPct = taken });
             PresentNearby(player);
             session.Enqueue(() => PublishFlaskChanges(player));
         }

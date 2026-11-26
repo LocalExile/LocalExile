@@ -93,12 +93,12 @@ public static partial class Game
                 return from.GetValueOrDefault(key);
             }
             // The skill's own stats and costs over the player's (Merged): written into the graph's values.
-            var efficiency = CostEfficiencyFor(SkillsFor(owner), supported.Effect);
+            var scope = SkillCostScopeFor(SkillsFor(owner), supported);
             Dictionary<uint, int> Merge(IReadOnlyDictionary<uint, int> over, double cost)
             {
                 var written = new Dictionary<uint, int>();
                 MergeSkillStatsInto(key => written.TryGetValue(key, out int own) ? own : Tracked(over, key),
-                    (key, value) => written[key] = value, costStats, Channelled, cost, efficiency);
+                    (key, value) => written[key] = value, costStats, Channelled, cost, scope);
                 return written;
             }
             merge = graph.AddRule(view => { foreach (var (key, value) in Merge(player, costMore)) view[key] = value; });

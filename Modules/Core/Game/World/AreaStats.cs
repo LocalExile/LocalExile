@@ -29,6 +29,8 @@ public static partial class Game
             && ActiveMainHand(player)?.Type?.Class != "Sceptre" && ActiveOffHand(player)?.Type?.Class != "Sceptre")
             stats.Remove(Stat.GladiatorAreaOfEffectPlusPctFinalWhileWieldingMace);
         int typed = SkillArea.TypedIncrease(Get, types);
+        if (Get(Stat.RetaliationSkillAreaOfEffectPlusPct) is int retaliationArea and not 0 && known && skills.IsRetaliation(effect))
+            typed = ActorScale.Saturate((long)typed + retaliationArea);
         if (known && skills.EffectId(effect) is { } id)
         {
             if (IsHeraldAura(id)) typed += Get(Stat.AreaOfEffectPlusPctWithHeraldSkills);

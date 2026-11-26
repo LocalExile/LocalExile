@@ -173,7 +173,9 @@ public sealed class ItemDrops
     // never collide; Atlas map rows (min_map_tier >= 1) resolve by area_id, area_name, or WorldAreas.Id -> Name.
     sealed record CardAreaIndex(object From,
         Dictionary<string, HashSet<string>> CampaignByAreaId,
-        Dictionary<string, List<(string CardId, int MinMapTier)>> MapByAreaKey);
+        Dictionary<string, List<(string CardId, int MinMapTier)>> MapByAreaKey,
+        HashSet<string> MapExclusiveCards,
+        HashSet<string> SourceExclusiveCards);
     volatile CardAreaIndex? _cardAreaIndex;
     int _minCampaignMapDropLevel = -1;
 
@@ -212,6 +214,8 @@ public sealed class ItemDrops
         if (current is not null && ReferenceEquals(current.From, snapshot)) return current;
         var campaign = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         var mapAreas = new Dictionary<string, List<(string CardId, int MinMapTier)>>(StringComparer.OrdinalIgnoreCase);
+        var mapExclusive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sourceExclusive = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         void AddMap(string key, string cardId, int minTier)
         {
             if (string.IsNullOrEmpty(key)) return;
@@ -228,12 +232,15 @@ public sealed class ItemDrops
             }
             else
             {
+                mapExclusive.Add(row.CardId);
                 AddMap(row.AreaId, row.CardId, row.MinMapTier);
                 if (!row.AreaName.Equals(row.AreaId, StringComparison.OrdinalIgnoreCase))
                     AddMap(row.AreaName, row.CardId, row.MinMapTier);
             }
         }
-        _cardAreaIndex = current = new(snapshot, campaign, mapAreas);
+        foreach (var row in snapshot.CardSources.Values)
+            if (!string.IsNullOrEmpty(row.CardId)) sourceExclusive.Add(row.CardId);
+        _cardAreaIndex = current = new(snapshot, campaign, mapAreas, mapExclusive, sourceExclusive);
         return current;
     }
 
@@ -245,35 +252,40 @@ public sealed class ItemDrops
 
     /// <summary>A divination card filtered by area and map tier through <c>drop_card_areas</c> when <paramref name="areaId"/>
     /// is supplied. Campaign areas (<paramref name="mapTier"/> == 0) match strictly by <c>WorldAreas.Id</c> against
-    /// <c>min_map_tier = 0</c> rows; maps resolve by <c>area_id</c>, <c>area_name</c>, <c>WorldAreas.Id</c> → <c>Name</c>,
-    /// or name without trailing " Map", falling back to global weights when unmapped.</summary>
+    /// <c>min_map_tier = 0</c> rows; maps combine tier-eligible area cards (<c>area_id</c>, <c>area_name</c>,
+    /// <c>WorldAreas.Id</c> → <c>Name</c>, or without trailing " Map") with global non-boss cards so area-specific
+    /// MLE weights are not renormalized to 100%.</summary>
     public Drop? Card(Random rng, int level, string? areaId, int mapTier, DropWeights? factors = null)
     {
         if (!string.IsNullOrEmpty(areaId))
         {
             var index = GetCardAreaIndex();
-            HashSet<string>? allowedIds = null;
             if (mapTier <= 0)
             {
-                if (!index.CampaignByAreaId.TryGetValue(areaId, out allowedIds) || allowedIds.Count == 0)
+                if (!index.CampaignByAreaId.TryGetValue(areaId, out var allowedIds) || allowedIds.Count == 0)
                     return null;
-            }
-            else
-            {
-                List<(string CardId, int MinMapTier)>? areaRows = ResolveMapCardRows(index, areaId);
-                if (areaRows is { Count: > 0 })
-                {
-                    allowedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var (cardId, minTier) in areaRows)
-                        if (mapTier >= minTier) allowedIds.Add(cardId);
-                }
-            }
-            if (allowedIds is not null)
-            {
                 var matched = _cards.Where(t => Allowed(t, level) && (allowedIds.Contains(t.Name) || allowedIds.Contains(t.Id))).ToList();
                 return PickCategory(matched, "card", level, rng, factors) is { } picked
                     ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked)
                     : null;
+            }
+            if (index.MapByAreaKey.Count > 0 || index.SourceExclusiveCards.Count > 0)
+            {
+                HashSet<string>? areaAllowed = null;
+                if (ResolveMapCardRows(index, areaId) is { Count: > 0 } areaRows)
+                {
+                    areaAllowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var (cardId, minTier) in areaRows)
+                        if (mapTier >= minTier) areaAllowed.Add(cardId);
+                }
+                static bool InSet(HashSet<string> set, ItemCatalog.BaseType t) => set.Contains(t.Name) || set.Contains(t.Id);
+                var pool = _cards.Where(t => Allowed(t, level) && (
+                    areaAllowed is not null && InSet(areaAllowed, t)
+                    || !InSet(index.MapExclusiveCards, t) && !InSet(index.SourceExclusiveCards, t))).ToList();
+                if (pool.Count > 0)
+                    return PickCategory(pool, "card", level, rng, factors) is { } picked
+                        ? new Drop(ItemCatalog.Create(picked) with { StackSize = 1 }, picked)
+                        : null;
             }
         }
         return Card(rng, level, factors);

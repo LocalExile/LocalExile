@@ -54,10 +54,16 @@ public static partial class Game
     }
 
     static DamagePacket MitigateMonsterHit(SpawnedMonster target, DamagePacket packet, double now,
-        Penetration.PerType penetration = default, int cannotPenetrateOrIgnore = 0)
+        Penetration.PerType penetration = default, int cannotPenetrateOrIgnore = 0, bool elementalUsesLowestResistance = false)
     {
-        var mods = ImpurityHitMods(target, now, new(0, 0, 0, cannotPenetrateOrIgnore));
-        return DamageModel.Mitigate(packet, type => HitResistances.Effective(type,
-            MonsterHitResistance(target, type, penetration, now), default, mods));
+        var mods = ImpurityHitMods(target, now, new(0, 0, 0, cannotPenetrateOrIgnore)
+            { ElementalUsesLowestResistance = elementalUsesLowestResistance });
+        var elemental = ReadElementalHitResistances(target, packet, now, penetration, default, mods);
+        return packet.Select((type, range) =>
+        {
+            if (range.IsZero) return range;
+            var (resistanceType, value) = ElementalHitResistance(target, type, penetration, now, default, mods, elemental);
+            return range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(resistanceType, value, default, mods) / 100));
+        });
     }
 }

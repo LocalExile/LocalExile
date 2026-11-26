@@ -173,8 +173,10 @@ public static partial class Game
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
             if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
             ChargesOnKill(player, monster);
-            RecoverOnKill(player, monster, tinctureKill);
-            GainPhasingOnKill(player);
+            if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
+                session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
+            else if (player.PlayerLife > 0)
+                GainPhasingOnKill(player);
             var explosionStats = PlayerStatValues(player);
             var explosionEquipment = CaptureKillEquipment(player, monster, position, now, explosionStats);
             if (MayExplodeOnKill(player, monster, explosionEquipment, explosionStats))
@@ -193,7 +195,8 @@ public static partial class Game
         if (!MonsterGivesNoRewards(monster) && player.PlayerLife > 0 && Dist(position, player.Walk.Position(now)) <= ExperienceRange)
             (xp, gemXp) = ComputeKillExperience(player, monster, variety, modMonster, PartyExperienceShareOf(partyShares, player));
         session.AddGemExperience(gemXp);
-        if (QuestsOf(player).LevelAfterKill(player.Layout.Id, variety.Id) is int required and > 1 && required <= CharacterStats.LevelStarts.Count)
+        if (player.PlayerLife > 0 && QuestsOf(player).LevelAfterKill(player.Layout.Id, variety.Id) is int required and > 1
+            && required <= CharacterStats.LevelStarts.Count)
             xp = (uint)Math.Max(xp, Math.Max(0L, (long)CharacterStats.LevelStarts[required - 1] - player.Character.Experience));
         if (xp > 0 && RecordExperienceGain(player, xp) is { } change)
         {

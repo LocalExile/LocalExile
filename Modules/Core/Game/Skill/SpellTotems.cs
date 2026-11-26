@@ -17,7 +17,7 @@ public static partial class Game
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
-            || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
+            || (ArcProxyPayload(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect))
@@ -73,7 +73,8 @@ public static partial class Game
         var owner = CharacterPlayerStats(player);
         int speed = FinalCastSpeedPct(Read, player,
             CastSpeedPct(owner) - GolemStat(owner, Stat.ArcaneSurgeCastSpeedPlusPct)
-            + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct));
+            + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct)
+            + TaggedCastSpeedBonusPct(player, gem.Effect, owner.GetValueOrDefault, gem.Stats.GetValueOrDefault));
         return SpellCastTiming.ForSkill(SkillsFor(player), gem.Effect, speed)?.DurationMilliseconds is int ms
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }
@@ -274,7 +275,7 @@ public static partial class Game
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
-            bool arc = effect == "Arc";
+            bool arc = ArcProxyPayload(effect);
             var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || curse?.Mark == true ? target.Id : null));

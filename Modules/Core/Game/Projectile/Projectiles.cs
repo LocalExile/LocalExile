@@ -882,7 +882,17 @@ public static partial class Game
             }
             if (MonsterBlocks(target, random, shot.Spell, at, shot.SkillStats)) return ProjectileHitResult.Blocked;
             // Select the profile only for an accepted contact, before this hit can apply Blind or other ailments.
-            var conditional = shot.Spider is { } spider ? ContactDamage(Player, target, at, spider.Stats, spider.Local) : default;
+            TargetContact conditional = default;
+            if (shot.Spider is { } spider)
+            {
+                conditional = ContactDamage(Player, target, at, spider.Stats, spider.Local);
+                long trajectoryIncrease = (long)shot.DamageIncreasePerChain * contact.Projectile.CompletedChains
+                    + (long)shot.DamageIncreasePerPierce * contact.Projectile.EnemiesPierced;
+                conditional = conditional with
+                {
+                    HitIncrease = conditional.HitIncrease + trajectoryIncrease,
+                };
+            }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),
                 target.Ignites.IgnitedAt(at), target.Bleeds.IgnitedAt(at), EnemyOnLowLife(target), target.MaimedUntil > at,
                 conditional, areaContact: contact.IsArea);
@@ -928,11 +938,13 @@ public static partial class Game
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
             var packet = new SkillDamageContext(shot.Spell ? SkillHitKind.Spell : SkillHitKind.Attack, player).Hit(baseHit).Scale(more * chainsMore);
             var hitRolls = HitRollsFor(player);
+            var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
+                    finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted).ForWeapon(shot.WeaponLocal);
+            long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(player, shot.SkillStats);
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
-                GameEvents.WithOutgoingDamage(Player, player, target, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
-                    .ForSkill(name => name is var k ? shot.SkillStats.GetValueOrDefault(k) : 0, shot.Spell,
-                        finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
-                    .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
+                GameEvents.WithOutgoingDamage(Player, player, target,
+                    damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
             rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
             int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
@@ -940,6 +952,7 @@ public static partial class Game
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
+            rolled = damageRoll.CompleteCriticalMultiplier(rolled, random, critical, criticalDoubleDamage);
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
             int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
@@ -952,18 +965,21 @@ public static partial class Game
             bool projectileAttack = !shot.Spell
                 && (shot.ProjectileAttack ?? (shot.Effect < 0 || SkillsFor(Player).IsProjectile(shot.Effect)));
             int additionalTaken = projectileAttack ? EnsnaredProjectileAttackTaken(target, at) : 0;
-            var (damage, _, mitigated) = MonsterHitDamage(target, rolled, critical, !shot.Spell, at, resonance.Mods,
+            bool ownHit = shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage;
+            int witheredElemental = ownHit ? WitheredElementalHitTaken(target, Player.Id, at, player) : 0;
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(target, rolled, critical, !shot.Spell, at, resonance.Mods,
                 resonance.Penetration, hitRolls.InvertsResistance(random, shot.SkillResistanceInversionChance),
                 random, trapOrMine: shot.FromTrapOrMine,
-                additionalTakenPct: additionalTaken);
+                additionalTakenPct: additionalTaken, additionalElementalTakenPct: witheredElemental);
             if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage,
-                additionalTakenPct: additionalTaken + (shot.FromTrapOrMine ? BearTrapDamageTaken(target, at) : 0));
+            int directDamage = damage;
+            int chaosDamage = MonsterHitChaosDamage(target, mitigated, shot.Spell, at, damage, takenRules);
             bool immune = target.Invulnerable;
             if (shot.FromMine)
-                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id);
+                LeechPlacedMineHitLocked(Player, target, mitigated, shot.Spell, damage, at, player, contact.Target.Id, takenRules);
             else if (!shot.FromTrapOrMine)
-                LeechOnHitTargetLocked(Player, target, MonsterTakenComponents(target, mitigated, shot.Spell, at), damage,
+                LeechOnHitTargetLocked(Player, target,
+                    MonsterTakenComponents(target, mitigated, shot.Spell, at, takenRules), damage,
                     shot.Leech, contact.Target.Id);
             if (!immune)
             {
@@ -980,6 +996,7 @@ public static partial class Game
                 cullPlayer: null, chaosDamage: chaosDamage,
                 preventsShellBreak: shot.PreventsSomaticShellBreak);
             if (hit is null) return ProjectileHitResult.Miss;
+            if (shot.FromTotem && !immune) LeechFromTotemHitLocked(Player, target, directDamage, at, player);
             if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
                 RecordResonanceHitLocked(Player, target, shot.SkillStats, rolled, at);
@@ -993,7 +1010,8 @@ public static partial class Game
                 CrueltyOnHitLocked(Player, shot.SourceSkill, damage, lifeBefore, target.MaxLife, shot.SkillStats, at);
             if (!shot.Spell) ReleaseCriticalTrigger(Player, this, shot.CriticalTrigger, critical, target.Hostile,
                 target.Walk.Position(at), at);
-            else ArcaneSurgeOnSpellHitLocked(Player, player, target);
+            else if (!shot.FromTrapOrMine)
+                ArcaneSurgeOnSpellHitLocked(Player, player, target);
             // Item Quantity Support: the kill's loot rolls read the supported skill's share.
             if (Stat.BaseKilledMonsterDroppedItemQuantityPlusPct is var quantityKey)
                 target.KilledWithItemQuantityPct = shot.SkillStats.GetValueOrDefault(quantityKey);
@@ -1019,19 +1037,24 @@ public static partial class Game
                 SacredWispsOnHit(shot);
             if (!immune && shot.SourceSkill == 0 && shot.WeaponAttack && shot.ActualCaster is null && !shot.FromTrapOrMine)
                 CaptureEquippedHitExplosionLocked(target, player);
+            if (!immune && hit.Value.Life == 0 && !shot.Spell && shot.ActualCaster is null
+                && !shot.FromTrapOrMine && !shot.FromTotem && !shot.Mirage
+                && (shot.WeaponAttack || SkillsFor(Player).IsAttack(shot.Effect)))
+                CaptureAttackKillExplosionLocked(target, player);
             if (!immune)
             {
                 var emitterTotem = shot.FromTotem
                     ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
                     : null;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
-                    shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
+                    WithWeaponAilmentStats(shot.SkillStats, weaponLocal, offHand: shot.OffHandWeapon),
+                    at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
                     attackGains: AttackAilmentGains.Capture(player, shot.ActualCaster is null && !shot.Spell),
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea);
+                    areaHit: contact.IsArea, sourceEffect: shot.Effect, ownHit: ownHit);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
