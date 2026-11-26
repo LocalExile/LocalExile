@@ -187,9 +187,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
-  radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
-  melee swings keep their hit over a queued Move.
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius.
   Volcanic Fissure hits along its path and launches landing projectiles at the end. Snaking hits along each leg and erupts,
   seeking a reachable target outside the previous eruption's hit set. Gem melee swings keep their hit over a queued Move.
@@ -416,7 +413,6 @@ Part of [Status](../Status.md); what to build next in this area is in
   "Cyclone area updates".
 - Player-cast Blade Flurry and Blade Flurry of Incision. Aimed acquisition, paid stages, and additional release strikes.
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
-- Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
 - Charged Dash and its Projection variant steer a projection, hit along its path and release a scaled final wave. The normal gem moves to a legal landing; the Projection variant stays in place. Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
