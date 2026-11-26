@@ -242,7 +242,8 @@ static class PortalsFeature
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
         int portalLimit = opening.Mods.Get(Stat.MapPortalLimit);
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
-            campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
+            // Back next to the device, never on it: its own cell is inside its collision hull and the player could not move.
+            campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
             pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount, portalVariation: opening.PortalVariation);
         if (campaign)
