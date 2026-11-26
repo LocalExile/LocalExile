@@ -1401,9 +1401,12 @@ public static partial class Game
         int perHundred = LifeReservation.EnergyShieldPerReservedStat is var reservedEsKey
             ? sources.GetValueOrDefault(reservedEsKey) : 0;
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
-        if (reservationEnergyShield != 0)
+        int lifeArmourPct = EquipmentInput(Stat.MaximumLifePctToAddAsMaximumArmour);
+        decimal lifeArmour = pools.Life * (decimal)lifeArmourPct / 100m;
+        if (reservationEnergyShield != 0 || lifeArmour != 0)
             pools = CharacterStats.For(classInfo, level, bonus with
             {
+                Armour = bonus.Armour + lifeArmour,
                 EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
             }, ResolveAccuracy);
         pools = pools with { MapTemporalChainsActionSpeedPct = mapTemporalChains };
