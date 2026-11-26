@@ -13,7 +13,8 @@ public static partial class Game
         Task pass = Task.CompletedTask;
         area.Systems.Add("monster damage over time", AreaPhase.Ailments, a =>
         {
-            if (!(a.HasActiveDots || HasFrigidBondDamage(a) || HasSearingBondDamage(a) || HasPestilentDamage(a) || HasSoulrendDamage(a))
+            if (!(a.HasActiveDots || HasFrigidBondDamage(a) || HasSearingBondDamage(a) || HasPestilentDamage(a)
+                    || HasSoulrendDamage(a) || HasFleshrendDamage(a))
                 || !pass.IsCompleted || !CurrentGameWork || frames.View is not { } view || view.Closed || view.LeavingArea
                 || view.Paused || !view.Connection.PlayerSent || view.PlayerUpdatesState is not PlayerUpdatesState updates
                 || !PlayerUpdatesCurrent(view, updates)) return;

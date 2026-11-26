@@ -852,6 +852,8 @@ public static partial class Game
             if (contact.Stage == SoulrendPulseStage && shot.Soulrend is { } soulrend)
                 return ApplySoulrendDamage(Player, contact.Target.Id, target, soulrend,
                     contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+            if (contact.Stage == FleshrendPulseStage && shot.Fleshrend is { } fleshrend)
+                return ApplyFleshrendDamage(contact, target, fleshrend);
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
             if (shot.RampageEpoch is long ownedEpoch)

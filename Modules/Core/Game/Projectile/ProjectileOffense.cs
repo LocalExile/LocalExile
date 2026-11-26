@@ -44,6 +44,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
     internal MonsterContagion.Cast? Soulrend { get; init; }
+    internal Game.FleshrendCast? Fleshrend { get; init; }
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }

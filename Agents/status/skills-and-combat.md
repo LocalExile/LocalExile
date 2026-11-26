@@ -275,6 +275,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) Â§3.
 - Soulrend and its Spiral variant turn toward nearby enemies ahead and renew a non-stacking chaos debuff along each flight. Spiral releases each projectile on its own timed angle.
+- Pact of Ghorr grants a timed Hunger buff and periodically fires Fleshrend. Each flight applies stacking physical damage over time and increases the target's damage taken from all damage over time sources.
 - Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
   projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.

@@ -45,6 +45,11 @@ public static partial class Game
                 if (publish) postPublish = () => SendOwnAuraChanges(player);
                 return true;
             }
+            if (activeBuff is { Row: HungerOfGhorrRow } && activeBuff.Source == player.Id)
+            {
+                ClearGhorrHunger(player);
+                return true;
+            }
 
             // 1. Grace Period (row 6, Removable = 1).
             if (activeBuff is { Row: GracePeriod.BuffRow } && activeBuff.Source == player.Id
