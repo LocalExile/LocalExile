@@ -333,6 +333,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
 - Blade Blast chains through up to 50 landed blades across direct, triggered and proxy casts, honoring blade retention.
 - Blade Blast of Unloading consumes up to ten orbiting blades in a sequence of expanding blasts.
+- Blade Blast of Dagger Detonation adds eligible weapon damage to its nova, including on spell totems.
 - Blade Vortex stacks individually timed blades on the caster, scales its pulse with the blade count, and supports
   repeats, triggered casts, and spell totems.
 - Vaal Blade Vortex pursues nearby enemies and hits periodically from direct casts and paid spell totems.

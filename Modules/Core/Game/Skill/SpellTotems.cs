@@ -25,7 +25,10 @@ public static partial class Game
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
-    static bool SpellTotemNova(Player player, int effect) => SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY";
+    const string BladeBlastDaggerDetonation = "BladeBlastAltY";
+
+    static bool SpellTotemNova(Player player, int effect) =>
+        SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY" or BladeBlastDaggerDetonation;
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
@@ -233,10 +236,12 @@ public static partial class Game
             if (!FocusedBallistaMayAttack(player, totem)) continue;
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
-            bool warchief = SkillsFor(player).EffectId(gem.Effect) == VaalAncestralWarchiefEffect;
+            string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            bool daggerDetonation = effect == BladeBlastDaggerDetonation;
+            bool warchief = effect == VaalAncestralWarchiefEffect;
             if (warchief && !VaalWarchiefInRange(player, totem, now)) continue;
             var summon = TotemSummon(player, gem.Effect);
-            var golem = GolemData.Find(SkillsFor(player).EffectId(gem.Effect));
+            var golem = GolemData.Find(effect);
             bool nova = SpellTotemNova(player, gem.Effect);
             bool nativeChannel = NativeProjectileTotem(player, gem.Effect);
             var target = PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null);
@@ -247,6 +252,8 @@ public static partial class Game
                 continue;
             }
             var aim = nova || target.Monster is null ? totem.At : target.Pos;
+            if (daggerDetonation && target.Monster is not null)
+                aim = SpellCentre(player, gem.Effect, totem.At, target.Pos);
             if (!nova && summon is null && golem is null) aim = NonZeroTotemAim(totem.At, aim);
             uint summonTarget = 0;
             if (summon is { Corpse: true } && SummonNeedsCorpse(summon, PlayerStatValues(player)))
@@ -276,7 +283,6 @@ public static partial class Game
             var session = ProjectilesFor(player);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
-            string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
             bool arc = ArcProxyPayload(effect);
             var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
@@ -361,7 +367,10 @@ public static partial class Game
                     else if (nova)
                     {
                         int radius = SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect);
-                        ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
+                        if (daggerDetonation)
+                            TotemNovaLocked(player, session, totem, aim, radius, sequence);
+                        else
+                            ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
                     }
                     else if (player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
                         ReleaseArcTotem(player, session, totem, target.Id, sequence);
