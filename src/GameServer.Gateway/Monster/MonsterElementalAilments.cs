@@ -254,14 +254,17 @@ public sealed class MonsterElementalAilments
                 Spread = SpreadRadius(Kind.Chill, attacker, area),
             });
         // The chance rolls first, so a prohibition leaves the random sequence of the hits after it unchanged.
-        int freezeChance = attacker(Stat.ChanceToFreezePct)
-            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0);
+        int freezeChance = (int)Math.Clamp((long)attacker(Stat.ChanceToFreezePct)
+            + (wasChilled ? attacker(Stat.AdditionalChanceToFreezeChilledEnemiesPct) : 0)
+            + target(Stat.ChanceToBeFrozenPct), int.MinValue, int.MaxValue);
         if (freezing > 0 && (critical || RandomRolls.Chance(freezeChance, 100, random))
             && !CannotInflict("freeze", attacker))
             Add(new(Kind.Freeze, now, now + Math.Min(3, 6 * freezing * AsThough(Kind.Freeze, attacker) * freezeDamageMultiplier / threshold), 100)
                 { Spread = SpreadRadius(Kind.Freeze, attacker, area) });
+        int shockChance = (int)Math.Clamp((long)attacker(Stat.ChanceToShockPct) + target(Stat.ChanceToBeShockedPct),
+            int.MinValue, int.MaxValue);
         if (shocking > 0 && (critical || attacker(Stat.AlwaysShock) != 0
-                || RandomRolls.Chance(attacker(Stat.ChanceToShockPct), 100, random))
+                || RandomRolls.Chance(shockChance, 100, random))
             && !CannotInflict("shock", attacker))
             Add(new(Kind.Shock, now, now + 2, Effectiveness(shocking * AsThough(Kind.Shock, attacker), threshold,
                 EffectModifier(Kind.Shock, attacker, target), ShockCap(attacker), attacker(Stat.ShockMinimumDamageTakenIncreasePct)))

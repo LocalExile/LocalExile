@@ -11,17 +11,19 @@ static partial class Game
         double interval = Math.Max(.001, (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
         double due = AreaTime(player) + (triggered ? 0 : interval);
         var lifetime = CombatLifetime;
+        bool released = false;
         for (int releaseIndex = 0; releaseIndex <= repeats + seals; releaseIndex++)
         {
             while (true)
             {
                 if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed
                     || player.LeavingArea || player.PlayerLife == 0 || !triggered && recovery != player.ActionInterruptionGeneration
-                    || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
+                    || !SameTriggerSource(gem, SupportedSkill(player, source))) return released;
                 if (!player.Paused && AreaTime(player) >= due) break;
                 await AreaWait(PlayerUpdateRole.Minions, 25);
             }
-            if (!await release()) return false;
+            if (!await release()) return released;
+            released = true;
             due += releaseIndex < seals ? interval * .1 : interval;
         }
         return true;
