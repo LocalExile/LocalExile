@@ -113,3 +113,27 @@ Fidelity limits: the existing Mirror's fog, population, depth scaling and reward
 Neuroses uses the existing boss kits and places both bosses in the first spawned group. Found maps draw 1–5 layers and
 reward types uniformly; the client tables supply their identities and 20% layer size, not the retail distribution.
 Permanent Delirium-map gameplay is a separate engine from this scarab's found-item enchant.
+
+## Influence, Legion, Abyss and Mercenary scarabs
+
+The twelve Shaper/Elder/current Influence inputs use the client fragment flags, pack lists and monster drop mods.
+Interference places one supported standalone guardian beside a map boss. Influenced equipment retains its influence
+and rarity; additional rare drops receive independent item rolls. Base influence density is calibrated at ten packs;
+the retail pack total and spatial distribution are not published by the client.
+
+The nine Legion inputs compose monolith counts, generals, war hoards, sergeants, Maraketh, repeated breakouts and
+spreading Emblematic rewards. Frozen and released actors retain their encounter identity through restoration.
+Life/damage increase by 50% per repeated breakout and 100% for spreading; these difficulty values are calibration.
+The existing army population and chest/drop weights remain estimates.
+
+The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
+extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and the first two Abyssal Crystals. Depths has
+a return to the parent instance; Wretched guarantees its existing boss variant. The new inputs reuse the captured
+crack/pit lifecycle. Extra-pit placement, rare-monster distribution, crystal reward count and the uncaptured Depths
+layout are local models; the base encounter's recorded capture evidence does not establish retail parity for them.
+
+The four Trarthan inputs select Infamous builds, unique equipment, wild companions and their quantity/difficulty
+modifiers. Wild mercenaries pay actual carried items through ordinary ground publication once. The ordinary hire
+panel and duel remain the base module's route. Carried item selection is uniform without replacement; build/equipment
+weights and the difficulty curve remain calibration. Following, party AI and all league gameplay beyond these scarab
+effects remain separate work.
