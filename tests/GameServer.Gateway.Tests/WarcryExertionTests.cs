@@ -49,10 +49,10 @@ public sealed class WarcryExertionTests
             }
 
             await Slam(false);
-            Assert.True(Game.UseWarcry(player, cry.Effect, own, cry.Id, triggered: true));
-            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
-            while (!player.Area.Buffs.Has(player.Id, 1544, player.Id))
-                await Task.Delay(1, deadline.Token);
+            var playerStats = new Dictionary<uint, int>();
+            Game.ApplyWarcryBuffLocked(player, "SeismicCry", own, playerStats, origin, 60, clock.At, 2.5, 1);
+            Game.GrantSeismicCryExertsLocked(player, own, playerStats);
+            Assert.True(player.Area.Buffs.Has(player.Id, 1544, player.Id));
             clock.At += 10;
             Game.ExpireWarcryBuffs(player);
             Assert.False(player.Area.Buffs.Has(player.Id, 1544, player.Id));

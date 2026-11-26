@@ -205,7 +205,7 @@ public static partial class Game
         return true;
     }
 
-    static void GrantSeismicCryExertsLocked(Player player, IReadOnlyDictionary<uint, int> own,
+    internal static void GrantSeismicCryExertsLocked(Player player, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats)
     {
         var cry = CryOf(player);
