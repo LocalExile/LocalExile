@@ -68,6 +68,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Other tabs without a supported fill mode are refused with the reason.
   Blight, Delirium, Divination, Ultimatum and Breach tabs now publish their StashType sizes; the 12 × 12 default made the
   oils draw over the blight tab.
+  The Ultimatum tab loads from `MetamorphosisStashTabLayout` (`62 × 5`, real-client verified): catalysts map by
+  `StoredItem` with affinity (`14`) and stack up to 10,000, the `2 × 4` crafting slot accepts general items, and the
+  `12 × 5` Inscribed Ultimatum trial grid stores up to 60 trials with save/reload persistence.
   Verified in the real client (2026-10-28): blight oils, all divination cards in both rows of the tab, and the gem tab's
   colour sub-tabs. Automated tests cover caps, in-place growth, reloads, refused tabs, tab lookup, cell fill and every
   real layout against its published size. The map tab (#477) gives every `MapKeys` base its six pages: the client's page
