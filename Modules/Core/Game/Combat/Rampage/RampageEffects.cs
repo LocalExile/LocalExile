@@ -199,13 +199,20 @@ public static partial class Game
         return hit.Value.Life == 0;
     }
 
-    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+    /// <summary>The chance a Rampage attack has to hit this target, the value its hit roll is taken against. The
+    /// critical strike's confirmation roll is taken against the same chance (Path of Building's
+    /// <c>Modules/CalcOffence.lua:3058</c>).</summary>
+    public static int RampageAttackHitChance(Player player, uint id, SpawnedMonster target, int accuracy, double now,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         int evasion = target.Mods.Effects.Evasion(Monsters.BaseEvasion(target.Level) ?? 0);
         evasion = MonsterBlindRating(player, id, target, evasion, now, playerStats);
-        return DamageModel.Hits(DamageModel.AccuracyHitChance(evasion, accuracy), random.Next(100));
+        return DamageModel.AccuracyHitChance(evasion, accuracy);
     }
+
+    public static bool RampageAttackHits(Player player, uint id, SpawnedMonster target, int accuracy, double now, Random random,
+        IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        DamageModel.Hits(RampageAttackHitChance(player, id, target, accuracy, now, playerStats), random.Next(100));
 
     static RampageStunToken? RampageStatusLocked(Player player, uint id, SpawnedMonster target,
         RampageCatalog.SkillLevel? own, double now)

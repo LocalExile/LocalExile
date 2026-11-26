@@ -860,12 +860,20 @@ public static partial class Game
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
                     return ProjectileHitResult.Miss;
-                if (!shot.Spell && !RampageAttackHits(Player, contact.Target.Id, target, shot.Accuracy, contact.At / (double)ProjectileRuntime.QuantaPerSecond, random))
-                    return ProjectileHitResult.Miss;
+                int ownedHitChance = 100;
+                if (!shot.Spell)
+                {
+                    ownedHitChance = RampageAttackHitChance(Player, contact.Target.Id, target, shot.Accuracy,
+                        contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                    if (!DamageModel.Hits(ownedHitChance, random.Next(100))) return ProjectileHitResult.Miss;
+                }
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
+                // A Rampage attack that rolls to hit takes the same critical confirmation roll as every other attack
+                // (the ordinary path below, at RollCriticalStrike): a spell always hits, so only an attack needs it.
                 bool crit = random.Next(10000) < shot.CriticalChance
-                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+                    + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond)
+                    && (shot.Spell || EvasionEntropy.ConfirmsCritical(ownedHitChance, Player.AttackAccuracyRandom));
                 var (ownedDamage, _) = MonsterDamage(target, raw, crit, !shot.Spell, default);
                 if (crit) ownedDamage = DamageModel.CriticalDamage(ownedDamage, CriticalMultiplierOn(target,
                     shot.CriticalMultiplier, noExtra: shot.NoExtraCriticalDamage));
