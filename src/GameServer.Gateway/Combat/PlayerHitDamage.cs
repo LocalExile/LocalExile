@@ -7,6 +7,7 @@ using GameServer.Core.World;
 /// </summary>
 public static class PlayerHitDamage
 {
+    public static readonly uint AttackHitDamageMore = Stat.Of("virtual_attack_hit_damage_+%_final");
     public const uint VsBlindedDamageStat = Stat.HitAndAilmentDamagePlusPctVsBlindedEnemies;
 
     // Each damage type's increased stat ({type}_damage_+%), by DamageType.
@@ -125,6 +126,8 @@ public static class PlayerHitDamage
         // per hit, so the skill's damage stats (its tooltip) carry it too; a totem's hits read its owner's stats.
         if (get(Stat.HierophantPassiveDamagePlusPctFinalPerTotem) is var perTotem and not 0)
             result = result.Scale(Math.Max(0, 1 + (double)perTotem * get(Stat.NumberOfActiveTotems) / 100));
+        if (attack && get(AttackHitDamageMore) is int attackMore and not 0)
+            result = result.Scale(Math.Max(0, 1 + attackMore / 100d));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 

@@ -1156,6 +1156,8 @@ public static partial class Game
             if (beginAction) player.Walk.Order(from.X, from.Y, acceptedAt);
             player.Walk.Teleport(to.X, to.Y, acceptedAt);
             RecordAcceptedGemUseAt(player, effect, to, acceptedAt);
+            if (CastingSpell(player, effect) && !SkillsFor(player).IsInstant(effect))
+                RecordNonInstantSpellUseLocked(player, effect, acceptedAt);
             receipt = new(player, CombatLifetime!, skillId, effect, source.Identity, action, player.ProjectileEpoch,
                 acceptedAt, from, to, state, state.UseVersion, manaCost, lifeCost)
             {
@@ -1557,6 +1559,9 @@ public static partial class Game
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
         {
             RecordAcceptedGemUse(player, gem.Effect, to);
+            if (spell && cooldownUse?.Instant != true && !SkillsFor(player).IsInstant(gem.Effect)
+                && !IsTotemSkill(player, skillId))
+                RecordNonInstantSpellUseLocked(player, gem.Effect, AreaTime(player));
             NoteGemAttackUse(player, skillId, gem.Effect);
         }
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
@@ -1678,6 +1683,15 @@ public static partial class Game
     // final 0x1ce at-gate commit, so a stale or cancelled Frostblink cannot activate a recent event.
     static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
         RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
+
+    static void RecordNonInstantSpellUseLocked(Player player, int effect, double now)
+    {
+        player.RecentEvents.RecordNonInstantSpell(effect, now);
+        if (player.StatSourcesCache?.Sources is { } sources
+            && (sources.GetValueOrDefault(Stat.CastSpeedPlusPctPerNumUniqueSpellsCastRecently) != 0
+                || sources.GetValueOrDefault(Stat.InquisitorAttackDamagePlusPctFinalPerNonInstantSpellCastIn8SecondsMax30Pct) != 0))
+            MarkPlayerStats(player, PlayerStatStep.Sources);
+    }
 
     internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt)
     {

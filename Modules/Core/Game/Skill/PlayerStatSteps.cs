@@ -145,6 +145,17 @@ public static partial class Game
                 AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
                 AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
             }
+            int castSpeedPerSpell = GetIn(stats, Stat.CastSpeedPlusPctPerNumUniqueSpellsCastRecently);
+            int attackMorePerCast = GetIn(stats, Stat.InquisitorAttackDamagePlusPctFinalPerNonInstantSpellCastIn8SecondsMax30Pct);
+            if (castSpeedPerSpell != 0 || attackMorePerCast != 0)
+            {
+                var casts = player.RecentEvents.NonInstantSpells(now, castSpeedPerSpell != 0, attackMorePerCast != 0);
+                if (castSpeedPerSpell != 0)
+                    AddTo(stats, Stat.BaseCastSpeedPlusPct, (long)castSpeedPerSpell * casts.Distinct);
+                if (attackMorePerCast != 0)
+                    stats[PlayerHitDamage.AttackHitDamageMore] = (int)Math.Clamp((long)attackMorePerCast * casts.Total, -100, 30);
+                if (casts.Expiry is double pastCast) StatsChangeIn(pastCast - now);
+            }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
