@@ -731,6 +731,17 @@ public static class GameEvents
     public static readonly GameEvent<Func<Player, ChatAvailability?>> ChatAvailabilityQuery = new();
     /// <summary>The player performed chat activity (such as sending a chat line); subscribers may clear away state.</summary>
     public static readonly GameEvent<Func<Player, Task>> ChatActivity = new();
+    /// <summary>A currency orb is about to craft a target item: return a replacement crafted item to override the default roll,
+    /// or null to leave the default crafting roll unchanged.</summary>
+    public static readonly GameEvent<Func<Player, Item, uint, Random, Task<Item?>>> CurrencyCrafting = new();
+    /// <summary>Adjust the death experience penalty percentage (0..100) before XP is deducted.</summary>
+    public static readonly GameEvent<Func<Player, decimal, Task<decimal>>> DeathPenaltyPct = new();
+    /// <summary>Fired after player death presentation has been sent.</summary>
+    public static readonly GameEvent<Func<Player, uint, Task>> PlayerDied = new();
+    /// <summary>Fired after a character level-up has been published.</summary>
+    public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
+    /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, int, string, Task<bool>>> PortalRequested = new();
 
     public static async Task<bool> AnyNpcTalk(Player player, uint id, SpawnedNpc npc)
     {
@@ -879,6 +890,56 @@ public static class GameEvents
     public static async Task<bool> AnyItemUse(Player player, byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         foreach (var run in ItemUse.For(player)) if (await run(player, row, item, type)) return true;
+        return false;
+    }
+
+    public static async Task<Item?> ResolveCurrencyCrafting(Player player, Item target, uint currencyTypeHash, Random random)
+    {
+        if (!CurrencyCrafting.Any) return null;
+        foreach (var (owner, run) in CurrencyCrafting.Subscribers(player))
+        {
+            Item? answer = null;
+            if (await GameEventOwners.Guard(owner, nameof(CurrencyCrafting), async () => answer = await run(player, target, currencyTypeHash, random)) && answer is not null)
+                return answer;
+        }
+        return null;
+    }
+
+    public static async Task<decimal> ResolveDeathPenaltyPct(Player player, decimal percent)
+    {
+        if (!DeathPenaltyPct.Any) return percent;
+        foreach (var (owner, run) in DeathPenaltyPct.Subscribers(player))
+        {
+            decimal next = percent;
+            if (await GameEventOwners.Guard(owner, nameof(DeathPenaltyPct), async () => next = await run(player, percent)))
+                percent = Math.Clamp(next, 0, 100);
+        }
+        return percent;
+    }
+
+    public static async Task RunPlayerDied(Player player, uint experienceLost)
+    {
+        if (!PlayerDied.Any) return;
+        foreach (var (owner, run) in PlayerDied.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerDied), () => run(player, experienceLost));
+    }
+
+    public static async Task RunPlayerLevelUp(Player player, int level)
+    {
+        if (!PlayerLevelUp.Any) return;
+        foreach (var (owner, run) in PlayerLevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(PlayerLevelUp), () => run(player, level));
+    }
+
+    public static async Task<bool> RequestPortal(Player player, int x, int y, string reason)
+    {
+        if (!PortalRequested.Any) return false;
+        foreach (var (owner, run) in PortalRequested.Subscribers(player))
+        {
+            bool opened = false;
+            if (await GameEventOwners.Guard(owner, nameof(PortalRequested), async () => opened = await run(player, x, y, reason)) && opened)
+                return true;
+        }
         return false;
     }
 

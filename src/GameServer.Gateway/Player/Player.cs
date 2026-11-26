@@ -1170,6 +1170,18 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, null);
 
+    public void SetRingBlocker(uint id, int x, int y, double ringRadius)
+    {
+        lock (_blockers)
+        {
+            actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
+        BlockersChanged?.Invoke();
+    }
+
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
 
