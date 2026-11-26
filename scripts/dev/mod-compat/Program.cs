@@ -44,18 +44,15 @@ foreach (var release in releases)
     var info = manifest.RootElement;
     var owner = $"{release.Id} {release.Version}";
     var mainDll = info.TryGetProperty("assembly", out var entry) ? entry.GetString()! : release.Id + ".dll";
-    // A package (kind "league") carries leagues and modules, and may have no assembly of its own.
-    bool package = info.TryGetProperty("kind", out var kind) && kind.GetString() == "league";
     if (info.GetProperty("id").GetString() != release.Id || info.GetProperty("version").GetString() != release.Version
-        || (zip.GetEntry(mainDll) is null && !package))
+        || zip.GetEntry(mainDll) is null)
         throw new InvalidDataException($"Unexpected mod manifest or missing {mainDll} in {file}");
     var dependencies = new HashSet<string>(modules, StringComparer.OrdinalIgnoreCase);
     if (info.TryGetProperty("depends", out var depends))
         foreach (var dependency in depends.EnumerateArray()) dependencies.Add(dependency.GetString()!);
     var missing = new SortedSet<string>(StringComparer.Ordinal);
     int count = 0;
-    // Its modules' assemblies are in its folders (Modules/<id>/bin/).
-    foreach (var dll in zip.Entries.Where(e => (package || e.FullName == e.Name) && e.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+    foreach (var dll in zip.Entries.Where(e => e.FullName == e.Name && e.Name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
     {
         using var input = dll.Open();
         using var buffer = new MemoryStream();

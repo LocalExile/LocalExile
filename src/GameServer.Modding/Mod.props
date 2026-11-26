@@ -9,6 +9,8 @@
     <OutputPath>$(MSBuildThisFileDirectory)..\..\Mods\Binaries\$(ModId)\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <GenerateDependencyFile>false</GenerateDependencyFile>
+    <!-- Not the project's own sources or files: copied below. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Leagues\**;sql\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -21,5 +23,7 @@
     <None Include="mod.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Its settings, when it has any (Agents/docs/dev/modding.md, "Settings"). -->
     <None Include="settings.json" Condition="Exists('settings.json')" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The leagues and world data it brings ("Leagues"), as they are: a league's sources are the Gateway's to compile. -->
+    <Content Include="Leagues\**;sql\**" Exclude="Leagues\*\Binaries\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
