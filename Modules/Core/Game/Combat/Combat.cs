@@ -1522,16 +1522,16 @@ public static partial class Game
                         if (IsChargedDash(player, gem.Effect))
                             BeginChargedDash(player, paymentGem, skillId, sequence, action, channelGeneration.Value,
                                 player.Walk.Position(AreaTime(player)), to, AreaTime(player));
+                        if (paidMomentum is { } channelMomentum)
+                        {
+                            GainMomentumOnUse(player, skillId, channelMomentum, action, channelGeneration, AreaTime(player));
+                            paidMomentum = null;
+                        }
+                        bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
+                        player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
+                        BeginCycloneStages(player, skillId, paymentGem, action, channelGeneration.Value, AreaTime(player));
+                        if (walkChanges) player.ApplyMovementSpeed();
                     }
-                    if (paidMomentum is { } channelMomentum)
-                    {
-                        GainMomentumOnUse(player, skillId, channelMomentum, action, channelGeneration, AreaTime(player));
-                        paidMomentum = null;
-                    }
-                    bool walkChanges = channelWalk is not null || player.ChannelMovement.Skill != 0;
-                    player.ChannelMovement = channelWalk is int walkPercent ? (skillId, walkPercent) : default;
-                    BeginCycloneStages(player, skillId, paymentGem, action, channelGeneration.Value, AreaTime(player));
-                    if (walkChanges) player.ApplyMovementSpeed();
                     player.LastLockstepChannelAim = null;
                     player.LockstepChannelAimPending = HeldLockstepAimedChannel(player);
                     if (GolemStat(SupportedSkill(player, skillId).Stats, Stat.CastWhileChannellingTimeMs) > 0)

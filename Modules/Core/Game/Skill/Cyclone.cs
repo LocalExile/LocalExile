@@ -57,36 +57,42 @@ public static partial class Game
     internal static void BeginCycloneStages(Player player, ushort skill, SupportedGem gem, int action, int generation, double at)
     {
         if (gem.Stats.GetValueOrDefault(Stat.CycloneMaxNumberOfStages) <= 0) return;
-        var state = new CycloneStageState(player, skill, gem, action, generation, at);
-        if (state.GainSeconds <= 0 || state.DecaySeconds <= 0) return;
-        if (CycloneStages.TryGetValue(player, out var previous) && previous.InArea(player))
+        lock (LevelUpdatesFor(player).Gate)
         {
-            state.Stages = previous.MatchesSource(gem) ? Math.Min(state.Maximum, previous.Stages) : 0;
-            if (state.Stages != previous.Stages) PublishCycloneStages(player, state.Stages);
+            var state = new CycloneStageState(player, skill, gem, action, generation, at);
+            if (state.GainSeconds <= 0 || state.DecaySeconds <= 0) return;
+            if (CycloneStages.TryGetValue(player, out var previous) && previous.InArea(player))
+            {
+                state.Stages = previous.MatchesSource(gem) ? Math.Min(state.Maximum, previous.Stages) : 0;
+                if (state.Stages != previous.Stages) PublishCycloneStages(player, state.Stages);
+            }
+            CycloneStages.AddOrUpdate(player, state);
+            player.ChannelMovement = (state.Skill, CycloneMovementPercent(state));
+            if (state.Stages < state.Maximum) ScheduleCycloneStep(player, state, held: true);
         }
-        CycloneStages.AddOrUpdate(player, state);
-        player.ChannelMovement = (state.Skill, CycloneMovementPercent(state));
-        if (state.Stages < state.Maximum) ScheduleCycloneStep(player, state, held: true);
     }
 
     static void EndCycloneStages(Player player, int generation, double at)
     {
-        if (!CycloneStages.TryGetValue(player, out var state) || !state.Held || state.Generation != generation) return;
-        if (!state.InArea(player) || player.PlayerLife == 0 || player.LeavingArea || player.Closed
-            || !state.MatchesSource(SupportedSkill(player, state.Skill)))
+        lock (LevelUpdatesFor(player).Gate)
         {
-            ClearCycloneStages(player);
-            return;
+            if (!CycloneStages.TryGetValue(player, out var state) || !state.Held || state.Generation != generation) return;
+            if (!state.InArea(player) || player.PlayerLife == 0 || player.LeavingArea || player.Closed
+                || !state.MatchesSource(SupportedSkill(player, state.Skill)))
+            {
+                ClearCycloneStages(player);
+                return;
+            }
+            state.Held = false;
+            state.LastTransition = Math.Max(at, AreaTime(player));
+            if (player.ChannelMovement.Skill == state.Skill)
+            {
+                player.ChannelMovement = default;
+                player.ApplyMovementSpeedAt(state.LastTransition);
+            }
+            if (state.Stages > 0) ScheduleCycloneStep(player, state, held: false);
+            else CycloneStages.Remove(player);
         }
-        state.Held = false;
-        state.LastTransition = Math.Max(at, AreaTime(player));
-        if (player.ChannelMovement.Skill == state.Skill)
-        {
-            player.ChannelMovement = default;
-            player.ApplyMovementSpeedAt(state.LastTransition);
-        }
-        if (state.Stages > 0) ScheduleCycloneStep(player, state, held: false);
-        else CycloneStages.Remove(player);
     }
 
     static void ScheduleCycloneStep(Player player, CycloneStageState state, bool held)
@@ -140,14 +146,17 @@ public static partial class Game
 
     static void ClearCycloneStages(Player player)
     {
-        if (!CycloneStages.TryGetValue(player, out var state)) return;
-        CycloneStages.Remove(player);
-        if (!state.InArea(player) || player.LeavingArea || player.Closed) return;
-        if (state.Stages != 0) PublishCycloneStages(player, 0);
-        if (state.Held && player.ChannelMovement.Skill == state.Skill)
+        lock (LevelUpdatesFor(player).Gate)
         {
-            player.ChannelMovement = default;
-            player.ApplyMovementSpeedAt(AreaTime(player));
+            if (!CycloneStages.TryGetValue(player, out var state)) return;
+            CycloneStages.Remove(player);
+            if (!state.InArea(player) || player.LeavingArea || player.Closed) return;
+            if (state.Stages != 0) PublishCycloneStages(player, 0);
+            if (state.Held && player.ChannelMovement.Skill == state.Skill)
+            {
+                player.ChannelMovement = default;
+                player.ApplyMovementSpeedAt(AreaTime(player));
+            }
         }
     }
 }
