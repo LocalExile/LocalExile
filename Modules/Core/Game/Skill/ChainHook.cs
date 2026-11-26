@@ -9,6 +9,11 @@ public static partial class Game
     static readonly double ChainHookSearchCosine = Math.Cos(27.5 * Math.PI / 180);
     static readonly double ChainHookImpactCosine = Math.Cos(70 * Math.PI / 180);
 
+    public sealed partial class ProjectileSession
+    {
+        internal (int X, int Y)? ChainHookRest;
+    }
+
     static bool IsBaseChainHook(string? effect) => effect is "ChainHook" or "ChainHookRoyale";
 
     // ChainStrike and ChainGrab clamp the aim to 60 cells before searching in a 55-degree sector.
@@ -35,11 +40,17 @@ public static partial class Game
         if (Dist(from, anchor) <= standOff) return from;
         var destination = (X: anchor.X - (int)Math.Floor(direction.X * standOff + .5),
             Y: anchor.Y - (int)Math.Floor(direction.Y * standOff + .5));
+        // Chain Strike places the player on the movement layer's nonzero cells (0x141d04fa0),
+        // with a clear projectile ray. A cell on a wall's edge need not have full walking clearance.
         int size = LivingCollision.PlayerSize;
-        foreach (var cell in ClientPathfinder.Line(from, destination).Skip(1))
-            if (!player.Layout.WalkableFor(cell.X, cell.Y, size) || player.Barrier.Contains(cell)) return from;
-        return player.Blockers.Any(b => Math.Max(Math.Abs(destination.X - b.X), Math.Abs(destination.Y - b.Y)) <= b.Size + size)
-            ? from : destination;
+        foreach (var cell in ClientPathfinder.Line(destination, from))
+        {
+            if (cell == from) break;
+            if (!player.Layout.WalkableFor(cell.X, cell.Y, 0) || !ChainHookSight(player, from, cell)) continue;
+            if (player.Blockers.All(b => Math.Max(Math.Abs(cell.X - b.X), Math.Abs(cell.Y - b.Y)) > b.Size + size))
+                return cell;
+        }
+        return from;
     }
 
     static Task ScheduleBaseChainHook(Player player, ushort skillId,
@@ -107,6 +118,7 @@ public static partial class Game
                     var landing = ChainHookLanding(player, origin, anchor, direction);
                     if (landing == origin || Dist(landing, anchor) > closeRange) return;
                     player.Walk.Teleport(landing.X, landing.Y, now);
+                    session.ChainHookRest = player.Layout.Walkable?.Invoke(landing.X, landing.Y) == false ? landing : null;
                     session.World(player.Id, InstanceProtocol.Teleport(player.Id, landing.X, landing.Y), "Chain Hook pull");
                     origin = landing;
                 }
