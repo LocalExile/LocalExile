@@ -43,6 +43,7 @@ Mods/Binaries/<id>/
   mod.json            { "id": "<id>", "kind": "league", ... }   its own assembly is optional
   Leagues/<Name>/     league.json, modules.json, Source/
   Modules/.../<id>/   module.json and the module's build, at any depth
+  sql/updates/world/  world data: dated update files as the repository's own (databases.md, The updater)
 ```
 
 - Its leagues and modules join the repository's when a server starts, and are [leagues and modules](modules.md) in
