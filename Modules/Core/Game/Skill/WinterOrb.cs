@@ -47,6 +47,7 @@ static partial class Game
 
         public uint ObjectId;
         public ushort SkillId;
+        public ushort Sequence;
         public (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) Gem;
         public int Action;
         /// <summary>The channel generation that last held the orb: an older channel's end must not release a newer one.</summary>
@@ -152,6 +153,7 @@ static partial class Game
         }
         double now = AreaTime(player);
         runtime.SkillId = skillId;
+        runtime.Sequence = player.ChannelSkillSequence;
         runtime.Gem = gem;
         runtime.Action = action;
         runtime.ChannelGeneration = player.ChannelGeneration;
@@ -400,8 +402,11 @@ static partial class Game
     internal static async Task WinterOrbVolley(Player player, WinterOrbRuntime runtime)
     {
         ushort skillId = runtime.SkillId;
+        ushort sequence = runtime.Sequence;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
+        var source = SupportedSkill(player, skillId);
+        int epoch = player.ProjectileEpoch;
         int Stat(uint name) => WinterOrbStat(player, skillId, name);
         (int X, int Y) from;
         List<(uint Id, (int X, int Y) At)> targets;
@@ -434,7 +439,7 @@ static partial class Game
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
             uint projectile = await WinterOrbProjectile(player, from, landing, seconds);
             if (projectile == 0) continue;
-            _ = LandWinterOrbProjectile(player, runtime, projectile, from, landing, seconds, damageMore);
+            _ = LandWinterOrbProjectile(player, skillId, sequence, gem, source, epoch, projectile, from, landing, seconds, damageMore);
         }
     }
 
@@ -493,19 +498,19 @@ static partial class Game
     /// The mortar lands: its object goes, FrostFuryExplode plays and the skill's area hit lands at that cell. Death, an
     /// area change and a closed connection drop a shot that is still in the air.
     /// </summary>
-    static async Task LandWinterOrbProjectile(Player player, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
-        double seconds, double damageMore)
+    static async Task LandWinterOrbProjectile(Player player, ushort skillId, ushort sequence,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem source,
+        int epoch, uint projectile, (int X, int Y) from, (int X, int Y) at, double seconds, double damageMore)
     {
         try
         {
             await AreaDelay(player, seconds);
-            if (!CurrentGameRules || player.Closed || player.LeavingArea || player.PlayerLife == 0) return;
+            if (!CurrentGameRules || !player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
             await Send(player, InstanceProtocol.RemoveObject(projectile), null);
             await WinterOrbImpact(player, at);
-            var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == runtime.SkillId);
-            if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
-            await AreaSkillHitForUse(null, player, runtime.SkillId, gem, from, at,
-                immediate: true, sequence: player.ChannelSkillSequence, hitAndAilmentMore: damageMore);
+            if (!player.ProjectileActive(epoch) || !SameTriggerSource(source, SupportedSkill(player, skillId))) return;
+            await AreaSkillHitForUse(null, player, skillId, gem, from, at, immediate: true, sequence: sequence,
+                hitAndAilmentMore: damageMore);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }

@@ -136,6 +136,7 @@ public static class VilentaEncounter
         readonly List<DelayedAttack> attacks = [];
         readonly HashSet<uint> boundBosses = [];
         readonly HashSet<uint> waveAdds = [];
+        readonly HashSet<uint> previousWaveAdds = [];
         readonly Dictionary<Player, ArenaHazards.Exposure> gasExposures = [];
         readonly object gasHolder = new();
 
@@ -451,6 +452,7 @@ public static class VilentaEncounter
                 return;
 
             airborne = false;
+            previousWaveAdds.UnionWith(waveAdds);
             waveAdds.Clear();
             var landAt = RingSpot(runner, target.Walk.Position(now), AreaRng(runner).NextDouble() * Math.Tau, 12);
             await TeleportBoss(runner, ownerId, boss, landAt, now);
@@ -535,7 +537,8 @@ public static class VilentaEncounter
                 runner.Area.Buffs.Clear(bossId, EnrageBuff, bossId);
                 if (b.WorldHidden) await SetWorldHidden(runner, bossId, b, false);
             }
-            await RetireMonsters(runner, waveAdds);
+            await RetireMonsters(runner, previousWaveAdds.Concat(waveAdds));
+            previousWaveAdds.Clear();
             waveAdds.Clear();
             foreach (var p in ActivePlayers(runner))
                 await ReleasePlayerDebuffs(p);

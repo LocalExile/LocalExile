@@ -186,6 +186,8 @@ abstract class ShrineNovaEffect(bool cold) : IShrineEffect
                 // Each player's ailments and walk run on that player's own clock.
                 double at = AreaTime(peer);
                 if (!grounds.Any(g => Dist(g.At, peer.Walk.Position(at)) <= g.Radius)) continue;
+                var unaffected = UnaffectedByGround(peer);
+                if (cold ? unaffected.Chilled : unaffected.Shocked) continue;
                 var stats = CharacterPlayerStats(peer);
                 var playerKind = cold ? PlayerElementalAilments.Kind.Chill : PlayerElementalAilments.Kind.Shock;
                 if (peer.ElementalAilments.Magnitude(playerKind, at) >= magnitude) continue;

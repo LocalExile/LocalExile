@@ -24,7 +24,7 @@ static partial class Game
     internal static MonsterEssenceDrain.Cast? EssenceDrainCast(Player player, ushort skillId, int effect)
     {
         string? id = SkillsFor(player).EffectId(effect);
-        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY")) return null;
+        if (id is not ("EssenceDrain" or "EssenceDrainAltX" or "EssenceDrainAltY" or "EssenceDrainRoyale")) return null;
         var own = SupportedSkill(player, skillId).Stats;
         var playerStats = CharacterPlayerStats(player);
         var merged = MergeSkillStats(playerStats, own);

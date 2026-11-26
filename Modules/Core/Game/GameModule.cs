@@ -40,6 +40,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.ForgetClaimedCharacters();
         Rules.ResetAchievementCache();
         Rules.RetirePactConditions();
+        Rules.ClearReaveCounters();
         RuleTables.Empty();
     }
 
@@ -448,6 +449,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);
         Rules.ClearEssenceAuraExposure(player);
+        Rules.ClearReaveStages(player);
         player.RetirePlayerUpdates();
         Rules.FortificationOf(player).Clear();
         Rules.LeechOf(player).Clear(Rules.AreaTime(player));

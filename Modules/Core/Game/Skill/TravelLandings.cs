@@ -5,19 +5,19 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
-    static async Task<bool> CommitTravelLanding(Player player, (int X, int Y) landing, Func<bool> current)
+    static async Task<(int X, int Y)?> CommitTravelLanding(Player player, (int X, int Y) landing, Func<bool> current)
     {
-        bool committed = false;
+        (int X, int Y)? departure = null;
         await SendWorldRecord(player, player.Id, [], "travel skill landing", atGate: () =>
         {
             if (!current() || player.Closed || player.LeavingArea || player.PlayerLife == 0) return null;
             if (!player.Layout.WalkableFor(landing.X, landing.Y, 0) || player.Barrier.Contains(landing)) return null;
             double now = ProjectileWorldTime(player);
-            committed = true;
+            departure = player.Walk.Position(now);
             player.Walk.Teleport(landing.X, landing.Y, now);
             return InstanceProtocol.Teleport(player.Id, landing.X, landing.Y);
         });
-        return committed;
+        return departure;
     }
 
     public sealed partial class ProjectileSession
@@ -28,6 +28,9 @@ public static partial class Game
     }
 
     const string VaalLightningWarpEffect = "VaalLightningWarpInstant";
+
+    internal static bool IsLightningWarpEffect(string? effect) =>
+        effect is "LightningWarp" or "LightningWarpHardMode" or "LightningWarpRoyale" or VaalLightningWarpEffect;
 
     static bool ScheduleLightningWarp(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
@@ -74,15 +77,13 @@ public static partial class Game
                 if (!Active()) return;
                 session.Enqueue(async () =>
                 {
-                    if (!Active() || !SameTriggerSource(source, SupportedSkill(player, gem.Id))
-                        || !player.Layout.WalkableFor(landing.X, landing.Y, 0) || player.Barrier.Contains(landing)) return;
+                    bool Current() => Active() && SameTriggerSource(source, SupportedSkill(player, gem.Id));
+                    if (await CommitTravelLanding(player, landing, Current) is not { } departure) return;
                     var sacrifice = new SacrificeUse(player, gem.Id, gem.Effect, gem.Gem);
-                    var departure = player.Walk.Position(ProjectileWorldTime(player));
                     Task Hit((int X, int Y) at) => AreaSkillHit(player, gem.Id, gem, at, at,
-                        immediate: true, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Active);
+                        immediate: true, criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: Current);
                     await Hit(departure);
-                    if (await CommitTravelLanding(player, landing, Active))
-                        await Hit(landing);
+                    await Hit(landing);
                 });
             });
         });

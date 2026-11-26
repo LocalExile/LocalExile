@@ -62,6 +62,10 @@ public static partial class Game
             return "this skill can only trigger on a melee critical strike with the item it is socketed in";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
+        if (GolemStat(gem.Stats, Stat.TriggeredByFissureSupport) != 0)
+            return "Fissure triggers on a supported slam's ground impact";
+        if (GolemStat(gem.Stats, Stat.TriggeredByCrystalfallSupport) != 0)
+            return "Falling Crystal triggers on a supported slam hit";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))

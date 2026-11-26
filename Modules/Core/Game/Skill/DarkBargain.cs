@@ -77,7 +77,8 @@ public static partial class Game
             double now = ProjectileWorldTime(player);
             var playerAt = player.Walk.Position(now);
             var skeletons = player.Summons.Fighters.Values
-                .Where(g => g.Definition.Kind == "Skeleton" && GolemCurrent(player, g) && !g.Monster.Dead && g.Monster.Life > 0)
+                .Where(g => g.Definition.Kind is ("Skeleton" or "VaalSkeleton") && GolemCurrent(player, g)
+                    && !g.Monster.Dead && g.Monster.Life > 0)
                 .ToDictionary(g => g.Id);
             foreach (var blast in DarkBargainChain(
                 [.. skeletons.Values.Select(g => (g.Id, g.Monster.Walk.Position(now), g.Monster.Life, g.Monster.MaxLife))],

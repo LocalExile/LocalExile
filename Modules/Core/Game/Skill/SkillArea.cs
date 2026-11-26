@@ -11,7 +11,7 @@
 /// </summary>
 public static class SkillArea
 {
-    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
+    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX" or "VaalCyclone";
 
     /// <summary>Explicit data wins. Cyclone's base radius is not in its exported stat set (PoB: 16 cells). The player's
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
@@ -20,10 +20,11 @@ public static class SkillArea
         get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
+        Game.IsLightningWarpEffect(effect) ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" ? 18
-            : effect == "Cleave" ? 20
+            : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
+            : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
             : effect == "TectonicSlam" ? 15
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
