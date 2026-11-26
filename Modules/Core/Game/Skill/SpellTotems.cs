@@ -22,6 +22,7 @@ public static partial class Game
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
+                || IsCracklingLance(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -401,6 +402,18 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (IsCracklingLance(effect))
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(ProjectileRuntime.Time(totem.NextCast), Current, () =>
+                {
+                    var spell = SupportedSkill(player, totem.SkillId);
+                    session.ReleaseCracklingLance(gem.Effect, spell.Stats, TotemCasterStats(CharacterPlayerStats(player)),
+                        totem.At, ReleaseAim(), (reach, filter, _) =>
+                            TotemNovaLocked(player, session, totem, totem.At, reach, sequence, targetFilter: filter));
+                });
+                continue;
+            }
             if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
                 || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
             {

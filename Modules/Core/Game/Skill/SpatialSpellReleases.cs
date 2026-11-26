@@ -5,7 +5,7 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
-            || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+            || IsCracklingLance(effect) || effect is "GlacialCascade" or "GlacialCascadeAltX"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
@@ -36,10 +36,7 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        // The gem rows provide the branch angle modifier and the cascade count and damage. Beam lengths, spike spacing
-        // and spike travel time are local collision estimates in the absence of a captured client collision trace.
-        const int LanceLength = 60;
-        const double LanceBranchAngle = 24;
+        // Spike spacing and travel time approximate the cascade in the absence of a captured collision trace.
         const int CascadeBaseSpacing = 12;
         const double CascadeInterval = .045;
 
@@ -50,6 +47,7 @@ public static partial class Game
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            var intensity = CastingIntensity(Player, gem.Id);
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(released, () =>
             {
@@ -171,35 +169,16 @@ public static partial class Game
                     int reach = Radius(46);
                     Hit(from, reach, targetFilter: (_, at) => GroundSlamWave.Covers(direction, from, at, 25, reach));
                 }
-                else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
-                {
-                    int width = Radius(effect == "CracklingLanceAltX" ? 4 : 3);
-                    double length = LanceLength * Math.Max(.25, Radius(12) / 12d);
-                    if (width > 0)
-                        Hit(from, (int)Math.Ceiling(length + width), targetFilter: (_, at) => LanceCovers(at));
-
-                    bool LanceCovers((int X, int Y) at)
-                    {
-                        double x = at.X - from.X, y = at.Y - from.Y;
-                        double along = x * direction.X + y * direction.Y;
-                        double lateral = y * direction.X - x * direction.Y;
-                        if (along < 0 || along > length) return false;
-                        if (Math.Abs(lateral) <= width) return true;
-                        if (effect != "CracklingLanceAltX") return false;
-                        double radians = Math.Clamp(LanceBranchAngle * (1 + Own(Stat.DisintegrateSecondaryBeamAnglePlusPct) / 100d), 0, 80)
-                            * Math.PI / 180d;
-                        double forward = Math.Cos(radians), side = Math.Sin(radians);
-                        return BranchAt(.34) || BranchAt(.60);
-
-                        bool BranchAt(double fraction)
+                else if (IsCracklingLance(effect))
+                    ReleaseCracklingLance(gem.Effect, source.Stats, caster, from, aim,
+                        (reach, filter, intensityMore) => Enqueue(() =>
                         {
-                            double a = along - length * fraction, b = Math.Abs(lateral);
-                            double branchAlong = a * forward + b * side;
-                            return branchAlong >= 0 && branchAlong <= length * .56
-                                && Math.Abs(b * forward - a * side) <= width;
-                        }
-                    }
-                }
+                            using var scope = intensity is null ? null : new IntensityScope(intensity);
+                            return AreaSkillHitForUse(null, Player, gem.Id, gem, from, from, immediate: true, sequence: sequence,
+                                repeat: repeat, damageMore: damageMore, radiusOverride: reach, criticalRoll: critical,
+                                sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                                targetFilter: filter, hitAndAilmentMore: intensityMore);
+                        }), intensity?.Stacks ?? 0, repeat);
                 else if (effect is "GlacialCascade" or "GlacialCascadeAltX")
                 {
                     int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);

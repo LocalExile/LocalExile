@@ -439,14 +439,14 @@ public sealed class MonsterElementalAilments
     static double AsThough(Kind kind, Func<uint, int> attacker) =>
         AsThoughStats[kind].Aggregate(1.0, (more, name) => more * Math.Max(0, 1 + attacker(name) / 100.0));
 
-    // The caps on the effect, 30% chill and 50% shock: Shaper of Winter's override ("Your Chills can reduce Action Speed by
-    // up to a maximum of 40%") and Voltaxic Rift's +40%, whose stat is stored as 100, the legacy override's value (wiki
-    // Voltaxic Rift). "+X% to Maximum Effect of Shock" is not read: only removed content (runesmithing, Royale) has it.
+    // Shaper of Winter can override the 30% chill cap. Shock's 50% cap has additive bonuses.
+    // Voltaxic Rift's +40% is carried by the legacy override stat, whose stored value is 100.
     static int ChillCap(Func<uint, int> attacker) =>
         attacker(Stat.ElementalistChillMaximumMagnitudeOverride) is > 0 and int cap ? cap : 30;
 
     static int ShockCap(Func<uint, int> attacker) =>
-        50 + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0);
+        (int)Math.Clamp(50L + attacker(Stat.ShockMaximumMagnitudePlus)
+            + (attacker(Stat.UniqueVoltaxicRiftShockMaximumMagnitudeOverride) != 0 ? 40 : 0), 0, int.MaxValue);
 
     static double EffectModifier(Kind kind, Func<uint, int> attacker, Func<uint, int> target) =>
         Math.Max(0, 1 + attacker(Stat.Of($"virtual_{Name(kind)}_effect_+%")) / 100.0)
