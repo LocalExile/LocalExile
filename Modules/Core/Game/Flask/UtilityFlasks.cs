@@ -86,7 +86,7 @@ public static partial class Game
             if (player.UtilityFlaskEffects.Of(flask.Id) is { } previous)
                 QueueUtilityFlaskEnd(player, state, previous, "refreshed");
             UtilityFlasks.Start(player, effect, () => RecomputePoolsAndSpeed(player));
-            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
+            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower, Get);
             if (local.GetValueOrDefault(Stat.LocalFlaskConsumesXFrenzyChargesOnUse) is > 0 and var frenzyCost)
             {
                 int spentFrenzy = SpendCharacterChargesOnFlaskUse(player, ChargeType.Frenzy, frenzyCost, now);
