@@ -263,12 +263,28 @@ public static class PanelStats
         return result;
     }
 
+    static readonly Dictionary<uint, Sum> SumsByDisplay = BuildSumsByDisplay();
+
+    static Dictionary<uint, Sum> BuildSumsByDisplay()
+    {
+        var map = new Dictionary<uint, Sum>();
+        foreach (var sum in Sums)
+            if (sum.Hand == Hand.None && !sum.Flag)
+                map.TryAdd(sum.Display, sum);
+        return map;
+    }
+
     /// <summary>One display stat's sum as <see cref="Compute"/> gives it, from raw stats (a skill's own); a stat with no
     /// row is its own value.</summary>
-    public static int Of(uint display, Func<uint, int> get) =>
-        Sums.FirstOrDefault(s => s.Display == display && s.Hand == Hand.None && !s.Flag) is { } sum
-            ? (int)Math.Clamp(get(display) + sum.Sources.Sum(s => (long)get(s.Name) * s.Mul / s.Div), int.MinValue, int.MaxValue)
-            : get(display);
+    public static int Of(uint display, Func<uint, int> get)
+    {
+        int value = get(display);
+        if (!SumsByDisplay.TryGetValue(display, out var sum)) return value;
+        long total = value;
+        foreach (var source in sum.Sources)
+            total += (long)get(source.Name) * source.Mul / source.Div;
+        return (int)Math.Clamp(total, int.MinValue, int.MaxValue);
+    }
     static long RawSum(Sum sum, Func<uint, int> get, Func<uint, int>? local, int level) =>
         get(sum.Display) + Total(sum.Sources, get, level) + Total(sum.Local, local, level);
 

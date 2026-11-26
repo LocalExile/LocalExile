@@ -51,6 +51,7 @@ public sealed class AreaFrames
         public bool Framed => !double.IsNaN(First);
         // The message batch its handler is on: one at a time, in the order sent.
         public Task Handling = Task.CompletedTask;
+        public Action? OnFirstFrame;
         public bool Detached;
     }
 
@@ -249,7 +250,7 @@ public sealed class AreaFrames
     {
         lock (gate)
             foreach (var m in members)
-                if (ReferenceEquals(m.Player, player)) m.Detached = true;
+                if (ReferenceEquals(m.Player, player)) { m.Detached = true; m.OnFirstFrame = null; }
     }
 
     /// <summary>The connection's message batch running now, if any.</summary>
@@ -296,6 +297,30 @@ public sealed class AreaFrames
     {
         foreach (var m in members) if (ReferenceEquals(m.Player, player)) return m.Order;
         return int.MaxValue;
+    }
+
+    /// <summary>True while <paramref name="player"/> is an attached member whose first area frame has not ended yet.</summary>
+    public bool WaitingFirstFrame(Player player)
+    {
+        lock (gate)
+            return members.FirstOrDefault(m => !m.Detached && ReferenceEquals(m.Player, player)) is { LastEnded: var ended }
+                && double.IsNaN(ended);
+    }
+
+    /// <summary>Runs <paramref name="action"/> once <paramref name="player"/>'s first area frame has ended (or now if it
+    /// already ended or is not attached to an area driver).</summary>
+    public void AfterFirstFrame(Player player, Action action)
+    {
+        lock (gate)
+        {
+            var member = members.FirstOrDefault(m => !m.Detached && ReferenceEquals(m.Player, player));
+            if (member is not null && double.IsNaN(member.LastEnded))
+            {
+                member.OnFirstFrame += action;
+                return;
+            }
+        }
+        action();
     }
 
     // ---- the frame's work ----
@@ -524,7 +549,17 @@ public sealed class AreaFrames
                                 OnFrame(() => logic.WritingWorldDelta(m.Player, delta));
                             if (await Pumping(Guard(m, () => Program.EndWorldFrame(m.Player, (boundary, boundary + frame), delta))))
                             {
-                                m.LastEnded = boundary;
+                                Action? onFirstFrame = null;
+                                lock (gate)
+                                {
+                                    if (double.IsNaN(m.LastEnded))
+                                    {
+                                        onFirstFrame = m.OnFirstFrame;
+                                        m.OnFirstFrame = null;
+                                    }
+                                    m.LastEnded = boundary;
+                                }
+                                if (onFirstFrame is not null) OnFrame(onFirstFrame);
                                 (ended ??= []).Add(m);
                             }
                         }
