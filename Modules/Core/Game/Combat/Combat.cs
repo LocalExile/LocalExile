@@ -3349,8 +3349,8 @@ public static partial class Game
             {
                 var (deadId, dead) = deaths[settledDeaths++];
                 if (scheduledSession is { } scheduled)
-                    CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player));
-                else await MonsterKilled(player, deadId, dead);
+                    CommitProjectileKill(scheduled, deadId, dead, scheduled.Runtime.Now, AreaRng(player), skillStats: skillStats);
+                else await MonsterKilled(player, deadId, dead, skillStats: skillStats);
             }
         }
 
@@ -3933,11 +3933,16 @@ public static partial class Game
                         ChargesOnHit(player, m, critical, spell, gem.Effect, gem.Level, gem.Quality, primary: victim == 0, skillStats: skillStats);
                         if (reflected.Count > 0 && playerStats is not null)
                             ReflectPendingAilmentsLocked(player, reflected, ProjectileWorldTime(player), playerStats, AreaRng(player));
-                        CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence,
-                            infernalBlast is not null ? $"{gem.Name} charge explosion"
-                                : retainedAttack is null ? gem.Name : $"{gem.Name} ({retainedAttack.Phase})",
-                            settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback,
-                            actionHit: infernalBlast is null);
+                        if (singleStrikeTarget is not null && hit.Life == 0) SetAcceptedKillSkill(player, skillStats);
+                        try
+                        {
+                            CommitScheduledMeleeHit(scheduled, id, m, hit, damage, critical, stun, sequence,
+                                infernalBlast is not null ? $"{gem.Name} charge explosion"
+                                    : retainedAttack is null ? gem.Name : $"{gem.Name} ({retainedAttack.Phase})",
+                                settleKill: singleStrikeTarget is not null, hitCode: hitCode, knockback: nativeKnockback,
+                                actionHit: infernalBlast is null);
+                        }
+                        finally { if (singleStrikeTarget is not null && hit.Life == 0) ClearAcceptedKillSkill(player); }
                         if (singleStrikeTarget is null && hit.Life == 0) deaths.Add((id, m));
                     }
                     scheduled.Enqueue(() => SendDotBuff(player, ignited, igniteLog));
@@ -4356,14 +4361,14 @@ public static partial class Game
     public static Task NotifyMonsterHit(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log = true, bool melee = false, ushort sequence = 0,
         List<(uint Id, SpawnedMonster M)>? deaths = null, byte hitCode = 0, StunHit? stun = null, bool critical = false, string? impactArt = null,
-        SpawnedMonster.NativeKnockback? knockback = null) =>
+        SpawnedMonster.NativeKnockback? knockback = null, IReadOnlyDictionary<uint, int>? skillStats = null) =>
         NotifyMonsterHitCore(player, id, m, hit, damage, by, log, melee, sequence, deaths, hitCode, stun,
-            critical: critical, impactArt: impactArt, knockback: knockback);
+            critical: critical, impactArt: impactArt, knockback: knockback, skillStats: skillStats);
 
     static async Task NotifyMonsterHitCore(Player player, uint id, SpawnedMonster m,
         MonsterHit hit, int damage, string by, bool log, bool melee, ushort sequence,
         List<(uint Id, SpawnedMonster M)>? deaths, byte hitCode, StunHit? stun, bool critical, string? impactArt,
-        SpawnedMonster.NativeKnockback? knockback = null)
+        SpawnedMonster.NativeKnockback? knockback = null, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         var (life, stageStarts) = hit;
         if (life == 0)
@@ -4403,7 +4408,7 @@ public static partial class Game
         await SendFlinch(player, id, m, stun ?? new(damage), log);
         Note(!log && life > 0 ? null : $"0x01b1 monster 0x{id:x} hit by {by} for {damage}, life {life}/{m.MaxLife}{(life == 0 ? " (dies)" : "")}");
         // One sweep's deaths (loot, experience, quests) wait until every monster of the sweep has its hit (AreaSkillHit).
-        if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(player, id, m); }
+        if (life == 0) { if (deaths is not null) deaths.Add((id, m)); else await MonsterKilled(player, id, m, skillStats: skillStats); }
         if (stageStarts) _ = RunBossStage(player, id, m);
         if (m.ThresholdReached) await QuestThreshold(player, id, m);
     }
@@ -4785,16 +4790,16 @@ public static partial class Game
     // player is in the area (it stays in Monsters as Dead: no AI, body cleared by StopCorpseBlocking); leaving does not save it.
     // A minion's kill (byMinion) is not the player's for his on-kill effects.
     public static async Task MonsterKilled(Player player, uint id, SpawnedMonster m,
-        bool byMinion = false, bool byHit = true)
+        bool byMinion = false, bool byHit = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
-        await MonsterKilledBy(player, id, m, playerKill: !byMinion, byHit);
+        await MonsterKilledBy(player, id, m, playerKill: !byMinion, byHit, skillStats);
         // The map overlay's "X monsters remain" (S→C 0x1a0): one fewer of the area's monsters is alive. Its corpse stays
         // in the roster, so the count is the living ones (MonsterRemaining.cs).
         await SendRemainingMonsters(player);
     }
 
     static async Task MonsterKilledBy(Player player,
-        uint id, SpawnedMonster m, bool playerKill, bool byHit = true)
+        uint id, SpawnedMonster m, bool playerKill, bool byHit = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
@@ -4837,7 +4842,7 @@ public static partial class Game
                 await ApplyMapDeathMarkOnKill(player, markMs);
             await GameEvents.RunMonsterKilled(new(player, monster));
             if (OnslaughtOnKill(player)) await SendKillOnslaught(player);
-            ChargesOnKill(player, m);
+            ChargesOnKill(player, m, skillStats);
             if (RecoverOnKill(player, m, tinctureKill) is int deathEpoch)
                 await PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch);
             else if (player.PlayerLife > 0)

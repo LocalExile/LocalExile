@@ -268,7 +268,7 @@ public static partial class MapStrongboxes
                     && random.NextDouble() * 100 < UniqueChance * Math.Max(0, 100 + mods.Get(Stat.MapStrongboxesChanceToBeUniquePlusPct)) / 100.0
                     && StrongboxCatalog.RollUnique(level, random) is { } special)
                 {
-                    box = new(player.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, special.Type.Id)
+                    box = new(player.Instance.World.TakeObjectId(), area.Boxes.Count, req.X, req.Y, special.Type.Id)
                     {
                         Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted, PackArea = req.PackArea,
                         Mods = Kept(special.Unique.ModRows.Select(r => modCatalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
@@ -280,7 +280,7 @@ public static partial class MapStrongboxes
                     if (type is null) continue;
                     byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
                     var rolled = StrongboxMods.Roll(modCatalog, type, rarity, level, mods, random);
-                    box = new(player.Instance.World.NewMonsterId(), area.Boxes.Count, req.X, req.Y, type.Id)
+                    box = new(player.Instance.World.TakeObjectId(), area.Boxes.Count, req.X, req.Y, type.Id)
                     {
                         Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted, PackArea = req.PackArea,
                     };
@@ -345,7 +345,7 @@ public static partial class MapStrongboxes
             bool forced = boxes.Count == 0 && mods.Get(Stat.MapAreaContainsUniqueStrongbox) != 0;
             if ((forced || random.NextDouble() * 100 < unique) && StrongboxCatalog.RollUnique(level, random) is { } special)
             {
-                boxes.Add(new(player.Instance.World.NewMonsterId(), boxes.Count, x, y, special.Type.Id)
+                boxes.Add(new(player.Instance.World.TakeObjectId(), boxes.Count, x, y, special.Type.Id)
                 {
                     Unique = special.Unique.Id, Rarity = 3, Corrupted = corrupted,
                     Mods = Kept(special.Unique.ModRows.Select(r => catalog.Row(r)?.Roll(ModSection.Explicit, random)).OfType<ItemMod>()),
@@ -356,7 +356,7 @@ public static partial class MapStrongboxes
             {
                 byte rarity = type.Rollable ? StrongboxMods.RollRarity(mods, random) : (byte)0;
                 var rolled = StrongboxMods.Roll(ItemsFor(player).Mods, type, rarity, level, mods, random);
-                boxes.Add(new(player.Instance.World.NewMonsterId(), boxes.Count, x, y, type.Id)
+                boxes.Add(new(player.Instance.World.TakeObjectId(), boxes.Count, x, y, type.Id)
                 {
                     Rarity = rarity, Mods = Kept(rolled), Corrupted = corrupted,
                 });
