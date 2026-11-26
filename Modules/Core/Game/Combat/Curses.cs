@@ -318,12 +318,29 @@ public static partial class Game
         int radius = CurseRadius(player, skill, false, gem, playerStats);
         var centres = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
         centres.Insert(0, aim);
-        if (cascadeFrom is { } origin) AppendBeidatAreas(origin, aim, radius, extraAreas, centres);
-        var applied = new HashSet<uint>();
-        foreach (var centre in centres)
-            foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
-                if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
+        if (extraAreas > 0 && cascadeFrom is { } origin)
+        {
+            AppendBeidatAreas(origin, aim, radius, extraAreas, centres);
+            var applied = new HashSet<uint>();
+            foreach (var centre in centres)
+                foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                    if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
+                        ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+            return;
+        }
+
+        // A boss can teleport before the movement phase updates the grid. Ordinary hexes use its current position.
+        foreach (var monster in player.Area.Monsters.Values)
+        {
+            if (monster.Dead || monster.Life == 0 || !monster.Hostile) continue;
+            var position = monster.Walk.Position(now);
+            foreach (var centre in centres)
+                if (Dist(position, centre) <= radius)
+                {
                     ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+                    break;
+                }
+        }
     }
 
     static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";
