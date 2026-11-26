@@ -563,7 +563,8 @@ public static partial class Game
             if (charmType.Class != "AnimalCharm") return "only a Wildwood charm goes in a charm socket";
             if (!player.Character.Passives.Contains(charmNode) && !player.Character.DescendancyNodes.Contains(charmNode))
                 return "the charm socket is not allocated";
-            int charmNeeds = ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods);
+            // The level the client was sent (as for any equipment below).
+            int charmNeeds = item.RequiredLevel ?? (Item.LevelRequirementOf is { } sentCharm ? sentCharm(item) : ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods));
             return player.Pools.Level < charmNeeds
                 ? $"{charmType.Name} requires level {charmNeeds} (character is {player.Pools.Level})" : null;
         }
@@ -654,7 +655,9 @@ public static partial class Game
                 return $"only {limit} {limited.Name} can be socketed";
         }
         if (!JewelFitsCell(x, item)) return $"{type.Name} does not fit this socket";
-        int needs = ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(player).Mods);
+        // The level the client was sent with the item (its recorded one, else Item.LevelRequirementOf, which a mod may change
+        // to waive it), so the server refuses what the client shows and nothing more.
+        int needs = item.RequiredLevel ?? (Item.LevelRequirementOf is { } sent ? sent(item) : ItemModStats.LevelRequirement(item, type.DropLevel, ItemsFor(player).Mods));
         return player.Pools.Level < needs ? $"{type.Name} requires level {needs} (character is {player.Pools.Level})" : null;
     }
 

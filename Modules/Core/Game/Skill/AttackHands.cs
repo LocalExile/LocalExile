@@ -304,6 +304,13 @@ public static partial class Game
 
     /// <summary>The swinging hand's local modifiers (on-hit chances, leech, penetration): the main hand's for both
     /// hands at once.</summary>
+    /// <summary>The hand's weapon's fixed critical strike chance in hundredths of a percent ("This Weapon's Critical
+    /// Strike Chance is 100%", "is #%"), or 0 without such a line. The panel, a swing and a release all read it.</summary>
+    public static int FixedWeaponCriticalChance(Player player, AttackHand hand) =>
+        HandLocalSources(player, hand) is not { } local ? 0
+        : local.GetValueOrDefault(Stat.LocalWeaponCritChanceIs100) != 0 ? 10000
+        : Math.Max(0, local.GetValueOrDefault(Stat.LocalWeaponCritChanceIsPct)) * 100;
+
     public static IReadOnlyDictionary<uint, int>? HandLocalSources(Player player, AttackHand hand) =>
         HandWeapon(player, hand).LocalSources;
 

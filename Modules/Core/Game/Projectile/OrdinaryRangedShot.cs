@@ -23,7 +23,7 @@ public sealed record OrdinaryRangedShot(DamagePacket Hit, int Accuracy, int Crit
         var damageConversion = SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversion, catalog, attack: true), weapon, Get);
         var hit = GameEvents.WithAttackHit(RageStats.ApplyAttack(PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, new(accuracy)),
             SupportedAttackDamage.HitModifiers(weapon, Get, accuracy),
-            damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow,
+            damageConversion, spell: false, projectile: true, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get)), Get), Get);
         var impale = Game.WeaponImpaleSettings(character, catalog, attack: true, own, weapon);

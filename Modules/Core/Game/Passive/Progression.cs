@@ -1476,8 +1476,10 @@ public static partial class Game
             // A pure base stat takes its place before the global increases: the weapon override (Slayer Overwhelm,
             // Blind Prophet's Sightless) replaces the armed weapon's base, already with its local mods, and unarmed
             // melee uses its own Behemoth base. Neither base is a spell value; the spell route stays on SpellCriticalStrike.
-            AttackCriticalStrikeChance = DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
-                activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
+            // "This Weapon's Critical Strike Chance is 100%" (Trypanon) / "is #%" (Actum): the panel's number too.
+            AttackCriticalStrikeChance = FixedWeaponCriticalChance(player, AttackHand.Main) is int fixedCritical and > 0 ? fixedCritical
+                : DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(!activeWeapon.Unarmed,
+                    activeWeapon.Critical, pools.CriticalStrikeChancePct, RawCritical), RawCritical),
             SpellCriticalStrikeChance = DisplayedCriticalChance(player, SpellCriticalStrike.Chance(
                 DamageModel.BaseSpellCriticalStrikeChancePerMyriad, RawCritical,
                 playerIncrease: pools.SpellCriticalStrikeChancePct), RawCritical)

@@ -100,7 +100,8 @@ public static partial class Game
             }
 
             // Activation checks: level requirement, cooldown, resource floor, and active tincture cap.
-            int reqLevel = ItemModStats.LevelRequirement(current.Item, type.DropLevel, catalog.Mods);
+            // The level the client was sent with the tincture (a mod may waive it through Item.LevelRequirementOf).
+            int reqLevel = current.Item.RequiredLevel ?? (Item.LevelRequirementOf is { } sent ? sent(current.Item) : ItemModStats.LevelRequirement(current.Item, type.DropLevel, catalog.Mods));
             if (player.Pools.Level < reqLevel)
             {
                 Console.WriteLine($"[gateway] {remote} <= 0x0070 tincture {slot} ({type.Name}): refused, requires level {reqLevel} (character is {player.Pools.Level})");

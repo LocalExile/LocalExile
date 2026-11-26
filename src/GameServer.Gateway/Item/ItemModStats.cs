@@ -103,7 +103,11 @@ public static class ItemModStats
                 // A mod that displays an aura for other creatures ("Nearby Enemies have 50% increased Fire and Cold
                 // Resistances") carries that aura's stats in the same row; they belong to the nearby enemies or allies,
                 // never to the wearer (Eye of Malice, The Admiral). No seeded unique mixes one with self stats.
-                if (row.Stats.Any(IsOthersAura)) continue;
+                // Where the mod's own aura template says who it reaches, that decides for the character's sum: "You and
+                // nearby Allies ..." stays with the wearer, "Nearby Allies ..." does not (Dying Breath, Kingmaker). The
+                // display-stat marker decides for the rest, and for an item's local sum as before.
+                if (!local && row.AuraForSelf is bool self) { if (!self) continue; }
+                else if (row.Stats.Any(IsOthersAura)) continue;
                 long percent = EffectPercent(mod, row, effect);
                 // Eldritch "while a Pinnacle Boss is in your Presence": a mod carrying the condition stat only
                 // reaches the character while a Pinnacle Boss is in presence. The condition stat itself is local,
@@ -113,6 +117,8 @@ public static class ItemModStats
                 // not answer presence leaves the mod as before. Local sums are not gated: Local() caches per item
                 // and takes no subject.
                 if (!local && RequiresCelestialPresence(row, mod) && !CelestialBossInPresence(subject)) continue;
+                // The same gate for "while a Unique Enemy is in your Presence" (Stats 15801, 1,362 Mods rows).
+                if (!local && RequiresUniquePresence(row, mod) && !UniqueEnemyInPresence(subject)) continue;
                 for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
                     if (row.Stats[s].Local == local
                         || !local && sourceBound && StatConditions.SourceLocalCondition(row.Stats[s].Name))
@@ -177,6 +183,19 @@ public static class ItemModStats
             if (row.Stats[s].Id == RequiresCelestialBossPresence && mod.Values[s] != 0) return true;
         return false;
     }
+
+    const uint RequiresUniqueMonsterPresence = Stat.LocalInfluenceModRequiresUniqueMonsterPresence;
+
+    static bool RequiresUniquePresence(ModCatalog.Mod row, ItemMod mod)
+    {
+        for (int s = 0; s < row.Stats.Count && s < mod.Values.Count; s++)
+            if (row.Stats[s].Id == RequiresUniqueMonsterPresence && mod.Values[s] != 0) return true;
+        return false;
+    }
+
+    /// <summary>Whether the subject says a Unique Enemy is in presence; true when the subject does not answer it.</summary>
+    static bool UniqueEnemyInPresence(StatConditions.Subject subject) =>
+        subject.Flags is null || !subject.Flags.TryGetValue(StatConditions.UniqueEnemyInPresence, out bool present) || present;
 
     /// <summary>Whether the subject says a Pinnacle Boss is in presence; true when the subject does not answer it.</summary>
     static bool CelestialBossInPresence(StatConditions.Subject subject) =>
