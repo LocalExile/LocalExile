@@ -40,6 +40,7 @@ public static partial class Game
             double now = ProjectileWorldTime(player);
             m.Poisons.RememberDeath(now, poisonDeath);
             m.TauntedAtDeath = m.TauntedUntil > now || DecoyTarget(m, now) is not null;
+            m.WitherStacksAtDeath = ReadWithered(m, now).Count;
             m.CursedAtDeath = false;
             m.NonAuraHexUntilAtDeath = 0;
             foreach (var curse in m.Curses.All.Values)
