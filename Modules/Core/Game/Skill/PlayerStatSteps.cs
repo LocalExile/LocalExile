@@ -211,8 +211,11 @@ public static partial class Game
             }
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
             var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            int thunderEffect = GetIn(stats, Stat.HeraldOfThunderBuffEffectPlusPct);
+            Func<AuraCatalog.Aura, int>? effectForAura = thunderEffect == 0 ? null
+                : aura => aura is { IsHerald: true, EffectId: "HeraldOfThunder" } ? thunderEffect : 0;
             foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
-                         heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
+                         heraldEffectPct, effectForAura).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
             // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
             // with zero active auras, deduplicated against any Commander damage already counted by AuraCatalog.
