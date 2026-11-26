@@ -101,7 +101,12 @@ public static partial class RitualTables
     /// its ModsKey rows (the mods the rune's monsters carry).</summary>
     public sealed record Rune(int Row, string Id, int Weight, int LevelMin, int LevelMax, string Type, string? Ao,
         IReadOnlyList<string> Order, int? Environment, Daemon? Daemon, int BuffRow,
-        IReadOnlyList<(uint Stat, int Value)> BuffStats, IReadOnlyList<int> ModRows);
+        IReadOnlyList<(uint Stat, int Value)> BuffStats, IReadOnlyList<int> ModRows)
+    {
+        /// <summary>The rune's ModsKey rows resolved once, in <see cref="LoadGameData"/>: the Explicit ItemMods its
+        /// monsters carry. Empty for a rune built without loading.</summary>
+        public IReadOnlyList<ItemMod> Mods { get; init; } = [];
+    }
 
     /// <summary>A DaemonSpawningData row: its MonsterVarieties rows, at most <see cref="Max"/> of them, one every
     /// <see cref="EveryMs"/> [data; capture: GoldenCoinDaemon at 0 / 121 / 244 frames = 4000 ms].</summary>
@@ -171,10 +176,12 @@ public static partial class RitualTables
     }
 
     /// <summary>The mod set a ritual monster spawns with, for SpawnMonster's extraMods: the rune's ModsKey rows resolved
-    /// through the mods catalog (their stats only, so the rarity here is always Normal). Null when the rune carries no mods.</summary>
+    /// through the mods catalog (their stats only, so the rarity here is always Normal). Null when the rune carries no mods.
+    /// Uses the rune's <see cref="Rune.Mods"/>, resolved once in <see cref="LoadGameData"/>; a rune built without loading
+    /// falls back to resolving its rows here.</summary>
     public static MonsterModSet? RuneModSet(Rune rune, int level)
     {
-        var mods = RuneMods(rune);
+        var mods = rune.Mods.Count > 0 ? rune.Mods : RuneMods(rune);
         return mods.Count == 0 ? null : MonsterModRolls.Create([.. mods], [], MonsterRarity.Normal, level);
     }
 
@@ -261,8 +268,9 @@ public static partial class RitualTables
             var buffValues = Ints(r, "BuffStatValues");
             var buffKeys = buffRow >= 0 && buffRow < buffs.Length ? buffs[buffRow].Ints("StatsKeys") : [];
             var buffStats = buffKeys.Zip(buffValues, (k, v) => ((uint)(k + 1), v)).ToList();
-            runes.Add(new Rune(i, Str(r, "Id"), Int(r, "SpawnWeight"), Int(r, "LevelMin"), Int(r, "LevelMax"), Str(r, "Type"),
-                ao, pattern, r.IntOrNull("EnvironmentsKey"), daemon, buffRow, buffStats, Ints(r, "ModsKey")));
+            var rune = new Rune(i, Str(r, "Id"), Int(r, "SpawnWeight"), Int(r, "LevelMin"), Int(r, "LevelMax"), Str(r, "Type"),
+                ao, pattern, r.IntOrNull("EnvironmentsKey"), daemon, buffRow, buffStats, Ints(r, "ModsKey"));
+            runes.Add(rune with { Mods = RuneMods(rune) });
             if (ao is not null && !locators.ContainsKey(ao)) locators[ao] = ReadLocators(ao);
         }
         var constants = new Dictionary<string, double>(StringComparer.Ordinal);

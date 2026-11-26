@@ -103,6 +103,10 @@ public class RitualTests
             Assert.Null(encounter.Populate(new AreaPopulated(player, 70, 1234, [])));
             await encounter.Placed(player);
             var state = encounter.Of(player)!;
+            // The area's spawns share one mod set, resolved once at placement.
+            var placed = RitualTables.RuneModSet(state.Altars[0].Rune, state.Level);
+            Assert.Equal(placed is null, state.ModSet is null);
+            Assert.Equal(placed?.Mods.Count, state.ModSet?.Mods.Count);
             // The Ritual is the instance's: a second player of it reads the same one, and is told the entry again.
             var second = new Player(layout, 2, seed) { Instance = player.Instance };
             Assert.Same(state, encounter.Of(second));

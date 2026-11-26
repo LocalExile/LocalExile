@@ -97,6 +97,9 @@ public sealed class RitualEncounter
         public readonly List<Altar> Altars = [];
         public int Seed;
         public int Level;
+        /// <summary>The rune's mod set for the area's spawns, resolved once in <see cref="Populate"/>: every altar shares
+        /// one rune, so every spawn shares one set.</summary>
+        public MonsterModSet? ModSet;
         public int Completed;
         public int Tribute;
         /// <summary>The area's map_ritual_tribute_+%.</summary>
@@ -190,7 +193,7 @@ public sealed class RitualEncounter
         if (_states.TryGetValue(instance, out _)) return "the instance has its Ritual already";
         var layout = player.Layout;
         if (!MapDevices.IsMapArea(layout.Hash)) return "not a map";
-        if (layout.Walkable is not { } walkable || !RitualTables.Loaded) return "no walk map or no Ritual tables";
+        if (layout.Walkable is null || !RitualTables.Loaded) return "no walk map or no Ritual tables";
         var stats = instance.KeptAreaStats ?? AreaLeagueStats(player) ?? new Dictionary<uint, int>();
         int S(uint name) => stats.GetValueOrDefault(name);
         var (count, roll) = Roll(area, stats);
@@ -203,13 +206,13 @@ public sealed class RitualEncounter
         var rune = RitualTables.PickRune(level, rng);
         if (rune is null) return "no rune for the level";
         var taken = area.Taken.ToList();
-        var transitions = layout.AreaTransitions.Select(t => (t.Transition.GridX, t.Transition.GridY)).ToList();
         int wanted = rng.Next(lo, hi + 1);
         var cells = new List<(int X, int Y)>();
         for (int attempt = 0; attempt < wanted * 24 && cells.Count < wanted; attempt++)
         {
-            if (AreaPopulation.EncounterSpot(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY), transitions, taken, rng)
-                is not { } at) break;
+            // The cached sites: PopulationSites computes them at most once per AreaPopulated, so the retry loop no
+            // longer runs a full-map search on every attempt.
+            if (AreaPopulation.EncounterSpot(area, taken, rng) is not { } at) break;
             // The first half of the draws keep the captured spacing; a small area then settles for two circles.
             double apart = attempt < wanted * 12 ? RitualTables.SpacingMin : 2 * RitualTables.RadiusCells;
             if (cells.Any(c => Distance(c, at) < apart)) continue;
@@ -217,7 +220,8 @@ public sealed class RitualEncounter
             taken.Add(at);
         }
         if (cells.Count == 0) return "no open ground for an altar";
-        var state = new State { Seed = area.Seed, Level = level, TributePct = S(Stat.MapRitualTributePlusPct), Area = player.Area };
+        var state = new State { Seed = area.Seed, Level = level, TributePct = S(Stat.MapRitualTributePlusPct), Area = player.Area,
+            ModSet = RitualTables.RuneModSet(rune, level) };
         // Every altar of an area has the same rune [capture: two areas].
         foreach (var cell in cells) state.Altars.Add(MakeAltar(cell, rune, level, rng));
         _states.AddOrUpdate(instance, state);
@@ -416,7 +420,8 @@ public sealed class RitualEncounter
     /// <summary>Ties the monsters seen for the first time inside an inactive altar's circle (the nearest altar), and credits
     /// a tied monster's death to its altar: a BloodPool in the circle and the light's scale. Only while an altar is still
     /// inactive does it look at the area's monsters, twice a second; a hidden altar ties nothing (its monsters are the ones
-    /// around it once a player has come near).</summary>
+    /// around it once a player has come near). A monster outside every shown altar's circle is left alone, not blacklisted,
+    /// so it can still be tied when a hidden altar near it is revealed.</summary>
     async Task Deaths(Player player, State state)
     {
         var died = new List<(int Altar, string Path, MonsterRarity Rarity)>();
@@ -428,7 +433,6 @@ public sealed class RitualEncounter
             foreach (var (id, m) in player.Area.Monsters)
             {
                 if (state.Seen.Contains(id) || state.Mine.Contains(id) || m.Life == 0) continue;
-                state.Seen.Add(id);
                 // A friendly monster and a summon never join.
                 if (!m.Hostile || m.OwnerId is not null || m.SummonerId is not null || m.Variety is null) continue;
                 var cell = m.Walk.Position(now);
@@ -441,6 +445,7 @@ public sealed class RitualEncounter
                     if (d <= radius && d < bestDistance) (best, bestDistance) = (k, d);
                 }
                 if (best < 0) continue;
+                state.Seen.Add(id);
                 state.Tie[id] = (best, m.Variety.Id, m.Rarity);
                 state.Altars[best].Tied.Add(id);
             }
@@ -477,12 +482,15 @@ public sealed class RitualEncounter
             RitualWire.LightScale(LightScale(Progress(altar)))), $"0x2bc Ritual light 0x{altar.Light:x} scale", null);
     }
 
-    /// <summary>Ready when every monster tied to the altar is dead (nothing tied: at once): 0x165 1, the Interactable's 07 01
-    /// and StateMachine (1, 1), the Object's and the Light's StateMachine 1 [capture].</summary>
+    /// <summary>Ready when every monster tied to the altar is dead: 0x165 1, the Interactable's 07 01
+    /// and StateMachine (1, 1), the Object's and the Light's StateMachine 1 [capture]. An altar with no live tie and no
+    /// credited kill is not ready: a kept instance's regeneration empties the ties without respawning the guards, and that
+    /// alone must not flip an uncleared altar to Ready.</summary>
     async Task CheckReady(Player player, State state, int k)
     {
         var altar = state.Altars[k];
         if (altar.Tied.Any(id => !altar.Dead.Contains(id))) return;
+        if (altar.Tied.Count == 0 && altar.Credit.Count == 0) return;
         altar.State = Ready;
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Ready), $"0x165 Ritual altar 0x{altar.Interactable:x} ready");
         await States(player, altar, 1, [1, 1], 1);
@@ -637,19 +645,30 @@ public sealed class RitualEncounter
                     run.Waves.Add(new Wave { At = t });
             }
         }
-        foreach (var (id, m) in run.Alive.Where(kv => !Alive(player, kv.Key)).ToList())
+        // The dead of the run: collected without allocating while nothing died.
+        List<(uint Id, Revived Monster)>? died = null;
+        foreach (var (id, m) in run.Alive)
         {
-            run.Alive.Remove(id);
-            run.Killed++;
-            state.Tribute += RitualTables.TributeOf(m.Rarity, m.N) * Math.Max(0, 100 + state.TributePct) / 100;
-            await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
-            state.Revived.Add(m);
+            if (Alive(player, id)) continue;
+            (died ??= []).Add((id, m));
         }
-        foreach (var faded in altar.Faded.Where(f => state.Now - f.At >= RitualTables.PoolFadeFrames * RitualTables.Frame).ToList())
-        {
-            await SendWorldRemoval(player, faded.Pool, $"0x2bd Ritual BloodPool 0x{faded.Pool:x}");
-            altar.Faded.Remove(faded);
-        }
+        if (died is not null)
+            foreach (var (id, m) in died)
+            {
+                run.Alive.Remove(id);
+                run.Killed++;
+                state.Tribute += RitualTables.TributeOf(m.Rarity, m.N) * Math.Max(0, 100 + state.TributePct) / 100;
+                await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
+                state.Revived.Add(m);
+            }
+        if (altar.Faded.Count > 0)
+            for (int i = altar.Faded.Count - 1; i >= 0; i--)
+            {
+                var faded = altar.Faded[i];
+                if (state.Now - faded.At < RitualTables.PoolFadeFrames * RitualTables.Frame) continue;
+                await SendWorldRemoval(player, faded.Pool, $"0x2bd Ritual BloodPool 0x{faded.Pool:x}");
+                altar.Faded.RemoveAt(i);
+            }
         if (run.Next >= run.Monsters.Count && run.Alive.Count == 0 && run.Waves.Count > 0 && t >= first)
             await Finish(player, state, run);
     }
@@ -695,7 +714,7 @@ public sealed class RitualEncounter
         }
         if (!InMap(player.Layout, cell)) return 0;
         uint id = await SpawnMonster(player, variety, (byte)Math.Clamp(state.Level, 1, 100), rarity, cell.X, cell.Y, log: false,
-            extraStats: rune.BuffStats is { Count: > 0 } stats ? stats : null, extraMods: RitualTables.RuneModSet(rune, state.Level));
+            extraStats: rune.BuffStats is { Count: > 0 } stats ? stats : null, extraMods: state.ModSet);
         if (id != 0 && mine) state.Mine.Add(id);
         return id;
     }
@@ -711,8 +730,16 @@ public sealed class RitualEncounter
         {
             var types = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
             string log = $"0x0020 {variety.Id}@{level}";
-            if (player.Area.Owned) player.Area.Delta.Add(0, types, log, AreaDelta.Kind.Message);
-            if (!player.Connection.WorldOutput.Started) await Send(player, types, log);
+            // The direct send encrypts its buffer in place, so the entry queued for the frame flush keeps the plaintext
+            // and the direct send gets a copy; a player sent one directly is left out of the flush, and peers of an area
+            // this connection does not own get copies, as no flush reaches them.
+            bool direct = !player.Connection.WorldOutput.Started;
+            if (player.Area.Owned) player.Area.Delta.Add(0, types, log, AreaDelta.Kind.Message, except: direct ? player : null);
+            if (direct) await Send(player, types.ToArray(), log);
+            if (!player.Area.Owned)
+                foreach (var peer in Clients(player))
+                    if (!ReferenceEquals(peer, player))
+                        await Send(peer, types.ToArray(), log);
         }
         uint id = player.TakeObjectId();
         state.Mine.Add(id);
