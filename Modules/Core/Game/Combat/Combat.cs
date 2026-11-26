@@ -2270,7 +2270,7 @@ public static partial class Game
                 ScheduleArcContact(player, session, gem, to, null, () => CanReleaseTimedSpell()
                     && player.ActionInterruptionGeneration == recoveryGeneration
                     && SameTriggerSource(supported, SupportedSkill(player, skillId)), targetId, due, sequence,
-                    criticalRoll ?? CaptureSkillCriticalRoll(player, skillId), sacrifice, more, beidat?.Chains ?? 0, beidat?.More ?? 1);
+                    criticalRoll ?? CaptureSkillCriticalRoll(player, skillId), sacrifice, more, beidat?.Chains ?? 0, beidat?.More ?? 1, repeat: repeat);
                 continue;
             }
             if (timedAreaCast is int timedAreaWindup)

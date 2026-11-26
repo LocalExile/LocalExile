@@ -85,7 +85,8 @@ public static partial class Game
     static void ScheduleArcContact(Player player, ProjectileSession session,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         (int X, int Y)? brandOrigin, Func<bool> current, uint triggerTarget, long due, ushort sequence,
-        SkillCriticalRoll? critical, SacrificeUse sacrifice, double damageMore = 1, int beamChains = 0, double hitAndAilmentMore = 1)
+        SkillCriticalRoll? critical, SacrificeUse sacrifice, double damageMore = 1, int beamChains = 0,
+        double hitAndAilmentMore = 1, int repeat = 0)
     {
         session.Runtime.Schedule(due, () =>
         {
@@ -123,7 +124,7 @@ public static partial class Game
                 var at = player.Area.Monsters[victim].Walk.Position(now);
                 double chainMore = Math.Max(0, 1 + remaining * (Get(Stat.ArcDamagePlusPctFinalForEachRemainingChain) / 100d));
                 var task = AreaSkillHitForUse(null, player, gem.Id, gem, from, at, immediate: true, sequence: sequence,
-                    radiusOverride: 1, damageMore: damageMore, criticalRoll: critical, sacrifice: sacrifice,
+                    repeat: repeat, radiusOverride: 1, damageMore: damageMore, criticalRoll: critical, sacrifice: sacrifice,
                     triggeredCurrent: Current, scheduledSession: session, targetFilter: (id, _) => id == victim,
                     hitAndAilmentMore: hitAndAilmentMore * chainMore);
                 if (!task.IsCompleted) throw new InvalidOperationException("Scheduled Arc hit must not yield.");
