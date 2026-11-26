@@ -47,7 +47,6 @@ public static partial class Game
     {
         internal GhorrHunger? HungerOfGhorr;
         internal GhorrEmpowerment? GhorrSpells;
-        internal ushort GhorrSequence;
     }
 
     static GhorrCast? TakeGhorrSpell(Player player, ushort skill, SupportedGem spell)
@@ -169,13 +168,11 @@ public static partial class Game
 
     static void ShowGhorrHunger(Player player, GhorrHunger hunger, long now, bool keepInstance) =>
         player.Area.Buffs.Set(player.Id, new(HungerOfGhorrRow, player.Id, hunger.Skill,
-            U68: GhorrCountdown(hunger.Ends, now), Stacks: (ushort)hunger.Spells.Count, KeepInstance: keepInstance));
+            U68: PactCountdown(hunger.Ends, now), Stacks: (ushort)hunger.Spells.Count, KeepInstance: keepInstance));
 
     static void ShowGhorrEmpowerment(ProjectileSession session, GhorrEmpowerment empowerment, long now, bool keepInstance = true) =>
         session.Player.Area.Buffs.Set(session.Player.Id, new(EmpoweredSpellsRow, session.Player.Id, empowerment.Skill,
-            U68: GhorrCountdown(empowerment.Ends, now), Stacks: (ushort)empowerment.Charges, KeepInstance: keepInstance));
-
-    static uint GhorrCountdown(long ends, long now) => Buff.Seconds((ends - now) / (double)ProjectileRuntime.QuantaPerSecond);
+            U68: PactCountdown(empowerment.Ends, now), Stacks: (ushort)empowerment.Charges, KeepInstance: keepInstance));
 
     static void ClearGhorrEmpowerment(ProjectileSession session)
     {

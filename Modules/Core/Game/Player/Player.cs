@@ -243,6 +243,8 @@ public static partial class Game
         {
             ClearGhorrEmpowerment(projectiles);
             ClearKtashEmpowerment(projectiles);
+            ClearLyciaEmpowerment(projectiles);
+            projectiles.LyciaChannel = null;
         }
         player.Rampage.Clear();
         // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel

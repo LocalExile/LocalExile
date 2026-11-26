@@ -51,6 +51,7 @@ static partial class Game
         public int Action;
         /// <summary>The channel generation that last held the orb: an older channel's end must not release a newer one.</summary>
         public int ChannelGeneration;
+        public double PactDamageMore = 1;
         public int Stages;
         /// <summary>True while the button is held: stages build and the frequency keeps its 80% more.</summary>
         public bool Channelling;
@@ -154,6 +155,7 @@ static partial class Game
         runtime.Gem = gem;
         runtime.Action = action;
         runtime.ChannelGeneration = player.ChannelGeneration;
+        runtime.PactDamageMore = LyciaDamageMore(player, skillId, runtime.ChannelGeneration);
         runtime.Channelling = true;
         runtime.ExpiresAt = 0;
         runtime.NextDecayAt = 0;
@@ -424,6 +426,7 @@ static partial class Game
         double acrossX = length < 1e-6 ? 0 : -dy / length, acrossY = length < 1e-6 ? 1 : dx / length;
         // One stat sheet for the whole volley: its shots leave together, so its speed cannot change between them.
         float cellsPerSecond = WinterOrbProjectileSpeed(player, runtime);
+        double damageMore = runtime.PactDamageMore;
         for (int i = 0; i < count; i++)
         {
             double offset = spacing * (i - (count - 1) / 2.0);
@@ -431,7 +434,7 @@ static partial class Game
             double seconds = WinterOrbFlightSeconds(cellsPerSecond, from, landing);
             uint projectile = await WinterOrbProjectile(player, from, landing, seconds);
             if (projectile == 0) continue;
-            _ = LandWinterOrbProjectile(player, runtime, projectile, from, landing, seconds);
+            _ = LandWinterOrbProjectile(player, runtime, projectile, from, landing, seconds, damageMore);
         }
     }
 
@@ -491,7 +494,7 @@ static partial class Game
     /// area change and a closed connection drop a shot that is still in the air.
     /// </summary>
     static async Task LandWinterOrbProjectile(Player player, WinterOrbRuntime runtime, uint projectile, (int X, int Y) from, (int X, int Y) at,
-        double seconds)
+        double seconds, double damageMore)
     {
         try
         {
@@ -502,7 +505,7 @@ static partial class Game
             var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == runtime.SkillId);
             if (gem.Name is null || gem.Effect != runtime.Gem.Effect) return;
             await AreaSkillHit(player, runtime.SkillId, gem, from, at,
-                immediate: true, sequence: player.ChannelSkillSequence);
+                immediate: true, sequence: player.ChannelSkillSequence, damageMore: damageMore);
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) { }
     }

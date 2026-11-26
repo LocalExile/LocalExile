@@ -1673,7 +1673,8 @@ public static partial class Game
             await LaunchProjectileForUse(player, onShieldChargeReady, skillId, from, to, recoveryGeneration, targetId, sequence: sequence,
                 actionToken: actionToken, cooldownUse: cooldownUse, criticalRoll: criticalRoll, channelGeneration: channelGeneration,
                 swingAt: cooldownUse?.Attack?.At ?? swingAt, leap: leap, previousNextAttackAt: reservedNextAttackAt,
-                doubleStrikePairs: doubleStrikePairs, vaalDamageMore: vaalUse?.PactDamageMore ?? 1);
+                doubleStrikePairs: doubleStrikePairs, useDamageMore: vaalUse?.PactDamageMore
+                    ?? LyciaDamageMore(player, skillId, channelGeneration));
         return CompleteSupportedUse(true);
     }
 
@@ -2084,7 +2085,7 @@ public static partial class Game
         ushort skillId, (int X, int Y) from, (int X, int Y) to, int recoveryGeneration, uint targetId = 0, ushort sequence = 0,
         int? actionToken = null, CooldownUseTicket? cooldownUse = null, SkillCriticalRoll? criticalRoll = null,
         int? channelGeneration = null, double? swingAt = null, LeapSlam.Use? leap = null, double? previousNextAttackAt = null,
-        DoubleStrikePairs? doubleStrikePairs = null, double vaalDamageMore = 1)
+        DoubleStrikePairs? doubleStrikePairs = null, double useDamageMore = 1)
     {
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == skillId);
         if (gem.Name is null) return Task.CompletedTask;
@@ -2243,7 +2244,7 @@ public static partial class Game
             int repeat = Math.Max(0, release - seals);
             bool reoccurrence = release > 0 && release <= seals;
             double sealDelay = Math.Min(release, seals) * sealGap;
-            double more = vaalDamageMore * (reoccurrence ? reoccurrenceMore : 1);
+            double more = useDamageMore * (reoccurrence ? reoccurrenceMore : 1);
             if (timedAreaCast is int timedAreaWindup)
             {
                 double windup = sealDelay + timedAreaWindup / 1000d
@@ -2346,6 +2347,7 @@ public static partial class Game
         int generation = player.ChannelGeneration;
         ushort channelSequence = player.ChannelSkillSequence;
         double channelStarted = AreaTime(player);
+        var lycia = initialCostPaid ? StartLyciaChannel(player, skillId, gem.Effect, action, generation, initialAim, channelStarted) : null;
         bool Running() => ChannelCurrent(player, skillId, action, generation);
         // Winter Orb's orb and its firing loop live in WinterOrb.cs: the loop starts with the channel and outlives it,
         // while this channel's cast ticks only build the orb's stages.
@@ -2471,13 +2473,16 @@ public static partial class Game
                 var at = player.Walk.Position(AreaTime(player));
                 await AreaSkillHit(player, skillId, gem, at, at,
                     immediate: true, sequence: player.ChannelSkillSequence, actionToken: action, channelGeneration: generation,
-                    damageMore: FocusedChannelMore(now - channelStarted,
+                    damageMore: (lycia?.Pact.DamageMore ?? 1) * FocusedChannelMore(now - channelStarted,
                         GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct)));
             }
         }
         catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         finally
         {
+            if (lycia is not null && player.ProjectileRuntime is ProjectileSession lyciaSession)
+                using (ProjectileMutation(player, advance: false))
+                    FinishLyciaChannel(lyciaSession, lycia, GameServer.Core.Projectiles.ProjectileRuntime.Time(AreaTime(player)));
             // Winter Orb's orb outlives its channel (WinterOrb.cs): it keeps firing on its decaying stages until the
             // duration they leave runs out, and death or an area change retires it with the connection. It has no object
             // of its own to remove: the client draws the orb from the stage buff.
@@ -2507,6 +2512,8 @@ public static partial class Game
     public static void ChannelAimedAt(Player player, int x, int y, double at)
     {
         AimChannelTriggers(player, (x, y));
+        if (player.ProjectileRuntime is ProjectileSession { LyciaChannel: { } lycia }
+            && lycia.Generation == player.ChannelGeneration && lycia.Action == player.ActionCount) lycia.Aim = (x, y);
         SnipeAimedAt(player, (x, y));
         ScourgeAimedAt(player, (x, y));
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill) player.Walk.Order(x, y, at);
@@ -2582,6 +2589,9 @@ public static partial class Game
     // as part of the channel); the walk gets its usual speed back.
     public static void ChannelReleased(Player player, double at)
     {
+        if (player.ProjectileRuntime is ProjectileSession { LyciaChannel: { } lycia } session)
+            using (ProjectileMutation(player, advance: false))
+                FinishLyciaChannel(session, lycia, GameServer.Core.Projectiles.ProjectileRuntime.Time(at));
         ReleaseScourgeChannel(player, at);
         if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
         {

@@ -54,7 +54,7 @@ public static partial class Game
 
     static void ShowKtashEmpowerment(Player player, KtashEmpowerment empowerment, long now, bool keepInstance) =>
         player.Area.Buffs.Set(player.Id, new(EmpoweredSpellsRow, player.Id, empowerment.Skill,
-            U68: GhorrCountdown(empowerment.Ends, now), Stacks: (ushort)empowerment.Charges,
+            U68: PactCountdown(empowerment.Ends, now), Stacks: (ushort)empowerment.Charges,
             Tag: KtashEmpowermentTag, KeepInstance: keepInstance));
 
     static void ClearKtashEmpowerment(ProjectileSession session)

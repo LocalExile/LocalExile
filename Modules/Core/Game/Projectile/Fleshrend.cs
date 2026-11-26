@@ -142,7 +142,7 @@ public static partial class Game
         origin += direction * NativeProjectileForwardCells(Get, null);
         if ((target - origin).Dot(direction) <= 0) target = origin + direction * 30;
         bool lockstep = player.Connection.LockstepClient;
-        ushort sequence = lockstep ? NextLockstepSequence(player) : (ushort)(++session.GhorrSequence & 0x7fff);
+        ushort sequence = lockstep ? NextLockstepSequence(player) : (ushort)(++session.PactTriggerSequence & 0x7fff);
         var key = new ProjectileActorKey(player.Id, player.ProjectileEpoch);
         var profile = new ProjectileProfile("Fleshrend")
         {

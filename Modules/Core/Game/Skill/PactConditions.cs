@@ -15,6 +15,13 @@ public static partial class Game
     static int maximumPactConditions = 5;
     static long pactEmpowermentTime = ProjectileRuntime.Time(15);
 
+    public sealed partial class ProjectileSession
+    {
+        internal ushort PactTriggerSequence;
+    }
+
+    static uint PactCountdown(long ends, long now) => Buff.Seconds((ends - now) / (double)ProjectileRuntime.QuantaPerSecond);
+
     internal static void LoadPactConditionData()
     {
         var afflictions = new List<PactCondition>();
@@ -67,6 +74,7 @@ public static partial class Game
                     {
                         case PactOfGhorrEffect: StartPactOfGhorr(session, skill, source, aim, stats); break;
                         case PactOfKtashEffect: StartPactOfKtash(session, skill, source); break;
+                        case PactOfLyciaEffect: StartPactOfLycia(session, skill, source); break;
                     }
                     GrantPactCondition(session, skill, stats.GetValueOrDefault(Stat.GainBoonsInsteadOfAfflictionsWhenUsingAPactSkill) != 0);
                 });
