@@ -4,9 +4,9 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+        effect is "CracklingLanceAltX" or "CracklingLanceAltY"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect
-            || ShockNovaEffect(effect);
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
 
     // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
     static (int X, int Y) CascadeKnockbackOrigin((int X, int Y) target, (double X, double Y) direction) =>
@@ -58,11 +58,11 @@ public static partial class Game
                 int Radius(int baseRadius) => SkillRadius(Player, baseRadius, source.Stats, true, gem.Effect, caster);
                 void Hit((int X, int Y) centre, int radius, double more = 1,
                     Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
-                    int extraShockChance = 0) =>
+                    int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
-                        hitAndAilmentMore: beidatMore, extraShockChance: extraShockChance));
+                        hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst));
 
                 if (effect == "LightningConduitAltX")
                 {
@@ -159,21 +159,25 @@ public static partial class Game
                         }
                     }
                 }
-                else if (effect is "GlacialCascade" or "GlacialCascadeAltX")
+                else if (GlacialCascadeEffect(effect))
                 {
-                    int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
                     int spikes = Math.Clamp(Own(Stat.UpheavalNumberOfSpikes) + Own(Stat.GlacialCascadeNumberOfAdditionalBursts), 0, 32);
-                    double spacing = CascadeBaseSpacing * Math.Max(.25, radius / 12d);
                     double interval = CascadeInterval / Math.Max(.1, 1 + Own(Stat.GlacialCascadeTravelSpeedPlusPct) / 100d);
+                    bool hasFinal = GlacialCascadeHasFinalBurst(effect);
+                    double finalMore = Math.Max(0, 1 + Own(Stat.GlacialCascadeFinalSpikeDamagePlusPctFinal) / 100d);
                     for (int i = 0; i < spikes; i++)
                     {
-                        double distance = (i + 1) * spacing;
+                        double distance = (i + 1) * CascadeBaseSpacing;
                         var at = (from.X + (int)Math.Round(distance * direction.X), from.Y + (int)Math.Round(distance * direction.Y));
-                        bool final = i == spikes - 1;
-                        double more = final ? Math.Max(0, 1 + Own(Stat.GlacialCascadeFinalSpikeDamagePlusPctFinal) / 100d) : 1;
+                        bool final = hasFinal && i == spikes - 1;
+                        CascadeBurst burst = final ? CascadeBurst.Final : hasFinal ? CascadeBurst.Early : CascadeBurst.None;
                         Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(i * interval), () =>
                         {
-                            if (CurrentSource()) Hit(at, radius, more);
+                            if (!CurrentSource()) return;
+                            // Area changes the overlap, including if a modifier changes during the cascade.
+                            int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
+                            if (final) radius = ActorScale.Saturate(2L * radius);
+                            Hit(at, radius, burstMore: final ? finalMore : 1, cascadeBurst: burst);
                         });
                     }
                 }
