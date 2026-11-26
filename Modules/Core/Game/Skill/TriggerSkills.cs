@@ -72,6 +72,8 @@ public static partial class Game
             return "Prismatic Burst triggers on a supported attack hit";
         if (GolemStat(gem.Stats, Stat.TriggeredByInfernalCry) != 0)
             return "Combust triggers on an attack exerted by Infernal Cry";
+        if (GolemStat(gem.Stats, Stat.TriggeredByShockwaveSupport) != 0)
+            return "this Shockwave triggers on supported melee hits";
         if (GolemStat(gem.Stats, Stat.TriggeredByDivineCry) != 0)
             return "this spell triggers on an attack exerted by Battlemage's Cry";
         if (GolemStat(gem.Stats, Stat.InfernalBoltTriggeredWhenTotemWithThisSkillHitByEnemy) != 0)

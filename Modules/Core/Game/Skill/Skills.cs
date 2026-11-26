@@ -798,6 +798,7 @@ public static partial class Game
             else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByInfernalCry) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByShockwaveSupport) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByDivineCry) == 0
                 && own.GetValueOrDefault(Stat.TriggeredPrismaticBurst) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;

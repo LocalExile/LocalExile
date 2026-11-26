@@ -2926,13 +2926,13 @@ public static partial class Game
         BoneshatterContact? boneshatter = null, InfernalBlowUse? infernalBlast = null,
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
-        int? rallyingDamage = null) =>
+        int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
             singleStrikeTarget, onHit, scheduledSession, cryExerted, addedChaos, baseChaos, hammer, brandedTarget,
             extraCriticalIncrease, targetFilter, extraStunThresholdReduction, extraStunDurationPct, extraKnockbackDistancePct,
-            removeStunAndKnockback, offHandWeapon, additionalStrikeTargets: additionalStrikeTargets,
+            removeStunAndKnockback, offHandWeapon, retainedAttack: retainedAttack, additionalStrikeTargets: additionalStrikeTargets,
             hitAndAilmentMore: hitAndAilmentMore, onDirectHit: onDirectHit, allowMeleeSplash: allowMeleeSplash,
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
@@ -2991,6 +2991,8 @@ public static partial class Game
         if (retainedAttack is null && infernalBlast is null)
             sacrifice ??= new SacrificeUse(player, skillId, gem.Effect, gem.Gem, triggered: triggeredCurrent is not null);
         var skillStats = admittedGem.Stats;
+        bool shockwaveSupport = linkedSource && !spell
+            && skillStats.GetValueOrDefault(global::Stat.SupportBluntChanceToTriggerShockwaveOnHitPct) > 0;
         bool wildStrike = IsWildStrike(gem.Effect);
         if (wildStrike && WildStrikeElements.TryGetValue(player, out var choices)
             && choices.TryGetValue(gem.Effect, out var strikeElement))
@@ -4123,6 +4125,8 @@ public static partial class Game
                         {
                             if (warcryTriggers is not null && !splashMore.ContainsKey(id))
                                 ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(at), at);
+                            if (shockwaveSupport)
+                                TriggerShockwaveLocked(player, skillId, admittedGem, hand, weapon, offCritical, m.Walk.Position(at), at);
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
                             CombatRushOnHit(player, skillStats, at);
                             HallowOnMeleeHit(player, m, skillStats, at);

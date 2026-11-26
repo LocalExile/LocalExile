@@ -261,7 +261,8 @@ public static partial class Game
             var hand = AttackHandFor(player, skillId, sequence);
             var weapon = HandWeapon(player, hand);
             var weaponContactSource = SkeletonWeaponContactSource(player, hand, weapon.LocalSources);
-            var skillStats = SupportedSkill(player, skillId).Stats;
+            var supported = SupportedSkill(player, skillId);
+            var skillStats = supported.Stats;
             int Stat(uint k) => skillStats.GetValueOrDefault(k);
             if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
 
@@ -459,6 +460,9 @@ public static partial class Game
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);
                 if (isStrikeTarget && warcryTriggers is not null)
                     ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(now), now);
+                if (skillStats.GetValueOrDefault(global::Stat.SupportBluntChanceToTriggerShockwaveOnHitPct) > 0)
+                    TriggerShockwaveLocked(player, skillId, supported, hand, weapon,
+                        SwingWeaponCritical(player, hand), m.Walk.Position(now), now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));
             }
 
