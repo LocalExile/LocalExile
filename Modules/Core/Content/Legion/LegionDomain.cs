@@ -448,7 +448,7 @@ static class LegionDomain
             var rng = global::Game.AreaRng(player);
             int packSizePct = stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct);
             var plan = LegionArmy.PlanEndless(LegionData.Current, factions, level, packSizePct, rng);
-            var slots = BuildRadialSlots(player, near.X, near.Y, plan, rng);
+            var slots = BuildRadialSlots(player, near.X, near.Y, ArenaRadius(player.Layout, near.X, near.Y), plan, rng);
             var saved = new SavedDomain(player.TakeObjectId(), 0,
                 near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions,
                 timerSec, waveSec, 0, 0, double.NegativeInfinity,
@@ -463,15 +463,20 @@ static class LegionDomain
             // A Domain saved before its army was planned on entry: plan it now.
             var stats = LegionMonolith.AreaStats(player);
             var rng = global::Game.AreaRng(player);
+            // The arena's radius walks the floor (thousands of cells): measured outside the lock, only when an army is to be planned.
+            bool unplanned;
+            int sx, sy;
+            lock (state) (unplanned, sx, sy) = (state.Phase == DomainPhase.Waiting && state.Slots.Length == 0, state.X, state.Y);
+            double arena = unplanned ? ArenaRadius(player.Layout, sx, sy) : 0;
             lock (state)
             {
                 // A Domain saved with the old single crystal: the tracker's ids are taken now.
                 if (state.Crystals.Length == 0 && CrystalSupported) { state.Crystals = TakeCrystalIds(player); Keep(player, state); }
-                if (state.Phase == DomainPhase.Waiting && state.Slots.Length == 0)
+                if (unplanned && state.Phase == DomainPhase.Waiting && state.Slots.Length == 0)
                 {
                     var plan = LegionArmy.PlanEndless(LegionData.Current, state.Factions, state.Level,
                         stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct), rng);
-                    state.Slots = BuildRadialSlots(player, state.X, state.Y, plan, rng);
+                    state.Slots = BuildRadialSlots(player, state.X, state.Y, arena, plan, rng);
                     Keep(player, state);
                 }
             }
@@ -1164,6 +1169,9 @@ static class LegionDomain
     const int DomainSearchRadius = 300;
     /// <summary>GUESS: the arena radius without a walk map, in cells (encounter_1.arm: 90 % of the floor within 196).</summary>
     const double DomainArenaFallback = 200;
+    /// <summary>How many times a soldier's spot is drawn again (angle and radius) when it falls off the floor, before the nearest
+    /// walkable cell is taken (Near drifts it towards the centre or a wall).</summary>
+    const int DomainPlaceTries = 8;
 
     /// <summary>The radius holding DomainArenaShare of the walkable cells round (cx, cy), once per Domain (every 2nd cell is counted).</summary>
     static double ArenaRadius(AreaLayout layout, int cx, int cy)
@@ -1187,13 +1195,17 @@ static class LegionDomain
         return DomainSearchRadius;
     }
 
-    static FighterSlot[] BuildRadialSlots(Player player, int cx, int cy, LegionArmy.ArmyPlan plan, Random rng)
+    /// <summary>The Domain's soldiers on the arena's disc: each faction in its sector (the general on its middle line first), each squad's
+    /// depth % mapped onto [DomainInnerClear, <paramref name="arena"/>] by area (dist = sqrt(lerp(inner^2, arena^2, frac)), so the outer
+    /// rings get their share). A spot off the floor is drawn again (DomainPlaceTries), then moved to the nearest walkable cell.</summary>
+    static FighterSlot[] BuildRadialSlots(Player player, int cx, int cy, double arena, LegionArmy.ArmyPlan plan, Random rng)
     {
         var list = new List<FighterSlot>();
         int fCount = Math.Max(1, plan.Factions.Length);
         double sectorSpan = Math.Tau / fCount;
         double baseAngle = rng.NextDouble() * Math.Tau;
-        double arena = ArenaRadius(player.Layout, cx, cy);
+        double inner2 = DomainInnerClear * DomainInnerClear, outer2 = Math.Max(arena, DomainInnerClear + 1) * Math.Max(arena, DomainInnerClear + 1);
+        var walkable = player.Layout.Walkable;
         for (int f = 0; f < plan.Factions.Length; f++)
         {
             var faction = plan.Factions[f];
@@ -1202,19 +1214,29 @@ static class LegionDomain
             {
                 for (int i = 0; i < squad.Count; i++)
                 {
-                    double frac = squad.FromPct == squad.ToPct
-                        ? squad.FromPct / 100.0
-                        : (squad.FromPct + rng.NextDouble() * Math.Max(1, squad.ToPct - squad.FromPct)) / 100.0;
-                    double dist = 34.0 + frac * 78.0;
-                    double angle = squad.Tier == 3
-                        ? centerAngle
-                        : centerAngle + (rng.NextDouble() - 0.5) * sectorSpan * 0.78;
-                    int tx = cx + (int)Math.Round(Math.Cos(angle) * dist);
-                    int ty = cy + (int)Math.Round(Math.Sin(angle) * dist);
-                    var at = player.Layout.Near((tx, ty));
-                    // Keep monsters outside the immediate central crystal blocker.
-                    if ((at.X - cx) * (at.X - cx) + (at.Y - cy) * (at.Y - cy) < 20 * 20)
-                        at = player.Layout.Near((cx + (int)Math.Round(Math.Cos(angle) * 32), cy + (int)Math.Round(Math.Sin(angle) * 32)));
+                    (int X, int Y) Draw(bool first)
+                    {
+                        double frac = squad.FromPct == squad.ToPct
+                            ? squad.FromPct / 100.0
+                            : (squad.FromPct + rng.NextDouble() * Math.Max(1, squad.ToPct - squad.FromPct)) / 100.0;
+                        double dist = Math.Sqrt(inner2 + Math.Clamp(frac, 0, 1) * (outer2 - inner2));
+                        double angle = squad.Tier == 3 && first
+                            ? centerAngle
+                            : centerAngle + (rng.NextDouble() - 0.5) * sectorSpan * (squad.Tier == 3 ? 0.25 : 0.78);
+                        return (cx + (int)Math.Round(Math.Cos(angle) * dist), cy + (int)Math.Round(Math.Sin(angle) * dist));
+                    }
+                    var at = Draw(first: true);
+                    for (int t = 1; t < DomainPlaceTries && walkable?.Invoke(at.X, at.Y) == false; t++) at = Draw(first: false);
+                    if (walkable?.Invoke(at.X, at.Y) == false)
+                    {
+                        at = player.Layout.Near(at);
+                        // Near can drift onto the central crystal: keep the clear ring.
+                        if ((at.X - cx) * (at.X - cx) + (at.Y - cy) * (at.Y - cy) < inner2)
+                        {
+                            double away = Math.Atan2(at.Y - cy, at.X - cx);
+                            at = player.Layout.Near((cx + (int)Math.Round(Math.Cos(away) * (DomainInnerClear + 2)), cy + (int)Math.Round(Math.Sin(away) * (DomainInnerClear + 2))));
+                        }
+                    }
                     float facing = (float)Math.Atan2(cx - at.X, -(cy - at.Y));
                     int rarity = squad.Rarities is { } rs && i < rs.Length ? rs[i] : LegionArmy.TierRarity(squad.Tier);
                     int[]? rewards = squad.Rewards is { } rw && i < rw.Length && rw[i].Length > 0 ? rw[i] : null;

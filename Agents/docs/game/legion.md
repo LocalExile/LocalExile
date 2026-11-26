@@ -136,11 +136,14 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   reward icons, past 100 still counts): the server creates 100 `LegionDomainRewardCrystal` (`active`, server_only) and sets `active` 1 on
   one more per 3 reward units banked; a unit is one reward icon times (100 + the emblems' `map_legion_monster_reward_chance_+%`)/100,
   fractions kept; only newly lit crystals are sent. GUESS: their positions, a ring of radius 18 cells, evenly spaced (100 distinct cells).
-- The Domain army fills the whole disc, not a near ring (R17/R18): only about 3 character lengths round the monolith stay clear. GUESS: the clear radius 18 cells; the arena radius is the one holding 90 % of the walkable cells within 300 of the centre (200 without a walk map); a squad's depth % maps onto [18, arena] and the radius is drawn by area (sqrt).
   The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells
   (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
   there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
   fallback, and `map_legion_endless_monolith_pulse_time_ms` (20000) as the shortest time between two waves.
+- The Domain army fills the whole disc, not a near ring (R17/R18): only about 3 character lengths round the monolith stay clear.
+  Each faction keeps its sector; a squad's depth % maps onto [18, arena] by area (`sqrt(lerp(18^2, arena^2, frac))`), a spot off the
+  floor is drawn again up to 8 times before the nearest walkable cell. GUESS: the clear radius 18 cells, the arena radius as the one
+  holding 90 % of the walkable cells within 300 of the centre (200 without a walk map).
 - No client code creates `MiscAnimated` 3337 `LegionControlZone` (`endgame/control_zone.ao`) or 3338 `LegionControlZonePerimeter`
   (`standhere.ao`): the server places both at the centre until 00:00. `control_zone/rig.amd` clips: 0 `idle` (loop), 1 `idle_off`,
   2 `off`, 3 `player_in`, 4 `player_out`, 5 `revival_wave` (1333 ms, once), played with S->C 0x1b2 kind 0 (wave clip at the start
