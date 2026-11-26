@@ -563,7 +563,8 @@ public static partial class Game
             if (charmType.Class != "AnimalCharm") return "only a Wildwood charm goes in a charm socket";
             if (!player.Character.Passives.Contains(charmNode) && !player.Character.DescendancyNodes.Contains(charmNode))
                 return "the charm socket is not allocated";
-            int charmNeeds = ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods);
+            // The level the client was sent (as for any equipment below).
+            int charmNeeds = item.RequiredLevel ?? (Item.LevelRequirementOf is { } sentCharm ? sentCharm(item) : ItemModStats.LevelRequirement(item, charmType.DropLevel, ItemsFor(player).Mods));
             return player.Pools.Level < charmNeeds
                 ? $"{charmType.Name} requires level {charmNeeds} (character is {player.Pools.Level})" : null;
         }
