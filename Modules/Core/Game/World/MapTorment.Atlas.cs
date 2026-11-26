@@ -336,7 +336,7 @@ public static partial class MapTorment
     static async Task Dig(Player player, Area area, int row, (int X, int Y) at)
     {
         if (TormentCatalog.ByRow(row) is not { } spirit) return;
-        var pool = Packs.For(player.Layout.Id)?.Scattered.SelectMany(p => p.Pack.Entries)
+        var pool = InstancePacks(player)?.Scattered.SelectMany(p => p.Pack.Entries)
             .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true }).ToArray() ?? [];
         if (pool.Length == 0) return;
         int roll = Random.Shared.Next(pool.Sum(e => Math.Max(1, e.Weight)));
