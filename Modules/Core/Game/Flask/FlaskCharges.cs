@@ -112,6 +112,7 @@ public static partial class Game
                 if (player.EntryProtection.End(now, player.Walk.Position(now), action: true) is ushort)
                     player.Area.Buffs.Clear(player.Id, GracePeriod.BuffRow, player.Id);
                 accepted(done);
+                ApplyEquipmentFlaskCleansesLocked(player, now);
             }
             return ([done.Id], [done]);
         }, changed => $"0x00c6 flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);

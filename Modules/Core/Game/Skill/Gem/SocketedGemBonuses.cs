@@ -16,6 +16,8 @@ public static class SocketedGemBonuses
         int quality = Get(Stat.LocalSocketedGemQualityPlus)
             + Get(info.IsSupport ? Stat.LocalSocketedSupportGemQualityPlus : Stat.LocalSocketedActiveSkillGemQualityPlus);
         bool InFamily(uint stat) => skills.FamilyStatRaises(stat, type.Row, variant)
+            || stat == Stat.LocalSocketedTrapAndMineGemLevelPlus
+                && (skills.GemHasTag(type.Row, variant, "trap") || skills.GemHasTag(type.Row, variant, "mine"))
             || stat == Stat.LocalSocketedElementalGemLevelPlus
                 && (skills.GemHasTag(type.Row, variant, "fire") || skills.GemHasTag(type.Row, variant, "cold")
                     || skills.GemHasTag(type.Row, variant, "lightning"));
