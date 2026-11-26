@@ -238,6 +238,7 @@ public static partial class Game
         LeechOf(player).Clear(AreaTime(player));
         ClearRageOnDeath(player);
         ClearGhorrHunger(player);
+        if (player.ProjectileRuntime is ProjectileSession projectiles) ClearGhorrEmpowerment(projectiles);
         player.Rampage.Clear();
         // Before RetireOwnedCombat drops the orb: its stage icon must be queued for removal with it, and the channel
         // that held it ends here rather than staying set for the respawned client to keep holding (the loop merely

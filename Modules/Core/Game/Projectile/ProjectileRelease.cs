@@ -201,6 +201,7 @@ public static partial class Game
         }
         int repeats = attack ? 0 : SpellRepeats(player, skillId, gem.Effect);
         var intensity = CastingIntensity(player, skillId);
+        var ghorr = CastingGhorrSpell(player, skillId);
         Action? completed = intensity is null ? null : intensity.Complete;
         for (int release = 0; release <= repeats + seals; release++)
         {
@@ -212,6 +213,7 @@ public static partial class Game
                 () =>
                 {
                     using var scope = intensity is null ? null : new IntensityScope(intensity);
+                    using var pact = ghorr is null ? null : new GhorrCastScope(ghorr);
                     return ClientDrawnVolley(player, session, skillId, gem,
                         CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, (uint)left, delay,
                             cryExerted: cryExerted, sacrifice: sacrifice, repeat: ordinal, reoccurrenceMore: more),
@@ -515,6 +517,7 @@ public static partial class Game
             Poison = WithOverheat(player, skillId, MonsterPoisons.Settings.From(ailmentRows, hand, Get, local,
                 projectileAttack: projectileDamage && !spell)),
             EssenceDrain = EssenceDrainCast(player, skillId, gem.Effect),
+            GhorrDotMore = GhorrDotMore(player, skillId),
             Bleed = spell ? MonsterIgnites.Settings.None : WithOverheat(player, skillId, BleedSettings(ailmentRows, "main_hand", Get, local, melee: false,
                 bow: WeaponProfileFor(player, activeSet: true).Bow, projectileAttack: projectileDamage)),
             VsBlinded = blindedRows is null || hitInputs is null ? null : new(

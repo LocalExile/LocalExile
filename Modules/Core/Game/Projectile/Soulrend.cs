@@ -41,7 +41,7 @@ public static partial class Game
         double multiplier = 1 + ((double)get(Stat.DotMultiplierPlus) + get(Stat.ChaosDotMultiplierPlus)
             + get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100d;
         double dps = own(Stat.BaseChaosDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d)
-            * more * Math.Max(0, multiplier);
+            * more * Math.Max(0, multiplier) * shot.GhorrDotMore;
         double seconds = SkillDurationModifiers.Seconds(own(Stat.BaseSkillEffectDuration), context.PlayerStat, own);
         if (DamageStats.Prohibited(DamageType.Chaos, get)) return use;
         var damage = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Chaos, dps, seconds));

@@ -56,7 +56,8 @@ public static partial class Game
             StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity);
+    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity,
+        double DotMore);
     internal sealed record PlacedStormCallUse(PlacedAreaHit Placement, Func<bool> Current, string? Loop, string? Impact);
 
     public static async Task PlaceStormCall(Player player,
@@ -103,7 +104,7 @@ public static partial class Game
         double now = AreaTime(player);
         var intensity = CastingIntensity(player, skillId);
         marker = new(player.TakeObjectId(), skillId, at, now + duration, repeat, player.ProjectileEpoch,
-            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity));
+            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity, GhorrDotMore(player, skillId)));
         var markers = player.StormCall;
         lock (markers) markers.Place(marker);
         intensity?.Complete();
@@ -213,7 +214,7 @@ public static partial class Game
             using (ProjectileMutation(player))
                 if (Current() && use.Sacrifice.Current && SameTriggerSource(source, SupportedSkill(player, marker.Skill)))
                     ProjectilesFor(player).PlaceStormCallBlood(marker.At, radius, source.Stats,
-                        CharacterPlayerStats(player), use.DamageMore);
+                        CharacterPlayerStats(player), use.DamageMore * use.DotMore);
         }
     }
 

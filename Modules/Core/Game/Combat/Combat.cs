@@ -1211,6 +1211,7 @@ public static partial class Game
         SupportedGem? beastCompanion = null;
         PlacedCastAdmission? placedAdmission = null;
         SupportedGem? paidIntensity = null, paidMomentum = null;
+        GhorrCast? pactSpell = null;
         var momentumTravel = player.Walk.ObserveTravel(AreaTime(player));
         var baseSkill = BaseSupportedSkill(player, skillId);
         if (SkillsFor(player).EffectId(baseSkill.Effect) is TwisterEffect or CatStealthCryEffect or KineticAnomalyEffect or FleshrendEffect) return false;
@@ -1482,6 +1483,7 @@ public static partial class Game
                     RecordSpellWindup();
                     if (!locationInstant && placedAdmission is null)
                     {
+                        if (spell) pactSpell = TakeGhorrSpell(player, skillId, paymentGem);
                         if (paymentGem.Stats.GetValueOrDefault(Stat.VirtualSkillGainsIntensity) != 0) paidIntensity = paymentGem;
                         if (paymentGem.Stats.GetValueOrDefault(Stat.SupportMomentumMaxStacks) > 0
                             && !IsTotemSkill(player, skillId)) paidMomentum = paymentGem;
@@ -1557,6 +1559,7 @@ public static partial class Game
             NoteGemAttackUse(player, skillId, gem.Effect);
         }
         if (gem.Name is not null) PhaseRunOnSkillUse(player, skillId);
+        using var pactScope = pactSpell is null ? null : new GhorrCastScope(pactSpell);
         var intensity = CaptureIntensityCast(player, skillId, paidIntensity);
         using var intensityScope = intensity is null ? null : new IntensityScope(intensity);
         bool CompleteSupportedUse(bool accepted)

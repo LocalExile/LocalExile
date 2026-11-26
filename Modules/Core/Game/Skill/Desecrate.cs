@@ -24,7 +24,7 @@ public static partial class Game
         using (ProjectileMutation(player))
         {
             if (!Current() || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
-            ProjectilesFor(player).PlaceDesecratedGround(aim, gem);
+            ProjectilesFor(player).PlaceDesecratedGround(aim, gem, triggered ? 1 : GhorrDotMore(player, source));
         }
         EnsureSpectreBankLoaded(player);
         var area = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
@@ -53,7 +53,7 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        internal void PlaceDesecratedGround((int X, int Y) aim, SupportedGem gem)
+        internal void PlaceDesecratedGround((int X, int Y) aim, SupportedGem gem, double ghorrMore)
         {
             var caster = CharacterPlayerStats(Player);
             int Own(uint stat) => gem.Stats.GetValueOrDefault(stat);
@@ -63,7 +63,7 @@ public static partial class Game
             double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.ChaosDamagePlusPct) + Get(Stat.AreaDamagePlusPct)
                 + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct)
                 + Get(Stat.DamageOverTimePlusPctWithSpells) + Get(Stat.DesecrateDamagePlusPct);
-            double more = Math.Max(0, 1 + Own(Stat.SupportAreaConcentrateAreaDamagePlusPctFinal) / 100d)
+            double more = ghorrMore * Math.Max(0, 1 + Own(Stat.SupportAreaConcentrateAreaDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportVoidManipulationChaosDamagePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportRapidDecayDamageOverTimePlusPctFinal) / 100d)
                 * Math.Max(0, 1 + Own(Stat.SupportEfficacyDamageOverTimePlusPctFinal) / 100d)

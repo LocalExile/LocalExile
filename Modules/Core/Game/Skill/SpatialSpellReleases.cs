@@ -49,6 +49,7 @@ public static partial class Game
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            double dotMore = GhorrDotMore(Player, gem.Id);
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(released, () =>
             {
@@ -94,7 +95,7 @@ public static partial class Game
                 }
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
-                        sequence, repeat, damageMore, brandedTarget);
+                        sequence, repeat, damageMore, brandedTarget, dotMore);
                 else if (effect == "ShockNovaAltX")
                 {
                     int rings = ShockNovaProcessionRepeats(Player, gem.Effect, gem.Level, gem.Quality) + 1;
