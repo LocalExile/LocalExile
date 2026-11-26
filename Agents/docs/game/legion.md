@@ -159,4 +159,9 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   GUESS: the cap of 10 revival stacks.
 - The end at 00:00 (rewards on the ground around the centre) runs once, at the first tick of any player in the area after the timer, or
   when a player enters an area whose timer ran out while it was empty (it has no frames then); a dead player's tick runs it too.
+  At the end the server sets the initiator's `obelisk_state` 5 (the `inactive` clip), makes the crystal active and plays its `explode`
+  clip (S->C 0x1b2 kind 0), and drops the rewards; it prints no chat summary (the real game has none; the log has one). `Environments` 1177 is the
+  arena's own base environment, so the server sends no `0xdf` for it. GUESS: the `explode` clip index 2 (`SmallCentralCrystal01.ao` views
+  unlit, lit_up, explode). Live check: the crystal's explode, the 3357 effect we play at the end (the real beams, `LegionSoulercoaster1..6`,
+  are not known: not built), and the obelisk's `inactive` look.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

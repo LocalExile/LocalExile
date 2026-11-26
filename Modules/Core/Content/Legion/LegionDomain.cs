@@ -30,6 +30,11 @@ static class LegionDomain
     /// sounds, the pillar blast, a screen shake), played with S->C 0x1b2 kind 0 at each wave.</summary>
     const uint ZoneIdleClip = 0, ZoneWaveClip = 5;
     const double ZoneWaveSeconds = 1.333;
+    /// <summary>The initiator's obelisk_state at the end (R13: 1-4 active, 5 the `inactive` clip; 3 was ours).</summary>
+    const int EndedObeliskState = 5;
+    /// <summary>GUESS, to check live: SmallCentralCrystal01.ao's views are unlit, lit_up, explode (2 s, shatter at 1.35 s); the clip
+    /// index of explode is taken as their order (a wrong index is ignored by the client).</summary>
+    const uint CrystalExplodeClip = 2;
     const string SaveKey = "LegionDomain";
     /// <summary>GUESS: how near LegionEndlessInitiator a player starts the Domain (walking there, or using the monolith).</summary>
     const double StartRadius = 28.0;
@@ -693,7 +698,7 @@ static class LegionDomain
     {
         DomainPhase phase;
         lock (state) phase = state.Phase;
-        int obeliskState = phase switch { DomainPhase.Waiting => 0, DomainPhase.Active => 1, _ => 3 };
+        int obeliskState = phase switch { DomainPhase.Waiting => 0, DomainPhase.Active => 1, _ => EndedObeliskState };
 
         if (InitiatorSupported && !player.Area.Objects.Has(state.InitiatorId)
             && BuildInitiatorObject(state.X, state.Y, state.Z, obeliskState, phase == DomainPhase.Active) is { } initObj)
@@ -739,6 +744,14 @@ static class LegionDomain
         });
     }
 
+    /// <summary>The reward crystal's explode clip at 00:00 (after its state turned active: lit_up).</summary>
+    static async Task PlayCrystalExplode(Player player, DomainState state)
+    {
+        uint id = state.CrystalId;
+        if (id == 0 || !player.Area.Objects.Has(id)) return;
+        await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, id, InstanceProtocol.AnimationUpdate(id, 0, CrystalExplodeClip, 1f), $"0x01b2 reward crystal 0x{id:x}: explode"));
+    }
+
     /// <summary>Plays control_zone.ao's revival_wave once, then its idle again.</summary>
     static async Task PlayRevivalWave(Player player, DomainState state)
     {
@@ -769,8 +782,6 @@ static class LegionDomain
             double left = Math.Ceiling(endsAt - now);
             if (left > 0 && left < 3600)
                 await PlayerOf(player).Send(InstanceTimers.MissionTimer(InstanceTimers.MissionTimerType.Legion, (uint)left), $"0x0163 mission timer Legion domain: {left} s");
-            if (LegionData.Current.EnvDomain != 0 && LegionRules.Environments((LegionData.Current.EnvDomain, 0.0)) is { } env)
-                await PlayerOf(player).Send(env, "0x00df Domain environment (joiner)");
         }
         else if (phase == DomainPhase.Finished && LegionRules.State(state.InitiatorId, 2, 5) is { } done)
             await PlayerOf(player).Send(done, "0x02c9 LegionRules state (2,5 domain)");
@@ -953,9 +964,6 @@ static class LegionDomain
             Keep(player, state);
         }
 
-        if (LegionData.Current.EnvDomain != 0 && LegionRules.Environments((LegionData.Current.EnvDomain, 0.5)) is { } env)
-            foreach (var m in LegionOutput.Members(player))
-                await PlayerOf(m).Send(env, "0x00df Domain environment (active)");
         foreach (var m in LegionOutput.Members(player))
         {
             if (LegionRules.Activated(state.InitiatorId) is { } act) await PlayerOf(m).Send(act, "0x02c9 LegionRules mode 1 (domain)");
@@ -1187,15 +1195,12 @@ static class LegionDomain
             Keep(player, state);
         }
 
-        // Hide timer, end ruleset, fade out Domain environment.
+        // Hide the timer and end the ruleset. The arena's own environment (Environments 1177) stays: it is the base one, not ours to fade.
         foreach (var member in LegionOutput.Members(player))
         {
             await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion domain: hidden");
             if (LegionRules.State(state.InitiatorId, 2, 5) is { } done) await PlayerOf(member).Send(done, "0x02c9 LegionRules state (2,5 domain ended)");
         }
-        if (LegionData.Current.EnvDomain != 0 && LegionRules.Environments((LegionData.Current.EnvDomain, -2.0)) is { } envOut)
-            foreach (var member in LegionOutput.Members(player))
-                await PlayerOf(member).Send(envOut, "0x00df Domain environment (out)");
 
         // Remove all surviving Domain fighters cleanly so no post-timer combat or loot continues.
         var removed = new List<uint>(liveIds.Count);
@@ -1218,10 +1223,11 @@ static class LegionDomain
                 });
         }
 
-        await UpdateInitiatorState(player, state, obeliskState: 3, checkingControlZone: false);
+        await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
         foreach (uint zone in new[] { state.ZoneId, state.PerimeterId })
             if (zone != 0 && player.Area.Objects.Has(zone)) await LegionOutput.Remove(player, zone);
         await UpdateCrystalState(player, state, active: true);
+        await PlayCrystalExplode(player, state);
         await PlayEffect(player, PulseModel, state.X, state.Y, scale: 6f);
         if (LegionData.Current.MiscAnimatedModels.GetValueOrDefault(SoulercoasterKey) is { } soulAo)
             await PlayEffect(player, soulAo, state.X, state.Y);
@@ -1245,10 +1251,9 @@ static class LegionDomain
             }
         }
 
+        // The real game prints no summary line: the log only.
         int generalsSlain = generalKills.Values.Sum();
         string summary = $"Domain of Timeless Conflict complete: {totalKills} slain ({generalsSlain} Generals), {resets} revival waves, {dropped} rewards dropped.";
-        foreach (var member in LegionOutput.Members(player))
-            await PlayerOf(member).Send(InstanceChat.ChatLine(summary), $"0x0017 chat line \"{summary}\"");
         module.Log(summary);
     }
 }
