@@ -377,23 +377,27 @@ public static class AreaLayouts
             if (i + w < n && dist[i + w] > next) { dist[i + w] = next; queue[tail++] = i + w; }
             if (i >= w && dist[i - w] > next) { dist[i - w] = next; queue[tail++] = i - w; }
         }
+        bool hasFeatures = featureAreas is { Count: > 0 };
         bool InFeature(int x, int y)
         {
-            if (featureAreas is null || featureAreas.Count == 0) return false;
-            foreach (var (x0, y0, x1, y1) in featureAreas)
+            for (int j = 0; j < featureAreas!.Count; j++)
+            {
+                var (x0, y0, x1, y1) = featureAreas[j];
                 if (x >= x0 && x < x1 && y >= y0 && y < y1) return true;
+            }
             return false;
         }
         int best = -1, deepest = -1, fallback = -1, fallbackDeepest = -1;
         for (int i = 0; i < n; i++)
         {
-            if (dist[i] == int.MaxValue) continue;
-            if (InFeature(i % w, i / w))
+            int d = dist[i];
+            if (d == int.MaxValue || (!hasFeatures ? d <= deepest : d <= deepest && d <= fallbackDeepest)) continue;
+            if (hasFeatures && InFeature(i % w, i / w))
             {
-                if (dist[i] > fallbackDeepest) { fallbackDeepest = dist[i]; fallback = i; }
+                if (d > fallbackDeepest) { fallbackDeepest = d; fallback = i; }
                 continue;
             }
-            if (dist[i] > deepest) { deepest = dist[i]; best = i; }
+            if (d > deepest) { deepest = d; best = i; }
         }
         int chosen = best >= 0 ? best : fallback;
         if (chosen < 0) throw new InvalidOperationException("Sequence contains no elements");

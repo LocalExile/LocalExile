@@ -21,6 +21,7 @@ public sealed partial class DelveModule
         public readonly HashSet<uint> Depleted = [];
         public readonly HashSet<uint> Enraged = [];
         public int NikoAt = -1;
+        public (int X, int Y)? NikoPos;
     }
     sealed class SulphiteState
     {
@@ -158,7 +159,7 @@ public sealed partial class DelveModule
                     string type = "Metadata/NPC/League/Delve/DelveMinerWild" + (dep.Type == MapSulphite.Chest ? "Chest" : "Vein");
                     if (Npcs.Find(type) is { Supported: true } npc)
                     {
-                        var at = NikoCell(player, dep);
+                        var at = existing.NikoPos ?? NikoCell(player, dep);
                         lock (player.Npcs) player.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
                         world.SetBlocker(WildNikoId, at.X, at.Y, 2);
                     }
@@ -190,10 +191,9 @@ public sealed partial class DelveModule
         var walkable = layout.Walkable;
         if (walkable is not null)
         {
-            double now = AreaTime(player);
             var playerPositions = player.Instance.PlayersExcept(player.Id).Prepend(player)
                 .Where(p => !p.Closed && !p.LeavingArea)
-                .Select(p => p.Walk.Position(now))
+                .Select(p => p.Walk.Position(AreaTime(p)))
                 .ToList();
             bool OpenNeighbor((int X, int Y) c) =>
                 c.X > 0 && c.Y > 0 && c.X + 1 < layout.GridW && c.Y + 1 < layout.GridH
@@ -210,8 +210,6 @@ public sealed partial class DelveModule
                     var cand = ((int)Math.Round(deposit.X + Math.Cos(a) * radius), (int)Math.Round(deposit.Y + Math.Sin(a) * radius));
                     if (Clear(cand)) return cand;
                 }
-            var fallback = layout.Near((deposit.X + 9, deposit.Y));
-            if (Math.Max(Math.Abs(fallback.X - deposit.X), Math.Abs(fallback.Y - deposit.Y)) >= 8) return fallback;
         }
         return layout.Near((deposit.X + 9, deposit.Y));
     }
@@ -233,6 +231,7 @@ public sealed partial class DelveModule
         lock (player.Npcs) player.Npcs[WildNikoId] = new SpawnedNpc(npc, at.X, at.Y);
         player.SetObjectBlocker(WildNikoId, at.X, at.Y, 2, npc.Components!.Contains("Actor"));
         encounter.NikoAt = deposit.Index;
+        encounter.NikoPos = at;
     }
 
     async Task<bool> MineSulphite(IModuleContext module, Player player, uint objectId, double requestedAt)
