@@ -11,8 +11,8 @@ public static partial class Game
         readonly Dictionary<uint, object> convictionWaves = [];
 
         internal void ReleaseConvictionWave(uint actor, int effect, IReadOnlyDictionary<uint, int> own,
-            IReadOnlyDictionary<uint, int> caster, (int X, int Y) origin, (int X, int Y) aim, Func<bool> current,
-            Action<int, Func<uint, (int X, int Y), bool>> hit, int repeat = 0)
+            IReadOnlyDictionary<uint, int> caster, (int X, int Y) from, (int X, int Y) aim, Func<bool> current,
+            Action<(int X, int Y), int, Func<uint, (int X, int Y), bool>> hit, int repeat = 0)
         {
             var area = SkillAreaStats(Player, own, effect, caster);
             int extra = repeat * own.GetValueOrDefault(SkillArea.IncreasedPerRepeat);
@@ -25,9 +25,10 @@ public static partial class Game
             double fullReach = Math.Floor(16 + duration * (6 + 43 * (1 + radiusPct / 100d)));
             int reach = (int)Math.Min(125, fullReach);
             duration *= reach / fullReach;
+            bool returning = SkillsFor(Player).BehaviourVariation(effect) == 1;
+            var origin = returning && caster.GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0 ? aim : from;
             var direction = GroundSlamWave.Direction(origin, aim);
             if (direction == default) direction = (1, 0);
-            bool returning = SkillsFor(Player).BehaviourVariation(effect) == 1;
             var token = new object();
             convictionWaves[actor] = token;
             long began = Runtime.Now;
@@ -65,7 +66,7 @@ public static partial class Game
                     (contacts ??= []).Add(id);
                 }
                 if (contacts is { } admitted)
-                    hit(scan, (id, _) => admitted.Contains(id));
+                    hit(origin, scan, (id, _) => admitted.Contains(id));
 
                 if (fraction < 1)
                 {

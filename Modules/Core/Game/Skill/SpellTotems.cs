@@ -96,7 +96,7 @@ public static partial class Game
             (Stat.VirtualBaseSpellCastTimeMs, SkillsFor(player).CastTimeMs(gem.Effect)) })
             if (name is var key) payload[key] = value;
         // A totem never walks. Without this the client sends a server-driven action through its own walk-into-range
-        // step, which drops it (11 §"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
+        // step, which drops it (11 Â§"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
         if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
             || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect)))
@@ -111,6 +111,8 @@ public static partial class Game
             var area = SkillAreaStats(player, gem.Stats, gem.Effect, caster);
             double duration = SkillDurationModifiers.Seconds(gem.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
                 caster.GetValueOrDefault, gem.Stats.GetValueOrDefault, DurationKinds(player, gem.Effect));
+            if (SkillsFor(player).IsNova(gem.Effect) && caster.GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
+                payload[Stat.VirtualSelfTargetedSkillsTargetLocationInstead] = 1;
             payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
             payload[Stat.SkillEffectDuration] = (int)Math.Round(1000 * duration);
             payload[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(area.GetValueOrDefault, spell: true);
@@ -491,7 +493,7 @@ public static partial class Game
                     else
                         session.ReleaseConvictionWave(totem.Id, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
                             TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,
-                            (reach, filter) => TotemNovaLocked(player, session, totem, totem.At, reach, sequence,
+                            (origin, reach, filter) => TotemNovaLocked(player, session, totem, origin, reach, sequence,
                                 targetFilter: filter));
                 });
                 continue;

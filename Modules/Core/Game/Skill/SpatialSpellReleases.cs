@@ -91,10 +91,8 @@ public static partial class Game
                 }
                 else if (IsWaveOfConviction(effect))
                 {
-                    var origin = SkillsFor(Player).BehaviourVariation(gem.Effect) == 1
-                        && caster.GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0 ? aim : from;
-                    ReleaseConvictionWave(Player.Id, gem.Effect, source.Stats, caster, origin, aim, CurrentSource,
-                        (reach, filter) => Hit(origin, reach, targetFilter: filter, centred: true), repeat);
+                    ReleaseConvictionWave(Player.Id, gem.Effect, source.Stats, caster, from, aim, CurrentSource,
+                        (origin, reach, filter) => Hit(origin, reach, targetFilter: filter, centred: true), repeat);
                 }
                 else if (IsGroundBladeBlast(effect))
                     ReleaseBladeBlast(gem.Effect, source.Stats, caster, aim, CurrentSource,

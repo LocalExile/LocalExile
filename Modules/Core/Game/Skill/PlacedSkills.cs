@@ -419,7 +419,11 @@ public static partial class Game
                     payload[Stat.SkillEffectDuration] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(baseDuration,
                         n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n), DurationKinds(player, gem.Effect)));
                 if (IsWaveOfConviction(SkillsFor(player).EffectId(gem.Effect)))
+                {
                     payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
+                    if (SkillsFor(player).IsNova(gem.Effect) && playerStats.GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0)
+                        payload[Stat.VirtualSelfTargetedSkillsTargetLocationInstead] = 1;
+                }
                 bool spellArea = !SkillsFor(player).IsAttack(gem.Effect);
                 var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
@@ -798,7 +802,7 @@ public static partial class Game
                     SchedulePurifyingFlame(player, session, placed.Effect, placed.Own,
                         placed.Offense?.Caster ?? CharacterPlayerStats(player), placed.At, impact, Casting,
                         (reach, filter, more, onHit) => PlacedAreaDamageLocked(player, placed, impact, reach,
-                            ProjectileWorldTime(player), inventionMore * more, currentSkill: true, spellDamage: true,
+                            ProjectileWorldTime(player), inventionMore * more, currentSkill: true, spellDamage: true, spatialSpell: true,
                             targetFilter: filter, onHit: onHit)));
             }
             else if (conviction)
@@ -808,8 +812,8 @@ public static partial class Game
                 session.ScheduleContact(ProjectileRuntime.Time(now), Casting, () =>
                     session.ReleaseConvictionWave(placed.Id, placed.Effect, placed.Own,
                         placed.Offense?.Caster ?? CharacterPlayerStats(player), placed.At, targetAt, Casting,
-                        (reach, filter) => PlacedAreaDamageLocked(player, placed, placed.At, reach,
-                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
+                        (origin, reach, filter) => PlacedAreaDamageLocked(player, placed, origin, reach,
+                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true, spatialSpell: true,
                             targetFilter: filter)));
             }
             else if (manabond)
@@ -821,7 +825,7 @@ public static partial class Game
                     var area = ManabondArea(player, placed.Effect, placed.Own, centre,
                         placed.Offense?.Caster ?? CharacterPlayerStats(player));
                     PlacedAreaDamageLocked(player, placed, centre, area.Reach, ProjectileWorldTime(player), inventionMore,
-                        currentSkill: true, spellDamage: true, targetFilter: area.Covers);
+                        currentSkill: true, spellDamage: true, spatialSpell: true, targetFilter: area.Covers);
                 });
             }
             else if (lance)
@@ -832,7 +836,7 @@ public static partial class Game
                     session.ReleaseCracklingLance(placed.Effect, placed.Own,
                         placed.Offense?.Caster ?? CharacterPlayerStats(player), placed.At, impact,
                         (reach, filter, _) => PlacedAreaDamageLocked(player, placed, placed.At, reach,
-                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
+                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true, spatialSpell: true,
                             targetFilter: filter)));
             }
             else if (bladeBlast || unloading)
@@ -845,7 +849,7 @@ public static partial class Game
                     var critical = new SkillCriticalRoll(CriticalExtraRollsFor(player, caster, placed.Own));
                     void Hit((int X, int Y) centre, int radius, double scale) =>
                         PlacedAreaDamageLocked(player, placed, centre, radius, ProjectileWorldTime(player), inventionMore * scale,
-                            currentSkill: true, spellDamage: true, sharedCritical: critical);
+                            currentSkill: true, spellDamage: true, spatialSpell: true, sharedCritical: critical);
                     if (unloading)
                         session.ReleaseBladeBlastOfUnloading(placed.Id, placed.Effect, placed.Own, caster,
                             () => SpellCentre(player, placed.Effect, placed.At, impact), Casting, Hit);
@@ -975,7 +979,8 @@ public static partial class Game
         (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
         PlacedShockNova? shockNova = null, PlacedCascade? cascade = null, ProjectileSession? ruinSession = null,
-        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null,
+        bool spatialSpell = false)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -1008,7 +1013,7 @@ public static partial class Game
         bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
             placed.Own, attack, criticalRoll, owner);
         bool hexblast = hexblastTarget.HasValue;
-        bool targetedSpell = hexblast || arcSplit is not null || shockNova is not null || cascade is not null || ruinSession is not null;
+        bool targetedSpell = spatialSpell || hexblast || arcSplit is not null || shockNova is not null || cascade is not null || ruinSession is not null;
         var mods = targetedSpell ? HitResistMods(playerStats, placed.Own) : default;
         var penetration = targetedSpell ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
         int arcRolls = arcSplit is null ? 0 : ArcExtraRolls(player, ArcSurgingEffect, playerStats);
@@ -1025,6 +1030,7 @@ public static partial class Game
                     || MonsterBlocks(m, AreaRng(player), spell: true))
                 || (cascade is not null || ruinSession is not null) && (m.WorldHidden || MonsterBlocks(m, AreaRng(player), spell: true))
                 || targetFilter is not null && (m.WorldHidden || !targetFilter(id, m.Walk.Position(now)))
+                || spatialSpell && (m.WorldHidden || MonsterBlocks(m, AreaRng(player), spell: true, now, placed.Own))
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
