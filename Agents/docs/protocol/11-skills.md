@@ -1932,7 +1932,7 @@ the contact (`HeldMove`) would align them.
 **Winter Orb** fires `Metadata/Projectiles/FrostFuryMortar` (the effect's own name has no Projectiles row). While
 channelling, a volley every `frost_fury_base_fire_interval_ms` (1200), with the 80% more while channelling and cast
 speed added (`display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed`), lands
-`base_number_of_projectiles` area hits along a line across the nearest enemy. Stages build at the channel cast tick
+its volley along a line across the nearest enemy: the count goes through the general projectile path, so the row's base count plus additional projectiles, with its gates and caps, decides how many area hits land. Stages build at the channel cast tick
 (`hundred_times_casts_per_second` 400 with cast speed, the client's own rate) up to
 `frost_fury_max_number_of_stages` (8) plus quality's `frost_fury_additional_max_number_of_stages`, each adding
 `frost_fury_fire_speed_+%_per_stage` (20; the first none).
