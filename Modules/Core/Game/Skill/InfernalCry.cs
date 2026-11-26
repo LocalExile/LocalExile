@@ -12,16 +12,6 @@ public static partial class Game
 
     sealed record CombustSource(PlayerSkillSource Skill, GemSourceLifetimes.SourceLifetime Lifetime);
 
-    // The attack's critical roll already identifies its paid use across all melee contacts.
-    // Keep the exertion on that same lifetime, including after its one trigger is spent.
-    sealed class InfernalExertion(CombustSource? source)
-    {
-        public readonly CombustSource? Source = source;
-        public bool Triggered;
-    }
-
-    static readonly RuleTable<SkillCriticalRoll, InfernalExertion> InfernalExertions = new();
-
     internal sealed record InfernalCryMark(ProjectileSession Owner, double Until, int Radius, int LifePercent,
         IReadOnlyDictionary<uint, int> Stats, IReadOnlyList<GemSupports.Applied> Supports);
 
@@ -119,21 +109,9 @@ public static partial class Game
             cry.Combust = new(source, CaptureGemSourceLifetimeLocked(player, source));
     }
 
-    static void ConsumeInfernalCry(CryRuntime cry, SkillCriticalRoll attack)
-    {
-        if (cry.InfernalExerts <= 0 || InfernalExertions.TryGetValue(attack, out _)) return;
-        cry.InfernalExerts--;
-        InfernalExertions.AddOrUpdate(attack, new(cry.Combust));
-    }
-
-    static InfernalExertion? InfernalExertionFor(SkillCriticalRoll attack) =>
-        InfernalExertions.TryGetValue(attack, out var exertion) ? exertion : null;
-
-    static void InfernalMeleeHitLocked(Player player, InfernalExertion? exertion, (int X, int Y) contact,
+    static void ReleaseCombust(Player player, CombustSource source, (int X, int Y) contact,
         double at)
     {
-        if (exertion is not { Triggered: false, Source: { } source }) return;
-        exertion.Triggered = true;
         var skill = source.Skill;
         var session = ProjectilesFor(player);
         int epoch = player.ProjectileEpoch;

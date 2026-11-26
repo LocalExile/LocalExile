@@ -329,8 +329,8 @@ public static partial class Game
             var ignite = SupportedIgnite(player, skillId, spell: false, playerStats, swingWeapon);
             var bleed = SupportedBleed(player, skillId, spell: false, playerStats, swingWeapon, melee: true);
             var poison = SupportedPoison(player, skillId, spell: false, playerStats, swingWeapon);
-            var infernal = InfernalExertionFor(criticalRoll);
-            int otherWarcries = (ancestralTargets > 0 ? 1 : 0) + (infernal is null ? 0 : 1);
+            var warcryTriggers = MeleeWarcryTriggersFor(criticalRoll);
+            int otherWarcries = (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
             double ailmentMore = repeatMore * ExertedAttackMore(skillStats, cryExerted, otherWarcries, rallyingDamage);
             ignite = RepeatAilment(ignite, ailmentMore);
             bleed = RepeatAilment(bleed, ailmentMore);
@@ -457,7 +457,8 @@ public static partial class Game
                 CombatRushOnHit(player, skillStats, now);
                 HallowOnMeleeHit(player, m, skillStats, now);
                 ExcommunicateOnMeleeHit(player, m, skillStats, now);
-                if (isStrikeTarget) InfernalMeleeHitLocked(player, infernal, m.Walk.Position(now), now);
+                if (isStrikeTarget && warcryTriggers is not null)
+                    ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(now), now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));
             }
 

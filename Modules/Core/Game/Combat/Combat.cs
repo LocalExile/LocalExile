@@ -526,10 +526,9 @@ public static partial class Game
         bool eligibleWarcry = weapon.Melee && !ranged;
         cryExerted = ConsumeIntimidatingCryExertLocked(player, eligibleWarcry);
         var warcries = eligibleWarcry ? CryOf(player) : null;
-        if (warcries is not null) ConsumeInfernalCry(warcries, criticalRoll);
+        var warcryTriggers = warcries is null ? null : ConsumeMeleeWarcryTriggers(warcries, criticalRoll);
         int ancestralTargets = warcries is null ? 0 : ConsumeAncestralCry(warcries);
         double rallyingMore = 1 + (warcries is null ? 0 : ConsumeRallyingCry(warcries).GetValueOrDefault()) / 100d;
-        var infernal = InfernalExertionFor(criticalRoll);
         PhaseRunOnSkillUse(player, use.SkillId, duration);
         SpiritBurstOnSkillUse(player, target, begun);
         // As GGG does for every action but Move: the client counts unanswered actions and would ask for a resync.
@@ -743,7 +742,7 @@ public static partial class Game
                         BleedReflected(playerStats)) is { } cut)
                     (bled, bleedLog) = (cut, BleedingLog(targetId, m, critical, at));
                 TriggerElementalRelicLocked(player, m, hit: damage > 0, killed: life == 0);
-                if (weapon.Melee) InfernalMeleeHitLocked(player, infernal, target, at);
+                ExertedMeleeHitLocked(player, warcryTriggers, target, at);
                 if (!raged) raged = RageOnHitWithWeaponLocked(player, attack: true, melee: weapon.Melee, critical, weapon.ItemClass);
                 if (weapon.ItemClass is not null) RecordWeaponContactLocked(player, at, weaponContactSource);
                 if (critical) ItemMinionsOnWeaponCriticalLocked(player, weaponContactSource, m, at);
@@ -3042,8 +3041,8 @@ public static partial class Game
             rallyingDamage = rallying;
             if (seismicArea is int area) radiusMore *= SkillArea.RadiusMultiplier(area);
         }
-        var infernal = InfernalExertionFor(criticalRoll);
-        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (infernal is null ? 0 : 1);
+        var warcryTriggers = spell ? null : MeleeWarcryTriggersFor(criticalRoll);
+        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(player));
         if (discharge is not null && discharge.Total == 0)
@@ -4122,8 +4121,8 @@ public static partial class Game
                             skillStats, playerStats: playerStats, secondWeaponClass: secondSweepWeaponClass);
                         if (!spell && SkillsFor(player).IsMelee(gem.Effect))
                         {
-                            if (infernal is not null && !splashMore.ContainsKey(id))
-                                InfernalMeleeHitLocked(player, infernal, m.Walk.Position(at), at);
+                            if (warcryTriggers is not null && !splashMore.ContainsKey(id))
+                                ExertedMeleeHitLocked(player, warcryTriggers, m.Walk.Position(at), at);
                             GainValourFromMeleeLocked(player, m, applied.Value.Life == 0, at, playerStats);
                             CombatRushOnHit(player, skillStats, at);
                             HallowOnMeleeHit(player, m, skillStats, at);

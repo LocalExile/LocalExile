@@ -138,7 +138,7 @@ public static partial class Game
                             Quality(p.Socket, p.Gem), p.Socket));
                 else if (variant.Effect2 >= 0
                     && Supports.Of(variant.Effect2) is { Support: true, Id: SnipeSupportEffect or GeneralsCrySupportEffect
-                        or "SupportBrandSupport" or "SupportIntuitiveLink" or AutomationSupport or AutoexertionSupport })
+                        or "SupportBrandSupport" or "SupportIntuitiveLink" or BattlemagesCrySupport or AutomationSupport or AutoexertionSupport })
                     candidates.Add(new(variant.Effect2, EffectiveGemLevel(player, p.Gem, LocalBonus(p.Socket, p.Gem).Level),
                         Quality(p.Socket, p.Gem), p.Socket));
             }

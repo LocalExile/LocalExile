@@ -6,6 +6,88 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class WarcryExertionTests
 {
+    [Fact]
+    public void Battlemages_Cry_only_links_eligible_spells_and_applies_the_gems_damage_penalty()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        fixture.Equip(("Battlemage's Cry", 1), ("Fireball", 1), ("Grace", 1), ("Essence Drain", 1));
+        var fireball = Game.GemSkillEffects(player).Single(g => g.Name == "Fireball");
+        var grace = Game.GemSkillEffects(player).Single(g => g.Name == "Grace");
+        var drain = Game.GemSkillEffects(player).Single(g => g.Name == "Essence Drain");
+        var linked = Game.SupportedSkill(player, fireball.Id);
+        Assert.Equal(1, linked.Stats[Stat.TriggeredByDivineCry]);
+        Assert.Equal(-44, linked.Stats[Stat.SupportDivineCryDamagePlusPctFinal]);
+        Assert.NotNull(Game.GemSkillInstanceDisabled(player, fireball.Effect, fireball.Id));
+        Assert.Null(Game.GemSkillInstanceDisabled(player, fireball.Effect, fireball.Id, triggered: true));
+        Assert.Equal(0, Game.SupportedSkill(player, grace.Id).Stats.GetValueOrDefault(Stat.TriggeredByDivineCry));
+        var reduced = Game.SupportedHitFor(player, fireball.Id, suppress: false, projectile: true)[DamageType.Fire];
+        double reducedDot = Assert.IsType<MonsterEssenceDrain.Cast>(Game.EssenceDrainCast(player, drain.Id, drain.Effect)).DamagePerSecond;
+
+        var items = Game.ItemsOf(player);
+        var weapon = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        items.Change(PlayerInventories.Weapon1, weapon.Id, item => item with { Links = [1, 3] });
+        var plain = Game.SupportedSkill(player, fireball.Id);
+        Assert.Equal(0, plain.Stats.GetValueOrDefault(Stat.TriggeredByDivineCry));
+        Assert.Null(Game.GemSkillInstanceDisabled(player, fireball.Effect, fireball.Id));
+        var full = Game.SupportedHitFor(player, fireball.Id, suppress: false, projectile: true)[DamageType.Fire];
+        Assert.True(full.Min > 0);
+        Assert.Equal(full.Min * .56, reduced.Min, precision: 5);
+        Assert.Equal(full.Max * .56, reduced.Max, precision: 5);
+        double fullDot = Assert.IsType<MonsterEssenceDrain.Cast>(Game.EssenceDrainCast(player, drain.Id, drain.Effect)).DamagePerSecond;
+        Assert.True(fullDot > 0);
+        Assert.Equal(fullDot * .56, reducedDot, precision: 5);
+    }
+
+    [Fact]
+    public async Task Battlemages_Cry_pays_for_one_spell_per_attack_and_spends_the_unaffordable_exertion()
+    {
+        var clock = new ViperStrikeMambaTests.AttackClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var origin = (X: 100, Y: 100);
+        player.Walk.Teleport(origin.X, origin.Y, clock.At);
+        player.ProjectileRuntimeState = fixture.Session;
+        fixture.Equip(("Battlemage's Cry", 1), ("Fireball", 1), ("Ground Slam", 1));
+        var cry = Game.GemSkillEffects(player).Single(g => Program.Skills.EffectId(g.Effect) == "BattlemagesCry");
+        var slam = Game.GemSkillEffects(player).Single(g => g.Name == "Ground Slam");
+        var spell = Game.GemSkillEffects(player).Single(g => g.Name == "Fireball");
+        var own = Game.SupportedSkill(player, cry.Id).Stats;
+        Assert.Equal(5, own[Stat.SkillEmpowersNextXMeleeAttacks]);
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player)) values[Stat.GlobalAlwaysHit] = 1;
+            return values;
+        });
+        player.Area.Monsters.Add(911, new("Battlemage first target", new(110, 100, 0), 0, 0, 1_000_000));
+        player.Area.Monsters.Add(912, new("Battlemage second target", new(114, 101, 0), 0, 0, 1_000_000));
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            int attackCost = Game.SupportedStats(player, slam.Id).GetValueOrDefault(Stat.ManaCost);
+            int spellCost = Game.SupportedStats(player, spell.Id).GetValueOrDefault(Stat.ManaCost);
+            Assert.True(attackCost > 0 && spellCost > 0);
+
+            async Task<int> Use(int mana)
+            {
+                player.PlayerMana = (uint)mana;
+                player.NextAttackAt = 0;
+                Assert.True(await Game.CastGemSkill(player, slam.Id, origin, (120, 100)));
+                clock.At += 1;
+                fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+                return mana - (int)player.PlayerMana;
+            }
+
+            Assert.Equal(attackCost, await Use(500));
+            Game.GrantBattlemagesCryExertsLocked(player, cry.Id, own, new Dictionary<uint, int>());
+            Assert.Equal(attackCost, await Use(attackCost));
+            for (int i = 0; i < 4; i++) Assert.Equal(attackCost + spellCost, await Use(500));
+            Assert.Equal(attackCost, await Use(500));
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+    }
+
     [Theory]
     [InlineData(2.49, 80)]
     [InlineData(2.50, 0)]

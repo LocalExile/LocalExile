@@ -614,7 +614,7 @@ public static partial class Game
                 }
                 : release is { } launch && definition.Presentation is null ? new() { LaunchHeight = launch.HeightSteps } : null,
         };
-        if (!spell && InfernalExertionFor(criticalRoll) is not null) otherWarcryExertions++;
+        if (!spell) otherWarcryExertions += MeleeWarcryTriggersFor(criticalRoll)?.Count ?? 0;
         shot = shot with { IntimidatingCryExerted = cryExerted, OtherWarcryExertions = otherWarcryExertions, RallyingDamage = rallyingDamage };
         if (forbiddenRite)
             shot = shot with { ForbiddenRite = CaptureForbiddenRite(player, admittedGem, totem, Get, variation) };

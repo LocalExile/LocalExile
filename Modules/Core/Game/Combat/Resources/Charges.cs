@@ -426,6 +426,8 @@ public static partial class Game
                 GrantInfernalCryExertsLocked(player, skillId, own, playerStats);
                 ApplyInfernalCryDebuffLocked(player, skillId, effect, own, here, radius, now);
             }
+            else if (effectId == "BattlemagesCry")
+                GrantBattlemagesCryExertsLocked(player, skillId, own, playerStats);
             var warriors = skillId != 0 && IsGeneralsCry(player, effect)
                 ? GeneralsCryReleased(player, skillId, here, radius, epoch)
                 : Task.CompletedTask;
