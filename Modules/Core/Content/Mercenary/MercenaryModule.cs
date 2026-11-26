@@ -74,7 +74,7 @@ public sealed partial class MercenaryModule : IModule
         GameEvents.Packet(InstanceRulesets.ActionId).Add(id, Choose);
         GameEvents.Kill.Add(id, OnKill);
         GameEvents.MapOpening.Add(id, Opening);
-        GameEvents.Drops.Add(id, WildDrops);
+        GameEvents.Kill.Add(id, WildKilled);
     }
 
     Run? Peek(Player player)

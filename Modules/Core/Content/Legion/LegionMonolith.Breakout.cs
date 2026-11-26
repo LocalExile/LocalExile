@@ -91,7 +91,8 @@ static partial class LegionMonolith
         if (!player.Area.Monsters.TryGetValue(member.Id, out var monster)) return;
         // GetValue keeps an existing hold if two restores race.
         var hold = Holds.GetValue(monster, _ => new Hold(e, member) { Broken = member.Broken, Revealed = member.Revealed });
-        monster.EncounterStats = LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, member);
+        LegionStasis.ScaleFrozen(player, member.Id, monster, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, member), refill: false);
+        monster.NoRewards = true;
         if (hold.Revealed && !hold.Broken) ArmFloor(module, player, hold, monster);
         else { monster.OnNonLethalZero = null; monster.EntranceGrace = true; monster.ScriptHeld = true; }
     }
@@ -200,11 +201,7 @@ static partial class LegionMonolith
                     }
                     LegionStasis.SetOriginState(runner, id, LegionStasis.Revealed);
                     await LegionOutput.ToArea(runner, p => LegionStasis.SendState(p, id, hold.Member.Sequence, LegionStasis.Revealed, 100, null));
-                    int difficulty = LegionScarabs.Difficulty(hold.Member.Breakouts, hold.Member.Spread);
-                    monster.EncounterStats = LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, hold.Member);
-                    // A new stasis cycle refills a larger bar; the final fighting body is built with the same increase.
-                    monster.MaxLife = (uint)Math.Clamp((double)monster.MaxLife * (100 + difficulty) / Math.Max(1, 100 + difficulty - 50), 1, uint.MaxValue);
-                    monster.Life = monster.MaxLife;
+                    LegionStasis.ScaleFrozen(runner, id, monster, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, hold.Member));
                     ArmFloor(module, runner, hold, monster);
                 });
             }
@@ -270,9 +267,7 @@ static partial class LegionMonolith
             }
             foreach (var (h, target) in near.Where(n => !n.Hold.Member.Chest))
             {
-                target.EncounterStats = LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, h.Member);
-                target.MaxLife = (uint)Math.Min(uint.MaxValue, (long)target.MaxLife * 2);
-                target.Life = target.MaxLife;
+                LegionStasis.ScaleFrozen(player, h.Member.Id, target, LegionScarabs.FrozenStats(e.FrozenDamageTakenPct, h.Member));
                 LegionStasis.ShowRewards(player, h.Member.Id, h.Member.Rewards, true);
             }
         }

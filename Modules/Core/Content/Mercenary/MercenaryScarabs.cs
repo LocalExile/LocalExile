@@ -25,8 +25,7 @@ public sealed partial class MercenaryModule
 
     async Task PlaceWilds(Player player, Run run, AreaPopulated area, IReadOnlyDictionary<uint, int> stats, Random rng)
     {
-        if (run.WildsPlanned) return;
-        run.WildsPlanned = true;
+        lock (run) { if (run.WildsPlanned) return; run.WildsPlanned = true; }
         var points = new List<(int X, int Y)>();
         if (run.Stage != Stage.None && stats.GetValueOrDefault(Stat.MapMercanaryAccompaniedByParty) > 0)
             points.AddRange([(run.X + 8, run.Y), (run.X - 8, run.Y)]);
@@ -55,7 +54,7 @@ public sealed partial class MercenaryModule
                     MercenaryBuild = pick.Build.Hash16, StateMachine = States(variety, MercenaryWire.DuelStates), HasDialogue = false, NpcFlags = 0,
                 });
             if (id == 0) continue;
-            run.Wilds.Add(new Wild { Body = id, Class = pick.Kind.Row, Build = pick.Build.Row, X = at.X, Y = at.Y, Equipment = equipment });
+            lock (run) run.Wilds.Add(new Wild { Body = id, Class = pick.Kind.Row, Build = pick.Build.Row, X = at.X, Y = at.Y, Equipment = equipment });
         }
         context.Log($"{player.Layout.Id}: {run.Wilds.Count}/{points.Count} wild mercenaries, {difficulty}% increased difficulty");
     }
@@ -74,27 +73,40 @@ public sealed partial class MercenaryModule
         Save(player, run);
     }
 
-    void WildDrops(DropRoll roll)
+    void WildKilled(KillContext kill)
     {
-        if (Peek(roll.Player) is not { } run) return;
+        var player = kill.Player;
+        if (Peek(player) is not { } run) return;
         Wild? wild;
         lock (run)
         {
-            wild = run.Wilds.FirstOrDefault(w => w.Body == roll.Monster.ObjectId && !w.Paid);
-            if (wild is null || MercenaryTables.ClassOf(wild.Class)?.Path != roll.Monster.VarietyId) return;
+            wild = run.Wilds.FirstOrDefault(w => w.Body == kill.Monster.ObjectId && !w.Paid);
+            if (wild is null || MercenaryTables.ClassOf(wild.Class)?.Path != kill.VarietyId) return;
             wild.Paid = true;
         }
-        Save(roll.Player, run);
-        if (!GameEvents.AllowsLoot(roll.Player) || wild.Equipment.Count == 0) return;
-        var stats = AreaLeagueStats(roll.Player);
-        var rng = AreaRng(roll.Player);
+        Save(player, run);
+        if (!GameEvents.AllowsLoot(player) || Environment.GetEnvironmentVariable("Game_DROPS") == "0" || wild.Equipment.Count == 0) return;
+        var stats = AreaLeagueStats(player);
+        var rng = AreaRng(player);
         // The live item selection weights are not published; equipment is sampled uniformly without replacement.
         var pool = wild.Equipment.ToList();
         int count = rng.Next(100) < stats.GetValueOrDefault(Stat.MapMercenaryDropAllItemsChancePct) ? pool.Count
             : Math.Min(pool.Count, 1 + Math.Max(0, stats.GetValueOrDefault(Stat.MapMercenaryDropAdditionalItems)));
+        var won = new List<Item>();
         for (int i = 0; i < count; i++)
         {
-            int at = rng.Next(pool.Count); roll.Made.Add(pool[at].Item with { Identified = false }); pool.RemoveAt(at);
+            int at = rng.Next(pool.Count); won.Add(pool[at].Item with { Identified = false }); pool.RemoveAt(at);
         }
+        // These varieties suppress generic item rolls; the encounter pays the carried equipment itself.
+        kill.Later(async () =>
+        {
+            foreach (var item in won)
+            {
+                var at = ScatterDropPosition(player, kill.At, rng);
+                var ground = new WorldItemObject(at.X, at.Y, item);
+                uint id = player.Instance.Ground.Add(ground, player);
+                await SendGroundItem(player, id, ground, "Wild Mercenary carried equipment", justDropped: true);
+            }
+        });
     }
 }

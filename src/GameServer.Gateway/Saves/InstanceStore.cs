@@ -534,10 +534,30 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
 
     /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when standalone).</summary>
     public int PackId { get; init; }
+    public bool Scripted { get; init; }
+    public bool NoRewards { get; init; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(StateMachineSnapshotConverter))]
+    public StateMachineData? States { get; init; }
+    public ActorAction? CurrentAction { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
+    public ushort ActorBuild { get; init; }
+
+    public sealed class StateMachineSnapshotConverter : System.Text.Json.Serialization.JsonConverter<StateMachineData>
+    {
+        sealed record Machine(IReadOnlyList<int> SharedStates, int SharedTimers, IReadOnlyList<string>? Names, int[]? Overridden);
+        public override StateMachineData? Read(ref System.Text.Json.Utf8JsonReader reader, Type type, System.Text.Json.JsonSerializerOptions options)
+        {
+            var machine = System.Text.Json.JsonSerializer.Deserialize<Machine>(ref reader, options);
+            return machine is null ? null : new(machine.SharedStates, machine.SharedTimers, machine.Names) { Overridden = machine.Overridden?.ToHashSet() ?? [] };
+        }
+        public override void Write(System.Text.Json.Utf8JsonWriter writer, StateMachineData value, System.Text.Json.JsonSerializerOptions options) =>
+            System.Text.Json.JsonSerializer.Serialize(writer, new Machine(value.SharedStates, value.SharedTimers, value.Names, value.Overridden?.ToArray()), options);
+    }
 
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>
-    public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null)
+    public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null,
+        Func<SpawnedMonster, MonsterObject?>? origin = null)
     {
         var waiting = new HashSet<SpawnedMonster>(unrisen ?? [], ReferenceEqualityComparer.Instance);
         var all = monsters.ToList();
@@ -545,7 +565,12 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
         return [.. all.Concat(waiting.Where(m => !all.Contains(m))).Where(m => !m.Dead && m.OwnerId is null && m.SummonerId is null && m.Variety is not null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
-            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods, PackId = m.PackId };
+            var shown = origin?.Invoke(m);
+            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m))
+            {
+                Mods = m.Mods, PackId = m.PackId, Scripted = m.Scripted, NoRewards = m.NoRewards, States = m.States,
+                CurrentAction = m.Scripted ? shown?.CurrentAction : null, Equipped = shown?.Equipped, ActorBuild = shown?.MercenaryBuild ?? 0,
+            };
         })];
     }
 }

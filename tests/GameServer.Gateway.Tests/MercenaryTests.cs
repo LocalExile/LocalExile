@@ -108,6 +108,18 @@ public sealed class MercenaryTests
             var skills = Game.SkillsFor(owner.Player);
             Assert.DoesNotContain(opponent.Kit, k => BossKits.IsLeavePortal(skills, k.Effect));
 
+            var wild = Read().Wilds[0];
+            var wildBody = owner.Player.Area.Monsters[wild.Body];
+            wildBody.Dead = true;
+            var wildKill = new KillContext(owner.Player, wildBody, wildBody.Variety!.Id, (wild.X, wild.Y));
+            int beforeWildLoot = instance.Ground.All().Count();
+            await GameEvents.RunKill(wildKill);
+            var won = Assert.Single(instance.Ground.All().Skip(beforeWildLoot));
+            Assert.Equal(ItemRarity.Unique, won.Item.Item.Rarity);
+            Assert.Contains(wild.Equipment, w => w.Item.TypeHash == won.Item.Item.TypeHash && w.Item.NameWords.SequenceEqual(won.Item.Item.NameWords));
+            await GameEvents.RunKill(new KillContext(owner.Player, wildBody, wildBody.Variety.Id, (wild.X, wild.Y)));
+            Assert.Equal(beforeWildLoot + 1, instance.Ground.All().Count());
+
             // Its death leaves the hired mercenary, in the hired states and its own team.
             opponent.Dead = true;
             await GameEvents.RunKill(new KillContext(owner.Player, opponent, opponent.Variety!.Id, (duel.X, duel.Y)));

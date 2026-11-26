@@ -92,6 +92,7 @@ public sealed partial class AbyssEncounter
         public List<Body> Bodies = [];
         [JsonIgnore] public double SavedAt;
         [JsonIgnore] public long SavedVersion;
+        [JsonIgnore] public string Snapshot = "";
     }
 
     public sealed record Body(uint Id, string Path, int X, int Y, bool Wave);
@@ -108,7 +109,7 @@ public sealed partial class AbyssEncounter
         return _states.GetValue(instance, _ =>
         {
             var saved = instance.ContentState.TryGetValue(SaveKey, out var text) ? JsonSerializer.Deserialize<List<State>>(text, Json) ?? [] : [];
-            foreach (var state in saved) { state.Random = new Random(state.Seed); state.Area = player.Area; Rebind(player, state); }
+            foreach (var state in saved) { state.Random = new Random(state.Seed); state.Area = player.Area; Rebind(player, state); state.Snapshot = JsonSerializer.Serialize(state, Json); }
             return saved;
         });
     }
@@ -117,9 +118,20 @@ public sealed partial class AbyssEncounter
 
     void Save(Player player)
     {
-        var states = AllOf(player);
-        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(states, Json);
-        foreach (var s in states) { s.SavedAt = s.Now; s.SavedVersion = Version(s); }
+        foreach (var state in AllOf(player)) Save(player, state);
+    }
+
+    void Save(Player player, State state) => SaveSnapshot(player.Instance, AllOf(player), state);
+
+    static void SaveSnapshot(InstanceState instance, IReadOnlyList<State> states, State state)
+    {
+        string snapshot = JsonSerializer.Serialize(state, Json);
+        lock (states)
+        {
+            state.Snapshot = snapshot;
+            instance.ContentState[SaveKey] = "[" + string.Join(",", states.Select(s => s.Snapshot)) + "]";
+            state.SavedAt = state.Now; state.SavedVersion = Version(state);
+        }
     }
 
     static long Version(State s) => HashCode.Combine(s.Stage, s.Pit, s.Chest, s.ChestOpened,
@@ -271,8 +283,10 @@ public sealed partial class AbyssEncounter
         plan = plan with { Slots = scaledSlots, Wave = Enumerable.Range(0, Scale(wave.Count)).Select(i => wave[i % wave.Count]).ToList() };
         var state = new State { Plan = plan, Level = level, Random = rng, Area = player.Area, PitCell = LatCell(plan.PitLattice),
             Seed = rng.Next(), MonsterIncrease = increase, SoulIncrease = stats.GetValueOrDefault(Stat.MapAbyssChasmMonsterQuantityPlusPct) };
-        ((List<State>)AllOf(player)).Add(state);
-        Save(player);
+        var all = (List<State>)AllOf(player);
+        state.Snapshot = JsonSerializer.Serialize(state, Json);
+        lock (all) all.Add(state);
+        Save(player, state);
         return state;
     }
 
@@ -286,7 +300,12 @@ public sealed partial class AbyssEncounter
         foreach (var state in AllOf(player))
         {
         await state.Gate.WaitAsync();
-        try { await Sync(player, state); if (state.DepthEntrance != 0) await ShowDepthEntrance(player, state); }
+        try
+        {
+            await Sync(player, state);
+            if (state.DepthEntrance != 0) await ShowDepthEntrance(player, state);
+            if (state.Crystal != 0) await AbyssScarabs.ShowCrystal(player, state.Crystal, state.PitCell);
+        }
         finally { state.Gate.Release(); }
         }
     }
@@ -328,7 +347,6 @@ public sealed partial class AbyssEncounter
     public async Task Advance(Player player, double seconds)
     {
         foreach (var state in AllOf(player)) await Advance(player, state, seconds);
-        if (AllOf(player).Any(s => s.Now - s.SavedAt >= 1 || s.SavedVersion != Version(s))) Save(player);
     }
 
     async Task Advance(Player player, State state, double seconds)
@@ -368,7 +386,11 @@ public sealed partial class AbyssEncounter
                     return;
             }
         }
-        finally { state.Gate.Release(); }
+        finally
+        {
+            if (state.Now - state.SavedAt >= 1 || state.SavedVersion != Version(state)) Save(player, state);
+            state.Gate.Release();
+        }
     }
 
     /// <summary>A kill (<see cref="GameEvents.Kill"/>: the character's or a minion's), applied at the next tick.</summary>
@@ -437,7 +459,7 @@ public sealed partial class AbyssEncounter
                 await ChestOpened(player, state);
                 await DropReward(player, state);
             }
-            finally { Save(player); state.Gate.Release(); }
+            finally { Save(player, state); state.Gate.Release(); }
         }
         finally
         {
@@ -460,7 +482,7 @@ public sealed partial class AbyssEncounter
             await ChestOpened(player, state);
             await DropReward(player, state);
         }
-        finally { Save(player); state.Gate.Release(); }
+        finally { Save(player, state); state.Gate.Release(); }
         }
     }
 

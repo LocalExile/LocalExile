@@ -44,6 +44,9 @@ public sealed partial class AbyssEncounter
             await ChangeArea(player, new PendingTransfer(parent.Area, parent.Instance, false, ArriveAt: (parent.X, parent.Y)), "Abyssal Depths return");
         else if (state is not null)
         {
+            await state.Gate.WaitAsync();
+            try
+            {
             var origin = player.Instance;
             var pits = AllOf(player);
             var area = new MapDevice.MapArea(AreaTransitionCatalog.HashOf(state.DepthArea)!.Value, state.DepthArea, "Abyssal Depths", 0) { Level = state.Level };
@@ -51,8 +54,10 @@ public sealed partial class AbyssEncounter
             await ChangeArea(player, new PendingTransfer(area.Hash16, state.DepthInstance, state.DepthInstance == 0, AtSpawn: true)
             {
                 Map = run,
-                Done = response => { if (response.Ok) { state.DepthInstance = response.Instance; origin.ContentState[SaveKey] = JsonSerializer.Serialize(pits, Json); } },
+                Done = response => { if (response.Ok) { state.DepthInstance = response.Instance; SaveSnapshot(origin, pits, state); } },
             }, "Abyssal Depths entrance");
+            }
+            finally { state.Gate.Release(); }
         }
         return true;
     }

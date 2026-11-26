@@ -163,6 +163,7 @@ static partial class LegionMonolith
         GameEvents.AreaPopulated.Add(id, area => Place(module, area));
         GameEvents.EnterMessages.Add(id, player => EnterMessages(module, player));
         GameEvents.PlayerEntered.Add(id, player => Enter(module, player));
+        GameEvents.PlayerLeaving.Add(id, (player, _) => LegionStasis.KeepFighters(player));
         GameEvents.AreaTick.Add(id, player => HasLocator(player) ? (p, _) => Tick(module, p) : null);
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
     }
@@ -184,6 +185,9 @@ static partial class LegionMonolith
         var restored = Encounters.GetValue(instance, _ => [.. saved.Select(s => new Encounter(s))]);
         foreach (var e in restored)
         {
+            if (e.Army is { } savedArmy) e.Army = LegionStasis.RebindArmy(player, savedArmy);
+            if (e.ReleasedIds is { } released) e.ReleasedIds = LegionStasis.RebindReleased(player, released);
+            e.GeneralId = e.Army?.FirstOrDefault(m => !m.Chest && m.Tier == 3)?.Id ?? e.GeneralId;
             if (e.Phase == Phase.Running && Multiple(player) && e.Army is { } repeat)
                 e.Army = [.. repeat.Select(m => m.Chest ? m : m with { Broken = false })];
             // The old module's holds were cleared on unload (leaving EntranceGrace true): re-arm holds and non-lethal floors.
@@ -286,6 +290,21 @@ static partial class LegionMonolith
     {
         foreach (var e in AllOf(module, player))
         {
+            lock (e)
+            {
+                if (e.Army is { } old)
+                {
+                    var rebound = LegionStasis.RebindArmy(player, old);
+                    if (!old.Select(m => m.Id).SequenceEqual(rebound.Select(m => m.Id)))
+                    {
+                        e.Army = rebound;
+                        foreach (var member in rebound) Arm(module, player, e, member);
+                    }
+                }
+                if (e.ReleasedIds is { } released) e.ReleasedIds = LegionStasis.RebindReleased(player, released);
+                e.GeneralId = e.Army?.FirstOrDefault(m => !m.Chest && m.Tier == 3)?.Id ?? e.GeneralId;
+                Keep(player, e);
+            }
             await Show(player, e);
             await ShowRules(player, e);
             await LegionStasis.Present(player, e.Army, e.Plan);

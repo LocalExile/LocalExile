@@ -4,13 +4,14 @@ using GameServer.Modding;
 using GameServer.Modules.Legion;
 using GameServer.Modules.Abyss;
 using GameServer.Modules.Mercenary;
+using System.Text.Json;
 
 namespace GameServer.Gateway.Tests;
 
 public sealed class FourFamilyScarabTests
 {
     [Fact]
-    public void Paid_family_inputs_preserve_their_content_plan_and_reward_semantics()
+    public async Task Paid_family_inputs_preserve_their_content_plan_and_reward_semantics()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
         var player = fixture.Player;
@@ -93,7 +94,8 @@ public sealed class FourFamilyScarabTests
             }
         var shaper = Input("ScarabShaperRares4"); MapInfluence.Opening(shaper);
         player.Use(new AreaLayout(beach.Hash16, beach.Id, 600, 600, 10, 10, (_, _) => true, []));
-        player.Instance.OpenedWith(MapDevice.Run.Of(player.Character.Name!, MapDevice.Activate(player.Character.Name!, beach, shaper.Opening!.Mods)));
+        player.Instance.OpenedWith(MapDevice.Run.Of(player.Character.Name!, MapDevice.Activate(player.Character.Name!, beach,
+            shaper.Opening!.Mods.WithFragmentStat(Stat.MapLegionMultipleBreakout, 100))));
         try
         {
             var type = Program.Items.Find("Iron Ring")!;
@@ -110,6 +112,41 @@ public sealed class FourFamilyScarabTests
             var values = hordes.Opening!.Mods.Stats;
             var combined = new MapMods(values).WithContentFlags([MapInfluence.Shaper]);
             Assert.Equal(1.4, Assert.Single(MapInfluence.Requests(combined)).Size, 6);
+
+            var variety = Game.Monsters.Find(LegionData.Current.MonsterVarieties.First(m => Game.Monsters.Find(m.Monster.ToString()) is { Supported: true }).Monster.ToString())!;
+            var action = new ActorAction(0x18fe, 123) { Animation = new AnimationControllerState(0), Payload = new BlobWriter().I32(0).U8(2).U32(100).F32(0).F32(0).ToArray() };
+            uint frozenId = await Game.SpawnMonster(player, variety, 83, MonsterRarity.Normal, 100, 100, scripted: true, currentAction: action,
+                owned: (_, m) => m.NoRewards = true, shape: o => o with { StateMachine = o.StateMachine?.Set("present", 1) });
+            var frozen = player.Area.Monsters[frozenId];
+            SavedMonster Capture(uint id, SpawnedMonster monster) => Assert.Single(SavedMonster.Save([monster], Game.AreaTime(player),
+                origin: _ => player.Instance.World.MonsterOrigins[id].Object));
+            void Forget(uint id) { player.Area.Monsters.Remove(id); player.Instance.World.MonsterOrigins.TryRemove(id, out _); }
+            var saved = JsonSerializer.Deserialize<SavedMonster>(JsonSerializer.Serialize(Capture(frozenId, frozen)))!;
+            Forget(frozenId);
+            uint restoredId = await Game.RestoreMonster(player, variety, saved);
+            Assert.NotEqual(frozenId, restoredId);
+            var restored = player.Area.Monsters[restoredId];
+            Assert.True(restored.Scripted);
+            Assert.True(restored.NoRewards);
+            Assert.Equal(action.Payload, player.Instance.World.MonsterOrigins[restoredId].Object.CurrentAction!.Payload);
+            var member = new LegionStasis.Member(frozenId, 1, 0, 2, false, false, Broken: true, Rewards: [0], Breakouts: 2, Variety: variety.Id, X: saved.X, Y: saved.Y);
+            var rebound = Assert.Single(LegionStasis.RebindArmy(player, [member]));
+            Assert.Equal(restoredId, rebound.Id);
+            uint fighterId = await LegionStasis.Wake(player, rebound, restored, 100, 100, "Karui");
+            var fighter = player.Area.Monsters[fighterId];
+            Assert.True(fighter.Effects[Stat.MaximumLifePlusPct] >= 100);
+            Assert.True(fighter.Effects[Stat.DamagePlusPct] >= 100);
+            await LegionStasis.KeepFighters(player);
+            var fightingSave = Capture(fighterId, fighter); Forget(fighterId);
+            uint newFighterId = await Game.RestoreMonster(player, variety, fightingSave);
+            LegionStasis.RestoreFighters(player);
+            Assert.Equal(3, LegionStasis.FighterOf(player, newFighterId, false)!.RewardFactor);
+            var reward = new DropRoll(player, new MonsterInfo(variety.Id, variety.Name, 83, MonsterRarity.Normal, saved.X, saved.Y) { ObjectId = newFighterId });
+            LegionRewards.Drops(reward);
+            Assert.Equal(3, reward.Quantity);
+            Assert.True(reward.Made.Count + reward.Stacks.Count > 0);
+            Assert.Null(LegionStasis.FighterOf(player, newFighterId, true));
+            LegionStasis.ClearFighters();
         }
         finally { MapDevice.Close(player.Character.Name!); }
     }
