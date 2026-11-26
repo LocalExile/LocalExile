@@ -194,6 +194,7 @@ public static class GatewayProjectileSkillProfiles
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
             "BlazingSalvo" or "BlazingSalvoRoyale" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             "ForbiddenRite" or "ForbiddenRiteAltX" => get(Stat.ForbiddenRiteNumberOfAdditionalProjectiles),
+            "SoulrendAltY" => Math.Max(0, get(Stat.BaseNumberOfProjectilesInSpiralNova) - 1),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
@@ -208,6 +209,7 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (effect == "SoulrendAltY") p = SoulrendSpiral(p, get);
         if (Game.MovingBallLightning(effect)) p = Game.BallLightningPulses(effect, p, get);
         if (Game.IsIceSpear(effect)) p = Game.IceSpearForms(effect, p, get);
         if (IsShatteringSteel(effect) && p.ParallelOrigins is null
@@ -272,6 +274,27 @@ public static class GatewayProjectileSkillProfiles
         // The endpoint cluster uses the same already-resolved quantity as each contact cluster.
         if (p.ContactArea is { } contact) p = p with { EndArea = contact };
         return ScaleAreas(p, effect, get, spell: !attack);
+    }
+
+    static ProjectileProfile SoulrendSpiral(ProjectileProfile profile, Func<uint, int> get)
+    {
+        int basis = get(Stat.BaseNumberOfProjectilesInSpiralNova);
+        int milliseconds = get(Stat.ProjectileSpiralNovaTimeMs);
+        if (basis < 2 || profile.Count < 2 || milliseconds <= 0) return profile;
+
+        // 3.29.3c: 0x141bb6690 keeps the base angular step when supports add bolts and scales the
+        // total duration by the final projectile count. 0x141bb6940 distributes the wait across the gaps.
+        double radians = Math.PI / 180;
+        double start = get(Stat.ProjectileSpiralNovaStartingAngleOffset) * radians;
+        double step = get(Stat.ProjectileSpiralNovaAngle) * radians / (basis - 1);
+        double duration = milliseconds / 1000d * profile.Count / basis;
+        var angles = new double[profile.Count];
+        for (int i = 0; i < angles.Length; i++) angles[i] = start + i * step;
+        return profile with
+        {
+            SequentialDelay = ProjectileRuntime.Time(duration / (profile.Count - 1)),
+            NativeVolley = new() { Angles = angles },
+        };
     }
 
     public static ProjectileProfile WithKineticBoltLegs(ProjectileProfile parent, ushort sequence = 0)

@@ -317,6 +317,8 @@ public static partial class Game
         profile = profile with { Range = range, ReturnOvershoot = range, ContactCells = SkillsFor(player).ProjectileContactCells(profile.Id) };
         if (profile.ReturnChancePercent is > 0 and < 100)
             profile = profile with { ReturnRolls = ReturnRolls(sequence, profile.Count, player.Id, repeatsLeft) };
+        // Keep a release recipe's explicit spiral angles after applying client range, contact and return rules.
+        if (profile.NativeVolley?.Angles is not null) return profile;
         if (get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0 && get(Stat.RandomProjectileDirection) != 0)
             return profile with { NativeVolley = new() { Angles = RandomVolleyAngles(sequence, profile.Count, emitter ?? player.Id, aim, repeatsLeft) } };
         // 0x141bb5e80 (the Disgorge nova and the action's own flags are not tracked here).
@@ -429,8 +431,9 @@ public static partial class Game
         // 3.29.3c client spawn forward offset (0x141ba7840 -> 0x141ba7c30): 30 world units (~2.76 cells) unless
         // projectile_uses_contact_position, projectile_firing_forward_distance_override, or projectiles_not_offset applies.
         double ahead = NativeProjectileForwardCells(Get, release, IsLightningStrike(gem.Effect));
+        bool radialRelease = SkillsFor(player).EffectId(gem.Effect) == "SoulrendAltY" && profile.SequentialDelay > 0;
         // A point closer than the muzzle must not end up behind the released projectile.
-        if (totem is null && from is null && ahead > 0)
+        if (!radialRelease && totem is null && from is null && ahead > 0)
             origin += direction * Math.Min(ahead, (target - origin).Length / 2);
         profile = profile with { Range = PrimaryRange(SkillsFor(player).EffectId(gem.Effect), profile.Range,
             (target - origin).Length, toTarget: rain) };
@@ -593,7 +596,10 @@ public static partial class Game
         }
         uint emitter = totem?.Id ?? player.Id;
         var use = new ProjectileUse(profile, new(emitter, player.ProjectileEpoch), new(emitter, player.ProjectileEpoch), 1, origin, target)
-            { Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft };
+        {
+            Payload = shot, ReturnAnchor = new(emitter, player.ProjectileEpoch), Sequence = sequence, RepeatsLeft = repeatsLeft,
+            RadialLaunchOffset = radialRelease && totem is null && from is null ? ahead : 0,
+        };
         var context = new ProjectileReleaseContext(player, session, skillId, gem, variation, Get, Player, Own)
         {
             NotHandCast = totem is not null || from is not null || sacrifice?.Triggered == true,

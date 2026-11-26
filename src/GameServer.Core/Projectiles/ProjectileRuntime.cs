@@ -72,6 +72,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             var origin = use.Origin;
+            if (use.RadialLaunchOffset > 0)
+            {
+                origin += direction * use.RadialLaunchOffset;
+                projectileUse = projectileUse with { Origin = origin, Aim = origin + direction * use.Profile.Range };
+            }
             if (point != 0 && parallel is not null)
             {
                 origin += new ProjectileVector(forward.Y, -forward.X) * (point * parallel.Lateral)

@@ -321,6 +321,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
     /// <summary>Optional aim chosen at each initial emission. The selected direction keeps the projectile's flight range.</summary>
     public Func<ProjectileVector, ProjectileVector?>? InitialAim { get; init; }
+    /// <summary>Offset each initial projectile from the origin along its own launch direction.</summary>
+    public double RadialLaunchOffset { get; init; }
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }
