@@ -290,6 +290,9 @@ public static partial class Game
         ScheduleGuardPulse(player, guard, now);
         session.Enqueue(() => SendCharacterStats(player, PlayerStatChange.Sources));
         PresentTriggeredGuard(player, now);
+        // An instant skill's 0x1ce runs its action without an animation, so the client plays none of the cast art of
+        // its own: the activation sound of Immortal Call is in that art's sound events.
+        if (guard.Effect == "ImmortalCall") session.Enqueue(() => PresentImmortalCallCast(player));
         Note($"triggered guard {guard.Effect} ({duration:0.###} s)");
         if (cooldown is null) return;
         // The bar entry goes last, after the stats send: a 0x53 rebuild re-creates the slot and resets its entry to the
@@ -304,6 +307,37 @@ public static partial class Game
     }
 
     static ushort GuardRow(string effect) => effect switch { "ImmortalCall" => 110, "MoltenShell" or VaalMoltenShellEffect => 114, _ => 1302 };
+
+    /// <summary>Immortal Call's cast art (MiscAnimated <c>ImmortalCallCast</c>), whose sound events are the activation
+    /// sound.</summary>
+    public const string ImmortalCallCastAo = "Metadata/Effects/Spells/immortal_call/rig.ao";
+
+    /// <summary>
+    /// The cast art of Immortal Call, which the client does not play by itself: its use is an instant skill, and
+    /// S→C 0x1ce runs such an action without an animation. An effect object with Animated bit3 plays the .ao's own
+    /// default animation (and so its SoundEvents); attached to the player's root bone it rides the client's predicted
+    /// position, as Righteous Fire's ring does, and it is removed when the art is over.
+    /// </summary>
+    static async Task PresentImmortalCallCast(Player player)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        var at = player.Walk.Position(AreaTime(player));
+        uint id = player.TakeObjectId();
+        var art = new EffectObject(at.X, at.Y, ImmortalCallCastAo)
+        {
+            AnimatedFlags = 9,
+            Parent = player.Id,
+        };
+        await Send(player,
+            [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()),
+             .. InstanceProtocol.EnterWakeZone(id)],
+            "Immortal Call cast art");
+        SendAfter(player, 2, async () =>
+        {
+            if (player.Closed || player.LeavingArea) return;
+            await Send(player, InstanceProtocol.RemoveObject(id), null);
+        });
+    }
 
     // The guard's buff: its countdown and what it has left to absorb (list[0]); a new guard or a hit sets it again.
     public static void PresentTriggeredGuard(Player player, double now)

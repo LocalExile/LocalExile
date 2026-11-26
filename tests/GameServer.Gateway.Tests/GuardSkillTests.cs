@@ -249,7 +249,9 @@ public sealed class GuardSkillTests
                 Game.SupportedReservationCost(f.Player, aura.Id)!.Value, aura.Level, aura.Quality));
             int bar = packets.FindLastIndex(p => p.Length > 2 && p[0] == 0 && p[1] == 0x53);
             Assert.True(bar >= 0);
-            Assert.DoesNotContain(packets.Skip(bar + 1), p => p[0] == 2 && p[1] == 0xbc && !p.SequenceEqual(frozen));
+            // Only the cooldown entries: an aura's own stat packets share the 0x2bc opcode and may follow the bar.
+            Assert.DoesNotContain(packets.Skip(bar + 1),
+                p => p.Length == frozen.Length && p[0] == 2 && p[1] == 0xbc && !p.SequenceEqual(frozen));
             Assert.Contains(packets.Skip(bar + 1), p => p.SequenceEqual(frozen));
         }
         finally { Program.Outgoing = outgoing; }
