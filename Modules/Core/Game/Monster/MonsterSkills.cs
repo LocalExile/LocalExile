@@ -593,9 +593,18 @@ public static partial class MonsterSkills
         m.BuffStats = Sum(buffs.Active.Select(b => b.Stats));
         // Each use is a buff of its own (its tag), with its countdown.
         if (use.BuffRow > 0)
-            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff));
+            player.Area.Buffs.Set(id, new(use.BuffRow, id, U68: Buff.Seconds(use.Seconds), Tag: buff,
+                List: SelfBuffBehaviourData(use.BuffRow)));
         _ = EndBuff(player, id, m, use, buffs, buff, player.Layout);
     }
+
+    // The buffs whose native behaviour reads the first entries of the 0x1c1 list unchecked, as AuraCatalog gives them
+    // for a player's aura: Tempest Shield's (art variation, hide-visual flag; 0x1417a9410) and Temporal Rift's. Sent
+    // empty, the client read past it and closed a few seconds after Marceus the Defaced cast his Tempest Shield.
+    static uint[]? SelfBuffBehaviourData(ushort row) =>
+        row == AuraCatalog.BuffRow("TempestShield") ? [0u, 0u]
+        : row == AuraCatalog.BuffRow("TemporalRift") ? [42u, 100u]
+        : null;
 
     static async Task EndBuff(Player player, uint id, SpawnedMonster m, MonsterSkillUse use, Buffs buffs, ushort buff, object area)
     {
