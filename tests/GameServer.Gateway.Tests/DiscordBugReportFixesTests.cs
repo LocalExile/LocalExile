@@ -154,6 +154,8 @@ public sealed class DiscordBugReportFixesTests : IDisposable
                 Assert.NotEqual("Metadata/Projectiles/AtlasBasiliskSnakeProjectile", skills.SharedProjectile(row)?.Id);
             }
         Assert.True(borrowers > 0);
+        // monster_fading_projectile_spell still shares its phantasm projectile.
+        Assert.Equal("Metadata/Projectiles/SummonPhantasmFadingProjectile", skills.SharedProjectile(9427)?.Id);
 
         // 2. Merveil fires IceSpear and summons statues/daughters/spawn; Amarissa/Ambrosia start targetable (state 2);
         //    Brutus starts with dialogue_lines = 1.

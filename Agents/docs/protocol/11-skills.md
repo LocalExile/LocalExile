@@ -1067,7 +1067,7 @@ Live 2026-10-17: Hungry Corpses walk up, swing (animated) and lower the player's
   2026-10-30; such faults are logged now). Weapon projectile skills (`monster_projectile_weapon`, SkillID 0) take their projectile from `monster_projectile_variation`:
   its MonsterProjectileAttack row names the Projectiles row (Roc Sentinel 76 LegionMarakethRangedDash, Lioneye 78
   LegionLioneyeSnipeMedium); the server publishes the object itself. The projectile is never borrowed from another
-  GrantedEffects row on the shared `monster_*` ActiveSkill (that gave every monster the basilisk snake).
+  GrantedEffects row on the shared `monster_*` ActiveSkill (that gave weapon effects shaped through `BossKits.ArtShot` the basilisk snake).
   A pending swing reserves its generation through contact, so a blocked send gate cannot reserve duplicate attacks.
   Contact checks the original monster, action generation, life, range, pause and area lifetime at the send gate.
   Boss stages and emergence retain their own timing; the next ordinary action waits for stage completion's final

@@ -191,7 +191,9 @@ The issue #75 native matrices were run on the source LocalExile revisions, not r
     native check of the continuation boundary; the action-speed/Tailwind contract (#246).
   - Combat body geometry: actor positions use integer walk estimates and Gateway actor radii are zero, so area
     coverage is centre-based; calibrate against `ObjectSize`.
-  - Monster weapon projectiles: `monster_projectile_weapon`, `monster_snipe` and `monster_puncture` (109 varieties'
+  - Monster weapon projectiles: weapon attacks with a `monster_projectile_variation` fly their MonsterProjectileAttack
+    projectile in kit shaping (`BossKits.ArtShot`), but the default attack (`MavenNucleus.Shot` → `MonsterProjectile`
+    without weapon attacks) still has none. `monster_snipe` and `monster_puncture` (109 varieties'
     first effect) take their projectile from the monster's weapon art (MonsterVarieties
     `Weapon1_ItemVisualIdentityKeys`, e.g. `SkeletonArrow1`), which the server does not read, so they hit instantly
     with no shot. Monster spell projectiles (`MonsterProjectileSpell`) need their own adapter.

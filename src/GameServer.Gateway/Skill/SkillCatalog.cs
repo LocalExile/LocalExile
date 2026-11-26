@@ -42,6 +42,7 @@ public sealed class SkillCatalog
         _monsterMeleeClocks = LoadMonsterMeleeClocks();
         _summonedMonsters = LoadSummonedMonsters();
         _monsterVarietyRowsById = LoadMonsterVarietyRowsById();
+        _noBorrowSkills = LoadNoBorrowSkills();
         _monsterProjectiles = BuildMonsterProjectiles(false);
         _weaponMonsterProjectiles = BuildMonsterProjectiles(true);
     }
@@ -857,11 +858,11 @@ public sealed class SkillCatalog
     /// 0x1419417c0 → 0x141f67770): the SkillArtVariations rows associated with the GrantedEffects row, then those
     /// associated with its ActiveSkills row, each in row order; the first whose ProjectileArt has the slot and whose
     /// ProjectilesArtVariations Id has a row at the variant gives that row's Projectiles (the first, when there are several:
-    /// none of the rows this is used for has more). The variant is the effect's <c>skill_art_variation</c> (<see cref="ArtVariation"/>), 0 without one (SynthesisColdrend 0, LegionVaalSergeantSoulrend 1). Null when no
+    /// none of the rows this is used for has more). The variant is the effect's <c>skill_art_variation</c> (<see cref="ArtVariation"/>), 0 without one (SynthesisColdRend 10506 art 0, LegionVaalSoulrend 10507 art 1). Null when no
     /// candidate has one: the client then flies nothing from this path.</summary>
-    public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int? artVariant = null)
+    public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int variant = -1)
     {
-        int variant = artVariant ?? ArtVariation(effectRow);
+        if (variant < 0) variant = ArtVariation(effectRow);
         var art = _skillArt;
         IEnumerable<int> candidates = art.ByEffect.GetValueOrDefault(effectRow, []);
         if (_activeSkillOfEffect.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
@@ -880,13 +881,13 @@ public sealed class SkillCatalog
     /// the same ActiveSkills row, the action the client runs for both (<see cref="ProjectileFor"/>: Ethereal Knives'
     /// EtherealKnivesProjectile, Spectral Throw's ThrownWeapon, Essence Drain's Siphon, all live-verified for the player's
     /// gem). A monster's ExileEtherealKnives shares ethereal_knives with the gem's EtherealKnives. Its own row first, then
-    /// the others' in table order; null when none of them names one (a bow's arrow comes from the equipped item:
+    /// the others' in table order; null when none of them names one, except on a skill in <see cref="_noBorrowSkills"/> (monster_projectile_weapon: the effect's own row only; its projectile is its variation row, <see cref="VariationProjectile"/>) (a bow's arrow comes from the equipped item:
     /// projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
     public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
     {
-        // A generic monster_* ActiveSkill (monster_projectile_weapon) is shared by unrelated monsters: another effect's
+        // monster_projectile_weapon is shared by unrelated monsters: another effect's
         // row is not this one's projectile. Its own row, then its variation row (VariationProjectile), only.
-        bool generic = IsGenericMonsterSkill(effectRow);
+        bool generic = _activeSkillOfEffect.TryGetValue(effectRow, out int activeRow) && _noBorrowSkills.Contains(activeRow);
         foreach (int row in generic ? [effectRow] : SameActionEffects(effectRow))
             if (ProjectileFor(row) is { } found)
             {
@@ -896,14 +897,12 @@ public sealed class SkillCatalog
         return null;
     }
 
-    HashSet<int>? _genericMonsterSkills;
+    /// <summary>ActiveSkills whose projectile comes per effect from a variation table (monster_projectile_weapon), so
+    /// <see cref="SharedProjectile"/> never borrows from another effect on them.</summary>
+    private readonly HashSet<int> _noBorrowSkills;
 
-    bool IsGenericMonsterSkill(int effectRow)
-    {
-        _genericMonsterSkills ??= ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
-            .Where(a => a.r.TextOrNull("Id") is { } id && id.StartsWith("monster_", StringComparison.Ordinal)).Select(a => a.i).ToHashSet();
-        return _activeSkillOfEffect.TryGetValue(effectRow, out int active) && _genericMonsterSkills.Contains(active);
-    }
+    HashSet<int> LoadNoBorrowSkills() => ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
+        .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon").Select(a => a.i).ToHashSet();
 
     /// <summary>The projectile the client's own path gives a weapon-attack effect: its <c>monster_projectile_variation</c>
     /// names a MonsterProjectileAttack row, which names the Projectiles row (Roc Sentinel's dash 76 LegionMarakethRangedDash,
