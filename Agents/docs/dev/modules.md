@@ -7,7 +7,7 @@ Which layer a change belongs in: [AGENTS.md](../../../AGENTS.md) ("What goes whe
 | | Mod | Module | League |
 |---|---|---|---|
 | Is | the user's opt-in change or tool | a game system: NPC dialogue, Delve, Pantheons | what a character lives in, shown in game |
-| Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/Core/`, `Legacy/` or `Custom/`, then `<any folders>/<id>/` | `Leagues/<Name>/` |
+| Folder | `Mods/` (gitignored as a whole; installed by the user) | `Modules/Core/`, then `<any folders>/<id>/` | `Leagues/<Name>/` |
 | Entry point | `IMod` | `IModule` | a class deriving `League` in `Source/`, `league.json` and `modules.json` |
 | Loads | any time (a listed one: when a league lists it) | when the Gateway starts, if a league enables it | when the Gateway starts, if its folder exists |
 | Hot reload | yes | yes | its code, yes |
@@ -50,8 +50,7 @@ Beside `league.json`, `modules.json` lists the modules the league loads, Core on
 ```
 
 A league with no `modules.json`, or a module listed twice, does not load. Every league that can be played lists `Core/Game`. The Gateway logs a listed path with no module.
-A league lists a mod only in `mods`. A league that replicates one of GGG's lists only `Core/` and `Legacy/` modules;
-`Custom/` ones are for custom leagues.
+A league lists a mod only in `mods`. A league that replicates one of GGG's lists only modules.
 
 A user's own changes to the lists are in `data/league-modules.json` (`Game_LEAGUE_MODULES` moves it), so the leagues' files stay as
 LocalExile ships them; Auth and the Gateway read both when they start. `add` and `remove` take a listed mod's id too. An added module goes last, so a module before it that
@@ -84,13 +83,8 @@ A catalog type holding some rules stays when `Player` has a field of it (`Charge
 A module has no knowledge of leagues, and is not changed by one. A league needing even a small difference uses a module of its own, which may share code.
 One copy of a module runs for every league listing it, since one connection is in one league; its hooks run per player. A module no league lists does not load.
 
-Modules sit in three folders, and each module in exactly one.
-
-| Folder | Holds | Today |
-|---|---|---|
-| `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
-| `Modules/Legacy/` | like Core, for GGG's past leagues and content | none: Idols and the Phrecia classes are mods |
-| `Modules/Custom/` | content GGG never had, which a custom league may list | none: Survivors is a mod |
+Modules sit in `Modules/Core/`: the current game as GGG runs it, shared by many leagues (the systems below, `Ruthless`).
+GGG's past leagues and content GGG never had are mods in LocalExile-Mods ([modding](modding.md), "Leagues").
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
 mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
@@ -103,7 +97,7 @@ mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.
 - **Limits:** `module.json` (and a mod's `mod.json`) may say which modules and listed mods it cannot share a league with (`"conflicts": ["<id>"]`), and the only ones it may share one with (`"only": ["<id>"]`; the game itself always may).
   A league whose list breaks one does not load, and a user's change that would is an error line. Everything else may be combined.
 - **Without a module:** its hooks do not run, so a hideout has no Horticrafting Station (its reserved spot stays free), its messages reach no handler, and an NPC option nothing answers does nothing. Saved data stays.
-- **To make one:** pick its folder (`Core/`, `Legacy/` or `Custom/`, above), copy `Modules/Core/Content/Heist/` there, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
+- **To make one:** copy `Modules/Core/Content/Heist/` to its folder under `Modules/Core/`, rename the folder and `.csproj`, set the id and `assembly`, add the id to `Modules/Directory.Build.props` if another module uses its internals, and list it in the `modules.json` of the leagues that want it.
 
 ## What a module sees
 

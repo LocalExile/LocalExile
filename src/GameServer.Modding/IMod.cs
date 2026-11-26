@@ -16,8 +16,8 @@ public interface IMod
 }
 
 /// <summary>
-/// A module's entry point: a game system, from an NPC's dialogue to Delve. Modules live in <c>Modules/Core/</c>, <c>Legacy/</c> and
-/// <c>Custom/</c>, load only when a league lists them, and run only for those leagues' players (<see cref="IModuleContext"/>).
+/// A module's entry point: a game system, from an NPC's dialogue to Delve. Modules live in <c>Modules/Core/</c>, load only when a
+/// league lists them, and run only for those leagues' players (<see cref="IModuleContext"/>).
 /// A mod's entry class may be one too: a module that becomes a mod keeps its sources.
 /// </summary>
 public interface IModule
