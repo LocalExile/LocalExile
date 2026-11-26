@@ -70,6 +70,14 @@ public sealed partial class MercenaryModule
             if (found.Value is null) continue;
             wild.Body = found.Key; used.Add(found.Key);
         }
+        if (run.Stage == Stage.Duel && !player.Area.Monsters.ContainsKey(run.Body)
+            && MercenaryTables.ClassOf(run.Class) is { } duelClass && MercenaryTables.BuildOf(run.Build) is { } duelBuild)
+        {
+            var restored = player.Area.Monsters.FirstOrDefault(p => !p.Value.Dead && p.Value.Hostile && !used.Contains(p.Key)
+                && p.Value.Variety?.Id == duelClass.Path
+                && player.Instance.World.MonsterOrigins.TryGetValue(p.Key, out var origin) && origin.Object.MercenaryBuild == duelBuild.Hash16);
+            if (restored.Value is not null) run.Body = restored.Key;
+        }
         Save(player, run);
     }
 

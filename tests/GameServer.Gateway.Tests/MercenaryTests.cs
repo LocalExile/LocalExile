@@ -108,6 +108,22 @@ public sealed class MercenaryTests
             var skills = Game.SkillsFor(owner.Player);
             Assert.DoesNotContain(opponent.Kit, k => BossKits.IsLeavePortal(skills, k.Effect));
 
+            var kept = Assert.Single(SavedMonster.Save([opponent], Game.AreaTime(owner.Player),
+                origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));
+            kept = JsonSerializer.Deserialize<SavedMonster>(JsonSerializer.Serialize(kept))!;
+            Assert.Equal(opponent.Kit.Select(k => k.Effect), kept.OwnedSkillEffects);
+            owner.Player.Area.Monsters.Remove(duel.Body);
+            instance.World.MonsterOrigins.TryRemove(duel.Body, out _);
+            uint restoredDuel = await Game.RestoreMonster(owner.Player, opponent.Variety!, kept);
+            Assert.NotEqual(duel.Body, restoredDuel);
+            var restoredKit = owner.Player.Area.Monsters[restoredDuel].Kit;
+            Assert.Equal(opponent.Kit.Select(k => k.Effect), restoredKit.Select(k => k.Effect));
+            Assert.Equal(opponent.Kit[0].Attack.Damage.AverageTotal, restoredKit[0].Attack.Damage.AverageTotal);
+            await GameEvents.RunPlayerEntered(peer.Player);
+            duel = Read();
+            Assert.Equal(restoredDuel, duel.Body);
+            opponent = owner.Player.Area.Monsters[restoredDuel];
+
             var wild = Read().Wilds[0];
             var wildBody = owner.Player.Area.Monsters[wild.Body];
             wildBody.Dead = true;

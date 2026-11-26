@@ -541,6 +541,8 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
     public ActorAction? CurrentAction { get; init; }
     public IReadOnlyList<VisibleItem>? Equipped { get; init; }
     public ushort ActorBuild { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? OwnedSkillEffects { get; init; }
 
     public sealed class StateMachineSnapshotConverter : System.Text.Json.Serialization.JsonConverter<StateMachineData>
     {
@@ -570,6 +572,7 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
             {
                 Mods = m.Mods, PackId = m.PackId, Scripted = m.Scripted, NoRewards = m.NoRewards, States = m.States,
                 CurrentAction = m.Scripted ? shown?.CurrentAction : null, Equipped = shown?.Equipped, ActorBuild = shown?.MercenaryBuild ?? 0,
+                OwnedSkillEffects = m.OwnedSkillEffects?.ToArray(),
             };
         })];
     }

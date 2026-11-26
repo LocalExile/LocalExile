@@ -238,7 +238,8 @@ public static partial class Game
                 unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk,
                 scripted: saved.Scripted, ownedLooks: saved.Equipped,
                 owned: saved.NoRewards ? (_, m) => m.NoRewards = true : null,
-                shape: o => o with { StateMachine = saved.States ?? o.StateMachine, CurrentAction = saved.CurrentAction, MercenaryBuild = saved.ActorBuild });
+                shape: o => o with { StateMachine = saved.States ?? o.StateMachine, CurrentAction = saved.CurrentAction, MercenaryBuild = saved.ActorBuild },
+                ownedKit: saved.OwnedSkillEffects is { Length: > 0 } effects ? BossKits.KitFromEffects(player, variety, saved.Level, effects) : null);
 
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
@@ -868,7 +869,8 @@ public static partial class Game
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
-                Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
+                Kit = kit, OwnedSkillEffects = ownKit ? kit.Select(k => k.Effect).ToArray() : null,
+                SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
