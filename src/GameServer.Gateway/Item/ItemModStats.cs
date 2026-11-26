@@ -215,6 +215,13 @@ public static class ItemModStats
             .GetValueOrDefault(Stat.LocalMaximumEnergyShieldPlusPctIfItemCorrupted);
         if (conditionalES != 0 && Stat.MaximumEnergyShieldPlusPct is var esKey)
             result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
+
+        // The client stores this trigger on the item, but its wearer can trigger it with any eligible hit.
+        int markLevel = 0;
+        foreach (Item item in items)
+            markLevel = Math.Max(markLevel, LocalValue(item, mods, Stat.CurseOnHitLevelAssassinsMark));
+        if (markLevel > 0)
+            result[Stat.CurseOnHitLevelAssassinsMark] = markLevel;
         return result;
     }
 
