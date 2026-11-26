@@ -108,6 +108,11 @@ public sealed class SupportHitDamageTests
             Assert.Equal(200, Dealt(spells.ForSkill(Get(), spell: true)));
             Assert.Equal(200, Dealt(HitRollModifiers.From(Get()).ForSkill(Get((Stat.ChanceToDealDoubleDamagePct, 100)), spell: false)));
 
+            double AlreadyRolled(HitRollModifiers policy) => policy.ApplyDamageMultiplier(hit, random).MinTotal;
+            Assert.Equal(100, AlreadyRolled(new()));
+            Assert.Equal(200, AlreadyRolled(new(DoubleDamageChance: 100)));
+            Assert.Equal(300, AlreadyRolled(new(DoubleDamageChance: 100, TripleDamageChance: 100)));
+
             // Half triple and half double: a quarter of the hits are doubled, not half.
             var both = HitRollModifiers.From(Get((Stat.ChanceToDealDoubleDamagePct, 50), (Stat.BaseChanceToDealTripleDamagePct, 50)));
             var counts = Enumerable.Range(0, 20000).Select(_ => Dealt(both)).GroupBy(d => d).ToDictionary(g => g.Key, g => g.Count());

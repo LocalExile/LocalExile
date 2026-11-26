@@ -50,7 +50,7 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
     internal DamagePacket ApplyDamageMultiplier(DamagePacket rolled, Random random)
     {
         int multiplier = RollDamageMultiplier(random);
-        return multiplier == 1 ? rolled : rolled.Scale(multiplier);
+        return multiplier == 1 ? rolled : rolled.Scale(factor: multiplier);
     }
 
     /// <summary>Apply the less damage and roll the triple-damage chance, then the double-damage one, then roll each damage
