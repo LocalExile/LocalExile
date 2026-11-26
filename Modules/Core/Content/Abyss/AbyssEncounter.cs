@@ -145,6 +145,7 @@ public sealed partial class AbyssEncounter
         if (stats.GetValueOrDefault(Stat.MapDisableBreachAbyss) > 0 || stats.GetValueOrDefault(Stat.AtlasKeystoneNoExtraContent) > 0
             || (stats.GetValueOrDefault(Stat.MapDisableLeagues) & (1 << AbyssTables.LeagueRow)) != 0) return 0;
         int extra = Math.Max(0, stats.GetValueOrDefault(Stat.MapNumExtraAbysses));
+        natural |= stats.GetValueOrDefault(Stat.MapContainsAbyssDepths) > 0;
         return Math.Min(21, natural ? 1 + 2 * extra : extra > 0 ? 2 * extra - 1 : 0);
     }
 
@@ -786,10 +787,11 @@ public sealed partial class AbyssEncounter
 
     static async Task SpawnWave(Player player, State state)
     {
-        if (state.Final && state.WaveSpawned == 0)
+        if (state.WaveSpawned == 0)
         {
-            string? special = state.Consort ? AbyssScarabs.Consort : state.Spire && AreaLeagueStats(player).GetValueOrDefault(Stat.MapContainsAbyssDepths) <= 0 ? AbyssScarabs.Spire : null;
-            if (special is not null && !state.Plan.Wave.Any(w => w.Path == special)) state.Plan = state.Plan with { Wave = [.. state.Plan.Wave, (special, true)] };
+            if (state.Consort && !state.Plan.Wave.Any(w => w.Path == AbyssScarabs.Consort)) state.Plan = state.Plan with { Wave = [.. state.Plan.Wave, (AbyssScarabs.Consort, true)] };
+            if (state.Final && state.Spire && AreaLeagueStats(player).GetValueOrDefault(Stat.MapContainsAbyssDepths) <= 0
+                && !state.Plan.Wave.Any(w => w.Path == AbyssScarabs.Spire)) state.Plan = state.Plan with { Wave = [.. state.Plan.Wave, (AbyssScarabs.Spire, true)] };
         }
         double dt = state.Now - state.StageAt;
         var wave = state.Plan.Wave;

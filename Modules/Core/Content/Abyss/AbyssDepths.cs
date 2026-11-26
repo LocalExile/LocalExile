@@ -13,7 +13,7 @@ public sealed partial class AbyssEncounter
         var gate = DepthGate(state);
         foreach (var member in player.Instance.PlayersExcept(player.Id).Prepend(player).Distinct())
             if (!member.Layout.AreaTransitions.Any(t => t.Id == state.DepthEntrance))
-                member.Use(member.Layout with { AreaTransitions = [.. member.Layout.AreaTransitions, (state.DepthEntrance, gate)] });
+                member.AddAreaTransition(state.DepthEntrance, gate);
         await Create(player, state.DepthEntrance, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths entrance");
     }
 
@@ -26,7 +26,7 @@ public sealed partial class AbyssEncounter
         uint id = uint.Parse(text);
         var cell = player.Layout.Near((player.Layout.SpawnX + 6, player.Layout.SpawnY));
         var gate = new AreaTransitionObject(cell.X, cell.Y, parent.Area) { Kind = 3 };
-        if (!player.Layout.AreaTransitions.Any(t => t.Id == id)) player.Use(player.Layout with { AreaTransitions = [.. player.Layout.AreaTransitions, (id, gate)] });
+        player.AddAreaTransition(id, gate);
         await Create(player, id, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths return");
     }
 

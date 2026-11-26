@@ -48,6 +48,7 @@ public sealed class FourFamilyScarabTests
         Assert.Equal(3, LegionScarabs.Rewards(2, 100));
         Assert.Equal(200, LegionScarabs.Difficulty(2, true));
         AbyssModule.LoadData();
+        Assert.Equal(1, AbyssEncounter.PitCount(new Dictionary<uint, int> { [Stat.MapContainsAbyssDepths] = 1 }, false));
         MercenaryModule.LoadData();
         foreach (string leaf in Enumerable.Range(1, 4).Select(i => $"ScarabMercenaries{i}"))
         {
