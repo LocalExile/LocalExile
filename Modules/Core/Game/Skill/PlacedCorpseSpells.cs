@@ -60,7 +60,10 @@ public static partial class Game
             var own = device?.Own ?? supported.Stats;
             var combined = MergeSkillStats(caster, own);
             int Get(uint stat) => GolemStat(combined, stat);
-            double basis = life * Get(Stat.CorpseExplosionMonsterLifePermillageFire) / 1000d;
+            int perMille = Get(Stat.CorpseExplosionMonsterLifePermillageFire);
+            // Some effects, including Royale Cremation, store the same base as a whole percent.
+            double fraction = perMille != 0 ? perMille / 1000d : Get(Stat.CorpseExplosionMonsterLifePct) / 100d;
+            double basis = life * fraction;
             if (basis <= 0) return;
             var packet = DamagePacket.Of(DamageType.Fire, basis, basis);
             var conversion = DamageStats.Conversion(combined, Stats, attack: null);
