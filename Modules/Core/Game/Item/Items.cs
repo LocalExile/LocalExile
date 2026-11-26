@@ -916,8 +916,12 @@ public static partial class Game
         var during = UtilityFlasks.DuringEffectSources(local,
             FlaskEffectScaling.Multiplier(flaskCharacter, playerLevel, local.GetValueOrDefault(Stat.LocalFlaskEffectPlusPct),
                 finalMultiplier: finalMultiplier));
+        int? deathEpoch = null;
         await SpendFlask(player, flask, charges, slot, CurrentRecovery,
-            spent => AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get, appliesToPlayer, during));
+            spent => deathEpoch = AcceptRecoveryFlaskLocked(player, slot, spent, type, use, r, copyLife, local, Get,
+                appliesToPlayer, during));
+        if (deathEpoch is int epoch)
+            await RunOnAreaFrame(player, () => PlayerDiedAtEpoch(player, $"death from {type.Name}", epoch));
     }
 
     // Gives each life, mana and utility flask in the flask bar up to `charges` charges (int.MaxValue: full) and saves them (or, for

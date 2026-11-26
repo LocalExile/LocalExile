@@ -16,9 +16,9 @@ public static partial class Game
         return null;
     }
 
-    static bool DecoyCanTaunt(SpawnedMonster monster, TotemState.Totem totem, double now) =>
+    static bool DecoyCanTaunt(SpawnedMonster monster, TotemState.Totem totem, double radius, double now) =>
         TotemTargetable(monster) && !monster.Scripted && !monster.EntranceGrace && monster.Effects[Stat.CannotBeTaunted] == 0
-        && Dist(monster.Walk.Position(now), totem.At) <= totem.DecoyRadius;
+        && Dist(monster.Walk.Position(now), totem.At) <= radius;
 
     static void DecoyTotemUseLocked(Player player, TotemState.Totem totem, double now, WorldRecordBuilder bytes)
     {
@@ -29,24 +29,27 @@ public static partial class Game
             totem.TauntAt = null;
             ApplyDecoyTauntLocked(player, totem, now);
         }
-        if (!player.Area.Monsters.Values.Any(m => DecoyCanTaunt(m, totem, now))
+        if (!player.Area.Monsters.Values.Any(m => DecoyCanTaunt(m, totem, totem.DecoyRadius, now))
             || TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
         totem.TauntAt = now + seconds;
         bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
             totem.GrantedId, ++totem.Sequence, 0x0408));
     }
 
-    public static void ApplyDecoyTauntLocked(Player player, TotemState.Totem totem, double now)
+    public static void ApplyDecoyTauntLocked(Player player, TotemState.Totem totem, double now) =>
+        TauntFromTotemLocked(player, totem, totem.DecoyRadius, FlaskGrounds.TauntSeconds, now);
+
+    static void TauntFromTotemLocked(Player player, TotemState.Totem totem, double radius, double seconds, double now)
     {
-        if (!totem.Alive(now) || totem.DecoyRadius <= 0) return;
+        if (!totem.Alive(now) || radius <= 0 || seconds <= 0) return;
         foreach (var (id, monster) in player.Area.Monsters)
         {
             // Its orders go to the owner's client, which must have been shown the monster (MonsterTargetsLocked).
             if (MonsterAsleep(player, id)
-                || !DecoyCanTaunt(monster, totem, now)
+                || !DecoyCanTaunt(monster, totem, radius, now)
                 || monster.TauntedUntil > now
                 || DecoyTarget(monster, now) is { } previous && !ReferenceEquals(previous.Source, totem)) continue;
-            monster.DecoyTaunt = (player, totem, now + FlaskGrounds.TauntSeconds / monster.RecipientDebuffRate);
+            monster.DecoyTaunt = (player, totem, now + seconds / monster.RecipientDebuffRate);
             monster.Aggro = true;
         }
     }
@@ -190,7 +193,9 @@ public static partial class Game
         var resisted = variety is null ? rolled : rolled.Select((type, range) =>
             range.Scale(1 - DamageModel.Capped(Monsters.BaseResistance(variety, totem.Level, type) ?? 0) / 100.0));
         long damage = Math.Max(0, (long)Math.Round(resisted.AverageTotal * .2));
-        totem.Life = (uint)Math.Max(0, (long)totem.Life - damage);
+        uint before = totem.Life;
+        totem.Life = (uint)Math.Max(0, before - damage);
+        RecoupTotemHitLocked(player, (uint)Math.Min(uint.MaxValue, damage), clock);
         if (totem.Life == 0)
         {
             totem.DiedAt = clock;

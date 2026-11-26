@@ -625,7 +625,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public readonly double[] ExposureShownUntil = new double[3];
     public readonly ushort[] ExposureBuff = new ushort[3];
     // His Withered stacks on it (Game.WitherOnHitLocked): each one's end and chaos damage taken; the buff shown for them.
-    public readonly List<(double Until, double Pct)> Withered = [];
+    public readonly List<(double Until, double Pct, uint? Source)> Withered = [];
     public int WitherShownStacks;
     public double WitherShownUntil;
     public ushort WitherBuff;

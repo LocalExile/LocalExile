@@ -63,8 +63,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal bool FreezingPulseFalloff { get; init; }
     internal int RemainingChainDamagePercent { get; init; }
     internal int CompletedChainDamagePercent { get; init; }
+    internal int DamageIncreasePerChain { get; init; }
+    internal int DamageIncreasePerPierce { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (HitRollModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
+    internal bool OffHandWeapon { get; init; }
     public string? WeaponClass { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
@@ -166,11 +169,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
     };
 
-    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
-    {
-        Min = value.Min * more, Max = value.Max * more,
-        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
-    };
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value.ScaleDamage(more);
 
     static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
     {

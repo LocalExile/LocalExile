@@ -315,6 +315,7 @@ public static partial class Game
             playerStats = new Dictionary<uint, int>(CharacterPlayerStats(player));
             var attackSource = HandWeapon(player, hand);
             var local = attackSource.LocalSources;
+            var ailmentStats = WithWeaponAilmentStats(skillStats, local, offHand: hand == AttackHand.Off);
             var swingWeapon = OffHandSwing(player, hand);
             var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
             var mods = HitResistMods(playerStats, skillStats);
@@ -355,11 +356,13 @@ public static partial class Game
                     continue;
                 }
                 var hitRolls = HitRollsFor(playerStats);
+                var damageRoll = WithIntimidatingCryExert(
+                    (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
+                        intelligence: player.Pools.Intelligence), cryExerted).ForWeapon(local);
+                long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                 var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
-                    GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert(
-                        (hitRolls with { DamageMorePct = 0 }).ForSkill(Stat, spell: false, finalRepeat: repeat == totalRepeats,
-                            intelligence: player.Pools.Intelligence), cryExerted)
-                        .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
+                    GameEvents.WithOutgoingDamage(player, playerStats, m,
+                        damageRoll.RollBeforeCritical(contactHit, AreaRng(player), criticalDoubleDamage)), now);
                 if (m.HallowingFlameUntil > now && rolled[DamageType.Physical].Min is > 0 and var flamePhys)
                 {
                     double flameFire = flamePhys * m.HallowingFlamePct / 100.0;
@@ -372,18 +375,20 @@ public static partial class Game
                     SupportedCriticalChanceVsGround(player, skillId, release: false, SwingWeaponCritical(player, hand)));
                 bool critical = RollCriticalStrike(player, criticalChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                     && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
+                rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
                 int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplierBase, m, local);
                 int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                 var resonance = WithResonanceHitLocked(player, skillStats, rolled, mods, pen, now);
                 rolled = resonance.Packet;
-                var (damage, resistance, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now,
+                int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, playerStats);
+                var (damage, resistance, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: true, now,
                     resonance.Mods, resonance.Penetration,
-                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
-                var taken = MonsterTakenComponents(m, mitigated, spell: false, now);
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), additionalElementalTakenPct: witheredElemental);
+                var taken = MonsterTakenComponents(m, mitigated, spell: false, now, takenRules);
                 if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                 double more = repeatMore * splashMore.GetValueOrDefault(id, 1);
                 if (more != 1) damage = (int)Math.Floor(damage * Math.Max(0, more));
-                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
+                int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage, takenRules);
                 LeechOnHitTargetLocked(player, m, taken, damage, leech, id);
                 damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                     sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats),
@@ -416,9 +421,13 @@ public static partial class Game
                 if (global::Stat.BaseKilledMonsterDroppedItemRarityPlusPct is var rarityKey)
                     m.KilledWithItemRarityPct = skillStats.GetValueOrDefault(rarityKey);
                 SoulEaterHit(player, m);
-                if (hit.Life == 0) DevourOnKill(player, m, skillStats);
-                AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
-                    AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
+                if (hit.Life == 0)
+                {
+                    DevourOnKill(player, m, skillStats);
+                    CaptureAttackKillExplosionLocked(m, playerStats);
+                }
+                AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
+                    AreaRng(player), sourceEffect: gem.Effect, reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(playerStats, skillStats),
                     attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
                 List<byte[]>? ignited = null, bled = null;
