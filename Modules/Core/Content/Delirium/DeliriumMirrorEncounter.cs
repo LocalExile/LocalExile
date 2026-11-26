@@ -403,6 +403,8 @@ public sealed class DeliriumMirrorEncounter
                 state.Stage = MirrorStage.Active;
                 state.OuterElapsed = WaveStart;
                 state.OutOfFogSeconds = 0f;
+                state.FogPaused = false;
+                state.PauseTimer = 0f;
                 state.LastTimerSeconds = 0;
                 state.DepthPercent = 10;
                 state.LastTickAt = AreaTime(player);
@@ -676,6 +678,7 @@ public sealed class DeliriumMirrorEncounter
             {
                 if (state.Stage != MirrorStage.Active) return;
                 state.Stage = MirrorStage.Ended;
+                state.FogPaused = false;
                 state.LastTimerSeconds = 0;
                 state.OutOfFogSeconds = 0f;
                 state.EnsureRewardArrays();

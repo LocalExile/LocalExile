@@ -95,23 +95,28 @@ public class UltimatumStashTests : IDisposable
             Assert.Contains(stored, i => i.X == 10 && i.Y == 0 && i.Item.TypeHash == trial.Hash);
             Assert.Contains(stored, i => i.X == 20 && i.Y == 4 && i.Item.TypeHash == trial.Hash);
 
-            // Overflow-only currencies with tab affinity (Sinistral/Dextral Catalyst -> Ultimatum generic slot, Essence of Desolation -> Essence generic slots) use AddStacked overflow.
-            foreach (string overflowCatalystId in new[] { "Metadata/Items/Currency/CurrencyJewelleryQualityPrefix", "Metadata/Items/Currency/CurrencyJewelleryQualitySuffix" })
-            {
-                var ov = catalog.Find(overflowCatalystId)!;
-                Assert.True(catalog.Stash.Holds(StashRules.Ultimatum, ov.Hash));
-                Assert.Null(catalog.Stash.SlotOf(StashRules.Ultimatum, ov.Hash));
-                var added = stash.AddStacked(tab, ItemCatalog.Create(ov) with { StackSize = 2 }, ShapeOf, out string ovWhy);
-                Assert.NotNull(added);
-                Assert.Equal("", ovWhy);
-            }
-            int essenceTab = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Essence);
+            // Overflow-only currencies with tab affinity (Sinistral/Dextral Catalyst -> Ultimatum GenericSlot (7,0) capped at shape.MaxStack,
+            // Essence of Desolation -> Essence generic slots) actually place and enforce per-cell stack caps via reloaded stash.
+            var genericRing = stored.Single(i => i.X == 7 && i.Y == 0);
+            Assert.NotNull(reloaded.Take(tab, genericRing.Id));
+            var sinistral = catalog.Find("Metadata/Items/Currency/CurrencyJewelleryQualityPrefix")!;
+            Assert.True(catalog.Stash.Holds(StashRules.Ultimatum, sinistral.Hash));
+            Assert.Null(catalog.Stash.SlotOf(StashRules.Ultimatum, sinistral.Hash));
+            var sinistralOver = reloaded.AddStacked(tab, ItemCatalog.Create(sinistral) with { StackSize = (ushort)(sinistral.MaxStack + 5) }, ShapeOf, out string ovWhy);
+            Assert.NotNull(sinistralOver);
+            Assert.Equal("", ovWhy);
+            Assert.Equal(5, sinistralOver!.Left);
+            Assert.Equal(((byte)7, (byte)0, sinistral.MaxStack), (sinistralOver.Added[0].X, sinistralOver.Added[0].Y, sinistralOver.Added[0].Item.StackSize));
+
+            int essenceTab = Enumerable.Range(0, reloaded.Count).Single(i => reloaded.TabType(i) == StashRules.Essence);
             var desolation = catalog.Find("Metadata/Items/Currency/CurrencyEssenceFaridun1")!;
             Assert.True(catalog.Stash.Holds(StashRules.Essence, desolation.Hash));
             Assert.Null(catalog.Stash.SlotOf(StashRules.Essence, desolation.Hash));
-            var desolationAdded = stash.AddStacked(essenceTab, ItemCatalog.Create(desolation) with { StackSize = 3 }, ShapeOf, out string desWhy);
+            var desolationAdded = reloaded.AddStacked(essenceTab, ItemCatalog.Create(desolation) with { StackSize = 3 }, ShapeOf, out string desWhy);
             Assert.NotNull(desolationAdded);
             Assert.Equal("", desWhy);
+            Assert.Equal(0, desolationAdded!.Left);
+            Assert.Equal((ushort)3, desolationAdded.Added.Single().Item.StackSize);
 
             // Multi-cell Delve resonators stay mapped to their own Delve slots instead of entering _trialAreas.
             foreach (string resId in new[] { "Metadata/Items/Delve/DelveStackableSocketableCurrencyReroll2", "Metadata/Items/Delve/DelveStackableSocketableCurrencyReroll4" })

@@ -136,10 +136,13 @@ public class DeliriumHeistTests
         Assert.True(state.Rewards.Length >= 2);
         Assert.True(state.Splinters > 0);
 
-        // Tile 25 (Delirium) includes Cluster Jewels and excludes retired Perandus/Harbinger/Prophecies/Metamorphosis/HardMode orbs.
+        // Tile 25 (Delirium) includes Cluster Jewels plus active Kalguuran (Perandus) and Challenging (Metamorphosis)
+        // Delirium Orbs, and excludes retired Harbinger/Prophecies/HardMode orbs.
         var noGems = new HashSet<int>();
         Assert.Contains(Program.Items.All, t => t.Cluster is not null && DeliriumModule.Eligible(25, t, noGems));
-        Assert.False(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbPerandus")!, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbPerandus")!, noGems));
+        Assert.True(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbMetamorphosis")!, noGems));
+        Assert.False(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbHarbinger")!, noGems));
     }
 
     [Fact]

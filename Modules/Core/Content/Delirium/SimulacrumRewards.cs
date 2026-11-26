@@ -149,10 +149,8 @@ public sealed partial class DeliriumModule
         23 => t.Class == "StackableCurrency" && t.Id.Contains("Oil", StringComparison.Ordinal),
         24 => t.Class == "StackableCurrency" && t.Id.Contains("/CurrencyJewelleryQuality", StringComparison.Ordinal),
         25 => t.Cluster is not null || (t.Id.Contains("/CurrencyAfflictionOrb", StringComparison.Ordinal)
-            && !t.Id.Contains("Perandus", StringComparison.Ordinal)
             && !t.Id.Contains("Harbinger", StringComparison.Ordinal)
             && !t.Id.Contains("Prophecies", StringComparison.Ordinal)
-            && !t.Id.Contains("Metamorphosis", StringComparison.Ordinal)
             && !t.Id.Contains("HardMode", StringComparison.Ordinal)),
         _ => false,
     };

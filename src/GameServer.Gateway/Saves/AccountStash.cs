@@ -1024,25 +1024,24 @@ public sealed partial class AccountStash
             }
             else return null;
             if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
-            int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
+            int SlotMax(int sx, int sy) => Math.Max(1, MaxStack(t, item, shape, sx, sy));
             left = item.StackSize;
-            if (max > 1)
-                foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && i.Item.StackSize < max && (!slotted || spots.Contains((i.X, i.Y))))
-                             .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
-                {
-                    if (left == 0) break;
-                    int take = Math.Min(left, max - s.Item.StackSize);
-                    left -= take;
-                    var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
-                    var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
-                    t.Items[t.Items.IndexOf(s)] = grown;
-                    changed.Add(grown);
-                }
+            foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && i.Item.StackSize < SlotMax(i.X, i.Y) && (!slotted || spots.Contains((i.X, i.Y))))
+                         .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
+            {
+                if (left == 0) break;
+                int take = Math.Min(left, SlotMax(s.X, s.Y) - s.Item.StackSize);
+                left -= take;
+                var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
+                var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
+                t.Items[t.Items.IndexOf(s)] = grown;
+                changed.Add(grown);
+            }
             while (left > 0 && (slotted
                        ? spots.Where(p => !t.Items.Any(i => i.X == p.X && i.Y == p.Y)).Select(p => ((byte, byte)?)((byte)p.X, (byte)p.Y)).FirstOrDefault()
                        : FreeCellIn(t, shape.Width, shape.Height, shapeOf)) is { } cell)
             {
-                int take = Math.Min(left, max);
+                int take = Math.Min(left, SlotMax(cell.Item1, cell.Item2));
                 left -= take;
                 var placed = new InventoryItem(_nextItemId++, cell.Item1, cell.Item2, item with { StackSize = (ushort)take });
                 if (!slotted) placed = PlayerInventories.Completed(placed, shape);
