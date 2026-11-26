@@ -8,9 +8,8 @@ public static partial class Game
     const string PestilentStrikeNova = "Metadata/Effects/Spells/mamba_strike/mamba_nova.ao";
 
     sealed record PestilentMark(Player Caster, double Until, double Seconds, int Radius, int PoisonPercentPerMinute);
-    sealed record PestilentDot(SpawnedMonster Monster, MonsterContagion Damage);
     static readonly RuleTable<SpawnedMonster, PestilentMark> PestilentMarks = new();
-    static readonly RuleTable<GameArea, Dictionary<uint, PestilentDot>> PestilentDots = new();
+    static readonly RuleTable<GameArea, Dictionary<uint, AreaChaosDot>> PestilentDots = new();
 
     static bool IsPestilentStrike(string? effect) =>
         effect is "PestilentStrike" or "PestilentStrikeAltX" or "PestilentStrikeAltY";

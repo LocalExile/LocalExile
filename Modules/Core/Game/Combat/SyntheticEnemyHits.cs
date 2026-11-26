@@ -44,7 +44,7 @@ public static partial class Game
             string mitigation = MitigationLabels(player, shifted, avoided, immune, ninety, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(player) : default;
             bool suppressed = suppress && DamageModel.Suppresses(suppression.Chance,
-                player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+                player.IncomingHitRandom, suppression.Lucky, suppression.Unlucky);
             // Each part through armour and the rest, kept as the damage taken the ailments and recoup read.
             var ailmentTaken = DamagePacket.Empty;
             int physicalDealt = 0, chaosDealt = 0, dealt = 0;

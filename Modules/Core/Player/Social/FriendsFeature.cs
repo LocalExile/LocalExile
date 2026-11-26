@@ -426,8 +426,15 @@ static class FriendsFeature
             if (player.Commands is { } reply) await reply.Reply("You cannot challenge yourself to a duel.");
             return;
         }
+        if (player.Character.Ssf || target.Character.Ssf
+            || player.Character.Hardcore != target.Character.Hardcore
+            || player.Character.LeagueForm != target.Character.LeagueForm
+            || !string.Equals(player.Character.League, target.Character.League, StringComparison.OrdinalIgnoreCase))
+            return;
         if (IsIgnoring(target.Character.Account, player.Character.Account ?? CharacterName(player))) return;
         Console.WriteLine($"[gateway] <= 0x0155 duel challenge: {CharacterName(player)} -> {CharacterName(target)}");
+        await PvpQueue.Enqueue(player, CharacterName(target), otherPlayers: 0, isChallenge: true, showWithdraw: true,
+            nextMatchTimeUnix: 0, opponent: target);
         try
         {
             await SocialFeature.SendTo(target, InstanceSocial.DuelChallengeNotify(CharacterName(player)),

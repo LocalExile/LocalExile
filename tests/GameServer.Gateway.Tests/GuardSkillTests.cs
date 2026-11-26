@@ -116,6 +116,10 @@ public sealed class GuardSkillTests
         Assert.InRange(stored.RemainingBaseMilliseconds, 1490, 1510);
         Assert.False(Game.TriggerGuardReady(f.Player, ended + 2.9));
         // A second cast is refused by the shared guard cooldown before any cost, so nothing is spent.
+        // The guard-end stat refresh can clamp the fixture's oversized mana pool before that comparison.
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Game.ProjectilesFor(f.Player).Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+        await drained.Task;
         mana = f.Player.PlayerMana;
         await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(now));
         Assert.Equal(mana, f.Player.PlayerMana);

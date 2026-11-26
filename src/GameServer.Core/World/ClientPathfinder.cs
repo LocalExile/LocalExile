@@ -465,7 +465,7 @@ public static class ClientPathfinder
 
     // The cells of Line one at a time, with no iterator object: a search's line tests walk thousands of short lines
     // (the coarse pass alone up to 2400 of a dozen cells each).
-    struct LineCells
+    internal struct LineCells
     {
         readonly bool steep;
         readonly int majorEnd, majorLen, minorLen, majorStep, minorStep;

@@ -160,6 +160,7 @@ public sealed record LeagueEntry(string Name, string Description, string SsfPare
 {
     public const byte Private = 0x01, Hardcore = 0x02, Timed = 0x10, Main = 0x80;
     public const byte Variant = 0x02, PlatformHidden = 0x20, Ruthless = 0x40;
+    public const byte PrivateCounted = 0x01;
 
     internal void Write(LoginWriter w) =>
         w.WStr(Name).WStr(Description).WStr(SsfParent).WStr(HardcoreParent).WStr(RuthlessParent).RawU64(RawD0).RawU64(RawD8).RawU64(RawC8)

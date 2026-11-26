@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using GameServer.Core.Accounts;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -111,6 +112,70 @@ public sealed class TriggeredSummonTests
             finally { resume.SetResult(); }
             await Drain(f.Session);
             Assert.Equal(3, f.Player.Summons.Fighters.Count); Assert.Equal(action, f.Player.ActionCount);
+        }
+    }
+
+    [Fact]
+    public async Task Royale_desecrate_commits_corpses_and_its_local_chaos_ground()
+    {
+        var clock = new DesecrateClock();
+        using var f = new Fixture(clock);
+        var player = f.Player;
+        player.Use(new(1, "desecrate-test", 400, 400, 100, 100, (_, _) => true, []) { Sight = (_, _) => 2 });
+        player.Walk.Teleport(100, 100, clock.At);
+        player.Connection.LockstepClient = false;
+        player.Connection.PlayerObjectCreated = true;
+        player.ProjectileRuntimeState = f.Session;
+        var items = Game.ItemsOf(player);
+        var host = Assert.Single(items.Items(PlayerInventories.Weapon1));
+        var type = Program.Items.Find("Metadata/Items/Gems/SkillGemDesecrateRoyale")!;
+        var variant = Assert.Single(Program.Items.Gem(type)!.Variants);
+        var royale = ItemCatalog.Create(type) with { GemVariant = variant.Index };
+        items.Change(PlayerInventories.Weapon1, host.Id, item => item with
+        {
+            Sockets = [new(SocketColour.White, royale)], Links = [1],
+        });
+        var gem = Assert.Single(Game.GemSkillEffects(player));
+        Assert.Equal("DesecrateRoyale", Program.Skills.EffectId(gem.Effect));
+        var inside = Target(901, 110);
+        var outside = Target(902, 140);
+        var previous = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(f.Lifetime, clock);
+        try
+        {
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.True(await Game.CastGemSkill(player, gem.Id, (100, 100), (110, 100)));
+            Assert.Equal(5, player.Summons.Corpses.Count);
+            clock.At += 5;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.InRange(inside.Life, 1u, inside.MaxLife - 1);
+            Assert.Equal(outside.MaxLife, outside.Life);
+            uint life = inside.Life;
+            clock.At += 2;
+            f.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+            Assert.Equal(life, inside.Life);
+        }
+        finally { Game.AreaUpdateContext.Value = previous; }
+
+        SpawnedMonster Target(uint id, int x)
+        {
+            var target = new SpawnedMonster("Desecrate witness", new(x, 100, 0), 0, 0, 10000)
+                { ObjectId = id, Hostile = true, NoRewards = true };
+            player.Area.Monsters[id] = target;
+            player.Area.Grid.Set(new(id), (x, 100));
+            return target;
+        }
+    }
+
+    sealed class DesecrateClock : IPlayerUpdateSchedule
+    {
+        public double At = 3;
+        public double Now(Player player) => At;
+        public async Task Wait(int milliseconds, CancellationToken stopping)
+        {
+            await Task.Yield();
+            stopping.ThrowIfCancellationRequested();
+            At += milliseconds / 1000d;
         }
     }
 

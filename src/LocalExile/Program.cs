@@ -89,6 +89,7 @@ try
     if (withClient) ClientLaunch.AssertNoneRunning();
     if (options.Command == "run") Servers.AssertPortsFree(ports);
 
+    GameServer.Core.Accounts.RetiredFolders.MoveAside(root, DateTime.Now, log.Info, log.Warn);
     ClientInstall.Ensure(options, log);
     Extraction.Run(log);
     ClientInstall.EnsureKeysAndPatch(log);

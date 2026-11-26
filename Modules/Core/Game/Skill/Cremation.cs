@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
-    static bool CremationEffect(string? effect) => effect is "Cremation" or "CremationAltX" or "CremationAltY";
+    static bool CremationEffect(string? effect) => effect is "Cremation" or "CremationAltX" or "CremationAltY" or "CremationRoyale";
 
     public sealed partial class ProjectileSession
     {

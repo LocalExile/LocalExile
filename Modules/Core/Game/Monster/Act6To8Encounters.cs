@@ -296,12 +296,12 @@ internal static class Act6To8Driver
         double now, Func<bool> active)
     {
         if (hits.Count == 0) return;
+        var due = hits.Where(hit => hit.At <= now).OrderBy(hit => hit.At).ToArray();
+        if (due.Length == 0) return;
+        hits.RemoveAll(hit => hit.At <= now);
         var players = ActivePlayers(runner).Where(p => p.PlayerLife > 0 && !p.Paused && !InGracePeriod(p)).ToArray();
-        for (int i = hits.Count - 1; i >= 0; i--)
+        foreach (var h in due)
         {
-            var h = hits[i];
-            if (h.At > now) continue;
-            hits.RemoveAt(i);
             if (!Alive(h.Source) || h.Source.WorldHidden) continue;
             if (h.Generation is int gen && (h.Source.ActionGeneration != gen || MonsterActionFactor(h.Source, now) == 0))
                 continue;

@@ -439,7 +439,7 @@ public static class MonsterKits
             if (spec.ChancePct < 100 && rng.Next(100) >= spec.ChancePct) continue;
             var attack = spec.BaseAttack;
             if (!attack.Damage.IsZero)
-                attack = attack with { Damage = m.Effects.Hit(attack.Damage, m.Level) };
+                attack = attack with { Damage = m.Mods.Effects.Hit(attack.Damage, m.Level) };
             ushort seq = m.NextSequence();
 
             if (spec.CurseUse is { } curse)
@@ -458,8 +458,8 @@ public static class MonsterKits
 
             if (spec.Projectile is { } proj)
             {
-                if (m.Effects.AdditionalProjectiles > 0)
-                    proj = proj with { Count = Math.Min(16, proj.Count + m.Effects.AdditionalProjectiles) };
+                if (m.Mods.Effects.AdditionalProjectiles > 0)
+                    proj = proj with { Count = Math.Min(16, proj.Count + m.Mods.Effects.AdditionalProjectiles) };
                 LaunchDetachedMonsterProjectile(player, id, m, attack with { Projectile = proj }, proj, at, Still, seq);
                 continue;
             }
@@ -507,7 +507,7 @@ public static class MonsterKits
             }
         }
         if (damage.IsZero) damage = a.Damage.Scale(endurance + frenzy + power);
-        else damage = m.Effects.Hit(damage, m.Level);
+        else damage = m.Mods.Effects.Hit(damage, m.Level);
         ClearMonsterChargesLocked(player.Area, id, m);
         return a with { Damage = damage };
     }

@@ -21,7 +21,8 @@ public static partial class Game
     static Dictionary<string, bool> RequalifyChargeConditions(Player player,
         IReadOnlyDictionary<string, bool> captured, IReadOnlyDictionary<uint, int> sources)
     {
-        var flags = new Dictionary<string, bool>(captured);
+        // A copy to requalify, not a read: copying a recorded map would mark every flag read.
+        var flags = captured is ReadFlags recorded ? recorded.CopyUnrecorded() : new Dictionary<string, bool>(captured);
         int Get(uint key) => sources.GetValueOrDefault(key);
         var state = ChargesOf(player).State;
         Func<uint, int> get = Get;   // one delegate for the three types: every stat lookup comes here

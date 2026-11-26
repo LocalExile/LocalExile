@@ -93,9 +93,10 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Public party noticeboard (`0xac`/`0xa2` → `0xad`/`0xa9`) and noticeboard joins (`0x95`) are built (not checked live).
 - Guilds (`0x0140`–`0x014f`, `0x0146`–`0x014c`, `&` chat, shared stash & `0x00cc` reorder): offline verified.
-- PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d): protocol encoders and queue/challenge leave and withdraw handlers
-  in `Modules/Core/Player/Social` (not yet checked live).
+- PvP queue bar (`0x118`/`0x119`, `0x11a`/`0x18d`) and duel triggers (`0x155`/`0x156`) in `Modules/Core/Player/Social`
+  (not yet checked live).
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,

@@ -8,10 +8,9 @@ public static partial class Game
     public static void ApplyRecentSavageHitItemStats(Dictionary<uint, int> stats, StatCatalog catalog,
         IReadOnlyDictionary<string, bool>? flags)
     {
-        if (flags?.GetValueOrDefault(RecentSavageHitItemFlag) != true
-            || !(SavageHitAttackSpeed is var input) || !(Stat.AttackSpeedPlusPct is var output)) return;
+        if (!(SavageHitAttackSpeed is var input) || !(Stat.AttackSpeedPlusPct is var output)) return;
         int value = stats.GetValueOrDefault(input);
-        if (value == 0) return;
+        if (value == 0 || flags?.GetValueOrDefault(RecentSavageHitItemFlag) != true) return;
         stats[output] = ActorScale.Saturate((long)stats.GetValueOrDefault(output) + value);
     }
 }

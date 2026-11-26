@@ -215,7 +215,7 @@ public class DamageTakenTriggerTests
       };
         using var waived = TestRequirements.Waive(player);
         player.Clock.Stop();
-        try { run(player); }
+        try { using (Game.ProjectileMutation(player, advance: false)) run(player); }
         finally { PlayerInventories.Forget(player.Character.Name!); lifetime.Stop(_ => { }); Game.CombatLifetime = oldLifetime; Program.SetGameLogic(old!); TestEnvironment.ReleaseSaves(path); }
     }
 }

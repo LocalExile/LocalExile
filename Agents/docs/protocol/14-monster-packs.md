@@ -414,6 +414,44 @@ A map's area has no MonsterPacks row of its own: its packs are the map's Maps.da
 `PackCatalog.MapPackWeight` (100), at the area's level (Beach 69). The boss at `mapboss` comes from WorldAreas `Bosses`
 as for any area (Beach: Glace). 21-hideouts.md §5.
 
+The signature list is **not** all a map gets, and a map whose list is one single-entry pack would show one variety for
+the whole area (Forbidden Woods: `chaos-vendigo1` → Vendigo only). The rest is a **shared pool**: the 338 `chaos-*`
+MonsterPacks rows that carry a weight for one WorldAreas row no map names (row 168 in this copy, derived at load as the
+row the signature packs name most often, 873 of their 1316 references). A pool pack reaches a map when its `Tags` is
+empty (34 of the 338: those stand anywhere) or one of its `Tags` is one of the area's `AreaTypeTags`. The pool's whole
+tag vocabulary is eight terrain tags (beach, dungeon, cave, forest, swamp, mountain, urban, temple) and every
+`MapWorlds*` area but three names one of them directly.
+
+Measured against the official captures: of the 147 pool packs the 31 captured official map instances can be shown to
+have used, 126 satisfy that rule. The 21 that do not are all in areas whose `AreaTypeTags` is plainly not their
+terrain: every Summit instance (tagged `urban`) used mountain, beach and forest packs, and so did Estuary (`beach`) and
+Pier (`urban`). For Forbidden Woods it is decisive: all 45 pool
+picks across 13 instances carry `forest` where only 45% of the pool does. **Open:** what key those areas use instead of
+`AreaTypeTags`; their topology or tileset is the obvious candidate and no capture settles it.
+
+Three areas name a tag the pool never uses: Forbidden Woods `forestdark`, The Carcass `sewers`, Dry Sea
+`desert_area`/`desert_map_area`. `forestdark` stands for `forest` (`PackCatalog.TagAliases`, from the 45 picks above);
+the other two are left unaliased and take the pool unfiltered, because no capture of either shows which pack tag they
+mean and the alternative would be a guess.
+
+How many pool packs one instance draws is the official server's and is not in the client, so it is our own number
+(`AreaPopulation.MapPoolPacks` = 7, beside `CellsPerPack`): the 31 official instances used 3-8 distinct pool packs each
+(median 5, upper bound 9 where a variety belongs to several packs), and the campaign areas list a median of 5 packs and
+a 90th percentile of 9. The draw is `AreaPopulation.ForInstance`, off `AreaPopulation.PoolSeed` of the instance's
+population seed (a stream of its own, so it does not move when the rest of the plan changes), and it repeats for the
+same (area, hash, seed).
+
+**One set per instance.** `ForInstance` answers an `AreaPacks` whose `Scattered` is the signature packs followed by this
+instance's draw and whose `Pool` is empty, so a second call changes nothing. Everything that picks a monster "out of the
+area's packs" asks `Game.InstancePacks` (kept per instance) rather than reading the catalogue's `Scattered`: the
+scattered population, a strongbox's guards and summons, an Essence's monster, a Harbinger's wave and the Torment dig,
+wherever they run. The Harbinger and Torment on/off checks read the instance's own packs
+(`Game.InstancePacks`: the signature packs plus this instance's draw from the pool), and the Essence opening checks the
+signature packs and the pool alike, so on an ordinary map whose list is empty they start from the pool draw. Unique map
+areas (WorldAreas `IsUniqueMapArea`: The Shaper's Realm, Tower of Ordeals, The Beachhead) have an empty list and get no
+pool; ordinary maps with an empty list (Map2Tier10_3) do get one. The draw's only filter is "has a variety this server can write", which every caller can apply, so no
+two of them draw differently; a pack's members are filtered again where they are placed.
+
 Strand Wake Drowned use a scoped 60-cell calibration, capped by a shorter aggro range. Eight opening events from
 the older 3.29.3b capture support that range. Other emerge types retain 24; general AI parity remains unproven.
 

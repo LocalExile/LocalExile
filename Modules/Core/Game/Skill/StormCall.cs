@@ -56,7 +56,8 @@ public static partial class Game
             StormCallImpactArtSeconds, StrikesTogether: true);
     }
 
-    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity);
+    sealed record StormCallUse(SkillCriticalRoll? Critical, SacrificeUse Sacrifice, double DamageMore, IntensityCast? Intensity,
+        double DotMore, double BeidatMore);
     internal sealed record PlacedStormCallUse(PlacedAreaHit Placement, Func<bool> Current, string? Loop, string? Impact);
 
     public static async Task PlaceStormCall(Player player,
@@ -103,7 +104,8 @@ public static partial class Game
         double now = AreaTime(player);
         var intensity = CastingIntensity(player, skillId);
         marker = new(player.TakeObjectId(), skillId, at, now + duration, repeat, player.ProjectileEpoch,
-            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity));
+            sacrifice.AddedChaos(), new StormCallUse(criticalRoll, sacrifice, damageMore, intensity, GhorrDotMore(player, skillId),
+                CastingBeidatSpell(player, skillId)?.More ?? 1));
         var markers = player.StormCall;
         lock (markers) markers.Place(marker);
         intensity?.Complete();
@@ -205,15 +207,15 @@ public static partial class Game
         }
 
         bool Current() => !player.Closed && !player.LeavingArea && player.ProjectileEpoch == marker.Epoch && player.PlayerLife > 0;
-        await AreaSkillHit(player, marker.Skill, gem, marker.At, marker.At, immediate: true,
+        await AreaSkillHitForUse(null, player, marker.Skill, gem, marker.At, marker.At, immediate: true,
             criticalRoll: use.Critical, repeat: marker.Repeat, sacrifice: use.Sacrifice, damageMore: use.DamageMore,
-            triggeredCurrent: Current);
+            triggeredCurrent: Current, hitAndAilmentMore: use.BeidatMore);
         if (SkillsFor(player).EffectId(gem.Effect) == "StormCallAltX")
         {
             using (ProjectileMutation(player))
                 if (Current() && use.Sacrifice.Current && SameTriggerSource(source, SupportedSkill(player, marker.Skill)))
                     ProjectilesFor(player).PlaceStormCallBlood(marker.At, radius, source.Stats,
-                        CharacterPlayerStats(player), use.DamageMore);
+                        CharacterPlayerStats(player), use.DamageMore * use.DotMore);
         }
     }
 
