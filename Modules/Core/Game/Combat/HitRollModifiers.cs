@@ -40,12 +40,26 @@ public readonly record struct HitRollModifiers(int DamageExtraRolls = 0, int Ene
     public double DamageFactor => Math.Max(0, (100.0 + DamageMorePct) / 100.0);
 
     internal HitRollModifiers ForCriticalStrike(bool critical, IReadOnlyDictionary<uint, int> caster,
-        IReadOnlyDictionary<uint, int>? skill) => !critical ? this : this with
+        IReadOnlyDictionary<uint, int>? skill) => critical ? WithCriticalDoubleDamage(CriticalDoubleDamageOf(caster, skill)) : this;
+
+    internal static long CriticalDoubleDamageOf(IReadOnlyDictionary<uint, int> caster, IReadOnlyDictionary<uint, int>? skill) =>
+        (long)caster.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage)
+            + (skill?.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage) ?? 0);
+
+    HitRollModifiers WithCriticalDoubleDamage(long chance) => this with
     {
-        DoubleDamageChance = ActorScale.Saturate((long)DoubleDamageChance
-            + caster.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage)
-            + (skill?.GetValueOrDefault(Stat.CriticalStrikePctChanceToDealDoubleDamage) ?? 0)),
+        DoubleDamageChance = ActorScale.Saturate(DoubleDamageChance + chance),
     };
+
+    // Ordinary hits keep their existing draw order. A critical-only chance defers the one multiplier roll
+    // until the hit has confirmed its critical strike.
+    internal DamagePacket RollBeforeCritical(DamagePacket hit, Random random, long criticalDoubleDamage) =>
+        criticalDoubleDamage == 0 ? RollOutgoingHit(hit, random)
+            : (DamageFactor == 1 ? hit : hit.Scale(DamageFactor)).Roll(random, DamageExtraRolls);
+
+    internal DamagePacket CompleteCriticalMultiplier(DamagePacket rolled, Random random, bool critical, long criticalDoubleDamage) =>
+        criticalDoubleDamage == 0 ? rolled
+            : (critical ? WithCriticalDoubleDamage(criticalDoubleDamage) : this).ApplyDamageMultiplier(rolled, random);
 
     internal DamagePacket ApplyDamageMultiplier(DamagePacket rolled, Random random)
     {

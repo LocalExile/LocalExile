@@ -158,7 +158,7 @@ public static partial class Game
             && player.PlayerMana >= UnreservedMana(player))
         { state.Mana.Take(at); state.Mana.DiscardRecoveryFraction(); }
     }
-    static void RecordUsedSkillLocked(Player player, double now, int effect = -1, bool loseMana = true)
+    static void RecordUsedSkillLocked(Player player, double now, int effect = -1, bool activated = true)
     {
         if (MapSkillActionSpeedPerUse(player) != 0)
         {
@@ -176,9 +176,9 @@ public static partial class Game
         }
         else player.RecentEvents.Record(StatConditions.UsedSkill, now);
         var raw = StatSourceValues(player);
-        if (effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
+        if (activated && effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
         ApplySiphoningSkillUseLocked(player, now, raw);
-        int loss = loseMana ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
+        int loss = activated ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
         if (loss > 0 && player.PlayerMana != 0)
         {
             uint before = player.PlayerMana, maximum = player.Pools.Mana;

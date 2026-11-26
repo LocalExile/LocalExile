@@ -4,11 +4,14 @@ public static partial class Game
     static void LoseLifeOnCriticalStrikeLocked(Player player, int percent, double now)
     {
         if (percent <= 0 || player.PlayerLife == 0) return;
-        uint lost = (uint)Math.Min(player.PlayerLife, (long)player.PlayerMaxLife * percent / 100);
+        uint before = player.PlayerLife;
+        uint lost = (uint)Math.Min(before, (long)player.PlayerMaxLife * percent / 100);
         if (lost == 0) return;
-        player.PlayerLife = VaalImmortalCallLife(player, player.PlayerLife - lost, now);
+        player.PlayerLife = VaalImmortalCallLife(player, before - lost, now);
+        LeechOf(player).InstantLifeChanged |= player.PlayerLife != before;
         if (player.PlayerLife != 0) return;
         player.InvalidateIncomingHits();
+        ClearWardBreakOnDeath(player);
         RecordHardcoreDeath(player);
         int epoch = player.IncomingHitEpoch;
         ProjectilesFor(player).Enqueue(() => RunOnAreaFrame(player,

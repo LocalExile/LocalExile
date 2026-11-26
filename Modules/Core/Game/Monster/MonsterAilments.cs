@@ -331,7 +331,7 @@ public static partial class Game
             ? HighestElementalDamageTaken(m, mitigated, now) : null;
         int witherAgainstCursed = ActorScale.Saturate((long)Player(Stat.WitheredOnHitChancePctVsCursedEnemies)
             + Skill(Stat.WitheredOnHitChancePctVsCursedEnemies));
-        bool preCursed = witherAgainstCursed != 0 && m.Curses.HasActive(now);
+        bool preCursed = witherAgainstCursed != 0 && m.HasCurses && m.Curses.HasActive(now);
         HitSummonsOnHitLocked(player, m, skill, sourceSkill, now, random);
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)

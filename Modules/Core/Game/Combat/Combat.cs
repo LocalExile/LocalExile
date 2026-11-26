@@ -613,13 +613,15 @@ public static partial class Game
                 if (weapon.Melee)
                     hit = WithMeleeProximityLocked(player, playerStats, ownPenetration, m, hit, contactAt);
                 var hitRolls = HitRollsFor(playerStats);
+                var damageRoll = WithIntimidatingCryExert(hitRolls with { DamageMorePct = 0 }, cryExerted).ForWeapon(weapon.LocalSources);
+                long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, ownPenetration);
                 var ownRolled = GameEvents.WithOutgoingDamage(player, playerStats, m,
-                    WithIntimidatingCryExert(hitRolls with { DamageMorePct = 0 }, cryExerted)
-                        .ForWeapon(weapon.LocalSources).RollOutgoingHit(hit, AreaRng(player)));
+                    damageRoll.RollBeforeCritical(hit, AreaRng(player), criticalDoubleDamage));
                 critical = RollCriticalStrike(player, CriticalChanceOn(player, targetId, HandAttackCriticalChance(player, hand, playerStats),
                         AttackCriticalChanceVsBlinded(player, playerStats, hand: hand), AttackCriticalChanceVsGround(player, playerStats, hand: hand)),
                         ownPenetration, skillRoll: criticalRoll)
                     && GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
+                ownRolled = damageRoll.CompleteCriticalMultiplier(ownRolled, AreaRng(player), critical, criticalDoubleDamage);
                 long weaponMultiplier = (long)AttackCriticalMultiplier(player, playerStats)
                     + ClawDaggerCriticalBonus(weapon, playerStats, ownPenetration);
                 int sourceCriticalMultiplier = CriticalMultiplierWithWeapon(
@@ -1367,22 +1369,22 @@ public static partial class Game
         }
         if (gem.Name is not null && CooldownTriggerController(SkillsFor(player).EffectId(gem.Effect)) != 0)
         {
-            bool accepted = await ToggleCooldownTrigger(player, skillId, Current);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            var (accepted, activated) = await ToggleCooldownTrigger(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to, activated);
             return accepted;
         }
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == ApproachingFlamesEffect)
         {
-            bool accepted = await ToggleApproachingFlames(player, skillId, Current);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            var (accepted, activated) = await ToggleApproachingFlames(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to, activated);
             return accepted;
         }
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == UnhingeEffect)
             return await ToggleUnhinged(player, skillId, gem.Effect, Current);
         if (gem.Name is not null && SkillsFor(player).EffectId(gem.Effect) == MadnessEffect)
         {
-            bool accepted = await ToggleMadness(player, skillId, gem.Effect, Current, cooldownUse);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            var (accepted, activated) = await ToggleMadnessWithActivation(player, skillId, gem.Effect, Current, cooldownUse);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to, activated);
             return accepted;
         }
         // An attack gem swings with the weapon's attack time, like the default attack (see Attack): while the button is held
@@ -1439,7 +1441,7 @@ public static partial class Game
         {
             if (!Current()) return false;
             bool accepted;
-            bool loseMana = true;
+            bool activated = true;
             string? effectId = SkillsFor(player).EffectId(gem.Effect);
             if (StanceCatalog.IsSource(effectId))
             {
@@ -1448,17 +1450,17 @@ public static partial class Game
             }
             else if (effectId == PetrifiedBlood.EffectId)
             {
-                loseMana = !player.PetrifiedBlood.Active;
+                activated = !player.PetrifiedBlood.Active;
                 accepted = await TogglePetrifiedBlood(player, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(player, skillId).Level, SupportedSkill(player, skillId).Quality);
             }
             else
             {
-                loseMana = effectId == "TemporalRift" || !player.Auras.ContainsKey(skillId);
+                activated = effectId == "TemporalRift" || !player.Auras.ContainsKey(skillId);
                 accepted = await ToggleAura(player, skillId, gem.Effect, gem.Name, reservation,
                     SupportedSkill(player, skillId).Level, SupportedSkill(player, skillId).Quality);
             }
-            if (accepted) RecordAcceptedGemUseAt(player, gem.Effect, to, AreaTime(player), loseMana);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to, activated);
             return accepted;
         }
         (int X, int Y) dashFrom = default, dashTo = default;
@@ -1687,12 +1689,12 @@ public static partial class Game
 
     // Record only after payment/cooldown/effect admission. The instant-location path calls this after its own
     // final 0x1ce at-gate commit, so a stale or cancelled Frostblink cannot activate a recent event.
-    static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim) =>
-        RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player));
+    static void RecordAcceptedGemUse(Player player, int effect, (int X, int Y) aim, bool activated = true) =>
+        RecordAcceptedGemUseAt(player, effect, aim, AreaTime(player), activated);
 
-    internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt, bool loseMana = true)
+    internal static void RecordAcceptedGemUseAt(Player player, int effect, (int X, int Y) aim, double acceptedAt, bool activated = true)
     {
-        RecordUsedSkillLocked(player, acceptedAt, effect, loseMana);
+        RecordUsedSkillLocked(player, acceptedAt, effect, activated);
         bool movement = SkillsFor(player).IsMovement(effect);
         if (movement) player.RecentEvents.Record(StatConditions.UsedMovementSkill, acceptedAt);
         if (movement && IsDashEffect(SkillsFor(player).EffectId(effect)))
@@ -3525,11 +3527,13 @@ public static partial class Game
                         continue;
                     }
                     var hitRolls = HitRollsFor(playerStats);
+                    var damageRoll = WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
+                        .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
+                            intelligence: player.Pools.Intelligence), cryExerted == true).ForWeapon(weaponLocal);
+                    long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, !spell, m,
-                        GameEvents.WithOutgoingDamage(player, playerStats, m, WithIntimidatingCryExert((hitRolls with { DamageMorePct = 0 })
-                            .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
-                                intelligence: player.Pools.Intelligence), cryExerted == true)
-                            .ForWeapon(weaponLocal).RollOutgoingHit(contactHit, AreaRng(player))),
+                        GameEvents.WithOutgoingDamage(player, playerStats, m,
+                            damageRoll.RollBeforeCritical(contactHit, AreaRng(player), criticalDoubleDamage)),
                         ProjectileWorldTime(player));
                     double targetHitMore = hex is null ? 1
                         : Math.Max(0, 1 + Stat(global::Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d);
@@ -3574,6 +3578,7 @@ public static partial class Game
                                 attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }
+                    rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(sweepMultiplier, m, weaponLocal);
                     double at = ProjectileWorldTime(player);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, at, playerStats, skillStats);

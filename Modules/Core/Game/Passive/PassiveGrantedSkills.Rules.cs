@@ -371,6 +371,8 @@ public static partial class Game
             int multiplier = CriticalHitMultiplier((long)player.Pools.SpellCriticalStrikeMultiplier
                 + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, own);
             var hitRolls = HitRollsFor(playerStats);
+            var damageRoll = (hitRolls with { DamageMorePct = 0 }).ForSkill(Own, spell: true);
+            long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, own);
             bool rageGranted = false;
             var deaths = new List<(uint Id, SpawnedMonster M)>();
             var charges = new List<PlayerMinions.AcceptedCharges>();
@@ -386,8 +388,9 @@ public static partial class Game
                     ? Profile(Blinded(player, id) ? additionalIncreased : 0, webs)
                     : Blinded(player, id) ? blindedProfile : normalProfile;
                 if (MonsterBlocks(m, AreaRng(player), spell: true)) continue;
-                var rolled = (hitRolls with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, AreaRng(player));
+                var rolled = damageRoll.RollBeforeCritical(profile.Hit, AreaRng(player), criticalDoubleDamage);
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
+                rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
                 double hitAt = ProjectileWorldTime(player);
                 int witheredElemental = WitheredElementalHitTaken(m, player.Id, hitAt, playerStats);
                 var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, hitAt, mods, pen,

@@ -51,7 +51,7 @@ public static partial class Game
             + playerStats.GetValueOrDefault(Stat.ConsecratedGroundEnemyDamageTakenPlusPctWhileAffectedByZealotry));
         // A flask may have waited for payment since capturing its use stats. Resolve the jewel at ground creation.
         int lingerMs = AffectingAuras(player).Any(aura => aura.EffectId == "Zealotry")
-            ? CharacterStatSources(player).Stats.GetValueOrDefault(
+            ? StatSourceValues(player).GetValueOrDefault(
                 Stat.ConsecratedGroundEffectLingersForMsAfterLeavingTheAreaWhileAffectedByZealotry)
             : 0;
         return new(FlaskGrounds.Kind.ConsecratedGround, at.X, at.Y, radius, ends,
