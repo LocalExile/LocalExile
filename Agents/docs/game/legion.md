@@ -125,9 +125,11 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 
 ## Phase 3: Domain of Timeless Conflict
 
-- `MapDeviceRecipes` 30-33 (`AtlasNode` 143 `LegionDomain`, `HASH16 = 50774`) map 2-5 distinct Timeless or Unrelenting
+- `MapDeviceRecipes` 30-33 (`AtlasNode` 143 `LegionDomain`, `HASH16 = 50774`) map 2-5 distinct Timeless
   Emblems (`BaseItemTypes` 3055-3064, `MapFragmentFamilies` 15-19) to `WorldAreas` 1328-1331 (`LegionLeague`..`LegionLeague4`,
   no `MonsterPacks`, `Environments` 1177). Timer `15 + 60 * emblemCount` s, from `map_legion_endless_mode_+_s`.
+  3.29.0 removed the Unrelenting Timeless Emblems ("existing items have been converted to regular Timeless Emblems"): the five
+  Unrelenting rows count as their faction's regular emblem (its family and mods), with no uber Domain, drop or reward scaling.
   GUESS: area level `80 + min(4, uberCount)` (`WorldAreas` say 80; no level stat is in the emblem mods).
 - The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) and `LegionDomainRewardCrystal`
   (`active`) at `LegionEndgame_EncounterLocator`; quest flag `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`.
@@ -153,7 +155,6 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Per-revival stats of the emblems (suffix `_per_revival`), summed over the emblems used and times the revival count. Timeless
   (`Mods` 21228-21232), all with `uber_domain_monster_tankiness_+%` 10: Karui crit chance 50 and crit multiplier 5, Maraketh attack
   and cast speed 5, Eternal accuracy 10 and area of effect 5, Templar penetrate all resistances 3, Vaal phys-as-chaos 5.
-  Unrelenting (21238-21242), all with `maximum_life_+%` 10: Karui life regeneration 60 and avoid stun 20, Maraketh attack and cast
-  speed 10 and movement speed 10, Eternal crit chance 50 and crit multiplier 3, Templar additional physical damage reduction 4 and
-  all resistances 4, Vaal damage 10 (and penetration 0). GUESS: the cap of 10 revival stacks, and the life stacking as increased.
+  The Unrelenting rows' own mods (`Mods` 21238-21242, `maximum_life_+%` 10 and other stats) are not applied (3.29.0 removed them).
+  GUESS: the cap of 10 revival stacks.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

@@ -115,7 +115,7 @@ static class LegionArmy
 
     /// <summary>Plans the Endless Domain of Timeless Conflict armies for 2..5 slotted factions using the MinLevel=101
     /// endless rank rows (LegionRanks 56..59, revival cooldowns 6s/6s/16s/24s, *Endless varieties for Tier 1).</summary>
-    public static ArmyPlan PlanEndless(LegionData data, IReadOnlyList<string> factionIds, int level, int packSizePct, int uberRewardPct, Random rng)
+    public static ArmyPlan PlanEndless(LegionData data, IReadOnlyList<string> factionIds, int level, int packSizePct, Random rng)
     {
         var endlessRanks = data.Ranks.Where(r => MinLevelOf(data, r.BalanceKey) > MaxLevel).ToDictionary(r => r.Row);
         var pool = RewardPool(data, level);
@@ -159,7 +159,6 @@ static class LegionArmy
                         for (int j = 0; j < per[i]; j++)
                         {
                             int rCount = tier == 3 ? 2 : 1;
-                            if (uberRewardPct > 0 && rng.Next(100) < Math.Clamp(uberRewardPct, 0, 100)) rCount++;
                             rewards[j] = RollRewards(pool, rCount, rng);
                         }
                     }

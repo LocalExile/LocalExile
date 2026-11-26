@@ -41,8 +41,9 @@ public sealed class LegionData
     /// <summary>One of the four Domain of Timeless Conflict areas (WorldAreas LegionLeague..LegionLeague4, 2..5 emblems).</summary>
     public sealed record DomainArea(int Row, ushort Hash16, string Id, string Name, int BaseLevel, int[] ModRows);
 
-    /// <summary>A Timeless Emblem or Unrelenting Timeless Emblem (BaseItemTypes 3055..3064) and its MapFragmentMods entry.</summary>
-    public sealed record EmblemInfo(int BaseRow, string BaseId, uint TypeHash, string Name, string FactionId, int Family, bool Uber, int[] ModRows);
+    /// <summary>A Timeless Emblem (BaseItemTypes 3055..3064) and its MapFragmentMods entry. An Unrelenting one (removed in 3.29.0,
+    /// existing items converted to regular emblems) carries its regular emblem's family and mods.</summary>
+    public sealed record EmblemInfo(int BaseRow, string BaseId, uint TypeHash, string Name, string FactionId, int Family, int[] ModRows);
 
     /// <summary>A LegionRewardTypeVisuals row: its minimap icon (MinimapIcons row; the monster stat is the row + 1),
     /// its MiscAnimatedKey (.ao floating symbol above clickable chests) and its scale (__col4). The client draws the symbol by row.</summary>
@@ -179,10 +180,15 @@ public sealed class LegionData
                 fragModsByBase[baseRow] = (fm.IntOrNull("MapFragmentFamilies") ?? -1, fm.Ints("ModsKeys"));
         var emblemsByRow = new Dictionary<int, EmblemInfo>();
         var emblemsByHash = new Dictionary<uint, EmblemInfo>();
+        const string EmblemPrefix = "Metadata/Items/MapFragments/CurrencyLegionFragment";
+        var regularRows = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var bt in ClientTables.TableOrEmpty("BaseItemTypes"))
+            if (bt.Text("Id") is { } rid && rid.StartsWith(EmblemPrefix, StringComparison.Ordinal) && !rid.EndsWith("Uber", StringComparison.Ordinal))
+                regularRows[rid] = bt.Index;
         foreach (var bt in ClientTables.TableOrEmpty("BaseItemTypes"))
         {
-            if (bt.Text("Id") is not { } bid || !bid.StartsWith("Metadata/Items/MapFragments/CurrencyLegionFragment", StringComparison.Ordinal)) continue;
-            string suffix = bid["Metadata/Items/MapFragments/CurrencyLegionFragment".Length..];
+            if (bt.Text("Id") is not { } bid || !bid.StartsWith(EmblemPrefix, StringComparison.Ordinal)) continue;
+            string suffix = bid[EmblemPrefix.Length..];
             bool uber = suffix.EndsWith("Uber", StringComparison.Ordinal);
             string key = uber ? suffix[..^4] : suffix;
             string? faction = key switch
@@ -195,8 +201,9 @@ public sealed class LegionData
                 _ => null,
             };
             if (faction is null) continue;
-            var (family, modRows) = fragModsByBase.TryGetValue(bt.Index, out var entry) ? entry : (-1, []);
-            var info = new EmblemInfo(bt.Index, bid, InstanceEntities.ObjectTypeHash(bid), bt.Text("Name") ?? bid, faction, family, uber, modRows);
+            int modsRow = uber && regularRows.TryGetValue(bid[..^4], out int regular) ? regular : bt.Index;
+            var (family, modRows) = fragModsByBase.TryGetValue(modsRow, out var entry) ? entry : (-1, []);
+            var info = new EmblemInfo(bt.Index, bid, InstanceEntities.ObjectTypeHash(bid), bt.Text("Name") ?? bid, faction, family, modRows);
             emblemsByRow[bt.Index] = info;
             emblemsByHash[info.TypeHash] = info;
         }

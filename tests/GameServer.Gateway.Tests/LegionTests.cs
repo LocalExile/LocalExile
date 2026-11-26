@@ -169,18 +169,16 @@ public sealed class LegionTests
             Assert.Equal(10 * n * 3, LegionDomain.RevivalToughness(req.Opening.Mods.Stats, 3));
             Assert.True(LegionDomain.UberRevivalStats(req.Opening.Mods.Stats, 3)!.ContainsKey(Stat.PhysicalDamagePctToAddAsChaos) || n < 5);
         }
+        // 3.29.0: an Unrelenting emblem is its faction's regular emblem: the same area, level and mods, no uber stats.
         var uberReq = new MapOpening(opener, [.. uberIds.Select(EmblemSlot)], false, null, "");
         LegionDomain.ResolveOpening(uberReq);
+        var regularReq = new MapOpening(opener, [.. normalIds.Select(EmblemSlot)], false, null, "");
+        LegionDomain.ResolveOpening(regularReq);
         Assert.NotNull(uberReq.Opening);
         Assert.Equal("LegionLeague4", uberReq.Opening!.Area.Id);
-        Assert.Equal(84, uberReq.Opening.Area.Level);
-        Assert.Equal(5, uberReq.Opening.Mods.Get(Stat.MapNumLegionUberFragments));
-        var revivalStats = LegionDomain.UberRevivalStats(uberReq.Opening.Mods.Stats, 2);
-        Assert.NotNull(revivalStats);
-        Assert.True(revivalStats!.GetValueOrDefault(Stat.DamagePlusPct) > 0);
-        Assert.True(revivalStats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPct) > 0);
-        Assert.Equal(250, LegionDomain.RevivalLifePct(uberReq.Opening.Mods.Stats, 5));
-        Assert.Equal(500, LegionDomain.RevivalLifePct(uberReq.Opening.Mods.Stats, 50));
+        Assert.Equal(regularReq.Opening!.Area.Level, uberReq.Opening.Area.Level);
+        Assert.Equal(0, uberReq.Opening.Mods.Get(Stat.MapNumLegionUberFragments));
+        Assert.Equal(regularReq.Opening.Mods.Stats.OrderBy(kv => kv.Key), uberReq.Opening.Mods.Stats.OrderBy(kv => kv.Key));
         var oneReq = new MapOpening(opener, [EmblemSlot(normalIds[0])], false, null, "");
         LegionDomain.ResolveOpening(oneReq);
         Assert.Null(oneReq.Opening);
@@ -329,9 +327,9 @@ public sealed class LegionTests
         var upgraded = Assert.Single(splinterStacks);
         Assert.Equal("Metadata/Items/MapFragments/CurrencyLegionFragmentKarui", upgraded.Item);
         Assert.Equal(40, upgraded.Count);
-        // Phase 3: Endless army planning (MinLevel=101, *Endless Tier 1 varieties, 6s/16s/24s revival CDs) & Timeless Jewels / Stasis Prison.
+        // Phase 3: Endless army planning (MinLevel=101, *Endless Tier 1 varieties, 6s/16s/24s revival CDs) & Timeless Jewels.
         string[] fiveFactions = ["Karui", "EternalEmpire", "Vaal", "Templar", "Maraketh"];
-        var endlessPlan = LegionArmy.PlanEndless(data, fiveFactions, 84, 0, 50, new Random(123));
+        var endlessPlan = LegionArmy.PlanEndless(data, fiveFactions, 84, 0, new Random(123));
         Assert.Equal(5, endlessPlan.Factions.Length);
         Assert.All(endlessPlan.Factions, f =>
         {
@@ -351,16 +349,12 @@ public sealed class LegionTests
             Assert.NotNull(TimelessJewelCatalog.Read(jewel, catalog.Mods));
         }
         var domainDummy = new Player(new AreaLayout(0x1e9, "LegionLeague4", 400, 400, 200, 200, (_, _) => true, []), 1, 1);
-        var stasis = LegionRewards.CreateStasisPrison(domainDummy, 84, new Random(1));
-        Assert.NotNull(stasis);
-        Assert.False(stasis!.Identified);
-        Assert.Equal(84, stasis.ItemLevel);
-        // 5-way Domain end-burst drops faction Timeless Jewels and can drop Unrelenting Timeless Emblems from killed Generals.
+        // 5-way Domain end-burst drops faction Timeless Jewels; Unrelenting Emblems no longer exist (3.29.0).
         bool sawUberEmblem = false, sawTimelessJewel = false;
         var fiveKills = fiveFactions.ToDictionary(f => f, _ => 3);
-        for (int seed = 1; seed <= 40 && !(sawUberEmblem && sawTimelessJewel); seed++)
+        for (int seed = 1; seed <= 40; seed++)
         {
-            var burst = LegionRewards.RollDomainRewards(domainDummy, [0, 1, 15], fiveKills, totalKills: 120, factionCount: 5, uberCount: 0, level: 80, new Random(seed));
+            var burst = LegionRewards.RollDomainRewards(domainDummy, [0, 1, 15], fiveKills, totalKills: 120, factionCount: 5, level: 80, new Random(seed));
             foreach (var item in burst)
             {
                 string? bid = catalog.ByHash(item.TypeHash)?.Id;
@@ -370,6 +364,6 @@ public sealed class LegionTests
             }
         }
         Assert.True(sawTimelessJewel, "5-way Domain must drop Timeless Jewels from defeated Generals");
-        Assert.True(sawUberEmblem, "4/5-way Domain Generals must be able to drop Unrelenting Timeless Emblems");
+        Assert.False(sawUberEmblem, "no Unrelenting Timeless Emblems drop in 3.29");
     }
 }

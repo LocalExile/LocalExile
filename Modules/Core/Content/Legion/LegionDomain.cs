@@ -8,13 +8,13 @@ namespace GameServer.Modules.Legion;
 
 /// <summary>
 /// Phase 3: Domain of Timeless Conflict (<c>WorldAreas</c> <c>LegionLeague</c>..<c>LegionLeague4</c>, 2–5 emblems).
-/// Resolves 2–5 normal or Unrelenting Timeless Emblems in the Map Device (<see cref="ResolveOpening"/>), claims the
+/// Resolves 2–5 Timeless Emblems in the Map Device (<see cref="ResolveOpening"/>; an Unrelenting one counts as its regular emblem, 3.29.0), claims the
 /// <c>"Legion"</c> scarab content tag for standard maps, places the central <see cref="InitiatorType"/> (ControlZone)
 /// and <see cref="RewardCrystalType"/> on <see cref="GameEvents.PlayerEntered"/> (Domain areas have 0 MonsterPacks),
 /// drives the endless radial armies as LegionRevive ghosts (<see cref="LegionRevive"/>) with per-rank revival cooldowns
 /// (<c>MinLevel = 101</c>: 6 s / 16 s / 24 s) and revival waves while a player stands in the control zone (<see cref="PickWave"/>),
-/// Unrelenting per-revival monster scaling, reward accumulation, and the
-/// end-of-timer Timeless Jewel / Stasis Prison / reward burst around the central crystal.
+/// per-revival monster scaling, reward accumulation, and the
+/// end-of-timer Timeless Jewel / reward burst around the central crystal.
 /// </summary>
 static class LegionDomain
 {
@@ -65,7 +65,7 @@ static class LegionDomain
         uint GhostId = 0, ushort Sequence = 0, double RiseAt = double.NegativeInfinity, int RiseStep = 0);
 
     sealed record SavedDomain(uint InitiatorId, uint CrystalId, int X, int Y, float? Z, int Level, int Phase,
-        string[] Factions, int UberCount, double TimerSeconds, double WaveSeconds,
+        string[] Factions, double TimerSeconds, double WaveSeconds,
         double StartedAt, double EndsAt, double LastWaveAt,
         int Waves, int TotalKills, Dictionary<string, int> GeneralKills, List<int> BankedRewards,
         FighterSlot[] Slots, uint ZoneId = 0, uint PerimeterId = 0);
@@ -77,7 +77,6 @@ static class LegionDomain
         public float? Z = s.Z;
         public DomainPhase Phase = (DomainPhase)s.Phase;
         public string[] Factions = s.Factions;
-        public int UberCount = s.UberCount;
         public double TimerSeconds = s.TimerSeconds, WaveSeconds = s.WaveSeconds > 0 ? s.WaveSeconds : DefaultWaveSeconds;
         public double StartedAt = s.StartedAt, EndsAt = s.EndsAt;
         public double LastWaveAt = s.LastWaveAt;
@@ -132,7 +131,7 @@ static class LegionDomain
         }
 
         public SavedDomain Snapshot() => new(InitiatorId, CrystalId, X, Y, Z, Level, (int)Phase,
-            Factions, UberCount, TimerSeconds, WaveSeconds, StartedAt, EndsAt, LastWaveAt,
+            Factions, TimerSeconds, WaveSeconds, StartedAt, EndsAt, LastWaveAt,
             Waves, TotalKills, new(GeneralKills, StringComparer.Ordinal), [.. BankedRewards], [.. Slots], ZoneId, PerimeterId);
     }
 
@@ -253,8 +252,7 @@ static class LegionDomain
         }
 
         var domainArea = data.DomainAreas[Math.Clamp(emblems.Count - 2, 0, data.DomainAreas.Count - 1)];
-        int uberCount = emblems.Count(e => e.Uber);
-        int areaLevel = Math.Clamp(domainArea.BaseLevel + Math.Min(4, uberCount), 1, 100);
+        int areaLevel = Math.Clamp(domainArea.BaseLevel, 1, 100);
         var mods = ComposeDomainMods(domainArea, emblems, Program.Items.Mods);
         var mapArea = new MapDevice.MapArea(domainArea.Hash16, domainArea.Id, domainArea.Name, 0)
         {
@@ -308,11 +306,6 @@ static class LegionDomain
     /// (every Timeless Emblem carries 10).</summary>
     public static int RevivalToughness(IReadOnlyDictionary<uint, int> areaStats, int revivalCount) =>
         revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterTankinessPlusPctPerRevival) * Math.Min(MaxRevivalStacks, revivalCount);
-
-    /// <summary>The increased maximum life gained per revival: the Unrelenting emblems' uber_domain_monster_maximum_life_+%_per_revival (10 each).
-    /// GUESS: it stacks as increased (additive with the monster's other maximum_life_+%).</summary>
-    public static int RevivalLifePct(IReadOnlyDictionary<uint, int> areaStats, int revivalCount) =>
-        revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterMaximumLifePlusPctPerRevival) * Math.Min(MaxRevivalStacks, revivalCount);
 
     /// <summary>Per-revival EncounterStats of the emblems used (summed over them, times the revival count) for a monster revived
     /// in a Domain of Timeless Conflict. The consumers today are damage_+% and the phys-as-chaos gain (hit damage); the rest is
@@ -412,9 +405,8 @@ static class LegionDomain
         {
             var stats = LegionMonolith.AreaStats(player);
             string[] factions = ResolveFactions(stats, player.Layout.Id);
-            int uberCount = Math.Max(0, stats.GetValueOrDefault(Stat.MapNumLegionUberFragments));
             int mapLevel = player.Instance.Map?.Area.Level ?? 0;
-            int level = Math.Clamp(mapLevel > 0 ? mapLevel : 80 + Math.Min(4, uberCount), 1, 100);
+            int level = Math.Clamp(mapLevel > 0 ? mapLevel : 80, 1, 100);
             double timerSec = TimerSecondsFor(stats, factions.Length);
             int pulseMs = stats.GetValueOrDefault(Stat.MapLegionEndlessMonolithPulseTimeMs);
             double waveSec = pulseMs >= 3000 ? pulseMs / 1000.0 : DefaultWaveSeconds;
@@ -427,17 +419,15 @@ static class LegionDomain
             // The army is planned now: its soldiers lie on the arena before the start.
             var rng = global::Game.AreaRng(player);
             int packSizePct = stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct);
-            int uberRewardPct = stats.GetValueOrDefault(Stat.UberDomainMonsterRewardChancePlusPct)
-                + stats.GetValueOrDefault(Stat.DisplayLegionUberFragmentImprovedRewardsPlusPct);
-            var plan = LegionArmy.PlanEndless(LegionData.Current, factions, level, packSizePct, uberRewardPct, rng);
+            var plan = LegionArmy.PlanEndless(LegionData.Current, factions, level, packSizePct, rng);
             var slots = BuildRadialSlots(player, near.X, near.Y, plan, rng);
             var saved = new SavedDomain(player.TakeObjectId(), CrystalSupported ? player.TakeObjectId() : 0,
-                near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions, uberCount,
+                near.X, near.Y, cz, level, (int)DomainPhase.Waiting, factions,
                 timerSec, waveSec, 0, 0, double.NegativeInfinity,
                 0, 0, [], [], slots, player.TakeObjectId(), player.TakeObjectId());
             state = Domains.GetValue(instance, _ => new DomainState(saved));
             lock (state) Keep(player, state);
-            module.Log($"{PlayerOf(player).Character}: Domain of Timeless Conflict ({player.Layout.Id}, L{level}) ready at ({state.X}, {state.Y}) — {string.Join("+", factions)} ({uberCount} Unrelenting), timer {timerSec:0}s, {slots.Length} soldiers planned");
+            module.Log($"{PlayerOf(player).Character}: Domain of Timeless Conflict ({player.Layout.Id}, L{level}) ready at ({state.X}, {state.Y}) — {string.Join("+", factions)}, timer {timerSec:0}s, {slots.Length} soldiers planned");
         }
 
         else
@@ -449,8 +439,7 @@ static class LegionDomain
                 if (state.Phase == DomainPhase.Waiting && state.Slots.Length == 0)
                 {
                     var plan = LegionArmy.PlanEndless(LegionData.Current, state.Factions, state.Level,
-                        stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct),
-                        stats.GetValueOrDefault(Stat.UberDomainMonsterRewardChancePlusPct) + stats.GetValueOrDefault(Stat.DisplayLegionUberFragmentImprovedRewardsPlusPct), rng);
+                        stats.GetValueOrDefault(Stat.MapLegionEndlessPackSizePlusPct), rng);
                     state.Slots = BuildRadialSlots(player, state.X, state.Y, plan, rng);
                     Keep(player, state);
                 }
@@ -1059,14 +1048,10 @@ static class LegionDomain
 
         IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
             ? [(Stat.MonsterMinimapIcon, icon)] : null;
-        // The per-revival life and toughness go in the spawn's mods, so the life and the client's maximum are right from the create.
-        int revivalLife = RevivalLifePct(areaStats, slot.RevivalCount), revivalToughness = RevivalToughness(areaStats, slot.RevivalCount);
-        MonsterModSet? revivalMods = revivalLife > 0 || revivalToughness > 0
-            ? new([], [], new MonsterModEffects(new Dictionary<uint, int>
-            {
-                [Stat.MaximumLifePlusPct] = revivalLife,
-                [global::Game.MonsterToughness] = revivalToughness,
-            }))
+        // The per-revival toughness goes in the spawn's mods, so the client's values are right from the create.
+        int revivalToughness = RevivalToughness(areaStats, slot.RevivalCount);
+        MonsterModSet? revivalMods = revivalToughness > 0
+            ? new([], [], new MonsterModEffects(new Dictionary<uint, int> { [global::Game.MonsterToughness] = revivalToughness }))
             : null;
         // Its variety's own states: no stasis shape (the breakout / activated outlines are the map monolith's); in the Domain the
         // client hides the crystal shell itself (LegionMonsterBase.ot: IfMapStat map_is_legion_endgame_map, hide_segments).
@@ -1160,7 +1145,7 @@ static class LegionDomain
         var liveIds = new List<uint>();
         List<int> bankedRewards;
         Dictionary<string, int> generalKills;
-        int totalKills, resets, factionCount, uberCount, level;
+        int totalKills, resets, factionCount, level;
         lock (state)
         {
             foreach (var (mid, idx) in state.LiveByMonster)
@@ -1184,7 +1169,6 @@ static class LegionDomain
             totalKills = state.TotalKills;
             resets = state.Waves;
             factionCount = state.Factions.Length;
-            uberCount = state.UberCount;
             level = state.Level;
             Keep(player, state);
         }
@@ -1232,7 +1216,7 @@ static class LegionDomain
         if (GameEvents.AllowsLoot(player) && Environment.GetEnvironmentVariable("Game_DROPS") != "0" && (totalKills > 0 || bankedRewards.Count > 0))
         {
             var rng = global::Game.AreaRng(player);
-            var loot = LegionRewards.RollDomainRewards(player, bankedRewards, generalKills, totalKills, factionCount, uberCount, level, rng);
+            var loot = LegionRewards.RollDomainRewards(player, bankedRewards, generalKills, totalKills, factionCount, level, rng);
             var catalog = global::Game.ItemsFor(player);
             for (int i = 0; i < loot.Count; i++)
             {
