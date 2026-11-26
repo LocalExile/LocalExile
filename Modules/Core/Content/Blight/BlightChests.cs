@@ -407,10 +407,14 @@ public static class BlightChests
         var total = new List<Item>();
         for (int r = 0; r < rollsCount; r++)
         {
-            var first = RollSingleChestPass(player, rewardId, level, areaStats, uberBlighted, rng);
+            // Blightheart GigaChest showers both guaranteed Blight oil/map rolls and mixed reward categories.
+            string passReward = giga && r % 2 == 1
+                ? StandardRewards[rng.Next(StandardRewards.Length)].Id
+                : rewardId;
+            var first = RollSingleChestPass(player, passReward, level, areaStats, uberBlighted, rng);
             if (lucky)
             {
-                var second = RollSingleChestPass(player, rewardId, level, areaStats, uberBlighted, rng);
+                var second = RollSingleChestPass(player, passReward, level, areaStats, uberBlighted, rng);
                 total.AddRange(ScoreLoot(second, player) > ScoreLoot(first, player) ? second : first);
             }
             else total.AddRange(first);
@@ -645,8 +649,9 @@ public static class BlightChests
         return ItemCatalog.Create(finalBt) with { ItemLevel = (byte)Math.Clamp(level, 1, 100), StackSize = 1 };
     }
 
-    /// <summary>Creates a Blighted or Blight-ravaged map from an existing map item (adding InfectedMap or UberInfectedMap__).</summary>
-    public static Item MakeBlightedMap(Item mapItem, bool uber, bool randomAnoints, Random rng)
+    /// <summary>Creates a Blighted or Blight-ravaged map from an existing map item using exact Mods.dat stat values
+    /// (<c>InfectedMap</c> [1, 1, 1] or <c>UberInfectedMap__</c> [1, 1, 9, 20, 200, 85, 1]) and exact oil anoint values.</summary>
+    public static Item MakeBlightedMap(Item mapItem, bool uber, bool randomAnoints, Random rng, ModCatalog? modCatalog = null)
     {
         ushort modHash = uber && BlightTables.UberInfectedMapModHash != 0
             ? BlightTables.UberInfectedMapModHash
@@ -654,7 +659,10 @@ public static class BlightChests
         if (modHash == 0) return mapItem;
         if (mapItem.Mods.Any(m => m.Hash == BlightTables.InfectedMapModHash || m.Hash == BlightTables.UberInfectedMapModHash))
             return mapItem;
-        int[] values = uber ? [9, 20, 200, 85, 1, 1, 1] : [1, 1, 1];
+        int[] values = modCatalog?.ByHash(modHash) is { Stats.Count: > 0 } implicitRow
+            ? [.. implicitRow.Stats.Select(s => s.Min)]
+            // Exact Mods.dat fallback order: map_nuke_everything, map_spread_doodads_index, is_blighted_map[, ms, life, ilvl, is_uber_blighted_map].
+            : (uber ? [1, 1, 9, 20, 200, 85, 1] : [1, 1, 1]);
         var mods = new List<ItemMod> { new(ModSection.Implicit, modHash, values) };
         if (randomAnoints)
         {
@@ -665,7 +673,10 @@ public static class BlightChests
                 for (int i = 0; i < count; i++)
                 {
                     var rec = mapRecipes[rng.Next(mapRecipes.Count)];
-                    mods.Add(new ItemMod(ModSection.Enchant, rec.ModHash, [1, 1, 1]));
+                    int[] enchValues = modCatalog?.ByHash(rec.ModHash) is { Stats.Count: > 0 } eRow
+                        ? [.. eRow.Stats.Select(s => s.Min)]
+                        : [1];
+                    mods.Add(new ItemMod(ModSection.Enchant, rec.ModHash, enchValues));
                 }
             }
         }
@@ -686,7 +697,7 @@ public static class BlightChests
         bool blooming = areaStats.GetValueOrDefault(Stat.MapBlightMapsDropAsUberBlightMaps) > 0;
         bool dropUber = tier >= 14 && (blooming || (fromUber && rng.Next(100) < 30));
         bool randomAnoints = areaStats.GetValueOrDefault(Stat.MapBlightedMapsDropWithRandomAnoints) > 0;
-        return MakeBlightedMap(baseMap, dropUber, randomAnoints, rng);
+        return MakeBlightedMap(baseMap, dropUber, randomAnoints, rng, catalog.Mods);
     }
 
     static Item? RollBlightUnique(Player player, int level, bool uberBlighted, Random rng)

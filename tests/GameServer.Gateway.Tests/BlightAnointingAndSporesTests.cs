@@ -111,10 +111,11 @@ public sealed class BlightAnointingAndSporesTests
         Assert.True(BlightAnointing.TryAnoint(ring, [.. ringRecipe.OilRows.Select(r => MakeOil(catalog, r))], catalog, out var anointedRing, out _, out _));
         Assert.Contains(anointedRing!.Mods, m => m.Section == ModSection.Enchant && m.Hash == ringRecipe.ModHash);
 
-        // 5. Blighted Map (cap 3) & Blight-ravaged Map (cap 9, max 3 of the same oil!).
+        // 5. Blighted Map (cap 3) & Blight-ravaged Map (cap 9, max 3 of the same oil!), plus unidentified rejection.
+        Assert.False(BlightAnointing.TryAnoint(amulet with { Identified = false }, beefOils, catalog, out _, out _, out _));
         var mapBase = catalog.All.First(t => t.Supported && CurrencyEffects.IsMap(t));
         var plainMap = ItemCatalog.Create(mapBase) with { ItemLevel = 83, Mods = [] };
-        var blightedMap = BlightChests.MakeBlightedMap(plainMap, uber: false, randomAnoints: false, new Random(1));
+        var blightedMap = BlightChests.MakeBlightedMap(plainMap, uber: false, randomAnoints: false, new Random(1), catalog.Mods);
         var mapRecipes = BlightTables.Recipes.Where(r => r.CraftingType == BlightAnointing.TypeInfectedMap && r.ModHash != 0).Take(4).ToArray();
         var oilA = MakeOil(catalog, mapRecipes[0].OilRows[0]);
         var oilB = MakeOil(catalog, mapRecipes[1].OilRows[0]);
@@ -122,19 +123,20 @@ public sealed class BlightAnointingAndSporesTests
         Assert.True(BlightAnointing.TryAnoint(blightedMap, [oilA, oilA, oilA], catalog, out var bmap3, out _, out _));
         Assert.False(BlightAnointing.TryAnoint(bmap3!, [oilB], catalog, out _, out _, out _)); // cap 3 reached
 
-        var uberMap = BlightChests.MakeBlightedMap(plainMap, uber: true, randomAnoints: false, new Random(1));
+        var uberMap = BlightChests.MakeBlightedMap(plainMap, uber: true, randomAnoints: false, new Random(1), catalog.Mods);
         Assert.True(BlightAnointing.TryAnoint(uberMap, [oilA, oilA, oilA], catalog, out var u3, out _, out _));
         Assert.False(BlightAnointing.TryAnoint(u3!, [oilA], catalog, out _, out _, out _)); // max 3 of same oil on Blight-ravaged!
         Assert.True(BlightAnointing.TryAnoint(u3!, [oilB, oilB, oilB], catalog, out var u6, out _, out _));
         Assert.True(BlightAnointing.TryAnoint(u6!, [oilC, oilC, oilC], catalog, out var u9, out _, out _));
         Assert.False(BlightAnointing.TryAnoint(u9!, [MakeOil(catalog, mapRecipes[3].OilRows[0])], catalog, out _, out _, out _)); // cap 9 reached
 
-        // 6. Oil Extractor works on corrupted anointed items, returns a real recipe oil, and refuses plain/mirrored items.
+        // 6. Oil Extractor works on corrupted anointed jewellery/uniques, returns a real recipe oil, and refuses plain/mirrored/unidentified/maps.
         Assert.True(BlightAnointing.TryExtractOil(anointedCorrupted!, catalog, new Random(1), out var extracted, out _));
         Assert.NotNull(extracted);
         Assert.True(BlightTables.OilByItemId.ContainsKey(catalog.ByHash(extracted!.TypeHash)!.Id));
         Assert.False(BlightAnointing.TryExtractOil(amulet, catalog, new Random(1), out _, out _));
         Assert.False(BlightAnointing.TryExtractOil(anointedAmulet! with { Mirrored = true }, catalog, new Random(1), out _, out _));
+        Assert.False(BlightAnointing.TryExtractOil(bmap3!, catalog, new Random(1), out _, out _));
     }
 
     [Fact]
@@ -162,7 +164,15 @@ public sealed class BlightAnointingAndSporesTests
         Assert.Contains(recipe.PassiveGraphId, Game.ItemGrantedPassiveIds(crafted.Item, catalog.Mods));
         Assert.Empty(items.Items(BlightAnointing.CraftingInputRow));
 
-        // Breathstealer Spore aura spawning + Sporeguard Fungal Ground bonuses.
+        // Breathstealer Spore aura spawning (exact data-driven BuffDefinitions stats) + Sporeguard Fungal Ground bonuses.
+        Assert.Equal(9, BlightTables.SporeAuras.Count);
+        var speedStats = BlightSpores.SporeStatsFor(BlightTables.SporeAuras[0]);
+        Assert.Equal((35, 35, 75), (speedStats.GetValueOrDefault(Stat.AttackSpeedPlusPct), speedStats.GetValueOrDefault(Stat.BaseCastSpeedPlusPct), speedStats.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct)));
+        Assert.Equal(50, BlightSpores.SporeStatsFor(BlightTables.SporeAuras[2]).GetValueOrDefault(Stat.PhysicalDamagePlusPct));
+        Assert.Equal(35, BlightSpores.SporeStatsFor(BlightTables.SporeAuras[4]).GetValueOrDefault(Stat.BaseResistAllElementsPct));
+        Assert.Equal(30, BlightSpores.SporeStatsFor(BlightTables.SporeAuras[5]).GetValueOrDefault(Stat.MaximumLifePctToAddAsMaximumEnergyShield));
+        Assert.Equal(75, BlightSpores.SporeStatsFor(BlightTables.SporeAuras[6]).GetValueOrDefault(Stat.CriticalStrikeChancePlusPct));
+
         double now = Game.AreaTime(area.A);
         area.A.Walk.Teleport(300, 300, now);
         var spore = BlightSpores.SpawnSpore(area.Instance, (300, 300), now, new Random(1));

@@ -34,8 +34,9 @@ public static class BlightTables
     /// <summary>One BlightCraftingRecipes row joined with BlightCraftingResults (all 576 amulet/unique, ring, and map recipes).</summary>
     public sealed record CraftingRecipe(int Row, string Id, int CraftingType, int[] OilRows, int? PassiveSkillRow, ushort PassiveGraphId, int? ModRow, ushort ModHash);
 
-    /// <summary>One BlightedSporeAuras row for Breathstealer spores.</summary>
-    public sealed record SporeAura(int Row, int BuffRow, IReadOnlyList<int> StatValues, int Radius, bool AffectsEnemies, int Weight);
+    /// <summary>One BlightedSporeAuras row joined with BuffDefinitions.StatsKeys for Breathstealer spores.</summary>
+    public sealed record SporeAura(int Row, int BuffRow, IReadOnlyList<(uint StatId, int Value)> Stats,
+        int Radius, bool AffectsEnemies, int Weight);
 
     public const ushort CassiaNpcRow = 396;
     public const ushort CassiaHideoutNpcRow = 397;
@@ -82,6 +83,7 @@ public static class BlightTables
     public static IReadOnlyDictionary<int, OilItem> OilByBaseRow { get; private set; } = new Dictionary<int, OilItem>();
     public static IReadOnlyDictionary<string, OilItem> OilByItemId { get; private set; } = new Dictionary<string, OilItem>(StringComparer.Ordinal);
     public static IReadOnlyList<CraftingRecipe> Recipes { get; private set; } = [];
+    public static IReadOnlySet<uint> RingAnointStatIds { get; private set; } = new HashSet<uint>();
     public static IReadOnlySet<string> AnointableUniqueNames { get; private set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     public static IReadOnlySet<uint> AnointableUniqueWordHashes { get; private set; } = new HashSet<uint>();
     public static IReadOnlyList<SporeAura> SporeAuras { get; private set; } = [];
@@ -207,15 +209,20 @@ public static class BlightTables
         OilByBaseRow = Oils.ToDictionary(o => o.BaseItemTypesRow);
         OilByItemId = Oils.ToDictionary(o => o.Id, StringComparer.Ordinal);
 
-        // Mods hashes: InfectedMap, UberInfectedMap__, GrantedPassive..5, and recipe mod lookup.
+        // Mods hashes: InfectedMap, UberInfectedMap__, GrantedPassive..5, recipe mod lookup, and mod stat IDs.
         ushort infectedHash = 0, uberInfectedHash = 0;
         var grantedHashes = new ushort[5];
         var modHashByRow = new Dictionary<int, ushort>();
+        var modStatsByRow = new Dictionary<int, uint[]>();
         foreach (var r in ClientTables.TableOrEmpty("Mods"))
         {
             if (r.IntOrNull("HASH16") is not int h || h <= 0) continue;
             ushort hash = (ushort)h;
             modHashByRow[r.Index] = hash;
+            var sIds = new List<uint>(6);
+            foreach (string col in new[] { "StatsKey1", "StatsKey2", "StatsKey3", "StatsKey4", "StatsKey5", "StatsKey6" })
+                if (r.IntOrNull(col) is int sk and >= 0) sIds.Add((uint)sk + 1);
+            if (sIds.Count > 0) modStatsByRow[r.Index] = [.. sIds];
             string modId = r.Text("Id") ?? "";
             switch (modId)
             {
@@ -244,6 +251,7 @@ public static class BlightTables
             craftResults[r.Index] = (r.IntOrNull("Mod"), r.IntOrNull("PassiveSkill"));
 
         var recipes = new List<CraftingRecipe>();
+        var ringStatIds = new HashSet<uint>();
         foreach (var r in ClientTables.TableOrEmpty("BlightCraftingRecipes"))
         {
             int resKey = r.IntOrNull("BlightCraftingResultsKey") ?? r.Index;
@@ -253,9 +261,13 @@ public static class BlightTables
             int[] oils = [.. r.Ints("BlightCraftingItemsKeys")];
             if (oils.Length == 0) continue;
             Array.Sort(oils);
-            recipes.Add(new CraftingRecipe(r.Index, r.Text("Id") ?? "", r.Int("BlightCraftingTypesKey"), oils, passiveRow, graphId, modRow, modHash));
+            int craftType = r.Int("BlightCraftingTypesKey");
+            recipes.Add(new CraftingRecipe(r.Index, r.Text("Id") ?? "", craftType, oils, passiveRow, graphId, modRow, modHash));
+            if (craftType == 1 && modRow is int ringModRow && modStatsByRow.TryGetValue(ringModRow, out var stats))
+                ringStatIds.UnionWith(stats);
         }
         Recipes = recipes;
+        RingAnointStatIds = ringStatIds;
 
         // BlightCraftingUniques joined with Words.Text & Words.HASH32 (matching Item.NameWords).
         var wordsByRow = new Dictionary<int, (string Text, uint Hash)>();
@@ -273,9 +285,25 @@ public static class BlightTables
         AnointableUniqueNames = uniqueNames;
         AnointableUniqueWordHashes = uniqueWordHashes;
 
+        // BuffDefinitions.StatsKeys joined onto BlightedSporeAuras so every Breathstealer spore aura carries its exact
+        // 1-based Stat IDs paired 1-to-1 with BlightedSporeAuras.BuffStatValues.
+        var buffStatKeys = new Dictionary<int, uint[]>();
+        foreach (var r in ClientTables.TableOrEmpty("BuffDefinitions"))
+        {
+            var keys = r.Ints("StatsKeys");
+            if (keys.Length > 0) buffStatKeys[r.Index] = [.. keys.Where(k => k >= 0).Select(k => (uint)k + 1)];
+        }
         SporeAuras = [.. ClientTables.TableOrEmpty("BlightedSporeAuras").Select(r =>
-            new SporeAura(r.Index, r.Int("BuffDefinitionsKey"), r.Ints("BuffStatValues"),
-                Math.Max(10, r.Int("__col2")), r.Ints("__col3").Contains(3), Math.Max(1, r.Int("__col4"))))];
+        {
+            int buffRow = r.Int("BuffDefinitionsKey");
+            var vals = r.Ints("BuffStatValues");
+            var pairs = new List<(uint StatId, int Value)>();
+            if (buffStatKeys.TryGetValue(buffRow, out var sKeys))
+                for (int i = 0; i < sKeys.Length && i < vals.Length; i++)
+                    pairs.Add((sKeys[i], vals[i]));
+            return new SporeAura(r.Index, buffRow, pairs,
+                Math.Max(10, r.Int("__col2")), r.Ints("__col3").Contains(3), Math.Max(1, r.Int("__col4")));
+        })];
 
         var voices = new Dictionary<string, List<ushort>>(StringComparer.Ordinal);
         foreach (var r in ClientTables.TableOrEmpty("NPCTextAudio"))

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 namespace GameServer.Modules.Blight;
 
@@ -66,6 +67,7 @@ public static class BlightTowers
         new Dictionary<uint, int> { [Stat.BaseDamageTakenPlusPct] = 10, [Stat.DamagePlusPct] = -10 };
 
     static readonly Func<uint, int> ZeroStats = static _ => 0;
+    static readonly IReadOnlyDictionary<uint, int> EmptyRingStats = new Dictionary<uint, int>();
 
     /// <summary>Tower family for a BlightTowers Id.</summary>
     public static TowerFamily FamilyOf(string towerId)
@@ -102,13 +104,13 @@ public static class BlightTowers
     public static bool IsEmpoweringOrUpgrade(string towerId) =>
         EmpoweringTierOf(towerId) > 0 || towerId is "BuffPlayersTower" or "WeakenEnemiesTower";
 
-    /// <summary>Tower tier 1..4 from BlightTowers.Tier ("1".."4") or Id suffix (used by Templar Ingenuity salvaged chests).</summary>
+    /// <summary>Tower tier 1..4 from BlightTowers.Tier ("I".."IV") or Id suffix (used by Templar Ingenuity salvaged chests).</summary>
     public static int TierNumberOf(BlightTables.Tower tower) => tower.Tier switch
     {
-        "1" => 1,
-        "2" => 2,
-        "3" => 3,
-        "4" => 4,
+        "I" or "1" => 1,
+        "II" or "2" => 2,
+        "III" or "3" => 3,
+        "IV" or "4" => 4,
         _ => tower.Id.EndsWith('1') ? 1 : tower.Id.EndsWith('2') ? 2 : tower.Id.EndsWith('3') ? 3 : 4,
     };
 
@@ -289,23 +291,25 @@ public static class BlightTowers
         _ => 1.00,
     };
 
-    /// <summary>Aggregates all Blight Ring Anoint stats (<c>BlightEnchantment*</c>) from living players in the instance
-    /// (taking the highest value per stat across party members so solo Kalandra's Touch stacks while party mates share best anoints).</summary>
-    public static Dictionary<uint, int> CollectRingAnointStats(IReadOnlyList<Player> members)
+    /// <summary>Aggregates all Blight Ring Anoint stats (<c>BlightEnchantment*</c>, dynamically loaded from all 91 recipes)
+    /// from living players in the instance (zero-allocation empty dictionary when no player wears a ring anoint).</summary>
+    public static IReadOnlyDictionary<uint, int> CollectRingAnointStats(IReadOnlyList<Player> members)
     {
-        var merged = new Dictionary<uint, int>();
+        var ringIds = BlightTables.RingAnointStatIds;
+        if (ringIds.Count == 0) return EmptyRingStats;
+        Dictionary<uint, int>? merged = null;
         foreach (var member in members)
         {
             if (member.Closed || member.LeavingArea) continue;
             var ps = CharacterPlayerStats(member);
             foreach (var (key, value) in ps)
             {
-                if (value == 0) continue;
-                if (key is >= 10487 and <= 10489 or >= 10568 and <= 10654 or >= 12340 and <= 12355 or 13410)
-                    merged[key] = Math.Max(merged.GetValueOrDefault(key), value);
+                if (value == 0 || !ringIds.Contains(key)) continue;
+                merged ??= new Dictionary<uint, int>();
+                merged[key] = Math.Max(merged.GetValueOrDefault(key), value);
             }
         }
-        return merged;
+        return merged ?? EmptyRingStats;
     }
 
     /// <summary>GameEvents.FinalStatsBuilding: adds Imbuing &amp; Temporal Tower aura stats for players in range (O(1) no-op otherwise).</summary>
@@ -396,12 +400,15 @@ public static class BlightTowers
         var invigorationTowers = invigoration ? finished.Where(x => IsEmpoweringOrUpgrade(x.Tower.Id)).ToList() : [];
         await UpdateEnemyZoneAuras(player, d, living, finished, smotheringTowers, temporalTowers, invigorationTowers, ringStats, update);
 
-        // 4. Tower-wide damage multipliers: Sepia Oil, Cassia's Pride (+300% more), Distinct Archetype Ring Anoint.
+        // 4. Tower-wide damage multipliers: Sepia Oil, Cassia's Pride (+300% more from AtlasKeystoneCassiasPride or explicit stat),
+        // Sturdy Construction (+% damage taken by Blight monsters), and Distinct Archetype Ring Anoint (Archetype >= 0 includes Fireball = 0!).
         double mapTowerMore = Math.Max(0.1, (100.0 + areaStats.GetValueOrDefault(Stat.BlightedMapTowerDamagePlusPctFinal)) / 100.0);
         int atlasMorePct = areaStats.GetValueOrDefault(Stat.MapBlightTowerDamagePlusPctFinalFromAtlasPassive)
             + areaStats.GetValueOrDefault(Stat.BlightTowerDamagePlusPctFinalFromAtlasPassive);
+        if (atlasMorePct == 0 && areaStats.GetValueOrDefault(Stat.AtlasKeystoneCassiasPride) > 0) atlasMorePct = 300;
         double atlasTowerMore = Math.Max(0.1, (100.0 + atlasMorePct) / 100.0);
-        int distinctArchetypes = finished.Select(x => x.Tower.Archetype).Where(a => a > 0).Distinct().Count();
+        double sturdyTakeMore = Math.Max(0.1, (100.0 + areaStats.GetValueOrDefault(Stat.MapBlightMonstersTakePlusPctDamage)) / 100.0);
+        int distinctArchetypes = finished.Select(x => x.Tower.Archetype).Where(a => a >= 0).Distinct().Count();
         int perTypeIncPct = distinctArchetypes * ringStats.GetValueOrDefault(Stat.BlightTowerDamagePerTowerTypePlusPct);
 
         // 5. Active towers (minion summoning, control pulses, and all 17 damage towers).
@@ -484,7 +491,8 @@ public static class BlightTowers
             int baseDmg = variety is not null && Monsters.BaseDamage(variety, d.Level) is { } dmg ? (dmg.Min + dmg.Max) / 2 : 0;
             if (baseDmg <= 0) continue;
             double incPct = EmpoweringDamagePct(empower, ringStats) + TowerDamageBonusPct(tower.Id, ringStats) + perTypeIncPct;
-            double scaled = baseDmg * TowerSkillEffectiveness(tower.Id) * Math.Max(0.1, 1.0 + incPct / 100.0) * mapTowerMore * atlasTowerMore;
+            double scaled = baseDmg * TowerSkillEffectiveness(tower.Id) * Math.Max(0.1, 1.0 + incPct / 100.0)
+                * mapTowerMore * atlasTowerMore * sturdyTakeMore;
             int doubleDmgChance = empower > 0 ? ringStats.GetValueOrDefault(Stat.BlightEmpoweringTowerGrantPctChanceToDealDoubleDamage) : 0;
             if (doubleDmgChance > 0 && AreaRng(player).Next(100) < doubleDmgChance) scaled *= 2.0;
             int scaledDmg = Math.Max(1, (int)Math.Round(scaled));
@@ -522,7 +530,7 @@ public static class BlightTowers
                         ApplyTowerAilment(t.M, MonsterElementalAilments.Kind.Chill, chillDur, Math.Min(30, chillPct), now);
                         if (freezeMs > 0) t.M.Ailments.Freeze(freezeMs / 1000.0, now, ZeroStats, s => t.M.Effects[s]);
                     }
-                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Cold, now, tower.Name);
                 }
                 break;
             }
@@ -553,7 +561,7 @@ public static class BlightTowers
                         if (brittleChance > 0 && rng.Next(100) < brittleChance)
                             ApplyTimedControl(d, t.Id, t.M, BrittleStatsKey, now + 4.0, BrittleDebuffStats);
                     }
-                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Cold, now, tower.Name);
                     if (++hits >= maxHits) break;
                 }
                 break;
@@ -575,7 +583,7 @@ public static class BlightTowers
                         if (t.M.Dead || t.M.Life == 0) continue;
                         if (!t.Immune && (shockChance >= 100 || rng.Next(100) < shockChance))
                             ApplyTowerAilment(t.M, MonsterElementalAilments.Kind.Shock, 4.0, shockPct, now);
-                        await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                        await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Lightning, now, tower.Name);
                     }
                 }
                 break;
@@ -589,7 +597,7 @@ public static class BlightTowers
                 {
                     var t = inRange[i];
                     if (!t.Immune) ApplyTowerAilment(t.M, MonsterElementalAilments.Kind.Shock, 3.0, shockPct, now);
-                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Lightning, now, tower.Name);
                 }
                 break;
             }
@@ -615,7 +623,7 @@ public static class BlightTowers
                             if (sapChance > 0 && rng.Next(100) < sapChance)
                                 ApplyTimedControl(d, current.Id, current.M, SapStatsKey, now + 4.0, SapDebuffStats);
                         }
-                        await HitBlightMonster(player, d, current.Id, current.M, EffectiveHit(damage, current.Immune), tower.Name);
+                        await HitBlightMonster(player, d, current.Id, current.M, EffectiveHit(damage, current.Immune), DamageType.Lightning, now, tower.Name);
                         (uint Id, int Lane, SpawnedMonster M, (int X, int Y) Pos, double Dist, bool Immune)? next = null;
                         double bestChain = 28.0;
                         foreach (var cand in allLiving)
@@ -649,7 +657,7 @@ public static class BlightTowers
                     var t = inRange[i];
                     if (!t.Immune && !t.M.CannotBeStunned && !t.M.Effects.CannotBeStunned)
                         ApplyTimedControl(d, t.Id, t.M, StunStatsKey, now + stunSec, ImmobilizedStats);
-                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Physical, now, tower.Name);
                 }
                 break;
             }
@@ -673,7 +681,7 @@ public static class BlightTowers
                         if (Dist(center.Pos.X, center.Pos.Y, enemy.Pos.X, enemy.Pos.Y) <= splashRadius)
                         {
                             bool imm = IsImmune(d, enemy.Lane, TowerFamily.Fire) && !bypasses;
-                            await HitBlightMonster(player, d, enemy.Id, enemy.M, EffectiveHit(damage, imm), tower.Name);
+                            await HitBlightMonster(player, d, enemy.Id, enemy.M, EffectiveHit(damage, imm), DamageType.Fire, now, tower.Name);
                         }
                     }
                 }
@@ -687,7 +695,7 @@ public static class BlightTowers
                     var t = inRange[i];
                     if (!t.Immune && scorchChance > 0 && rng.Next(100) < scorchChance)
                         ApplyTimedControl(d, t.Id, t.M, ScorchStatsKey, now + 4.0, ScorchDebuffStats);
-                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), tower.Name);
+                    await HitBlightMonster(player, d, t.Id, t.M, EffectiveHit(damage, t.Immune), DamageType.Fire, now, tower.Name);
                 }
                 break;
             }
@@ -709,7 +717,7 @@ public static class BlightTowers
                             bool imm = IsImmune(d, enemy.Lane, TowerFamily.Fire) && !bypasses;
                             if (!imm && alwaysStun && !enemy.M.CannotBeStunned && !enemy.M.Effects.CannotBeStunned)
                                 ApplyTimedControl(d, enemy.Id, enemy.M, StunStatsKey, now + 1.0, ImmobilizedStats);
-                            await HitBlightMonster(player, d, enemy.Id, enemy.M, EffectiveHit(damage, imm), tower.Name);
+                            await HitBlightMonster(player, d, enemy.Id, enemy.M, EffectiveHit(damage, imm), DamageType.Fire, now, tower.Name);
                         }
                     }
                     if (burningMs > 0)
@@ -722,26 +730,33 @@ public static class BlightTowers
                 break;
             }
             default:
-                await HitBlightMonster(player, d, inRange[0].Id, inRange[0].M, EffectiveHit(damage, inRange[0].Immune), tower.Name);
+                await HitBlightMonster(player, d, inRange[0].Id, inRange[0].M, EffectiveHit(damage, inRange[0].Immune), DamageType.Physical, now, tower.Name);
                 break;
         }
     }
 
-    static async Task HitBlightMonster(Player player, Defence d, uint id, SpawnedMonster m, int damage, string source)
+    static async Task HitBlightMonster(Player player, Defence d, uint id, SpawnedMonster m, int damage, DamageType damageType,
+        double now, string source, bool countsAsHit = true)
     {
         if (m.Dead || m.Life == 0 || damage <= 0) return;
-        // Stone Gaze petrification breaks after 7/8/9/10 hits.
-        bool brokePetrify = false;
-        lock (d)
+        // Stone Gaze petrification breaks after 7/8/9/10 hits (DoTs like Meteor Burning Ground do NOT break petrification!).
+        if (countsAsHit)
         {
-            if (d.PetrifyHitsLeft.TryGetValue(id, out int left))
+            bool brokePetrify = false;
+            lock (d)
             {
-                if (--left <= 0) { d.PetrifyHitsLeft.Remove(id); d.TimedControls.Remove((id, PetrifiedStatsKey)); brokePetrify = true; }
-                else d.PetrifyHitsLeft[id] = left;
+                if (d.PetrifyHitsLeft.TryGetValue(id, out int left))
+                {
+                    if (--left <= 0) { d.PetrifyHitsLeft.Remove(id); d.TimedControls.Remove((id, PetrifiedStatsKey)); brokePetrify = true; }
+                    else d.PetrifyHitsLeft[id] = left;
+                }
             }
+            if (brokePetrify) m.RemoveTemporaryStats(PetrifiedStatsKey);
         }
-        if (brokePetrify) m.RemoveTemporaryStats(PetrifiedStatsKey);
-        await HitMonster(player, id, m, damage, source, log: false);
+        // Mitigate through the monster's matching resistance and increased damage taken (Scorch, Smothering, Shock, Malediction, Stone Gaze, Glacial Cage).
+        var (mitigated, _, _) = MonsterHitDamage(m, DamagePacket.Of(damageType, damage, damage), critical: false, attack: false, now, default);
+        if (mitigated <= 0) return;
+        await HitMonster(player, id, m, mitigated, source, log: false);
     }
 
     static async Task StepBurningGrounds(Player player, Defence d,
@@ -766,9 +781,9 @@ public static class BlightTowers
             foreach (var enemy in living)
             {
                 if (enemy.M.Dead || enemy.M.Life == 0) continue;
-                // Burning Ground bypasses Fire-lane tower immunity in retail PoE!
+                // Burning Ground is Fire DoT (bypasses Fire-lane tower immunity and does not break Stone Gaze petrification!).
                 if (Dist(gx, gy, enemy.Pos.X, enemy.Pos.Y) <= 18.0)
-                    await HitBlightMonster(player, d, enemy.Id, enemy.M, tickDmg, "Meteor Burning Ground");
+                    await HitBlightMonster(player, d, enemy.Id, enemy.M, tickDmg, DamageType.Fire, now, "Meteor Burning Ground", countsAsHit: false);
             }
         }
     }

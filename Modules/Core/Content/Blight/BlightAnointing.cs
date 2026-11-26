@@ -35,6 +35,7 @@ public static class BlightAnointing
         craftingType = -1;
         maxEnchants = 0;
         isUberMap = false;
+        if (!item.Identified) return false;
         if (catalog.ByHash(item.TypeHash) is not { } bt) return false;
 
         // 1. Blighted or Blight-ravaged Map (Type 2: cap 3 on Blighted, cap 9 [max 3 same] on Blight-ravaged).
@@ -279,15 +280,21 @@ public static class BlightAnointing
     }
 
     /// <summary>
-    /// Oil Extractor (<c>CurrencyExtractOil</c>, <c>Action = "extract_oil"</c>): inspects an anointed item's Blight
-    /// enchantments (Amulet/Unique, Ring, or Blighted Map; corrupted items ARE allowed, mirrored refused), and returns
+    /// Oil Extractor (<c>CurrencyExtractOil</c>, <c>Action = "extract_oil"</c>): inspects an anointed Amulet, Ring,
+    /// or Blight Unique (corrupted items ARE allowed; mirrored items and maps are refused), and returns
     /// one random Oil used in its recipe. Caller destroys the item and consumes 1 Oil Extractor.
     /// </summary>
     public static bool TryExtractOil(Item target, ItemCatalog catalog, Random rng, out Item? extractedOil, out string reason)
     {
         extractedOil = null;
         reason = "";
+        if (!target.Identified) { reason = "cannot extract oil from an unidentified item"; return false; }
         if (target.Mirrored) { reason = "cannot extract oil from a mirrored item"; return false; }
+        if (catalog.ByHash(target.TypeHash) is { } targetBt && CurrencyEffects.IsMap(target, targetBt))
+        {
+            reason = "cannot extract oil from a map";
+            return false;
+        }
 
         var grantedHashes = new HashSet<ushort>(BlightTables.GrantedPassiveModHashes);
         var recipeOils = new List<int>();
@@ -303,7 +310,7 @@ public static class BlightAnointing
             }
             else
             {
-                var rec = BlightTables.Recipes.FirstOrDefault(r => r.CraftingType is TypeRing or TypeInfectedMap && r.ModHash == mod.Hash);
+                var rec = BlightTables.Recipes.FirstOrDefault(r => r.CraftingType == TypeRing && r.ModHash == mod.Hash);
                 if (rec is not null) recipeOils.AddRange(rec.OilRows);
             }
         }
@@ -379,7 +386,7 @@ public static class BlightAnointing
     /// <summary>Executes an anoint directly inside the Blight Stash Tab (cell 13 + input cells 15..17, 78) atomically.</summary>
     public static async Task<bool> AnointFromBlightStash(Player player, AccountStash stash, int tab)
     {
-        if (tab < 0 || tab >= stash.Count || stash.TabType(tab) != StashRules.Blight) return false;
+        if (tab < 0 || tab >= stash.Count || stash.TabType(tab) != StashRules.Blight || stash.IsPublic(tab)) return false;
         if (!ClientHasQuestFlag(player, BlightTables.QuestFlagIds.AnointingUnlocked))
         {
             Console.WriteLine($"[blight] {player.Connection.Remote} Blight stash anoint refused: CassiaOnAnointingOils flag not unlocked yet");
@@ -471,6 +478,7 @@ public static class BlightAnointing
         var (targetSpot, target) = Locate(items, stash, use.TargetInventoryId, use.TargetId);
         if (target is null) return true;
         if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab)) return true;
+        if (targetSpot.Tab is int tPubTab && stash.IsPublic(tPubTab)) return true;
         if (Worn(targetSpot)) return true;
         if (!TryExtractOil(target.Item, catalog, AreaRng(player), out var extracted, out string reason) || extracted is null)
         {
@@ -478,13 +486,36 @@ public static class BlightAnointing
             return true;
         }
 
+        // Pre-verify destination space BEFORE consuming the Oil Extractor or destroying the target item!
+        bool useCursor = items.Items(PlayerInventories.Cursor).Count == 0;
+        if (!useCursor && !items.Fits(PlayerInventories.MainInventory, extracted, ShapeOf))
+        {
+            Console.WriteLine($"[blight] {player.Connection.Remote} <= 0x0071 Oil Extractor refused: no inventory space for extracted oil");
+            return true;
+        }
+
         // Atomically consume 1 Oil Extractor, destroy target item, and place extracted Oil on cursor (or main inventory).
         InventoryItem? leftExtractor = null;
-        InventoryItem? placedOil = null;
-        byte oilDestRow = PlayerInventories.Cursor;
-        bool ok = false;
+        var destRemoved = new List<uint>();
+        var destAdded = new List<InventoryItem>();
+        byte oilDestRow = useCursor ? PlayerInventories.Cursor : PlayerInventories.MainInventory;
         Saves.Atomically(() =>
         {
+            // Place oil first so if a concurrent race filled the inventory we abort before mutating currency/target.
+            if (useCursor && items.Items(PlayerInventories.Cursor).Count == 0)
+            {
+                oilDestRow = PlayerInventories.Cursor;
+                destAdded.Add(items.Put(PlayerInventories.Cursor, new InventoryItem(0, 0, 0, extracted)));
+            }
+            else
+            {
+                oilDestRow = PlayerInventories.MainInventory;
+                var stacked = items.AddStacked(PlayerInventories.MainInventory, extracted, ShapeOf);
+                if (!stacked.Any || stacked.Left > 0) return;
+                foreach (var ch in stacked.Changed) { destRemoved.Add(ch.Id); destAdded.Add(ch); }
+                destAdded.AddRange(stacked.Added);
+            }
+
             // Consume 1 Oil Extractor.
             if (usedSpot.Tab is int uTab)
             {
@@ -500,22 +531,8 @@ public static class BlightAnointing
             // Destroy target item.
             if (targetSpot.Tab is int tTab) stash.Take(tTab, target.Id);
             else items.Remove(targetSpot.Row, target.Id);
-
-            // Give extracted oil on cursor if empty, else into main inventory.
-            if (items.Items(PlayerInventories.Cursor).Count == 0)
-            {
-                oilDestRow = PlayerInventories.Cursor;
-                placedOil = items.Put(PlayerInventories.Cursor, new InventoryItem(0, 0, 0, extracted));
-            }
-            else
-            {
-                oilDestRow = PlayerInventories.MainInventory;
-                var stacked = items.AddStacked(PlayerInventories.MainInventory, extracted, ShapeOf);
-                placedOil = stacked.Added.FirstOrDefault() ?? stacked.Changed.FirstOrDefault();
-            }
-            ok = placedOil is not null;
         });
-        if (!ok || placedOil is null) return true;
+        if (destAdded.Count == 0) return true;
 
         // Send 0x00bf updates for currency spot, destroyed target spot, and destination row.
         if (usedSpot.Tab is int ut)
@@ -531,7 +548,7 @@ public static class BlightAnointing
                 [target.Id], []), "0x00bf Oil Extractor destroyed target");
 
         await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(oilDestRow), items.NextRevision(oilDestRow),
-            [], [placedOil]), $"0x00bf Oil Extractor extracted {catalog.ByHash(extracted.TypeHash)?.Name ?? "Oil"}");
+            destRemoved, destAdded), $"0x00bf Oil Extractor extracted {catalog.ByHash(extracted.TypeHash)?.Name ?? "Oil"}");
         await BlightCassia.GrantFlags(player, [BlightTables.QuestFlagIds.HaveOwnedOil]);
         return true;
     }

@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
@@ -48,7 +47,6 @@ public sealed class Defence(uint pump, (int X, int Y) cell, float rotation, byte
     public readonly int[] PumpStates = new int[BlightEncounter.PumpStateNames.Length];
     public byte PumpTransition = 1;
     public int PumpStep;
-    public double NextPathOffAt = double.PositiveInfinity;
     public BlightLayout.Plan? Plan;
     public readonly Dictionary<uint, Spot> Spots = [];
     public readonly Dictionary<int, double> LaneNext = [];
@@ -114,7 +112,7 @@ public sealed class SavedDefence
     public Phase Phase;
     public int Durability, MaxDurability, PumpTransition, PumpStep, MonstersPerLane, PlanSeed, KilledCount, ExtraBossChests;
     public uint Resource;
-    public double StartedAt, EndedAt = double.PositiveInfinity, NextPathOffAt = double.PositiveInfinity, EncounterDuration;
+    public double StartedAt, EndedAt = double.PositiveInfinity, EncounterDuration;
     public int[] PumpStates = [];
     public List<SavedSpot> Spots = [];
     public Dictionary<int, double> LaneNext = [];
@@ -218,7 +216,8 @@ public sealed class BlightEncounter
     const double SaveEvery = 5;
 
     /// <summary>Instances currently affected by Fungal Horizons' Blightreach buff (BuffDefinitions 2512).</summary>
-    static readonly ConcurrentDictionary<InstanceState, byte> BlightreachInstances = new();
+    static readonly Store<InstanceState, object> BlightreachInstances = new();
+    static readonly object BlightreachMarker = new();
 
     public readonly Store<InstanceState, Run> Runs = new();
 
@@ -370,7 +369,7 @@ public sealed class BlightEncounter
             {
                 Phase = s.Phase, Durability = s.Durability, MaxDurability = s.MaxDurability, Resource = s.Resource, StartedAt = s.StartedAt,
                 EndedAt = s.EndedAt, EncounterDuration = s.EncounterDuration, PumpTransition = (byte)s.PumpTransition, PumpStep = s.PumpStep,
-                NextPathOffAt = s.NextPathOffAt, MonstersPerLane = s.MonstersPerLane, Shown = s.Shown, Blighted = s.Blighted,
+                MonstersPerLane = s.MonstersPerLane, Shown = s.Shown, Blighted = s.Blighted,
                 UberBlighted = s.UberBlighted, PlanSeed = s.PlanSeed, CassiaId = s.CassiaId, CassiaCell = (s.CassiaX, s.CassiaY),
                 KilledCount = s.KilledCount, ExtraBossChests = s.ExtraBossChests,
             };
@@ -411,7 +410,7 @@ public sealed class BlightEncounter
                         UberBlighted = d.UberBlighted, Shown = d.Shown, Phase = d.Phase, Durability = d.Durability,
                         MaxDurability = d.MaxDurability, PumpTransition = d.PumpTransition, PumpStep = d.PumpStep,
                         MonstersPerLane = d.MonstersPerLane, PlanSeed = d.PlanSeed, Resource = d.Resource, StartedAt = d.StartedAt,
-                        EndedAt = d.EndedAt, EncounterDuration = d.EncounterDuration, NextPathOffAt = d.NextPathOffAt,
+                        EndedAt = d.EndedAt, EncounterDuration = d.EncounterDuration,
                         KilledCount = d.KilledCount, ExtraBossChests = d.ExtraBossChests, PumpStates = [.. d.PumpStates],
                         Spots = [.. d.Spots.Values.Select(s => new SavedSpot { Id = s.Id, X = s.X, Y = s.Y, Row = s.Row, Raising = s.Raising, SkillId = s.SkillId, Upgrade = s.Upgrade, NextFire = s.NextFire, Minions = [.. s.Minions] })],
                         LaneNext = new(d.LaneNext), LaneSpawned = new(d.LaneSpawned), LaneEncounterTypes = new(d.LaneEncounterTypes),
@@ -613,6 +612,7 @@ public sealed class BlightEncounter
                     if (d.Phase != Phase.Building || d.Plan is not { } plan) continue;
                     double remaining = Math.Max(0, (d.StartedAt + Frames(BuildFrames)) - now);
                     d.Phase = Phase.Running;
+                    d.StartedAt -= remaining;
                     for (int lane = 0; lane < plan.Lanes.Count; lane++)
                         d.LaneNext[lane] = Math.Max(now, d.LaneNext.GetValueOrDefault(lane) - remaining);
                     skipped = true;
@@ -848,12 +848,6 @@ public sealed class BlightEncounter
             uint id = await SpawnMonster(player, variety, d.Level, rarity, end.X, end.Y,
                 log: rarity == MonsterRarity.Unique, alone: false, instanceOwned: true, ownedMaximumLife: ownedLife);
             if (id == 0) continue;
-            // Apply UberInfectedMap__ movement speed bonus (+20%) to spawned non-boss/boss wave monsters.
-            if (d.UberBlighted && player.Area.Monsters.TryGetValue(id, out var spawned))
-            {
-                int uberMs = Math.Max(20, stats.GetValueOrDefault(Stat.MapMonstersMovementSpeedPlusPct));
-                spawned.SetTemporaryStats("blight_uber_map", new Dictionary<uint, int> { [Stat.BaseMovementVelocityPlusPct] = uberMs });
-            }
             lock (d)
             {
                 d.LaneSpawned[lane] = index;
@@ -908,7 +902,6 @@ public sealed class BlightEncounter
             d.PumpStates[PumpNextPath] = 0;
             d.PumpStates[PumpActivated] = 3;
             d.PumpStates[won ? PumpSuccess : PumpFail] = 1;
-            d.NextPathOffAt = double.PositiveInfinity;
             foreach (var id in d.Monsters.Keys.Where(id => !d.Resolved.Contains(id)).ToArray())
             {
                 d.Resolved.Add(id);
@@ -928,7 +921,7 @@ public sealed class BlightEncounter
             // Fungal Horizons: grant Blightreach buff (BuffDefinitions 2512) so remaining map drops convert to Blighted maps!
             if (stats.GetValueOrDefault(Stat.MapBlightTouchedBuffOnBlightEncounterComplete) > 0 && player.Instance is { } inst)
             {
-                BlightreachInstances[inst] = 1;
+                BlightreachInstances.AddOrUpdate(inst, BlightreachMarker);
                 foreach (var member in members)
                 {
                     ushort buffInst = member.NextBuff++;
@@ -985,6 +978,8 @@ public sealed class BlightEncounter
         var stats = AreaStats(player);
         double factor = 1.0;
         int cassiasPride = stats.GetValueOrDefault(Stat.MapBlightMonstersDamageTakenFromPlayerSourcesPlusPctFinal);
+        // Atlas Keystone Cassia's Pride (PassiveSkills 4794) grants atlas_keystone_cassias_pride = 1 -> -75% player damage.
+        if (cassiasPride == 0 && stats.GetValueOrDefault(Stat.AtlasKeystoneCassiasPride) > 0) cassiasPride = -75;
         if (cassiasPride != 0) factor *= Math.Max(0.05, 1.0 + cassiasPride / 100.0);
         int sturdyTakePct = stats.GetValueOrDefault(Stat.MapBlightMonstersTakePlusPctDamage);
         if (sturdyTakePct != 0) factor *= Math.Max(0.1, 1.0 + sturdyTakePct / 100.0);
@@ -1000,18 +995,19 @@ public sealed class BlightEncounter
         if (inst is null) return;
 
         // 1. Fungal Horizons Blightreach buff: convert dropped regular maps into Blighted Maps for the rest of the area.
-        if (BlightreachInstances.ContainsKey(inst))
+        if (BlightreachInstances.TryGetValue(inst, out _))
         {
             var stats = AreaStats(player);
             int convPct = stats.GetValueOrDefault(Stat.MapDropChanceToConvertToBlightMapPct);
             int chance = convPct > 0 ? convPct : 100;
             bool blooming = stats.GetValueOrDefault(Stat.MapBlightMapsDropAsUberBlightMaps) > 0;
             bool randomAnoints = stats.GetValueOrDefault(Stat.MapBlightedMapsDropWithRandomAnoints) > 0;
+            var modCatalog = ItemsFor(player).Mods;
             roll.Changes.Add((drop, rng) =>
             {
                 if (!CurrencyEffects.IsMap(drop.Item, drop.Type) || rng.Next(100) >= chance) return [drop];
                 bool uber = blooming && drop.Item.ItemLevel >= 81;
-                return [drop with { Item = BlightChests.MakeBlightedMap(drop.Item, uber, randomAnoints, rng) }];
+                return [drop with { Item = BlightChests.MakeBlightedMap(drop.Item, uber, randomAnoints, rng, modCatalog) }];
             });
         }
 
@@ -1182,5 +1178,5 @@ public sealed class BlightEncounter
     public static void ClearBlightreach() => BlightreachInstances.Clear();
 
     /// <summary>Whether Fungal Horizons' Blightreach buff is currently active in <paramref name="instance"/>.</summary>
-    public static bool HasBlightreach(InstanceState? instance) => instance is not null && BlightreachInstances.ContainsKey(instance);
+    public static bool HasBlightreach(InstanceState? instance) => instance is not null && BlightreachInstances.TryGetValue(instance, out _);
 }

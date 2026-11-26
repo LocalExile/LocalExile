@@ -224,8 +224,8 @@ public static class BlightWaves
 
     /// <summary>
     /// Computes the exact maximum life for a spawned Blight Boss using the proven 3.29.3c formula:
-    /// <c>BaseLife(level) * (1 + (MonsterMapBossDifficulty + BlightBossLifeScalingPerLevel) / 100) * (1 + mapBlightBossLife% / 100) * (1 + uberLife% / 100)</c>.
-    /// Avoids applying negative <c>BlightBossLifeScalingPerLevel.MoreLife</c> values standalone!
+    /// <c>BaseLife(level) * (1 + (MonsterMapBossDifficulty + BlightBossLifeScalingPerLevel) / 100) * (1 + mapBlightBossLife% / 100) * (1 + mapMonstersLife% / 100)</c>.
+    /// Honors both real <c>UberInfectedMap__</c> (<c>is_blighted_map = 9</c>, <c>map_monsters_life_+% = 200</c>) and regular map-rolled monster life.
     /// </summary>
     public static uint ComputeBossLife(MonsterCatalog.Variety variety, int areaLevel, IReadOnlyDictionary<uint, int> areaStats)
     {
@@ -234,12 +234,12 @@ public static class BlightWaves
         double scaled = baseLife * (1.0 + effectiveMorePct / 100.0);
         int bloomingBossLife = areaStats.GetValueOrDefault(Stat.MapBlightBossLifePlusPct);
         if (bloomingBossLife > 0) scaled *= 1.0 + bloomingBossLife / 100.0;
-        // UberInfectedMap__ carries MapMonstersLifePlusPct = 200 (200% more monster life).
-        if (areaStats.GetValueOrDefault(Stat.IsUberBlightedMap) > 0)
-        {
-            int uberLife = Math.Max(200, areaStats.GetValueOrDefault(Stat.MapMonstersLifePlusPct));
-            scaled *= 1.0 + uberLife / 100.0;
-        }
+        // Apply map-rolled monster life (since ownedMaximumLife bypasses mods.Effects.MaxLife). On Blight-ravaged maps
+        // (UberInfectedMap__ sets is_blighted_map = 9 and map_monsters_life_+% = 200), guarantee at least +200% without double-counting.
+        int mapLifePct = areaStats.GetValueOrDefault(Stat.MapMonstersLifePlusPct);
+        bool isUber = areaStats.GetValueOrDefault(Stat.IsUberBlightedMap) > 0 || areaStats.GetValueOrDefault(Stat.IsBlightedMap) >= 9;
+        if (isUber) mapLifePct = Math.Max(200, mapLifePct);
+        if (mapLifePct != 0) scaled *= Math.Max(0.1, 1.0 + mapLifePct / 100.0);
         return (uint)Math.Clamp(Math.Round(scaled), 1.0, int.MaxValue);
     }
 }

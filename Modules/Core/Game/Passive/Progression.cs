@@ -303,6 +303,12 @@ public static partial class Game
             conditionFlags, recentAmounts, poisonStacks, ItemsFor(player));
         if (player.StatSourcesCache is { } cached && cached.Key.Matches(sourcesKey))
         {
+            // Restore per-player anointed notable cache if the Game module hot-reloaded while StatSourcesCache stayed warm.
+            if (!AnointedPassivesOf.TryGetValue(player, out _))
+            {
+                var activeForAnoint = worn.Where(w => !cached.Inactive.Contains(w.Id)).Select(w => w.Item).ToArray();
+                AnointedPassivesOf.AddOrUpdate(player, CollectAnointedPassives(activeForAnoint, ItemsFor(player).Mods, PassivesFor(player), allocated));
+            }
             PublishQualifiedItemLifeReservationPercent(player, cached.Key.QualifiedItemLifeReservationPercent);
             player.Connection.Performance.LookupHit(probe);
             return (new(cached.Sources), cached.Attributes, new(cached.Inactive), cached.Worn);

@@ -39,10 +39,16 @@ public sealed class BlightDefenceTests
         Assert.Equal(d.Plan.Lanes.Count, d.LaneEncounterTypes.Count);
         Assert.Contains(d.LaneRewards.Values, r => r is "Blight" or "HardModeBlight");
 
-        // All 30 buildable towers are classified into valid families (0 is foundation) and have MinLevel loaded.
+        // All 30 buildable towers are classified into valid families (0 is foundation), have MinLevel, Roman Tiers I..IV, and Archetype >= 0.
         Assert.Equal(31, BlightTables.Towers.Count);
         for (int row = 1; row < BlightTables.Towers.Count; row++)
+        {
             Assert.NotEqual(TowerFamily.None, BlightTowers.FamilyOf(BlightTables.Towers[row].Id));
+            Assert.InRange(BlightTowers.TierNumberOf(BlightTables.Towers[row]), 1, 4);
+            Assert.True(BlightTables.Towers[row].Archetype >= 0, $"Tower row {row} must have Archetype >= 0");
+        }
+        Assert.Equal(0, BlightTables.Towers[26].Archetype); // FlameTower1 has Archetype 0 (must not be dropped!)
+        Assert.Equal(92, BlightTables.RingAnointStatIds.Count);
 
         // Exact 3.29.3c Empowering bonuses (+50/100/150% dmg, +20/30/40% cast speed) & Ring Anoint bypasses.
         Assert.Equal((50, 100, 150), (BlightTowers.EmpoweringDamagePct(1), BlightTowers.EmpoweringDamagePct(2), BlightTowers.EmpoweringDamagePct(3)));
@@ -134,12 +140,12 @@ public sealed class BlightDefenceTests
     public async Task The_lanes_send_their_enemies_and_the_defence_ends_when_they_are_dealt_with()
     {
         await using var area = await BlightArea.Open();
-        // Configure Atlas passives & Scarabs on the instance: Sturdy Construction (2x durability), Cassia's Pride (-75% player dmg),
-        // Blightspawn (1 boss-only lane), Templar Ingenuity (towers become salvaged chests), Fungal Horizons (Blightreach buff 2512).
+        // Configure Atlas passives & Scarabs on the instance: Sturdy Construction (2x durability), real Atlas Keystone Cassia's Pride
+        // (Stat.AtlasKeystoneCassiasPride = 1 -> -75% player dmg & +300% tower dmg), Blightspawn, Templar Ingenuity, Fungal Horizons.
         var areaStats = area.Instance.AreaStats(() => new Dictionary<uint, int>
         {
             [Stat.MapInchorPumpHasDoubleDurability] = 1,
-            [Stat.MapBlightMonstersDamageTakenFromPlayerSourcesPlusPctFinal] = -75,
+            [Stat.AtlasKeystoneCassiasPride] = 1,
             [Stat.MapBlightHasXBossLanes] = 1,
             [Stat.MapBlightTowersAreChests] = 1,
             [Stat.MapBlightTouchedBuffOnBlightEncounterComplete] = 1,
@@ -238,7 +244,14 @@ public sealed class BlightDefenceTests
         Assert.NotEmpty(blightLoot);
         var uberMapDrop = BlightChests.RollBlightedMap(area.A, 83, areaStats, fromUber: false, new Random(3));
         Assert.NotNull(uberMapDrop);
-        Assert.Contains(uberMapDrop!.Mods, m => m.Hash == BlightTables.UberInfectedMapModHash);
+        var uberImplicit = Assert.Single(uberMapDrop!.Mods, m => m.Hash == BlightTables.UberInfectedMapModHash);
+        // Verify exact Mods.dat UberInfectedMap__ stat order: [map_nuke_everything=1, map_spread_doodads_index=1, is_blighted_map=9, ms=20, life=200, ilvl=85, is_uber_blighted_map=1].
+        Assert.Equal([1, 1, 9, 20, 200, 85, 1], uberImplicit.Values);
+        // Verify ComputeBossLife scales properly with real UberInfectedMap__ (is_blighted_map = 9) and map-rolled Monster Life.
+        var bossVariety = BlightWaves.VarietyFor(0, 0, 1, MonsterRarity.Unique)!;
+        uint normalBossHp = BlightWaves.ComputeBossLife(bossVariety, 83, new Dictionary<uint, int>());
+        uint uberBossHp = BlightWaves.ComputeBossLife(bossVariety, 85, new Dictionary<uint, int> { [Stat.IsBlightedMap] = 9, [Stat.MapMonstersLifePlusPct] = 200 });
+        Assert.True(uberBossHp >= normalBossHp * 2.5, $"Expected Uber-Blight boss HP ({uberBossHp}) >= 2.5x normal ({normalBossHp})");
     }
 }
 
