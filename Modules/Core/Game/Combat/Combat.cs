@@ -2240,6 +2240,9 @@ public static partial class Game
             else onShieldChargeReady(StartCharge);
             return Task.CompletedTask;
         }
+        if (IsBaseChainHook(SkillsFor(player).EffectId(gem.Effect)))
+            return ScheduleBaseChainHook(player, skillId, gem, to, targetId, recoveryGeneration,
+                actionToken ?? player.ActionCount, sequence, swingAt, cooldownUse, criticalRoll, cryExerted, rallyingDamage);
         if (GatewayProjectileSkillProfiles.IsMoltenStrike(SkillsFor(player).EffectId(gem.Effect)))
             return ScheduleMoltenStrike(player, skillId, gem, from, to, recoveryGeneration,
                 targetId, sequence, actionToken, cooldownUse, criticalRoll, swingAt, cryExerted, ancestralTargets, rallyingDamage);
