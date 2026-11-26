@@ -125,10 +125,12 @@ public sealed class ScarabEncounterTests
         ShrineRegistry.RegisterDefaults();
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
-        using var sources = GameEvents.PlayerStatSources.Add("scarab-regression", ShrineManager.AddStats);
+        var shrineLifetime = new ModuleLifetime("scarab-regression");
+        var shrineContext = new ShrineContext(shrineLifetime);
+        new ShrinesModule().Load(shrineContext);
         try
         {
-            await ShrineManager.SpawnArea(owner.Player);
+            await GameEvents.RunPlayerEntered(owner.Player);
             string[] Ids() => instance.ContentState.Where(p => p.Key.StartsWith("Shrines/id/"))
                 .Select(p => p.Value).Order().ToArray();
             var ids = Ids();
@@ -143,10 +145,13 @@ public sealed class ScarabEncounterTests
             Assert.True(instance.HasState(claimed));
             await ShrineManager.LeaveArea(owner.Player);
             await ShrineManager.LeaveArea(peer.Player);
-            await ShrineManager.SpawnArea(owner.Player);
+            // A retained area's AreaGenerated event does not run again. A new connection only gets PlayerEntered.
+            await GameEvents.RunPlayerEntered(owner.Player);
             Assert.Equal(ids, Ids());
             Assert.True(instance.HasState(claimed));
             Assert.Empty(ShrineManager.AddStats(owner.Player, []));
+            Assert.True(await ShrineManager.Use(owner.Player, new(id, 0, 3, 0), 0));
+            Assert.Empty(ShrineManager.AddStats(owner.Player, [])); // The spent shrine remains registered without regranting.
             var ambushSlot = Slot("ScarabStrongboxNew1");
             var ambushMods = catalog.Of([ambushSlot], Program.Items.Mods);
             Assert.Equal(4, ambushMods.Get(MapStrongboxes.CountStat));
@@ -297,6 +302,8 @@ public sealed class ScarabEncounterTests
         }
         finally
         {
+            GameEventOwners.Release("scarab-regression", GameEventOwners.ModuleRank);
+            shrineLifetime.Stop(ex => throw ex);
             await ShrineManager.LeaveArea(owner.Player);
             await ShrineManager.LeaveArea(peer.Player);
             PlayerInventories.Forget(owner.Player.Character.Name!);
@@ -334,15 +341,15 @@ public sealed class ScarabEncounterTests
         var evolving = Request("ScarabDomination3");
         MapScarabContent.Describe(evolving);
         ShrineMapAdmission.Check(evolving);
-        Assert.Contains("Shrines.Evolving", Assert.Single(evolving.UnhandledContent));
+        Assert.Empty(evolving.UnhandledContent);
         var numeric = Request("ScarabMapsNew1", "ScarabDivinationCardsNew2");
         MapScarabContent.Describe(numeric);
         Assert.Empty(numeric.UnhandledContent);
         var rejected = Request("ScarabDomination2");
         rejected.Opening = opening with { Mods = MapRunCatalog.Load("data").Of(rejected.Slots, Program.Items.Mods) };
         ShrineMapAdmission.Check(rejected);
-        Assert.Null(rejected.Opening);
-        Assert.Contains("not been consumed", rejected.Reason);
+        Assert.NotNull(rejected.Opening);
+        Assert.Contains("Shrines.Apparitions", rejected.HandledContent);
         var arcanist = Assert.IsType<StrongboxCatalog.Definition>(StrongboxCatalog.Find("Metadata/Chests/StrongBoxes/Arcanist"));
         Assert.Equal(81, StrongboxCatalog.Weight(arcanist, 70, false, MapMods.None));
         Assert.Equal(0, StrongboxCatalog.Weight(arcanist, 25, false, MapMods.None));
@@ -374,6 +381,17 @@ public sealed class ScarabEncounterTests
         MapScarabContent.Describe(terrors);
         MapScarabBosses.Opening(terrors);
         Assert.Empty(terrors.UnhandledContent);
+    }
+
+    sealed class ShrineContext(ModuleLifetime lifetime) : IModuleContext
+    {
+        public ModManifest Manifest => new(lifetime.Id, "0", ModKind.Feature, [], "shrines.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public T Settings<T>() => System.Text.Json.JsonSerializer.Deserialize<T>("{}")!;
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Log(string message) { }
     }
 
     internal sealed class Wire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable

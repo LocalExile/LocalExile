@@ -76,8 +76,9 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
   music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
-  maps: remaining scarab engines outside Bestiary/Sulphite, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
-  Bestiary follow-up: native captured-beast book/itemisation and Blood Altar, exact red-beast weights and party capture rules;
+  maps: remaining scarab engines outside Bestiary/Sulphite and Essence skills/enhancement scaling (#505);
+  Bestiary follow-up: native captured-beast book/itemisation and Blood Altar, exact red-beast weights and
+  party capture rules;
   Torment spirits' and Grips' skills (#1129);
   Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);

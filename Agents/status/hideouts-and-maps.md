@@ -149,6 +149,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
+  Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Bestiary captures persist per account and league; mission identities and claims survive module reload.
   The Bestiary book, itemisation and Blood Altar remain unimplemented; capture storage alone does not expose those UIs.
   Selection weights, party capture chance, full-store replacement and Fumes placement retain local approximations
