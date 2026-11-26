@@ -254,10 +254,13 @@ public class RitualTests
             foreach (uint id in altar1.Tied) player.Area.Monsters[id].Life = 0;
             await encounter.Advance(player, 0.30);
             Assert.Equal(RitualEncounter.Ready, altar1.State);
+            state.SpawnWisp = true;
             var use1 = new InstanceTransfer.UseSkillOnObject(altar1.Interactable, 0x0266, 0, 0x0408) { Started = true };
             player.Walk.Teleport(altar1.Cell.X, altar1.Cell.Y, Game.AreaTime(player));
             Assert.True(await encounter.OnUse(player, use1, Game.AreaTime(player)));
             var run2 = state.Run!;
+            Assert.NotEqual(0u, run2.Wisp);
+            Assert.DoesNotContain(run2.Wisp, run2.Daemons);
             Assert.Equal(altar1.Credit.Count + carriedFromAltar0, run2.Monsters.Count);
             Assert.Equal(carriedFromAltar0, run2.Monsters.Count(m => m.N == 2));
             Assert.Equal(altar1.Credit.Count, run2.Monsters.Count(m => m.N == 1));

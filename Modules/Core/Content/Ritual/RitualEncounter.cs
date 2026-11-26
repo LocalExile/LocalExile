@@ -76,6 +76,7 @@ public sealed class RitualEncounter
         public readonly List<uint> Daemons = [];
         public int DaemonsDue;
         public double NextHazardAt;
+        public uint Wisp;
         public uint Blocker;
         public int Killed;
     }
@@ -463,6 +464,7 @@ public sealed class RitualEncounter
         {
             foreach (uint id in run.Alive.Keys.Where(id => !MonsterShown(player, id)).ToList()) run.Alive.Remove(id);
             run.Daemons.Clear();
+            run.Wisp = await CreateWisp(player, state, state.Altars[run.Altar]);
             await Create(player, run.Blocker, BlockerType, RitualWire.Blocker(state.Altars[run.Altar].Cell, RitualTables.RadiusCells),
                 $"0x2bb Ritual blocker 0x{run.Blocker:x}");
         }
@@ -928,7 +930,8 @@ public sealed class RitualEncounter
         state.VesselMonsters.Clear();
 
         // Apply server-side circular arena containment ring + IsInRitual stat refresh for all clients in the instance.
-        if (state.SpawnWisp)
+        run.Wisp = await CreateWisp(player, state, altar);
+        if (run.Wisp != 0)
         {
             state.WispBuffUntil = state.Now + 60.0;
             state.WispBuffActive = true;
@@ -936,7 +939,7 @@ public sealed class RitualEncounter
         foreach (var peer in InstanceClients(player))
         {
             peer.SetRingBlocker(run.Blocker, altar.Cell.X, altar.Cell.Y, RitualTables.RadiusCells);
-            if (state.SpawnWisp)
+            if (run.Wisp != 0)
                 peer.Area.Buffs.Set(peer.Id, new(RitualTables.WispBuffRow, peer.Id, U68: Buff.Seconds(60.0)));
             await SendCharacterStats(peer, PlayerStatChange.Build);
         }
@@ -1128,6 +1131,7 @@ public sealed class RitualEncounter
             $"0x166 Ritual favours ({state.Completed}/{state.Altars.Count} done)");
         await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
         await States(player, altar, 1, [3, 1], 3);
+        if (run.Wisp != 0) await SendWorldRemoval(player, run.Wisp, $"0x2bd Ritual wisp 0x{run.Wisp:x}");
         foreach (uint daemon in run.Daemons) await SendWorldRemoval(player, daemon, $"0x2bd Ritual daemon 0x{daemon:x}");
         await SendWorldRemoval(player, run.Blocker, $"0x2bd Ritual blocker 0x{run.Blocker:x}");
         await SendWorldRemoval(player, altar.Light, $"0x2bd Ritual light 0x{altar.Light:x}");
@@ -1173,6 +1177,11 @@ public sealed class RitualEncounter
         if (id != 0 && mine) state.Mine.Add(id);
         return id;
     }
+
+    Task<uint> CreateWisp(Player player, State state, Altar altar) =>
+        state.SpawnWisp && Monsters.Find("Metadata/Monsters/LeagueRitual/RitualWispDaemon") is { Supported: true } wisp
+            ? CreateDaemon(player, state, wisp.Row, altar.Cell)
+            : Task.FromResult(0u);
 
     async Task<uint> CreateDaemon(Player player, State state, int row, (int X, int Y) cell)
     {
