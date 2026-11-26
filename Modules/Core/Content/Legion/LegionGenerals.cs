@@ -46,6 +46,7 @@ static class LegionGenerals
         public int X { get; set; }
         public int Y { get; set; }
         public uint Bird { get; set; }
+        public double LifeScale { get; set; } = 1;
         [System.Text.Json.Serialization.JsonIgnore] public IReadOnlyDictionary<uint, int>? Stats { get; set; }
     }
 
@@ -139,7 +140,7 @@ static class LegionGenerals
 
     /// <summary>A general just started fighting (woken in a map encounter, spawned or revived in the Domain): a mounted one is followed to
     /// its dismount, a Fish gets its rider.</summary>
-    public static async Task Woken(Player player, uint id)
+    public static async Task Woken(Player player, uint id, double lifeScale = 1)
     {
         if (!player.Area.Monsters.TryGetValue(id, out var monster) || monster.Variety is not { } variety) return;
         var data = LegionData.Current;
@@ -151,7 +152,7 @@ static class LegionGenerals
             var g = Of(player);
             lock (g)
             {
-                g.Mounts[id] = new Mount { Id = id, Row = variety.Row, Level = monster.Level, Rarity = (int)monster.Rarity, Initiator = initiator, X = x, Y = y, Stats = monster.EncounterStats };
+                g.Mounts[id] = new Mount { Id = id, Row = variety.Row, Level = monster.Level, Rarity = (int)monster.Rarity, Initiator = initiator, X = x, Y = y, Stats = monster.EncounterStats, LifeScale = lifeScale };
                 Keep(player, g);
             }
         }
@@ -227,6 +228,8 @@ static class LegionGenerals
                         continue;
                     }
                     (mount.DiedAt, mount.Step) = (now, 1);
+                    // Drops and Killed skip a mount: its reward symbols end here (the form on foot shows them again).
+                    player.Area.Buffs.ClearRow(mount.Id, LegionStasis.RewardBuff);
                     changed = true;
                     Module?.Log($"Aukuna: the mount 0x{mount.Id:x} died at ({mount.X},{mount.Y}): dismount_01");
                 }
@@ -287,12 +290,12 @@ static class LegionGenerals
             if (due >= 4) g.Mounts.Remove(mount.Id);
             Keep(player, g);
         }
-        if (!LegionData.Current.Mounts.TryGetValue(mount.Row, out var rows)) return;
-        if (from < 2 && due >= 2)
+        bool known = LegionData.Current.Mounts.TryGetValue(mount.Row, out var rows);
+        if (known && from < 2 && due >= 2)
         {
             // spawnbird: the bird copies the mount's pose (its .ot: CopyAnimation(reference), PauseAnimation) and the mount drops its own bird.
             if (corpse is not null) await LegionStasis.SetState(player, mount.Id, corpse, "nobird");
-            if (Monsters.Find(rows.Bird.ToString()) is { Supported: true } birdVariety)
+            if (Monsters.Find(rows!.Bird.ToString()) is { Supported: true } birdVariety)
             {
                 uint bird = await SpawnInert(player, birdVariety, mount.Level, MonsterRarity.Normal, mount.X, mount.Y);
                 if (bird != 0)
@@ -308,25 +311,32 @@ static class LegionGenerals
         if (from < 3 && due >= 3 && mount.Bird != 0 && player.Area.Monsters.TryGetValue(mount.Bird, out var birdMonster))
             await LegionStasis.SetState(player, mount.Bird, birdMonster, "explodeepk");
         if (due < 4) return;
-        // phase: Aukuna on foot where the mount fell; the mount's corpse (made invisible by its own disappear event) goes.
-        if (Monsters.Find(rows.OnFoot.ToString()) is not { Supported: true } foot) return;
+        // phase: Aukuna on foot where the mount fell; the mount's corpse (made invisible by its own disappear event) goes. Without a form
+        // on foot the Domain's slot falls (it revives), a map's general is lost.
+        var foot = known && Monsters.Find(rows!.OnFoot.ToString()) is { Supported: true } v ? v : null;
         var (tx, ty) = (corpse?.Target ?? player).Walk.Position(now);
         float rotation = (tx, ty) != (mount.X, mount.Y) ? (float)Math.Atan2(tx - mount.X, -(ty - mount.Y)) : 0f;
         uint id = LegionDomain.IsDomainArea(player.Layout.Id)
             ? await LegionDomain.Dismounted(player, mount.Id, foot, mount.X, mount.Y, rotation)
-            : await OnFoot(player, mount, foot, rotation);
+            : foot is null ? 0 : await OnFoot(player, mount, foot, rotation);
         if (corpse is not null) await LegionRevive.Remove(player, [mount.Id]);
-        Module?.Log($"Aukuna: dismounted, mount 0x{mount.Id:x} -> on foot 0x{id:x} ({foot.Id}) at ({mount.X},{mount.Y})");
+        Module?.Log($"Aukuna: dismounted, mount 0x{mount.Id:x} -> on foot 0x{id:x} ({foot?.Id ?? "unsupported"}) at ({mount.X},{mount.Y})");
     }
 
-    /// <summary>A map encounter's general on foot: the mount's encounter states and level, its fighter entry (the drops, the Defeat line)
-    /// and its place among the encounter's released monsters; the Dismount line.</summary>
+    /// <summary>A map encounter's general on foot, as LegionStasis.Wake makes a general: the mount's encounter states, level and life scale
+    /// (as more life in its create), its fighter entry (the drops, the Defeat line) with the reward icon and symbols, Eternal Conflict's
+    /// buff and damage, and its place among the encounter's released monsters; the Dismount line.</summary>
     static async Task<uint> OnFoot(Player player, Mount mount, MonsterCatalog.Variety foot, float rotation)
     {
+        var entry = LegionStasis.FighterOf(player, mount.Id, remove: true);
+        int[]? rewards = entry?.Rewards is { Length: > 0 } r ? r : null;
+        MonsterModSet? scaled = mount.LifeScale > 1.001
+            ? MonsterModSet.None with { Effects = MonsterModEffects.None.Plus(MonsterModCatalog.EncounterLifeStat, (int)Math.Round((mount.LifeScale - 1) * 100)) }
+            : null;
         // Fighting as the woken mount was (LegionStasis.Wake): present, broken out, activated, its monolith.
         uint id = await SpawnMonster(player, foot, mount.Level, (MonsterRarity)mount.Rarity, mount.X, mount.Y,
             friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false, placement: MonsterPlacement.Established,
-            rotation: rotation, shape: o =>
+            rotation: rotation, extraStats: LegionStasis.RewardStats(rewards, false), extraMods: scaled, shape: o =>
             {
                 var sm = (o.StateMachine ?? foot.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1);
                 if (mount.Initiator != 0) sm = sm?.Set("owning_initiator", mount.Initiator);
@@ -334,7 +344,12 @@ static class LegionGenerals
             });
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var fighter)) return 0;
         if (mount.Stats is { } stats) fighter.EncounterStats = stats;   // Eternal Conflict's extra damage
-        if (LegionStasis.FighterOf(player, mount.Id, remove: true) is { } entry) LegionStasis.AddFighter(player, id, entry);
+        if (entry is not null)
+        {
+            LegionStasis.AddFighter(player, id, entry);
+            if (entry.BreakOutCount > 1) player.Area.Buffs.Set(id, new Buff(LegionStasis.EnhancedBuff, Tag: 1));
+            LegionStasis.ShowRewards(player, id, rewards, false);
+        }
         LegionMonolith.Replace(player, mount.Id, id);
         await LegionSpeech.Say(player, foot.Id, "Dismount");
         return id;
@@ -343,9 +358,11 @@ static class LegionGenerals
     /// <summary>An object that only shows (the bird; a clone can be hit): no AI, no body, no rewards; the bird no hits and no bar.</summary>
     static async Task<uint> SpawnInert(Player player, MonsterCatalog.Variety variety, byte level, MonsterRarity rarity, int x, int y, bool hittable = false)
     {
+        // A clone is a Legion monster: out of its crystal (present, breakout, activated), or a map draws it encased.
         uint id = await SpawnMonster(player, variety, level, rarity, x, y, nonBlocking: true,
             friendly: false, unrisen: false, alone: false, scripted: true, instanceOwned: true, bulk: true, log: false,
-            placement: MonsterPlacement.Established, extraStats: hittable ? null : [(Stat.HideMiniLifeBar, 1), (Stat.VirtualIsHiddenMonster, 1)]);
+            placement: MonsterPlacement.Established, extraStats: hittable ? null : [(Stat.HideMiniLifeBar, 1), (Stat.VirtualIsHiddenMonster, 1)],
+            shape: hittable ? o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("present", 1).Set("breakout", 1).Set("activated", 1) } : null);
         if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var m)) return 0;
         m.NoRewards = true; m.Attack = null; m.Aggro = false; m.BusyUntil = double.PositiveInfinity;
         m.EntranceGrace = !hittable;

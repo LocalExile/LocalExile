@@ -182,8 +182,9 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   there, an inference). The mount's death clip is `dismount_01`; the server plays its events (`LegionGenerals.cs`, R17): at `spawnbird`
   the bird 7756 (`Invisible`, NoAi; its .ot copies the mount's pose and pauses it) and `nobird` 1 on the mount (detaches its own bird),
   at `birdepk` the bird's `explodeepk` 1 (`DinoExplode.epk`), at `phase` 7754 where the mount fell; the mount's corpse goes (its own
-  `disappear` event already made it invisible). The fighter entry (drops, Defeat line), the encounter's released id and the Domain slot
-  pass to 7754, which says a Dismount line (in the Domain through the 30 s chatter). The mount's own `use_arrow2` default is 1.
+  `disappear` event already made it invisible). The fighter entry (drops, Defeat line, reward symbols, Eternal Conflict's buff), the
+  mount's life scale (as `server_encounter_monster_life_+%_final`), the encounter's released id and the Domain slot pass to 7754, which
+  says a Dismount line (in the Domain through the 30 s chatter); without it the Domain slot falls and revives. The mount's own `use_arrow2` default is 1.
   GUESS: the event times 1.73, 1.945 and 2.64 s (names only; the server has no clip clock), the bird going 2 s after the phase; the
   bird's `DinosaurExplosion` / `LandingBurningGround` hits are not played. Live check: does the bird copy the pose without a
   `reference` object, and does the client play `dismount_01` from the mount's ordinary death.

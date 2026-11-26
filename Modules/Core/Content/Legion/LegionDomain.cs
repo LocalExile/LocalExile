@@ -1346,8 +1346,9 @@ static class LegionDomain
     }
 
     /// <summary>Aukuna's mount fell (LegionGenerals): her form on foot takes the slot's place where it fell and says her Dismount line (in the
-    /// Domain's chatter). 0 when the Domain has ended or the mount is no longer the slot's fighter.</summary>
-    public static async Task<uint> Dismounted(Player player, uint mountId, MonsterCatalog.Variety foot, int x, int y, float rotation)
+    /// Domain's chatter). 0 when the Domain has ended or the mount is no longer the slot's fighter. Without a form on foot (null, or its
+    /// spawn failed) the slot falls where the mount did, so its ghost lies there and revives.</summary>
+    public static async Task<uint> Dismounted(Player player, uint mountId, MonsterCatalog.Variety? foot, int x, int y, float rotation)
     {
         if (StateOf(player) is not { } state) return 0;
         FighterSlot slot;
@@ -1358,23 +1359,29 @@ static class LegionDomain
             slot = state.Slots[idx];
             areaLevel = (byte)Math.Clamp(state.Level, 1, 100);
         }
-        uint id = await SpawnFighter(player, slot, foot, areaLevel, x, y, rotation, LegionMonolith.AreaStats(player));
-        if (id == 0) return 0;
-        bool kept;
+        uint id = foot is null ? 0 : await SpawnFighter(player, slot, foot, areaLevel, x, y, rotation, LegionMonolith.AreaStats(player));
+        bool kept = false;
         lock (state)
         {
             int idx = -1;
-            kept = state.Phase == DomainPhase.Active && state.LiveByMonster.Remove(mountId, out idx);
-            if (kept)
+            bool live = state.Phase == DomainPhase.Active && state.LiveByMonster.Remove(mountId, out idx);
+            if (live && id != 0)
             {
+                kept = true;
                 state.LiveByMonster[id] = idx;
                 state.Slots[idx] = state.Slots[idx] with { CurrentId = id, Alive = true };
-                state.Chatter.Add((foot.Id, "Dismount"));
+                state.Chatter.Add((foot!.Id, "Dismount"));
+                Keep(player, state, flush: false);
+            }
+            else if (live)
+            {
+                state.Slots[idx] = state.Slots[idx] with { CurrentId = 0, Alive = false, DeadAt = global::Game.AreaTime(player), X = x, Y = y };
+                state.Fallen.Enqueue((idx, 0));
                 Keep(player, state, flush: false);
             }
         }
-        if (!kept) { await LegionRevive.Remove(player, [id]); return 0; }
-        return id;
+        if (!kept && id != 0) await LegionRevive.Remove(player, [id]);
+        return kept ? id : 0;
     }
 
     static bool RecordKill(Player player, DomainState state, uint monsterId, out FighterSlot? killedSlot)

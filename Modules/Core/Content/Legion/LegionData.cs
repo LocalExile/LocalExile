@@ -60,11 +60,7 @@ public sealed class LegionData
 
     /// <summary>What a general says: the NPCs row of the speaker (its Id is the general's MonsterVarieties Id) and its NPCTextAudio rows by category
     /// (MapIntro, Defeat, Fleeing, Dismount, BattleCry, Taunt, Injured, Attack; from the row Id's stem, GUESS that the stem is the trigger).</summary>
-    public sealed record GeneralVoice(ushort Npc, string NpcId, IReadOnlyDictionary<string, ushort[]> Lines)
-    {
-        /// <summary>The speaker is Aukuna on foot (her NPCs Id ends in Dismounted).</summary>
-        public bool Dismounted => NpcId.EndsWith("Dismounted", StringComparison.Ordinal);
-    }
+    public sealed record GeneralVoice(ushort Npc, string NpcId, IReadOnlyDictionary<string, ushort[]> Lines);
 
     static readonly string[] VoiceCategories = ["MapIntro", "Defeat", "Fleeing", "Dismount", "BattleCry", "Taunt", "Injured", "Attack", "Arrack"];
     const string VoiceNpcPrefix = "Metadata/Monsters/LegionLeague/";

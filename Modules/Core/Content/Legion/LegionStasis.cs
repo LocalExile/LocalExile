@@ -22,8 +22,9 @@ static class LegionStasis
     /// 1 elite, 2 sergeant, 3 general), whether it is a chest monster (a War Hoard when WarHoard), whether it broke out, the
     /// sequence of its LegionBreakout action (the 0x2c8 updates must carry it), whether it was revealed (state 2), its reward types
     /// (LegionRewardTypeVisuals rows; null or empty: none), its formation facing angle, how many times it was broken out
-    /// (Eternal Conflict scarab), and whether a Treasures chest explosion spread rewards onto it.</summary>
-    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null, int BreakOutCount = 0, bool SpreadEnhanced = false);
+    /// (Eternal Conflict scarab), whether a Treasures chest explosion spread rewards onto it, and its maximum life before the encounter
+    /// scaled it (0: not known), so a general's next form gets the same scale.</summary>
+    public sealed record Member(uint Id, ushort Buff, int Faction, int Tier, bool Chest, bool WarHoard, bool Broken = false, ushort Sequence = 0, bool Revealed = false, int[]? Rewards = null, float? Facing = null, int BreakOutCount = 0, bool SpreadEnhanced = false, uint BaseLife = 0);
 
     /// <summary>The LegionBreakout action: ActionTypes HASH16 (the 0x2c8 header's action type) and its skill id, the type's HASH16 &amp; 0x3fff (R11 section 0).</summary>
     const ushort ActionType = 0xd8fe, ActionSkill = 0x18fe;
@@ -117,7 +118,7 @@ static class LegionStasis
         rewards is { Length: > 0 } && LegionData.Current.RewardTypesByRow.TryGetValue(rewards[0], out var t) && t.MinimapIcon >= 0 ? t.MinimapIcon + 1 : null;
 
     /// <summary>The create stats of a reward carrier: the icon, and hidden until its reveal when <paramref name="hidden"/> (state 0 shows on the minimap otherwise).</summary>
-    static List<(uint Key, int Value)>? RewardStats(int[]? rewards, bool hidden)
+    internal static List<(uint Key, int Value)>? RewardStats(int[]? rewards, bool hidden)
     {
         if (RewardIcon(rewards) is not int icon) return null;
         var stats = new List<(uint, int)> { (Stat.MonsterMinimapIcon, icon) };
@@ -207,8 +208,10 @@ static class LegionStasis
                 shape: monolithId == 0 ? null : o => o with { StateMachine = (o.StateMachine ?? variety.StateMachine)?.Set("present", 0).Set("owning_initiator", (int)monolithId) });
             if (id == 0) { skipped++; skippedBy[faction]++; skipReasons[3]++; if (chest) skipReasons[4]++; return; }
             // Logistical Support (+50% more life per reward) & map_legion_monster_life_+%_final_from_sextant scale stasis MaxLife too.
+            uint baseLife = 0;
             if (!chest && player.Area.Monsters.TryGetValue(id, out var spawned))
             {
+                baseLife = spawned.MaxLife;
                 double mult = InitialLifeMultiplier(rewards?.Length ?? 0, lifePerRewardPct, sextantLifePct);
                 if (mult > 1.001)
                 {
@@ -217,7 +220,7 @@ static class LegionStasis
                 }
             }
             ushort buff = await Freeze(player, id, variety.Id, TimeLockVisual(plan.Factions[faction].Id), frozenStats);
-            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null, Facing: facing);
+            var member = new Member(id, buff, faction, tier, chest, hoard, Sequence: sequence, Rewards: rewards is { Length: > 0 } ? rewards : null, Facing: facing, BaseLife: baseLife);
             if (!keep(member)) { stopped = true; await Remove(player, [member]); return; }
             await standing(member);
             counts[faction]++;
@@ -411,7 +414,8 @@ static class LegionStasis
             anyFighter = true;
             if (!deferPersist) PersistFighters(player, map);
         }
-        if (member.Tier == 3) await LegionGenerals.Woken(player, id);
+        // A general's next form (Aukuna on foot) takes the life scale the encounter gave this one (rewards, sextant, break-outs, spread).
+        if (member.Tier == 3) await LegionGenerals.Woken(player, id, member.BaseLife > 0 ? monster.MaxLife / (double)member.BaseLife : 1);
         return id;
     }
 
