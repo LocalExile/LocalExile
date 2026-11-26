@@ -224,9 +224,10 @@ public static partial class Game
         long nowTicks = player.ProjectileRuntime is { Active: true } runtime ? runtime.Runtime.Now : ProjectileRuntime.Time(AreaTime(player));
         long maxExpires = state.Wards.Max(ward => ward.Expires);
         double remaining = (maxExpires - nowTicks) / (double)ProjectileRuntime.QuantaPerSecond;
-        area.SetStatBuff(new EntityId(player.Id), state, new Dictionary<uint, int> { [Stat.AdditionalBlockChanceAgainstProjectilesPct] = total });
-        area.Buffs.Set(player.Id, new(SteelWardBuff, player.Id, Values: [(uint)total],
-            U68: remaining > 0 ? Buff.Seconds(remaining) : null, Stacks: (ushort)stacks));
+        var stats = new Dictionary<uint, int> { [Stat.AdditionalBlockChanceAgainstProjectilesPct] = total };
+        area.SetStatBuff(new EntityId(player.Id), state, stats);
+        area.Buffs.Set(player.Id, BuffRows.Spec(SteelWardBuff, player.Id, stats,
+            remaining > 0 ? remaining : (double?)null) with { Stacks = (ushort)stacks });
     }
 
     static void ClearSteelWardOnDeath(Player player)
