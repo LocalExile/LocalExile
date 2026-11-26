@@ -1373,16 +1373,16 @@ public static partial class Game
                         manaAfter = player.PlayerMana;
                         leech.ClearFull(now, lifeAfter >= lifeCap, manaAfter >= manaCap,
                             player.EnergyShield.Current >= player.EnergyShield.Maximum);
+                        // The client predicts a plain regeneration step from its life recovery rate: no update for it,
+                        // until a source it cannot know, a loss, new rates, Petrified Blood's blocked rate, the cap, or
+                        // the sent rate rounding to zero (then the client predicts nothing and the orb would freeze).
+                        if (!lifeMarkedBefore && !lifeUnpredicted && !lifeLost && !ratesRead && !pbRateChanged
+                            && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter == lifeCommitted
+                            && lifeAfter < lifeCap && Math.Round(lifeRate * 60) > 0 && !ClientLifeRecoveryZeroed(player))
+                            player.Frames.Area?.Life.LifePredicted(player);
                     }
                 }
             }
-            // The client predicts a plain regeneration step from its life recovery rate: no update for it, until a
-            // source it cannot know, a loss, new rates, Petrified Blood's blocked rate, the cap, or the sent rate
-            // rounding to zero (then the client predicts nothing and the orb would freeze).
-            if (!dead && !lifeMarkedBefore && !lifeUnpredicted && !lifeLost && !ratesRead && !pbRateChanged
-                && player.PetrifiedBlood.SentRecoveryBlocked != true && lifeAfter > lifeBefore && lifeAfter == lifeCommitted && player.PlayerLife == lifeCommitted
-                && lifeAfter < LifeCap(player) && Math.Round(lifeRate * 60) > 0 && !ClientLifeRecoveryZeroed(player))
-                player.Frames.Area?.Life.LifePredicted(player);
             if (pbRateChanged && !dead)
             {
                 await SendPetrifiedBloodRecoveryRate(player, pbRateBlocked);

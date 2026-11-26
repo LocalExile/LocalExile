@@ -1045,8 +1045,8 @@ static class PerfBench
         var rolledHit = hit.Roll(Random.Shared);
         Time("LeechOnHitLocked", () => Game.LeechOnHitLocked(player, first.Value, rolledHit, 10, leech), 200);
         Time("ApplyMonsterHitLocked", () => Game.ApplyMonsterHitLocked(player, first.Value, 1, null, null), 200);
-        Time("GamblerFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(player, playerStats, first.Value,
-            (Game.GamblerFor(playerStats) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
+        Time("HitRollsFor + WithOutgoingDamage", () => GameEvents.WithOutgoingDamage(player, playerStats, first.Value,
+            (Game.HitRollsFor(playerStats) with { DamageMorePct = 0 }).RollOutgoingHit(hit, Random.Shared)), 200);
         Time("NotifyMonsterHit (sends)", () => Game.NotifyMonsterHit(player, first.Key, first.Value,
             new(1_000_000, false), 1, "bench", log: true).GetAwaiter().GetResult(), 200);
         player.Closed = true;

@@ -771,11 +771,9 @@ public static partial class Game
     {
         var m = golem.Monster;
         m.CorpseConsumed = true;
+        SetStats(player, golem.Id, [(Stat.HideMiniLifeBar, 1)]);
         if (!shown)
-        {
-            SetStats(player, golem.Id, [(Stat.HideMiniLifeBar, 1)]);
             player.Minions.OutputQueue.Add(new([], "summon life 0", golem.Id, m, PlayerMinions.OutputKind.Life));
-        }
         if (!player.Minions.Bodies.Exists(b => b.Id == golem.Id))
             player.Minions.Bodies.Add((golem.Id, m, now + SummonBodySeconds));
     }
