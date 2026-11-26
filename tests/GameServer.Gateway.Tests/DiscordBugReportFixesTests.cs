@@ -139,23 +139,34 @@ public sealed class DiscordBugReportFixesTests : IDisposable
         Assert.Equal(monsters.Find("Metadata/Monsters/MonsterSummonedSkull/MonsterSummonedSkullGhostly")!.Row,
             srsSummon!.Variety);
         int fairgravesThrow = skills.EffectRow("FairgravesThrownWeapon");
-        Assert.Equal("Metadata/Projectiles/SpectralThrowFairgraves", skills.MonsterProjectile(fairgravesThrow)?.Metadata);
+        var fairgravesProj = skills.MonsterProjectile(fairgravesThrow);
+        Assert.Equal("Metadata/Projectiles/SpectralThrowFairgraves", fairgravesProj?.Metadata);
+        Assert.Equal("Melee", fairgravesProj?.AnimationKey);
 
-        // Weapon projectiles come from monster_projectile_variation's MonsterProjectileAttack row, never from another
-        // monster's effect on the shared monster_projectile_weapon skill.
-        Assert.Equal("Metadata/Projectiles/LegionMarakethRangedDash", skills.VariationProjectile(1790)?.Id);
-        Assert.Equal("Metadata/Projectiles/LegionLioneyeSnipeMedium", skills.VariationProjectile(10691)?.Id);
-        int weaponSkill = ClientTables.Table("ActiveSkills").ToList().FindIndex(r => r.TextOrNull("Id") == "monster_projectile_weapon");
-        int borrowers = 0;
-        foreach (var (e, row) in ClientTables.Table("GrantedEffects").Select((r, i) => (r, i)))
-            if (e.IntOrNull("ActiveSkill") == weaponSkill && row != 801 && skills.VariationProjectile(row) is null)
-            {
-                borrowers++;
-                Assert.NotEqual("Metadata/Projectiles/AtlasBasiliskSnakeProjectile", skills.SharedProjectile(row)?.Id);
-            }
-        Assert.True(borrowers > 0);
+        // Weapon projectiles come from monster_projectile_variation's MonsterProjectileAttack row (including ScavengerThrow
+        // variation 0 and sibling monster_projectile_* ActiveSkills), never borrowed from another monster's effect on a generic skill.
+        int rocDash = skills.EffectRow("LegionMarakethRangedDashProjectile");
+        int lioneyeSnipe = skills.EffectRow("LioneyeTriggeredProjectile");
+        int basiliskSnake = skills.EffectRow("AtlasBasiliskSnakeProjectile");
+        Assert.Equal("Metadata/Projectiles/LegionMarakethRangedDash", skills.VariationProjectile(rocDash)?.Id);
+        Assert.Equal("Metadata/Projectiles/LegionLioneyeSnipeMedium", skills.VariationProjectile(lioneyeSnipe)?.Id);
+        Assert.Equal("Metadata/Projectiles/Scavenger", skills.VariationProjectile(skills.EffectRow("ScavengerThrow"))?.Id);
+        Assert.NotNull(skills.VariationProjectileInfo(skills.EffectRow("ElderGuardianStrafe")));
+        Assert.NotNull(skills.MonsterProjectile(skills.EffectRow("VinktarSquareSpellProjectileLightning")));
+        Assert.Null(skills.SharedProjectile(rocDash));
+        Assert.Equal("Metadata/Projectiles/AtlasBasiliskSnakeProjectile", skills.SharedProjectile(basiliskSnake)?.Id);
+        Assert.Null(skills.SharedProjectile(skills.EffectRow("LunarisGlaiveProjectileTriggered")));
         // monster_fading_projectile_spell still shares its phantasm projectile.
-        Assert.Equal("Metadata/Projectiles/SummonPhantasmFadingProjectile", skills.SharedProjectile(9427)?.Id);
+        Assert.Equal("Metadata/Projectiles/SummonPhantasmFadingProjectile",
+            skills.SharedProjectile(skills.EffectRow("SummonPhantasmFadingProjectile"))?.Id);
+        // SkillArtProjectile auto-variant falls back to variant 0 when ProjectilesArtVariations omits the higher index
+        // (while effects with an explicit higher variant row still pick their own variant).
+        foreach (string id in new[] { "AncestralIkiahoArcticBreath", "ExileTemplarVaalThrownWeapon",
+            "TormentDaemonVaalThrownWeapon", "FairgravesVaalThrownWeapon", "FairgravesVaalThrownWeaponDaemon",
+            "DelveTormentVaalThrownWeaponDaemon", "HandFingerVaalThrownWeaponMapBoss", "HandFingerVaalThrownWeaponBoss",
+            "TriggeredSupportFissure", "GraftSkillTulTornado" })
+            Assert.NotNull(skills.SkillArtProjectile(skills.EffectRow(id)));
+        Assert.Equal("Metadata/Projectiles/LegionVaalSergeantSoulrend", skills.SkillArtProjectile(skills.EffectRow("LegionVaalSoulrend"))?.Id);
 
         // 2. Merveil fires IceSpear and summons statues/daughters/spawn; Amarissa/Ambrosia start targetable (state 2);
         //    Brutus starts with dialogue_lines = 1.

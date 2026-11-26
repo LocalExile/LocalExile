@@ -854,39 +854,46 @@ public sealed class SkillCatalog
     /// projectile is not known yet; the Gateway matches the Id, and <see cref="ProjectileFallbacks"/> covers the gems
     /// whose row is not named after their effect. Kinetic Blast (ClusterBurst) fires the wand attack's own projectile
     /// (3.29 has no ClusterBurst row); its explosion is a separate impact art (Program.Combat).</summary>
-    /// <summary>The projectile the client flies for an effect, as its resolver picks it (RE 012 resource-selection §1–3:
-    /// 0x1419417c0 → 0x141f67770): the SkillArtVariations rows associated with the GrantedEffects row, then those
+    /// <summary>The projectile the client flies for an effect, as its resolver picks it (RE 012 resource-selection §1–3,
+    /// 3.29.3b 0x1419417c0 → 0x141f67770): the SkillArtVariations rows associated with the GrantedEffects row, then those
     /// associated with its ActiveSkills row, each in row order; the first whose ProjectileArt has the slot and whose
     /// ProjectilesArtVariations Id has a row at the variant gives that row's Projectiles (the first, when there are several:
-    /// none of the rows this is used for has more). The variant is the effect's <c>skill_art_variation</c> (<see cref="ArtVariation"/>), 0 without one (SynthesisColdRend 10506 art 0, LegionVaalSoulrend 10507 art 1). Null when no
-    /// candidate has one: the client then flies nothing from this path.</summary>
+    /// none of the rows this is used for has more). When <paramref name="variant"/> is negative (automatic resolution),
+    /// it uses the effect's <c>skill_art_variation</c> (<see cref="ArtVariation"/>) and falls back to variant 0 when
+    /// ProjectilesArtVariations has no row at that higher index (e.g. FairgravesVaalThrownWeapon, HandFingerVaalThrownWeaponBoss,
+    /// AncestralIkiahoArcticBreath). Explicit <paramref name="variant"/> &gt;= 0 stays exact-only. Null when no candidate has one.</summary>
     public (string Id, int Speed, int CollisionRadius)? SkillArtProjectile(int effectRow, int slot = 0, int variant = -1)
     {
-        if (variant < 0) variant = ArtVariation(effectRow);
+        bool autoVariant = variant < 0;
+        if (autoVariant) variant = ArtVariation(effectRow);
         var art = _skillArt;
         IEnumerable<int> candidates = art.ByEffect.GetValueOrDefault(effectRow, []);
         if (_activeSkillOfEffect.GetValueOrDefault(effectRow, -1) is >= 0 and var active)
             candidates = candidates.Concat(art.ByActive.GetValueOrDefault(active, []));
-        foreach (int row in candidates)
+        (string Id, int Speed, int CollisionRadius)? Find(int v)
         {
-            var slots = art.ProjectileArt[row];
-            if (slot >= slots.Count || !art.ArtIds.TryGetValue(slots[slot], out string? id)
-                || !art.Directory.TryGetValue((id, variant), out var projectiles) || projectiles.Count == 0) continue;
-            return projectiles[0];
+            foreach (int row in candidates)
+            {
+                var slots = art.ProjectileArt[row];
+                if (slot >= slots.Count || !art.ArtIds.TryGetValue(slots[slot], out string? id)
+                    || !art.Directory.TryGetValue((id, v), out var projectiles) || projectiles.Count == 0) continue;
+                return projectiles[0];
+            }
+            return null;
         }
-        return null;
+        return Find(variant) ?? (autoVariant && variant != 0 ? Find(0) : null);
     }
 
     /// <summary>The Projectiles row an effect's action class creates when its art names none: the row of another effect on
     /// the same ActiveSkills row, the action the client runs for both (<see cref="ProjectileFor"/>: Ethereal Knives'
     /// EtherealKnivesProjectile, Spectral Throw's ThrownWeapon, Essence Drain's Siphon, all live-verified for the player's
     /// gem). A monster's ExileEtherealKnives shares ethereal_knives with the gem's EtherealKnives. Its own row first, then
-    /// the others' in table order; null when none of them names one, except on a skill in <see cref="_noBorrowSkills"/> (monster_projectile_weapon: the effect's own row only; its projectile is its variation row, <see cref="VariationProjectile"/>) (a bow's arrow comes from the equipped item:
-    /// projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
+    /// the others' in table order; null when none of them names one, except on a generic shared monster skill in
+    /// <see cref="_noBorrowSkills"/> (the effect's own row only; its projectile comes from its variation/art row) (a bow's
+    /// arrow comes from the equipped item: projectiles/bow-wand-and-burning-arrow.md, its priority still open).</summary>
     public (string Id, int Speed, int CollisionRadius)? SharedProjectile(int effectRow)
     {
-        // monster_projectile_weapon is shared by unrelated monsters: another effect's
-        // row is not this one's projectile. Its own row, then its variation row (VariationProjectile), only.
+        // Generic monster ActiveSkills shared across unrelated monsters never borrow another effect's projectile row.
         bool generic = _activeSkillOfEffect.TryGetValue(effectRow, out int activeRow) && _noBorrowSkills.Contains(activeRow);
         foreach (int row in generic ? [effectRow] : SameActionEffects(effectRow))
             if (ProjectileFor(row) is { } found)
@@ -897,12 +904,22 @@ public sealed class SkillCatalog
         return null;
     }
 
-    /// <summary>ActiveSkills whose projectile comes per effect from a variation table (monster_projectile_weapon), so
-    /// <see cref="SharedProjectile"/> never borrows from another effect on them.</summary>
+    /// <summary>Generic monster ActiveSkills shared by unrelated effects whose projectile comes per effect from a
+    /// variation or art table, so <see cref="SharedProjectile"/> never cross-borrows another monster's projectile.</summary>
     private readonly HashSet<int> _noBorrowSkills;
 
+    static readonly HashSet<string> NoBorrowSkillIds = new(StringComparer.Ordinal)
+    {
+        "monster_projectile_weapon",
+        "monster_projectile_weapon_cast_triggerable",
+        "decelerating_projectile",
+        "lunaris_glaive_projectile",
+        "geometry_projectiles_spell",
+        "geometry_projectiles_attack",
+    };
+
     HashSet<int> LoadNoBorrowSkills() => ClientTables.TableOrEmpty("ActiveSkills").Select((r, i) => (r, i))
-        .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon").Select(a => a.i).ToHashSet();
+        .Where(a => a.r.TextOrNull("Id") is { } id && NoBorrowSkillIds.Contains(id)).Select(a => a.i).ToHashSet();
 
     /// <summary>The projectile the client's own path gives a weapon-attack effect: its <c>monster_projectile_variation</c>
     /// names a MonsterProjectileAttack row, which names the Projectiles row (Roc Sentinel's dash 76 LegionMarakethRangedDash,
@@ -911,6 +928,15 @@ public sealed class SkillCatalog
     public (string Id, int Speed, int CollisionRadius)? VariationProjectile(int effectRow) =>
         _weaponMonsterProjectiles.TryGetValue(effectRow, out var p) && !_monsterProjectiles.ContainsKey(effectRow)
             ? (p.Metadata, p.Speed, (int)Math.Max(1, p.CollisionRadius)) : null;
+
+    /// <summary>Full variation-row projectile metadata (preserving <see cref="MonsterProjectileInfo.AnimationKey"/>,
+    /// <see cref="MonsterProjectileInfo.MinimumRange"/>, <see cref="MonsterProjectileInfo.SpreadRadius"/> and spiral fields)
+    /// for weapon-attack effects resolved from MonsterProjectileAttack, with <c>Variation = 0</c> so the server publishes the
+    /// projectile object itself. Null when the effect has no weapon variation row.</summary>
+    public MonsterProjectileInfo? VariationProjectileInfo(int effectRow) =>
+        _weaponMonsterProjectiles.ContainsKey(effectRow) && !_monsterProjectiles.ContainsKey(effectRow)
+            && MonsterProjectile(effectRow, includeWeaponAttacks: true) is { } p
+            ? p with { Variation = 0 } : null;
 
     /// <summary>The effect itself, then every other GrantedEffects row on its ActiveSkills row in table order: the effects
     /// whose action the client runs alike (a monster's ExileStormCall and the gem's StormCall are both storm_call). What
@@ -1567,7 +1593,8 @@ public sealed class SkillCatalog
                 && name.StartsWith("monster_mortar", StringComparison.Ordinal))
             .ToDictionary(a => a.i, a => a.r.Text("Id") == "monster_mortar_attack");
         var spellProjectileSkills = active.Select((r, i) => (r, i))
-            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_spell")
+            .Where(a => a.r.TextOrNull("Id") is "monster_projectile_spell" or "monster_projectile_spell_self"
+                or "monster_projectile_spell_lightning" or "monster_projectile_spell_ally")
             .Select(a => a.i).ToHashSet();
         var rollingMagmaSkills = active.Select((r, i) => (r, i))
             .Where(a => a.r.TextOrNull("Id") == "rolling_magma")
@@ -1582,7 +1609,7 @@ public sealed class SkillCatalog
             .Select(a => a.i).ToHashSet();
         int fairgravesThrowRow = rows.FindIndex(p => p.Id == "Metadata/Projectiles/SpectralThrowFairgraves");
         var equipmentProjectileSkills = active.Select((r, i) => (r, i))
-            .Where(a => a.r.TextOrNull("Id") == "monster_projectile_weapon")
+            .Where(a => a.r.TextOrNull("Id") is "monster_projectile_weapon" or "monster_projectile_weapon_cast_triggerable")
             .Select(a => a.i).ToHashSet();
         var effects = ClientTables.Table("GrantedEffects");
         uint? variationKey = Stat.MonsterProjectileVariation;
@@ -1624,15 +1651,18 @@ public sealed class SkillCatalog
             else if (spectralThrowSkills.Contains(activeRow) && fairgravesThrowRow >= 0
                 && e.TextOrNull("Id") == "FairgravesThrownWeapon")
             {
-                (projectileRow, animationKey, lobbed, variation) = (fairgravesThrowRow, "Attack", false, 0);
+                // ThrownWeaponProjectile plays Melee (Animation.dat has no "Attack" row).
+                (projectileRow, animationKey, lobbed, variation) = (fairgravesThrowRow, "Melee", false, 0);
             }
             else if (includeWeaponAttacks && equipmentProjectileSkills.Contains(activeRow) && variationKey is uint key)
             {
                 int? configuredVariation = EffectStats(row, 1).Where(s => s.Item1 == key)
                     .Select(s => (int?)s.Item2).FirstOrDefault();
+                if (configuredVariation is null && e.TextOrNull("Id") == "ScavengerThrow")
+                    configuredVariation = 0;
                 if (configuredVariation is not int variationRow || !attackRows.TryGetValue(variationRow, out projectileRow))
                     continue;
-                // The weapon projectile's ACT pool is the existing SpellProjectile contact for these varieties.
+                // The weapon projectile's ACT pool is the existing SpellProjectile contact for these varieties (superseded by GE.Animation in S2).
                 animationKey = "SpellProjectile";
                 lobbed = false;
                 variation = variationRow;

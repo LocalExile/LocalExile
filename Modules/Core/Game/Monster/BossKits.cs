@@ -549,12 +549,16 @@ public static class BossKits
     {
         var stats = GolemData.Skill(catalog, effect, level).Stats;
         int Get(uint key) => stats.GetValueOrDefault(key);
-        if ((ClassProjectile(catalog, effect, Get) ?? catalog.VariationProjectile(effect) ?? catalog.SkillArtProjectile(effect) ?? catalog.SharedProjectile(effect)) is not { } art)
-            return null;
         int count = Get(Stat.NumberOfProjectilesOverride) is > 0 and var fixedCount ? fixedCount
             : Math.Max(1, Get(Stat.BaseNumberOfProjectiles)) + Get(Stat.NumberOfAdditionalProjectiles);
         // A nova (projectiles_nova: Lightning Trap's) fires its projectiles around the full turn.
         bool nova = Stat.ProjectilesNova is var novaKey && stats.GetValueOrDefault(novaKey) != 0;
+        if (ClassProjectile(catalog, effect, Get) is { } cls)
+            return new(cls.Id, cls.Speed, false, cls.CollisionRadius) { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : Math.PI / 6 };
+        if (catalog.VariationProjectileInfo(effect) is { } variation)
+            return variation with { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : (variation.SpreadRadians > 0 ? variation.SpreadRadians : Math.PI / 6) };
+        if ((catalog.SkillArtProjectile(effect) ?? catalog.SharedProjectile(effect)) is not { } art)
+            return null;
         return new(art.Id, art.Speed, false, art.CollisionRadius) { Count = Math.Max(1, count), SpreadRadians = nova ? Math.Tau : Math.PI / 6 };
     }
 
