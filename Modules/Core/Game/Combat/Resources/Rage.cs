@@ -31,6 +31,8 @@ public static partial class Game
         }
         long increased = (long)RageStat(stats, Stat.AttackSpeedPlusPctPerRage) * value.Current
             + CorpsePactSpeed(player, stats, AreaTime(player));
+        if (RageStat(stats, Stat.AttackSpeedPlusPctPerMinionUpTo80Pct) is int perMinion and > 0)
+            increased += Math.Min(80L, (long)perMinion * stats.GetValueOrDefault(Stat.NumberOfActiveMinions));
         if (increased != 0)
         {
             var pools = player.Pools;
