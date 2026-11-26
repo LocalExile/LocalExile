@@ -73,7 +73,7 @@ public sealed class BestiaryEncounter
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
     static IEnumerable<Player> Clients(Player player) =>
-        InGame.Keys.Where(c => !c.Controlled && ReferenceEquals(c.Instance, player.Instance) && Current(c));
+        InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance) && Current(c));
 
     // ---- the roll ------------------------------------------------------------------------------------------------
 

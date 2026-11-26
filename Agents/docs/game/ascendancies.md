@@ -11,7 +11,10 @@ Descendancy row). It does not implement every special effect of the 19 Phrecia c
 Ordinary ascendancies keep their normal choices, including the Scion alternatives.
 Their nodes work where a consumer exists; [Juggernaut](juggernaut.md), [Slayer](slayer.md) and [Hierophant](hierophant.md) are audited
 node by node.
-The server can list the 21 ordinary and 19 Phrecia definitions from the exact 3.29.3b tables and graph export.
+The server lists the 21 ordinary definitions from the exact tables and graph export.
+A family beyond the ordinary one is a module's (`IAscendancyFamilyPolicy`): it names the family and supplies its
+choices and passive graph (`AscendancyTree`) while it is loaded, as the Phrecia module does for its 19.
+A save keeps the family's name; with the module away the choice is kept and the character is refused at entry.
 Each choice is identified by family, stable table Id and revision; two families can share a class number and start node.
 Only one main ascendancy is selected at a time, and it must belong to the character's base class.
 
@@ -93,8 +96,8 @@ Antiquarian's Ward, Adrenaline, duration, stun and Lioneye consumers are describ
 
 Antiquarian node 27339, `Exhibit 39: Whaletooth Bangle`, supplies
 `skill_effect_duration_+%_per_10_strength` = 1 (3.29.3b Stats key 2817).
-`SkillDurationModifiers` adds `floor(max(0, final Strength) / 10) * per-ten value` to the raw
-`skill_effect_duration_+%` in `CharacterPlayerStats`.
+The module's `PhreciaStats.DurationPerTenStrength` (`GameEvents.DerivedStats`) adds
+`floor(max(0, final Strength) / 10) * per-ten value` to the raw `skill_effect_duration_+%` in `CharacterPlayerStats`.
 For example, 455 final Strength gives +45%; an ordinary +10% duration passive makes the total +55%.
 The calculation uses the resolved attributes after flat/increased sources, or the explicit final Strength override.
 It runs on a fresh dictionary, never writes back into sources and clamps signed totals after addition.

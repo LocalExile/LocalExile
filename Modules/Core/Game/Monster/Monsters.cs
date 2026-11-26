@@ -468,7 +468,15 @@ public static partial class Game
         // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
         id = !friendly || instanceOwned ? player.Instance.World.NewMonsterId() : player.TakeObjectId();
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        if (placement == MonsterPlacement.Proposed && bodySize >= 0)
+        // Kitava's immobile body stands in the pit. Its model and model-space contact tracks share the room point.
+        var kitava = friendly ? null : player.Layout.Id switch
+        {
+            KitavaActTen.Area when KitavaActTen.IsBody(variety) => KitavaActTen.FixedAnchor(player),
+            KitavaActFive.Area when KitavaActFive.IsBody(variety) => KitavaActFive.FixedAnchor(player),
+            _ => null,
+        };
+        if (kitava is { }) (x, y, rotation) = (kitava.X, kitava.Y, kitava.Angle);
+        else if (placement == MonsterPlacement.Proposed && bodySize >= 0)
         {
             bool Floor(int cx, int cy) => player.Layout.WalkableFor(cx, cy, bodySize) && !player.Barrier.Contains((cx, cy));
             if (CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor,
@@ -2458,7 +2466,7 @@ public static partial class Game
             await MonsterContact(player, id, m, action, begunSeq, a);
             return false;
         }
-        // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
+        // Its attack time now: a chill slows it by its action speed, Soul of Gruthkul's upgrade by the player's attacker slow.
         // A King skill carries its own cast time. Predictive keeps its existing sequence selection;
         // lockstep assigns the actor's sequence when the send gate admits the action below.
         double seconds;
@@ -3000,7 +3008,7 @@ public static partial class Game
         GainLifeBeforeEnemyHitLocked(player, stats);
         // Roll the whole monster-mod packet (the Gambler's incoming luck included), then mitigate each component
         // with this hit's one armour decision.
-        var gambler = GamblerFor(stats);
+        var hitRolls = HitRollsFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
         var baseDamage = MonsterTemporaryHit(m, a.Damage, player.IncomingHitRandom);
         var hitDamage = baseDamage;
@@ -3014,9 +3022,9 @@ public static partial class Game
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
         bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
         bool suppressed = suppressionChangesRoll && RollSuppression();
-        if (suppressed && gambler.EnemyDamageExtraRolls >= 0)
-            gambler = gambler with { EnemyDamageExtraRolls = gambler.EnemyDamageExtraRolls - 1 };
-        var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
+        if (suppressed && hitRolls.EnemyDamageExtraRolls >= 0)
+            hitRolls = hitRolls with { EnemyDamageExtraRolls = hitRolls.EnemyDamageExtraRolls - 1 };
+        var rolled = hitRolls.RollIncomingHit(hitDamage, player.IncomingHitRandom);
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
             : MonsterBaseCritChancePermyriad;
@@ -3026,7 +3034,7 @@ public static partial class Game
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
             baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
-        // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
+        // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = baseDamage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
@@ -3046,7 +3054,7 @@ public static partial class Game
         var taken = PlayerDamageTaken.Avoid(shifted, StatOf, player.IncomingHitRandom, out var avoided, ElusiveAvoidPct(player),
             projectile, projectile && player.RecentEvents.Happened(TakenProjectileDamage, now));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
-        var mitigated = gambler.MitigateIncomingHit(taken, type =>
+        var mitigated = hitRolls.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(player, type), MaxResistance(player, type),
                 Penetration: Math.Max(0, MonsterPenetration(m.Effects, type))), player.IncomingHitRandom);
         var immune = PlayerImmunities(player, stats);
@@ -3090,7 +3098,7 @@ public static partial class Game
             // unless ranged.
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
-                value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
+                value = WardBreakEffects.RangedPhysical(value, a.Ranged, StatOf);
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
@@ -3180,7 +3188,7 @@ public static partial class Game
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
-        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
@@ -3196,7 +3204,7 @@ public static partial class Game
             if (alwaysStun || AreaRng(player).NextDouble() * 100 < PlayerHitRecovery.Chance(stunCheckDamage, player.PlayerMaxLife, StatOf))
                 player.LastStunnedOrBlockedStunAt = now;
         }
-        else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
+        else if (WardBreakEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         if (recovery is not null && StatOf(Stat.DamageTakenPctRecoveredAsLifeFromStunningHits) is > 0 and var recoverPct
@@ -3307,7 +3315,7 @@ public static partial class Game
 
     public const uint AttackerSlow = Stat.EnemiesThatHitYouWithAttackRecentlyAttackSpeedPlusPct;
 
-    // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
+    // A monster's attack time now. Soul of Gruthkul's upgrade: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
     public static double MonsterSwingSeconds(Player player, SpawnedMonster m, double now)
     {

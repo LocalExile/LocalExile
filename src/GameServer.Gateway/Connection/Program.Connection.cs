@@ -264,7 +264,7 @@ public partial class Program
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
                     ReturnAreaHash: player.ReturnAreaHash,
                     DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
-                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family}" +
+                await Send(remote, stream, ciphers, area.Encode(), $"0x001d {area}; {areaStats.Count} area stat(s); ascendancy family {player.Character.MainAscendancy.Selection?.Family.Name()}" +
                     (labyrinthNode is null ? "" : $"; labyrinth day {labyrinthNode.Seed} node {labyrinthNode.Row} difficulty {labyrinthNode.Difficulty}") +
                     string.Concat(pluginStates.Select(p => $"; plugin {p.Plugin} state {Convert.ToHexString(p.State)}")));
                 await Logic.Entered(player, level, resolved.Level);
@@ -806,7 +806,7 @@ public partial class Program
     // short gate. Send's gate orders the packets and runs their state callbacks; it never holds this one while waiting.
     public static async Task Write(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes)
     {
-        if (ControlledPlayers.IsTransport(ciphers)) return;
+        if (HasNoWire(ciphers)) return;
         var wire = WireGates.GetValue(ciphers, _ => new SemaphoreSlim(1, 1));
         var performance = MetricsFor(ciphers);
         long waitingAt = Stopwatch.GetTimestamp();

@@ -3,8 +3,7 @@
 Protocol reference and reverse-engineering notes for the Path of Exile 3.29.3c client. Their code addresses and
 message ids hold for every allowed client build (`ClientBuilds.cs`); their data addresses are 3.29.3c's
 ([re/tooling.md](re/tooling.md) §11). What works now is in
-[../Status.md](../Status.md), what to build next in [../Roadmap.md](../Roadmap.md). Start with
-**[protocol/00-overview.md](protocol/00-overview.md)**.
+[../Status.md](../Status.md), what to build next in [../Roadmap.md](../Roadmap.md).
 
 ## Protocol (consolidated, current)
 | Doc | Content |

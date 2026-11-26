@@ -883,7 +883,7 @@ public static partial class Game
             {
                 critical = Critical(id);
                 (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, mods, penetration,
-                    GamblerFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
+                    HitRollsFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
             }
             else
             {

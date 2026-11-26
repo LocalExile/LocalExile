@@ -128,7 +128,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Lockstep is the default way of playing (no server setting; the log notes it to a predictive client). Each
   area takes its mode from its first mode-only C→S message (`ClientPackets`), and one with messages of both modes
-  tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client but a server-controlled one is
+  tells the player in chat to report it ([07](../docs/protocol/07-latency-visibility-movement.md) §6); before that input every client is
   served in lockstep. The
 - Strongboxes: an area's count is the client's Ambush league roll with the instance's area stats (the Ambush scarabs
   add to it), the type a Strongboxes row by weight and the area and atlas stats (live: The Crossroads, The Riverways,

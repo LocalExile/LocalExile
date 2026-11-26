@@ -370,7 +370,7 @@ public static partial class Game
                 Player(VsBlindedCriticalStat));
             int multiplier = CriticalHitMultiplier((long)player.Pools.SpellCriticalStrikeMultiplier
                 + Own(Stat.BaseCriticalStrikeMultiplierPlus), playerStats, own);
-            var gambler = GamblerFor(playerStats);
+            var hitRolls = HitRollsFor(playerStats);
             bool rageGranted = false;
             var deaths = new List<(uint Id, SpawnedMonster M)>();
             var charges = new List<PlayerMinions.AcceptedCharges>();
@@ -386,11 +386,11 @@ public static partial class Game
                     ? Profile(Blinded(player, id) ? additionalIncreased : 0, webs)
                     : Blinded(player, id) ? blindedProfile : normalProfile;
                 if (MonsterBlocks(m, AreaRng(player), spell: true)) continue;
-                var rolled = (gambler with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, AreaRng(player));
+                var rolled = (hitRolls with { DamageMorePct = 0 }).ForSkill(Own, spell: true).RollOutgoingHit(profile.Hit, AreaRng(player));
                 bool critical = RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsProfane), own, attack: false);
                 double hitAt = ProjectileWorldTime(player);
                 var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, hitAt, mods, pen,
-                    gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                    hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                 if (critical) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, multiplier, playerStats, own));
                 int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, hitAt, damage);
                 var stun = OwnerStun(player, skill.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, own);

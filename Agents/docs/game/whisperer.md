@@ -16,7 +16,7 @@ The optional module supplies the exact descriptor and mode-aware allocated node 
 It owns no autonomous class worker.
 Reusable Mana, Recoup, spending and Blind rules live in `Modules/Core/Game` and also accept ordinary/item sources.
 Gateway only exposes an opaque transfer-capable resource slot, a keyed lifetime lease, synchronous cleanup,
-a flat pool input and a synchronous continuous-flask observer.
+a per-attribute pool hand-over (`GameEvents.PoolSources`) and a synchronous continuous-flask observer.
 There are no Phrecia class IDs or opt-in branches in those generic layers.
 
 The resource slot is independent of Rampage's owned actors, jobs and worker.
