@@ -84,6 +84,10 @@ public sealed class FourFamilyScarabTests
                     Assert.Contains(flag, mods.ContentFlags);
                     var packs = Assert.Single(MapInfluence.Requests(mods));
                     Assert.NotEmpty(packs.Packs);
+                    var v = Game.Monsters.Find(packs.Packs[0].Entries[0].Variety.ToString())!;
+                    var applied = MapInfluence.MonsterMods(v, MonsterModSet.None, mods);
+                    Assert.Equal(flag == MapInfluence.Shaper ? 1 : 2, applied.Effects[Stat.DroppedItemsHaveInfluenceType]);
+                    Assert.Same(applied, MapInfluence.MonsterMods(v, applied, mods));
                     Assert.Contains(flag, mods.WithFragmentStat(Stat.MapItemDropQuantityPlusPct, 25).ContentFlags);
                 }
             }
