@@ -162,9 +162,10 @@ Nothing yet.
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys retain the selected gem through socket moves and relogging. Explicit bindings distinguish duplicate gem effects.
-  Queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
-  one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
+  keys retain the selected gem through socket moves and relogging.
+  Explicit bindings distinguish duplicate gem effects.
+  Queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous
+  Fire; one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   Transfigured and Trarthan gems grant their own skill.

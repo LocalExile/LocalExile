@@ -191,15 +191,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
   melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) §9a.
-- Tectonic Slam uses a forward fissure with seeded branches. Contacts advance along each branch and one use can contact each target once.
-- Sunder and its variants time their wave segments and victim shockwaves. Earthbreaking keeps overlapping uses, and
-  Trarthus can redirect at enemies and terrain.
-- Ice Crash lands in three timed circles with one contact per enemy. Cadence uses the swinging hand's radius and
-  requires two compatible weapons.
-- Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create their timed ground.
+- Tectonic Slam uses a forward fissure with seeded branches.
+  Contacts advance along each branch and one use can contact each target once.
+- Sunder and its variants time their wave segments and victim shockwaves.
+  Earthbreaking keeps overlapping uses, and Trarthus can redirect at enemies and terrain.
+- Ice Crash lands in three timed circles with one contact per enemy.
+  Cadence uses the swinging hand's radius and requires two compatible weapons.
+- Consecrated Path and its Endurance variant select a target near the aim, land at contact, and create timed ground.
 - Earthshatter and both variants resolve travelling fissures and spikes triggered by slams, warcries or the timer.
-- Perforate resolves repeated Blood spikes and single-hit Sand rays. Duality adds spikes for four seconds after a
-  stance change. Bloodshed always uses its slower, wider Blood sequence.
+- Perforate resolves repeated Blood spikes and single-hit Sand rays.
+  Duality adds spikes for four seconds after a stance change.
+  Bloodshed always uses its slower, wider Blood sequence.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.

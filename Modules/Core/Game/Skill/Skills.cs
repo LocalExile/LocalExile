@@ -1054,6 +1054,8 @@ public static partial class Game
         return mask;
     }
 
+    static readonly Store<Player, ushort[]> LastSentSkillBar = new();
+
     internal static byte[]? SkillBarRecord(Player player)
     {
         FillSkillBar(player);
@@ -1061,6 +1063,7 @@ public static partial class Game
         var saved = save?.SkillBar;
         if (saved is not { Count: > 0 } && GameEvents.ExtraSkills(player).Count == 0) return null;
         var ids = SkillBarIds(player, saved);
+        LastSentSkillBar.AddOrUpdate(player, ids);
         ushort attackInPlace = save?.AttackInPlaceSlots ?? AttackInPlaceDefaults(player, ids), mask52 = save?.SkillBarMask52 ?? 0;
         return InstanceProtocol.SkillBar(ids, attackInPlace, mask52);
     }
@@ -1683,16 +1686,25 @@ public static partial class Game
         // saved bar goes out again. Not when a skill the saved bar never had was added: the client binds a new skill to a free
         // slot itself (Câ†’S 0x4e), and the bar sent now would clear it there. A new gem skill gets an empty slot of the saved
         // bar first (FillSkillBar: the right mouse button, then Q W E R T …), so it goes out with the bar.
-        FillSkillBar(player);
-        var saved = CharacterSaves.Load(CharacterName(player))?.SkillBar?.Values;
+        bool filled = FillSkillBar(player);
+        var save = CharacterSaves.Load(CharacterName(player));
+        var saved = save?.SkillBar?.Values;
+        bool checkBar = filled || gone.Count > 0 || added.Count > 0
+            || saved?.Any(entry => SkillBarLayout.BoundGemEffect(entry) is not null) == true;
+        ushort[]? resolvedBar = checkBar ? SkillBarIds(player, save?.SkillBar) : null;
+        bool barChanged = resolvedBar is not null
+            && LastSentSkillBar.TryGetValue(player, out var previousBar)
+            && !previousBar.SequenceEqual(resolvedBar);
         // Only a real skill change rebuilds the bar: a 0x53 re-creates every slot and resets its cooldown entry to the
         // skill's own recovery rate, replaying the bar's cooldown animation (issue #1127: a guard's held entry was reset
         // by the rebuild its own stat-only start sent). A pure stat refresh (a guard or self buff starting/ending, an
         // aura's stats recalculated) adds and removes nothing, so the slots keep their entries. `added.All` is true on an
         // empty list, so the change gate comes first. Transient league skills are not part of the saved bar.
         if (GameEvents.ExtraSkills(player).Count > 0
+            || barChanged
             || (gone.Count > 0 || added.Count > 0)
-                && added.All(id => SkillEffectId(player, id) is { } effect && saved?.Contains(effect) == true))
+                && added.All(id => resolvedBar is not null && Array.IndexOf(resolvedBar, id) >= 0
+                    || SkillEffectId(player, id) is { } effect && saved?.Contains(effect) == true))
             await RestoreSkillBarAfterActorUpdate(player);
         // The same recalculation may have changed which worn weapons qualify.
         await SendModelIfHandsChanged(player);

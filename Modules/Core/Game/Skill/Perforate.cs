@@ -82,9 +82,10 @@ public static partial class Game
                 ? Math.Max(step.Radius, (int)Math.Ceiling(Dist(step.Centre, end)) + step.LineHalfWidth * 2)
                 : step.Radius;
             // The spatial query includes body extents. Take the exact circle or rectangle at the spike's own time.
+            TriggerEarthshatterSpikesLocked(player, step.Centre, step.Radius, when);
             var candidates = player.Area.MonstersNear(step.Centre, searchRadius)
                 .Where(pair => struck?.Contains(pair.Key) != true
-                    && pair.Value is { Dead: false, Hostile: true, OwnerId: null, WorldHidden: false }
+                    && pair.Value is { Dead: false, Life: > 0, Hostile: true, OwnerId: null, WorldHidden: false }
                     && PerforateCovers(step, pair.Value.Walk.Position(when), Math.Max(0, LivingCollision.Size(pair.Value))))
                 .Select(pair => pair.Key).ToArray();
             if (candidates.Length != 0)

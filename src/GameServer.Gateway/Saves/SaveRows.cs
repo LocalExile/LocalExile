@@ -639,7 +639,8 @@ public static class SaveRows
                     RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style"),
                     ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"),
                     Chart = v.Json<ChartData?>("deepwater_chart"),
-                    SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId ? Guid.ParseExact(gemId, "N") : null };
+                    SkillBarGemId = v.Text("skill_bar_gem_id") is { } gemId
+                        && Guid.TryParseExact(gemId, "N", out var parsedGemId) ? parsedGemId : null };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];

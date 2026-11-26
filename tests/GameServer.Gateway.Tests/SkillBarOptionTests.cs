@@ -17,6 +17,11 @@ public class SkillBarOptionTests
 
         const byte slot = 4;
         ushort second = copies[1].Id;
+        string character = player.Character.Name!;
+        var items = Game.ItemsOf(player);
+        var host = items.Items(PlayerInventories.Weapon1).Single();
+        Item boundGem;
+        player.Connection.LockstepClient = false;
         var messages = new List<byte[]>();
         var outgoing = Program.Outgoing;
         Program.Outgoing = (peer, bytes) =>
@@ -30,24 +35,29 @@ public class SkillBarOptionTests
             var bar = Assert.Single(messages, bytes => bytes.Length > 2 && bytes[0] == 0 && bytes[1] == InstanceProtocol.SkillBarId);
             ushort echoed = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(bar.AsSpan(2 + slot * 2, 2));
             Assert.Equal(second, echoed);
+            await Game.SendSkills(player);
+
+            host = items.Items(PlayerInventories.Weapon1).Single();
+            boundGem = Assert.IsType<Item>(host.Item.Sockets[1].Gem);
+            Assert.NotNull(boundGem.SkillBarGemId);
+            var mirror = Assert.IsType<Item>(Program.Rolls.Mirror(host.Item));
+            Assert.Null(mirror.Sockets[1].Gem?.SkillBarGemId);
+            Assert.NotNull(host.Item.Sockets[1].Gem?.SkillBarGemId);
+            Assert.NotNull(items.Unsocket(PlayerInventories.Weapon1, host.Id, 1, items.NewItemId, out _));
+            messages.Clear();
+            await Game.SendSkills(player);
+            Assert.Equal((ushort)0, BoundSkill(player));
+
+            Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 0, Game.ShapeOf, items.NewItemId, out _));
+            Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 1, Game.ShapeOf, items.NewItemId, out _));
+            messages.Clear();
+            await Game.SendSkills(player);
+            var restored = Assert.Single(messages, bytes => bytes.Length > 2 && bytes[0] == 0 && bytes[1] == InstanceProtocol.SkillBarId);
+            ushort restoredSlot = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(restored.AsSpan(2 + slot * 2, 2));
+            Assert.Equal(BoundSkill(player), restoredSlot);
+            AssertSelectedLevel(player);
         }
         finally { Program.Outgoing = outgoing; }
-
-        string character = player.Character.Name!;
-        var items = Game.ItemsOf(player);
-        var host = items.Items(PlayerInventories.Weapon1).Single();
-        var boundGem = Assert.IsType<Item>(host.Item.Sockets[1].Gem);
-        Assert.NotNull(boundGem.SkillBarGemId);
-        var mirror = Assert.IsType<Item>(Program.Rolls.Mirror(host.Item));
-        Assert.Null(mirror.Sockets[1].Gem?.SkillBarGemId);
-        Assert.NotNull(host.Item.Sockets[1].Gem?.SkillBarGemId);
-        Assert.NotNull(items.Unsocket(PlayerInventories.Weapon1, host.Id, 1, items.NewItemId, out _));
-        Game.FillSkillBar(player);
-        Assert.Equal((ushort)0, BoundSkill(player));
-
-        Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 0, Game.ShapeOf, items.NewItemId, out _));
-        Assert.NotNull(items.Socket(PlayerInventories.Weapon1, host.Id, 1, Game.ShapeOf, items.NewItemId, out _));
-        AssertSelectedLevel(player);
 
         PlayerInventories.Forget(character);
         var reentered = SpellTotemExecutionTests.PlayerOf(character);
