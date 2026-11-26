@@ -204,8 +204,9 @@ public static partial class Game
             voidstones = System.Numerics.BitOperations.PopCount((uint)mask);
         }
         int upgrade = mods?.Get(Stat.MapTierBonusPermillage) ?? 0;
-        return DropsFor(player).Map(level, rarity, tier, rng, voidstones: voidstones, chanceFactor: chanceFactor,
-            tierUpgradePermillage: upgrade, increasedRarity: IncreasedItemRarity(player));
+        bool corruptEightMods = (mods?.Get(Stat.MapDroppedMapsAreCorruptedWith8Mods) ?? 0) > 0;
+        return DropsFor(player).Map(level, rarity, tier, rng, voidstones, chanceFactor, upgrade,
+            IncreasedItemRarity(player), corruptEightMods);
     }
 
     /// <summary>A map's extra drops: a card from each monster of the card-dropping magic packs, and the map's card and

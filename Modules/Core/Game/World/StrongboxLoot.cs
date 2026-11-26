@@ -361,7 +361,12 @@ public static class StrongboxLoot
         {
             int tier = MapRunOf(player)?.Area.Tier is int open and > 0 ? open : Math.Clamp(level - 67, 1, 16);
             if (MapDevices.Atlas?.KeyOfTier(tier) is not uint hash || catalog.ByHash(hash) is not { Supported: true } type) return null;
-            return new(ItemCatalog.Create(type) with { ItemLevel = (byte)level }, type);
+            var item = ItemCatalog.Create(type) with { ItemLevel = (byte)level };
+            if (Stat("map_dropped_maps_are_corrupted_with_8_mods") != 0)
+                item = rolls.Pool(type, item).Count > 0
+                    ? rolls.Roll(item, ItemRarity.Rare, rng, shape: (8, 4), respectMetamods: false) with { Corrupted = true, Identified = true }
+                    : item with { Corrupted = true };
+            return new(item, type);
         }
     }
 
