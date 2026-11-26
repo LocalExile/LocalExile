@@ -17,6 +17,8 @@ using static Program;
 /// </summary>
 public static partial class Game
 {
+    const ushort TemporalChainsPlayerBuffRow = 69;
+
     /// <summary>One debuff on the player: its 0x1c1 instance, row, the object it came from, its stats, when it ends
     /// (connection clock seconds; infinity while held) and its holder (null for a timed one).</summary>
     public sealed record PlayerDebuff(ushort Instance, ushort Row, uint Caster, IReadOnlyDictionary<uint, int> Stats,
@@ -26,6 +28,7 @@ public static partial class Game
     {
         public readonly List<PlayerDebuff> Active = [];
         public object? Area;
+        public PlayerDebuff? TemporalChains;
     }
 
     static readonly ConditionalWeakTable<Player, PlayerDebuffSet> DebuffsOf = new();
@@ -94,7 +97,7 @@ public static partial class Game
         var info = BuffRows.Of(row);
         List<PlayerDebuff> replaced = [];
         ushort instance;
-        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; }
+        if (!ReferenceEquals(set.Area, player.Layout)) { set.Active.Clear(); set.Area = player.Layout; set.TemporalChains = null; }
         if (holder is not null && set.Active.FirstOrDefault(d => ReferenceEquals(d.Holder, holder) && d.Row == row) is { } held)
         {
             if (SameStats(held.Stats, stats)) return;
@@ -113,7 +116,8 @@ public static partial class Game
             }
         }
         else if (row != 0 && holder is null)
-            foreach (var same in set.Active.Where(d => d.Row == row && d.Holder is null).ToArray())
+            foreach (var same in set.Active.Where(d => d.Row == row && d.Holder is null
+                && (row != TemporalChainsPlayerBuffRow || d.Caster == caster)).ToArray())
             {
                 replaced.Add(same);
                 set.Active.Remove(same);
@@ -124,7 +128,8 @@ public static partial class Game
         // Each debuff is a buff of its own (its instance number is its tag: a row that stacks has several from one caster).
         if (row != 0)
         {
-            player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, caster, stats, holder is null ? seconds : null, instance));
+            if (row != TemporalChainsPlayerBuffRow)
+                player.Area.Buffs.Set(player.Id, BuffRows.Spec(row, caster, stats, holder is null ? seconds : null, instance));
             Console.WriteLine($"[gateway] the player gets {info?.Id ?? row.ToString()} from 0x{caster:x}" + (holder is null ? $" for {seconds:0.#} s" : " while in it"));
         }
         await RefreshDebuffedPlayer(player);
@@ -163,7 +168,7 @@ public static partial class Game
             if (!areaChanged) gone.Add(d);
             set.Active.Remove(d);
         }
-        if (areaChanged) set.Area = player.Layout;
+        if (areaChanged) { set.Area = player.Layout; set.TemporalChains = null; }
         else if (removeCurses > 0)
         {
             // Persistent sources keep their own conditions; this dispels applied, timed curses.
@@ -180,7 +185,8 @@ public static partial class Game
 
     static void ClearPlayerDebuff(Player player, PlayerDebuff debuff)
     {
-        if (debuff.Row != 0) player.Area.Buffs.Clear(player.Id, debuff.Row, debuff.Caster, tag: debuff.Instance);
+        if (debuff.Row != 0 && debuff.Row != TemporalChainsPlayerBuffRow)
+            player.Area.Buffs.Clear(player.Id, debuff.Row, debuff.Caster, tag: debuff.Instance);
     }
 
     static async Task EndPlayerDebuffs(Player player, PlayerDebuffSet set, IReadOnlyList<PlayerDebuff> debuffs)
@@ -194,11 +200,31 @@ public static partial class Game
     static async Task RefreshDebuffedPlayer(Player player)
     {
         if (player.Closed) return;
+        var set = DebuffsOf.GetValue(player, _ => new());
+        double now = AreaTime(player);
+        var curse = set.Active.Where(d => d.Row == TemporalChainsPlayerBuffRow && d.Until > now)
+            .MinBy(d => (TemporalChainsSlow(d), d.Stats.GetValueOrDefault(Stat.BuffTimePassedPlusPctOtherThanTemporalChains), -d.Until));
+        if (!ReferenceEquals(curse, set.TemporalChains))
+        {
+            if (set.TemporalChains is { } old)
+                player.Area.Buffs.Clear(player.Id, old.Row, old.Caster, tag: old.Instance);
+            set.TemporalChains = curse;
+            if (curse is not null)
+                player.Area.Buffs.Set(player.Id, BuffRows.Spec(curse.Row, curse.Caster, curse.Stats,
+                    double.IsFinite(curse.Until) ? curse.Until - now : null, curse.Instance));
+        }
         player.Pools = PoolsFor(player, player.Pools.Level);
-        player.ApplyMovementSpeed();
-        player.Degens[DebuffsOf.GetValue(player, _ => new())] = DebuffDegenLocked(player);
-        await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
+        player.Degens[set] = DebuffDegenLocked(player);
+        if (!PublishByFrame(player, PlayerStatChange.Sources))
+        {
+            player.ApplyMovementSpeedAt(now);
+            await SendPlayerStatSnapshot(player, () => PlayerStatsOffFrames(player), null);
+        }
     }
+
+    // Held sources such as Doedre's pillar also use this buff row.
+    static long TemporalChainsSlow(PlayerDebuff debuff) => debuff.Stats.GetValueOrDefault(Stat.TemporalChainsActionSpeedPlusPctFinal)
+        - (long)debuff.Stats.GetValueOrDefault(Stat.ActionSpeedMinusPct);
 
     /// <summary>The debuffs' degeneration, points a second: each type's <c>base_{type}_damage_taken_per_minute</c> over
     /// a minute, less the player's resistance to it (none for physical; nothing of a type the player is immune to).</summary>
@@ -230,8 +256,11 @@ public static partial class Game
         if (!DebuffsOf.TryGetValue(player, out var set) || !ReferenceEquals(set.Area, player.Layout)) return sources;
         double now = AreaTime(player);
         foreach (var debuff in set.Active.Where(d => d.Until > now))
+        {
+            if (debuff.Row == TemporalChainsPlayerBuffRow && !ReferenceEquals(debuff, set.TemporalChains)) continue;
             foreach (var (name, value) in debuff.Stats)
                 sources[name] = sources.GetValueOrDefault(name) + value;
+        }
         return sources;
     }
 }

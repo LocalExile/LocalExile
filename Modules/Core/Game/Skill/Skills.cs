@@ -482,7 +482,7 @@ public static partial class Game
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
-                || IsChargedDash(player, effect) || IsIceSpear(effectId))
+                || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
             {
@@ -794,9 +794,10 @@ public static partial class Game
                 stats[Stat.SpellUncastableIfTriggerable] = 1;
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             }
-            // These companion attacks have a native instant action, which checks the disabled flag too.
+            // These companion skills have a native instant action, which checks the disabled flag too.
             else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
-                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0 && TriggerOnlyReason(supported) is not null)
+                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredPrismaticBurst) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
@@ -1355,6 +1356,10 @@ public static partial class Game
     }
 
     public static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
+
+    // The projection channels from the player's current cell even without the Movement skill type.
+    static bool AttackUsesWalkUp(Player player, int effect) =>
+        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect);
 
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
     // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (§5 of
