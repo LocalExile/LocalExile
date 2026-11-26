@@ -35,9 +35,10 @@ public static partial class Game
             public readonly HashSet<SpawnedMonster> Chilled = [];
             public ProjectileVector CurrentCentre = Centre;
             public GroundMovement? Movement { get; init; }
+            public bool Desecrated { get; init; }
         }
 
-        sealed class GroundDamageCarry { public double Fire, Cold, Chaos, Physical; }
+        sealed class GroundDamageCarry { public double Fire, Cold, Chaos, Physical, Desecrated; }
 
         sealed class AreaDamageGrounds
         {
@@ -50,6 +51,18 @@ public static partial class Game
         static readonly long DamageGroundInterval = ProjectileRuntime.QuantaPerSecond / 10;
         GameArea? damageGroundArea;
         bool groundFallbackScheduled;
+
+        internal static bool OnBurningDamageGround(GameArea area, SpawnedMonster target, double now)
+        {
+            if (!DamageGroundsByArea.TryGetValue(area, out var state) || state.Grounds.Count == 0) return false;
+            long at = ProjectileRuntime.Time(now);
+            var atCell = Vector(target.Walk.Position(now));
+            foreach (var ground in state.Grounds)
+                if (ground.Type == DamageType.Fire && ground.Dps > 0 && ground.Start <= at && at < ground.End
+                    && ground.Source.Active && (atCell - ground.CurrentCentre).Length <= ground.Radius)
+                    return true;
+            return false;
+        }
 
         void ClearDamageGrounds()
         {
@@ -125,7 +138,7 @@ public static partial class Game
 
         void AddDamageGround(ProjectileVector centre, double radius, double seconds, DamageType type,
             double dps, long start, Visual? visual = null, IReadOnlyDictionary<uint, int>? chillStats = null,
-            GroundMovement? movement = null)
+            GroundMovement? movement = null, bool desecrated = false)
         {
             var area = Player.Area;
             var state = DamageGroundsByArea.GetOrCreateValue(area);
@@ -149,7 +162,7 @@ public static partial class Game
                 }
             }
             state.Grounds.Add(new(this, centre, radius, start, end, type, dps, visual, chillSource, chillStats)
-                { Movement = movement });
+                { Movement = movement, Desecrated = desecrated });
             state.Next = Math.Min(state.Next, end);
             if (AreaRunsGame(Player) || groundFallbackScheduled) return;
             groundFallbackScheduled = true;
@@ -205,7 +218,7 @@ public static partial class Game
         sealed class GroundExposure(SpawnedMonster monster)
         {
             public readonly SpawnedMonster Monster = monster;
-            public DamageGround? Fire, Cold, Chaos, Physical;
+            public DamageGround? Fire, Cold, Chaos, Physical, Desecrated;
 
             public void Consider(DamageGround ground)
             {
@@ -218,7 +231,11 @@ public static partial class Game
                         if (ground.Dps > (Cold?.Dps ?? 0)) Cold = ground;
                         break;
                     case DamageType.Chaos:
-                        if (ground.Dps > (Chaos?.Dps ?? 0)) Chaos = ground;
+                        if (ground.Desecrated)
+                        {
+                            if (ground.Dps > (Desecrated?.Dps ?? 0)) Desecrated = ground;
+                        }
+                        else if (ground.Dps > (Chaos?.Dps ?? 0)) Chaos = ground;
                         break;
                     case DamageType.Physical:
                         if (ground.Dps > (Physical?.Dps ?? 0)) Physical = ground;
@@ -284,11 +301,13 @@ public static partial class Game
                 int cold = Accrue(exposure.Cold, ref carry.Cold);
                 int chaos = Accrue(exposure.Chaos, ref carry.Chaos);
                 int physical = Accrue(exposure.Physical, ref carry.Physical);
-                int damage = ActorScale.Saturate((long)fire + cold + chaos + physical);
+                int desecrated = Accrue(exposure.Desecrated, ref carry.Desecrated);
+                int damage = ActorScale.Saturate((long)fire + cold + chaos + physical + desecrated);
                 if (damage == 0) continue;
-                int lifeDamage = AbsorbMonsterEnergyShieldLocked(area, monster, damage, chaos, at);
+                int lifeDamage = AbsorbMonsterEnergyShieldLocked(area, monster, damage, ActorScale.Saturate((long)chaos + desecrated), at);
                 if (lifeDamage <= 0) continue;
-                var source = (physical > Math.Max(fire, Math.Max(cold, chaos)) ? exposure.Physical
+                var source = (desecrated > Math.Max(Math.Max(physical, fire), Math.Max(cold, chaos)) ? exposure.Desecrated
+                    : physical > Math.Max(fire, Math.Max(cold, chaos)) ? exposure.Physical
                     : fire >= cold && fire >= chaos ? exposure.Fire : cold >= chaos ? exposure.Cold : exposure.Chaos)!.Source;
                 var player = source.Player;
                 var (life, stage) = TakeOwnerDamageLocked(player, monster, lifeDamage);

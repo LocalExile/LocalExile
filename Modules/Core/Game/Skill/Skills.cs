@@ -479,8 +479,10 @@ public static partial class Game
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
             string? effectId = skills.EffectId(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
+            // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
-                || effectId == "VolcanicFissureAltX" || IsChargedDash(player, effect))
+                || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
+                || IsChargedDash(player, effect) || IsIceSpear(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
             {
@@ -811,6 +813,8 @@ public static partial class Game
                 stats[aura] = VaalSoulInput(player, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(player, playerStats, own, stats);
+            if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
+                stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);

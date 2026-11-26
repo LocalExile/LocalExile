@@ -33,7 +33,9 @@ public static class ProjectileGrid
         readonly byte[] cells;
         internal Area(int w, int h, byte[] cells) => (this.w, this.h, this.cells) = (w, h, cells);
         /// <summary>Whether the cell stops projectiles (cells off the grid do).</summary>
-        public bool Blocks(int x, int y) => x < 0 || y < 0 || x >= w || y >= h || cells[y * w + x] == 0;
+        public bool Blocks(int x, int y) => Blocks(x, y, 1);
+        internal bool Blocks(int x, int y, int clearance) =>
+            x < 0 || y < 0 || x >= w || y >= h || cells[y * w + x] < clearance;
     }
 
     /// <summary>The area's cells as <see cref="Blocks(string, uint, int, int)"/> reads them (the capture, else the level
