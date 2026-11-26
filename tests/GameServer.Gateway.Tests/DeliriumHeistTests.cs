@@ -248,6 +248,12 @@ public class DeliriumHeistTests
         {
             Assert.NotEmpty(encounter.BeforeEnterMessages(peer1.Player));
             Assert.NotEmpty(encounter.BeforeEnterMessages(peer2.Player));
+            Assert.Equal(["IsMapOwner"], encounter.QuestFlags(peer1.Player));
+            Assert.Contains(2020, Game.PlayerQuestFlags(peer1.Player));
+            var fragmentRewards = DeliriumModule.RollMirrorRewards(peer1.Player, 84,
+                Enumerable.Repeat(13, 80).ToArray(), Enumerable.Repeat(1, 80).ToArray(), 0);
+            Assert.NotEmpty(fragmentRewards);
+            Assert.All(fragmentRewards, item => Assert.True(Program.Items.Stash.Holds(StashRules.Fragment, item.TypeHash)));
             var state = encounter.For(peer1.Player);
 
             // Walk peer1 onto the mirror so OnTick activates it and broadcasts fog, ruleset snapshot, and animation.

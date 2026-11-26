@@ -737,4 +737,13 @@ public sealed class DeliriumMirrorEncounter
         if (spawnedAny)
             lock (state) SaveLocked(player, state);
     }
+
+    static readonly string[] OwnerFlags = ["IsMapOwner"], NoFlags = [];
+
+    /// <summary>Grants the client's IsMapOwner flag to the map owner when an eligible Delirium mirror area is active
+    /// so the HUD shows the Delirium fast-forward button even when no other owner-flagged encounter spawned.</summary>
+    public IReadOnlyList<string> QuestFlags(Player player) =>
+        IsEligibleMap(player) && (MapRunOf(player)?.Owner is not { Length: > 0 } owner
+            || string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase))
+            ? OwnerFlags : NoFlags;
 }
