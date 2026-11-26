@@ -300,8 +300,11 @@ public static partial class Game
             SupportedPoison(player, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
         var normal = Profile(0);
         return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
-            { Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
-                local: inputs.Attack ? MainHandLocalSources(player) : null) };
+        {
+            Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
+                local: inputs.Attack ? MainHandLocalSources(player) : null),
+            WeaponLocal = inputs.Attack ? inputs.WeaponStats : null,
+        };
     }
 
     static async Task<bool> PlaceSkill(Player player,
@@ -825,6 +828,7 @@ public static partial class Game
             && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
             offenseSnapshot = active;
         var playerStats = offenseSnapshot?.Caster ?? owner;
+        int weaponWither = offenseSnapshot?.WeaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0;
 
         int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
         if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
@@ -913,7 +917,8 @@ public static partial class Game
                 targetAilmentMore *= Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
             var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
-                AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false);
+                AreaRng(player), poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own),
+                playerHit: false, weaponWitherChance: weaponWither);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = RepeatAilment(profile.Ignite, targetAilmentMore);

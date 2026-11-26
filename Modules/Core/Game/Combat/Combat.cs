@@ -681,7 +681,9 @@ public static partial class Game
                 }
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
-                    blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
+                    blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true),
+                    projectileDamage: false, projectileFreezeChance: 0,
+                    weaponWitherChance: weapon.LocalSources?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical) TryDeathmarkedLocked(player, m, at, playerStats);
                 nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
@@ -3239,6 +3241,7 @@ public static partial class Game
         Item? weaponContactSource = null, secondWeaponContactSource = null;
         TinctureKillBonus? tinctureKill = null;
         IReadOnlyDictionary<uint, int>? weaponLocal = null;
+        int weaponWitherChance = 0;
         string? sweepWeaponClass = null, secondSweepWeaponClass = null;
         ImpaleStats.Settings impale = default, criticalImpale = default;
         // Every monster gets its hit before the sweep's deaths run their loot, experience and quest work, and before a
@@ -3305,6 +3308,7 @@ public static partial class Game
                         {
                             tinctureKill = TinctureKillBonusFor(player, playerStats, hand);
                             weaponContactSource = SkeletonWeaponContactSource(player, hand, local);
+                            weaponWitherChance = local?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0;
                         }
                         bool? hitArea = boneshatter?.Pulse ?? (infernalBlast is not null ? true
                             : infernalStrike || pestilentStrike ? false : IsSmite(gem.Effect) ? singleStrikeTarget is null : (bool?)null);
@@ -3318,6 +3322,8 @@ public static partial class Game
                         {
                             secondWeaponContactSource = SkeletonWeaponContactSource(player, AttackHand.Off, bothOff?.LocalSources);
                             secondSweepWeaponClass = bothOff?.ItemClass;
+                            weaponWitherChance = Math.Max(weaponWitherChance,
+                                bothOff?.LocalSources?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                         }
                         // Sacrifice's prepaid chaos is flat added damage. Apply the admitted skill's effectiveness
                         // before the shared hit and ailment ancestry, so increases, more multipliers and prohibition
@@ -3690,7 +3696,8 @@ public static partial class Game
                             hitOrigin: cascadePush == default ? (IsLeapSlam(player, gem.Effect) ? centre : null)
                                 : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),
                             attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)),
-                            projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore);
+                            projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore,
+                            weaponWitherChance: weaponWitherChance);
                         if (critical && hitPlan.Kind == SkillHitKind.Attack)
                             TryDeathmarkedLocked(player, m, at, playerStats);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)

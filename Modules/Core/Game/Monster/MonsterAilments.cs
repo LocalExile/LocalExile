@@ -313,7 +313,7 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, bool mayTriggerItemMark = true)
+        bool areaHit = false, int glacialFreezeMore = 0, bool mayTriggerItemMark = true, int weaponWitherChance = 0)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -425,7 +425,8 @@ public static partial class Game
         HitDebuffsOnHitLocked(m, name => Player(name) + Skill(name), spell, critical, now, random);
         InflictMonsterBlind(player, targetId, m, now, blind, spell, critical, random);
         ExposureOnHitLocked(m, name => Player(name) + Skill(name), mitigated, now, AreaRng(player), dominantExposure);
-        WitherOnHitLocked(m, name => Player(name) + Skill(name), now, AreaRng(player));
+        WitherOnHitLocked(m, name => ActorScale.Saturate((long)Player(name) + Skill(name)
+            + (!spell && name == Stat.WitheredOnHitFor2SecondsPctChance ? weaponWitherChance : 0)), now, AreaRng(player));
         int poisonStacksBefore = m.Poisons.Stacks(now);
         double poisonUntilBefore = m.Poisons.Until;
         if (TryPoisonOnHitLocked(player, m, mitigated, spell, critical, playerStats, skill, poison, now, random,

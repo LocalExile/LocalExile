@@ -1032,7 +1032,8 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea, mayTriggerItemMark: ownHit);
+                    areaHit: contact.IsArea, mayTriggerItemMark: ownHit,
+                    weaponWitherChance: weaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical && shot.DirectAttackContact && ownHit)
                     TryDeathmarkedLocked(Player, target, at, player);
             }

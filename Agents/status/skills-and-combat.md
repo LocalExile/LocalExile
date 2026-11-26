@@ -77,6 +77,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mark Mastery blinds around the live marked enemy in offline tests, using the server's 35-cell nearby blind reach.
 - Weapon-local Bloodseeker instant Life leech, Elder life gained against blinded enemies and culling against bleeding
   enemies, and Nametaker critical multiplier and instant leech follow the hand that makes the hit.
+- Replica Innsbury Edge supplies its local Withered chance to accepted weapon hits on the server. Live checks pending.
 - Weapon-conditioned attack damage, bow bleeding, attack ignite and spell poison read their qualifying stats.
   Trap and mine damage, Battlemage, Perseverance, physical reduction bypass and elemental ailment swaps apply offline.
 - Acrobatics, The Agnostic, Imbalanced Guard, Wicked Ward, Corrupted Soul and Transcendence resolve their defences.

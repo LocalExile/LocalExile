@@ -420,7 +420,9 @@ public static partial class Game
                 AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
                     AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(playerStats, skillStats),
-                    attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
+                    attackGains: AttackAilmentGains.Capture(playerStats, attack: true),
+                    projectileDamage: false, projectileFreezeChance: 0,
+                    weaponWitherChance: local?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                 if (critical) TryDeathmarkedLocked(player, m, now, playerStats);
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
