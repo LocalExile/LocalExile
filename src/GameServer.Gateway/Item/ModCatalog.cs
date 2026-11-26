@@ -54,6 +54,10 @@ public sealed class ModCatalog
         /// buff, BuffTemplate1), the monster it leaves on death (MonsterOnDeath) and its granted skills
         /// (GrantedEffectsPerLevelKeys).</summary>
         public int? BuffTemplate { get; init; }
+        /// <summary>For a mod that is an aura (its BuffTemplates row lists who it reaches): whether the wearer is among
+        /// them ("You and nearby Allies ...") or it is for others only ("Nearby Allies ...", "Nearby Enemies ...").
+        /// Null for a mod without a template, or one whose template lists no one.</summary>
+        public bool? AuraForSelf { get; init; }
         public string MonsterOnDeath { get; init; } = "";
         public int GrantedEffects { get; init; }
         public IReadOnlyList<int> GrantedEffectLevels { get; init; } = [];
@@ -149,6 +153,15 @@ public sealed class ModCatalog
         List<string> tags = [];
         if (ClientTables.Has("Tags"))
             tags = [.. ClientTables.Table("Tags").Select(r => r.Text("Id") ?? "")];
+        // BuffTemplates' fourth column lists who an aura reaches: 1 its owner, 2 allies, 3 enemies, 10 minions.
+        var templates = ClientTables.TableOrEmpty("BuffTemplates");
+        bool? AuraReachesSelf(int? template)
+        {
+            if (template is not int row || templates.Row(row) is not { } aura) return null;
+            int[] reaches;
+            try { reaches = aura.Ints("__col4"); } catch { return null; }
+            return reaches.Length == 0 ? null : Array.IndexOf(reaches, 1) >= 0;
+        }
         List<(string, int)> Weights(ClientRow r, string keys, string values) =>
             [.. r.Ints(keys).Zip(r.Ints(values), (k, v) => (k < tags.Count ? tags[k] : $"#{k}", v))];
         foreach (var r in ClientTables.Table("Mods"))
@@ -180,6 +193,7 @@ public sealed class ModCatalog
                 Unscalable = r.BoolOrNull("IsUnscalable") == true,
                 ModType = r.IntOrNull("ModTypeKey") is int mt && mt >= 0 && mt < modTypes.Count ? modTypes[mt] : "",
                 BuffTemplate = r.IntOrNull("BuffTemplate1"),
+                AuraForSelf = AuraReachesSelf(r.IntOrNull("BuffTemplate1")),
                 MonsterOnDeath = r.TextOrNull("MonsterOnDeath") ?? "",
                 GrantedEffects = r.Ints("GrantedEffectsPerLevelKeys").Length,
                 GrantedEffectLevels = [.. r.Ints("GrantedEffectsPerLevelKeys")],
