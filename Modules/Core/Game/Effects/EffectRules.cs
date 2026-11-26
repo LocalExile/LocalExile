@@ -130,8 +130,11 @@ public static class EffectRules
         /// <summary>The deepest event (CombatEvent.Depth) the rule's chaining effects run for (LoopGuard).</summary>
         public int MaxDepth { get; init; }
         public bool Chains { get; init; }
-        /// <summary>What the actor's own stats must be for the rule to be live ("need").</summary>
+        /// <summary>What the stats must be for the rule to be live ("need"): the carrier's own first (a worn item's lines),
+        /// then the actor's, as a value that names a stat reads them.</summary>
         public Need[] Needs { get; init; } = [];
+        /// <summary>Live only while its carrier stands ("standing"): a flask's event rule only during the flask's effect.</summary>
+        public bool Standing { get; init; }
         /// <summary>The id of <see cref="Stat"/>: what the lookups take.</summary>
         public uint Key { get; init; }
         /// <summary>The one carrier (Source.Name) the rule is for, when many carriers share its stat and each has its
@@ -355,7 +358,7 @@ public static class EffectRules
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
         foreach (var property in root.EnumerateObject())
-            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "need" or "only" or "chance" or "cooldown" or "uses" or "depth" or "do"))
+            if (property.Name is not ("when" or "who" or "carrier" or "checks" or "any" or "need" or "only" or "standing" or "chance" or "cooldown" or "uses" or "depth" or "do"))
                 throw new FormatException($"unknown key \"{property.Name}\"");
         string whenName = root.GetProperty("when").GetString() ?? "";
         int when = Array.IndexOf(WhatNames, whenName);
@@ -454,7 +457,9 @@ public static class EffectRules
         return new(stat, ord, (What)when, who, [.. checks], any, chance, cooldown, [.. effects])
         { Key = statKey, Carrier = carrier, Uses = uses, MaxDepth = depth, Chains = effects.Exists(e => e.Kind.Chains), Needs = [.. needs],
           Sum = carrier is null || sum is null ? sum : throw new FormatException("a summed chance is for a rule of the actor's own stats, not a carrier's"), SumWithSkill = sumWithSkill,
-          Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null };
+          Only = root.TryGetProperty("only", out var only) ? carrier is not null ? only.GetString() : throw new FormatException("\"only\" names a carrier, and the rule has no \"carrier\"") : null,
+          Standing = root.TryGetProperty("standing", out var standing) && standing.GetBoolean()
+            && (carrier is not null ? true : throw new FormatException("\"standing\" is about a carrier, and the rule has no \"carrier\"")) };
     }
 
     static Value ParseValue(JsonElement e)
@@ -492,7 +497,7 @@ public static class EffectRules
             double chance = terms is null ? rule.Chance.Resolve(own, read, source?.Data) : 100;
             if (chance <= 0) return;
             foreach (var need in rule.Needs)
-                if (get(need.Key) is var has && (has < need.Min || has > need.Max)) return;
+                if (read(need.Key) is var has && (has < need.Min || has > need.Max)) return;
             var effects = new LiveEffect[rule.Do.Length];
             for (int i = 0; i < effects.Length; i++)
             {
@@ -523,7 +528,7 @@ public static class EffectRules
                 else if (sources is not null)
                     foreach (var source in sources)
                         if (source.Carrier == rule.Carrier && (rule.Only is null || rule.Only == source.Name)
-                            && (source.Standing || rule.When != What.Worn)
+                            && (source.Standing || rule.When != What.Worn && !rule.Standing)
                             && source.Get(rule.Key) is var held and not 0) Add(rule, held, source);
             }
         // No live rule and nothing kept from before: the usual case, and it makes nothing.

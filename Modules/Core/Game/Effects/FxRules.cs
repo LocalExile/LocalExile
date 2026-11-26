@@ -230,6 +230,8 @@ public static class FxRules
                     if (with.ContainsKey("uses")) rule["uses"] = Value(with["uses"]);
                     break;
                 case "source_is": Whole(condition); rule["only"] = Word("name") ?? throw new FormatException("\"source_is\" needs \"name\""); break;
+                // The carrier must stand: a flask's event rule ("During Effect, ... when you Block") only while it runs.
+                case "carrier_active": Whole(condition); rule["standing"] = true; break;
                 case "stat_at_least":
                     Whole(condition);
                     var need = new JsonObject { ["stat"] = Word("stat") ?? throw new FormatException("\"stat_at_least\" needs \"stat\"") };
