@@ -1356,6 +1356,10 @@ public static partial class Game
 
     public static double Dist((int X, int Y) a, (int X, int Y) b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
+    // The projection channels from the player's current cell even without the Movement skill type.
+    static bool AttackUsesWalkUp(Player player, int effect) =>
+        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect);
+
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
     // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (§5 of
     // 11-skills.md; live 2026-10-26: every empty point used to be walked, so swinging cost nothing).
