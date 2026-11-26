@@ -30,6 +30,28 @@ public static partial class Game
         return generation;
     }
 
+    internal static void AbortStartedChannel(Player player, int? generation)
+    {
+        if (generation is not int started) return;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (player.ChannelGeneration != started) return;
+            double at = AreaTime(player);
+            RetireChargedDashLocked(player, started);
+            RetireBladeFlurry(player, started);
+            if (player.ChannelMovement.Skill != 0 && player.ChannelMovement.Skill == player.ChannelSkill)
+            {
+                var (x, y) = player.Walk.Position(at);
+                player.Walk.Order(x, y, at);
+            }
+            EndCycloneStages(player, started, at);
+            player.ChannelSkill = 0;
+            player.PaidChannel = null;
+            player.ChannelGeneration++;
+            SnipeWakeChannel(player);
+        }
+    }
+
     // Sample both moving actors at the hit time, after the approach and contact delay.
     public static (int Accuracy, bool Unique, bool CloseRange) AttackAccuracyAt(
         Player player, SpawnedMonster target, double at)
@@ -1579,20 +1601,14 @@ public static partial class Game
             if (Current()) RecordSpellWindup();
             await PublishVaalUse(player, vaalUse);
         }
-        void AbortStartedChannel()
-        {
-            if (channelGeneration is null) return;
-            EndChannel(player, AreaTime(player));
-            player.PaidChannel = null;
-        }
         if (!Current() || gem.Name is not null && GemSkillInstanceDisabled(player, gem.Effect, skillId) is not null)
         {
-            AbortStartedChannel();
+            AbortStartedChannel(player, channelGeneration);
             return false;
         }
         if (!PlacedCastFamilyCurrent(player, skillId, placedAdmission))
         {
-            AbortStartedChannel();
+            AbortStartedChannel(player, channelGeneration);
             return false;
         }
         if (!locationInstant && gem.Name is not null && placedAdmission is null)
@@ -1619,9 +1635,9 @@ public static partial class Game
         if (beastCompanion is not null) return true;
         if (channelGeneration is not null)
         {
-            if (!Current()) { AbortStartedChannel(); return false; }
+            if (!Current()) { AbortStartedChannel(player, channelGeneration); return false; }
             if (SupportedChannelSeconds(player, skillId) is not double interval)
-            { AbortStartedChannel(); return false; }
+            { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
             if (IsChargedDash(player, gem.Effect))
