@@ -5,6 +5,29 @@ namespace GameServer.Gateway.Tests;
 public sealed class ChargeRulesTests
 {
     [Fact]
+    public void KillChanceRulesCombineActorAndSkillStatsOnceAndRespectCaps()
+    {
+        var session = new ChargeSession();
+        int Actor(uint stat) => stat switch
+        {
+            Stat.EnduranceChargeOnKillPct => 100,
+            Stat.AddFrenzyChargeOnKillPctChance => 60,
+            _ => 0
+        };
+        var kill = new ChargeEvent.Kill(MonsterRarity.Normal, Skill: stat =>
+            stat == Stat.AddFrenzyChargeOnKillPctChance ? 40 : 0);
+        var rng = new Random(1);
+        session.Observe(Actor);
+        for (int i = 1; i <= 4; i++)
+        {
+            session.Admit(i, [kill], Actor, () => default, alive: true, rng);
+            Assert.Equal(Math.Min(i, 3), session.Effective(ChargeType.Endurance));
+            Assert.Equal(Math.Min(i, 3), session.Effective(ChargeType.Frenzy));
+            Assert.Equal(0, session.Effective(ChargeType.Power));
+        }
+    }
+
+    [Fact]
     public void CoreChargesGainRefreshExpireAndTriggerAtTheirLimits()
     {
         // Tulfall (+1 maximum, a Frenzy Charge and then the loss of every Power Charge on reaching the maximum), Voll's

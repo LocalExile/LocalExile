@@ -5,7 +5,7 @@ using GameServer.Storage;
 sealed partial class ItemEffectRules
 {
     // Compile once per world snapshot. Combat only sees resolved stat keys and typed values.
-    void Compile(GameDataStore.FxRuleRow row)
+    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> charges)
     {
         try
         {
@@ -35,6 +35,14 @@ sealed partial class ItemEffectRules
                     if (stats.Length > 1 && (roll || !fromRoll))
                         throw new FormatException("multiple duration sources require a guaranteed gain from their strongest roll");
                     onKill.Add(new(stats, roll, seconds, durationStat, fromRoll));
+                    break;
+                case ("kill", "charge", "self") when Matches(timers, "[]"):
+                    if (JsonNode.Parse(args) is not JsonObject { Count: 1 } charge ||
+                        charge["charge"]?.GetValue<string>() is not string name || Charges.Parse(name) is not { } type ||
+                        !Take("chance", """{"percent":{"from":"roll"}}"""))
+                        throw new FormatException("expected a named charge and chance from its source stat");
+                    foreach (uint stat in Sources("stat"))
+                        charges.Add(new(stat, type, static (e, _) => e is ChargeEvent.Kill));
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):
                     bool rare = Take("enemy_rarity", """{"is":"rare_or_unique"}""");
