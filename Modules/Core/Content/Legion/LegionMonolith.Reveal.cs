@@ -106,7 +106,8 @@ static partial class LegionMonolith
         }
         if (done.Count == 0) return;
         if (intros is not null)
-            foreach (string? general in intros) await LegionSpeech.Say(player, general, "MapIntro");
+            for (int i = 0; i < intros.Count; i++)
+                await LegionSpeech.Say(player, intros[i], "MapIntro", (uint)i * LegionSpeech.EncounterStaggerMs);
         lock (e)
         {
             if (e.Army is { } army)

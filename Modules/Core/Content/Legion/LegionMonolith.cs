@@ -894,10 +894,12 @@ static partial class LegionMonolith
         // Snapshot current viewers before forgetting fleeing generals so a player joining during FleeSeconds is never sent
         // a removal for an object id it never received a create for.
         var fleeViewers = flee.Count > 0 ? Members(player).ToList() : null;
+        uint fleeDelay = LegionSpeech.FleeAfterIntroMs(e.ChargeEnd, global::Game.AreaTime(player));
         foreach (var g in flee)
         {
             if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
-            await LegionSpeech.Say(player, monster.Variety?.Id, "Fleeing");
+            await LegionSpeech.Say(player, monster.Variety?.Id, "Fleeing", fleeDelay);
+            fleeDelay += LegionSpeech.EncounterStaggerMs;
             Holds.Remove(monster);
             // LIVE CHECK: with the action ended (state 5, sent above) and the animation running again, the client plays its flee animation (fleeing=1).
             if (LegionStasis.SendFreezeBuff)
