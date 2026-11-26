@@ -191,8 +191,8 @@ displayed the supplied tables and art.
 
 ### Monster skill coverage and the monster file cache
 
-Two local tools measure how much of a monster's skill data the server uses (run from the repository root; both read the
-client and `data/client.db` only):
+Two local tools measure how much of a monster's skill data the server uses (run from the repository root; the cache tool
+reads the client, the report reads the cache and `data/client.db`):
 
 ```bash
 python -I scripts/re/monster_files_cache.py            # once: the .act/.ao/.amd/.ot/.otc files of every MonsterVarieties row
@@ -200,15 +200,15 @@ python -I scripts/re/monster_skill_coverage.py [--csv out.csv] [--no-cache]
 ```
 
 The cache writes about 21,000 files (flat names, the `ot_components.py` layout) to `Tools/re/out/monster-files/` through
-ggdump in batches (git-ignored, never commit it; a rerun fetches only what is missing; `--out` names another folder). The
+ggdump in batches (git-ignored, never commit it; a rerun fetches only what is missing; `--out` names another folder; it needs `Tools/ooz/node_modules`, which a worktree links to the main checkout's). The
 report prints totals and percentages per category (campaign boss, map bar boss, league, ordinary, and a flag for varieties
 a hand-scripted encounter names) of: the kit (usable effects, kept, dropped), projectile and mortar effects with a release
 clip (the server's key, plus `GrantedEffects.Animation`, plus any `.act` entry), where each projectile comes from, combo
 parents (EmptyAction with an Animation row, with children that have none) and the shared states the `.ot`/`.otc` declare.
-It writes one CSV row per variety (default `G:/temp/monster-skill-coverage.csv`, else the temp folder). The rules are a
+It writes one CSV row per variety (default `monster-skill-coverage.csv` in the system temp directory). The rules are a
 Python mirror of `SkillCatalog.BuildMonsterProjectiles`, `BossKits.IsUsable` and `MonsterKits.IsExcludedOrdinaryEffect`, not
 the server's own run (no BossSummons overrides, stance clips or kit shaping), so compare before and after on the same
-version of the script. The `ggdump` tool needs `Tools/ooz/node_modules` (a worktree links the main checkout's).
+version of the script.
 
 ## 4. Frida through REA (live client)
 
