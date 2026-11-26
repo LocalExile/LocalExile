@@ -384,11 +384,28 @@ public static partial class Game
         bool bulk = false, bool nonBlocking = false,
         // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
         // instance keeps for a later player too.
-        Func<MonsterObject, MonsterObject>? shape = null) =>
+        Func<MonsterObject, MonsterObject>? shape = null,
+        // The kit the monster plays instead of any other, its variety's default attack included (a mercenary's build skills).
+        IReadOnlyList<MonsterKitSkill>? ownedKit = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape, ownedKit: ownedKit);
+
+    // Keep the signature used by mods built before ownedKit.
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name, bool friendly, bool log, uint? damagedLife,
+        MonsterModSet? mods, bool alone, bool? unrisen, float rotation,
+        IReadOnlyList<(uint Key, int Value)>? extraStats, Action<uint, SpawnedMonster>? owned, Func<bool>? ownedCurrent,
+        IReadOnlyList<GrantedSkill>? ownedSkills, uint? ownedMaximumLife, uint ownedMaximumEnergyShield, uint ownedEnergyShield,
+        MonsterModSet? extraMods, bool scripted, IReadOnlyList<VisibleItem>? ownedLooks, IReadOnlyList<MonsterKitSkill>? extraKit,
+        Func<bool>? ownedAdmission, bool ownedInitialDeath, MonsterPlacement placement, int? lifePercent, MonsterMovement? movement,
+        (uint Parent, string Bone, byte Kind, byte Flags)? attachTo, bool instanceOwned, bool bulk, bool nonBlocking,
+        Func<MonsterObject, MonsterObject>? shape) =>
+        SpawnMonster(player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen, rotation,
+            extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield, ownedEnergyShield,
+            extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement, lifePercent,
+            movement, attachTo, instanceOwned, bulk, nonBlocking, shape, ownedKit: null);
 
     /// <summary>The same, for a monster created running a client action (<see cref="MonsterObject.CurrentAction"/>) and optionally
     /// held non-blocking on the server until released. A separate overload so the primary signature stays binary-compatible with compiled mods.</summary>
@@ -454,7 +471,8 @@ public static partial class Game
         ActorAction? currentAction = null,
         // No body on the server (no living collision: SpawnedMonster.NonBlocking) until the caller sets NonBlocking false;
         // unlike nonBlocking the client keeps the type's blocking, for a monster whose client action holds its collision.
-        bool noBodyUntilReleased = false)
+        bool noBodyUntilReleased = false,
+        IReadOnlyList<MonsterKitSkill>? ownedKit = null)
     {
         // Flag 0x02 wakes the object in its create, which only the owned branch sends that way; the other one wakes it separately.
         if (ownedBaseData is not null && owned is null) throw new ArgumentException("base data needs an owned spawn", nameof(ownedBaseData));
@@ -557,7 +575,9 @@ public static partial class Game
         // SirusFight.cs): their record's swing is their basic skill, and every other skill of their kit is played by their
         // controller through its own id.
         bool atlas = AtlasBosses.IsBoss(variety);
-        int effect = brine ? BrineKing.MeleeEffect : atlas ? AtlasBosses.BasicEffect(variety)
+        // An owned kit is the whole of what the monster plays: its first entry is the default attack too, never the variety's own.
+        int effect = ownedKit is { Count: > 0 } && !scripted && !kingActor && !brine && !atlas ? ownedKit[0].Effect
+            : brine ? BrineKing.MeleeEffect : atlas ? AtlasBosses.BasicEffect(variety)
             : !kingActor ? MavenNucleus.CombatEffect(catalog, variety)
             : variety.GrantedEffects is [int firstEffect, ..] ? firstEffect : -1;
         bool rangedAttack = kingActor
@@ -681,7 +701,9 @@ public static partial class Game
         // has no encounter controller: it plays the rest of its granted effects through the ordinary AI (BossKits). Ordinary
         // Normal/Magic/Rare multi-skill monsters use the cached MonsterKits template so casters, summoners, chargers, leapers,
         // flicker-strikers and charge-ralliers play their retail kits instead of falling back to MeleeAtAnimationSpeed.
-        var kit = scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
+        bool ownKit = ownedKit is { Count: > 0 } && !scripted && kingSkills is null;
+        var kit = ownKit ? ownedKit!
+            : scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {

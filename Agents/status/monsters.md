@@ -204,6 +204,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
+  The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.
+  A hire made by a player with Noble Blood (a Luminary notable, read once at the hire) is kept across an instance
+  restore; it does not follow the player to other areas, and a hire killed in a live instance stays dead.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 

@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
@@ -294,9 +295,34 @@ public sealed partial class MercenaryModule
         finally { lock (run) run.Busy = false; }
     }
 
+    /// <summary>The GrantedEffects row of the plain melee hit (MeleeAtAnimationSpeed): the swing a duel opponent falls back
+    /// to when its build lists no usable skill.</summary>
+    static int MeleeFallbackEffect => meleeFallbackEffect ??= ClientTables.TableOrEmpty("GrantedEffects")
+        .Where(r => r.TextOrNull("Id") == "MeleeAtAnimationSpeed").Select(r => r.Index).DefaultIfEmpty(-1).First();
+    static int? meleeFallbackEffect;
+
+    /// <summary>The kit of a mercenary: the skills its build lists (<see cref="MercenaryTables.SkillsOf"/>) that the ordinary AI
+    /// can play, made once when the duel opponent is created. A build with no usable skill still gets a swing: the plain
+    /// melee hit, so the opponent is never left with no attack. Null only when even that shapes to nothing, so the opponent
+    /// has its variety's own kit, which never holds the effect a mercenary leaves by (BossKits.IsLeavePortal). Only the duel
+    /// opponent has it: the hire is scripted and keeps no kit.</summary>
+    static IReadOnlyList<MonsterKitSkill>? KitOf(Player player, MonsterCatalog.Variety variety, MercenaryTables.Build build,
+        byte level, int seed)
+    {
+        var effects = MercenaryTables.SkillsOf(build, level, new Random(unchecked(seed * 397 ^ build.Row)));
+        var kit = BossKits.KitFromEffects(player, variety, level, effects);
+        if (kit.Count > 0) return kit;
+        // No usable build skill (a build whose only skill is DoLiterallyNothing, or a low-level build that reaches none
+        // of its rows yet): the variety's own default attack is the effect it leaves by, so the fallback is the plain
+        // melee hit, not the variety's kit.
+        if (MeleeFallbackEffect < 0) return null;
+        var fallback = BossKits.KitFromEffects(player, variety, level, [MeleeFallbackEffect]);
+        return fallback.Count > 0 ? fallback : null;
+    }
+
     /// <summary>The switch: the friendly mercenary is replaced by a hostile one of its variety (a monster's scripted and hostile
-    /// flags are fixed when it is made), in the duel states, with the same gear, at the same cell. It fights with its variety's own
-    /// kit.</summary>
+    /// flags are fixed when it is made), in the duel states, with the same gear, at the same cell. It fights with the skills of
+    /// its build, or the plain melee hit when its build lists none it can use.</summary>
     async Task<bool> StartDuel(Player player, Run run)
     {
         if (MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build
@@ -307,7 +333,7 @@ public sealed partial class MercenaryModule
             ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
             {
                 StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
-            });
+            }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed));
         if (id == 0) return false;
         if (player.Area.Monsters.TryGetValue(id, out var body)) body.States = duel;
         await Remove(player, old);
