@@ -136,6 +136,14 @@ public sealed class AbyssEncounterTests
             Assert.All(state.Arms, arm => Assert.All(arm.Pieces.Skip(1), p => Assert.Equal(AbyssTables.CrackClosing3, p.State)));
             Assert.All(state.Slots, slot => Assert.True(slot.Spawned));
             Assert.Equal(AbyssTables.ArmMonsters, state.ArmMonsters.Count);
+            uint pitBeforeReload = state.Pit;
+            var bodiesBeforeReload = state.ArmMonsters.ToArray();
+            encounter.Clear();
+            encounter = new AbyssEncounter();
+            state = encounter.Of(player)!;
+            Assert.Equal(pitBeforeReload, state.Pit);
+            Assert.Equal(bodiesBeforeReload, state.ArmMonsters);
+            Assert.All(state.Slots, slot => Assert.True(slot.Spawned));
             var family = AbyssTables.Families.First(f => f.Name == state.Plan.Family);
             Assert.All(state.ArmMonsters, id => Assert.Contains(player.Area.Monsters[id].Variety!.Id, family.Regular));
             Assert.All(state.ArmMonsters, id => Assert.InRange(state.Arms.SelectMany(a => a.Cells)

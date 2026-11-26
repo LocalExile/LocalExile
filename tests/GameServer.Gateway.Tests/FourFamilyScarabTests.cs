@@ -2,6 +2,7 @@ using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using GameServer.Modules.Legion;
+using GameServer.Modules.Abyss;
 
 namespace GameServer.Gateway.Tests;
 
@@ -45,6 +46,16 @@ public sealed class FourFamilyScarabTests
         }
         Assert.Equal(3, LegionScarabs.Rewards(2, 100));
         Assert.Equal(200, LegionScarabs.Difficulty(2, true));
+        AbyssModule.LoadData();
+        foreach (string leaf in Enumerable.Range(1, 4).Select(i => $"ScarabAbyss{i}").Concat(Enumerable.Range(1, 5).Select(i => $"ScarabAbyssNew{i}")))
+        {
+            var request = Input(leaf); AbyssScarabs.Opening(request); Assert.Empty(request.UnhandledContent);
+            if (request.Opening!.Mods.Get(Stat.MapNumExtraAbysses) is int extra and > 0)
+            {
+                Assert.Equal(2 * extra - 1, AbyssEncounter.PitCount(request.Opening.Mods.Stats, false));
+                Assert.Equal(1 + 2 * extra, AbyssEncounter.PitCount(request.Opening.Mods.Stats, true));
+            }
+        }
         foreach (string family in new[] { "ShaperRares", "ElderRares", "InfluenceNew" })
             for (int i = 1; i <= 4; i++)
             {

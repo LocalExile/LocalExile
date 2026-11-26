@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
 using GameServer.Modding;
@@ -16,7 +18,7 @@ namespace GameServer.Modules.Abyss;
 /// monsters, the pit opens once every arm is closed and those monsters are dead, the wave comes out of it, and its death
 /// raises the plinth and the chest. Times are the tick's game seconds (the captures count 30 frames to the second).
 /// </summary>
-public sealed class AbyssEncounter
+public sealed partial class AbyssEncounter
 {
     public enum Stage { Arms, Wave, Reward, Over }
 
@@ -31,7 +33,7 @@ public sealed class AbyssEncounter
         public required int Dir;
         public required List<(int X, int Y)> Cells;
         public required List<(string Shape, int Rotation, int Mirror)> Shapes;
-        public readonly List<Piece> Pieces = [];
+        public List<Piece> Pieces = [];
         public double? StartedAt;
         /// <summary>When the pit-side piece starts closing: the pit opening + 1 frame [capture 5/5].</summary>
         public double? AdjacentAt;
@@ -54,22 +56,22 @@ public sealed class AbyssEncounter
         public Stage Stage = Stage.Arms;
         public required Plan Plan;
         public required byte Level;
-        public required Random Random;
+        [JsonIgnore] public Random Random = new();
         /// <summary>One tick or one click at a time.</summary>
-        public readonly SemaphoreSlim Gate = new(1, 1);
+        [JsonIgnore] public readonly SemaphoreSlim Gate = new(1, 1);
         /// <summary>The area the objects are in: a kept instance generated again has none of them (<see cref="Sync"/>).</summary>
-        public GameArea? Area;
+        [JsonIgnore] public GameArea? Area;
         public uint Pit;
         public byte PitState = AbyssTables.PitClosed;
         /// <summary>The pit's walk cell: what its create, the wave, the plinth, the chest and the drop stand on.</summary>
         public (int X, int Y) PitCell;
         /// <summary>The cells the pit's own ground reaches: the arm monsters and the wave stand on them.</summary>
-        public bool[]? PitReach;
-        public bool PitReachKnown;
-        public List<Arm> Arms => Plan.Arms;
-        public List<Slot> Slots => Plan.Slots;
-        public readonly List<uint> ArmMonsters = [];
-        public readonly List<uint> WaveMonsters = [];
+        [JsonIgnore] public bool[]? PitReach;
+        [JsonIgnore] public bool PitReachKnown;
+        [JsonIgnore] public List<Arm> Arms => Plan.Arms;
+        [JsonIgnore] public List<Slot> Slots => Plan.Slots;
+        public List<uint> ArmMonsters = [];
+        public List<uint> WaveMonsters = [];
         /// <summary>The wave monsters whose spawn was tried (one the server cannot create is skipped).</summary>
         public int WaveSpawned;
         public uint Plinth;
@@ -80,15 +82,71 @@ public sealed class AbyssEncounter
         public bool ChestReady;
         public bool ChestOpened;
         /// <summary>Kills since the last tick (a kill can come from any client's connection; the tick applies them).</summary>
-        public readonly ConcurrentQueue<(int X, int Y)> Kills = new();
+        [JsonIgnore] public readonly ConcurrentQueue<(int X, int Y)> Kills = new();
+        public bool Final = true;
+        public uint Crystal, DepthEntrance;
+        public ulong DepthInstance;
+        public string DepthArea = "AbyssLeague";
+        public bool Consort, Spire;
+        public int MonsterIncrease, SoulIncrease, Souls, Seed;
+        public List<Body> Bodies = [];
+        [JsonIgnore] public double SavedAt;
+        [JsonIgnore] public long SavedVersion;
     }
 
-    readonly ConditionalWeakTable<InstanceState, State> _states = new();
+    public sealed record Body(uint Id, string Path, int X, int Y, bool Wave);
+    const string SaveKey = "Abyss.Pits", CrystalKey = "Abyss.Crystals", ReturnKey = "Abyss.Return";
+    static readonly JsonSerializerOptions Json = new() { IncludeFields = true };
+    readonly ConditionalWeakTable<InstanceState, List<State>> _states = new();
 
     /// <summary>The module's unload: the encounters go with it (the objects stay in their areas).</summary>
     public void Clear() => _states.Clear();
 
-    public State? Of(Player player) => player.Instance is { } instance && _states.TryGetValue(instance, out var state) ? state : null;
+    public IReadOnlyList<State> AllOf(Player player)
+    {
+        if (player.Instance is not { } instance) return [];
+        return _states.GetValue(instance, _ =>
+        {
+            var saved = instance.ContentState.TryGetValue(SaveKey, out var text) ? JsonSerializer.Deserialize<List<State>>(text, Json) ?? [] : [];
+            foreach (var state in saved) { state.Random = new Random(state.Seed); state.Area = player.Area; Rebind(player, state); }
+            return saved;
+        });
+    }
+
+    public State? Of(Player player) => AllOf(player).FirstOrDefault();
+
+    void Save(Player player)
+    {
+        var states = AllOf(player);
+        player.Instance.ContentState[SaveKey] = JsonSerializer.Serialize(states, Json);
+        foreach (var s in states) { s.SavedAt = s.Now; s.SavedVersion = Version(s); }
+    }
+
+    static long Version(State s) => HashCode.Combine(s.Stage, s.Pit, s.Chest, s.ChestOpened,
+        s.Bodies.Count, s.WaveSpawned, s.Souls, s.Arms.Sum(a => a.Pieces.Sum(p => (long)p.Id + p.State)));
+
+    static void Rebind(Player player, State state)
+    {
+        for (int i = 0; i < state.Bodies.Count; i++)
+        {
+            var body = state.Bodies[i];
+            if (player.Area.Monsters.ContainsKey(body.Id) || player.Area.DormantMonsters.ContainsKey(body.Id)) continue;
+            var restored = player.Area.Monsters.FirstOrDefault(p => p.Value.Variety?.Id == body.Path && !p.Value.Dead
+                && Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 3);
+            if (restored.Value is null) continue;
+            var ids = body.Wave ? state.WaveMonsters : state.ArmMonsters;
+            int at = ids.IndexOf(body.Id); if (at >= 0) ids[at] = restored.Key;
+            state.Bodies[i] = body with { Id = restored.Key };
+        }
+    }
+
+    public static int PitCount(IReadOnlyDictionary<uint, int> stats, bool natural)
+    {
+        if (stats.GetValueOrDefault(Stat.MapDisableBreachAbyss) > 0 || stats.GetValueOrDefault(Stat.AtlasKeystoneNoExtraContent) > 0
+            || (stats.GetValueOrDefault(Stat.MapDisableLeagues) & (1 << AbyssTables.LeagueRow)) != 0) return 0;
+        int extra = Math.Max(0, stats.GetValueOrDefault(Stat.MapNumExtraAbysses));
+        return Math.Min(21, natural ? 1 + 2 * extra : extra > 0 ? 2 * extra - 1 : 0);
+    }
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
 
@@ -168,23 +226,34 @@ public sealed class AbyssEncounter
         if (player.Instance is not { } instance || layout.Walkable is not { } walkable) return null;
         // The encounter's own draws, apart from the packs' (the same instance gets the same encounter).
         var rng = new Random(area.Seed ^ 0x41627973);
-        if (!Rolled(AreaLeagueStats(player), layout.Id, rng, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES")))) return null;
+        if (AllOf(player).Count > 0) return null;
+        var stats = AreaLeagueStats(player);
+        int wanted = PitCount(stats, Rolled(stats, layout.Id, rng, ForcedChance(Environment.GetEnvironmentVariable("Game_LEAGUE_CHANCES"))));
+        if (wanted == 0) return null;
         // Only lattice points the arrival walks to: an arm behind a wall would never be reached.
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
         bool Reaches((int X, int Y) cell) => arrival is null || cell.X >= 0 && cell.Y >= 0 && cell.X < layout.GridW && cell.Y < layout.GridH
             && arrival[cell.Y * layout.GridW + cell.X];
         var taken = area.Taken.ToList();
-        for (int attempt = 0; attempt < 8; attempt++)
+        for (int attempt = 0; attempt < wanted * 12 && AllOf(player).Count < wanted; attempt++)
         {
             if (AreaPopulation.EncounterSpot(area, taken, rng) is not { } spot) break;
             if (MakePlan(layout, spot, rng, Reaches) is { } plan)
             {
-                Begin(player, plan, area.Level, rng);
-                return null;
+                var state = Begin(player, plan, area.Level, rng);
+                state.Final = false;
+                taken.AddRange(plan.Arms.SelectMany(a => a.Cells));
             }
             taken.Add(spot);
         }
-        return $"{layout.Id}: no encounter spot had room for an Abyss arm";
+        if (AllOf(player).LastOrDefault() is { } final)
+        {
+            final.Final = true;
+            final.Consort = stats.GetValueOrDefault(Stat.MapFinalAbyssPitSpawnAbyssMiniboss) > 0;
+            final.Spire = stats.GetValueOrDefault(Stat.MapAbyssLeadsToStygianSpire) > 0;
+        }
+        Save(player);
+        return AllOf(player).Count == wanted ? null : $"{layout.Id}: placed {AllOf(player).Count}/{wanted} Abyss pits";
     }
 
     /// <summary>The instance's encounter for a plan: no object is sent until a player comes near.</summary>
@@ -192,8 +261,17 @@ public sealed class AbyssEncounter
     {
         foreach (var arm in plan.Arms)
             for (int i = 0; i < arm.Cells.Count; i++) arm.Pieces.Add(new Piece());
-        var state = new State { Plan = plan, Level = level, Random = rng, Area = player.Area, PitCell = LatCell(plan.PitLattice) };
-        _states.AddOrUpdate(player.Instance!, state);
+        var stats = AreaLeagueStats(player);
+        int increase = stats.GetValueOrDefault(Stat.MapAbyssMonsterSpawnAmountPlusPct);
+        int Scale(int count) => Math.Max(0, (int)((long)count * Math.Max(0, 100L + increase) / 100));
+        var slots = plan.Slots;
+        var scaledSlots = Enumerable.Range(0, Scale(slots.Count)).Select(i => { var source = slots[i % slots.Count]; return new Slot { Arm = source.Arm, Closing = source.Closing, Path = source.Path }; }).ToList();
+        var wave = plan.Wave;
+        plan = plan with { Slots = scaledSlots, Wave = Enumerable.Range(0, Scale(wave.Count)).Select(i => wave[i % wave.Count]).ToList() };
+        var state = new State { Plan = plan, Level = level, Random = rng, Area = player.Area, PitCell = LatCell(plan.PitLattice),
+            Seed = rng.Next(), MonsterIncrease = increase, SoulIncrease = stats.GetValueOrDefault(Stat.MapAbyssChasmMonsterQuantityPlusPct) };
+        ((List<State>)AllOf(player)).Add(state);
+        Save(player);
         return state;
     }
 
@@ -202,10 +280,14 @@ public sealed class AbyssEncounter
     /// has none, and gets them here.</summary>
     public async Task Entered(Player player)
     {
-        if (Of(player) is not { } state || !Current(player)) return;
+        if (!Current(player)) return;
+        await EnterDepthReturn(player);
+        foreach (var state in AllOf(player))
+        {
         await state.Gate.WaitAsync();
-        try { await Sync(player, state); }
+        try { await Sync(player, state); if (state.DepthEntrance != 0) await ShowDepthEntrance(player, state); }
         finally { state.Gate.Release(); }
+        }
     }
 
     /// <summary>The objects the encounter holds, made again in an area that is not the one they were made in, as they
@@ -217,8 +299,7 @@ public sealed class AbyssEncounter
         state.Area = player.Area;
         if (!again) return;
         // The monsters of the old area are gone with it.
-        state.ArmMonsters.Clear();
-        state.WaveMonsters.Clear();
+        Rebind(player, state);
         if (state.Pit != 0)
         {
             await CreatePit(player, state);
@@ -245,7 +326,13 @@ public sealed class AbyssEncounter
     /// <summary>One tick of <paramref name="seconds"/> game seconds, by the connection that steps the area's monsters.</summary>
     public async Task Advance(Player player, double seconds)
     {
-        if (Of(player) is not { } state || state.Stage == Stage.Over || !IsMonsterRunner(player) || !Current(player)) return;
+        foreach (var state in AllOf(player)) await Advance(player, state, seconds);
+        if (AllOf(player).Any(s => s.Now - s.SavedAt >= 1 || s.SavedVersion != Version(s))) Save(player);
+    }
+
+    async Task Advance(Player player, State state, double seconds)
+    {
+        if (state.Stage == Stage.Over || !IsMonsterRunner(player) || !Current(player)) return;
         await state.Gate.WaitAsync();
         try
         {
@@ -270,7 +357,7 @@ public sealed class AbyssEncounter
                     if (state.WaveSpawned == state.Plan.Wave.Count && !Alive(player, state.WaveMonsters))
                     {
                         await Success(player, state);
-                        state.Stage = Stage.Reward;
+                        if (state.Stage != Stage.Over) state.Stage = Stage.Reward;
                         state.StageAt = state.Now;
                     }
                     return;
@@ -286,7 +373,7 @@ public sealed class AbyssEncounter
     /// <summary>A kill (<see cref="GameEvents.Kill"/>: the character's or a minion's), applied at the next tick.</summary>
     public void Killed(KillContext kill)
     {
-        if (Of(kill.Player) is { Stage: Stage.Arms } state) state.Kills.Enqueue(kill.At);
+        foreach (var state in AllOf(kill.Player).Where(s => s.Stage == Stage.Arms)) state.Kills.Enqueue(kill.At);
     }
 
     static void OnKill(State state, (int X, int Y) at)
@@ -294,7 +381,15 @@ public sealed class AbyssEncounter
         if (state.Stage != Stage.Arms) return;
         foreach (var arm in state.Arms)
             if (arm.StartedAt is null && Within([at], arm.Cells, AbyssTables.InfluenceDistance))
+            {
                 arm.StartedAt = state.Now;
+                state.Souls++;
+                int extra = Math.Max(0, state.SoulIncrease) / 100 + (state.Random.Next(100) < Math.Max(0, state.SoulIncrease) % 100 ? 1 : 0);
+                int ai = state.Arms.IndexOf(arm);
+                var fed = state.Slots.Where(s => s.Arm == ai).ToArray();
+                for (int n = 0; n < extra; n++) foreach (var slot in fed) state.Slots.Add(new Slot { Arm = slot.Arm, Closing = slot.Closing, Path = slot.Path });
+                break;
+            }
     }
 
     /// <summary>A click on the reward chest: walk up to it, open it only in reach with the action still current, and
@@ -302,7 +397,8 @@ public sealed class AbyssEncounter
     /// Transitionable 3, then the drop. False when the click was not this encounter's chest.</summary>
     public async Task<bool> OnUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
     {
-        if (Of(player) is not { Chest: not 0 } state || use.TargetId != state.Chest) return false;
+        if (await UseDepth(player, use, requestedAt)) return true;
+        if (AllOf(player).FirstOrDefault(s => s.Chest != 0 && s.Chest == use.TargetId) is not { } state) return false;
         // A dead, leaving or just-arrived player's click is the encounter's too, and does nothing.
         if (player.PlayerLife == 0 || player.Closed || player.LeavingArea || InGracePeriod(player)) return true;
         if (state.ChestOpened) return true;
@@ -340,7 +436,7 @@ public sealed class AbyssEncounter
                 await ChestOpened(player, state);
                 await DropReward(player, state);
             }
-            finally { state.Gate.Release(); }
+            finally { Save(player); state.Gate.Release(); }
         }
         finally
         {
@@ -353,7 +449,8 @@ public sealed class AbyssEncounter
     /// around <paramref name="at"/> reaches it.</summary>
     public async Task OpenNear(Player player, (int X, int Y) at, int radius)
     {
-        if (Of(player) is not { Chest: not 0, ChestReady: true } state || Distance(at, state.PitCell) > radius) return;
+        foreach (var state in AllOf(player).Where(s => s.Chest != 0 && s.ChestReady && Distance(at, s.PitCell) <= radius))
+        {
         await state.Gate.WaitAsync();
         try
         {
@@ -362,7 +459,8 @@ public sealed class AbyssEncounter
             await ChestOpened(player, state);
             await DropReward(player, state);
         }
-        finally { state.Gate.Release(); }
+        finally { Save(player); state.Gate.Release(); }
+        }
     }
 
     static QuestObjectTypes.Info? ChestInfo() =>
@@ -688,6 +786,11 @@ public sealed class AbyssEncounter
 
     static async Task SpawnWave(Player player, State state)
     {
+        if (state.Final && state.WaveSpawned == 0)
+        {
+            string? special = state.Consort ? AbyssScarabs.Consort : state.Spire && AreaLeagueStats(player).GetValueOrDefault(Stat.MapContainsAbyssDepths) <= 0 ? AbyssScarabs.Spire : null;
+            if (special is not null && !state.Plan.Wave.Any(w => w.Path == special)) state.Plan = state.Plan with { Wave = [.. state.Plan.Wave, (special, true)] };
+        }
         double dt = state.Now - state.StageAt;
         var wave = state.Plan.Wave;
         for (int i = state.WaveSpawned; i < wave.Count; i++)
@@ -704,6 +807,26 @@ public sealed class AbyssEncounter
 
     static async Task Success(Player player, State state)
     {
+        if (!state.Final)
+        {
+            state.PitState = AbyssTables.PitDoneState;
+            await Transition(player, state.Pit, AbyssTables.PitType, AbyssTables.PitDoneState, "Abyss non-final pit closed");
+            if (AreaLeagueStats(player).GetValueOrDefault(Stat.MapAbyssesCanSpawnCrystals) > 0 && state.Crystal == 0)
+            {
+                state.Crystal = player.TakeObjectId();
+                player.Instance.ContentState.AddOrUpdate(CrystalKey, "1", (_, old) => (int.Parse(old) + 1).ToString());
+                await AbyssScarabs.ShowCrystal(player, state.Crystal, state.PitCell);
+            }
+            state.Stage = Stage.Over;
+            return;
+        }
+        if (AreaLeagueStats(player).GetValueOrDefault(Stat.MapContainsAbyssDepths) > 0)
+        {
+            state.DepthEntrance = player.TakeObjectId();
+            await ShowDepthEntrance(player, state);
+            state.Stage = Stage.Over;
+            return;
+        }
         state.Plinth = player.TakeObjectId();
         await CreatePlinth(player, state);
         state.PitState = AbyssTables.PitDoneState;
@@ -810,10 +933,17 @@ public sealed class AbyssEncounter
     static bool Alive(Player player, IReadOnlyList<uint> ids) =>
         ids.Any(id => player.Area.Monsters.TryGetValue(id, out var m) && !m.Dead && m.Life > 0 || player.Area.DormantMonsters.ContainsKey(id));
 
-    static async Task<uint> Spawn(Player player, State state, string path, MonsterRarity rarity, (int X, int Y) cell) =>
-        Monsters.Find(path) is { Supported: true } variety && variety.Id == path
-            ? await SpawnMonster(player, variety, state.Level, rarity, cell.X, cell.Y, log: rarity != MonsterRarity.Normal, alone: rarity != MonsterRarity.Normal)
-            : 0;
+    static async Task<uint> Spawn(Player player, State state, string path, MonsterRarity rarity, (int X, int Y) cell)
+    {
+        if (Monsters.Find(path) is not { Supported: true } variety || variety.Id != path) return 0;
+        int crystals = player.Instance.ContentState.TryGetValue(CrystalKey, out var text) ? int.Parse(text) : 0;
+        // Crystal scaling is server calibration; the client publishes the mechanic but no numeric curve.
+        var stats = new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = crystals * 50, [Stat.DamagePlusPct] = crystals * 50, [Stat.BaseItemFoundQuantityPlusPct] = crystals * 100 };
+        uint id = await SpawnMonster(player, variety, state.Level, path == AbyssScarabs.Consort || path == AbyssScarabs.Spire ? MonsterRarity.Unique : rarity,
+            cell.X, cell.Y, extraMods: new MonsterModSet([], [], new MonsterModEffects(stats)), log: rarity != MonsterRarity.Normal, alone: rarity != MonsterRarity.Normal);
+        if (id != 0) state.Bodies.Add(new(id, path, cell.X, cell.Y, state.Stage == Stage.Wave));
+        return id;
+    }
 
     /// <summary>A walkable cell between <paramref name="low"/> and <paramref name="high"/> cells from the centre that the
     /// pit's own ground reaches, so nothing stands behind a wall; the centre itself when none is found.</summary>

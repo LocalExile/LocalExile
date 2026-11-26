@@ -12,7 +12,7 @@ public sealed class AbyssModule : IModule
 {
     readonly AbyssEncounter _encounter = new();
 
-    public static void LoadData() => AbyssTables.LoadGameData();
+    public static void LoadData() { AbyssTables.LoadGameData(); AbyssScarabs.Load(); }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -20,6 +20,7 @@ public sealed class AbyssModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(_encounter.Clear));
+        GameEvents.MapOpening.Add(id, AbyssScarabs.Opening);
         GameEvents.AreaPopulated.Add(id, area =>
         {
             if (_encounter.Place(area) is { } why) module.Log(why);
