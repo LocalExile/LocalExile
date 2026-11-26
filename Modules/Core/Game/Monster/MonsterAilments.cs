@@ -149,7 +149,18 @@ public static partial class Game
         double area = AilmentArea(playerStats, _ => 0, spell: false);
         if (playerStats(Stat.ChillEnemyWhenHitDurationMs) is > 0 and int ms)
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, ms / 1000.0, now, playerStats, Target, area, stated: 30));
+        bool enemy = m is { Hostile: true, Dead: false, Life: > 0, EntranceGrace: false, Invulnerable: false };
+        if (enemy && RandomRolls.Chance(playerStats(Stat.ApplyCoveredInAshToAttackerWhenHitPct), 100, random))
+        {
+            m.CoveredInAshUntil = Math.Max(m.CoveredInAshUntil, now + HitDebuffSeconds / m.RecipientDebuffRate);
+            m.PresentationChanged?.Invoke();
+        }
         if (!blocked) return;
+        if (enemy && playerStats(Stat.PermanentlyIntimidateEnemyOnBlock) != 0 && !double.IsPositiveInfinity(m.IntimidatedUntil))
+        {
+            m.IntimidatedUntil = double.PositiveInfinity;
+            m.PresentationChanged?.Invoke();
+        }
         AlternateAilmentsOnBlockLocked(m, playerStats, now);
         if (RandomRolls.Chance(playerStats(Stat.ChillAttackersFor4SecondsOnBlockPctChance), 100, random))
             InflictedLocked(player, m, m.Ailments.WithoutDamage(Kind.Chill, 4, now, playerStats, Target, area));

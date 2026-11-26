@@ -257,16 +257,19 @@ public static partial class Game
         SettleBleeding(m, now);
         if (MonsterShown(player, id))
             foreach (var packet in PresentRupturesLocked(player, id, m, now)) bytes.AddRange(packet);
-        bool living = scope.Alive && !m.Dead && m.Life > 0 && m.Hostile;
+        bool targetAlive = !m.Dead && m.Life > 0 && m.Hostile;
+        bool living = scope.Alive && targetAlive;
         // One timed debuff: its buff shown for the time left, shown again when that changes, taken off when it ends or
         // the monster or the player dies. Whether it is on.
-        bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values, double rate = 1)
+        bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values,
+            double rate = 1, bool allowPermanent = false)
         {
-            bool on = living && until > now;
+            bool permanent = allowPermanent && double.IsPositiveInfinity(until);
+            bool on = (permanent ? targetAlive : living) && until > now;
             if (!on) until = double.NegativeInfinity;
             if (buff != 0 && (!on || shown != until))
             {
-                player.Area.Buffs.Clear(id, row, player.Id);
+                player.Area.Buffs.Clear(id, row, allowPermanent && double.IsPositiveInfinity(shown) ? id : player.Id);
                 buff = 0;
                 counts[1]++;
             }
@@ -274,14 +277,15 @@ public static partial class Game
             {
                 shown = until;
                 buff = 1;
-                player.Area.Buffs.Set(id, new(row, player.Id, Values: values, U68: Buff.Seconds((until - now) * rate)));
+                player.Area.Buffs.Set(id, new(row, permanent ? id : player.Id, Values: values,
+                    U68: permanent ? null : Buff.Seconds((until - now) * rate)));
                 counts[0]++;
             }
             return on;
         }
         bool taunted = Timed(ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
             FlaskGrounds.TauntedBuffRow, TauntedBuffValues(player.Id), m.RecipientDebuffRate);
-        Timed(ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null);
+        Timed(ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null, allowPermanent: true);
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
