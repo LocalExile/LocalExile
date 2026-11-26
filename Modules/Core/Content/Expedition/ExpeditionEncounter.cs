@@ -10,7 +10,7 @@ namespace GameServer.Modules.Expedition;
 /// <para>
 /// The encounter belongs to the instance (<see cref="InstanceState"/>), as the Simulacrum does: it is set up once, replayed to
 /// every player who enters (the monster types, the ruleset's messages, and the area's own object records for the objects), and
-/// goes with the instance or the module's unload, never with a player leaving. Its objects are the area's: every create,
+/// goes with the instance or the module's unload, never with a player leaving, except for the faction leader's bodies, which go when the last player leaves. Its objects are the area's: every create,
 /// update and removal goes through SendWorldCreate / SendWorldRecord / SendWorldRemoval, so lockstep frames and late joiners
 /// stay in order; an object of a new area of the same instance is created again from its piece.
 /// </para>
@@ -87,6 +87,12 @@ public sealed class ExpeditionEncounter : IDisposable
         public readonly Dictionary<uint, Chest> Chests = [];
         public int Blasts;
         public readonly System.Collections.Concurrent.ConcurrentDictionary<uint, SpawnedMonster> Monsters = [];
+        /// <summary>The faction leader spawned as a monster in this area: 0 when not spawned.</summary>
+        public uint LeaderId;
+        /// <summary>Where the leader stands, and the talk entry its monster body is registered under.</summary>
+        public (int X, int Y) LeaderCell;
+        public NpcCatalog.Npc? LeaderNpc;
+        public int LeaderBodySize;
     }
 
     /// <summary>The detonator's type. It is not in the client's static object register: the one file that names it is the
@@ -268,7 +274,35 @@ public sealed class ExpeditionEncounter : IDisposable
             foreach (int row in ExpeditionTables.VarietiesOf(plan.FactionId))
                 if (Monsters.Find(row.ToString()) is { Supported: true } variety) types.Add(((ushort)variety.Row, level));
             if (types.Count > 0) await Send(player, InstanceEntities.MonsterTypes(types), "0x0020 Expedition monsters");
+            await SpawnLeader(log, player, state, plan, level);
+            RegisterLeader(player, state);
             foreach (var (what, message) in Replay(state, plan)) await Send(player, message, what);
+        }
+        finally { state.Gate.Release(); }
+    }
+
+    /// <summary>A player is about to leave the area or the game: the leader stops being theirs to talk to at once,
+    /// and when nobody stays in the instance its bodies go too, so a later entry spawns one leader only. A party
+    /// member who stays keeps the leader standing.</summary>
+    public async Task OnPlayerLeaving(Action<string> log, Player player, string why)
+    {
+        if (StateOf(player) is not { } state || !Placed(player, state)) return;
+        await state.Gate.WaitAsync();
+        try
+        {
+            if (state.LeaderId == 0) return;
+            uint leader = state.LeaderId;
+            // This player's talk entry goes whatever the others do: the client leaving has no use for it.
+            lock (player.Npcs) player.Npcs.Remove(leader);
+            if (player.TalkingTo == leader) { player.TalkingTo = 0; player.InNpcTalk = false; }
+            // Anyone still in the instance keeps the leader: only the last one out removes its bodies.
+            if (Clients(player).Any(c => !ReferenceEquals(c, player))) return;
+            if (player.Area.Monsters.Remove(leader, out var body)) { body.Dead = true; body.Life = 0; body.ActionGeneration++; }
+            player.Instance.World.MonsterOrigins.TryRemove(leader, out _);
+            await SendWorldRemoval(player, leader, $"Expedition leader 0x{leader:x} removed: {why}");
+            state.LeaderId = 0;
+            state.LeaderNpc = null;
+            log($"{player.Layout.Id}: expedition leader 0x{leader:x} goes: {why}");
         }
         finally { state.Gate.Release(); }
     }
@@ -298,8 +332,82 @@ public sealed class ExpeditionEncounter : IDisposable
             {
                 // The monsters of the old area are gone with it: the dug ones no longer count.
                 state.Monsters.Clear();
+                state.LeaderId = 0;
+                state.LeaderNpc = null;
                 foreach (var piece in state.Pieces.Values.ToList()) await Show(player, piece);
             }
+        }
+    }
+
+    // ---- The faction leader ----------------------------------------------------------------------------------------------
+
+    /// <summary>The leader's cell from the detonator's, and the way it faces: the same in every measured encounter.</summary>
+    const int LeaderCellDx = 17, LeaderCellDy = 3;
+    const float LeaderFacing = 5.2360f;
+
+    /// <summary>The leader's type for a measured faction, else null: an unmeasured faction spawns no leader.</summary>
+    static string? LeaderType(string factionId) => factionId switch
+    {
+        "Faction2" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionTujen",
+        "Faction4" => "Metadata/Monsters/LeagueExpedition/NPC/ExpeditionDannig",
+        _ => null,
+    };
+
+    /// <summary>The talk entry for a leader spawned as a monster: the talk-owning NPC row of the faction
+    /// (Haggler for Faction2, Saga for Faction4), so TalkSource resolves its dialogue options. Only when the
+    /// catalog has no such row does the entry fall back to the synthetic one, whose Row -1 resolves nothing;
+    /// the interaction size comes from the monster body, not the entry.</summary>
+    static NpcCatalog.Npc LeaderNpc(string factionId, MonsterCatalog.Variety variety)
+    {
+        if (LeaderTalkId(factionId) is { } talkId && Npcs.Find(talkId) is { } npc && npc.Id == talkId) return npc;
+        return new(-1, variety.Id, variety.Name, null, null, 1);
+    }
+
+    /// <summary>The talk-owning NPC row for a measured faction, else null: the row the leader's own NPCs row
+    /// points at with __col10 (ExpeditionTujen 517 → Haggler 513, ExpeditionDannig 515 → Saga 511).</summary>
+    static string? LeaderTalkId(string factionId) => factionId switch
+    {
+        "Faction2" => "Metadata/NPC/League/Expedition/Haggler",
+        "Faction4" => "Metadata/NPC/League/Expedition/Saga",
+        _ => null,
+    };
+
+    /// <summary>Spawns the faction's leader once per area, at the detonator's cell + (17, 3) and facing
+    /// 5.2360 rad. The leader is a friendly, scripted monster with the talk flag, so it stands where it is put and can be
+    /// talked to; its id is registered for every player who enters (see <see cref="RegisterLeader"/>). An unmeasured faction,
+    /// or a leader type the catalog does not know, spawns nothing.</summary>
+    async Task SpawnLeader(Action<string> log, Player player, State state, Plan plan, byte level)
+    {
+        if (state.LeaderId != 0 || LeaderType(plan.FactionId) is not { } type) return;
+        if (Monsters.Find(type) is not { Supported: true } variety)
+        {
+            log($"{player.Layout.Id}: expedition leader {type}: unknown or unsupported variety");
+            return;
+        }
+        var at = Floor(player.Layout, (plan.Detonator.X + LeaderCellDx, plan.Detonator.Y + LeaderCellDy));
+        uint id = await SpawnMonster(player, variety, level, MonsterRarity.Normal, at.X, at.Y,
+            friendly: true, unrisen: false, rotation: LeaderFacing, scripted: true, instanceOwned: true,
+            shape: m => m with { HasDialogue = true });
+        if (id == 0) return;
+        if (player.Area.Monsters.TryGetValue(id, out var body)) at = body.Walk.Position(AreaTime(player));
+        state.LeaderId = id;
+        state.LeaderCell = at;
+        state.LeaderNpc = LeaderNpc(plan.FactionId, variety);
+        state.LeaderBodySize = Math.Clamp(variety.ObjectSize - 1, 0, 127);
+    }
+
+    /// <summary>Registers the leader's monster body in this player's talk dictionary, so a click on it opens the dialogue.
+    /// One entry per player: the body is the instance's, the dictionary is the player's.</summary>
+    static void RegisterLeader(Player player, State state)
+    {
+        if (state.LeaderId == 0 || state.LeaderNpc is null) return;
+        lock (player.Npcs)
+        {
+            if (player.Npcs.ContainsKey(state.LeaderId)) return;
+            player.Npcs[state.LeaderId] = new SpawnedNpc(state.LeaderNpc, state.LeaderCell.X, state.LeaderCell.Y)
+            {
+                MonsterBodySize = state.LeaderBodySize,
+            };
         }
     }
 

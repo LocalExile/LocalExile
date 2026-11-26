@@ -182,9 +182,7 @@ public static partial class Game
         }
         double aggroRange = aggressive ? Math.Max(m.AggroRange, AggressiveMinionMinimumRange) : m.AggroRange;
         double ownerRange = defensive ? Math.Min(DefensiveMinionMaximumRange, aggroRange) : 100;
-        var target = player.Area.Monsters.Where(p => p.Value.Hostile && !p.Value.Dead && p.Value.Life > 0 && !p.Value.Invulnerable
-                && p.Value.Effects[Stat.BaseCannotBeDamaged] == 0
-                && !p.Value.Asleep && !MonsterAsleep(player, p.Key) && !double.IsPositiveInfinity(p.Value.BusyUntil)
+        var target = player.Area.Monsters.Where(p => MinionMayTarget(p.Value)
                 && (g.Definition.Kind != "HolyArmament" || IsHolyArmamentTarget(player, g, p.Key, p.Value)))
             .Select(p => (p.Key, M: p.Value, At: p.Value.Walk.Position(now)))
             .Where(t => !whispers && IsPrey(player, g.Own, t.Key, t.M, now) || Dist(t.At, here) <= aggroRange
@@ -408,9 +406,7 @@ public static partial class Game
         SpawnedMonster? best = null;
         foreach (var (id, monster) in player.Area.Monsters)
         {
-            if (monster is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                || monster.Effects[Stat.BaseCannotBeDamaged] != 0
-                || MonsterAsleep(player, id) || double.IsPositiveInfinity(monster.BusyUntil)) continue;
+            if (!MinionMayTarget(monster)) continue;
             var at = monster.Walk.Position(now);
             if (Dist(at, owner) > 100) continue;
             bool uncovered = !SkitterAuraCovers(g, monster, ailment, now);

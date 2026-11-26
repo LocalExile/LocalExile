@@ -247,7 +247,7 @@ public sealed class BetrayalEncounter
                     player.Instance.World.MonsterOrigins[run.Member] = origin with { Object = origin.Object with { HasDialogue = true } };
             }
             body.Aggro = false;
-            body.BusyUntil = double.PositiveInfinity;
+            (body.BusyUntil, body.ScriptHeld) = (double.PositiveInfinity, true);
             // Stop it where it kneels: an in-flight swing would otherwise still complete and hit while it kneels
             // (MonsterActionCurrent checks the generation), and a walk left running would drift the MakeChoice cell.
             body.Walk.StopAt(AreaTime(player));
