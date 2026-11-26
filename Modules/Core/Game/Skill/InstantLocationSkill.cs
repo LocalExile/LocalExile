@@ -35,21 +35,22 @@ public static class InstantLocationSkill
         return (first, last);
     }
 
-    // 0x141c00cd0: max distance truncates 42 * (100 + skill_maximum_travel_distance_+%) / 100;
-    // min distance is float 32 at 0x1436ae680. 0x1406722c0 rounds each normalized component with floor(x + .5).
-    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct)
+    // 0x141c00cd0 (IceDash: 32/42) / 0x141d39ea0 (FlameDash: 25/60): max distance truncates
+    // baseMaxRange * (100 + travelDistancePct) / 100; 0x1406722c0 rounds each normalized component with floor(x + .5).
+    public static (int X, int Y)? Endpoint((int X, int Y) from, (uint X, uint Y) aim, int travelDistancePct,
+        int minRange = 32, int baseMaxRange = 42)
     {
         if (aim.X > int.MaxValue || aim.Y > int.MaxValue) return null;
-        long numerator = 42L * (100L + travelDistancePct);
+        long numerator = (long)baseMaxRange * (100L + travelDistancePct);
         if (numerator < 0 || numerator > int.MaxValue) return null; // Native signed multiplication must not wrap.
         long maximum = numerator / 100;
         // Do not guess the native min/max interaction for unsupported extreme distance reductions.
-        if (maximum < 32 || maximum > int.MaxValue) return null;
+        if (maximum < minRange || maximum > int.MaxValue) return null;
         float dx = (long)aim.X - from.X, dy = (long)aim.Y - from.Y;
         float distance = MathF.Sqrt(dx * dx + dy * dy);
         if (!(distance > 0) || !float.IsFinite(distance)) return null;
-        if (distance >= 32 && distance <= maximum) return ((int)aim.X, (int)aim.Y);
-        float scale = (distance < 32 ? 32 : (float)maximum) / distance;
+        if (distance >= minRange && distance <= maximum) return ((int)aim.X, (int)aim.Y);
+        float scale = (distance < minRange ? minRange : (float)maximum) / distance;
         double x = from.X + (double)MathF.Floor(dx * scale + .5f);
         double y = from.Y + (double)MathF.Floor(dy * scale + .5f);
         if (x < 0 || y < 0 || x > int.MaxValue || y > int.MaxValue) return null;
@@ -78,13 +79,15 @@ public static class InstantLocationSkill
             stat(Stat.SkillMaximumTravelDistancePlusPct), allowTerrainFallback: false, out to);
     }
 
-    /// <summary>Resolves an IceDash landing from <paramref name="from"/> toward <paramref name="aim"/> matching
-    /// 3.29.3c <c>0x141c00cd0</c> / <c>0x141c006d0</c> / <c>0x141c04830</c> / <c>0x141c00440</c>: 32/42-cell clamp,
-    /// layer-1 sight and solid-barrier line validation (crossing walk-only doors like prison grates while refusing
-    /// solid walls), forward fallback before solid walls when direct travel fails, monster blocker slide, and the
-    /// native minimum displacement threshold (<c>dx² + dy² >= 25</c>).</summary>
+    /// <summary>Resolves an IceDash (<c>0x141c00cd0</c> / <c>0x141c006d0</c> / <c>0x141c04830</c> / <c>0x141c00440</c>,
+    /// 32/42-cell clamp) or FlameDash (<c>0x141d39ea0</c> / <c>0x141d399a0</c> / <c>0x141d3b790</c> / <c>0x141d39830</c>,
+    /// 25/60-cell clamp) landing from <paramref name="from"/> toward <paramref name="aim"/>: range clamp, layer-1 sight
+    /// and solid-barrier line validation (crossing walk-only doors like prison grates while refusing solid walls),
+    /// forward fallback before solid walls when direct travel fails, monster blocker slide, and the native minimum
+    /// displacement threshold (<c>dx² + dy² >= 25</c>).</summary>
     public static bool TryResolveLanding(Player player, (int X, int Y) from, (int X, int Y) aim,
-        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to)
+        int travelDistancePct, bool allowTerrainFallback, out (int X, int Y) to,
+        int minRange = 32, int baseMaxRange = 42)
     {
         to = default;
         if (player.Layout.Walkable is not { } walkable || player.Layout.GridW <= 0 || player.Layout.GridH <= 0)
@@ -92,7 +95,8 @@ public static class InstantLocationSkill
         if (aim.X < 0 || aim.Y < 0) return false;
         int clampedX = Math.Clamp(aim.X, 0, player.Layout.GridW - 1);
         int clampedY = Math.Clamp(aim.Y, 0, player.Layout.GridH - 1);
-        if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct) is not { } endpoint) return false;
+        if (Endpoint(from, ((uint)clampedX, (uint)clampedY), travelDistancePct, minRange, baseMaxRange) is not { } endpoint)
+            return false;
         var blockers = player.Blockers;
         var walkBarrier = player.Barrier;
         var sightBarrier = player.SightBarrier;

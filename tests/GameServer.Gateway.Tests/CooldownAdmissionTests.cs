@@ -206,9 +206,22 @@ public sealed class CooldownAdmissionTests
         // Far from wall: falls back to the last safe cell with Sight >= 2 in front of the wall (x=116).
         Assert.True(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (140, 100), false, _ => 0, out _, out var beforeWall));
         Assert.Equal((116, 100), beforeWall);
+        // Flame Dash uses the same sight-line validation and layer-0-abort fallback with 25/60-cell clamping, and
+        // generic MovementLanding stops in front of solid walls instead of walking backward from the aimed cell.
+        int flameDash = Game.SkillsFor(c).EffectRow("FlameDash");
+        int genericMove = Game.SkillsFor(c).EffectRow("LeapSlam");
+        Assert.Equal((116, 100), Game.MovementLanding(c, flameDash, (100, 100), (160, 100)));
+        Assert.Equal((117, 100), Game.MovementLanding(c, genericMove, (100, 100), (140, 100)));
         // Standing close to the wall (< 5 cells to x=116): rejected to match client CanExecute (dx^2 + dy^2 >= 25).
         c.Walk.Teleport(114, 100, Game.ProjectileWorldTime(c));
         Assert.False(InstantLocationSkill.TryResolve(c, c.ProjectileEpoch, (150, 100), false, _ => 0, out _, out _));
+        Assert.Equal((114, 100), Game.MovementLanding(c, flameDash, (114, 100), (160, 100)));
+        // Flame Dash crosses walk-only prison grates up to its 60-cell base range when SightBarrier is empty.
+        c.Use(openLayout);
+        c.DoorBarriers[1] = doorCells;
+        c.SightDoorBarriers[1] = new HashSet<(int X, int Y)>();
+        c.UpdateBarrier();
+        Assert.Equal((160, 100), Game.MovementLanding(c, flameDash, (100, 100), (170, 100)));
     }
 
     [Fact]
