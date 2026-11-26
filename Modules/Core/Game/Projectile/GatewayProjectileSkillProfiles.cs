@@ -33,7 +33,8 @@ public static class GatewayProjectileSkillProfiles
     internal static bool IsBlazingSalvo(string? effect) => effect is "BlazingSalvo" or "BlazingSalvoRoyale";
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
     internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
-    internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
+    internal static bool IsHolyFlameTotem(string? effect) =>
+        effect is "HolyFlameTotem" or "HolyFlameTotemAltX" or "HolyFlameTotemRoyale";
     internal static bool IsForbiddenRite(string? effect) => effect is "ForbiddenRite" or "ForbiddenRiteAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
