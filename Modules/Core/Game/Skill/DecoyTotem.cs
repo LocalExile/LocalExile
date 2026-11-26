@@ -195,7 +195,7 @@ public static partial class Game
         long damage = Math.Max(0, (long)Math.Round(resisted.AverageTotal * .2));
         uint before = totem.Life;
         totem.Life = (uint)Math.Max(0, before - damage);
-        RecoupTotemHitLocked(player, before - totem.Life, clock);
+        RecoupTotemHitLocked(player, (uint)Math.Min(uint.MaxValue, damage), clock);
         if (totem.Life == 0)
         {
             totem.DiedAt = clock;

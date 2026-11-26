@@ -135,28 +135,30 @@ public static partial class Game
         else Cleanup(area);
     }
 
-    static async Task<bool> ToggleBanner(Player player, ushort skill, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleBanner(Player player, ushort skill, Func<bool> current)
     {
         uint mana = 0, life = 0;
+        bool activated = false;
         using (ProjectileMutation(player, advance: false))
         {
             if (!current() || player.Paused || player.Instance is null || InTown(player) || !CanUseBanner(player, skill)
-                || !Banners.TryGetValue(player, out var state)) return false;
+                || !Banners.TryGetValue(player, out var state)) return (false, false);
             if (state.Active is { } previous) EndBannerLocked(player, state, previous);
             else
             {
                 var gem = SupportedSkill(player, skill);
                 if (CaptureGemSourceLifetimeLocked(player, skill, gem.Effect) is not { } source
-                    || !GemSourceLifetimeCurrentLocked(player, skill, gem.Effect, source) || !gem.RequirementsMet) return false;
+                    || !GemSourceLifetimeCurrentLocked(player, skill, gem.Effect, source) || !gem.RequirementsMet) return (false, false);
                 ushort row = BannerAuraRow(SkillsFor(player).EffectId(gem.Effect));
-                if (row == 0) return false;
+                if (row == 0) return (false, false);
                 var stats = CharacterPlayerStats(player);
                 int Own(uint id) => gem.Stats.GetValueOrDefault(id);
                 int Combined(uint id) => ActorScale.Saturate((long)Own(id) + stats.GetValueOrDefault(id));
                 double now = AreaTime(player), valour = Math.Floor(state.Valour);
                 double duration = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration),
                     id => stats.GetValueOrDefault(id), Own, DurationKinds(player, gem.Effect));
-                if (duration <= 0 || !PayMana(player, skill, out mana, out life)) return false;
+                if (duration <= 0 || !PayMana(player, skill, out mana, out life)) return (false, false);
+                activated = true;
                 var areaStats = new Dictionary<uint, int>(gem.Stats);
                 areaStats[SkillArea.BaseIncreased] = ActorScale.Add(SkillArea.BaseIncreased,
                     areaStats.GetValueOrDefault(SkillArea.BaseIncreased), Combined(Stat.BannerAreaOfEffectPlusPct));
@@ -195,7 +197,7 @@ public static partial class Game
         }
         if (mana > 0 || life > 0) await SendSkillCost(player, life, "banner cost");
         await SendCharacterStats(player, PlayerStatChange.Sources);
-        return true;
+        return (true, activated);
     }
 
     static void TickBanner(Player player, double now)

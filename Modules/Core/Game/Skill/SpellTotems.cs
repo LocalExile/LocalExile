@@ -71,7 +71,8 @@ public static partial class Game
         var owner = CharacterPlayerStats(player);
         int speed = FinalCastSpeedPct(Read, player,
             CastSpeedPct(owner) - GolemStat(owner, Stat.ArcaneSurgeCastSpeedPlusPct)
-            + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct));
+            + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct)
+            + TaggedCastSpeedBonusPct(player, gem.Effect, owner.GetValueOrDefault, gem.Stats.GetValueOrDefault));
         return SpellCastTiming.ForSkill(SkillsFor(player), gem.Effect, speed)?.DurationMilliseconds is int ms
             ? Math.Max(TickSeconds, ms / 1000d) : null;
     }

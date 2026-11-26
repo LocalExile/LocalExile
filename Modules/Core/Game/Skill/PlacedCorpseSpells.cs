@@ -103,7 +103,7 @@ public static partial class Game
                     try
                     {
                         AilmentsOnHitLocked(Player, id, monster, resisted, spell: false, critical: false, 100,
-                            caster, own, now, rng, poison: poison, sourceSkill: skill, blind: blind,
+                            caster, own, now, rng, sourceEffect: supported.Effect, poison: poison, sourceSkill: skill, blind: blind,
                             hitOrigin: at, playerHit: playerHit, attackerHasReversedStat: playerHit);
                         IgniteOnHitLocked(this, id, monster, ignite, critical: false, now, playerIgnite: playerHit);
                     }

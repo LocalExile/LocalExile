@@ -92,8 +92,9 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
+        bool bow = capturedInputs?.WieldingBow ?? (weapon ?? WeaponFor(player)).Bow;
         return WithOverheat(player, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow: false));
+            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>

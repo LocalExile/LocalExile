@@ -148,7 +148,7 @@ public static partial class Game
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
         if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
         var (frenzy, power) = state.Mana.SpentForCharges(amount, Get(Stat.GainXFrenzyChargesAfterSpending200Mana),
-            Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana));
+            Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana) > 0 ? 1 : 0);
         if (frenzy > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, frenzy, "mana spent"));
         if (power > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, power, "mana spent"));
     }

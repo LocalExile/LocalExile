@@ -890,7 +890,6 @@ public static partial class Game
                 conditional = conditional with
                 {
                     HitIncrease = conditional.HitIncrease + trajectoryIncrease,
-                    AilmentIncrease = conditional.AilmentIncrease + trajectoryIncrease,
                 };
             }
             shot = shot.Against(Blinded(Player, contact.Target.Id, at), target.SpiderWebs.Count(at),

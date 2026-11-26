@@ -1363,8 +1363,8 @@ public static partial class Game
         }
         if (gem.Name is not null && BannerAuraRow(SkillsFor(player).EffectId(gem.Effect)) != 0)
         {
-            bool accepted = await ToggleBanner(player, skillId, Current);
-            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to);
+            var (accepted, activated) = await ToggleBanner(player, skillId, Current);
+            if (accepted) RecordAcceptedGemUse(player, gem.Effect, to, activated);
             return accepted;
         }
         if (gem.Name is not null && CooldownTriggerController(SkillsFor(player).EffectId(gem.Effect)) != 0)

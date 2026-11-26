@@ -68,6 +68,7 @@ public static partial class Game
         return (skills.IsWarcry(effect) ? SkillDurationModifiers.Kinds.Warcry : 0)
             | (skills.IsVaal(effect) ? SkillDurationModifiers.Kinds.Vaal : 0)
             | (skills.HasType(effect, "Buff") ? SkillDurationModifiers.Kinds.Buff : 0)
-            | (skills.IsBrand(effect) ? SkillDurationModifiers.Kinds.Brand : 0);
+            | (skills.IsBrand(effect) ? SkillDurationModifiers.Kinds.Brand : 0)
+            | (skills.HasType(effect, "Bow") ? SkillDurationModifiers.Kinds.Bow : 0);
     }
 }

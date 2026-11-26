@@ -60,12 +60,17 @@ public sealed class GemSupports
                 .Where(row => Of(row.Effect) is { Support: true }).ToArray();
             // A developer can change a numeric support level with /mod set. Fixed-level display flags encode
             // the level in their stat name and keep the native granted-effect level, as do non-level pseudo-supports.
-            var levelStats = mod.Stats.Select((stat, index) => (stat.Id, Index: index))
-                .Where(s => s.Index < itemMod.Values.Count && IsVariableSupportLevel(Stats.Name(s.Id))).ToArray();
+            var levelStats = mod.Stats.Select((stat, index) => (Stat: stat, Index: index))
+                .Where(s => s.Index < itemMod.Values.Count && IsVariableSupportLevel(Stats.Name(s.Stat.Id))).ToArray();
             foreach (var grant in grants)
             {
                 int level = grant.Level;
-                if (grants.Length == 1 && levelStats.Length == 1) level = itemMod.Values[levelStats[0].Index];
+                if (grants.Length == 1 && levelStats.Length == 1)
+                {
+                    var (stat, index) = levelStats[0];
+                    int value = itemMod.Values[index];
+                    if (!(stat.Min == 1 && stat.Max == 1 && value == 1 && grant.Level > 1)) level = value;
+                }
                 if (level > 0) yield return new(grant.Effect, level, 0, source++);
             }
             // Forbidden Shako: the mod rolls which support it grants ("Socketed Gems are Supported by Level {0} {1}",
@@ -88,10 +93,14 @@ public sealed class GemSupports
 
     static bool IsVariableSupportLevel(string name)
     {
-        const string fixedPrefix = "local_display_supported_by_level_";
-        return name.StartsWith("local_display_", StringComparison.Ordinal) && name.Contains("level", StringComparison.Ordinal)
-            && !(name.Length > fixedPrefix.Length && name.StartsWith(fixedPrefix, StringComparison.Ordinal)
-                && char.IsAsciiDigit(name[fixedPrefix.Length]));
+        if (!name.StartsWith("local_display_", StringComparison.Ordinal)
+            || name.StartsWith("local_display_trigger_", StringComparison.Ordinal)
+            || !name.Contains("level", StringComparison.Ordinal))
+            return false;
+        const string fixedMarker = "supported_by_level_";
+        int marker = name.IndexOf(fixedMarker, StringComparison.Ordinal);
+        return !(marker >= 0 && marker + fixedMarker.Length < name.Length
+            && char.IsAsciiDigit(name[marker + fixedMarker.Length]));
     }
 
     const string RandomSupportIndex = "local_random_support_gem_index", RandomSupportLevel = "local_random_support_gem_level";

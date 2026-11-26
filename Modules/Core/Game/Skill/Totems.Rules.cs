@@ -867,9 +867,11 @@ public static partial class Game
         var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
+        var weaponLocal = attack && !SkillsFor(player).RequiresShield(skill.Effect)
+            ? HandWeapon(player, AttackHand.Main).LocalSources : null;
+        var ailmentSkillStats = attack ? WithWeaponAilmentStats(skill.Stats, weaponLocal) : skill.Stats;
         var hitRolls = HitRollsFor(caster).ForSkill(skill.Stats.GetValueOrDefault, spell: !attack)
-            .ForWeapon(attack && !SkillsFor(player).RequiresShield(skill.Effect)
-                ? HandWeapon(player, AttackHand.Main).LocalSources : null);
+            .ForWeapon(weaponLocal);
         void Contact(uint id, SpawnedMonster m)
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -905,7 +907,7 @@ public static partial class Game
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, skill.Stats, now, AreaRng(player),
+                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, ailmentSkillStats, now, AreaRng(player),
                     sourceEffect: skill.Effect, blind: blind, hitOrigin: totem.At, playerHit: false,
                     attackerSize: totem.BodySize, attackerHasReversedStat: false);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
