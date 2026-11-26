@@ -5,6 +5,67 @@ namespace GameServer.Gateway.Tests;
 public sealed class SkillAdmissionCostTests
 {
     [Fact]
+    public async Task Voidbringer_applies_after_use_and_leaves_mana_unchanged_when_turning_an_aura_off()
+    {
+        using var f = new MinionUtilityTests.Fixture();
+        var player = f.Player;
+        using var clock = new AdmissionClock(f);
+        f.Equip(("Clarity", 1), ("Ice Nova", 1));
+        var gems = Game.GemSkillEffects(player);
+        var clarity = gems.Single(g => g.Name == "Clarity");
+        var nova = gems.Single(g => g.Name == "Ice Nova");
+        using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
+        {
+            if (ReferenceEquals(owner, player))
+            {
+                values[Stat.LoseXManaWhenYouUseSkill] = 69;
+                values[Stat.SkillManaCostPlus] = -100;
+            }
+            return values;
+        });
+        Game.RecomputePoolsAndSpeed(player);
+        player.Walk.Teleport(100, 100, Game.AreaTime(player));
+        async Task Use(ushort skill, int effect)
+        {
+            clock.At += 2;
+            Assert.True(Game.TryBeginSkillCooldownUse(player, skill, effect, Game.CooldownForSkill(player, skill),
+                false, () => player.ActionCount++, out var ticket));
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (100, 100), cooldownUse: ticket));
+        }
+
+        player.PlayerMana = player.Pools.Mana;
+        await Use(clarity.Id, clarity.Effect);
+        Assert.True(player.Auras.ContainsKey(clarity.Id));
+        uint manaWhileReserved = player.PlayerMana;
+        await Use(clarity.Id, clarity.Effect);
+        Assert.False(player.Auras.ContainsKey(clarity.Id));
+        Assert.Equal(manaWhileReserved, player.PlayerMana);
+
+        Assert.Equal(0, Game.PlayerSkills(player).Single(s => s.Id == nova.Id).Stats!
+            .FirstOrDefault(s => s.Key == Stat.ManaCost).Value);
+        foreach (uint before in new[] { player.Pools.Mana, player.Pools.Mana / 2 + 1 })
+        {
+            Assert.True(before > 69);
+            player.PlayerMana = before;
+            player.AuraStatsDirty = false;
+            await Use(nova.Id, nova.Effect);
+            Assert.Equal(before - 69, player.PlayerMana);
+            Assert.True(player.AuraStatsDirty);
+        }
+    }
+
+    sealed class AdmissionClock : IPlayerUpdateSchedule, IDisposable
+    {
+        readonly PlayerUpdatesState? previous = Game.AreaUpdateContext.Value;
+        public double At { get; set; } = 1;
+
+        public AdmissionClock(MinionUtilityTests.Fixture f) => Game.AreaUpdateContext.Value = new(f.Lifetime, this);
+        public double Now(Player player) => At;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+        public void Dispose() => Game.AreaUpdateContext.Value = previous;
+    }
+
+    [Fact]
     public void Skill_cost_admission_and_wire_costs_apply_efficiency_deathmarked_cannibalistic_rite_covenant_and_rathpith()
     {
         using var f = new Fixture();

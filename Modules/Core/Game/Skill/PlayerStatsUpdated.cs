@@ -30,7 +30,8 @@ public static partial class Game
         ReconcileRampageSource(player, stats);
         if (player.RageRetired || player.PlayerLife == 0) player.Rage.Clear();
         if (player.ResourceEffectsState is ResourceEffectsState state && ResourceEffectsCurrent(player, state))
-            state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200));
+            state.Mana.Observe(RageStat(stats, ManaRecoveryRules.RagePer200),
+                Get(Stat.GainXFrenzyChargesAfterSpending200Mana), Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana) > 0 ? 1 : 0);
         // A new immunity removes the ailments it rejects; the stats that read them follow.
         var ailments = player.ElementalAilments.Snapshot(AreaTime(player));
         player.ElementalAilments.Reconcile(Get);

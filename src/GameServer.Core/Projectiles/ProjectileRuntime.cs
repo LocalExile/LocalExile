@@ -152,6 +152,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             // 15 m), so the child gets a fresh range budget while the total travelled distance keeps accumulating.
             p.Remaining = p.Profile.Range; p.Distance = previous.Distance; p.ExpiresAt = previous.ExpiresAt;
             p.Speed = previous.Speed; p.Form = previous.Form; p.DamageMultiplier = previous.DamageMultiplier;
+            p.CompletedChains = previous.CompletedChains; p.EnemiesPierced = previous.EnemiesPierced;
             p.OutboundContacts = previous.OutboundContacts;
             p.Phase = previous.Phase; p.ReturnContacts = previous.ReturnContacts;
             p.TurnaroundTarget = previous.TurnaroundTarget;
@@ -475,6 +476,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 && p.Random.Next(100) < p.TerrainChainChance)
             {
                 p.Chain--;
+                p.CompletedChains++;
                 p.Position += c.Normal * .001;
                 p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
                 p.Remaining = p.Profile.Range;
@@ -577,8 +579,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             ApplyLegTurn(p, turn);
             return true;
         }
-        if (!profile.CannotPierce && (p.Phase > 0 && profile.PierceAllOnReturn || targetPierces)) return true;
-        if (!profile.CannotPierce && p.Pierce != 0) { if (p.Pierce > 0) p.Pierce--; return true; }
+        bool piercesWithoutSpending = p.Phase > 0 && profile.PierceAllOnReturn || targetPierces;
+        if (!profile.CannotPierce && (piercesWithoutSpending || p.Pierce != 0))
+        {
+            if (!piercesWithoutSpending && p.Pierce > 0) p.Pierce--;
+            p.EnemiesPierced++;
+            return true;
+        }
         if (!profile.CannotFork && p.Fork > 0)
         {
             p.Fork--;
@@ -592,7 +599,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         }
         if (!profile.CannotChain && p.Chain > 0 && Nearby(p, actors).FirstOrDefault() is { } next)
         {
-            p.Chain--; p.Direction = (next.Position(Now) - p.Position).Unit;
+            p.Chain--;
+            p.CompletedChains++;
+            p.Direction = (next.Position(Now) - p.Position).Unit;
             // A chain jump starts a new movement instance, so its 15 m cap is fresh; Distance stays total for Far Shot.
             p.Remaining = p.Profile.Range;
             Publish(ProjectileEventKind.Redirect, p);
