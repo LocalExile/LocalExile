@@ -4,9 +4,51 @@ using GameServer.Core.Protocol.Instance;
 public static partial class Game
 {
     static bool IsGroundBladeBlast(string? effect) => effect is "BladeBlast" or "BladeBlastRoyale";
+    static bool IsBladeBlastOfUnloading(string? effect) => effect == "BladeBlastAltX";
 
     public sealed partial class ProjectileSession
     {
+        internal void ReleaseBladeBlastOfUnloading(uint actor, int effect, IReadOnlyDictionary<uint, int> own,
+            IReadOnlyDictionary<uint, int> caster, Func<(int X, int Y)> centre, Func<bool> current,
+            Action<(int X, int Y), int, double> hit, int repeat = 0)
+        {
+            var area = SkillAreaStats(Player, own, effect, caster);
+            int Get(uint stat) => area.GetValueOrDefault(stat);
+            area[SkillArea.Increase] = Get(SkillArea.Increase) + repeat * Get(SkillArea.IncreasedPerRepeat)
+                + Get(Stat.BladeBlastSkillAreaOfEffectPlusPct);
+            int baseRadius = Get(Stat.ActiveSkillBaseAreaOfEffectRadius);
+            if (baseRadius <= 0) baseRadius = 16;
+            // BladeBurst's native chain tracks the number used out of ten (3.29.3c 0x141a9c050).
+            var run = bladeVortices.GetValueOrDefault(actor);
+            var blades = run is not null && run.Current()
+                ? run.Blades.UnorderedItems.Where(b => b.Priority > Runtime.Now)
+                    .OrderBy(b => b.Priority).ThenBy(b => b.Element).Take(10).Select(b => b.Element).ToArray()
+                : [];
+            double damage = Math.Max(0, 1 + (long)blades.Length * Get(Stat.BladeVortexDamagePlusPctPerBladeFinal) / 100d);
+            hit(centre(), SkillArea.Radius(baseRadius, Get, spell: true), damage);
+            if (blades.Length == 0 || run is null) return;
+
+            int detonated = 0;
+            int growth = Get(Stat.BladeBurstAreaOfEffectPlusPctFinalPerBladeVortexBladeDetonated);
+            int retainChance = Get(Stat.BladeBlastDetonatedBladesNotRemovedPctChance);
+            // One area frame between successive detonations, pending a measured server contact interval.
+            long due = Runtime.Now;
+            long spacing = ProjectileRuntime.Time(FrameSeconds);
+            foreach (ushort blade in blades)
+            {
+                due += spacing;
+                Runtime.Schedule(due, () =>
+                {
+                    if (!Active || !current() || !DetonateBladeVortexBlade(actor, run, blade, retainChance)) return;
+                    double areaMore = Math.Max(0, 1 + (long)++detonated * growth / 100d);
+                    int radius = SkillArea.Radius(baseRadius, Get, spell: true, areaMore);
+                    var at = centre();
+                    Effect(at.X, at.Y, "Metadata/Effects/Spells/bladeburst/bladeburst_vortex.ao", ProjectileRuntime.Time(.4), radius);
+                    hit(at, radius, damage);
+                });
+            }
+        }
+
         internal void ReleaseBladeBlast(int effect, IReadOnlyDictionary<uint, int> own,
             IReadOnlyDictionary<uint, int> caster, (int X, int Y) aim, Func<bool> current,
             Action<(int X, int Y), int, bool> hit, int repeat = 0)

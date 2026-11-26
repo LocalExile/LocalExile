@@ -56,7 +56,7 @@ public static partial class Game
             run.Current = current;
             run.Hit = hit;
 
-            RemoveExpired();
+            RemoveExpiredBladeVortex(actor, run, row);
             if (run.Blades.Count == 0) run.Spacing = 0;
             int extraChance = Combined(Stat.BladeVortexAdditionalBladeChancePct);
             int gained = 1 + (extraChance > 0 && (extraChance >= 100 || AreaRng(Player).Next(100) < extraChance) ? 1 : 0);
@@ -78,63 +78,89 @@ public static partial class Game
                 });
             }
 
-            UpdateInterval();
-            Schedule();
+            UpdateBladeVortexInterval(run);
+            ScheduleBladeVortex(actor, run, row);
 
             int Combined(uint stat) => ActorScale.Saturate((long)Own(stat) + Caster(stat));
 
             void RemoveBlade() => Player.Area.Buffs.Clear(actor, row, actor, tag: run.Blades.Dequeue());
+        }
 
-            void RemoveExpired()
+        void RemoveExpiredBladeVortex(uint actor, BladeVortexRun run, ushort row)
+        {
+            while (run.Blades.TryPeek(out ushort tag, out long expiry) && expiry <= Runtime.Now)
             {
-                while (run.Blades.TryPeek(out _, out long expiry) && expiry <= Runtime.Now)
-                    RemoveBlade();
+                run.Blades.Dequeue();
+                Player.Area.Buffs.Clear(actor, row, actor, tag: tag);
             }
+        }
 
-            void UpdateInterval()
-            {
-                long old = run.Spacing;
-                double rate = Math.Max(.01, 1 + (long)run.Blades.Count * run.HitRate / 100d);
-                run.Spacing = Math.Max(1, ProjectileRuntime.Time(run.BaseInterval / (1000 * rate)));
-                if (old == 0) run.NextHit = Runtime.Now + run.Spacing;
-                else if (run.NextHit > Runtime.Now && old != run.Spacing)
-                    run.NextHit = Runtime.Now + (long)Math.Ceiling((run.NextHit - Runtime.Now) * (double)run.Spacing / old);
-            }
+        void UpdateBladeVortexInterval(BladeVortexRun run)
+        {
+            long old = run.Spacing;
+            double rate = Math.Max(.01, 1 + (long)run.Blades.Count * run.HitRate / 100d);
+            run.Spacing = Math.Max(1, ProjectileRuntime.Time(run.BaseInterval / (1000 * rate)));
+            if (old == 0) run.NextHit = Runtime.Now + run.Spacing;
+            else if (run.NextHit > Runtime.Now && old != run.Spacing)
+                run.NextHit = Runtime.Now + (long)Math.Ceiling((run.NextHit - Runtime.Now) * (double)run.Spacing / old);
+        }
 
-            void Schedule()
+        void ScheduleBladeVortex(uint actor, BladeVortexRun run, ushort row)
+        {
+            if (!run.Blades.TryPeek(out _, out long expiry)) return;
+            long wake = Math.Min(expiry, run.NextHit);
+            if (wake >= run.Wake) return;
+            run.Wake = wake;
+            Runtime.Schedule(wake, () =>
             {
-                if (!run.Blades.TryPeek(out _, out long expiry)) return;
-                long wake = Math.Min(expiry, run.NextHit);
-                if (wake >= run.Wake) return;
-                run.Wake = wake;
-                Runtime.Schedule(wake, () =>
+                if (!ReferenceEquals(bladeVortices.GetValueOrDefault(actor), run) || run.Wake != wake) return;
+                run.Wake = long.MaxValue;
+                if (!run.Current())
                 {
-                    if (!ReferenceEquals(bladeVortices.GetValueOrDefault(actor), run) || run.Wake != wake) return;
-                    run.Wake = long.MaxValue;
-                    if (!run.Current())
-                    {
-                        ClearBladeVortex(actor, row);
-                        return;
-                    }
-                    int previous = run.Blades.Count;
-                    RemoveExpired();
-                    int count = run.Blades.Count;
-                    if (count == 0)
-                    {
-                        bladeVortices.Remove(actor);
-                        return;
-                    }
-                    if (count != previous) UpdateInterval();
-                    if (Runtime.Now >= run.NextHit)
-                    {
-                        run.NextHit = Runtime.Now + run.Spacing;
-                        if (!Player.Paused && run.Radius > 0)
-                            run.Hit(run.Radius, Math.Max(0, 1 + (long)count * run.Damage / 100d),
-                                ActorScale.Saturate((long)count * run.Critical));
-                    }
-                    Schedule();
-                });
+                    ClearBladeVortex(actor, row);
+                    return;
+                }
+                int previous = run.Blades.Count;
+                RemoveExpiredBladeVortex(actor, run, row);
+                int count = run.Blades.Count;
+                if (count == 0)
+                {
+                    bladeVortices.Remove(actor);
+                    return;
+                }
+                if (count != previous) UpdateBladeVortexInterval(run);
+                if (Runtime.Now >= run.NextHit)
+                {
+                    run.NextHit = Runtime.Now + run.Spacing;
+                    if (!Player.Paused && run.Radius > 0)
+                        run.Hit(run.Radius, Math.Max(0, 1 + (long)count * run.Damage / 100d),
+                            ActorScale.Saturate((long)count * run.Critical));
+                }
+                ScheduleBladeVortex(actor, run, row);
+            });
+        }
+
+        bool DetonateBladeVortexBlade(uint actor, BladeVortexRun run, ushort tag, int retainChance)
+        {
+            if (!ReferenceEquals(bladeVortices.GetValueOrDefault(actor), run) || !run.Current()
+                || !run.Blades.Remove(tag, out _, out long expiry)) return false;
+            ushort row = BuffRows.Find("new_new_blade_vortex");
+            bool unexpired = expiry > Runtime.Now;
+            if (unexpired && retainChance > 0 && (retainChance >= 100 || AreaRng(Player).Next(100) < retainChance))
+            {
+                run.Blades.Enqueue(tag, expiry);
+                return true;
             }
+            Player.Area.Buffs.Clear(actor, row, actor, tag: tag);
+            RemoveExpiredBladeVortex(actor, run, row);
+            if (run.Blades.Count == 0)
+                bladeVortices.Remove(actor);
+            else
+            {
+                UpdateBladeVortexInterval(run);
+                ScheduleBladeVortex(actor, run, row);
+            }
+            return unexpired;
         }
 
         void ClearBladeVortex(uint actor, ushort row)

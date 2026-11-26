@@ -728,6 +728,7 @@ public static partial class Game
         bool purifyingFlame = IsPurifyingFlame(effect);
         bool conviction = IsWaveOfConviction(effect);
         bool bladeBlast = IsGroundBladeBlast(effect);
+        bool unloading = IsBladeBlastOfUnloading(effect);
         if (bladefall || purifyingFlame || conviction || bladeBlast)
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
@@ -740,7 +741,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast))
+                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast || unloading))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -782,7 +783,7 @@ public static partial class Game
                             ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
                             targetFilter: filter)));
             }
-            else if (bladeBlast)
+            else if (bladeBlast || unloading)
             {
                 var impact = aim;
                 bool Casting() => player.PlayerLife > 0 && Current();
@@ -790,9 +791,15 @@ public static partial class Game
                 {
                     var caster = placed.Offense?.Caster ?? CharacterPlayerStats(player);
                     var critical = new SkillCriticalRoll(CriticalExtraRollsFor(player, caster, placed.Own));
-                    session.ReleaseBladeBlast(placed.Effect, placed.Own, caster,
-                        impact, Casting, (centre, radius, _) => PlacedAreaDamageLocked(player, placed, centre, radius,
-                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true, sharedCritical: critical));
+                    void Hit((int X, int Y) centre, int radius, double scale) =>
+                        PlacedAreaDamageLocked(player, placed, centre, radius, ProjectileWorldTime(player), inventionMore * scale,
+                            currentSkill: true, spellDamage: true, sharedCritical: critical);
+                    if (unloading)
+                        session.ReleaseBladeBlastOfUnloading(placed.Id, placed.Effect, placed.Own, caster,
+                            () => SpellCentre(player, placed.Effect, placed.At, impact), Casting, Hit);
+                    else
+                        session.ReleaseBladeBlast(placed.Effect, placed.Own, caster, impact, Casting,
+                            (centre, radius, _) => Hit(centre, radius, 1));
                 });
             }
             else if (detonateDead)

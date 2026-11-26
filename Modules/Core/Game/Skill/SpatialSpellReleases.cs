@@ -4,7 +4,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect)
+        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect)
             || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
@@ -84,6 +84,15 @@ public static partial class Game
                 else if (IsGroundBladeBlast(effect))
                     ReleaseBladeBlast(gem.Effect, source.Stats, caster, aim, CurrentSource,
                         (centre, radius, detonation) => Hit(centre, radius, centred: detonation), repeat);
+                else if (IsBladeBlastOfUnloading(effect))
+                    ReleaseBladeBlastOfUnloading(Player.Id, gem.Effect, source.Stats, caster,
+                        () => SpellCentre(Player, gem.Effect,
+                            brandedTarget is null ? Player.Walk.Position(ProjectileWorldTime(Player)) : from, aim),
+                        CurrentSource, (centre, radius, scale) => Enqueue(() => AreaSkillHitForUse(
+                            null, Player, gem.Id, gem, centre, centre, immediate: true, sequence: sequence,
+                            repeat: repeat, damageMore: damageMore, radiusOverride: radius, criticalRoll: critical,
+                            sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
+                            hitAndAilmentMore: scale)), repeat);
                 else if (effect == "LightningConduitAltX")
                 {
                     int radius = Radius(Own(Stat.ActiveSkillBaseAreaOfEffectRadius));

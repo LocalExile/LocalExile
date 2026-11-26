@@ -20,7 +20,8 @@ public static partial class Game
             || (ArcProxyPayload(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
-                || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeVortex(SkillsFor(player).EffectId(effect))
+                || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
+                || IsBladeVortex(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -92,7 +93,8 @@ public static partial class Game
         // A totem never walks. Without this the client sends a server-driven action through its own walk-into-range
         // step, which drops it (11 §"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
-        if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect)))
+        if (SpellTotemNova(player, gem.Effect) || IsGroundBladeBlast(SkillsFor(player).EffectId(gem.Effect))
+            || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         else if (CurseCatalog.Hex(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = CurseRadius(player, skill, aura: false, gem);
@@ -376,7 +378,7 @@ public static partial class Game
             }
 
             if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect)
-                || IsGroundBladeBlast(effect))
+                || IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
@@ -392,12 +394,19 @@ public static partial class Game
                             TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,
                             (radius, covers, more, onHit) => TotemNovaLocked(player, session, totem, at, radius, sequence,
                                 damageMore: more, targetFilter: covers, onHit: onHit));
-                    else if (IsGroundBladeBlast(effect))
+                    else if (IsGroundBladeBlast(effect) || IsBladeBlastOfUnloading(effect))
                     {
                         var critical = CaptureSkillCriticalRoll(player, totem.SkillId);
-                        session.ReleaseBladeBlast(gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
-                            TotemCasterStats(CharacterPlayerStats(player)), at, Current,
-                            (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence, sharedCritical: critical));
+                        var own = SupportedSkill(player, totem.SkillId).Stats;
+                        var caster = TotemCasterStats(CharacterPlayerStats(player));
+                        void Hit((int X, int Y) centre, int radius, double scale) =>
+                            TotemNovaLocked(player, session, totem, centre, radius, sequence, damageMore: scale, sharedCritical: critical);
+                        if (IsBladeBlastOfUnloading(effect))
+                            session.ReleaseBladeBlastOfUnloading(totem.Id, gem.Effect, own, caster,
+                                () => SpellCentre(player, gem.Effect, totem.At, at), Current, Hit);
+                        else
+                            session.ReleaseBladeBlast(gem.Effect, own, caster, at, Current,
+                                (centre, radius, _) => Hit(centre, radius, 1));
                     }
                     else
                         session.ReleaseConvictionWave(totem.Id, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
