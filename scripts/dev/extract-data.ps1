@@ -105,13 +105,17 @@ function Need($ok, $message) { if (-not $ok) { throw "setup incomplete: $message
 
 if ($Servers) {
     # The Servers entries and, through their Needs, what they are made from.
+    # The queue is taken one name at a time: `$name, $next = $next` leaves $next empty once a single name is left,
+    # which then re-queued a $null that fails in the hashtable ("key cannot be null").
     $keep = @{}
     $next = @($manifest | Where-Object { $_.Servers } | ForEach-Object { $_.Name })
-    while ($next) {
-        $name, $next = $next
+    while ($next.Count -gt 0) {
+        $name = $next[0]
+        $next = @($next | Select-Object -Skip 1)
+        if (-not $name) { continue }
         if ($keep.ContainsKey($name)) { continue }
         $keep[$name] = $true
-        $next = @($next) + @(($manifest | Where-Object { $_.Name -eq $name }).Needs)
+        $next = @($next) + @($manifest | Where-Object { $_.Name -eq $name } | ForEach-Object { $_.Needs } | Where-Object { $_ })
     }
     $manifest = @($manifest | Where-Object { $keep.ContainsKey($_.Name) })
 }
