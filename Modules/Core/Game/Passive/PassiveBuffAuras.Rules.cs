@@ -15,7 +15,7 @@ public static partial class Game
         if (!m.Hostile || player.PlayerLife == 0) return null;
         var at = m.Walk.Position(now);
         var stats = new Dictionary<uint, int>();
-        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated], LeagueFor(player).HardMode, EnemyAuraActs))
+        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. AnointedNodesOf(player)], LeagueFor(player).HardMode, EnemyAuraActs))
             if (aura.Stats.Count > 0 && Dist(at, playerAt) <= aura.Radius)
                 foreach (var (key, value) in aura.Stats) stats[key] = stats.GetValueOrDefault(key) + value;
         int ignited = stat?.Invoke(Stat.EnemiesIgnitedByYouHavePhysicalDamagePctConvertedToFire) ?? 0;
@@ -35,7 +35,7 @@ public static partial class Game
         if (!m.Hostile || player.PlayerLife == 0 || !(stat is var key)) return 0;
         var at = m.Walk.Position(now);
         long sum = 0;
-        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated], LeagueFor(player).HardMode, EnemyAuraActs))
+        foreach (var aura in PassiveBuffAuras.EnemyAurasFor([.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated, .. AnointedNodesOf(player)], LeagueFor(player).HardMode, EnemyAuraActs))
             if (Dist(at, playerAt) <= aura.Radius)
                 foreach (var (s, value) in aura.Stats) if (s == key) sum += value;
         return (int)Math.Clamp(sum, int.MinValue, int.MaxValue);
