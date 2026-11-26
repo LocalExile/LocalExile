@@ -26,7 +26,8 @@ public static partial class Game
         foreach (string effect in new[] { "GalvanicArrow", "GalvanicArrowAltX", "GalvanicArrowAltY" })
             definitions[effect] = SkillProjectileDefinition(effect, galvanicArrow, SkillProjectileParameters(effect, galvanicArrow));
         const string ember = "Metadata/Projectiles/Ember";
-        definitions["BlazingSalvo"] = SkillProjectileDefinition("BlazingSalvo", ember, SkillProjectileParameters("BlazingSalvo", ember));
+        foreach (string effect in new[] { "BlazingSalvo", "BlazingSalvoRoyale" })
+            definitions[effect] = SkillProjectileDefinition(effect, ember, SkillProjectileParameters(effect, ember));
         foreach (string effect in new[] { "ForbiddenRite", "ForbiddenRiteAltX" })
             definitions[effect] = SkillProjectileDefinition(effect, ForbiddenRitePrimary,
                 SkillProjectileParameters(effect, ForbiddenRitePrimary));
@@ -151,7 +152,7 @@ public static partial class Game
                 if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
-                if (effect == "BlazingSalvo") return BlazingSalvoRelease(use, Get);
+                if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)) return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")
                 {

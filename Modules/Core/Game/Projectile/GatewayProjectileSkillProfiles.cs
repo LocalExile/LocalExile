@@ -30,6 +30,7 @@ public static class GatewayProjectileSkillProfiles
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
     internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
+    internal static bool IsBlazingSalvo(string? effect) => effect is "BlazingSalvo" or "BlazingSalvoRoyale";
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
     internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
     internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
@@ -71,7 +72,7 @@ public static class GatewayProjectileSkillProfiles
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
         else if (Game.IsCreepingFrost(effect))
             p = p with { EndArea = new("creeping-frost-burst", 0), EndAreaReasons = TerminalStops };
-        else if (effect == "BlazingSalvo")
+        else if (IsBlazingSalvo(effect))
             p = p with
             {
                 Lobbed = true,
@@ -187,7 +188,7 @@ public static class GatewayProjectileSkillProfiles
                 => get(Stat.FreezingPulseNumberOfAdditionalProjectiles),
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
-            "BlazingSalvo" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
+            "BlazingSalvo" or "BlazingSalvoRoyale" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
             "ForbiddenRite" or "ForbiddenRiteAltX" => get(Stat.ForbiddenRiteNumberOfAdditionalProjectiles),
             _ => 0
         };

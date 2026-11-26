@@ -235,7 +235,8 @@ public static partial class Game
         int Own(uint k) => own.GetValueOrDefault(k);
         int Get(uint key) => Player(key) + Own(key);
         use = use with { Profile = ClientDrawnProfile(player, use.Profile, Get, sequence, use.Aim - use.Origin, repeatsLeft, use.Emitter.Id) };
-        if (SkillsFor(player).EffectId(gem.Effect) == "BlazingSalvo" && use.Profile.NativeVolley is { Angles: null, Nova: false })
+        if (GatewayProjectileSkillProfiles.IsBlazingSalvo(SkillsFor(player).EffectId(gem.Effect))
+            && use.Profile.NativeVolley is { Angles: null, Nova: false })
             use = use with { Profile = use.Profile with { NativeVolley = null } };
         // A totem's action plays its cast but spawns no projectile on the client (live 2026-11-19: a totem's Fireball
         // cast and hit with nothing flying), so the server draws a totem's shots, with the rig's flight and impact clips.
