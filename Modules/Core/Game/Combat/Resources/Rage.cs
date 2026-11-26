@@ -30,8 +30,12 @@ public static partial class Game
                     (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Current);
             int speed = RageStat(stats, Stat.AttackSpeedPlusPctPerRage);
             if (speed != 0)
+            {
+                int inherent = InherentAttackSpeedMore(WeaponProfileFor(player, activeSet: true), stats.GetValueOrDefault);
                 stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate(
-                    (long)RageStat(stats, Stat.MainHandAttackSpeedPlusPct) + (long)speed * value.Current);
+                    (long)RageStat(stats, Stat.MainHandAttackSpeedPlusPct)
+                    + (long)Math.Round((long)speed * value.Current * (1 + inherent / 100d)));
+            }
         }
         foreach (var (name, amount) in RageStats.Display(value, inputs))
             if (name is var key) stats[key] = amount;

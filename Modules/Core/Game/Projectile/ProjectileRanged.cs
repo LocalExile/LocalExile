@@ -91,6 +91,7 @@ public static partial class Game
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
             WeaponAttack = true,
+            DirectAttackContact = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),

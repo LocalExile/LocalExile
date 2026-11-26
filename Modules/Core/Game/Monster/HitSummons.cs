@@ -6,6 +6,8 @@ public static partial class Game
 {
     sealed record HolyArmamentTarget(uint Id, SpawnedMonster Monster);
     static readonly RuleTable<Player, Dictionary<ushort, HolyArmamentTarget>> HolyArmamentTargets = new();
+    static readonly RuleTable<SpawnedMonster, object> HitMarkedMonsters = new();
+    static readonly object HitMarkPresent = new();
 
     static bool IsAbsolutionHitSpell(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX";
@@ -58,11 +60,13 @@ public static partial class Game
             playerStats.GetValueOrDefault, n => GolemStat(skill, n));
         player.Summons.HitMarks[(pair.Key, source)] = new(monster, source, gem.Effect, gem.SourceGem, now + duration)
             { PlayerConsumesCorpse = playerConsumesCorpse };
+        HitMarkedMonsters.AddOrUpdate(monster, HitMarkPresent);
         if (monster.Dead || monster.Life == 0) HitSummonsOnDeathLocked(player, pair.Key, monster, now);
     }
 
     static void HitSummonsOnDeathLocked(Player player, uint id, SpawnedMonster monster, double now)
     {
+        HitMarkedMonsters.Remove(monster);
         QueueMarkedDeath(player, id, monster, now);
         foreach (var peer in player.Instance.PlayersExcept(player.Id))
             if (peer is { Closed: false, LeavingArea: false } other && ReferenceEquals(other.Instance, player.Instance))
@@ -71,6 +75,7 @@ public static partial class Game
 
     static void QueueMarkedDeath(Player player, uint id, SpawnedMonster monster, double now)
     {
+        if (player.Summons.HitMarks.Count == 0) return;
         foreach (var (key, mark) in player.Summons.HitMarks.Where(p => p.Key.Id == id).ToArray())
         {
             player.Summons.HitMarks.Remove(key);

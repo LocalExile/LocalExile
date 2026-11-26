@@ -421,6 +421,7 @@ public static partial class Game
                     AreaRng(player), reflected: reflected, poison: poison, sourceSkill: skillId,
                     blind: BlindHitInput.Capture(playerStats, skillStats),
                     attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
+                if (critical) TryDeathmarkedLocked(player, m, now, playerStats);
                 List<byte[]>? ignited = null, bled = null;
                 string igniteLog = "", bleedLog = "";
                 if (m.Life > 0 && ignite.CanIgnite(rolled) && IgniteOnHitLocked(player, id, m, ignite, critical, now) is { } ignitePackets)

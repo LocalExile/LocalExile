@@ -3081,9 +3081,9 @@ public static partial class Game
         if (spellHit && StatOf(Stat.SpellDamageTakenPlusPctFromBlindedEnemies) is int blindedSpell and not 0
             && Blinded(player, id, now))
             sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + blindedSpell);
-        if (StatOf(Stat.DamageTakenPlusPctIfThereAreAtLeast2RareOrUniqueEnemiesNearby) is int opportunistic and not 0
-            && !AtMostOneRareEnemy(player, now))
-            sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + opportunistic);
+        int opportunistic = StatOf(Stat.DamageTakenPlusPctIfThereAreAtLeast2RareOrUniqueEnemiesNearby);
+        double opportunisticFactor = opportunistic != 0 && !AtMostOneRareEnemy(player, now)
+            ? DamageFactor(opportunistic) : 1;
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3109,7 +3109,7 @@ public static partial class Game
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
-                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer
+                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer * opportunisticFactor
                 * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -3194,11 +3194,7 @@ public static partial class Game
         if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
             InflictedLocked(player, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
         AilmentsWhenHitLocked(player, m, StatOf, blocked, now, AreaRng(player));
-        int blindAttackerChance = StatOf(Stat.BlindEnemiesWhenHitPctChance);
-        if (StatOf(Stat.BlindEnemiesWhenHitWhileAffectedByGracePctChance) is int graceBlind and > 0
-            && AffectingAuras(player).Any(aura => aura.AffectsSelf && aura.EffectId == "Grace"))
-            blindAttackerChance = ActorScale.Saturate((long)blindAttackerChance + graceBlind);
-        if (blindAttackerChance > 0)
+        if (StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);

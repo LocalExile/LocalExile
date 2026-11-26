@@ -161,8 +161,11 @@ public static partial class Game
             return WeaponProfileFor(player, activeSet: true).Critical;
         // The off-hand weapon's sources are already its qualified local stats (WeaponIn), as HandLocalStats gives them.
         var local = off.LocalSources;
-        return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(player).WeaponCritical(type),
+        int localChance = AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(player).WeaponCritical(type),
             local?.GetValueOrDefault(Stat.LocalCriticalStrikeChance) ?? 0, local?.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct) ?? 0);
+        int additional = WeaponProfileFor(player, activeSet: true).DualWield
+            ? CharacterPlayerStats(player).GetValueOrDefault(Stat.AdditionalOffHandCriticalStrikeChanceWhileDualWielding) : 0;
+        return ActorScale.Saturate((long)localChance + additional);
     }
 
     /// <summary>The off-hand swing's weapon base critical chance for the target-conditional chances (null: the main

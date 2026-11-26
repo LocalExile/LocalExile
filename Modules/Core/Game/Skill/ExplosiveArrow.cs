@@ -244,7 +244,7 @@ public static partial class Game
                     CriticalMin = group.BleedCritMin * ailments, CriticalMax = group.BleedCritMax * ailments },
                 Poison = spec.Damage.Poison with { Min = group.PoisonMin * ailments, Max = group.PoisonMax * ailments,
                     CriticalMin = group.PoisonCritMin * ailments, CriticalMax = group.PoisonCritMax * ailments },
-                AlwaysHits = true, AccuracyProfile = null, ProjectileAttack = false,
+                AlwaysHits = true, AccuracyProfile = null, ProjectileAttack = false, DirectAttackContact = false,
                 ExplosiveFuse = null, Spider = null, SpiderArea = null, VsBlinded = null,
                 HitPacket = false, MirageSource = null
             };

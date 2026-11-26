@@ -161,9 +161,6 @@ public static partial class Game
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
         ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
-        if (local.GetValueOrDefault(Stat.LocalDisplaySocketedGemsAttackAndCastSpeedPlusPctFinal) is int socketedSpeed and not 0)
-            own[Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal] =
-                ActorScale.Saturate((long)own.GetValueOrDefault(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal) + socketedSpeed);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
             && CrueltyActivePct(player, skillId) is int crueltyPct and > 0
@@ -1170,7 +1167,12 @@ public static partial class Game
             extraIncrease += Player(Stat.SigilCriticalStrikeChancePlusPct) + Own(Stat.SigilCriticalStrikeChancePlusPct);
         if (Player(Stat.SpellCriticalStrikeChancePlusPctPerRaisedSpectre) is int perSpectre and not 0)
             extraIncrease += (long)perSpectre * LivingSummons(player, "Spectre", AreaTime(player));
-        return DisplayedCriticalChance(player, SpellCriticalStrike.Chance(SkillsFor(player).SpellCritChance(gem.Effect, gem.Level),
+        int? spellBase = skills.SpellCritChance(gem.Effect, gem.Level);
+        if (spellBase is >= 0 && (Own(Stat.BaseSpellCriticalChanceEqualToTheCriticalStrikeChanceOfMainWeapon) != 0
+                || Player(Stat.BaseSpellCriticalChanceEqualToTheCriticalStrikeChanceOfMainWeapon) != 0)
+            && WeaponProfileFor(player, activeSet: true) is { Unarmed: false } mainHand)
+            spellBase = mainHand.Critical;
+        return DisplayedCriticalChance(player, SpellCriticalStrike.Chance(spellBase,
             Player, Own, player.Pools.SpellCriticalStrikeChancePct + extraIncrease), Player);
     }
 

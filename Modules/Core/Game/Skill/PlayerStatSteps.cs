@@ -54,6 +54,13 @@ public enum PlayerStatChange : byte
 
 public static partial class Game
 {
+    static int CorpsePactSpeed(Player player, IReadOnlyDictionary<uint, int> stats, double now)
+    {
+        int perCorpse = stats.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently);
+        if (perCorpse <= 0) return 0;
+        return (int)Math.Min(200L, Math.Min(player.RecentEvents.Amount(StatConditions.ConsumedCorpse, now), 200L) * perCorpse);
+    }
+
     /// <summary>What a step hands on that is not a stat: the recovery baseline (the Recovery step's).</summary>
     public sealed class PlayerStepOutputs
     {
@@ -115,15 +122,16 @@ public static partial class Game
             if (GetIn(stats, Stat.EsRegenerationPerMinutePctWhileStationary) is int stationaryRegen and not 0
                 && !player.Walk.Moving(now))
                 AddTo(stats, Stat.BaseEnergyShieldRegenerationRatePerMinutePct, stationaryRegen);
+            if (GetIn(stats, Stat.EnergyShieldRegenerationPctPerMinuteIfEnemyCursedRecently) is int cursedRegen and not 0
+                && player.RecentEvents.Happened(CursedEnemyRecently, now))
+                AddTo(stats, Stat.BaseEnergyShieldRegenerationRatePerMinutePct, cursedRegen);
             if (GetIn(stats, Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) is int stationaryElemental and not 0
                 && !player.Walk.Moving(now))
                 AddTo(stats, Stat.ElementalDamageTakenPlusPct, stationaryElemental);
-            if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) is int corpseSpeed and > 0)
+            if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
             {
-                long corpses = player.RecentEvents.Amount(StatConditions.ConsumedCorpse, now);
-                long speed = Math.Min(200L, Math.Min(corpses, 200L) * corpseSpeed);
-                AddTo(stats, Stat.AttackSpeedPlusPct, speed);
-                AddTo(stats, Stat.CastSpeedPlusPct, speed);
+                AddTo(stats, Stat.CastSpeedPlusPct, CorpsePactSpeed(player, stats, now));
+                MarkLaterStep(player, PlayerStatStep.AttackSpeed);
             }
             int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
             if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
@@ -268,8 +276,14 @@ public static partial class Game
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (player, stats, _) =>
-            stats[Stat.MainHandAttackSpeedPlusPct] = player.Pools.AttackSpeedPct
-                + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats));
+        {
+            long speed = (long)player.Pools.AttackSpeedPct + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats);
+            int corpseSpeed = CorpsePactSpeed(player, stats, AreaTime(player));
+            if (corpseSpeed > 0)
+                speed += (long)Math.Round(corpseSpeed * (1 + InherentAttackSpeedMore(
+                    WeaponProfileFor(player, activeSet: true), stats.GetValueOrDefault) / 100d));
+            stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate(speed);
+        });
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
@@ -306,6 +320,8 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.ManaRegenerationRatePlusPctPer1PctSpellBlockChance) is int regenPerBlock and not 0)
+                AddTo(stats, Stat.ManaRegenerationRatePlusPct, (long)regenPerBlock * player.Pools.SpellBlockChance);
             if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
                 && statsAt - player.LastStoppedTakingDotAt <= RecentEvents.WindowSeconds)
             {

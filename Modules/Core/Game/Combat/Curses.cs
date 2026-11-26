@@ -146,6 +146,9 @@ public static partial class Game
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
         if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
+        if (!aura && !fromPlacement && casterId is null
+            && GolemStat(playerStats, Stat.EnergyShieldRegenerationPctPerMinuteIfEnemyCursedRecently) != 0)
+            player.RecentEvents.Record(CursedEnemyRecently, now);
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);
@@ -160,6 +163,8 @@ public static partial class Game
         if (!aura || casterId is not null) monster.PresentationChanged?.Invoke();
         return true;
     }
+
+    const string CursedEnemyRecently = "cursed_enemy";
 
     static void RecoverOnFreshCurseLocked(Player player, Func<uint, int> get)
     {

@@ -682,6 +682,7 @@ public static partial class Game
                 AilmentsOnHitLocked(player, targetId, m, mitigated, spell: false, critical, criticalMultiplier, playerStats,
                     ownPenetration, at, AreaRng(player), poison: prehit.Poison,
                     blind: BlindHitInput.Capture(playerStats), attackGains: AttackAilmentGains.Capture(playerStats, attack: true));
+                if (critical) TryDeathmarkedLocked(player, m, at, playerStats);
                 nativeKnockback = TakeNativeKnockbackLocked(m);
                 if (life > 0 && prehit.Ignite.CanIgnite(ownRolled)
                     && IgniteOnHitLocked(player, targetId, m, prehit.Ignite,
@@ -3690,6 +3691,8 @@ public static partial class Game
                                 : CascadeKnockbackOrigin(m.Walk.Position(at), cascadePush),
                             attackGains: AttackAilmentGains.Capture(playerStats, SkillsFor(player).IsAttack(gem.Effect)),
                             projectileDamage: false, projectileFreezeChance: 0, glacialFreezeMore: glacialFreezeMore);
+                        if (critical && hitPlan.Kind == SkillHitKind.Attack)
+                            TryDeathmarkedLocked(player, m, at, playerStats);
                         if (GolemStat(skillStats, global::Stat.RemoveChillOnEnemyWhenYouHit) != 0)
                             m.Ailments.RemoveActive(MonsterElementalAilments.Kind.Chill, at);
                         if (scheduledSession is not null || (melee ?? !spell) || damage > 0)
@@ -4617,13 +4620,14 @@ public static partial class Game
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-        if (m.HasCurses || (playerKill && m.Hostile))
+        if (m.HasCurses || (playerKill && m.Hostile && HitMarkedMonsters.TryGetValue(m, out _)))
             using (ProjectileMutation(player, advance: false))
                 if (CurrentGameWork && !player.Closed && !player.LeavingArea
                     && player.Area.Monsters.GetValueOrDefault(id) == m)
                 {
                     double deathAt = ProjectileWorldTime(player);
-                    if (playerKill && m.Hostile) HitSummonsOnDeathLocked(player, id, m, deathAt);
+                    if (playerKill && m.Hostile && HitMarkedMonsters.TryGetValue(m, out _))
+                        HitSummonsOnDeathLocked(player, id, m, deathAt);
                     TransferMarksOnDeathLocked(player, m, deathAt);
                 }
         TinctureKillBonus? tinctureKill;

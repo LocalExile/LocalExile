@@ -1031,6 +1031,10 @@ public static partial class Game
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
                     areaHit: contact.IsArea);
+                if (critical && shot.DirectAttackContact
+                    && shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                    && contact.Projectile.Use.Emitter.Id == Player.Id)
+                    TryDeathmarkedLocked(Player, target, at, player);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)
                 EssenceDrainOnHitLocked(contact.Target.Id, target, drain, at);
