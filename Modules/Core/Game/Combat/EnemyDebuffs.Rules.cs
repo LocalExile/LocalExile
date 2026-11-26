@@ -94,11 +94,7 @@ public static partial class Game
     /// the other participants' stay.</summary>
     public static void ForgetSourceValues(Player player)
     {
-        if (DebuffStepsOf.TryGetValue(player, out var steps))
-        {
-            foreach (var target in steps.NearbyChills.Values) RemoveNearbyChill(player, target);
-            steps.NearbyChills.Clear();
-        }
+        if (DebuffStepsOf.TryGetValue(player, out var steps)) steps.ClearNearbyChills();
         double now = AreaTime(player);
         foreach (var m in player.Area.Monsters.Values) Forget(m);
         foreach (var m in player.Area.DormantMonsters.Values) Forget(m);
@@ -131,18 +127,46 @@ public static partial class Game
     // with the ramp each monster keeps while it stays inside; his curse auras (Blasphemy). Each monster then keeps the
     // increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and burns read. The blind auras
     // (SaboteurBlind, Physical Aegis) follow their zones' members.
-    sealed class DebuffSteps
+    sealed class DebuffSteps(Player player)
     {
         public readonly Lock Gate = new();
         public int Scope;
         public bool Stepped, HadCursedCorpses;
         public readonly HashSet<uint> Changed = [];
         public readonly Dictionary<uint, SpawnedMonster> NearbyChills = [];
+        // Nearby chill writes to monsters that survive reload. The previous generation can clear its own aura even
+        // after the replacement has applied a new one for the same player.
+        public readonly ulong ChillSource = 1UL << 63
+            | (((ulong)(CombatLifetime?.Generation ?? 0) & 0x7fff_ffffUL) << 32) | player.Id;
         // Each monster's next timed change on the area's timers (the earliest one asked for).
         public readonly Dictionary<uint, double> Wakes = [];
+
+        public void RemoveNearbyChill(SpawnedMonster target) =>
+            target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ChillSource);
+
+        public void ClearNearbyChills()
+        {
+            foreach (var target in NearbyChills.Values) RemoveNearbyChill(target);
+            NearbyChills.Clear();
+        }
     }
     static readonly Store<Player, DebuffSteps> DebuffStepsOf = new();
     static readonly RuleTable<GameArea, Dictionary<uint, uint>> MarkTargets = new();
+
+    internal static IDisposable CleanupNearbyChills() => new NearbyChillCleanup();
+
+    sealed class NearbyChillCleanup : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var (player, steps) in DebuffStepsOf)
+            {
+                var area = player.Area;
+                if (area.Driven && !area.Owned) area.Defer(_ => steps.ClearNearbyChills());
+                else steps.ClearNearbyChills();
+            }
+        }
+    }
 
     static void TrackMarkTarget(Player caster, SpawnedMonster marked) =>
         MarkTargets.GetOrCreateValue(caster.Area)[caster.Id] = marked.ObjectId;
@@ -170,7 +194,7 @@ public static partial class Game
     /// is stepped with the player's next nearby presentation.</summary>
     public static void MonsterDebuffsChanged(Player player, uint id)
     {
-        var steps = DebuffStepsOf.GetOrCreateValue(player);
+        var steps = DebuffStepsOf.GetValue(player, static owner => new(owner));
         lock (steps.Gate) steps.Changed.Add(id);
         PresentNearby(player);
     }
@@ -180,9 +204,6 @@ public static partial class Game
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
     const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
     const uint NearbyChillZone = 0x10004, NearbyFireExposureZone = 0x10005;
-    static ulong NearbyChillSource(Player player) => 1UL << 63 | player.Id;
-    static void RemoveNearbyChill(Player player, SpawnedMonster target) =>
-        target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, NearbyChillSource(player));
 
     sealed class NearbyFireExposures
     {
@@ -364,7 +385,8 @@ public static partial class Game
             ushort[] currentNodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
             var current = nodes.SequenceEqual(currentNodes) ? all
                 : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(player).HardMode, EnemyAuraActs);
-            var steps = DebuffStepsOf.GetOrCreateValue(player);
+            var steps = DebuffStepsOf.GetValue(player, static owner => new(owner));
+            if (!CurrentGameWork) return null;
             var scope = PrepareEnemyDebuffs(player, now, current, steps);
             uint[] ids;
             lock (steps.Gate)
@@ -381,7 +403,7 @@ public static partial class Game
             {
                 if (player.Area.Monsters.TryGetValue(id, out var m))
                     StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
-                else if (steps.NearbyChills.Remove(id, out var departed)) RemoveNearbyChill(player, departed);
+                else if (steps.NearbyChills.Remove(id, out var departed)) steps.RemoveNearbyChill(departed);
             }
             ReconcileBlinds(player, now, scope.CursedCorpses, scope.MarkBlind, counts);
             if (counts[0] + counts[1] > 0)
@@ -406,12 +428,12 @@ public static partial class Game
             bool covered = living && scope.ChillStats is not null && In(NearbyChillZone);
             if (steps.NearbyChills.TryGetValue(id, out var previous) && (!covered || !ReferenceEquals(m, previous)))
             {
-                RemoveNearbyChill(player, previous);
+                steps.RemoveNearbyChill(previous);
                 steps.NearbyChills.Remove(id);
             }
             if (covered && scope.ChillStats is { } chill)
             {
-                if (m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, NearbyChillSource(player),
+                if (m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, steps.ChillSource,
                     now, chill.GetValueOrDefault, name => m.Effects[name])) steps.NearbyChills[id] = m;
                 else steps.NearbyChills.Remove(id);
             }

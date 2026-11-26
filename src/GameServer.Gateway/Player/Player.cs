@@ -646,13 +646,6 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     {
         foreach (var ((source, key), value) in sourceValues) if (key == stat) yield return (source, value);
     }
-    public int MinimumSourceValue(string stat)
-    {
-        int minimum = 0;
-        foreach (var ((_, key), value) in sourceValues)
-            if (key == stat) minimum = Math.Min(minimum, value);
-        return minimum;
-    }
     /// <summary>Sets <paramref name="source"/>'s value of <paramref name="stat"/> on it; 0 removes the entry.</summary>
     public void SetSourceValue(uint source, string stat, int value)
     {

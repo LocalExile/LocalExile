@@ -555,10 +555,13 @@ public sealed partial class PlayerInventories
 
     /// <summary>Whether any gem socketed in <see cref="GemExperienceRows"/> matches <paramref name="predicate"/>, without allocating.</summary>
     public bool AnySocketedGem(Func<uint, Item, bool> predicate) =>
-        AnySocketedGem((id, _, socket) => predicate(id, socket.Gem!));
+        AnySocketedGem(predicate, static (match, id, _, socket) => match(id, socket.Gem!));
 
     /// <summary>Checks each socket with the owning item during the same inventory read.</summary>
-    public bool AnySocketedGem(Func<uint, Item, ItemSocket, bool> predicate)
+    public bool AnySocketedGem(Func<uint, Item, ItemSocket, bool> predicate) =>
+        AnySocketedGem(predicate, static (match, id, item, socket) => match(id, item, socket));
+
+    bool AnySocketedGem<T>(T predicate, Func<T, uint, Item, ItemSocket, bool> matches)
     {
         lock (_lock)
             foreach (var row in GemExperienceRows)
@@ -569,7 +572,7 @@ public sealed partial class PlayerInventories
                     if (items[at].Item.Sockets is not { Count: > 0 } held) continue;
                     for (int socket = 0; socket < held.Count; socket++)
                         if (held[socket] is { Colour: not SocketColour.Abyss, Gem: not null } entry
-                            && predicate(items[at].Id, items[at].Item, entry))
+                            && matches(predicate, items[at].Id, items[at].Item, entry))
                             return true;
                 }
             }
