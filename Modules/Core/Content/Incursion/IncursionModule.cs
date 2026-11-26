@@ -21,6 +21,7 @@ public sealed class IncursionModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(encounter.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         GameEvents.AreaPopulated.Add(id, encounter.Populated);
         GameEvents.BeforeEnterMessages.Add(id, encounter.EntryMessages);
         GameEvents.PlayerEntered.Add(id, encounter.Entered);

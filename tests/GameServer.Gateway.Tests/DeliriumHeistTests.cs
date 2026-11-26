@@ -135,6 +135,11 @@ public class DeliriumHeistTests
         Assert.True(state.RewardCounts[0] >= 3);
         Assert.True(state.Rewards.Length >= 2);
         Assert.True(state.Splinters > 0);
+
+        // Tile 25 (Delirium) includes Cluster Jewels and excludes retired Perandus/Harbinger/Prophecies/Metamorphosis/HardMode orbs.
+        var noGems = new HashSet<int>();
+        Assert.Contains(Program.Items.All, t => t.Cluster is not null && DeliriumModule.Eligible(25, t, noGems));
+        Assert.False(DeliriumModule.Eligible(25, Program.Items.Find("Metadata/Items/Currency/CurrencyAfflictionOrbPerandus")!, noGems));
     }
 
     [Fact]
@@ -255,6 +260,20 @@ public class DeliriumHeistTests
             peer2.Player.Walk.Place(state.MirrorX, state.MirrorY, Game.AreaTime(peer2.Player));
             await encounter.OnTick(peer1.Player, 0.1);
             Assert.Equal(DeliriumMirrorEncounter.MirrorStage.Active, state.Stage);
+
+            // An active league encounter pauses the fog timer and marks FogPaused while engaged.
+            bool pausedLeague = true;
+            using (Game.RegisterDeliriumPauseSource(_ => pausedLeague))
+            {
+                float pausedElapsed = state.OuterElapsed;
+                await encounter.OnTick(peer1.Player, 2.0);
+                Assert.Equal(pausedElapsed, state.OuterElapsed);
+                Assert.True(state.FogPaused);
+                pausedLeague = false;
+                await encounter.OnTick(peer1.Player, 1.0);
+                Assert.True(state.OuterElapsed > pausedElapsed);
+                Assert.False(state.FogPaused);
+            }
 
             // Dirty reward tiles past 3 and push OuterElapsed past trailing clear so both peers leave fog and receive 0x02c9 + 0x0163.
             for (int i = 0; i < 80; i++) state.RecordKill(MonsterRarity.Unique, progressBonusPct: 0);

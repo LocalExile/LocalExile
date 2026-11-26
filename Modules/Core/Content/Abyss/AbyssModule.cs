@@ -20,6 +20,8 @@ public sealed class AbyssModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(_encounter.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(p => _encounter.Of(p) is { } s
+            && (s.Stage == AbyssEncounter.Stage.Wave || (s.Stage == AbyssEncounter.Stage.Arms && s.Arms.Any(a => a.StartedAt is not null)))));
         GameEvents.AreaPopulated.Add(id, area =>
         {
             if (_encounter.Place(area) is { } why) module.Log(why);

@@ -173,7 +173,11 @@ public sealed partial class DeliriumModule : IModule
         });
         GameEvents.Packet(AfflictionRuleset.EndEncounterPacketId).Add(module.Manifest.Id, async (player, _) =>
             await mirror.OnEndRequested(player));
-        GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(drop => { if (SimulacrumRules.IsArena((string)drop.Player.Layout.Id)) { drop.Cancel = true; drop.Gold = 0; } }));
+        GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(drop =>
+        {
+            if (SimulacrumRules.IsArena((string)drop.Player.Layout.Id)) { drop.Cancel = true; drop.Gold = 0; }
+            else mirror.OnDrop(drop);
+        }));
         GameEvents.Experience.Add(module.Manifest.Id, (Action<ExperienceGain>)(gain =>
         {
             if (SimulacrumRules.IsArena((string)gain.Player.Layout.Id))

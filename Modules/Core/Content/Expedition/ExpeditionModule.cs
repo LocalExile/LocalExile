@@ -21,6 +21,7 @@ public sealed class ExpeditionModule : IModule
         LoadData();
         var encounter = new ExpeditionEncounter();
         module.Lifetime.Own(encounter);
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         string id = module.Manifest.Id;
         // The roll, once per instance and before its seed: the plugin state is a generation input of both sides.
         InstanceEvents.TerrainPluginStates.Add(id, PlanTerrain);

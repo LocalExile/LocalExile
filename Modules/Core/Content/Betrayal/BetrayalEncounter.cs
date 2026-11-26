@@ -132,6 +132,8 @@ public sealed class BetrayalEncounter
     /// <summary>Whether the instance has a mission still to advance.</summary>
     public bool Has(Player player) => LiveOf(player) is { } live && live.Run.Current != BetrayalRun.Stage.Done;
 
+    public bool IsActivePause(Player player) => LiveOf(player)?.Run.Current is BetrayalRun.Stage.Fight or BetrayalRun.Stage.Defeated;
+
     /// <summary>One tick of the mission, by the connection that steps the area's monsters: what is due, the start when a
     /// character comes close, and the kneel when the member is brought down.</summary>
     public async Task Advance(Player player, double seconds)
