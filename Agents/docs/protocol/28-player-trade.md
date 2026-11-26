@@ -11,6 +11,7 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0xb0** | 6 | u32 BE the requester's object id | Accept on the trade request notification |
 | 0xb1 | 7 | u32 BE the other party, u8 | Decline on the notification, Cancel on the waiting box, Cancel in the window |
 | **0x93** | var | wstr the character's name | "Invite to Party" |
+| **0x94** | var | wstr the target's character name, not the account | "Kick" on a member, or "Cancel" on a pending invitation (Social party tab `0x140a68080`, HUD party menu `0x140ab8ed0`); not 0x97, which promotes the leader |
 | **0x95** | 6 | u32 BE the party id (from 0xa9) | Accept on the party invite notice |
 | **0x96** | 6 | u32 BE the party id | "Leave Party" |
 | **0x98** | var | wstr description, u8 flag | Create or rename a public party (empty description clears public state) |

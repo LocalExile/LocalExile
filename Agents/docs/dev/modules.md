@@ -59,7 +59,7 @@ gives rules keeps them; `remove` takes a path or an id; `Core/Game` cannot be re
 line and changes nothing.
 
 ```json
-{ "Standard": { "add": ["PlayerBots"], "remove": ["Core/Item/Tattoos"] } }
+{ "Standard": { "add": ["playerbots"], "remove": ["Core/Item/Tattoos"] } }
 ```
 
 - **Standard** is required: the Gateway refuses to start without it. Its modules change like any league's.
@@ -90,7 +90,7 @@ Modules sit in three folders, and each module in exactly one.
 |---|---|---|
 | `Modules/Core/` | the current game as GGG runs it, shared by many leagues | the systems below, `Ruthless` |
 | `Modules/Legacy/` | like Core, for GGG's past leagues and content | `PhreciaAscendancies`, `Idols` |
-| `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/`, `PlayerBots` |
+| `Modules/Custom/` | content GGG never had, which a custom league may list | `Survivors/` |
 
 A module is not a development or testing tool: those are [mods](modding.md). The dev chat commands are the `gm-commands`
 mod in LocalExile-Mods; `Core/Player/Commands` has only `/oos` and `/passives`.

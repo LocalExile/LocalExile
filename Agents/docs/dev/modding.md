@@ -262,7 +262,7 @@ rules run for it and the others' clients see it; what is sent to it is dropped. 
 inputs (`Game.OnClientMessages`), sets its network mode, and ends it as a connection ends: the framework has no rules for
 one. `Player.HasClient` is false for it; `takesPartIn` says whether its account earns progress (`EarnsProgress`:
 achievements, play time, kill and death counts) and whether it is found by name (`Listed`), both off by default. The
-PlayerBots module is the example.
+`playerbots` mod in LocalExile-Mods is the example.
 
 The PR tests check compiled official mods against the proposed server. From the repository root, run
 `dotnet build GameServer.slnx -c Release`, then `dotnet run --project scripts/dev/mod-compat -c Release`.
