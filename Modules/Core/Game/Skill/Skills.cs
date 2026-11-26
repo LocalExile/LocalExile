@@ -1015,17 +1015,25 @@ public static partial class Game
     // so 0x0053 always arrives after the client has applied 0x2bc and cannot be overwritten by it.
     public static Task RestoreSkillBarAfterActorUpdate(Player player, bool force = false)
     {
+        var pending = PendingBarRestores.GetOrCreateValue(player);
+        lock (pending) pending.Force |= force;
         if (player.Connection.LockstepClient)
         {
             int gen = Interlocked.Increment(ref player.SkillBarRestoreGeneration);
             _ = Task.Delay(2 * FrameMs + 16).ContinueWith(_ =>
             {
                 if (!player.Closed && !player.LeavingArea && player.SkillBarRestoreGeneration == gen)
-                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player, force));
+                {
+                    bool forced;
+                    lock (pending) { forced = pending.Force; pending.Force = false; }
+                    _ = player.Frames.Run(() => SendSkillBarHoldingGuard(player, forced));
+                }
             });
             return Task.CompletedTask;
         }
-        return SendSkillBarHoldingGuard(player, force);
+        bool immediate;
+        lock (pending) { immediate = pending.Force; pending.Force = false; }
+        return SendSkillBarHoldingGuard(player, immediate);
     }
 
     // The bar re-creates every slot's cooldown entry, so a held guard's frozen entry goes out again behind it, or its
@@ -1036,9 +1044,17 @@ public static partial class Game
     // sweep on every move or cast). While a guard is held, the same bar goes out only once.
     static readonly RuleTable<Player, byte[]> HeldSkillBar = new();
 
+    // A forced restore cancels an earlier pending one while it coalesces, but the force itself must survive that: the
+    // aura toggle's own 0x0053 was dropped that way on lockstep (review 2026-11-26).
+    sealed class PendingBarRestore { public bool Force; }
+    static readonly RuleTable<Player, PendingBarRestore> PendingBarRestores = new();
+
     static async Task SendSkillBarHoldingGuard(Player player, bool force = false)
     {
-        if (TriggeredGuards.TryGetValue(player, out _) && SkillBarRecord(player) is { Length: > 0 } bar)
+        // An entry left in the store by a finished guard still answers TryGetValue: only a running buff may hold the
+        // bar back, or every later unchanged restore would stay suppressed for the rest of the area (review 2026-11-26).
+        if (TriggeredGuards.TryGetValue(player, out var running) && running.Until > AreaTime(player)
+            && TriggeredGuardCurrent(player, running) && SkillBarRecord(player) is { Length: > 0 } bar)
         {
             HeldSkillBar.TryGetValue(player, out var prev);
             if (force || prev is null || !prev.AsSpan().SequenceEqual(bar))

@@ -2142,8 +2142,8 @@ public static partial class Game
         await SendPlayerEnergyShield(player);
         // The toggle's skill refresh can empty the aura's own bound slot (live 2026-11-22: Malevolence with Eternal
         // Blessing left Q), and the full refresh above resends the skill list without the bar, so the saved bar goes out
-        // again after it.
-        await RestoreSkillBarAfterActorUpdate(player);
+        // again after it — forced, because the bar can read the same while a slot still has to be restored.
+        await RestoreSkillBarAfterActorUpdate(player, force: true);
         return true;
     }
 

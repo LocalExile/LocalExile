@@ -332,9 +332,11 @@ public static partial class Game
             [.. InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), art.Blob()),
              .. InstanceProtocol.EnterWakeZone(id)],
             "Immortal Call cast art");
+        int epoch = player.ProjectileEpoch;
         SendAfter(player, 2, async () =>
         {
-            if (player.Closed || player.LeavingArea) return;
+            // The object belongs to the area it was made in: a transition to another area must not remove its id there.
+            if (player.Closed || player.LeavingArea || !player.ProjectileActive(epoch)) return;
             await Send(player, InstanceProtocol.RemoveObject(id), null);
         });
     }

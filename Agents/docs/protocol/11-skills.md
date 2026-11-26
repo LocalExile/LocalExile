@@ -1595,7 +1595,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   The order of the two is not what the sends say: a 0x1ce world record waits for the area frame while the held send
   goes out at once, so the action can run after that entry and consume it, leaving the prediction with nothing to
   freeze it (live 2026-11-25: the ring swept through a whole buff and restarted when it ended). `UseInstantSkill`
-  therefore publishes the held entry again about 80 ms after the action, in the area frame
+  therefore publishes the held entry again about 150 ms after the action (`4 * FrameMs + 16`), in the area frame
   (`HeldGuardCooldownRefresh`), which freezes the running prediction without restarting its animation.
   A skill-list refresh (Actor 0x20, `SendSkills`) replaces every skill record, and that replacement refreshes an existing
   zero-rate entry (the `0x141ef1573` case above): a movement or conditional-item-stat refresh during the buff therefore
