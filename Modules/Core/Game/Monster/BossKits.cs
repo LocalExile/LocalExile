@@ -186,12 +186,20 @@ public static class BossKits
     /// then the triggers on damage taken. Never the effect a mercenary leaves by.</summary>
     public static IReadOnlyList<int> UniqueOrder(SkillCatalog catalog, MonsterCatalog.Variety variety, IReadOnlyList<int> candidates)
     {
+        bool allowCombos = !IsBossControllerVariety(variety);
         List<int> effects = [];
         foreach (int effect in candidates)
-            if (IsUsable(catalog, variety, effect) && !effects.Contains(effect)) effects.Add(effect);
+        {
+            if (allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect)) continue;
+            if ((IsUsable(catalog, variety, effect)
+                    || (allowCombos && MonsterCombos.HasCombo(catalog, variety, effect)))
+                && !effects.Contains(effect))
+                effects.Add(effect);
+        }
         foreach (bool trigger in new[] { false, true })
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && !(allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
                     effects.Add(effect);
@@ -251,6 +259,7 @@ public static class BossKits
     {
         var catalog = SkillsFor(player);
         List<MonsterKitSkill> kit = [];
+        var comboChildIds = new Dictionary<int, ushort>();
         foreach (int effect in effects)
         {
             // The first entry stays a monster's own attack whatever it is; the other entries must be something.
@@ -261,6 +270,16 @@ public static class BossKits
             bool isTeleport = BossMoves.IsTeleport(catalog, effect);
             int trigger = DamageTakenThreshold(catalog, effect, effectLevel);
             ushort id = (ushort)(0x4000 + kit.Count);
+            if (unique && SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect))
+            {
+                if (MonsterCombos.BuildParentAttack(player, variety, level, effect, id, comboChildIds) is { } combo)
+                {
+                    double comboCd = Math.Max(cooldown, Math.Max(combo.Seconds + 1.5, 4.0));
+                    var scaledCombo = modifiers is null ? combo : MonsterCombos.ScaleComboAttack(combo, modifiers, c => ScaleAttack(c));
+                    kit.Add(new(effect, scaledCombo, comboCd));
+                }
+                continue;
+            }
             var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
             // attack makes of it (Vickas Giantbone's Ethereal Knives totem).
@@ -369,9 +388,10 @@ public static class BossKits
     public static bool KeepUnshapedForUniques = true;
 
     /// <summary>Whether an attack does anything: it hits for damage, summons, flies a projectile, throws a trap, puts a
-    /// debuff on the player or leaves a ground.</summary>
+    /// debuff on the player, leaves a ground, or drives S3 combo child triggers.</summary>
     public static bool Acts(MonsterAttack a) => !a.Damage.IsZero || a.Summon is not null || a.Projectile is not null
-        || a.Storm is not null || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null;
+        || a.Storm is not null || a.Trap is not null || a.Debuffs.Count > 0 || a.Ground is not null
+        || a.ComboSteps is { Count: > 0 };
 
     /// <summary>A unique's skill as it plays, by what the skill is (its ActiveSkillTypes) and what its client action
     /// class does (<see cref="ActionClasses"/>), in this order:

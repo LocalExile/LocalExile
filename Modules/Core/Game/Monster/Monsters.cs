@@ -731,6 +731,7 @@ public static partial class Game
             : kit.Count > 0 ? [.. BossKits.SkillsOf(player, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
+        if (skills is not null) skills = MonsterCombos.WithChildSkills(player, variety, level, kit, skills);
         if (skills is not null) skills = Yugul.AddSkills(player, variety, level, skills);
         if (skills is not null) skills = SolarisLunaris.AddSkills(player, variety, level, skills);
         // The effect behind each actor skill id, so a mod's command can play one of the monster's own skills by the
@@ -1091,7 +1092,7 @@ public static partial class Game
     // Kept separate from socket dispatch so all decisions in a pass use the same game time and player pose.
     static readonly System.Collections.Concurrent.ConcurrentDictionary<MonsterCatalog.Variety, bool> BossControllerVarieties = new();
 
-    static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
+    internal static bool IsBossControllerVariety(MonsterCatalog.Variety? variety) =>
         variety is not null && BossControllerVarieties.GetOrAdd(variety, static v =>
             Sirus.IsActor(v) || KitavaActFive.IsActor(v) || KitavaActTen.IsActor(v) || DepravedTrinity.IsBoss(v)
             || VaalOversoul.IsBoss(v) || DoedreSewers.IsBoss(v) || BrineKing.IsBoss(v) || Arakaali.IsBoss(v)
@@ -2586,6 +2587,11 @@ public static partial class Game
                 await Task.WhenAll(peers.Where(other => !other.Closed && !other.LeavingArea && ReferenceEquals(other.Instance, player.Instance))
                     .Select(other => RunPietyBeam(other, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim)).Append(primary));
             else await primary;
+            return false;
+        }
+        if (a.ComboSteps is { Count: > 0 })
+        {
+            await MonsterCombos.RunComboAsync(player, id, m, a, action, seq, startedAt, seconds, beamOrigin, beamAim);
             return false;
         }
         // The contact: the clip's keyframe (the Spitter's attack1 spits at 37.5 % of the attack; GGG's melee hits land by

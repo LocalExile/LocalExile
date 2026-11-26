@@ -48,20 +48,28 @@ public static class MonsterKits
     static bool IsGenericMelee(string? effectId) =>
         effectId is "Melee" or "MeleeAtAnimationSpeed" or "MeleeAtAnimationSpeedUnique" or "MeleeAtAnimationSpeedFireUnique";
 
-    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, int effect, string? id)
+    static bool IsExcludedOrdinaryEffect(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, string? id)
     {
         if (effect < 0 || string.IsNullOrEmpty(id)) return true;
         if (catalog.CastsOnDeath(effect) || BossKits.IsDamageTakenTrigger(catalog, effect) || catalog.IsAura(effect))
             return true;
         if (catalog.HasType(effect, "Triggered") || catalog.HasType(effect, "RemoteMined"))
             return true;
+        // S3 bound combo children stay out of top-level AI selection (while staying registered in 0x2bb for 0x1ce).
+        // Never blanket-exclude Animation == NULL: 74.4% of monster GEs (Melee, MonsterFireball, etc.) have Animation = NULL.
+        if (MonsterCombos.IsComboChild(catalog, variety, effect))
+            return true;
+        // Bound EmptyAction* combo parents are real castable combo openers on non-controller varieties.
+        if (SkillCatalog.IsEmptyAction(effect))
+            return !MonsterCombos.HasCombo(catalog, variety, effect);
         if (id.StartsWith("GS", StringComparison.Ordinal) || id.StartsWith("GT", StringComparison.Ordinal)
-            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("GA", StringComparison.Ordinal))
+            || id.StartsWith("EAS", StringComparison.Ordinal) || id.StartsWith("EAA", StringComparison.Ordinal)
+            || id.StartsWith("GA", StringComparison.Ordinal))
             return true;
         for (int i = 0; i < ExcludedOrdinaryTokens.Length; i++)
             if (id.Contains(ExcludedOrdinaryTokens[i], StringComparison.Ordinal)) return true;
-        // Skip skills flagged skill_unusable (they are script/death-only).
-        if (catalog.EffectStats(effect, 1).Any(s => s.Item1 == Stat.SkillUnusable && s.Item2 != 0))
+        // Skip skills flagged skill_unusable / trigger-only.
+        if (catalog.HasTriggerOnlyStat(effect, 1))
             return true;
         return false;
     }
@@ -100,36 +108,47 @@ public static class MonsterKits
         {
             var entry = baseKit[i];
             var atk = entry.Attack;
-            var damage = atk.Damage;
-            if (!damage.IsZero)
+            if (atk.ComboSteps is { Count: > 0 })
             {
-                if (mapBossDamage != 1.0) damage = damage.Scale(mapBossDamage);
-                damage = mods.Hit(damage, level);
-            }
-            double seconds = atk.Summon is not null ? atk.Seconds : mods.AttackSeconds(atk.Seconds, atk.Spell);
-            var proj = atk.Projectile;
-            if (proj is not null && (extraProj > 0 || aoeScale != 1.0))
-            {
-                int nextCount = Math.Max(1, proj.Count) + extraProj;
-                double nextSpread = nextCount > 1 && proj.SpreadRadians == 0 ? 0.45 : proj.SpreadRadians;
-                proj = proj with
+                result[i] = entry with
                 {
-                    Count = nextCount,
-                    SpreadRadians = nextSpread,
-                    AreaRadius = proj.AreaRadius > 0 ? proj.AreaRadius * aoeScale : proj.AreaRadius,
+                    Attack = MonsterCombos.ScaleComboAttack(atk, mods, c => ApplyModToAttack(c, mods, level, mapBossDamage, extraProj, aoeScale))
                 };
+                continue;
             }
-            result[i] = entry with
-            {
-                Attack = atk with
-                {
-                    Damage = damage,
-                    Seconds = Math.Max(0.25, seconds),
-                    Projectile = proj,
-                }
-            };
+            result[i] = entry with { Attack = ApplyModToAttack(atk, mods, level, mapBossDamage, extraProj, aoeScale) };
         }
         return result;
+    }
+
+    static MonsterAttack ApplyModToAttack(MonsterAttack atk, MonsterModEffects mods, byte level, double mapBossDamage,
+        int extraProj, double aoeScale)
+    {
+        var damage = atk.Damage;
+        if (!damage.IsZero)
+        {
+            if (mapBossDamage != 1.0) damage = damage.Scale(mapBossDamage);
+            damage = mods.Hit(damage, level);
+        }
+        double seconds = atk.Summon is not null ? atk.Seconds : mods.AttackSeconds(atk.Seconds, atk.Spell);
+        var proj = atk.Projectile;
+        if (proj is not null && (extraProj > 0 || aoeScale != 1.0))
+        {
+            int nextCount = Math.Max(1, proj.Count) + extraProj;
+            double nextSpread = nextCount > 1 && proj.SpreadRadians == 0 ? 0.45 : proj.SpreadRadians;
+            proj = proj with
+            {
+                Count = nextCount,
+                SpreadRadians = nextSpread,
+                AreaRadius = proj.AreaRadius > 0 ? proj.AreaRadius * aoeScale : proj.AreaRadius,
+            };
+        }
+        return atk with
+        {
+            Damage = damage,
+            Seconds = Math.Max(0.25, seconds),
+            Projectile = proj,
+        };
     }
 
     static CachedKit BuildTemplate(Player player, SkillCatalog catalog, MonsterCatalog.Variety variety, byte level)
@@ -153,12 +172,26 @@ public static class MonsterKits
         var primaries = new List<(int Priority, MonsterKitSkill Skill)>();
         MonsterKitSkill? meleeFallback = null;
         var seen = new HashSet<int>();
+        var comboChildIds = new Dictionary<int, ushort>();
 
         foreach (int effect in effects)
         {
             if (!seen.Add(effect)) continue;
             string? id = catalog.EffectId(effect);
-            if (IsExcludedOrdinaryEffect(catalog, effect, id)) continue;
+            if (IsExcludedOrdinaryEffect(catalog, variety, effect, id)) continue;
+
+            // 0. S3 EmptyAction* combo parent (fires bound children on clip events via 0x1ce / 0x2bb)
+            if (SkillCatalog.IsEmptyAction(effect) && MonsterCombos.HasCombo(catalog, variety, effect))
+            {
+                int comboLvl = catalog.MaxLevelAt(effect, level);
+                double comboCd = catalog.CooldownMs(effect, comboLvl) / 1000d;
+                if (MonsterCombos.BuildParentAttack(player, variety, level, effect, 0x4000, comboChildIds) is { } comboAttack)
+                {
+                    comboCd = Math.Max(comboCd, Math.Max(comboAttack.Seconds + 1.5, 4.0));
+                    primaries.Add((1, new MonsterKitSkill(effect, comboAttack, comboCd)));
+                }
+                continue;
+            }
 
             // 1. Utility / Movement / Curse / Self-buff / Rally skills (MonsterSkills.UseOf)
             if (MonsterSkills.UseOf(catalog, effect, level) is { } use)

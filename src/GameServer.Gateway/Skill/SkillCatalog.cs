@@ -405,6 +405,41 @@ public sealed class SkillCatalog
         return ClientTables.TableOrNull("ActionTypes")?.Row(action)?.Text("Id");
     }
 
+    /// <summary>True when <paramref name="effectRow"/> uses one of the <c>EmptyAction*</c> action classes
+    /// (<c>EmptyActionSpell[2..5]</c>, <c>EmptyActionAttack[2..5]</c>, <c>EmptyActionSpellLoop</c>,
+    /// <c>EmptyActionAttackLoop</c> — 3.29.3c RE: <c>0x1434bbf28</c> / <c>0x1434b64b0</c>).</summary>
+    public static bool IsEmptyAction(int effectRow) =>
+        ActionTypeId(effectRow)?.StartsWith("EmptyAction", StringComparison.Ordinal) == true;
+
+    /// <summary>The <c>Animation.dat</c> key assigned directly on <c>GrantedEffects.Animation</c>, or null when
+    /// <c>Animation</c> is NULL.</summary>
+    public static string? EffectAnimationName(int effectRow)
+    {
+        if (ClientTables.TableOrNull("GrantedEffects")?.Row(effectRow)?.IntOrNull("Animation") is not int animRow)
+            return null;
+        return ClientTables.TableOrNull("Animation")?.Row(animRow)?.Text("Id");
+    }
+
+    /// <summary>Fallback <c>Animation.dat</c> key an <c>EmptyAction*</c> class plays when <c>GrantedEffects.Animation</c>
+    /// is NULL: <c>SpellAreaOfEffect</c> (row 0x16, <c>0x141242690</c>) for spell variants, <c>Melee</c> (row 1,
+    /// <c>0x1400ed220</c>) for attack variants.</summary>
+    public static string? EmptyActionFallbackAnimation(int effectRow) => ActionTypeId(effectRow) switch
+    {
+        string at when at.StartsWith("EmptyActionSpell", StringComparison.Ordinal) => "SpellAreaOfEffect",
+        string at when at.StartsWith("EmptyActionAttack", StringComparison.Ordinal) => "Melee",
+        _ => null,
+    };
+
+    /// <summary>True when <paramref name="effectRow"/> carries a non-zero trigger/script-only stat
+    /// (<c>skill_unusable</c>, <c>spell_uncastable_if_triggerable</c>, or <c>triggered_skill_use_animation_event</c>).</summary>
+    public bool HasTriggerOnlyStat(int effectRow, int level = 1)
+    {
+        foreach (var (stat, value) in EffectStats(effectRow, level))
+            if (value != 0 && stat is Stat.SkillUnusable or Stat.SpellUncastableIfTriggerable or Stat.TriggeredSkillUseAnimationEvent)
+                return true;
+        return false;
+    }
+
     /// <summary>
     /// A GrantedEffects row's SkillID, 0 for none: the value the client's own skill-stat builder adds as
     /// <c>skill_behaviour_variation</c> (0x1921; 0x141eefbe3 loads the row's +0xbe). An action takes its data row from it:

@@ -32,6 +32,37 @@ public sealed record PendingTransfer(ushort Area, ulong Instance, bool New, bool
 /// it (<c>action_should_face_away_from_target</c>: the Sand Spitter spits from its rear).</summary>
 public sealed record MonsterRelease(string Clip, double Fraction, ContactPoint? Point, bool FacesAway);
 
+/// <summary>How a combo child fires on the client when its parent clip event triggers (S3, 3.29.3c RE).</summary>
+public enum MonsterComboDispatch
+{
+    /// <summary>Send S→C 0x1ce (triggered=true) so the client draws Geometry/EffectDriven/Beam/GEAL/Melee visuals
+    /// without interrupting Actor+0x1b0, plus resolve server AoE/melee hit.</summary>
+    TriggeredAction,
+    /// <summary>Spawn authoritative server projectile/mortar via S→C 0x2bb without duplicate 0x1ce.</summary>
+    Projectile,
+    /// <summary>Spawn server summon/object/ground via S→C 0x2bb without 0x1ce.</summary>
+    ServerSpawn,
+}
+
+/// <summary>One scheduled child trigger bound to a named animation clip event on an <c>EmptyAction*</c> combo parent.</summary>
+public sealed record MonsterComboStep(
+    string EventName,
+    int Ms,
+    double Fraction,
+    int ChildEffect,
+    MonsterAttack ChildAttack,
+    MonsterComboDispatch Dispatch,
+    ContactPoint? Point = null);
+
+/// <summary>Engine facing/motion control event parsed from a parent combo clip (<c>StartFaceEventType</c>,
+/// <c>EndFaceEventType</c>, <c>MoveEventType</c>, or <c>face</c>).</summary>
+public sealed record MonsterComboControl(
+    string Kind,
+    int Ms,
+    int? EndMs = null,
+    ContactPoint? Point = null,
+    bool TerrainClamped = false);
+
 /// <summary>One skill of a boss's kit (BossKits): the granted effect it is built from, its action, and how long the
 /// tables make it wait between two uses (0: the plain attack every monster has).</summary>
 public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double CooldownSeconds)
@@ -240,8 +271,15 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
     /// <summary>A kit skill that is no plain hit (<see cref="MonsterSkillUse"/>): a travel, a buff on its user, a curse.</summary>
     public MonsterSkillUse? Use { get; init; }
 
+    /// <summary>Ordered child triggers fired at named clip events during an <c>EmptyAction*</c> combo parent (S3).</summary>
+    public IReadOnlyList<MonsterComboStep>? ComboSteps { get; init; }
+
+    /// <summary>Clip-driven facing/motion control events (<c>StartFace</c>/<c>EndFace</c>/<c>MoveEventType</c>) synchronized
+    /// with a combo parent.</summary>
+    public IReadOnlyList<MonsterComboControl>? ComboControls { get; init; }
+
     /// <summary>Plays where the actor stands. A plain melee attack instead walks the monster up (07 §5).</summary>
-    public bool InPlace => Ranged || Spell || Scripted || Use is not null;
+    public bool InPlace => Ranged || Spell || Scripted || Use is not null || ComboSteps is { Count: > 0 };
 
     /// <summary>The skill's stats. A melee attack keeps the client's pathing step: the action walks the monster up to its
     /// target and waits there until S→C 0x1ac starts the swing (07 §5). Anything else plays where it stands.</summary>
