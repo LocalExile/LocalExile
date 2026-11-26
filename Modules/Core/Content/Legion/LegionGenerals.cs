@@ -109,14 +109,17 @@ static class LegionGenerals
 
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
-    /// <summary>The area's generals, restored from the instance after a module reload (once per area).</summary>
-    static AreaGenerals Of(Player player) => Areas.GetValue(player.Area, _ =>
+    /// <summary>The area's generals: a lookup per frame (no allocation); made once per area, restored from the instance after a module reload.</summary>
+    static AreaGenerals Of(Player player) => Areas.TryGetValue(player.Area, out var g) ? g : Create(player);
+
+    static AreaGenerals Create(Player player)
     {
         Saved? saved = null;
         if (player.Instance?.ContentState.TryGetValue(SaveKey, out string? text) == true && !string.IsNullOrWhiteSpace(text))
             try { saved = JsonSerializer.Deserialize<Saved>(text, Json); } catch (JsonException) { }
-        return new AreaGenerals(saved ?? new Saved());
-    });
+        Areas.TryAdd(player.Area, new AreaGenerals(saved ?? new Saved()));
+        return Areas.TryGetValue(player.Area, out var g) ? g : throw new InvalidOperationException("the area's generals were not kept");
+    }
 
     /// <summary>Saves the area's generals (call under lock(g)); only on a change, never per frame.</summary>
     static void Keep(Player player, AreaGenerals g)
@@ -203,7 +206,7 @@ static class LegionGenerals
         double now = global::Game.AreaTime(player);
         var monsters = player.Area.Monsters;
         List<(Mount Mount, SpawnedMonster? Corpse, int Step)>? dismount = null;
-        List<(Rider Rider, SpawnedMonster? Body, SpawnedMonster? Self, bool Gone)>? riders = null;
+        List<RiderWork>? riders = null;
         List<PendingClone>? clones = null;
         List<(Expiring E, bool Remove)>? expiring = null;
         bool changed = false;
@@ -231,12 +234,7 @@ static class LegionGenerals
                 if (due > mount.Step) { (dismount ??= []).Add((mount, m, due)); changed = true; }
             }
             foreach (var r in g.Riders.Values)
-            {
-                monsters.TryGetValue(r.Body, out var body);
-                monsters.TryGetValue(r.Id, out var self);
-                bool gone = body is null || body.Dead || body.Life == 0 || self is null;
-                (riders ??= []).Add((r, body, self, gone));
-            }
+                if (CheckRider(player, g, r, now) is { } work) { (riders ??= []).Add(work); changed |= work.Gone || work.Cloned; }
             for (int i = g.Pending.Count - 1; i >= 0; i--)
                 if (now >= g.Pending[i].At) { (clones ??= []).Add(g.Pending[i]); g.Pending.RemoveAt(i); changed = true; }
             // A clone plays its dying state, then goes; the bird goes at once.
@@ -252,16 +250,19 @@ static class LegionGenerals
                     changed = true;
                 }
             }
-            foreach (var (e, remove) in expiring ?? [])
-                if (remove && g.Riders.Values.FirstOrDefault(r => r.Id == e.Owner) is { } owner) owner.Clones = Math.Max(0, owner.Clones - 1);
+            if (expiring is not null)
+                foreach (var (e, remove) in expiring)
+                    if (remove && g.Riders.Values.FirstOrDefault(r => r.Id == e.Owner) is { } owner) owner.Clones = Math.Max(0, owner.Clones - 1);
+            if (riders is not null)
+                foreach (var work in riders)
+                    if (work.Gone) g.Riders.Remove(work.Rider.Body);
             if (ended is not null) { foreach (uint id in ended) g.Mounts.Remove(id); changed = true; }
             if (changed) Keep(player, g);
         }
         if (dismount is not null)
             foreach (var (mount, corpse, step) in dismount) await Dismount(player, g, mount, corpse, step, now);
         if (riders is not null)
-            foreach (var (r, body, self, gone) in riders)
-                await StepRider(player, g, r, body, self, gone, now);
+            foreach (var work in riders) await StepRider(player, work, now);
         if (clones is not null)
             foreach (var pending in clones) await SpawnClone(player, g, pending, now);
         if (expiring is not null)
@@ -351,45 +352,56 @@ static class LegionGenerals
         return id;
     }
 
-    /// <summary>The rider: gone with its Fish; else on the Fish's cell, its own teleports held (the Fish is the one that moves), and a
-    /// water clone queued when its mortar was fired.</summary>
-    static async Task StepRider(Player player, AreaGenerals g, Rider r, SpawnedMonster? body, SpawnedMonster? self, bool gone, double now)
+    /// <summary>What a rider's frame must still do outside the lock: go with its Fish, follow it, or tell of a queued clone.</summary>
+    sealed record RiderWork(Rider Rider, SpawnedMonster? Self, bool Gone, (int X, int Y)? Move, bool Cloned);
+
+    /// <summary>The rider's frame under lock(g) (null, and no allocation, when there is nothing to send): gone with its Fish; else its own
+    /// teleports held (the Fish is the one that moves), a follow when the Fish moved, and a water clone queued when its mortar was fired.</summary>
+    static RiderWork? CheckRider(Player player, AreaGenerals g, Rider r, double now)
     {
-        if (gone)
-        {
-            lock (g) { if (!g.Riders.Remove(r.Body)) return; Keep(player, g); }
-            if (self is not null) await LegionRevive.Remove(player, [r.Id]);
-            Module?.Log($"Hyrri: the body 0x{r.Body:x} is {(body is null ? "gone" : "dead")}: rider 0x{r.Id:x} removed");
-            return;
-        }
-        foreach (var entry in self!.Kit)
-            if (entry.IsTeleport) self.KitReadyAt[entry.Effect] = now + 0.5;   // within the cooldown (Choose reads it as used long ago)
+        var monsters = player.Area.Monsters;
+        monsters.TryGetValue(r.Body, out var body);
+        monsters.TryGetValue(r.Id, out var self);
+        if (body is null || body.Dead || body.Life == 0 || self is null) return new RiderWork(r, self, true, null, false);
+        // Held within its cooldown, refreshed only as it runs out (Choose reads it as used long ago); one write per quarter second.
+        var kit = self.Kit;
+        for (int k = 0; k < kit.Count; k++)
+            if (kit[k].IsTeleport && (!self.KitReadyAt.TryGetValue(kit[k].Effect, out double held) || held < now + 0.25))
+                self.KitReadyAt[kit[k].Effect] = now + 0.5;
         (int X, int Y)? move = null;
         bool clone = false;
-        lock (g)
+        var at = body.Walk.Position(now);
+        if (at != self.Walk.Position(now) && now - r.FollowedAt >= FollowSeconds) { r.FollowedAt = now; move = at; }
+        if (r.Mortar >= 0 && self.KitReadyAt.TryGetValue(r.Mortar, out double used) && used != r.MortarUsed)
         {
-            var at = body!.Walk.Position(now);
-            if (at != self.Walk.Position(now) && now - r.FollowedAt >= FollowSeconds) { r.FollowedAt = now; move = at; }
-            if (r.Mortar >= 0 && self.KitReadyAt.GetValueOrDefault(r.Mortar, double.NegativeInfinity) is var used && used != r.MortarUsed)
+            r.MortarUsed = used;
+            if (self.Target is { } target && r.Clones < MaxClones)
             {
-                r.MortarUsed = used;
-                if (self.Target is { } target && r.Clones < MaxClones)
-                {
-                    var (tx, ty) = target.Walk.Position(now);
-                    var rng = global::Game.AreaRng(player);
-                    g.Pending.Add(new PendingClone { Rider = r.Id, X = tx + rng.Next(-CloneScatter, CloneScatter + 1), Y = ty + rng.Next(-CloneScatter, CloneScatter + 1), At = now + CloneFlightSeconds });
-                    r.Clones++;
-                    clone = true;
-                }
-                Keep(player, g);
+                var (tx, ty) = target.Walk.Position(now);
+                var rng = global::Game.AreaRng(player);
+                g.Pending.Add(new PendingClone { Rider = r.Id, X = tx + rng.Next(-CloneScatter, CloneScatter + 1), Y = ty + rng.Next(-CloneScatter, CloneScatter + 1), At = now + CloneFlightSeconds });
+                r.Clones++;
+                clone = true;
             }
         }
-        if (move is var (x, y))
+        return move is null && !clone ? null : new RiderWork(r, self, false, move, clone);
+    }
+
+    static async Task StepRider(Player player, RiderWork work, double now)
+    {
+        var r = work.Rider;
+        if (work.Gone)
+        {
+            if (work.Self is not null) await LegionRevive.Remove(player, [r.Id]);
+            Module?.Log($"Hyrri: the body 0x{r.Body:x} is dead or gone: rider 0x{r.Id:x} removed");
+            return;
+        }
+        if (work.Move is var (x, y) && work.Self is { } self)
         {
             self.Walk.Teleport(x, y, now);
             await LegionOutput.ToArea(player, p => global::Game.SendWorldRecord(p, r.Id, InstanceProtocol.Teleport(r.Id, x, y), null));
         }
-        if (clone) Module?.Log($"Hyrri: rider 0x{r.Id:x} fired its water clone mortar: a clone in {CloneFlightSeconds} s");
+        if (work.Cloned) Module?.Log($"Hyrri: rider 0x{r.Id:x} fired its water clone mortar: a clone in {CloneFlightSeconds} s");
     }
 
     /// <summary>A water clone where the mortar landed (GUESS: near the target), hittable, no AI; it plays <c>dying</c> at its end.</summary>
