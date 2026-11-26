@@ -866,6 +866,10 @@ public static partial class Game
         AttributeDefenceSources.Apply(sources, Stats, finalAttributes.Strength);
         LevelItemSources.Apply(sources, Stats, sourcesKey.Level);
         OwnedCountItemStats.Apply(sources, Stats, sourcesKey.Amounts);
+        if (sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) is int flasklessSpeed and not 0
+            && !conditionFlags.GetValueOrDefault(StatConditions.DuringAnyFlaskEffect))
+            sources[Stat.BaseMovementVelocityPlusPct] = ActorScale.Add(Stat.BaseMovementVelocityPlusPct,
+                sources.GetValueOrDefault(Stat.BaseMovementVelocityPlusPct), flasklessSpeed);
         ApplyRecentSavageHitItemStats(sources, Stats, sourcesKey.Flags);
         ApplyFlaggedItemStats(sources, sourcesKey.Flags);
         if (recentAmounts.GetValueOrDefault(StatConditions.DetonatedMine) is long mines and > 0)

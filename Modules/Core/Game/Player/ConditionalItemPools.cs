@@ -254,7 +254,7 @@ public static partial class Game
         public int CheckedTattooRevision = -1;
         public int CheckedLevel;
         public bool CheckedGod;
-        public bool HasConditionalMods;
+        public bool HasConditionalPools;
         public bool HasBeastCompanions;
         public long ItemStatRevision = GameEvents.ItemStatSources.Revision;
     }
@@ -327,14 +327,14 @@ public static partial class Game
         long itemStatRevision = GameEvents.ItemStatSources.Revision;
         bool providersChanged = state.ItemStatRevision != itemStatRevision;
         // Fast path: when equipment, passives, level, god mode, and StatSourcesCache are unchanged, and no worn item
-        // carries a conditional mod or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
+        // carries a conditional pool modifier or beast companion, skip rebuilding EquipmentStatSources on every incoming hit.
         if (!providersChanged && cached is not null && ReferenceEquals(state.Applied, cached)
             && state.CheckedInventoryMutations == invMutations
             && state.CheckedPassivesCount == passivesCount
             && state.CheckedTattooRevision == tattooRevision
             && state.CheckedLevel == level
             && state.CheckedGod == god
-            && !state.HasConditionalMods
+            && !state.HasConditionalPools
             && !state.HasBeastCompanions
             && !HasAnyBeastCompanionState(player)
             && state.AppliedElusive == elusive
@@ -352,7 +352,8 @@ public static partial class Game
             state.CheckedTattooRevision = tattooRevision;
             state.CheckedLevel = level;
             state.CheckedGod = god;
-            state.HasConditionalMods = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            state.HasConditionalPools = current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+                || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
                 || WornHasConditionalMods(player, current.Worn);
             state.HasBeastCompanions = HasAnyBeastCompanionState(player)
                 || AllWornGrantedSkillsOf(player).Any(g => BeastSourceEligible(player, g));
@@ -370,6 +371,7 @@ public static partial class Game
         // After a Game-module reload the source marker is new but the connection's old final pools survive.
         // Rebuild conditional equipment on first observation instead of accepting an already-expired old bonus.
         bool conditionalEquipment = before is null && (current.Key.Flags?.ContainsKey(StatConditions.CelestialBossInPresence) == true
+            || current.Sources.GetValueOrDefault(Stat.MovementSpeedPlusPctWhileNotUsingFlask) != 0
             || current.Worn.Any(w => w.Item.Mods.Any(m =>
             ItemsFor(player).Mods.ByHash(m.Hash)?.Stats.Any(s => !s.Local
                 && (StatConditions.Of(s.Name, default) != StatConditions.State.None
