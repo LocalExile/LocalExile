@@ -5,7 +5,10 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or ArcSurgingEffect;
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or ArcSurgingEffect
+            || ShockNovaEffect(effect);
+
+    static bool ShockNovaEffect(string? effect) => effect is "ShockNova" or "ShockNovaAltX" or "ShockNovaRoyale";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
         SkillsFor(player).EffectId(effect) == "ShockNovaAltX"
@@ -62,11 +65,12 @@ public static partial class Game
                 if (direction == default) direction = (1, 0);
                 int Radius(int baseRadius) => SkillRadius(Player, baseRadius, source.Stats, true, gem.Effect, caster);
                 void Hit((int X, int Y) centre, int radius, double more = 1,
-                    Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false) =>
+                    Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
+                    int extraShockChance = 0) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
-                        hitAndAilmentMore: beidatMore));
+                        hitAndAilmentMore: beidatMore, extraShockChance: extraShockChance));
 
                 if (effect == "LightningConduitAltX")
                 {
@@ -98,19 +102,24 @@ public static partial class Game
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
-                else if (effect == "ShockNovaAltX")
+                else if (ShockNovaEffect(effect))
                 {
-                    int rings = ShockNovaProcessionRepeats(Player, gem.Effect, gem.Level, gem.Quality) + 1;
+                    int total = ShockNovaProcessionRepeats(Player, gem.Effect, gem.Level, gem.Quality) + 1;
                     int radius = Radius(26), ringOuter = Radius(20), ringInner = Radius(13);
-                    // The authored repeat count is independent of Spell Echo. The pulse spacing is a local estimate.
-                    for (int pulse = 0; pulse < rings; pulse++)
+                    int ringShockChance = Own(Stat.ShockNovaRingChanceToShockPlusPct);
+                    double ringDamage = Math.Max(0, 1 + Own(Stat.NewshocknovaFirstRingDamagePlusPctFinal) / 100d);
+                    // The base pair uses the same collision sizes and timing estimates as Procession.
+                    // The intrinsic repeat count is independent of Spell Echo.
+                    for (int pulse = 0; pulse < total; pulse++)
                     {
                         double offset = pulse * ringOuter;
                         var centre = (from.X + (int)Math.Round(offset * direction.X), from.Y + (int)Math.Round(offset * direction.Y));
                         long due = Runtime.Now + ProjectileRuntime.Time(pulse * .16);
                         Runtime.Schedule(due, () =>
                         {
-                            if (CurrentSource()) Hit(centre, ringOuter, targetFilter: (_, at) => Dist(at, centre) >= ringInner, centred: true);
+                            if (CurrentSource()) Hit(centre, ringOuter, ringDamage,
+                                targetFilter: (_, at) => Dist(at, centre) >= ringInner, centred: true,
+                                extraShockChance: ringShockChance);
                         });
                         Runtime.Schedule(due + ProjectileRuntime.Time(.045), () =>
                         {

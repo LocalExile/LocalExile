@@ -313,7 +313,7 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0)
+        bool areaHit = false, int glacialFreezeMore = 0, int extraShockChance = 0)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -364,7 +364,7 @@ public static partial class Game
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
+            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch
