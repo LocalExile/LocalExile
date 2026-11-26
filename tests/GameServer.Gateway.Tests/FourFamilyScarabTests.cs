@@ -3,6 +3,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 using GameServer.Modules.Legion;
 using GameServer.Modules.Abyss;
+using GameServer.Modules.Mercenary;
 
 namespace GameServer.Gateway.Tests;
 
@@ -47,6 +48,19 @@ public sealed class FourFamilyScarabTests
         Assert.Equal(3, LegionScarabs.Rewards(2, 100));
         Assert.Equal(200, LegionScarabs.Difficulty(2, true));
         AbyssModule.LoadData();
+        MercenaryModule.LoadData();
+        foreach (string leaf in Enumerable.Range(1, 4).Select(i => $"ScarabMercenaries{i}"))
+        {
+            var request = Input(leaf); MercenaryModule.Opening(request); Assert.Empty(request.UnhandledContent);
+        }
+        for (int seed = 0; seed < 20; seed++)
+        {
+            var pick = MercenaryTables.Pick(new Random(seed), true)!.Value;
+            Assert.True(pick.Build.Infamous);
+            var worn = MercenaryEquipment.Roll(pick.Kind, pick.Build, 83, new Random(seed), true, Game.UniquesFor(player));
+            Assert.True(worn.Count >= 8);
+            Assert.All(worn, w => { Assert.Equal(ItemRarity.Unique, w.Item.Rarity); Assert.Equal(w.Item.VisualIdentity, w.Look.VisualIdentity); Assert.NotEmpty(w.Item.Payload()); });
+        }
         foreach (string leaf in Enumerable.Range(1, 4).Select(i => $"ScarabAbyss{i}").Concat(Enumerable.Range(1, 5).Select(i => $"ScarabAbyssNew{i}")))
         {
             var request = Input(leaf); AbyssScarabs.Opening(request); Assert.Empty(request.UnhandledContent);

@@ -40,7 +40,8 @@ public sealed class MercenaryTests
     public async Task A_mercenary_is_placed_for_the_instance_talked_to_duelled_and_hired()
     {
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
-        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapMercenaryLeague] = 1 });
+        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapMercenaryLeague] = 1,
+            [Stat.MapMercenariesAreInfamous] = 1, [Stat.MapMercanaryAccompaniedByParty] = 1, [Stat.MapMercenaryAllUniqueItems] = 1 });
         var instance = new InstanceState();
         var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7061, 70, stats);
@@ -64,6 +65,8 @@ public sealed class MercenaryTests
             await GameEvents.RunAreaPopulated(new AreaPopulated(owner.Player, 70, (int)seed, []));
             var placed = Read();
             Assert.Equal(MercenaryModule.Stage.Met, placed.Stage);
+            Assert.True(MercenaryTables.BuildOf(placed.Build)!.Infamous);
+            Assert.All(placed.Equipment, item => Assert.Equal(ItemRarity.Unique, item.Item.Rarity));
             var met = owner.Player.Area.Monsters[placed.Body];
             Assert.False(met.Hostile);
             Assert.True(met.Scripted);
@@ -87,6 +90,8 @@ public sealed class MercenaryTests
             owner.Player.Clock.Start();
             var work = GameEvents.AreaTickWork(owner.Player);
             await GameEvents.RunAreaTick(work, owner.Player, 3.0);
+            Assert.Equal(2, Read().Wilds.Count);
+            Assert.All(Read().Wilds, wild => { Assert.True(owner.Player.Area.Monsters[wild.Body].Hostile); Assert.NotEmpty(wild.Equipment); Assert.All(wild.Equipment, item => Assert.Equal(ItemRarity.Unique, item.Item.Rarity)); });
 
             // The friendly one is gone and its hostile twin fights.
             var duel = Read();

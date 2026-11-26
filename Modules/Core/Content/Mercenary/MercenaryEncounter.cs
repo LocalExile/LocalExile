@@ -38,19 +38,25 @@ public sealed partial class MercenaryModule
         {
             if (run.Rolled) return;
             run.Rolled = true;
+            run.Level = area.Level; run.Seed = area.Seed;
         }
-        long chance = ChanceOf(layout.Id, LeagueFor(player).HardMode, AreaLeagueStats(player));
+        var stats = AreaLeagueStats(player);
+        long chance = ChanceOf(layout.Id, LeagueFor(player).HardMode, stats);
         bool placed = chance >= 100 || chance > 0 && new Random(area.Seed ^ RollTag).Next(100) < chance;
         var rng = new Random(area.Seed ^ PlanTag);
-        if (placed && MercenaryTables.Pick(rng) is { } pick
+        if (placed && MercenaryTables.Pick(rng, stats.GetValueOrDefault(Stat.MapMercenariesAreInfamous) > 0) is { } pick
             && AreaPopulation.EncounterSpot(area, area.Taken, rng) is { } at)
             await Spawn(player, run, pick.Kind, pick.Build, at, area.Level, area.Seed);
+        Save(player, run);
     }
 
     // ---- the mercenary --------------------------------------------------------------------------------------------------------
 
-    static IReadOnlyList<VisibleItem> GearOf(MercenaryTables.Class kind, MercenaryTables.Build build, byte level, int seed) =>
-        MercenaryGear.Of(kind, build, level, new Random(unchecked(seed * 397 ^ build.Row)));
+    static IReadOnlyList<VisibleItem> GearOf(MercenaryTables.Class kind, MercenaryTables.Build build, byte level, int seed, Run? run = null)
+    {
+        var looks = MercenaryGear.Of(kind, build, level, new Random(unchecked(seed * 397 ^ build.Row)));
+        return run is { Equipment.Count: > 0 } ? MercenaryEquipment.Looks(run.Equipment, looks) : looks;
+    }
 
     /// <summary>The variety's own StateMachine with these values, all kept as sent (the client takes the type's default for a state
     /// the update does not mark).</summary>
@@ -90,7 +96,9 @@ public sealed partial class MercenaryModule
         {
             return false;
         }
-        var gear = GearOf(kind, build, level, seed);
+        if (run.Equipment.Count == 0) run.Equipment = MercenaryEquipment.Roll(kind, build, level, new Random(unchecked(seed * 397 ^ build.Row)),
+            AreaLeagueStats(player).GetValueOrDefault(Stat.MapMercenaryAllUniqueItems) > 0, UniquesFor(player));
+        var gear = GearOf(kind, build, level, seed, run);
         await SendRulesets(player, kind, gear);
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
             scripted: true, ownedLooks: gear, shape: m => m with
@@ -153,6 +161,7 @@ public sealed partial class MercenaryModule
     /// id; that one goes and the mercenary is placed again.</summary>
     async Task Enter(Player player)
     {
+        if (Peek(player) is { } existing) RebindWilds(player, existing);
         if (Peek(player) is not { Stage: not Stage.None } run
             || MercenaryTables.ClassOf(run.Class) is not { } kind || MercenaryTables.BuildOf(run.Build) is not { } build) return;
         if (run.Body != 0 && run.Stage is Stage.Met or Stage.Talk or Stage.Countdown)
@@ -175,7 +184,7 @@ public sealed partial class MercenaryModule
             }
             Register(player, run);
         }
-        await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed));
+        await SendRulesets(player, kind, GearOf(kind, build, run.Level, run.Seed, run));
     }
 
     async Task Remove(Player player, uint id)
@@ -266,6 +275,12 @@ public sealed partial class MercenaryModule
     /// the quiet state, then the switch to the duel, at the frames the official duels show.</summary>
     async Task Tick(Player player, double seconds)
     {
+        if (!player.Paused && IsMonsterRunner(player) && Peek(player) is { WildsPlanned: false } pending)
+        {
+            await PlaceWilds(player, pending, new AreaPopulated(player, pending.Level, pending.Seed, []),
+                AreaLeagueStats(player), new Random(pending.Seed ^ PlanTag));
+            Save(player, pending);
+        }
         if (player.Paused || Peek(player) is not { Stage: Stage.Countdown } run || !IsMonsterRunner(player)) return;
         lock (run)
         {
@@ -327,7 +342,7 @@ public sealed partial class MercenaryModule
             || !Alive(player)) return false;
         uint old = run.Body;
         uint id = await SpawnMonster(player, variety, run.Level, MonsterRarity.Unique, run.X, run.Y,
-            ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
+            ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), extraMods: MercenaryEquipment.Effects(run.Equipment), shape: m => m with
             {
                 StateMachine = duel, MercenaryBuild = build.Hash16, HasDialogue = false, NpcFlags = 0,
             }, ownedKit: KitOf(player, variety, build, run.Level, run.Seed));
@@ -372,7 +387,7 @@ public sealed partial class MercenaryModule
             || Monsters.Find(kind.AlliedPath) is not { Supported: true } allied
             || States(allied, MercenaryWire.HiredStates) is not { } hired) return;
         uint id = await SpawnMonster(player, allied, run.Level, MonsterRarity.Unique, at.X, at.Y, friendly: true, instanceOwned: true,
-            scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed), shape: m => m with
+            scripted: true, ownedLooks: GearOf(kind, build, run.Level, run.Seed, run), shape: m => m with
             {
                 Team = MercenaryWire.AlliedTeam, StateMachine = hired, MercenaryBuild = build.Hash16, NpcFlags = 0, InteractionFlags = 1,
             });
