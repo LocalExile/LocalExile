@@ -51,6 +51,12 @@ public sealed class LoginServerSession(AccountService accounts)
         // "Leagues with progress" (0x140d166d0 → 0x140cc82a0): consecutive (source, parent) league pairs a character
         // could migrate progress from. Empty shows "There are no available leagues to migrate progress from."
         EmptyMessage { MessageId: 0x19 } => Session is null ? [] : [new LeaguesWithProgress(0, LeaguesWithProgressList())],
+        // Private / event league pagination (sender 0x1421473d0, caller 0x1408b4400): (limit, offset = login+0xe58) → S→C 0x1b (Append = true).
+        TwoU16 { MessageId: LeaguePageRequestId } m => LeaguePage(m),
+        // Single-character league migration (sender 0x1421476c0, caller 0x1408b4220): wstr characterName → 0x15 + 0x44.
+        WStringMessage { MessageId: MigrateCharacterId } m => MigrateCharacter(m.Text),
+        // Migrate All league progress & characters (sender 0x1421477b0, callers 0x1408b4220 / 0x140d26870): wstr leagueName → 0x15 + 0x44.
+        WStringMessage { MessageId: MigrateLeagueAllId } m => MigrateAll(m.Text),
         _ => [],
     };
 
@@ -181,8 +187,17 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>C→S 0x3d: rename a character (old name, new name, bool flag); answered with S→C 0x3e (u16 result, bool flag).</summary>
     public const ushort RenameCharacterId = 0x3d, RenameCharacterResultId = 0x3e;
 
+    /// <summary>C→S 0x1c: private/event league pagination (u16 limit, u16 offset = login+0xe58); answered with S→C 0x1b (Append = true).</summary>
+    public const ushort LeaguePageRequestId = 0x1c;
+
+    /// <summary>C→S 0x3f (single character) / 0x40 (Migrate All league) → S→C 0x15 + S→C 0x44 (u16 result; non-zero shows MigrationFailedTitle at 0x140d16fa0).</summary>
+    public const ushort MigrateCharacterId = 0x3f, MigrateLeagueAllId = 0x40, MigrateResultId = 0x44;
+
     /// <summary>BackendErrors row 15 + 1 ("CharacterDoesNotExist"); the delete screen shows any non-zero code's text.</summary>
     public const ushort ResultCharacterDoesNotExist = 16;
+
+    /// <summary>BackendErrors row 568 + 1 ("ActionTemporarilyDisabled": "This action has been temporarily disabled.").</summary>
+    public const ushort ResultActionTemporarilyDisabled = 569;
 
     /// <summary>Called with the deleted character's name (GameServer.Auth: sets its save aside).</summary>
     public Action<string>? CharacterDeleted { get; init; }
@@ -192,6 +207,9 @@ public sealed class LoginServerSession(AccountService accounts)
 
     /// <summary>Called with (oldName, newName) after a character rename commits (GameServer.Auth: migrates any legacy JSON save).</summary>
     public Action<string, string>? CharacterRenamed { get; init; }
+
+    /// <summary>Called with (characterName, sourceLeague, targetLeague) after a character league migration commits.</summary>
+    public Action<string, string, string>? CharacterMigrated { get; init; }
 
     /// <summary>Change password (0x0a) → 0x0b result 0 (ChangePasswordScreen 0x140cf3650 clears saved password and
     /// succeeds), or BackendErrors code on invalid old password.</summary>
@@ -257,6 +275,8 @@ public sealed class LoginServerSession(AccountService accounts)
         if (Session is null) return [];
         var league = Leagues.Find(m.League);
         if (league is null) return [new CreateCharacterResult(ResultLeagueDoesNotExist, false)];
+        if (league.Private && !league.PasswordMatches(m.PasswordDigest))
+            return [new CreateCharacterResult(ResultInvalidPassword, false)];
         if (ClassOf(m) is not { } cls) return [new CreateCharacterResult(ResultInvalidClass, false)];
         string name = m.Name.Trim();
         if (name.Length < 3) return [new CreateCharacterResult(ResultCharacterNameTooShort, false)];
@@ -304,6 +324,39 @@ public sealed class LoginServerSession(AccountService accounts)
             if (v <= (uint)CharacterClass.Shadow) return (CharacterClass)v;
         return null;
     }
+
+    private ILoginMessage[] LeaguePage(TwoU16 m)
+    {
+        if (Session is null) return [];
+        var page = Leagues.PrivateEntries(offset: m.B, limit: m.A);
+        return [new LeagueList(DateTimeOffset.UtcNow.ToUnixTimeSeconds(), page, false, Append: true)];
+    }
+
+    private ILoginMessage[] MigrateCharacter(string rawName)
+    {
+        if (Session is null) return [];
+        string name = rawName.Trim();
+        var c = accounts.Characters(Session.AccountId)
+            .FirstOrDefault(ch => string.Equals(ch.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (c is null || c.HardcoreDeath?.PermanentlyDead == true)
+            return [new U16Message(MigrateResultId, ResultCharacterDoesNotExist)];
+        if (string.Equals(CharacterName, c.Name, StringComparison.OrdinalIgnoreCase) || IsCharacterActive?.Invoke(c.Name) == true)
+            return [new U16Message(MigrateResultId, ResultLeagueDoesNotExist)];
+        if (Leagues.FindLoaded(c.League) is not { Parent: { Length: > 0 } parentName } source
+            || string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)
+            || Leagues.FindLoaded(parentName) is not { } parent
+            || !SupportsManualProgressMigration(source, parent))
+            return [new U16Message(MigrateResultId, ResultLeagueDoesNotExist)];
+        var r = accounts.MigrateCharacterLeague(Session.AccountId, c.Id, parent.Name);
+        if (!r.Ok) return [new U16Message(MigrateResultId, ResultCharacterDoesNotExist)];
+        CharacterMigrated?.Invoke(c.Name, source.Name, parent.Name);
+        return [CharacterList(), new U16Message(MigrateResultId, ResultOk)];
+    }
+
+    // Bulk Migrate All (C→S 0x40) requires atomic league-stash, gold, Delve, quest-flag, and module-data transfer
+    // across Auth and Gateway caches; refuse cleanly with ActionTemporarilyDisabled without moving any characters.
+    private ILoginMessage[] MigrateAll(string rawLeague) =>
+        Session is null ? [] : [new U16Message(MigrateResultId, ResultActionTemporarilyDisabled)];
 
     /// <summary>
     /// Builds the S→C 0x1a (<see cref="LeaguesWithProgress"/>) vector for C→S 0x19. The client migration panel

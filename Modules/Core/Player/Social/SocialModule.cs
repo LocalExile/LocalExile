@@ -58,6 +58,18 @@ public sealed class SocialModule : IModule
             await PartyRoster.SetPublicParty(player, desc, flag);
             return true;
         });
+        GameEvents.Packet(InstanceSocial.PublicPartiesRefreshId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            byte filter = InstanceSocial.ReadPublicPartiesRefresh(bytes);
+            await PartyRoster.SendPublicParties(player, filter);
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.PublicPartyInspectId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            uint partyId = InstanceSocial.ReadPublicPartyInspect(bytes);
+            await PartyRoster.InspectPublicParty(player, partyId);
+            return true;
+        });
         GameEvents.Packet(InstanceSocial.HideoutInviteId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await FriendsFeature.InviteToHideout(player, InstanceSocial.ReadHideoutInvite(bytes).Name);
@@ -66,6 +78,11 @@ public sealed class SocialModule : IModule
         GameEvents.Packet(InstanceSocial.DuelChallengeId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await FriendsFeature.ChallengeDuel(player, InstanceSocial.ReadDuelChallenge(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceSocial.DuelResponseId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await PvpQueue.RespondToChallenge(player, InstanceSocial.ReadDuelResponse(bytes));
             return true;
         });
         GameEvents.PartyInvite.Add(module.Manifest.Id, PartyRoster.InviteHuman);

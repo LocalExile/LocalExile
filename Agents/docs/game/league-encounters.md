@@ -93,5 +93,5 @@ at the area's monster level.
 The mercenary is the instance's. It waits friendly and scripted (team 70, `encounter_state` 1), a click opens the panel,
 the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54 frames, the friendly one is replaced by a
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
-mercenary is placed or a player enters. Not built: the build's own skills, the hire following and fighting for the player,
+mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.

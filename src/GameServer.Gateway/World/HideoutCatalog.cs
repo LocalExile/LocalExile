@@ -26,6 +26,10 @@ public static class HideoutCatalog
     public const string DefaultArea = "HideoutForest";
     public const string CraftingBenchType = "Metadata/Terrain/Missions/Hideouts/Objects/HideoutCraftingBench";
     public const string ItemDisplayCaseType = "Metadata/MiscellaneousObjects/Hideout/ItemDisplayCase";
+    public const string MannequinMaleType = "Metadata/MiscellaneousObjects/Hideout/MannequinMale";
+
+    public static bool IsMannequin(string? type) =>
+        type is { Length: > 0 } && (type == MannequinMaleType || type.Contains("Mannequin", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The standard bench, to the screen-left of the guild stash in the isometric grid.</summary>
     public static Doodad? BenchBesideGuild(Hideout hideout, int guildX, int guildY, Func<int, int, bool>? walkable)
