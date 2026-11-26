@@ -87,8 +87,7 @@ public sealed class ApparitionEffect : IShrineEffect
     {
         if (!profile.Claimed)
             return ShrineManager.NearbyPlayers(player, origin, 70).MinBy(p => Dist(origin, p.Walk.Position(now)))?.Walk.Position(now);
-        return player.Area.MonstersNear(origin, 70).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }
-            && !p.Value.NoRewards && !double.IsPositiveInfinity(p.Value.BusyUntil))
+        return player.Area.MonstersNear(origin, 70).Where(p => MinionMayTarget(p.Value) && !p.Value.NoRewards)
             .MinBy(p => Dist(origin, p.Value.Walk.Position(now))).Value?.Walk.Position(now);
     }
 
