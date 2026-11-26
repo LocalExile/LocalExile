@@ -169,6 +169,7 @@ public static partial class Game
                     return use with { Profile = profile };
                 }
                 var shot = (ProjectileOffense)use.Payload!;
+                if (effect is "Soulrend" or "SoulrendAltY") return SoulrendRelease(context, use, shot, Get);
                 if (GatewayProjectileSkillProfiles.UnearthEffect(effect))
                 {
                     int level = Math.Clamp(context.Own(Stat.UnearthBaseCorpseLevel)

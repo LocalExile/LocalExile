@@ -68,6 +68,7 @@ public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Int
 {
     /// <summary>Whether each selected hit uses area damage modifiers.</summary>
     public bool AreaDamage { get; init; } = true;
+    public ProjectileHitRule? HitRule { get; init; }
 }
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)

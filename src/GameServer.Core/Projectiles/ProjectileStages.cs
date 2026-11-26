@@ -26,7 +26,7 @@ public sealed partial class ProjectileRuntime
         if (p.Profile.Pulse is { } pulse)
         {
             if (pulse.Interval <= 0) throw new ArgumentOutOfRangeException(nameof(pulse));
-            var rule = p.Profile.HitRule;
+            var rule = pulse.HitRule ?? p.Profile.HitRule;
             long group = rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId;
             void Pulse()
             {

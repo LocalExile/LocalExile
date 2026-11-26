@@ -17,6 +17,7 @@ static partial class Game
 
     /// <summary>Whether the debuff icon is shown on affected monsters (false: the damage and spread only).</summary>
     const bool ContagionBuffShown = false;
+    sealed record AreaChaosDot(SpawnedMonster Monster, MonsterContagion Damage);
 
     // More multipliers for an area spell's chaos damage over time.
     static readonly uint[] ChaosAreaDotSupportMore =
@@ -255,7 +256,7 @@ static partial class Game
 
     internal static async Task TickContagions(Player player)
     {
-        if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area)) return;
+        if (!MonsterContagion.AnyApplied && !HasPestilentDamage(player.Area) && !HasSoulrendDamage(player.Area)) return;
         var hits = new List<(uint Id, SpawnedMonster M, uint Life, int Damage, Player? Owner, string Effect)>();
         using (ProjectileMutation(player))
         {
@@ -272,12 +273,17 @@ static partial class Game
                     }
                 }
             if (PestilentDots.TryGetValue(player.Area, out var pestilent))
+                TickIndexed(pestilent, "Pestilent Strike", PestilentStrikeDamageRow);
+            if (SoulrendDots.TryGetValue(player.Area, out var soulrend))
+                TickIndexed(soulrend, "Soulrend", SoulrendBuffRow);
+
+            void TickIndexed(Dictionary<uint, AreaChaosDot> dots, string by, ushort row)
             {
                 List<uint>? expired = null;
-                foreach (var (id, entry) in pestilent)
+                foreach (var (id, entry) in dots)
                 {
                     if (player.Area.Monsters.GetValueOrDefault(id) == entry.Monster)
-                        Tick(id, entry.Monster, entry.Damage, "Pestilent Strike", PestilentStrikeDamageRow);
+                        Tick(id, entry.Monster, entry.Damage, by, row);
                     else
                     {
                         (expired ??= []).Add(id);
@@ -285,13 +291,13 @@ static partial class Game
                     }
                     if (entry.Damage.Idle) (expired ??= []).Add(id);
                 }
-                if (expired is not null) foreach (uint id in expired) pestilent.Remove(id);
+                if (expired is not null) foreach (uint id in expired) dots.Remove(id);
             }
 
             void Tick(uint id, SpawnedMonster m, MonsterContagion dot, string by, ushort row = 0)
             {
                 if (dot.Idle) return;
-                var previous = row == PestilentStrikeDamageRow ? dot.Active : null;
+                var previous = row is PestilentStrikeDamageRow or SoulrendBuffRow ? dot.Active : null;
                 int damage = 0;
                 if (m.Dead || m.Life == 0) dot.Clear();
                 else damage = dot.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now));
@@ -323,6 +329,12 @@ static partial class Game
                 {
                     if (m.Dead || m.Life == 0 || !ReferenceEquals(previous, dot.Active))
                         PresentPestilentDamage(player, id, m, dot, now);
+                    return;
+                }
+                if (row == SoulrendBuffRow)
+                {
+                    if (m.Dead || m.Life == 0 || !ReferenceEquals(previous, dot.Active))
+                        PresentSoulrendDamage(player, id, dot, now);
                     return;
                 }
                 if (row != ContagionBuffRow) return;

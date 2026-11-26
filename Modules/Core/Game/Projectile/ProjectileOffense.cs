@@ -43,6 +43,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterPoisons.Settings Poison { get; init; }
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+    internal MonsterContagion.Cast? Soulrend { get; init; }
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
@@ -166,6 +167,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
         Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
         HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+        Soulrend = Soulrend is { } cast ? cast with { DamagePerSecond = cast.DamagePerSecond * more } : null,
     };
 
     static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
