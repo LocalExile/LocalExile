@@ -126,8 +126,7 @@ public sealed class ScarabEncounterTests
         await using var owner = await Wire.Open(instance, layout, seed);
         await using var peer = await Wire.Open(instance, layout, seed);
         var shrineLifetime = new ModuleLifetime("scarab-regression");
-        var shrineContext = System.Reflection.DispatchProxy.Create<IModuleContext, SurvivorsLeagueTests.HookContext>();
-        ((SurvivorsLeagueTests.HookContext)(object)shrineContext).Lifetime = shrineLifetime;
+        var shrineContext = new ShrineContext(shrineLifetime);
         new ShrinesModule().Load(shrineContext);
         try
         {
@@ -382,6 +381,17 @@ public sealed class ScarabEncounterTests
         MapScarabContent.Describe(terrors);
         MapScarabBosses.Opening(terrors);
         Assert.Empty(terrors.UnhandledContent);
+    }
+
+    sealed class ShrineContext(ModuleLifetime lifetime) : IModuleContext
+    {
+        public ModManifest Manifest => new(lifetime.Id, "0", ModKind.Feature, [], "shrines.dll");
+        public IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public T Settings<T>() => System.Text.Json.JsonSerializer.Deserialize<T>("{}")!;
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<LeagueRules> rules) { }
+        public void Log(string message) { }
     }
 
     internal sealed class Wire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
