@@ -346,6 +346,7 @@ public static partial class Game
             TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
+        if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable)
             LoseLifeOnCriticalStrikeLocked(player, Player(Stat.LosePctOfLifeOnCrit), now);
