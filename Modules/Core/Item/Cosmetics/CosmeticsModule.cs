@@ -427,7 +427,7 @@ public static class CosmeticsFeature
     {
         if (targetId == 0 || !OwnHideout(player) || player.Closed || player.LeavingArea) return;
         var saved = global::Game.LoadMannequin(player, targetId);
-        var (worn, extras) = global::Game.ResolveMannequinSlots(saved);
+        var (worn, extras) = global::Game.ResolveMannequinSlots(saved, s => LocalShopFeature.ResolveSaved(player, s));
         byte flags = (byte)(saved.DisplayFlags | InstanceMicrotransactions.DefaultFlags);
         await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, flags),
             $"0x006a mannequin 0x{targetId:x} snapshot ({worn.Count} worn, {extras.Count} extra, flags=0x{flags:x2})", still: still);
@@ -584,7 +584,7 @@ public static class CosmeticsFeature
         });
         player.Character.CosmeticPortalVariation = newPortalVariation;
         player.Character.WornCosmetics = null;
-        var (worn, extras) = global::Game.ResolveMannequinSlots(updated);
+        var (worn, extras) = global::Game.ResolveMannequinSlots(updated, s => LocalShopFeature.ResolveSaved(player, s));
         byte flags = (byte)(updated.DisplayFlags | InstanceMicrotransactions.DefaultFlags);
         await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, flags),
             $"0x006a mannequin 0x{targetId:x} swapped with {character} ({worn.Count} worn)");

@@ -59,7 +59,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   The login screen's New Account button launches a browser URL and sends no login packet.
   See [01](../docs/protocol/01-login.md).
 
-- Single-character migration (`0x3f`), `0x1c` private paging, and disabled `0x40` (`569`) are built ([01](../docs/protocol/01-login.md) §7).
+- Leagues with progress (`0x19` → `0x1a`), single-character migration (`0x3f`), and `0x1c` private paging are built;
+  bulk Migrate All (`0x40`) returns disabled (`569`) without moving characters ([01](../docs/protocol/01-login.md) §7).
 - One connection per character: a newer login ends the older connection and loads the character after it saved; an
   area change is not a second login (not checked with two clients in the real game).
 - Selected league modes have server rules with automated coverage and native entry, exit and migration checks.

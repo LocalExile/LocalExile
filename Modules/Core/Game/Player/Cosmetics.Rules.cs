@@ -57,12 +57,24 @@ public static partial class Game
     }
 
     public static (List<InstanceMicrotransactions.Equipped> Worn, List<InstanceMicrotransactions.ExtraSlot> Extras)
-        ResolveMannequinSlots(SavedMannequin mannequin)
+        ResolveMannequinSlots(SavedMannequin mannequin, Func<CharacterSaves.SavedCosmetic, InstanceMicrotransactions.Record?>? resolve = null)
     {
-        var worn = mannequin.Worn is { Count: > 0 } ? Mtx.Equipped(mannequin.Worn) : [];
+        resolve ??= Mtx.Resolve;
+        var worn = new List<InstanceMicrotransactions.Equipped>();
+        if (mannequin.Worn is { Count: > 0 })
+        {
+            foreach (var (slot, saved) in mannequin.Worn.Where(w => w.Key < InstanceMicrotransactions.SlotCount).OrderBy(w => w.Key))
+            {
+                var record = resolve(saved);
+                if (record is not null)
+                    worn.Add(new InstanceMicrotransactions.Equipped(slot, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
+                else if (slot == InstanceMicrotransactions.PortalSlot && saved is { Record: 0, Option: 1 or 2 })
+                    worn.Add(new InstanceMicrotransactions.Equipped(slot, 0, 0, 0, saved.Option));
+            }
+        }
         var extras = new List<InstanceMicrotransactions.ExtraSlot>();
         foreach (var saved in mannequin.Extras ?? [])
-            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(saved.Record, saved.Option, saved.Hash)) is { } record)
+            if (resolve(new CharacterSaves.SavedCosmetic(saved.Record, saved.Option, saved.Hash)) is { } record)
                 extras.Add(new InstanceMicrotransactions.ExtraSlot(saved.Key, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
         return (worn, extras);
     }

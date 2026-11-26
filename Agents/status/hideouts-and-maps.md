@@ -248,11 +248,10 @@ Part of [Status](../Status.md); what to build next in this area is in
   The map-device underfoot escape and walking through its released old position were verified in the client.
   Extracted AO hull radii cover small and large map devices; persistence and clearance have automated coverage.
   Map-device, Nessa and stash movement/rotation and reconnect persistence were verified in the real client.
-  Placing/reclaiming/resetting custom decorations (`C→S 0x59`/`0x5d`/`0x5e`, capped at 750; `0x5a` guild placement refused),
-  emitting `S→C 0x214` in-use decoration record bits,
   The Decorations panel loads its list in the owner's hideout (0x21 own-hideout bit; it stayed on "Loading…" without it,
   live 2026-11-22). Placing (`C→S 0x59` by owned record, `0x5a` by hash), deleting (`0x5c` Delete key, `0x5d`) and
   resetting (`0x5e`) custom decorations, capped at 750, are saved per account; pets stand as ownerless pet objects.
+  Entry, placement, removal, layout import (`0x0213`), and reset emit `S→C 0x0214` in-use decoration record updates.
   A placed map device variant replaces the working device, with its button from MapDevices.dat, a blocker that stops
   short of the button, and its model's own portal places or ring radius; the Puzzle Cube is refused.
   `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),

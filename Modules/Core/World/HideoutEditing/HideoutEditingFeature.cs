@@ -23,18 +23,13 @@ static class HideoutEditingFeature
             await Send(member, InstanceHideoutEditing.RebuildCollision(), reason);
     }
 
-    static async Task SendInUseDecorations(Player player, bool inUse, IEnumerable<uint> hashes, bool broadcast = false)
+    static async Task SendInUseDecorations(Player player, bool inUse, IEnumerable<uint> hashes)
     {
         if (HideoutCatalog.ByArea(player.Layout.Hash) is not { } hideout || hideout.Row is < 0 or > ushort.MaxValue) return;
         uint[] recordIds = [.. hashes.Distinct().Select(h => Mtx.ByHash(h)?.Id ?? 0u).Where(id => id != 0)];
         if (recordIds.Length == 0) return;
-        byte[] packet = InstanceHideoutEditing.InUseDecorations((ushort)hideout.Row, inUse, recordIds);
-        string log = $"0x0214 hideout {hideout.Row} decorations inUse={inUse} ({recordIds.Length} record(s))";
-        if (broadcast)
-            foreach (var member in AreaPlayers(player))
-                await Send(member, packet, log);
-        else
-            await Send(player, packet, log);
+        await Send(player, InstanceHideoutEditing.InUseDecorations((ushort)hideout.Row, inUse, recordIds),
+            $"0x0214 hideout {hideout.Row} decorations inUse={inUse} ({recordIds.Length} record(s))");
     }
 
     static bool PlacementInBounds(AreaLayout layout, int x, int y)
@@ -740,6 +735,8 @@ static class HideoutEditingFeature
             }
 
         removedHashes.ExceptWith(spawnedHashes);
+        if (importedDevice is null && previousDeviceHash is uint keptDev && keptDev != 0)
+            removedHashes.Remove(keptDev);
         if (removedHashes.Count > 0) await SendInUseDecorations(player, inUse: false, removedHashes);
         if (spawnedHashes.Count > 0) await SendInUseDecorations(player, inUse: true, spawnedHashes);
 
