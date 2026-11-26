@@ -31,6 +31,8 @@ public static class GatewayProjectileSkillProfiles
     internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     internal static bool IsBlazingSalvo(string? effect) => effect is "BlazingSalvo" or "BlazingSalvoRoyale";
+    internal static bool IsSelfThrownSpectralWeapon(string? effect) =>
+        effect is "SpectralThrow" or "SpectralThrowAltX" or "SpectralThrowRoyale";
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
     internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
     internal static bool IsHolyFlameTotem(string? effect) =>
@@ -240,7 +242,7 @@ public static class GatewayProjectileSkillProfiles
                 p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
         }
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
-        if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
+        if (effect is "SpectralThrow" or "SpectralThrowRoyale") p = p with { Pierce = -1, Returns = true };
         if (effect == "SpectralThrowAltX")
         {
             int repeatMs = get(Stat.SpectralThrowForgetHitListTimeOverride);
