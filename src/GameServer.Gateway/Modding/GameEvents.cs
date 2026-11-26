@@ -726,9 +726,9 @@ public static class GameEvents
     /// or null to leave the default crafting roll unchanged.</summary>
     public static readonly GameEvent<Func<Player, Item, uint, Random, Task<Item?>>> CurrencyCrafting = new();
     /// <summary>Adjust the death experience penalty percentage (0..100) before XP is deducted.</summary>
-    public static readonly GameEvent<Func<Player, int, Task<int>>> DeathPenaltyPct = new();
+    public static readonly GameEvent<Func<Player, decimal, Task<decimal>>> DeathPenaltyPct = new();
     /// <summary>Fired after player death presentation has been sent.</summary>
-    public static readonly GameEvent<Func<Player, Task>> PlayerDied = new();
+    public static readonly GameEvent<Func<Player, uint, Task>> PlayerDied = new();
     /// <summary>Fired after a character level-up has been published.</summary>
     public static readonly GameEvent<Func<Player, int, Task>> PlayerLevelUp = new();
     /// <summary>Request opening a town portal at (x, y) on behalf of a player (e.g., on-death or item effects); true when handled.</summary>
@@ -896,23 +896,23 @@ public static class GameEvents
         return null;
     }
 
-    public static async Task<int> ResolveDeathPenaltyPct(Player player, int percent)
+    public static async Task<decimal> ResolveDeathPenaltyPct(Player player, decimal percent)
     {
         if (!DeathPenaltyPct.Any) return percent;
         foreach (var (owner, run) in DeathPenaltyPct.Subscribers(player))
         {
-            int next = percent;
+            decimal next = percent;
             if (await GameEventOwners.Guard(owner, nameof(DeathPenaltyPct), async () => next = await run(player, percent)))
                 percent = Math.Clamp(next, 0, 100);
         }
         return percent;
     }
 
-    public static async Task RunPlayerDied(Player player)
+    public static async Task RunPlayerDied(Player player, uint experienceLost)
     {
         if (!PlayerDied.Any) return;
         foreach (var (owner, run) in PlayerDied.Subscribers(player))
-            await GameEventOwners.Guard(owner, nameof(PlayerDied), () => run(player));
+            await GameEventOwners.Guard(owner, nameof(PlayerDied), () => run(player, experienceLost));
     }
 
     public static async Task RunPlayerLevelUp(Player player, int level)

@@ -189,6 +189,22 @@ public class RitualTests
             Assert.All(altar.Tied, id => Assert.True(player.Area.Monsters.TryGetValue(id, out var m) && m.Life > 0));
             Assert.Equal(RitualEncounter.Inactive, altar.State);
 
+            await using (var avenger = await ScarabEncounterTests.Wire.Open(instance, layout, seed))
+            {
+                uint id = altar.Tied.First();
+                var monster = player.Area.Monsters[id];
+                var at = monster.Walk.Position(Game.AreaTime(player));
+                avenger.Player.Walk.Teleport(at.X, at.Y, Game.AreaTime(avenger.Player));
+                uint before = monster.Life;
+                Game.ItemsOf(avenger.Player).Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(Program.Items.Find(RitualOmens.Revenge)!));
+                using var moreTaken = MonsterModEffects.HandOverMore([], [], [Stat.DamageTakenPlusPctFinalFromAncestralOmen]);
+                double oldFactor = monster.Effects.DamageTaken(false);
+                await RitualOmens.OnPlayerDied(avenger.Player, 100);
+                Assert.Equal(before, monster.Life);
+                Assert.Equal(oldFactor * 1.25, monster.Effects.DamageTaken(false), 6);
+            }
+
+            player.Clock.Start(); // Opening the second test connection pauses the shared instance clock.
             foreach (uint id in altar.Tied) player.Area.Monsters[id].Life = 0;
             await encounter.Advance(player, 0.25);
             Assert.Equal(RitualEncounter.Ready, altar.State);
@@ -368,17 +384,82 @@ public class RitualTests
                 }
             }
 
+            var chromatic = Program.Items.Find(CurrencyEffects.ChromaticOrb)!.Hash;
+            var tri = Program.Items.Find(RitualOmens.Trichromatism)!;
+            inv.Add(PlayerInventories.MainInventory, 5, 0, ItemCatalog.Create(tri));
+            Assert.Null(await RitualOmens.OnCurrencyCrafting(player, unlinked, chromatic, new Random(1)));
+            // Returning to the same instance still counts the previous Omen.
+            await using var rejoined = await ScarabEncounterTests.Wire.Open(instance, layout, seed, player.Character.Name);
+            Assert.Null(await RitualOmens.OnCurrencyCrafting(rejoined.Player, unlinked, chromatic, new Random(1)));
+            await using var nextArea = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed, player.Character.Name);
+            var coloured = await RitualOmens.OnCurrencyCrafting(nextArea.Player, unlinked, chromatic, new Random(1));
+            Assert.NotNull(coloured);
+            Assert.Equal([SocketColour.Red, SocketColour.Green, SocketColour.Blue], coloured.Sockets.Take(3).Select(s => s.Colour).Order());
+            Assert.Equal(SocketColour.Abyss, coloured.Sockets[3].Colour);
+
             // Omen of Refreshment: refills flasks in-place via GainFlaskCharges (preserving item ID and per-flask MaxCharges).
             var flaskType = Program.Items.Find("Metadata/Items/Flasks/FlaskLife1")!;
-            var addedFlask = inv.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(flaskType) with { Charges = 0 });
+            await using var fresh = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed);
+            var lowLife = fresh.Player;
+            var bag = Game.ItemsOf(lowLife);
+            var addedFlask = bag.Add(PlayerInventories.Flask, 0, 0, ItemCatalog.Create(flaskType) with { Charges = 0 });
             var refreshOmen = Program.Items.Find(RitualOmens.Refreshment)!;
-            inv.Add(PlayerInventories.MainInventory, 2, 0, ItemCatalog.Create(refreshOmen));
-            player.Pools = Game.PoolsFor(player, 70);
-            player.PlayerLife = Math.Max(1u, player.PlayerMaxLife / 5);
-            await RitualOmens.Tick(player);
-            var refilledFlask = inv.Items(PlayerInventories.Flask).Single(i => i.X == 0);
+            bag.Add(PlayerInventories.MainInventory, 2, 0, ItemCatalog.Create(refreshOmen));
+            lowLife.Pools = Game.PoolsFor(lowLife, 70);
+            lowLife.PlayerLife = Math.Max(1u, lowLife.PlayerMaxLife / 5);
+            await RitualOmens.Tick(lowLife);
+            var refilledFlask = bag.Items(PlayerInventories.Flask).Single(i => i.Id == addedFlask.Id);
             Assert.Equal(addedFlask.Id, refilledFlask.Id);
             Assert.Equal(Program.Items.FlaskChargesOf(flaskType)!.MaxCharges, refilledFlask.Item.Charges);
+
+            await using (var heir = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed))
+            {
+                var gear = Game.ItemsOf(heir.Player);
+                var fireball = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Gems/SkillGemFireball")!) with { GemExperience = 0 };
+                var wand = ItemCatalog.Create(Program.Items.Find("Metadata/Items/Weapons/OneHandWeapons/Wands/Wand1")!)
+                    with { Sockets = [new(SocketColour.Blue, fireball)] };
+                gear.Put(PlayerInventories.Weapon1, new InventoryItem(gear.NewItemId(), 0, 0, wand));
+                gear.Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(Program.Items.Find(RitualOmens.Bequeathal)!));
+                await RitualOmens.OnPlayerDied(heir.Player, 10);
+                Assert.Equal(30, gear.Items(PlayerInventories.Weapon1).Single().Item.Sockets[0].Gem!.GemExperience);
+            }
+            await using (var pilgrim = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed))
+            {
+                Game.ItemsOf(pilgrim.Player).Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(Program.Items.Find(RitualOmens.Acceleration)!));
+                await RitualOmens.OnLevelUp(pilgrim.Player, 70);
+                Assert.Single(pilgrim.Player.Instance!.ContentState.Keys, k => k.StartsWith("Shrines/id/", StringComparison.Ordinal));
+            }
+
+            foreach (var (penalty, remaining) in new[] { (5, 1.25m), (10, 2.5m) })
+            {
+                await using var death = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed);
+                Game.ItemsOf(death.Player).Add(PlayerInventories.MainInventory, 0, 0,
+                    ItemCatalog.Create(Program.Items.Find(RitualOmens.Amelioration)!));
+                Assert.Equal(remaining, await RitualOmens.OnDeathPenaltyPct(death.Player, penalty));
+            }
+
+            foreach (var (omenId, stat, expected) in new[]
+            {
+                (RitualOmens.DeathDancing, Stat.AvoidDamagePct, 75),
+                (RitualOmens.Resurgence, Stat.DamageTakenGoesToLifeOver4SecondsPct, 100),
+                (RitualOmens.Adrenaline, Stat.DamagePlusPct, 100),
+                (RitualOmens.Brilliance, Stat.ExperienceGainPlusPct, 100),
+                (RitualOmens.SoulDevourer, Stat.MapPlayerConsumeNearbySouls, 1)
+            })
+            {
+                await using var recipient = await ScarabEncounterTests.Wire.Open(new InstanceState(), layout, seed);
+                var subject = recipient.Player;
+                Game.ItemsOf(subject).Add(PlayerInventories.MainInventory, 0, 0, ItemCatalog.Create(Program.Items.Find(omenId)!));
+                subject.PlayerLife = 1;
+                if (omenId == RitualOmens.Brilliance || omenId == RitualOmens.SoulDevourer)
+                    await RitualOmens.OnLevelUp(subject, 70);
+                else
+                    await RitualOmens.Tick(subject);
+                var sheet = new StatSheet(subject);
+                RitualOmens.ApplyStats(sheet);
+                Assert.Equal(expected, sheet.Added.GetValueOrDefault(stat));
+                Assert.Equal(1u, subject.PlayerLife);
+            }
         }
         finally
         {

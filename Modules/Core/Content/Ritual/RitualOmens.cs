@@ -7,13 +7,7 @@ namespace GameServer.Modules.Ritual;
 
 /// <summary>
 /// Implements all 16 Ritual Omens (<c>Metadata/Items/Currency/AncestralOmen*</c>):
-/// <list type="bullet">
-/// <item>Crafting (4): Fortune (Chance→Unique), Jeweller (max sockets), Connections (full links), Trichromatism (3 white sockets).</item>
-/// <item>On Death (4): Amelioration (-75% XP loss), Return (town portal at death), Revenge (nearby enemies take heavy burst), Bequeathal (gem XP).</item>
-/// <item>Critical / Low Life &lt;= 25% (5): Death-dancing (avoid damage 3s), Refreshment (refill flasks), Resurgence (recover life), Adrenaline (20s Adrenaline), Death's Door (3s phys immunity).</item>
-/// <item>Level Up (3): Soul Devourer (60s Soul Eater), Acceleration (45s Acceleration Shrine), Brilliance (180s +100% XP).</item>
-/// </list>
-/// Enforces retail's 1 Omen consumed per combat area rule (crafting Omens in town/hideout are unlimited).
+/// Each character can consume one Omen per combat instance.
 /// </summary>
 public static class RitualOmens
 {
@@ -42,12 +36,10 @@ public static class RitualOmens
         public bool ConsumedInArea;
         public double DeathDancingUntil;
         public double AdrenalineUntil;
-        public bool AdrenalineActive;
-        public double AccelerationUntil;
-        public bool AccelerationActive;
+        public double ResurgenceUntil;
+        public double ShadeFormUntil;
+        public double NextStatExpiry;
         public double SoulEaterUntil;
-        public int SoulEaterStacks;
-        public int PublishedSoulEaterStacks;
         public double BrillianceUntil;
         public long CachedInventoryMutation = -1;
         public bool HasLowLifeOmen;
@@ -62,12 +54,6 @@ public static class RitualOmens
     static bool IsCombatArea(Player player) =>
         !InTown(player) && HideoutCatalog.ByArea(player.Layout.Hash) is null;
 
-    static bool CanConsume(Player player, bool combatLimit)
-    {
-        if (!combatLimit || !IsCombatArea(player)) return true;
-        return !StateOf(player).ConsumedInArea;
-    }
-
     static bool HasOmen(Player player, string omenId)
     {
         var items = ItemsOf(player);
@@ -78,19 +64,33 @@ public static class RitualOmens
         return false;
     }
 
-    static async Task<bool> TryConsumeOmen(Player player, string omenId, bool combatLimit = true)
+    static async Task<bool> TryConsumeOmen(Player player, string omenId)
     {
-        if (!CanConsume(player, combatLimit)) return false;
+        bool limited = IsCombatArea(player);
+        var state = StateOf(player);
+        if (limited && state.ConsumedInArea) return false;
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
         if (catalog.Find(omenId) is not { } type) return false;
         foreach (byte row in BagRows)
         {
+            if (row == PlayerInventories.ExpandedInventory && !ExpandedInventoryGranted(player)) continue;
             var found = items.Items(row).FirstOrDefault(i => i.Item.TypeHash == type.Hash);
             if (found is null) continue;
+            string key = $"Ritual/omen/{CharacterName(player)}";
+            var instance = limited ? player.Instance : null;
+            if (instance is not null && !instance.ContentState.TryAdd(key, "1"))
+            {
+                state.ConsumedInArea = true;
+                return false;
+            }
             var taken = items.ConsumeOne(row, found.Id);
-            if (taken is null) continue;
-            if (combatLimit && IsCombatArea(player)) StateOf(player).ConsumedInArea = true;
+            if (taken is null)
+            {
+                instance?.ContentState.TryRemove(key, out _);
+                continue;
+            }
+            if (limited) state.ConsumedInArea = true;
             await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row),
                 items.NextRevision(row), [found.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf Omen consumed: {type.Name}");
@@ -156,7 +156,7 @@ public static class RitualOmens
                 }
                 def ??= candidates[random.Next(candidates.Count)].Def;
                 if (UniquesFor(player).Create(def, random) is { } created
-                    && await TryConsumeOmen(player, Fortune, combatLimit: false))
+                    && await TryConsumeOmen(player, Fortune))
                     return created with { ItemLevel = target.ItemLevel, Quality = target.Quality, Sockets = target.Sockets, Links = target.Links };
             }
         }
@@ -171,7 +171,7 @@ public static class RitualOmens
                 && ItemModStats.Local(target, catalog.Mods).ContainsKey(Stat.LocalCannotHaveNonAbyssalSockets);
             if (!blockedByAbyssOnly && maxSockets > 0 && target.Sockets.Count < Math.Min(maxSockets, capacity)
                 && target.Sockets.All(s => s.Gem is null)
-                && await TryConsumeOmen(player, Jeweller, combatLimit: false))
+                && await TryConsumeOmen(player, Jeweller))
             {
                 var req = catalog.Requirements(targetType);
                 int ordinaryCount = Math.Max(0, maxSockets - abyss.Length);
@@ -191,32 +191,30 @@ public static class RitualOmens
             var fullLinks = MaxLinkLayout(target.Sockets);
             bool alreadyFull = target.Links is { } curLinks && curLinks.SequenceEqual(fullLinks);
             bool hasLinkablePair = fullLinks.Any(g => g >= 2);
-            if (hasLinkablePair && !alreadyFull && await TryConsumeOmen(player, Connections, combatLimit: false))
+            if (hasLinkablePair && !alreadyFull && await TryConsumeOmen(player, Connections))
                 return target with { Links = fullLinks };
         }
 
-        // Omen of Trichromatism: Chromatic Orb -> up to 3 ordinary sockets become white (Abyssal sockets stay intact).
-        if (curr.Id == CurrencyEffects.ChromaticOrb && target.Sockets.Count >= 1)
+        if (curr.Id == CurrencyEffects.ChromaticOrb)
         {
-            var ordinary = Enumerable.Range(0, target.Sockets.Count)
-                .Where(i => target.Sockets[i].Colour != SocketColour.Abyss).ToArray();
-            if (ordinary.Length > 0 && await TryConsumeOmen(player, Trichromatism, combatLimit: false))
+            var sockets = target.Sockets.ToArray();
+            var ordinary = Enumerable.Range(0, sockets.Length)
+                .Where(i => sockets[i].Colour is SocketColour.Red or SocketColour.Green or SocketColour.Blue or SocketColour.White).ToArray();
+            if (ordinary.Length >= 3 && await TryConsumeOmen(player, Trichromatism))
             {
+                random.Shuffle(ordinary);
                 var req = catalog.Requirements(targetType);
-                int whitesRemaining = Math.Min(3, ordinary.Length);
-                var next = new List<ItemSocket>(target.Sockets.Count);
-                for (int i = 0; i < target.Sockets.Count; i++)
+                for (int i = 0; i < ordinary.Length; i++)
                 {
-                    var existing = target.Sockets[i];
-                    if (existing.Colour == SocketColour.Abyss)
+                    var colour = i switch
                     {
-                        next.Add(existing);
-                        continue;
-                    }
-                    var colour = whitesRemaining-- > 0 ? SocketColour.White : SocketColours.Colour(req, random);
-                    next.Add(new ItemSocket(colour, existing.Gem));
+                        0 => SocketColour.Red, 1 => SocketColour.Green, 2 => SocketColour.Blue,
+                        _ => SocketColours.Colour(req, random)
+                    };
+                    int index = ordinary[i];
+                    sockets[index] = sockets[index] with { Colour = colour };
                 }
-                return target with { Sockets = next };
+                return target with { Sockets = sockets };
             }
         }
 
@@ -245,15 +243,15 @@ public static class RitualOmens
 
     // ---- 2. On-Death Omens (DeathPenaltyPct + PlayerDied) --------------------------------------------------------------
 
-    public static async Task<int> OnDeathPenaltyPct(Player player, int percent)
+    public static async Task<decimal> OnDeathPenaltyPct(Player player, decimal percent)
     {
         if (percent <= 0 || !IsCombatArea(player)) return percent;
         if (await TryConsumeOmen(player, Amelioration))
-            return Math.Max(0, percent * 25 / 100); // 75% less XP lost
+            return percent / 4; // 75% less XP lost
         return percent;
     }
 
-    public static async Task OnPlayerDied(Player player)
+    public static async Task OnPlayerDied(Player player, uint experienceLost)
     {
         if (!IsCombatArea(player)) return;
         // Omen of Return: open a town portal at death location.
@@ -263,25 +261,20 @@ public static class RitualOmens
             await GameEvents.RequestPortal(player, at.X, at.Y, "Omen of Return");
             return;
         }
-        // Omen of Revenge: blast nearby enemies around death position.
         if (await TryConsumeOmen(player, Revenge))
         {
             var at = player.Walk.Position(AreaTime(player));
-            foreach (var (_, m) in player.Area.MonstersNear(at, 50))
-            {
-                if (!m.Hostile || m.Dead || m.Life == 0) continue;
-                uint dmg = Math.Max(1u, m.MaxLife / 3);
-                m.Life = m.Life > dmg ? m.Life - dmg : 1;
-            }
+            foreach (var (_, monster) in player.Area.MonstersNear(at, 50))
+                if (monster.Hostile && !monster.Dead && monster.Life > 0 && Dist(at, monster.Walk.Position(AreaTime(player))) <= 50)
+                    monster.SetTemporaryStats("Ritual/Revenge", RevengeStats);
             return;
         }
-        // Omen of Bequeathal: grant bonus experience to socketed gems (persisted & synced via GainGemExperience).
-        if (await TryConsumeOmen(player, Bequeathal))
-        {
-            uint bonus = (uint)Math.Clamp(player.Pools.Level * 25000L, 10000, 5_000_000);
-            await GainGemExperience(player, bonus);
-        }
+        if (experienceLost > 0 && await TryConsumeOmen(player, Bequeathal))
+            await GrantGemExperience(player, (int)Math.Min(int.MaxValue, 3L * experienceLost));
     }
+
+    static readonly IReadOnlyDictionary<uint, int> RevengeStats =
+        new Dictionary<uint, int> { [Stat.DamageTakenPlusPctFinalFromAncestralOmen] = 25 };
 
     // ---- 3. Critical Life (<= 25%) Omens & Timed Buff Refresh (checked in AreaTick) ------------------------------------
 
@@ -291,39 +284,28 @@ public static class RitualOmens
         var st = StateOf(player);
         double now = AreaTime(player);
 
-        // Refresh client stats whenever a timed Omen buff expires or Soul Eater stacks change (independent of ConsumedInArea).
-        bool adrenalineNow = now < st.AdrenalineUntil;
-        bool accelNow = now < st.AccelerationUntil;
-        int soulStacksNow = now < st.SoulEaterUntil ? st.SoulEaterStacks : 0;
-        if (adrenalineNow != st.AdrenalineActive || accelNow != st.AccelerationActive || soulStacksNow != st.PublishedSoulEaterStacks)
+        if (st.NextStatExpiry > 0 && now >= st.NextStatExpiry)
         {
-            st.AdrenalineActive = adrenalineNow;
-            st.AccelerationActive = accelNow;
-            st.PublishedSoulEaterStacks = soulStacksNow;
+            st.NextStatExpiry = 0;
             await SendCharacterStats(player, PlayerStatChange.Build);
         }
 
         if (player.PlayerLife == 0) return;
+        if (st.ConsumedInArea) return;
         var items = ItemsOf(player);
         if (items.Mutations != st.CachedInventoryMutation)
         {
             st.CachedInventoryMutation = items.Mutations;
             st.HasLowLifeOmen = HasAnyOmen(player, LowLifeOmens);
         }
-        if (!st.HasLowLifeOmen || st.ConsumedInArea) return;
+        if (!st.HasLowLifeOmen) return;
         if (player.PlayerMaxLife == 0 || player.PlayerLife * 4 > player.PlayerMaxLife) return;
 
         // Priority order: Resurgence -> Refreshment -> Adrenaline -> Death's Door -> Death-dancing.
         if (await TryConsumeOmen(player, Resurgence))
         {
-            var stats = CharacterPlayerStats(player);
-            int ceilingPct = PetrifiedBlood.RecoveryCeilingPct(k => stats.GetValueOrDefault(k));
-            uint cap = LifeCap(player);
-            if (ceilingPct is > 0 and < 100)
-                cap = Math.Min(cap, Math.Max(player.PlayerLife, (uint)((long)player.PlayerMaxLife * ceilingPct / 100)));
-            if (player.PlayerLife < cap) player.PlayerLife = cap;
-            player.Frames.Area?.Life.Resend(player);
-            await Send(player, InstanceChat.ChatLine("Omen of Resurgence restored your Life!"), "0x0017 Omen of Resurgence");
+            st.NextStatExpiry = st.ResurgenceUntil = now + 4;
+            await SendCharacterStats(player, PlayerStatChange.Build);
         }
         else if (await TryConsumeOmen(player, Refreshment))
         {
@@ -331,18 +313,21 @@ public static class RitualOmens
         }
         else if (await TryConsumeOmen(player, Adrenaline))
         {
-            st.AdrenalineUntil = now + 20.0;
-            st.AdrenalineActive = true;
-            player.Area.Buffs.Set(player.Id, new(RitualTables.AdrenalineBuffRow, player.Id, U68: Buff.Seconds(20.0)));
+            st.NextStatExpiry = st.AdrenalineUntil = now + 10;
+            player.Area.Buffs.Set(player.Id, new(RitualTables.AdrenalineBuffRow, player.Id, U68: Buff.Seconds(10)));
             await SendCharacterStats(player, PlayerStatChange.Build);
         }
         else if (await TryConsumeOmen(player, DeathsDoor))
         {
+            st.NextStatExpiry = st.ShadeFormUntil = now + 3;
+            player.Area.Buffs.Set(player.Id, new(1018, player.Id, U68: Buff.Seconds(3)));
+            await SendCharacterStats(player, PlayerStatChange.Build);
             player.PhysicalImmunityUntil = Math.Max(player.PhysicalImmunityUntil, now + 3.0);
         }
         else if (await TryConsumeOmen(player, DeathDancing))
         {
-            st.DeathDancingUntil = now + 3.0;
+            st.NextStatExpiry = st.DeathDancingUntil = now + 4;
+            await SendCharacterStats(player, PlayerStatChange.Build);
         }
     }
 
@@ -355,19 +340,15 @@ public static class RitualOmens
         var st = StateOf(player);
         if (await TryConsumeOmen(player, SoulDevourer))
         {
-            st.SoulEaterUntil = now + 60.0;
-            st.SoulEaterStacks = 0;
-            st.PublishedSoulEaterStacks = 0;
-        }
-        else if (await TryConsumeOmen(player, Acceleration))
-        {
-            st.AccelerationUntil = now + 45.0;
-            st.AccelerationActive = true;
+            st.NextStatExpiry = st.SoulEaterUntil = now + 300;
             await SendCharacterStats(player, PlayerStatChange.Build);
         }
+        else if (await TryConsumeOmen(player, Acceleration))
+            await GameServer.Modules.Shrines.ShrineManager.SpawnReward(player, "Acceleration");
         else if (await TryConsumeOmen(player, Brilliance))
         {
-            st.BrillianceUntil = now + 180.0;
+            st.NextStatExpiry = st.BrillianceUntil = now + 60;
+            await SendCharacterStats(player, PlayerStatChange.Build);
         }
     }
 
@@ -385,37 +366,10 @@ public static class RitualOmens
             sheet.Add(Stat.BaseMovementVelocityPlusPct, 25);
             sheet.Add(Stat.AdditionalPhysicalDamageReductionPct, 10);
         }
-        if (now < st.AccelerationUntil)
-        {
-            sheet.Add(Stat.BaseMovementVelocityPlusPct, 50);
-            sheet.Add(Stat.AttackSpeedPlusPct, 50);
-            sheet.Add(Stat.BaseCastSpeedPlusPct, 50);
-        }
-        if (now < st.SoulEaterUntil && st.SoulEaterStacks > 0)
-        {
-            int bonus = Math.Min(45, st.SoulEaterStacks) * 5;
-            sheet.Add(Stat.AttackSpeedPlusPct, bonus);
-            sheet.Add(Stat.BaseCastSpeedPlusPct, bonus);
-        }
-    }
-
-    public static int OnIncomingDamage(Player player, int damage)
-    {
-        if (damage > 0 && States.TryGetValue(player, out var st) && AreaTime(player) < st.DeathDancingUntil)
-            return Math.Max(0, damage / 10); // 90% damage avoidance window
-        return damage;
-    }
-
-    public static void OnKill(KillContext kill)
-    {
-        if (!kill.PlayerKill || !States.TryGetValue(kill.Player, out var st)) return;
-        if (AreaTime(kill.Player) < st.SoulEaterUntil && st.SoulEaterStacks < 45)
-            st.SoulEaterStacks++;
-    }
-
-    public static void OnExperience(ExperienceGain gain)
-    {
-        if (States.TryGetValue(gain.Player, out var st) && AreaTime(gain.Player) < st.BrillianceUntil)
-            gain.Experience = (uint)Math.Min(uint.MaxValue, (ulong)gain.Experience * 2UL);
+        if (now < st.SoulEaterUntil) sheet.Add(Stat.MapPlayerConsumeNearbySouls, 1);
+        if (now < st.BrillianceUntil) sheet.Add(Stat.ExperienceGainPlusPct, 100);
+        if (now < st.ResurgenceUntil) sheet.Add(Stat.DamageTakenGoesToLifeOver4SecondsPct, 100);
+        if (now < st.DeathDancingUntil) sheet.Add(Stat.AvoidDamagePct, 75);
+        if (now < st.ShadeFormUntil) sheet.Add(Stat.StealthPlusPct, 100);
     }
 }

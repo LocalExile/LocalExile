@@ -288,7 +288,7 @@ public static partial class Game
         await SendVaalSouls(player);
         await SendRage(player);
         await EndAurasOnDeath(player);
-        int xpPenalty = await GameEvents.ResolveDeathPenaltyPct(player, DeathExperiencePenaltyPercent(player));
+        decimal xpPenalty = await GameEvents.ResolveDeathPenaltyPct(player, DeathExperiencePenaltyPercent(player));
         var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player, xpPenalty);
         if (xpAfter != xpBefore)
             await Send(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
@@ -298,7 +298,7 @@ public static partial class Game
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         int deaths = player.PlayerDeaths;
         await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
-        await GameEvents.RunPlayerDied(player);
+        await GameEvents.RunPlayerDied(player, xpBefore - xpAfter);
     }
 
     public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
@@ -1604,6 +1604,12 @@ public static partial class Game
 
     public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player, int percent)
     {
+        var result = ApplyDeathExperiencePenalty(player, (decimal)percent);
+        return ((int)result.Percent, result.Before, result.After);
+    }
+
+    static (decimal Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player, decimal percent)
+    {
         if (percent <= 0) return (0, player.Character.Experience, player.Character.Experience);
         var updates = LevelUpdatesFor(player);
         uint before, after;
@@ -1619,7 +1625,7 @@ public static partial class Game
                 if (level < 1 || level >= CharacterStats.LevelStarts.Count) return xp;
                 uint floor = CharacterStats.LevelStarts[level - 1];
                 uint next = CharacterStats.LevelStarts[level];
-                ulong loss = (ulong)(next - floor) * (ulong)percent / 100UL;
+                ulong loss = (ulong)((next - floor) * percent / 100);
                 return xp > floor + loss ? (uint)(xp - loss) : floor;
             });
             if (after != before)

@@ -67,8 +67,6 @@ public sealed class RitualModule : IModule
         GameEvents.DeathPenaltyPct.Add(id, RitualOmens.OnDeathPenaltyPct);
         GameEvents.PlayerDied.Add(id, RitualOmens.OnPlayerDied);
         GameEvents.PlayerLevelUp.Add(id, RitualOmens.OnLevelUp);
-        GameEvents.IncomingDamage.Add(id, RitualOmens.OnIncomingDamage);
-        GameEvents.Kill.Add(id, RitualOmens.OnKill);
-        GameEvents.Experience.Add(id, RitualOmens.OnExperience);
+        module.Lifetime.Own(MonsterModEffects.HandOverMore([], [], [Stat.DamageTakenPlusPctFinalFromAncestralOmen]));
     }
 }
