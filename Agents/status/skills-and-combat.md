@@ -340,6 +340,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Shock Nova releases a ring and a larger nova, including when cast by a totem, trap or mine. The ring applies the skill's shock chance, and the maximum shock modifier applies to both contacts.
 - Flame Surge hits forward and uses an existing ignite for burning ground. Combusting uses the ignite it inflicts, with its own creation interval.
 - Glacial Cascade uses the same burst pattern for hand casts, spell totems, traps and mines. Its normal and Royale final bursts are larger and cannot knock back, and earlier bursts limit knockback against unique enemies.
+- Dark Bargain of Trarthus tracks Ruin on the caster. The seventh stack consumes it, sacrifices life and adds base chaos damage to that release.
 - Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets and grants a timed Lucky Arc buff.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.

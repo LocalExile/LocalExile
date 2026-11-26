@@ -5,7 +5,7 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         effect is "CracklingLanceAltX" or "CracklingLanceAltY"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
             || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
@@ -51,11 +51,13 @@ public static partial class Game
                 int Radius(int baseRadius) => SkillRadius(Player, baseRadius, source.Stats, true, gem.Effect, caster);
                 void Hit((int X, int Y) centre, int radius, double more = 1,
                     Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
-                    int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None) =>
+                    int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None,
+                    long baseChaos = 0) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
                         sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
-                        hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst));
+                        hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
+                        baseChaos: baseChaos));
 
                 if (effect == "LightningConduitAltX")
                 {
@@ -87,6 +89,14 @@ public static partial class Game
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
                         sequence, repeat, damageMore, brandedTarget, dotMore);
+                else if (effect == TrarthanBargain)
+                {
+                    long chaos = GainTrarthanRuin(Player, Player.Id, gem.Id, source.Stats,
+                        Player.PlayerLife, Player.PlayerMaxLife, out uint paid);
+                    if (paid > 0) Player.PlayerLife -= paid;
+                    var centre = SpellCentre(Player, gem.Effect, from, aim);
+                    Hit(centre, SkillRadius(Player, source.Stats, spell: true, gem.Effect), centred: true, baseChaos: chaos);
+                }
                 else if (ShockNovaEffect(effect))
                     ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, from, aim, source.Stats, caster, CurrentSource,
                         pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,

@@ -23,7 +23,7 @@ public static partial class Game
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
-    static bool SpellTotemNova(Player player, int effect) => SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY";
+    static bool SpellTotemNova(Player player, int effect) => SkillsFor(player).EffectId(effect) is "IceNova" or "IceNovaAltY" or TrarthanBargain;
 
     static SummonCatalog.Definition? TotemSummon(Player player, int effect) =>
         SummonData.Find(SkillsFor(player).EffectId(effect)) is { Family: not "Clone", Id: not "AnimateWeaponAltX" } summon ? summon : null;
@@ -227,6 +227,9 @@ public static partial class Game
             var golem = GolemData.Find(SkillsFor(player).EffectId(gem.Effect));
             bool nova = SpellTotemNova(player, gem.Effect);
             bool nativeChannel = NativeProjectileTotem(player, gem.Effect);
+            string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            if (effect == TrarthanBargain)
+                range = Math.Min(range, SkillRadius(player, SupportedSkill(player, totem.SkillId).Stats, spell: true, gem.Effect));
             var target = PickSpellTotemTarget(player, totem, range, now, preferSight: !nova && summon is null && golem is null);
             if (target.Monster is null && summon is null && golem is null
                 || TotemCastSeconds(player, totem.SkillId) is not double seconds)
@@ -264,7 +267,6 @@ public static partial class Game
             var session = ProjectilesFor(player);
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
-            string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
             bool arc = ArcProxyEffect(effect);
             bool shockNova = ShockNovaEffect(effect);
             bool cascade = GlacialCascadeEffect(effect);
@@ -320,6 +322,14 @@ public static partial class Game
                         var caster = TotemCasterStats(CharacterPlayerStats(player));
                         ApplyCurseTargetsLocked(player, totem.SkillId, linked, curse, aim, target.Id, releasedAt, caster);
                         session.Enqueue(() => EnemyDebuffsTick(player, releasedAt));
+                    }
+                    else if (effect == TrarthanBargain)
+                    {
+                        var skill = SupportedSkill(player, totem.SkillId);
+                        long chaos = GainTrarthanRuin(player, totem.Id, 0x4000, skill.Stats, totem.Life, totem.MaxLife, out uint paid);
+                        totem.Life -= paid;
+                        int radius = SkillRadius(player, skill.Stats, spell: true, skill.Effect);
+                        TotemNovaLocked(player, session, totem, totem.At, radius, sequence, baseChaos: chaos);
                     }
                     else if (nova)
                     {
