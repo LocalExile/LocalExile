@@ -103,8 +103,10 @@ public static partial class MonsterSkills
                 RallyCharge: rally, RallyCount: count);
         }
         if (IsCorpseSkill(effect)) return CorpseUseOf(skills, effect, level, shape, stats, seconds);
-        ushort row = ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
-            ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
+        ushort row = shape == MonsterSkillShape.Curse && stats.ContainsKey(Stat.TemporalChainsActionSpeedPlusPctFinal)
+            ? AuraCatalog.BuffRow("TemporalChains")
+            : ActionClasses.OfEffect(effect)?.SelfBuff is { } buff && BuffRows.TryGetValue(buff(skills, effect), out ushort own)
+                ? own : BuffRowOf(skills.EffectId(effect) ?? "", shape);
         return shape switch
         {
             MonsterSkillShape.Travel => new(shape, 0, 0, stats, TravelMinRange),
