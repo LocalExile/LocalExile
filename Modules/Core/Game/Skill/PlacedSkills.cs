@@ -687,7 +687,8 @@ public static partial class Game
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
         bool conviction = IsWaveOfConviction(effect);
-        if (bladefall || purifyingFlame || conviction)
+        bool bladeBlast = IsGroundBladeBlast(effect);
+        if (bladefall || purifyingFlame || conviction || bladeBlast)
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
                 : PlacedSpellTarget(player, placed.At, 60, now);
@@ -699,7 +700,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction))
+                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction || bladeBlast))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -740,6 +741,19 @@ public static partial class Game
                         (reach, filter) => PlacedAreaDamageLocked(player, placed, placed.At, reach,
                             ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
                             targetFilter: filter)));
+            }
+            else if (bladeBlast)
+            {
+                var impact = aim;
+                bool Casting() => player.PlayerLife > 0 && Current();
+                session.ScheduleContact(ProjectileRuntime.Time(now), Casting, () =>
+                {
+                    var caster = placed.Offense?.Caster ?? CharacterPlayerStats(player);
+                    var critical = new SkillCriticalRoll(CriticalExtraRollsFor(player, caster, placed.Own));
+                    session.ReleaseBladeBlast(placed.Effect, placed.Own, caster,
+                        impact, Casting, (centre, radius, _) => PlacedAreaDamageLocked(player, placed, centre, radius,
+                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true, sharedCritical: critical));
+                });
             }
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, inventionMore), Current);
@@ -844,7 +858,7 @@ public static partial class Game
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
         (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null,
-        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null)
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -872,7 +886,7 @@ public static partial class Game
         int? vsBlinded = currentSkill ? SupportedCriticalChanceVsBlinded(player, placed.Skill, release: true) : null;
         GroundCritical? vsGround = currentSkill ? SupportedCriticalChanceVsGround(player, placed.Skill, release: true) : null;
         int multiplier = currentSkill ? SupportedCriticalMultiplier(player, placed.Skill) : 100;
-        var criticalRoll = currentSkill ? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
+        var criticalRoll = currentSkill ? sharedCritical ?? new SkillCriticalRoll(CriticalExtraRollsFor(player, owner, placed.Own)) : null;
         bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
             placed.Own, attack, criticalRoll, owner);
         bool hexblast = hexblastTarget.HasValue;
@@ -1110,7 +1124,7 @@ public static partial class Game
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
                     bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect)
-                        || IsPurifyingFlame(effect) || IsWaveOfConviction(effect));
+                        || IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null

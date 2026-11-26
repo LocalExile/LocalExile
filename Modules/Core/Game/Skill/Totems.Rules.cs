@@ -848,7 +848,7 @@ public static partial class Game
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
-        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null)
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -860,7 +860,7 @@ public static partial class Game
         if (damageMore != 1) hit = hit.Scale(damageMore);
         if (hit.IsZero) return;
         var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
-        var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
+        var criticalRoll = sharedCritical ?? CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
         void Contact(uint id, SpawnedMonster m)

@@ -4,7 +4,8 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || IsGroundBladeBlast(effect)
+            || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
@@ -80,6 +81,9 @@ public static partial class Game
                     ReleaseConvictionWave(Player.Id, gem.Effect, source.Stats, caster, origin, aim, CurrentSource,
                         (reach, filter) => Hit(origin, reach, targetFilter: filter, centred: true), repeat);
                 }
+                else if (IsGroundBladeBlast(effect))
+                    ReleaseBladeBlast(gem.Effect, source.Stats, caster, aim, CurrentSource,
+                        (centre, radius, detonation) => Hit(centre, radius, centred: detonation), repeat);
                 else if (effect == "LightningConduitAltX")
                 {
                     int radius = Radius(Own(Stat.ActiveSkillBaseAreaOfEffectRadius));
