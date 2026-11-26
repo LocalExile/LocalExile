@@ -188,13 +188,15 @@ public sealed class MonsterPoisons
     }
 
     /// <summary>Freeze the poison on an accepted death before asynchronous kill presentation can outlive it.</summary>
-    public void RememberDeath(double now)
+    public void RememberDeath(double now) => RememberDeath(now, poisonDeath: false);
+
+    public void RememberDeath(double now, bool poisonDeath)
     {
-        cleared = CaptureDeath(now, now);
+        cleared = (poisonDeath ? advancedDeath : null) ?? CaptureDeath(now, now);
         DiedPoisoned = cleared is not null;
     }
 
-    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest);
+    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest, int Stacks);
     DeathPoison? cleared, advancedDeath;
 
     /// <summary>The death's timestamp and remaining poison damage before target mitigation. A deferred death callback
@@ -205,20 +207,24 @@ public sealed class MonsterPoisons
         return death is { } value ? (value.At, value.Remaining) : null;
     }
 
+    public int StacksAtDeath(double now) => cleared?.Stacks ?? Stacks(now);
+
     DeathPoison? CaptureDeath(double at, double sample)
     {
         (double DamagePerSecond, double Until)? strongest = null;
         double remaining = 0;
+        int count = 0;
         foreach (var poison in active)
         {
             if (poison.From <= at && at < poison.Until)
                 remaining += poison.DamagePerSecond * (poison.Until - at) * expiryRate;
-            if (poison.From <= sample && sample < poison.Until
-                && (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
-                    || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until))
+            if (!(poison.From <= sample && sample < poison.Until)) continue;
+            count++;
+            if (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
+                || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until)
                 strongest = (poison.DamagePerSecond, poison.Until);
         }
-        return strongest is { } best ? new(at, remaining, best) : null;
+        return strongest is { } best ? new(at, remaining, best, count) : null;
     }
 
     /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the
