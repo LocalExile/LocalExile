@@ -2869,7 +2869,7 @@ The Spirit chieftains are the first (section 10f).
   charges skip it; an area change or logout drops it with the connection.
 - AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
-  not one lurking unrisen.
+  one a minion may target: a lurking one is, one a script holds is not.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
   target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
 - Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half

@@ -91,7 +91,7 @@ public static partial class Game
             {
                 (m.LastTarget, m.SwingGeneration) = (null, null);
                 m.ActionGeneration++;
-                if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+                if (double.IsPositiveInfinity(m.BusyUntil)) (m.BusyUntil, m.ScriptHeld) = (now, false);
                 m.Target = player;
             }
             return true;
@@ -119,7 +119,7 @@ public static partial class Game
         {
             (m.LastTarget, m.SwingGeneration) = (null, null);
             m.ActionGeneration++;
-            if (double.IsPositiveInfinity(m.BusyUntil)) m.BusyUntil = now;
+            if (double.IsPositiveInfinity(m.BusyUntil)) (m.BusyUntil, m.ScriptHeld) = (now, false);
         }
         m.Target = player;
         return true;
@@ -231,6 +231,14 @@ public static partial class Game
 
     /// <summary>Whether the monster is out of every player's wake zone (StepAreaWake).</summary>
     public static bool MonsterAsleep(Player player, uint id) => player.Area.Monsters.GetValueOrDefault(id)?.Asleep == true;
+
+    /// <summary>Whether a minion may pick this monster as its target: a living hostile one that can be damaged, is awake and
+    /// is not held by a script. BusyUntil is not asked, so a monster lurking until it rises (hitting it makes it rise) or
+    /// winding up a skill is a target; one a script holds forever (ScriptHeld while BusyUntil is infinite) is not.</summary>
+    public static bool MinionMayTarget(SpawnedMonster m) =>
+        m is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+        && m.Effects[Stat.BaseCannotBeDamaged] == 0
+        && !(m.ScriptHeld && double.IsPositiveInfinity(m.BusyUntil));
 
     // What the area has shown every client once: bosses' life bars and scene objects (by object id).
     sealed class AreaShown
