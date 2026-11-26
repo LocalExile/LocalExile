@@ -2,6 +2,7 @@
 public sealed class WardBreakState
 {
     public double TimedAdrenalineUntil { get; private set; } = double.NegativeInfinity;
+    public uint TimedAdrenalineSource { get; private set; }
     public bool SustainedAdrenaline { get; private set; }
     public double AdrenalineUntil => SustainedAdrenaline ? double.PositiveInfinity : TimedAdrenalineUntil;
     public bool Adrenaline(double now) => now < AdrenalineUntil;
@@ -17,16 +18,23 @@ public sealed class WardBreakState
         Integrate(now);
         if (!alive) { Clear(); return; }
         bool changed = !adrenalineSource && now < TimedAdrenalineUntil || !recoverySource && RecoveryPerSecond(now) > 0;
-        if (!adrenalineSource) TimedAdrenalineUntil = double.NegativeInfinity;
+        if (!adrenalineSource)
+        {
+            TimedAdrenalineUntil = double.NegativeInfinity;
+            TimedAdrenalineSource = 0;
+        }
         if (!recoverySource) recoveryPerSecond = 0;
         if (changed) Changed?.Invoke();
     }
 
     // Adrenaline cannot be gained while already active; repeated Ward breaks never extend it.
-    public bool GrantAdrenaline(double now, int milliseconds)
+    public bool GrantAdrenaline(double now, int milliseconds) => GrantAdrenaline(now, milliseconds, 0);
+
+    public bool GrantAdrenaline(double now, int milliseconds, uint source)
     {
         if (milliseconds <= 0 || Adrenaline(now)) return false;
         TimedAdrenalineUntil = now + milliseconds / 1000d;
+        TimedAdrenalineSource = source;
         Changed?.Invoke();
         return true;
     }
@@ -42,7 +50,7 @@ public sealed class WardBreakState
     {
         if (!SustainedAdrenaline && (!removeTimed || double.IsNegativeInfinity(TimedAdrenalineUntil))) return;
         SustainedAdrenaline = false;
-        if (removeTimed) TimedAdrenalineUntil = double.NegativeInfinity;
+        if (removeTimed && TimedAdrenalineSource == 0) TimedAdrenalineUntil = double.NegativeInfinity;
         Changed?.Invoke();
     }
 
@@ -72,22 +80,27 @@ public sealed class WardBreakState
     {
         bool had = SustainedAdrenaline || double.IsFinite(TimedAdrenalineUntil) || recoveryPerSecond != 0;
         TimedAdrenalineUntil = double.NegativeInfinity;
+        TimedAdrenalineSource = 0;
         SustainedAdrenaline = false;
         recoveryAt = recoveryUntil = recoveryPerSecond = pendingRecovery = 0;
         if (had) Changed?.Invoke();
     }
 
     public readonly record struct Carried(double AdrenalineSeconds, double RecoverySeconds,
-        double RecoveryPerSecond, double PendingRecovery);
+        double RecoveryPerSecond, double PendingRecovery)
+    {
+        public uint AdrenalineSource { get; init; }
+    }
     public Carried Carry(double now)
     {
         Integrate(now);
         return new(Math.Max(0, TimedAdrenalineUntil - now), Math.Max(0, recoveryUntil - now),
-            recoveryPerSecond, pendingRecovery);
+            recoveryPerSecond, pendingRecovery) { AdrenalineSource = TimedAdrenalineSource };
     }
     public void Restore(Carried state, double now)
     {
         Clear(); TimedAdrenalineUntil = now + state.AdrenalineSeconds;
+        TimedAdrenalineSource = state.AdrenalineSource;
         recoveryAt = now; recoveryUntil = now + state.RecoverySeconds;
         recoveryPerSecond = state.RecoveryPerSecond; pendingRecovery = state.PendingRecovery;
         Changed?.Invoke();

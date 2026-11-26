@@ -73,8 +73,8 @@ public static partial class Game
             var rng = AreaRng(Player);
             var penetration = Penetration.Of(caster, Stats, false, own);
             var ailmentRows = AilmentPanelStats.Compute(new("secondary", false), packet, conversion, Get);
-            var ignite = RepeatAilment(MonsterIgnites.Settings.From(ailmentRows, "secondary", Get), multiplier);
-            var poison = RepeatAilment(MonsterPoisons.Settings.From(ailmentRows, "secondary", Get), multiplier);
+            var ignite = RepeatAilment(IgniteSettingsFrom(ailmentRows, "secondary", Get), multiplier);
+            var poison = RepeatAilment(PoisonSettingsFrom(ailmentRows, "secondary", Get), multiplier);
             var blind = BlindHitInput.Capture(caster, own);
 
             foreach (var (id, monster) in Player.Area.MonstersNear(at, radius).ToArray())
@@ -103,7 +103,7 @@ public static partial class Game
                     try
                     {
                         AilmentsOnHitLocked(Player, id, monster, resisted, spell: false, critical: false, 100,
-                            caster, own, now, rng, poison: poison, sourceSkill: skill, blind: blind,
+                            caster, own, now, rng, sourceEffect: supported.Effect, poison: poison, sourceSkill: skill, blind: blind,
                             hitOrigin: at, playerHit: playerHit, attackerHasReversedStat: playerHit);
                         IgniteOnHitLocked(this, id, monster, ignite, critical: false, now, playerIgnite: playerHit);
                     }
