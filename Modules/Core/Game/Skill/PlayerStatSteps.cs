@@ -86,9 +86,13 @@ public static partial class Game
             var sources = CharacterStatSources(player, nodes).Stats;
             outputs.Sources = sources;
             foreach (var (k, v) in sources) stats[k] = v;
+            double now = AreaTime(player);
+            if (GetIn(stats, Stat.MinionDamagePlusPctIfEnemyHitRecently) is int minionHitDamage and not 0
+                && player.RecentEvents.Happened(OwnedEnemyHitRecently, now))
+                AddTo(stats, Stat.MinionDamagePlusPct, minionHitDamage);
             int minionDamageShare = PlayerMinionDamageShare(sources);
             if (minionDamageShare > 0)
-                AddTo(stats, Stat.DamagePlusPct, (long)sources.GetValueOrDefault(Stat.MinionDamagePlusPct) * minionDamageShare / 100);
+                AddTo(stats, Stat.DamagePlusPct, (long)GetIn(stats, Stat.MinionDamagePlusPct) * minionDamageShare / 100);
             if (MapModsOf(player) is { } map)
             {
                 AddTo(stats, Stat.MapPlayersNoRegenerationIncludingEs, map.Get(Stat.MapPlayersNoRegenerationIncludingEs));
@@ -101,7 +105,6 @@ public static partial class Game
                     MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
-            double now = AreaTime(player);
             if (GetIn(stats, Stat.DamagePlusPctIfUsedTravelSkillRecently) is int travelDamage and not 0
                 && player.RecentEvents.Happened(UsedTravelSkillRecently, now))
                 AddTo(stats, Stat.DamagePlusPct, travelDamage);

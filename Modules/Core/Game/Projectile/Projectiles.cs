@@ -973,11 +973,13 @@ public static partial class Game
                 damage = ApplyPlayerImpaleContact(Player, target, damage, physical, at, at, settings, random).Damage;
             }
             uint lifeBefore = target.Life;
+            bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                && contact.Projectile.Use.Emitter.Id == Player.Id;
             var hit = ApplyMonsterHitCoreLocked(Player, target, damage, rampageSource: null, playerStats: player,
                 allyAt: shot.ActualCaster is null && !shot.FromTrapOrMine && !shot.Mirage ? null : ((int)contact.Projectile.Use.Origin.X, (int)contact.Projectile.Use.Origin.Y),
                 cull: Cull.Of(player, shot.SkillStats, critical, shot.Spell).WithWeapon(weaponLocal),
                 cullPlayer: null, chaosDamage: chaosDamage,
-                preventsShellBreak: shot.PreventsSomaticShellBreak);
+                preventsShellBreak: shot.PreventsSomaticShellBreak, ownHit: ownHit && !immune);
             if (hit is null) return ProjectileHitResult.Miss;
             if (!immune) steel?.Targets.Add(contact.Target);
             if (canGainResonance && !immune && hit.Value.Life < lifeBefore)
@@ -1023,8 +1025,6 @@ public static partial class Game
                 var emitterTotem = shot.FromTotem
                     ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
                     : null;
-                bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
-                    && contact.Projectile.Use.Emitter.Id == Player.Id;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
