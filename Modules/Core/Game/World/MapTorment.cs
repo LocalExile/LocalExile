@@ -234,7 +234,7 @@ public static partial class MapTorment
     public static async Task Enter(Player player)
     {
         if (TormentCatalog.All.Count == 0 || player.Layout.Walkable is null) return;
-        bool hasPacks = Packs.For(player.Layout.Id)?.Scattered.Count > 0;
+        bool hasPacks = InstancePacks(player)?.Scattered.Count > 0;
         if (!hasPacks && AreaStat(player, Stat.MapRareMonstersPossessedChancePct) <= 0 && !player.Instance.ContentState.ContainsKey(SaveKey))
             return;
         var area = Areas.GetValue(player.Instance, _ => new());
