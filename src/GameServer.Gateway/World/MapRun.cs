@@ -286,7 +286,9 @@ public sealed class MapRunCatalog
                 why = $"{slot.Name} needs an area level of {fragment.MinAreaLevel}.";
                 return false;
             }
-            int n = count[fragment.Family] = count.GetValueOrDefault(fragment.Family) + 1;
+            // MapFragmentMods stores 149 (or null) for ungrouped fragments/oils/vessels without a family; count each BaseRow separately.
+            int familyKey = fragment.Family is < 0 or 149 ? -slot.BaseRow - 1 : fragment.Family;
+            int n = count[familyKey] = count.GetValueOrDefault(familyKey) + 1;
             if (n > fragment.Limit)
             {
                 why = $"Only {fragment.Limit} of that kind of map fragment can be used at once.";
