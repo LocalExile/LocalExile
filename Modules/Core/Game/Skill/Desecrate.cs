@@ -1,19 +1,30 @@
 using System.Net.Sockets;
+using GameServer.Core.Projectiles;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
+    static bool IsDesecrateEffect(string? effect) => effect is "Desecrate" or "DesecrateRoyale";
+
     public static async Task<bool> Desecrate(Player player,
         ushort source, (int X, int Y) aim, Func<bool> current, bool triggered = false)
     {
         var gem = SupportedSkill(player, source);
         double release = AreaTime(player) + (triggered ? 0 : (CastMs(player, gem.Effect, source) ?? 1000) / 1000d);
         var lifetime = CombatLifetime;
+        bool Current() => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current()
+            && !player.Closed && !player.LeavingArea && player.PlayerLife > 0;
         while (AreaTime(player) < release || player.Paused)
         {
-            if (!CurrentGameWork || !ReferenceEquals(lifetime, CombatLifetime) || !current() || player.Closed || player.LeavingArea || player.PlayerLife == 0) return false;
+            if (!Current()) return false;
             await AreaWait(PlayerUpdateRole.Minions, 25);
+        }
+        using (ProjectileMutation(player))
+        {
+            if (!Current() || !SameTriggerSource(gem, SupportedSkill(player, source))) return false;
+            ProjectilesFor(player).PlaceDesecratedGround(aim, gem);
         }
         EnsureSpectreBankLoaded(player);
         var area = player.Area.Monsters.Values.Where(m => m.Variety is { Supported: true } && m.Variety.LifeData.IsUsableAsCorpse(0)
@@ -35,9 +46,38 @@ public static partial class Game
             var at = (aim.X + (int)(Math.Cos(angle) * 6), aim.Y + (int)(Math.Sin(angle) * 6));
             if (!player.Layout.WalkableFor(at.Item1, at.Item2, 0)) at = aim;
             await SpawnSkillCorpse(player, pool[AreaRng(player).Next(pool.Length)], level, at, player.Summons.Corpses,
-                maximum, () => CurrentGameWork && ReferenceEquals(lifetime, CombatLifetime) && current() && player.PlayerLife > 0);
+                maximum, Current);
         }
         return true;
+    }
+
+    public sealed partial class ProjectileSession
+    {
+        internal void PlaceDesecratedGround((int X, int Y) aim, SupportedGem gem)
+        {
+            var caster = CharacterPlayerStats(Player);
+            int Own(uint stat) => gem.Stats.GetValueOrDefault(stat);
+            int Caster(uint stat) => caster.GetValueOrDefault(stat);
+            int Get(uint stat) => ActorScale.Saturate((long)Own(stat) + Caster(stat));
+            if (DamageStats.Prohibited(DamageType.Chaos, Get)) return;
+            double increased = (double)Get(Stat.DamagePlusPct) + Get(Stat.ChaosDamagePlusPct) + Get(Stat.AreaDamagePlusPct)
+                + Get(Stat.DamageOverTimePlusPct) + Get(Stat.ChaosDamageOverTimePlusPct)
+                + Get(Stat.DamageOverTimePlusPctWithSpells) + Get(Stat.DesecrateDamagePlusPct);
+            double more = Math.Max(0, 1 + Own(Stat.SupportAreaConcentrateAreaDamagePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Own(Stat.SupportVoidManipulationChaosDamagePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Own(Stat.SupportRapidDecayDamageOverTimePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Own(Stat.SupportEfficacyDamageOverTimePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Own(Stat.CrueltyDamageOverTimePlusPctFinal) / 100d);
+            double multiplier = Math.Max(0, 1 + ((double)Get(Stat.DotMultiplierPlus) + Get(Stat.ChaosDotMultiplierPlus)
+                + Get(Stat.DamageOverTimeMultiplierPlusWithSpells)) / 100d);
+            double dps = Own(Stat.BaseChaosDamageToDealPerMinute) / 60d * Math.Max(0, 1 + increased / 100d) * more * multiplier;
+            double seconds = SkillDurationModifiers.Seconds(Own(Stat.BaseSkillEffectDuration), Caster, Own);
+            var damage = new SkillDamageContext(SkillHitKind.Spell, caster).OverTime(new(DamageType.Chaos, dps, seconds));
+            int radius = SkillRadius(Player, 12, gem.Stats, spell: true, gem.Effect, caster);
+            if (damage.DamagePerSecond > 0 && seconds > 0 && radius > 0)
+                AddDamageGround(Vector(aim), radius, seconds, DamageType.Chaos, damage.DamagePerSecond,
+                    Runtime.Now, desecrated: true);
+        }
     }
 
     static Task<uint> SpawnSkillCorpse(Player player, MonsterCatalog.Variety variety, byte level, (int X, int Y) at,
