@@ -3078,6 +3078,10 @@ public static partial class Game
         ruthlessMore ??= spell || hammer is not null ? 1 : RuthlessBlowMore(player, skillId, Stat);
         double ruthless = ruthlessMore.Value;
         ushort? areaAction = SkillsFor(player).ActionHash(gem.Effect);
+        var effectId = SkillsFor(player).EffectId(gem.Effect);
+        bool bladestorm = !spell && IsBladestorm(effectId);
+        double? stormPeriod = bladestorm && retainedAttack is null
+            ? strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand) : null;
         bool ownSlam = !spell && (triggeredCurrent is null || IsLeapSlam(player, gem.Effect)
             || retainedAttack is not null)
             && (Stat(global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct) != 0
@@ -3099,7 +3103,7 @@ public static partial class Game
             : (areaAction == HolyHammersAction
                 ? HolyHammersContactDelay(player, strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand),
                     out contactClip, out contactFraction)
-                : GemAttackContactDelay(player, gem.Effect, strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand),
+                : GemAttackContactDelay(player, gem.Effect, stormPeriod ?? strikeSeconds ?? SupportedAttackSeconds(player, skillId, hand),
                     out contactClip, out contactFraction))
                 + repeatDelay;
         // A caller's own shape (Shield Charge's path and end, ShieldCharge.cs) replaces the skill's area radius.
@@ -3107,7 +3111,6 @@ public static partial class Game
         var areaStats = skillStats;
         if (spell && repeat > 0 && Stat(SkillArea.IncreasedPerRepeat) is int perRepeat and not 0)
             areaStats = new Dictionary<uint, int>(skillStats) { [SkillArea.BaseIncreased] = skillStats.GetValueOrDefault(SkillArea.BaseIncreased) + perRepeat * repeat };
-        var effectId = SkillsFor(player).EffectId(gem.Effect);
         int flameSurgeBurningMore = effectId == "FlameSurge" ? Stat(global::Stat.FlameWhipDamagePlusPctFinalVsBurningEnemies) : 0;
         int flameSurgeExistingIgnite = effectId == "FlameSurge" ? Stat(global::Stat.FlameSurgeIgniteDamageAsBurningGroundDamagePct) : 0;
         int flameSurgeNewIgnite = effectId == "FlameSurgeAltX" ? Stat(global::Stat.FlameSurgeBurningGroundOnIgniteDamagePct) : 0;
@@ -3161,7 +3164,7 @@ public static partial class Game
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
             : katabasisStrike || contactTargets is not null || infernalBlast is not null
                 || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
-            : wave || vaalSlam || SkillsFor(player).EffectId(gem.Effect) == "VaalSweep" ? from
+            : wave || vaalSlam || bladestorm || effectId == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
         int action = actionToken ?? cooldownUse?.ActionToken ?? player.ActionCount;
@@ -3279,6 +3282,9 @@ public static partial class Game
                 TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, fissureAt, now,
                     global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct, "TriggeredSupportFissure");
             }
+            if (stormPeriod is double interval && strikeIndex == 0)
+                CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
+                    sequence, now, radiusMore, damageMore, ruthless, repeat, cryExerted);
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,

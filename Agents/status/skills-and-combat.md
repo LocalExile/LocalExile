@@ -66,6 +66,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Spells are released at the cast animation's contact keyframe. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Pride on enemies. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 
+- Bladestorm swings around the player and creates timed Blood or Sand storms with their respective buffs.
+
 ## Partly working
 
 - Vaal Immortal Call protects the last point of Life from on-kill Life loss while active.

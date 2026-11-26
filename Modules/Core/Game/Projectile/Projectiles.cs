@@ -238,6 +238,7 @@ public static partial class Game
                         DrainInfernalCryDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
+                        ReconcileBladestorms();
                     }
                     finally
                     {
@@ -261,6 +262,7 @@ public static partial class Game
                     DrainInfernalBlowDeaths();
                     DrainInfernalCryDeaths();
                     Runtime.AdvanceTo(at);
+                    ReconcileBladestorms();
                 }
                 finally
                 {
@@ -343,6 +345,7 @@ public static partial class Game
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
             ClearConvictionWaves();
+            ClearBladestorms();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
