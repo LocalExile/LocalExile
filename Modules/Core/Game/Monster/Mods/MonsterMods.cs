@@ -513,7 +513,6 @@ public static partial class Game
             DamageType.Lightning => m.Effects[Stat.LightningDamageTakenPlusPct],
             _ => 0,
         };
-        increasedTaken += m.Effects[Stat.DegenEffectPlusPct];
         increasedTaken += FleshrendDamageTaken(m, now);
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
