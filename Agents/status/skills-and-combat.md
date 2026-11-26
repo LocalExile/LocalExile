@@ -195,10 +195,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
-  radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
-  melee swings keep their hit over a queued Move.
-  Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Tectonic Slam uses a forward fissure with seeded branches.
   Contacts advance along each branch and one use can contact each target once.
 - Sunder and its variants time their wave segments and victim shockwaves.

@@ -3230,12 +3230,6 @@ public static partial class Game
                     excludeMonster, singleStrikeTarget, once, targetFilter);
                 radius = iceCrash.Extent;
             }
-            if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
-            {
-                ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
-                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, now);
-                return;
-            }
             if (!spell && !immediate && triggeredCurrent is null && strikeIndex == 0)
             {
                 int freezeMore = Stat(global::Stat.GlacialHammerThirdHitFreezeAsThoughDealtDamagePlusPct);
@@ -3257,6 +3251,12 @@ public static partial class Game
                 }
                 TriggerSlamSupportLocked(player, skillId, admittedGem, hand, weapon, offCritical, fissureAt, now,
                     global::Stat.SupportFissureTriggerFissureOnSlamSkillImpactChancePct, "TriggeredSupportFissure");
+            }
+            if (!spell && retainedAttack is null && areaAction == EarthshatterFissures.Action)
+            {
+                ScheduleEarthshatterLocked(player, skillId, gem, admittedGem, from, to, sequence, repeat, hand, weapon,
+                    offCritical, criticalRoll, radiusMore * chargeRadius, damageMore, ruthless, cryExerted == true, now);
+                return;
             }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == PerforateAction)
             {
