@@ -1080,7 +1080,12 @@ public static partial class Game
                     // the player's first movement waited for it (live 2026-11-17).
                     player.WalkersSteppedTo = ProjectileWorldTime(player);
                     StartWorldFrames(player);
-                    Program.ActivatePlayerUpdates(player);
+                    // Wait until Joining + this player's first frame end before starting periodic updates, so
+                    // restored persistent summons and minion rosters never drain to an already-due peer alone.
+                    player.Frames.AfterFirstFrame(player, () =>
+                    {
+                        if (!player.Closed && !player.LeavingArea) Program.ActivatePlayerUpdates(player);
+                    });
                     await PopulateArea(player);
                     // The map overlay's "X monsters remain" (S→C 0x1a0), once the whole area is placed and long after S→C
                     // 0x21 activated it (SendPlayer, above): a new instance's byte is 0xff, so without this the line

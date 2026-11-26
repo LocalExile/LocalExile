@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modules.Atlas;
 
@@ -87,5 +88,36 @@ public sealed class AtlasProgressTests
         Assert.Equal(split.Length, empty.Length);
         Assert.Equal(split[..7], empty[..7]);
         Assert.All(empty[7..], b => Assert.Equal(0, b));
+    }
+
+    [Fact]
+    public void Multi_boss_maps_require_all_final_bosses_and_lookup_by_area()
+    {
+        AtlasProgress.LoadAtlasProgressData();
+
+        var arcade = AtlasProgress.OfArea("MapWorldsArcade")!;
+        Assert.Equal("Arcade", arcade.Name);
+        Assert.Contains("Metadata/Monsters/Guardians/MapGuardianBossFire", arcade.FinalBosses);
+        Assert.Contains("Metadata/Monsters/Guardians/MapGuardianBossLightning", arcade.FinalBosses);
+
+        var desertSpring = AtlasProgress.OfArea("MapWorldsDesertSpring")!;
+        Assert.DoesNotContain("Metadata/Monsters/Shakari/ShakariMap", desertSpring.FinalBosses);
+        Assert.Contains("Metadata/Monsters/Shakari/Shakari2Map", desertSpring.FinalBosses);
+
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var area = fixture.Player.Area;
+        var fireVariety = Game.Monsters.Find("Metadata/Monsters/Guardians/MapGuardianBossFire")!;
+        var lightVariety = Game.Monsters.Find("Metadata/Monsters/Guardians/MapGuardianBossLightning")!;
+        var fireBoss = new SpawnedMonster(fireVariety.Name, new(50, 50, 1), 1000, 5, 100)
+            { Variety = fireVariety, ObjectId = 0x8000010, Life = 0, Dead = true };
+        var lightBoss = new SpawnedMonster(lightVariety.Name, new(50, 50, 1), 1000, 5, 100)
+            { Variety = lightVariety, ObjectId = 0x8000011, Life = 100, Dead = false };
+        area.Monsters[fireBoss.ObjectId] = fireBoss;
+        area.Monsters[lightBoss.ObjectId] = lightBoss;
+
+        Assert.False(AtlasProgress.CompletesMap(arcade, Game.ModMonster(fireBoss, (50, 50)), area));
+        lightBoss.Life = 0;
+        lightBoss.Dead = true;
+        Assert.True(AtlasProgress.CompletesMap(arcade, Game.ModMonster(lightBoss, (50, 50)), area));
     }
 }
