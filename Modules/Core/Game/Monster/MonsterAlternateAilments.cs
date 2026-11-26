@@ -24,6 +24,7 @@ public static partial class Game
         uint Chance, uint OnCritical, uint OnBlock, double Base, int Cap, int WithoutHit, ushort BuffRow, ushort Instance,
         int Sign, uint? SelfEffect, uint? Threshold, uint? TakenCan, uint? WhenHit, bool OnPlayer)
     {
+        public uint Always { get; init; }
         public uint VirtualEffect { get; } = Stat.Of($"virtual_{StatName}_effect_+%");
         public uint VirtualDuration { get; } = Stat.Of($"virtual_{StatName}_duration_+%");
         public uint Never { get; } = Stat.Of($"never_{StatName}");
@@ -42,16 +43,17 @@ public static partial class Game
         new(AlternateKind.Scorch, "scorch", "scorched", DamageType.Fire, "scorch", Stat.Of("chance_to_scorch_%"),
             Stat.Of("scorch_on_critical_strike"), Stat.Of("chance_to_inflict_scorch_on_enemy_on_block_%"), 50, 30, 10, 1243,
             Player.FixedBuffInstances, -1, Stat.Of("scorch_ailment_effect_on_self_+%"), null, Stat.Of("all_damage_taken_can_scorch"),
-            Stat.Of("chance_to_be_scorched_when_hit_%"), OnPlayer: true),
+            Stat.Of("chance_to_be_scorched_when_hit_%"), OnPlayer: true) { Always = Stat.VirtualAlwaysInflictScorch },
         // frostburn ("Brittle"): enemy_additional_critical_strike_chance_against_self, divided by 100 in its description.
         new(AlternateKind.Brittle, "frostburn", "frostburned", DamageType.Cold, "inflict_brittle", Stat.Of("chance_to_inflict_frostburn_%"),
             Stat.Of("frostburn_on_critical_strike"), Stat.Of("chance_to_inflict_brittle_on_enemy_on_block_%"), 1000, 600, 200, 1244,
-            (ushort)(Player.FixedBuffInstances + 1), 1, null, Stat.Of("brittle_ailment_threshold_+%_final"), null, null, OnPlayer: true),
+            (ushort)(Player.FixedBuffInstances + 1), 1, null, Stat.Of("brittle_ailment_threshold_+%_final"), null, null, OnPlayer: true)
+            { Always = Stat.VirtualAlwaysInflictFrostburn },
         // sapped: sapped_damage_+%_final, negative.
         new(AlternateKind.Sap, "sap", "sapped", DamageType.Lightning, "sap", Stat.Of("chance_to_inflict_sapped_%"),
             Stat.Of("sap_on_critical_strike"), Stat.Of("chance_to_inflict_sap_on_enemy_on_block_%"), 100 / 3.0, 20, 6, 1245,
             (ushort)(Player.FixedBuffInstances + 2), -1, null, Stat.Of("sap_ailment_threshold_+%_final"), Stat.Of("all_damage_taken_can_sap"),
-            Stat.Of("chance_to_be_sapped_when_hit_%"), OnPlayer: false),
+            Stat.Of("chance_to_be_sapped_when_hit_%"), OnPlayer: false) { Always = Stat.VirtualAlwaysInflictSapped },
     ];
 
     /// <summary>Their base duration (ReminderText: "for 4 seconds"; PoB duration 4).</summary>
@@ -140,7 +142,7 @@ public static partial class Game
         foreach (var a in AlternateAilments)
         {
             // Per hit (Hot paths): a hit without a source of this ailment stops here, before any other stat is read.
-            bool sure = secrets || critical && attacker(a.OnCritical) != 0;
+            bool sure = secrets || attacker(a.Always) != 0 || critical && attacker(a.OnCritical) != 0;
             int chance = attacker(a.Chance) + any;
             if (!sure && chance <= 0) continue;
             double inflicting = AlternateInflicting(a, damage, attacker, critical);

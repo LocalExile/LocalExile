@@ -16,7 +16,7 @@ public static partial class Game
         if (flameTouched) sources[Stat.AffectedByTouchOfFire] = 1;
         var state = player.WardBreak;
         double now = AreaTime(player);
-        bool timedAdrenaline = sources.GetValueOrDefault(WardBreakEffects.AdrenalineSource) > 0
+        bool timedAdrenaline = sources.GetValueOrDefault(AdrenalineSource(state)) > 0
             && now < state.TimedAdrenalineUntil && StatsChangeInAnd(state.TimedAdrenalineUntil - now);
         if (player.PlayerLife > 0 && (timedAdrenaline || flameTouched && state.SustainedAdrenaline))
             foreach (var (key, value) in WardBreakEffects.AdrenalineStats)
@@ -24,11 +24,14 @@ public static partial class Game
         return sources;
     }
 
+    static uint AdrenalineSource(WardBreakState state) => state.TimedAdrenalineSource is > 0 and var source
+        ? source : WardBreakEffects.AdrenalineSource;
+
     // The sources as the stats give them (PlayerStatsUpdated): a lost source or death ends its effect.
     static void ObserveWardBreak(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        player.WardBreak.Observe(AreaTime(player), Get(WardBreakEffects.AdrenalineSource) > 0,
+        player.WardBreak.Observe(AreaTime(player), Get(AdrenalineSource(player.WardBreak)) > 0,
             Get(WardBreakEffects.StunRecoverySource) > 0, player.PlayerLife > 0 && !player.RageRetired);
     }
 

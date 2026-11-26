@@ -1269,7 +1269,7 @@ public static partial class Game
                 {
                     m.Withered.RemoveAll(w => w.Until <= now);
                     if (m.Withered.Count >= 15) m.Withered.Remove(m.Withered.MinBy(w => w.Until));
-                    { m.Withered.Add((now + 4, 6 * (1 + GolemStat(g.Own, Stat.MinionWitheredEffectPlusPct) / 100.0))); m.PresentationChanged?.Invoke(); }
+                    { m.Withered.Add((now + 4, 6 * (1 + GolemStat(g.Own, Stat.MinionWitheredEffectPlusPct) / 100.0), null)); m.PresentationChanged?.Invoke(); }
                     hazard.Carry[id] = now + .3;
                 }
                 double raw = (hazard.DamagePerSecond * elapsed + deltaDamagePerSecond * activeSeconds)

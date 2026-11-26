@@ -81,7 +81,8 @@ public static partial class Game
                     SupportEffectPct: supportEffect, AffectsSelf: affectsSelf, Stance: stance,
                     ReservesLife: context.Life, ReservationEfficiencyPct: context.Efficiency,
                     IsHerald: IsHeraldAura(effectId),
-                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual);
+                    ArtVariation: artVariation, HideVisual: hideVisual, SourceVisual: sourceVisual, BuffVisual: buffVisual)
+                    { FixedManaReservation = reservation.FixedMana };
                 candidate = WithCasterAuraStamps(player, candidate, CharacterStatSources(player).Stats);
                 candidates.Add(stanceSource ? candidate with { StanceOwner = new object() } : candidate);
             }
@@ -615,9 +616,13 @@ public static partial class Game
     {
         int Total(uint stat) => ActorScale.Saturate((long)playerStat(stat) + own(stat));
         var skills = SkillsFor(player);
+        int ElementSpeed(string type, uint stat) => Total(stat) is int value and not 0 && skills.HasType(effect, type) ? value : 0;
         return (skills.HasType(effect, "AppliesCurse") ? Total(Stat.CurseCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Mark") ? Total(Stat.MarkSkillCastSpeedPlusPct) : 0)
             + (skills.HasType(effect, "Link") ? Total(Stat.LinkSkillCastSpeedPlusPct) : 0)
+            + ElementSpeed("Fire", Stat.CastSpeedForFireSkillsPlusPct)
+            + ElementSpeed("Cold", Stat.CastSpeedForColdSkillsPlusPct)
+            + ElementSpeed("Lightning", Stat.CastSpeedForLightningSkillsPlusPct)
             + (Supports.Of(effect)?.Types.Contains(120) == true ? Total(Stat.RetaliationSkillSpeedPlusPct) : 0)
             + TaggedAttackAndCastSpeedPct(skills, effect, playerStat, own);
     }
@@ -1210,6 +1215,7 @@ public static partial class Game
                     FortificationOf(player).Clear();
                     leech.Clear(now);
                     player.LifeRecoup.Clear();
+                    ShieldRecoup.Remove(player);
                     PreventedDamageOf(player).Clear();
                     player.EnergyShield.Empty();
                     KeystoneRecovery.Remove(player);
@@ -1283,6 +1289,7 @@ public static partial class Game
                     if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
                     if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
+                    AdvanceShieldRecoupLocked(player, now, RecoveryStat, mapRecovery);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
@@ -1408,6 +1415,7 @@ public static partial class Game
         player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
+        if (ShieldRecoup.TryGetValue(player, out var recoup)) recoup.Take(now);
         DiscardResourceLoadingRecovery(player, now);
     }
 
@@ -1762,6 +1770,7 @@ public static partial class Game
 
     static void RestorePlayerOnResurrect(Player player)
     {
+        ClearConsecratedGroundOnResurrect(player);
         player.PlayerLife = LifeCap(player);
         InitializePlayerEnergyShield(player);
         player.HitRecovery.Clear();

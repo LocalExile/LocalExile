@@ -21,7 +21,10 @@ public static class ChargeMaxima
     /// <summary>The three <c>virtual_maximum_*_charges</c> rows.</summary>
     public static List<(uint Stat, int Value)> Compute(Func<uint, int> get)
     {
-        var rows = ChargePanelStats.Compute(get);
+        var rows = ChargePanelStats.Compute(get,
+            enduranceBonus: get(Stat.MaximumEnduranceChargesPlusWhileAffectedByDetermination),
+            frenzyBonus: get(Stat.MaximumFrenzyChargesPlusWhileAffectedByGrace),
+            powerBonus: get(Stat.MaximumPowerChargesPlusWhileAffectedByDiscipline));
         if (get(FrenzyEqualsPower) == 0 && get(AllZero) == 0) return rows;
         int endurance = Value(ChargeType.Endurance), frenzy = Value(ChargeType.Frenzy), power = Value(ChargeType.Power);
         if (get(FrenzyEqualsPower) != 0)

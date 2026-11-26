@@ -136,7 +136,7 @@ public static partial class Game
                 .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
                 .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
             uint target = 0;
-            if (attacker != 0 && PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect))
+            if (attacker != 0 && ArcProxyPayload(SkillsFor(player).EffectId(gem.Effect))
                 && player.Area.Monsters.TryGetValue(attacker, out var enemy) && ArcProxyTarget(player, attacker, enemy))
             {
                 target = attacker;

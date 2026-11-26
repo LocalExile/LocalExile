@@ -103,16 +103,18 @@ public static partial class Game
             PetrifiedBlood.RequiredLife(player.Pools, player.PetrifiedBlood)).Required
             + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, true) + life < player.Pools.Life;
 
-    static async Task<bool> ToggleCooldownTrigger(Player player, ushort id, Func<bool> current)
+    static async Task<(bool Accepted, bool Activated)> ToggleCooldownTrigger(Player player, ushort id, Func<bool> current)
     {
+        bool activated;
         using (ProjectileMutation(player, advance: false))
         {
             if (!current() || player.Paused || InTown(player) || player.PlayerLife == 0
-                || CurrentPlayerSkillSourceLocked(player, id) is not { Active: true } source) return false;
+                || CurrentPlayerSkillSourceLocked(player, id) is not { Active: true } source) return default;
             ushort row = CooldownTriggerController(SkillsFor(player).EffectId(source.Effect));
-            if (row == 0) return false;
+            if (row == 0) return default;
             var state = CooldownTriggers.GetValue(player, static _ => new());
-            if (state.Active.ContainsKey(id))
+            activated = !state.Active.ContainsKey(id);
+            if (!activated)
             {
                 EndCooldownTrigger(player, state, id);
                 (_, state.Mana, state.Life) = ReadCooldownTriggers(player, state);
@@ -120,13 +122,13 @@ public static partial class Game
             else
             {
                 var trigger = new CooldownTrigger(row, source.Effect, CaptureGemSourceLifetimeLocked(player, source));
-                if (!CooldownTriggerCurrent(player, id, trigger)) return false;
+                if (!CooldownTriggerCurrent(player, id, trigger)) return default;
                 state.Active.Add(id, trigger);
                 var (_, mana, life) = ReadCooldownTriggers(player, state);
                 if (!FitsCooldownTriggerReservation(player, mana, life))
                 {
                     state.Active.Remove(id);
-                    return false;
+                    return default;
                 }
                 state.Mana = mana;
                 state.Life = life;
@@ -135,7 +137,7 @@ public static partial class Game
             ClampReservedResources(player);
         }
         await SendOwnAuraChanges(player);
-        return true;
+        return (true, activated);
     }
 
     static async Task TickCooldownTriggers(Player player, double now)

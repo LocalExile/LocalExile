@@ -147,6 +147,7 @@ public sealed class GameModule : IModule, IDisposable
         global::Game.LoadStats(module);
         module.Lifetime.Own(Rules.CleanupTemporaryAuras());
         module.Lifetime.Own(Rules.CleanupEssenceAuras());
+        module.Lifetime.Own(Rules.CleanupNearbyChills());
         module.Lifetime.Own(Rules.CleanupMonsterSummons());
         module.Lifetime.Own(Rules.CleanupRemnantAuras());
         GameEvents.AreaTick.Add(module.Manifest.Id, GameEvents.InArea(global::Sirus.Area, global::Sirus.Tick));
