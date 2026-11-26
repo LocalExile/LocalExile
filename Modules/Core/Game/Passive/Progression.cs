@@ -854,6 +854,14 @@ public static partial class Game
         AbyssJewels.Count(active, catalog, Stats, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
+        const uint daggerCrit = Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger;
+        if (sources.GetValueOrDefault(daggerCrit) != 0
+            && !WeaponProfileFrom(row => items.Items(row), inactive.Contains, catalog, activeSet: true, () => false).Dagger)
+            sources.Remove(daggerCrit);
+        if (conditionSubject.DualWield == true
+            && sources.GetValueOrDefault(Stat.GlobalCriticalStrikeChanceWhileDualWieldingPlusPct) is int dualWieldCrit and not 0)
+            sources[Stat.CriticalStrikeChancePlusPct] = ActorScale.Saturate(
+                (long)sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPct) + dualWieldCrit);
         var attributes = AttributeInputs(rawAttributes);
         var finalAttributes = attributes.Apply(c.Strength + (player.God ? 1000 : 0),
             c.Dexterity + (player.God ? 1000 : 0), c.Intelligence + (player.God ? 1000 : 0));
@@ -867,6 +875,12 @@ public static partial class Game
         if (recentAmounts.GetValueOrDefault(StatConditions.DetonatedMine) is long mines and > 0)
         {
             int count = ActorScale.Saturate(mines);
+            long recovery = Math.Min(600L, (long)count * sources.GetValueOrDefault(
+                Stat.LifeRegenerationRatePerMinutePctPerMineDetonatedRecentlyUpTo20Pct))
+                + sources.GetValueOrDefault(Stat.LifeRegenerationPctPerMinuteIfDetonatedMineRecently);
+            if (recovery != 0)
+                sources[Stat.LifeRegenerationRatePerMinutePct] = ActorScale.Saturate(
+                    sources.GetValueOrDefault(Stat.LifeRegenerationRatePerMinutePct) + recovery);
             if (sources.GetValueOrDefault(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation) != 0)
                 sources[Stat.NumberOfMinesDetonatedRecently] = count;
             if (sources.GetValueOrDefault(Stat.CriticalStrikeChancePlusPctPerMineDetonatedRecentlyUpTo100Pct) is int perMine and > 0)
@@ -1124,15 +1138,30 @@ public static partial class Game
         var helmet = slots.FirstOrDefault(d => d.Row == PlayerInventories.Helmet).Defence;
         var glovesBoots = slots.Where(d => d.Row is PlayerInventories.Gloves or PlayerInventories.Boots)
             .Aggregate((Armour: 0m, Evasion: 0m), (sum, d) => (sum.Armour + d.Defence.Armour, sum.Evasion + d.Defence.Evasion));
+        if (EquipmentInput(Stat.AdditionalMaximumAllElementalResistancesPctIfAllEquipmentGrantsArmour) is int armourMastery and not 0
+            && helmet.Armour > 0 && body.Armour > 0
+            && slots.Any(d => d.Row == PlayerInventories.Gloves && d.Defence.Armour > 0)
+            && slots.Any(d => d.Row == PlayerInventories.Boots && d.Defence.Armour > 0))
+        {
+            bonus = bonus with
+            {
+                FireMaxResistance = ActorScale.Saturate((long)bonus.FireMaxResistance + armourMastery),
+                ColdMaxResistance = ActorScale.Saturate((long)bonus.ColdMaxResistance + armourMastery),
+                LightningMaxResistance = ActorScale.Saturate((long)bonus.LightningMaxResistance + armourMastery),
+            };
+        }
         int EquipmentStat(uint key) => sources.GetValueOrDefault(key);
         var converted = ConvertEquipmentEnergyShield(player, EquipmentStat, gear.EnergyShield);
+        int bodyEvasionStep = EquipmentInput(Stat.MaximumEnergyShieldPlusPerXBodyArmourEvasionRating);
+        long bodyArmourEnergyShield = bodyEvasionStep > 0 ? (long)(body.Evasion / bodyEvasionStep) : 0;
         bonus = bonus with
         {
             Armour = bonus.Armour + gear.Armour,
-            Evasion = bonus.Evasion + gear.Evasion,
+            Evasion = bonus.Evasion + gear.Evasion
+                + helmet.EnergyShield * EquipmentInput(Stat.EvasionRatingPlusPer1HelmetEnergyShield),
             Ward = bonus.Ward + gear.Ward,
             Life = (int)Math.Min(int.MaxValue, (long)bonus.Life + converted.Life),
-            EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + converted.EnergyShield),
+            EnergyShield = ActorScale.Saturate((long)bonus.EnergyShield + converted.EnergyShield + bodyArmourEnergyShield),
             ShieldArmour = shieldDefence.Armour, ShieldEvasion = shieldDefence.Evasion,
             // ES-to-Life consumes the local item source before any shield/global increases can act on it.
             ShieldEnergyShield = converted.EnergyShield == 0 ? 0 : shieldDefence.EnergyShield,
@@ -1153,6 +1182,20 @@ public static partial class Game
             ManaStrengthDivisor = HandDivisor(Stat.MaximumManaPlus1PctPerXStrengthWhenInMainHandFromFoulbornDoonCuebiyari, ActiveMainHand),
             EnergyShieldStrengthDivisor = HandDivisor(Stat.EnergyShieldPlus1PctPerXStrengthWhenInOffHandFromFoulbornDoonCuebiyari, ActiveOffHand),
         };
+        bool Gemless(byte row) => EquipmentForStats(player).Any(e => e.Row == row && !IsInactive(player, e.Item.Id)
+            && e.Item.Item.Sockets.All(s => s.Gem is null));
+        if (EquipmentInput(Stat.MaximumLifePlusPctWhileNoGemsInGloves) is int glovesLife and not 0 && Gemless(PlayerInventories.Gloves))
+            bonus = bonus with { LifePct = ActorScale.Saturate((long)bonus.LifePct + glovesLife) };
+        if (EquipmentInput(Stat.ElementalResistancePctWhileNoGemsInHelmet) is int helmetResistance and not 0
+            && Gemless(PlayerInventories.Helmet))
+        {
+            bonus = bonus with
+            {
+                FireResistance = ActorScale.Saturate((long)bonus.FireResistance + helmetResistance),
+                ColdResistance = ActorScale.Saturate((long)bonus.ColdResistance + helmetResistance),
+                LightningResistance = ActorScale.Saturate((long)bonus.LightningResistance + helmetResistance),
+            };
+        }
         List<AuraCatalog.Aura> auras;
         auras = AffectingAuras(player);
         var minionAuras = SelectMinionAuras(player, player.Id, auras, bonus.AuraEffectPct);
@@ -1205,7 +1248,11 @@ public static partial class Game
         long spellIncrease = RawCriticalSum(Stat.CriticalStrikeChancePlusPct) + RawCriticalSum(Stat.SpellCriticalStrikeChancePlusPct);
         long RawAccuracy(uint name)
         {
-            return (long)sources.GetValueOrDefault(name) + (name == Stat.AccuracyRating ? aura.Accuracy : 0);
+            long value = sources.GetValueOrDefault(name);
+            if (name == Stat.AccuracyRating) value += aura.Accuracy;
+            if (name == Stat.AccuracyRatingPlusPct && sources.GetValueOrDefault(Stat.LightRadiusIncreasesApplyToAccuracy) != 0)
+                value += sources.GetValueOrDefault(Stat.LightRadiusPlusPct);
+            return value;
         }
         bonus = bonus with
         {
@@ -1298,7 +1345,42 @@ public static partial class Game
             };
             mapTemporalChains = Get(Stat.TemporalChainsActionSpeedPlusPctFinal) - actionBefore;
         }
-        bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
+        int resistancePenalty = ResistancePenalty(player);
+        if (EquipmentInput(Stat.ModifiersToMaximumFireResistanceApplyToMaximumColdAndLightningResistance) != 0)
+        {
+            long fireMaximum = (long)EquipmentInput(Stat.BaseMaximumFireDamageResistancePct) + aura.FireMaxResistance;
+            bonus = bonus with
+            {
+                ColdMaxResistance = ActorScale.Saturate(bonus.ColdMaxResistance + fireMaximum),
+                LightningMaxResistance = ActorScale.Saturate(bonus.LightningMaxResistance + fireMaximum),
+            };
+        }
+        if (EquipmentInput(Stat.ModifiersToFireResistanceAlsoApplyToColdLightningResistanceAtPctValue) is int fireShare and not 0)
+        {
+            long fireSpecific = (long)resistanceSources.GetValueOrDefault(Stat.BaseFireDamageResistancePct)
+                + resistanceSources.GetValueOrDefault(Stat.FireDamageResistancePlusPct);
+            long shared = fireSpecific * fireShare / 100;
+            bonus = bonus with
+            {
+                ColdResistance = ActorScale.Saturate(bonus.ColdResistance + shared),
+                LightningResistance = ActorScale.Saturate(bonus.LightningResistance + shared),
+            };
+        }
+        if (EquipmentInput(Stat.ChaosDamageResistanceIsDoubled) != 0)
+            bonus = bonus with { ChaosResistance = ActorScale.Saturate(2L * bonus.ChaosResistance + resistancePenalty) };
+        if (EquipmentInput(Stat.AllDamageResistancePlusPct) is int increasedResistances and not 0)
+        {
+            int Scale(int value) => ActorScale.Saturate(((long)value + resistancePenalty)
+                * Math.Max(0L, 100L + increasedResistances) / 100 - resistancePenalty);
+            bonus = bonus with
+            {
+                FireResistance = Scale(bonus.FireResistance),
+                ColdResistance = Scale(bonus.ColdResistance),
+                LightningResistance = Scale(bonus.LightningResistance),
+                ChaosResistance = Scale(bonus.ChaosResistance),
+            };
+        }
+        bonus = ResistanceOvercap.Applied(bonus, resistanceSources, resistancePenalty, Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
         int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
         int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);
@@ -1488,9 +1570,10 @@ public static partial class Game
         int shieldBlock = weapons.Shield ? Get(Stat.ShieldBlockPct) + Get(Stat.BlockChancePctWhileHoldingShield) : 0;
         int staffBlock = weapons.Staff ? Get(Stat.StaffBlockPct) + Get(Stat.AdditionalStaffBlockPct) : 0;
         // 20 is the inherent dual-wield block chance (PoB Misc.lua); the Dual Wielding Mastery can remove it.
+        bool doubleDualWield = Get(Stat.DualWieldInherentBonusesAreDoubled) != 0;
         int dualBlock = weapons.DualWield
             ? Get(Stat.BlockWhileDualWieldingPct) + (weapons.DualClaws ? Get(Stat.BlockWhileDualWieldingClawsPct) : 0)
-                + (Get(Stat.NoInherentChanceToBlockWhileDualWielding) != 0 ? 0 : 20)
+                + (Get(Stat.NoInherentChanceToBlockWhileDualWielding) != 0 ? 0 : doubleDualWield ? 40 : 20)
             : 0;
         int bowBlock = weapons.Bow ? Get(Stat.WithBowAdditionalBlockPct) : 0;
         // Spell block has the matching weapon-specific stats; the staff-or-shield stat is shared.
@@ -1521,9 +1604,7 @@ public static partial class Game
         // PoB Misc.lua: 10% more attack speed while dual wielding; unarmed attacks count as dual wielding.
         // ItemWeaponStats already applies the weapon's local speed to its duration, before character increases.
         // The Claw Mastery doubles it while wielding two claws.
-        int attackSpeedMore = weapons.DualWield || weapons.Unarmed
-            ? weapons.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 20 : 10
-            : 0;
+        int attackSpeedMore = InherentAttackSpeedMore(weapons, Get);
         // Unconditional critical strike chance and multiplier passives: generic, attack/melee/weapon-shape and spell.
         // Timed or enemy-state conditions are not modelled.
         long criticalChance = AttackBaseCriticalStrike.IncreasedSum(weapons, name => Get(name));

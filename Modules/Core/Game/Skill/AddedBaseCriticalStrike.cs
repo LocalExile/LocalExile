@@ -14,7 +14,7 @@ public static class AddedBaseCriticalStrike
         uint typed = spell ? Spell : Attack;
         long basis = (long)intrinsic + player(Generic) + player(typed)
             + (skill?.Invoke(Generic) ?? 0) + (skill?.Invoke(typed) ?? 0);
-        return CriticalChanceFinal.Project(basis, increasedPct, player, skill);
+        return CriticalChanceFinal.Project(basis, increasedPct, player, skill, spell);
     }
 
     /// <summary>PoB Item.lua2325: native weapon base plus local BASE, then local INC, rounded to permyriad.

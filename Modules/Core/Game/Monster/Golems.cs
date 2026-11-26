@@ -261,9 +261,15 @@ public static partial class Game
             stats[mines] = player.Placed.All.Values.Count(p => p.Mine);
         if (Stat.NumberOfActiveTraps is var traps)
             stats[traps] = player.Placed.All.Values.Count(p => !p.Mine);
-        if (player.PlayerLife > 0)
-            foreach (var (key, value) in player.Golems.OwnerStats)
-                stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (player.PlayerLife == 0) return;
+        foreach (var (key, value) in player.Golems.OwnerStats)
+            stats[key] = ActorScale.Saturate((long)stats.GetValueOrDefault(key) + value);
+        if (stats.GetValueOrDefault(Stat.DamagePlusPctPerActiveGolem) is int damagePerGolem and not 0)
+        {
+            int living = player.Golems.All.Values.Count(g => !g.Monster.Dead && g.Monster.Life > 0);
+            stats[Stat.DamagePlusPct] = ActorScale.Saturate(
+                (long)stats.GetValueOrDefault(Stat.DamagePlusPct) + (long)damagePerGolem * living);
+        }
     }
 
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, object> MinionSaveLocks = new();

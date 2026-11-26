@@ -147,6 +147,7 @@ public static partial class Game
         if (VaalSoulsUnpresented(player))
             session.World(player.Id, () => VaalSoulPresentation(player), "Vaal souls after projectile kill");
         double now = at / (double)ProjectileRuntime.QuantaPerSecond;
+        if (playerKill && monster.Hostile) HitSummonsOnDeathLocked(player, id, monster, now);
         TransferMarksOnDeathLocked(player, monster, now);
         var position = monster.Walk.Position(now);
         // Match ordinary kills: corpses stay until area teardown, and impales retain their own expiry/hit state.
@@ -325,9 +326,8 @@ public static partial class Game
         }
         if (!anyNotFull) return;
         var stats = PlayerStatValues(player);
-        int Get(uint key) => stats.GetValueOrDefault(key);
         bool precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), player.FlaskChargeCarry, at, random.Next);
+        var gains = FlaskCharges.OnCrit(bar, PlayerFlaskCritSources(player, stats, precision), player.FlaskChargeCarry, at, random.Next);
         if (gains.Count > 0) CommitProjectileFlaskGain(session, (f, _) => gains.GetValueOrDefault(f.Id));
     }
 }

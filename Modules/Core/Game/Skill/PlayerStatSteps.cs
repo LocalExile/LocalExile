@@ -95,6 +95,36 @@ public static partial class Game
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)
+                AddTo(stats, Stat.ChaosDamagePlusPct, Math.Min(80L, (player.Pools.Mana / 100L) * chaosPerMana));
+            if (GetIn(stats, Stat.AdditiveArmourModifiersApplyToEnergyShieldRechargeRateAtPctValue) is int rechargeShare and not 0)
+                AddTo(stats, Stat.EnergyShieldRechargeRatePlusPct, (long)player.Pools.ArmourPct * rechargeShare / 100);
+            int daggerSpeed = GetIn(stats, Stat.ProjectileSpeedPlusPctWithDaggers);
+            int poisonMultiplier = GetIn(stats, Stat.PosionDamageOverTimeMultiplierPlusPctWhileWieldingClawsDaggers);
+            if (daggerSpeed != 0 || poisonMultiplier != 0)
+            {
+                var weapons = WeaponProfileFor(player, activeSet: true);
+                if (weapons.Dagger && daggerSpeed != 0) AddTo(stats, Stat.ProjectileSpeedPlusPct, daggerSpeed);
+                if ((weapons.Dagger || weapons.Claw) && poisonMultiplier != 0)
+                    AddTo(stats, Stat.PoisonDotMultiplierPlus, poisonMultiplier);
+            }
+            if (GetIn(stats, Stat.AdditiveLifeModifiersApplyToAttackDamageAt30PctValue) != 0)
+                AddTo(stats, Stat.AttackDamagePlusPct, GetIn(stats, Stat.MaximumLifePlusPct) * 30L / 100);
+            if (GetIn(stats, Stat.AdditiveEnergyShieldModifiersApplyToSpellDamageAt30PctValue) != 0)
+                AddTo(stats, Stat.SpellDamagePlusPct, GetIn(stats, Stat.MaximumEnergyShieldPlusPct) * 30L / 100);
+            if (GetIn(stats, Stat.EsRegenerationPerMinutePctWhileStationary) is int stationaryRegen and not 0
+                && !player.Walk.Moving(now))
+                AddTo(stats, Stat.BaseEnergyShieldRegenerationRatePerMinutePct, stationaryRegen);
+            if (GetIn(stats, Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) is int stationaryElemental and not 0
+                && !player.Walk.Moving(now))
+                AddTo(stats, Stat.ElementalDamageTakenPlusPct, stationaryElemental);
+            if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) is int corpseSpeed and > 0)
+            {
+                long corpses = player.RecentEvents.Amount(StatConditions.ConsumedCorpse, now);
+                long speed = Math.Min(200L, Math.Min(corpses, 200L) * corpseSpeed);
+                AddTo(stats, Stat.AttackSpeedPlusPct, speed);
+                AddTo(stats, Stat.CastSpeedPlusPct, speed);
+            }
             int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
             if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
             {
@@ -144,6 +174,13 @@ public static partial class Game
             int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
             int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
             if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
+            if (GetIn(stats, Stat.DamagePlusPctPerYourAuraOrHeraldSkillAffectingYou) is int damagePerAura and not 0)
+            {
+                var skills = SkillsFor(player);
+                int count = auras.Where(a => a.AffectsSelf && a.ExternalEffectPct is null
+                    && (a.IsHerald || skills.IsAura(a.Effect))).Select(a => a.EffectId).Distinct(StringComparer.Ordinal).Count();
+                AddTo(stats, Stat.DamagePlusPct, (long)damagePerAura * count);
+            }
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
             var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
             foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,

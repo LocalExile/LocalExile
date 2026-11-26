@@ -47,8 +47,10 @@ public static partial class Game
             && (monster.Effects[Stat.CannotBeDominated] > 0 || monster.Effects[Stat.CannotBeConvertedOrDominated] > 0)) return;
         var pair = player.Area.Monsters.FirstOrDefault(p => ReferenceEquals(p.Value, monster));
         if (pair.Value is null) return;
-        if (monster.Rarity is MonsterRarity.Rare or MonsterRarity.Unique && random.Next(100)
-            < GolemStat(skill, definition.Family == "Absolution" ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
+        bool absolution = definition.Family == "Absolution";
+        bool rarityQualifies = monster.Rarity == MonsterRarity.Unique || absolution && monster.Rarity == MonsterRarity.Rare;
+        if (rarityQualifies && random.Next(100) < GolemStat(skill,
+                absolution ? Stat.AbsolutionBlastChanceToSummonOnHittingRareOrUniquePct : Stat.DominatingBlowChanceToSummonOnHittingUnqiuePct))
             player.Summons.HitSummons.Add(new(pair.Key, monster, source, gem.Effect, gem.SourceGem, false));
         if (monster.Rarity == MonsterRarity.Unique) return;
         var playerStats = PlayerStatValues(player);

@@ -3078,6 +3078,12 @@ public static partial class Game
         var ailmentTaken = DamagePacket.Empty;
         int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
             + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
+        if (spellHit && StatOf(Stat.SpellDamageTakenPlusPctFromBlindedEnemies) is int blindedSpell and not 0
+            && Blinded(player, id, now))
+            sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + blindedSpell);
+        if (StatOf(Stat.DamageTakenPlusPctIfThereAreAtLeast2RareOrUniqueEnemiesNearby) is int opportunistic and not 0
+            && !AtMostOneRareEnemy(player, now))
+            sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + opportunistic);
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3178,6 +3184,9 @@ public static partial class Game
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
             projectile: projectile, attack: attackHit);
+        if (suppressed && player.PlayerLife > 0 && StatOf(Stat.EnergyShieldRechargesOnSuppressPct) is int rechargeChance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(rechargeChance, 100, player.IncomingHitRandom))
+            player.EnergyShield.StartRecharge(now, StatOf);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
@@ -3185,7 +3194,11 @@ public static partial class Game
         if (GameServer.Core.World.RandomRolls.Chance(StatOf(Stat.ChanceToFreezeEnemiesFor1SecondWhenHitPct), 100, AreaRng(player)))
             InflictedLocked(player, m, m.Ailments.Freeze(1, now, StatOf, name => m.Effects[name], AilmentArea(StatOf, _ => 0, spell: false)));
         AilmentsWhenHitLocked(player, m, StatOf, blocked, now, AreaRng(player));
-        if (StatOf(Stat.BlindEnemiesWhenHitPctChance) is > 0 and var blindAttackerChance)
+        int blindAttackerChance = StatOf(Stat.BlindEnemiesWhenHitPctChance);
+        if (StatOf(Stat.BlindEnemiesWhenHitWhileAffectedByGracePctChance) is int graceBlind and > 0
+            && AffectingAuras(player).Any(aura => aura.AffectsSelf && aura.EffectId == "Grace"))
+            blindAttackerChance = ActorScale.Saturate((long)blindAttackerChance + graceBlind);
+        if (blindAttackerChance > 0)
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);

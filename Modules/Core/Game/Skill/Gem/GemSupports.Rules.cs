@@ -161,6 +161,9 @@ public static partial class Game
         var own = SkillsFor(player).EffectStats(selected.Effect, level, quality).ToDictionary(kv => kv.Item1, kv => kv.Item2);
         ApplySupportStats(player, own, supports);
         ApplySocketedGolemEquipment(player, selected.Effect, host, local, own);
+        if (local.GetValueOrDefault(Stat.LocalDisplaySocketedGemsAttackAndCastSpeedPlusPctFinal) is int socketedSpeed and not 0)
+            own[Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal] =
+                ActorScale.Saturate((long)own.GetValueOrDefault(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal) + socketedSpeed);
         AddIntensityBaseStats(player, own);
         if (CrueltySupportedStat is var crueltyFlag && own.GetValueOrDefault(crueltyFlag) != 0
             && CrueltyActivePct(player, skillId) is int crueltyPct and > 0
@@ -627,11 +630,11 @@ public static partial class Game
         if (Stat.AttackSpeedPlusPct is var raw && Stat.MainHandAttackSpeedPlusPct is var final)
         {
             var profile = WeaponProfileFor(player);
-            // The pools' dual-wield "more" (PassiveBonus), doubled by the Claw Mastery with two claws.
-            double factor = profile.DualWield || profile.Unarmed
-                ? profile.DualClaws && Get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0 ? 1.2 : 1.1
-                : 1;
+            double factor = 1 + InherentAttackSpeedMore(profile, Get) / 100d;
             int skillSpeed = gem.Stats.GetValueOrDefault(raw) + TaggedAttackAndCastSpeedPct(SkillsFor(player), gem.Effect, Get);
+            if (Get(Stat.AttackSpeedPlusPctWithMovementSkills) is int movementSpeed and not 0
+                && SkillsFor(player).IsMovement(gem.Effect))
+                skillSpeed = ActorScale.Saturate((long)skillSpeed + movementSpeed);
             if (gem.Stats.GetValueOrDefault(Stat.AttackSpeedPlusPctIfChangedStanceRecently) is int stanceSpeed and not 0
                 && player.RecentEvents.Happened(StatConditions.ChangedStance, AreaTime(player)))
                 skillSpeed += stanceSpeed;
@@ -652,7 +655,9 @@ public static partial class Game
             stats[proxySpeed] = stats.GetValueOrDefault(proxySpeed) + Get(Stat.TotemSkillAttackSpeedPlusPct)
                 + Get(Stat.TotemsAttackSpeedPlusPctPerActiveTotem) * player.Totems.Living(AreaTime(player)).Count()
                 + Get(Stat.AttackSpeedPlusPctPerMaximumTotem) * TotemLimit(player, skillId);
-        double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level) * Math.Max(.01, 1 + Get(Stat.SupportMeleePhysicalDamageAttackSpeedPlusPctFinal) / 100.0)
+        double more = Supports.AttackSpeedMultiplier(gem.Effect, gem.Level)
+            * Math.Max(.01, 1 + Get(Stat.EssenceSupportAttackAndCastSpeedPlusPctFinal) / 100d)
+            * Math.Max(.01, 1 + Get(Stat.SupportMeleePhysicalDamageAttackSpeedPlusPctFinal) / 100.0)
             * Math.Max(.01, 1 + Get(Stat.SupportMultipleAttacksMeleeAttackSpeedPlusPctFinal) / 100.0)
             // Pulverise: "15% less Attack Speed".
             * Math.Max(.01, 1 + Get(Stat.SupportPulveriseAttackSpeedPlusPctFinal) / 100.0)
@@ -1152,6 +1157,9 @@ public static partial class Game
                 basis = ActorScale.Saturate((long)basis + elusiveBase);
             long increased = player.Pools.CriticalStrikeChancePct + extraIncrease
                 + AttackBaseCriticalStrike.IncreasedSum(weapon, name => Own(name));
+            if (skills.IsProjectile(gem.Effect))
+                increased += (long)Player(Stat.ProjectileAttackSkillCriticalStrikeChancePlusPct)
+                    + Own(Stat.ProjectileAttackSkillCriticalStrikeChancePlusPct);
             int chance = AttackBaseCriticalStrike.ChanceOfBase(basis, increased, Player, Own);
             // Power Siphon's "10% more Critical Strike Chance per Power Charge".
             if (Own(Stat.CriticalStrikeChancePlusPctFinalPerPowerChargeFromPowerSiphon) is int siphon and not 0)
@@ -1266,6 +1274,7 @@ public static partial class Game
         if (SkillsFor(player).IsBrand(gem.Effect) || GolemStat(gem.Stats, Stat.SkillGetsBrandDamageCritModifiers) != 0)
             extra += GolemStat(playerStats, Stat.SigilCriticalStrikeMultiplierPlus) + GolemStat(gem.Stats, Stat.SigilCriticalStrikeMultiplierPlus);
         bool attack = SkillsFor(player).IsAttack(gem.Effect);
+        if (attack && skills.IsProjectile(gem.Effect)) extra += Sum(Stat.ProjectileAttackSkillCriticalStrikeMultiplierPlus);
         if (attack && Sum(Stat.CriticalStrikeMultiplierPlusPctWithClawsDaggers) != 0)
             extra += ClawDaggerCriticalBonus(hitWeapon ?? WeaponFor(player), playerStats, gem.Stats);
         return CriticalHitMultiplier((long)(attack ? AttackCriticalMultiplier(player, playerStats, gem.Effect, gem.Stats)

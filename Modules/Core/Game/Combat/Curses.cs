@@ -286,7 +286,8 @@ public static partial class Game
                     || currentGem.Effect != gem.Effect || !currentGem.RequirementsMet
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
                 RecordCompletedCurseCast(player, effect, AreaTime(player));
-                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats);
+                ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats,
+                    cascadeFrom: player.Walk.Position(now));
                 break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
@@ -296,7 +297,8 @@ public static partial class Game
     }
 
     static void ApplyCurseTargetsLocked(Player player, ushort skill, SupportedGem gem, CurseCatalog.Definition curse,
-        (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats)
+        (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats,
+        (int X, int Y)? cascadeFrom = null)
     {
         if (curse.Mark)
         {
@@ -305,9 +307,13 @@ public static partial class Game
             return;
         }
         int radius = CurseRadius(player, skill, false, gem, playerStats);
+        var cascades = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
         foreach (var monster in player.Area.Monsters.Values)
-            if (Dist(monster.Walk.Position(now), aim) <= radius)
+        {
+            var position = monster.Walk.Position(now);
+            if (Dist(position, aim) <= radius || cascades.Any(centre => Dist(position, centre) <= radius))
                 ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
+        }
     }
 
     static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";

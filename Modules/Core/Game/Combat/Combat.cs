@@ -1984,6 +1984,7 @@ public static partial class Game
             if (eternal) SuspendManaReservedAurasLocked(player);
             started = aura;
             ClampReservedResources(player);
+            PhaseRunOnSkillUse(player, skillId);
         }
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.EnergyShield.SetMaximum(player.Pools.EnergyShield);
@@ -2619,12 +2620,12 @@ public static partial class Game
     }
 
     static List<(int X, int Y)> SpellCascadeAreas(Player player, int effect, IReadOnlyDictionary<uint, int> stats,
-        (int X, int Y) from, (int X, int Y) to)
+        (int X, int Y) from, (int X, int Y) to, int? resolvedRadius = null)
     {
         var areas = new List<(int X, int Y)>();
         int sides = stats.GetValueOrDefault(Stat.SupportSpellCascadeNumberOfCascadesPerSide);
         if (sides <= 0 || from == to) return areas;
-        int radius = SkillRadius(player, stats, spell: true, effect);
+        int radius = resolvedRadius ?? SkillRadius(player, stats, spell: true, effect);
         if (radius <= 0) return areas;
         bool sideways = stats.GetValueOrDefault(Stat.SupportSpellCascadeSideways) != 0;
         double dx = to.X - from.X, dy = to.Y - from.Y;
@@ -4616,11 +4617,15 @@ public static partial class Game
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-        if (m.HasCurses)
+        if (m.HasCurses || (playerKill && m.Hostile))
             using (ProjectileMutation(player, advance: false))
                 if (CurrentGameWork && !player.Closed && !player.LeavingArea
                     && player.Area.Monsters.GetValueOrDefault(id) == m)
-                    TransferMarksOnDeathLocked(player, m, ProjectileWorldTime(player));
+                {
+                    double deathAt = ProjectileWorldTime(player);
+                    if (playerKill && m.Hostile) HitSummonsOnDeathLocked(player, id, m, deathAt);
+                    TransferMarksOnDeathLocked(player, m, deathAt);
+                }
         TinctureKillBonus? tinctureKill;
         // The lethal hit froze this decision before its notifications could yield. Consume only that exact receipt.
         bool destroyCorpse;

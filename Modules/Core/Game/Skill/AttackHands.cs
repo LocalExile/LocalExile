@@ -95,6 +95,13 @@ public static class AttackHands
 
 public static partial class Game
 {
+    static int InherentAttackSpeedMore(WeaponProfile weapons, Func<uint, int> get)
+    {
+        if (!weapons.DualWield && !weapons.Unarmed) return 0;
+        bool doubled = (weapons.DualWield && get(Stat.DualWieldInherentBonusesAreDoubled) != 0)
+            || (weapons.DualClaws && get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0);
+        return doubled ? 20 : 10;
+    }
     /// <summary>The hand an attack gem's use swings (<see cref="AttackHands"/>), recorded at its first question.</summary>
     public static AttackHand AttackHandFor(Player player, ushort skillId, ushort sequence) =>
         skillId == SkillCatalog.FirstSkillId ? DefaultAttackHand(player, sequence)

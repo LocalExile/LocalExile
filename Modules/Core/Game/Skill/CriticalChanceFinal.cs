@@ -9,11 +9,16 @@ public static class CriticalChanceFinal
     public const uint Unhinged = Stat.CriticalStrikeChancePlusPctFinalWhileUnhinged;
     static readonly uint[] Sources = [ControlledDestruction, Stat.SupportMultipleProjectilesCriticalStrikeChancePlusPctFinal,
         Stat.UniqueCriticalStrikeChancePlusPctFinal, Stat.ActiveSkillCriticalStrikeChancePlusPctFinal,
-        Unhinged];
+        Unhinged, Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger];
 
-    public static bool IsInput(uint name) => Sources.Contains(name);
+    const uint SpellMore = Stat.AssassinAscendancySpellCriticalStrikeChancePlusPctFinal;
 
-    public static int Project(long basis, long increased, Func<uint, int> player, Func<uint, int>? skill)
+    public static bool IsInput(uint name) => name == SpellMore || Sources.Contains(name);
+
+    public static int Project(long basis, long increased, Func<uint, int> player, Func<uint, int>? skill) =>
+        Project(basis, increased, player, skill, spell: false);
+
+    internal static int Project(long basis, long increased, Func<uint, int> player, Func<uint, int>? skill, bool spell)
     {
         // Exact rational arithmetic keeps half-up permyriad rounding and signed source cancellation without an
         // intermediate 100% cap or overflow when several large developer values compose with LESS factors.
@@ -25,6 +30,15 @@ public static class CriticalChanceFinal
             if (percent == 0) continue;
             numerator *= BigInteger.Max(0, 100 + percent);
             denominator *= 100;
+        }
+        if (spell)
+        {
+            long percent = (long)player(SpellMore) + (skill?.Invoke(SpellMore) ?? 0);
+            if (percent != 0)
+            {
+                numerator *= BigInteger.Max(0, 100 + percent);
+                denominator *= 100;
+            }
         }
         return (int)BigInteger.Min(10_000, (numerator + denominator / 2) / denominator);
     }

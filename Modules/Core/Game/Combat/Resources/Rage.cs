@@ -22,6 +22,17 @@ public static partial class Game
         var value = player.Rage.Read(ProjectileWorldTime(player), inputs);
         if (player.Rage.NextChangeAt() is double next) StatsChangeAt(next, () => ProjectileWorldTime(player));
         RageStats.ExpandItems(stats, value.Effective);
+        if (value.Current > 0)
+        {
+            int stun = RageStat(stats, Stat.StunThresholdPlusPctPerRage);
+            if (stun != 0)
+                stats[Stat.StunThresholdPlusPct] = ActorScale.Saturate(
+                    (long)RageStat(stats, Stat.StunThresholdPlusPct) + (long)stun * value.Current);
+            int speed = RageStat(stats, Stat.AttackSpeedPlusPctPerRage);
+            if (speed != 0)
+                stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate(
+                    (long)RageStat(stats, Stat.MainHandAttackSpeedPlusPct) + (long)speed * value.Current);
+        }
         foreach (var (name, amount) in RageStats.Display(value, inputs))
             if (name is var key) stats[key] = amount;
     }
@@ -41,10 +52,18 @@ public static partial class Game
         int Get(uint name) => (int)Math.Clamp((long)RageStat(playerStats, name)
             + (own is null ? 0 : RageStat(own, name)), int.MinValue, int.MaxValue);
         var inputs = RageStats.Inputs(Get);
-        if (attack && (WeaponTypeDamage.FamilyOf(weaponClass) is "axe" or "sword"
-                || WeaponTypeDamage.FamilyOf(secondWeaponClass) is "axe" or "sword")
-            && Get(Stat.GainXRageOnHitWithAxesSwords) is int weaponRage and not 0)
-            inputs = inputs with { GainOnAttackHit = ActorScale.Saturate((long)inputs.GainOnAttackHit + weaponRage) };
+        if (attack)
+        {
+            string? primary = WeaponTypeDamage.FamilyOf(weaponClass);
+            string? secondary = WeaponTypeDamage.FamilyOf(secondWeaponClass);
+            bool axe = primary == "axe" || secondary == "axe";
+            if (axe || primary == "sword" || secondary == "sword")
+            {
+                long weaponRage = Get(Stat.GainXRageOnHitWithAxesSwords);
+                if (axe) weaponRage += Get(Stat.GainXRageOnHitWithAxes);
+                inputs = inputs with { GainOnAttackHit = ActorScale.Saturate(inputs.GainOnAttackHit + weaponRage) };
+            }
+        }
         return player.Rage.Hit(ProjectileWorldTime(player), inputs, attack, melee, critical, (random ?? AreaRng(player)).Next(100),
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }

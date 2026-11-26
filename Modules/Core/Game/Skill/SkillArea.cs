@@ -122,7 +122,8 @@ public static class SkillArea
     internal static int Radius(int baseRadius, Func<uint, int> get, bool spell, double areaMore)
     {
         int radius = baseRadius + get(Stat.ActiveSkillBaseRadiusPlus);
-        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore)) / 100;
+        double hundredths = 100 * Math.Sqrt(Modifier(get, spell) * areaMore);
+        double scaled = radius * Math.Floor(hundredths > 0 ? Math.BitIncrement(hundredths) : hundredths) / 100;
         scaled *= Math.Max(0, 1 + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }

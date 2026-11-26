@@ -1,10 +1,10 @@
 using System.Collections.Concurrent;
+using GameServer.Core.Protocol.Instance;
 
 public static partial class Game
 {
     // "Curse Enemies with <Hex> on Hit" (the influenced glove and ring suffixes): the stat's value is the level of the curse
-    // gem it applies, through the same owner a cast curse uses (curse limit, hexproof). The marks' "Trigger Level # Mark
-    // when you Hit a Rare or Unique Enemy" stats are local to their item and need a triggered skill instead.
+    // gem it applies, through the same owner a cast curse uses (curse limit, hexproof).
     static readonly (uint Stat, string Effect)[] ItemCurseOnHitStats =
     [
         (Stat.CurseOnHitLevelDespair, "Despair"), (Stat.CurseOnHitLevelElementalWeakness, "ElementalWeakness"),
@@ -21,14 +21,28 @@ public static partial class Game
         double now)
     {
         foreach (var (stat, effect) in ItemCurseOnHitStats)
-        {
-            if (hitStats.GetValueOrDefault(stat) is not (int level and > 0)) continue;
-            if (target.Curses.All.TryGetValue((player.Id, effect), out var held) && now < held.Until && now - held.Applied < 1) continue;
-            var curse = ItemCurseOnHitGemStats.GetValue(SkillsFor(player), static _ => new()).GetOrAdd((effect, level),
-                static IReadOnlyDictionary<uint, int> (key, catalog) => catalog.EffectRow(key.Effect) is int row and >= 0
-                    ? catalog.EffectStats(row, key.Level).ToDictionary(p => p.Item1, p => p.Item2) : new Dictionary<uint, int>(),
-                SkillsFor(player));
-            if (curse.Count != 0) ApplyCurseDataLocked(player, target, 0, effect, curse, now, false, hitStats);
-        }
+            ApplyItemCurseLocked(player, target, effect, hitStats.GetValueOrDefault(stat), now, hitStats);
+        TryTriggeredAssassinsMarkLocked(player, target, hitStats.GetValueOrDefault(Stat.CurseOnHitLevelAssassinsMark), now, hitStats);
+    }
+
+    static void TryTriggeredAssassinsMarkLocked(Player player, SpawnedMonster target, int level, double now,
+        IReadOnlyDictionary<uint, int> stats, string sourceEffect = "AssassinsMark")
+    {
+        if (level <= 0 || target is not { Hostile: true, Dead: false, Life: > 0, Rarity: MonsterRarity.Rare or MonsterRarity.Unique }
+            || ActiveMarkTarget(player, now) is not null) return;
+        ApplyItemCurseLocked(player, target, "AssassinsMark", level, now, stats, sourceEffect);
+    }
+
+    static void ApplyItemCurseLocked(Player player, SpawnedMonster target, string effect, int level, double now,
+        IReadOnlyDictionary<uint, int> stats, string? sourceEffect = null)
+    {
+        if (level <= 0) return;
+        if (target.HasCurses && target.Curses.All.TryGetValue((player.Id, effect), out var held)
+            && now < held.Until && now - held.Applied < 1) return;
+        var skills = SkillsFor(player);
+        var curse = ItemCurseOnHitGemStats.GetValue(skills, static _ => new()).GetOrAdd((sourceEffect ?? effect, level),
+            static IReadOnlyDictionary<uint, int> (key, catalog) => catalog.EffectRow(key.Effect) is int row and >= 0
+                ? catalog.EffectStats(row, key.Level).ToDictionary(p => p.Item1, p => p.Item2) : new Dictionary<uint, int>(), skills);
+        if (curse.Count != 0) ApplyCurseDataLocked(player, target, 0, effect, curse, now, false, stats);
     }
 }

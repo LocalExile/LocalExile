@@ -349,6 +349,10 @@ public static partial class Game
         double factor = MonsterDamageTaken(m, spell, now, hit: true) * (critical ? criticalMultiplier / 100.0 : 1);
         int Player(uint key) => playerStats.GetValueOrDefault(key);
         int Skill(uint name) => skill is not null && name is var key ? skill.GetValueOrDefault(key) : 0;
+        if (playerHit && !spell && critical)
+            TryTriggeredAssassinsMarkLocked(player, m,
+                Player(Stat.LocalDisplayTriggerLevelXAssassinsMarkWhenYouCriticallyHitRareOrUniqueEnemyWithAttacks),
+                now, playerStats, "AssassinsMarkTriggeredAssassin");
         // The physical part counts after the monster's armour + physical reduction and its Maim, as the hit's damage does.
         double physRaw = mitigated[DamageType.Physical].Min;
         double physReduction = HitMitigation.PhysicalReduction(Monsters, m, physRaw,

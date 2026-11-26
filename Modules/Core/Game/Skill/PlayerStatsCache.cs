@@ -234,6 +234,9 @@ public static partial class Game
                 break;
             case StatInput.Walk:
                 graph.MarkRule((int)PlayerStatStep.TotemAura);
+                if (graph.Values.GetValueOrDefault(Stat.EsRegenerationPerMinutePctWhileStationary) != 0
+                    || graph.Values.GetValueOrDefault(Stat.EssenceDisplayElementalDamageTakenWhileNotMovingPlusPct) != 0)
+                    graph.MarkRule((int)PlayerStatStep.Sources);
                 double clock = AreaTime(player);
                 frame.MovingCheckAt = player.Walk.MovingChangesIn(clock) is double next ? clock + next : double.PositiveInfinity;
                 CheckConditions(player, frame, graph);
@@ -377,7 +380,9 @@ public static partial class Game
         {
             if (key == StatConditions.UsedSkill && MapSkillActionSpeedPerUse(player) != 0)
                 MarkPlayerStats(player, PlayerStatStep.TailCritical);
-            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true)
+            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true
+                || key == StatConditions.ConsumedCorpse
+                    && graph.Values.GetValueOrDefault(Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
                 MarkPlayerStats(player, PlayerStatStep.Sources);
         };
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);
