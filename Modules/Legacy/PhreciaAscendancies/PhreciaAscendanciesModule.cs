@@ -13,10 +13,12 @@ public sealed class PhreciaAscendanciesModule : IModule
         GameEvents.DerivedStats.Add(module.Manifest.Id, PhreciaStats.DurationPerTenStrength);
         GameEvents.PoolSources.Add(module.Manifest.Id, PhreciaStats.ManaPerDexterity);
         GameEvents.CastSpeedMore.Add(module.Manifest.Id, PhreciaStats.CastSpeedWithFishingRod);
-        // The Paladin's Light of Divinity (Augury of Penitence, 2551: nearby enemies take increased elemental damage) and
-        // the Surfcaster's Ghost of the Deep (Torment Touched, 2550: a permanent buff on the player).
+        // The Paladin's Light of Divinity (Augury of Penitence, 2551: nearby enemies take increased elemental damage), the
+        // Surfcaster's Ghost of the Deep (Torment Touched, 2550: a permanent buff on the player) and the Ancestral
+        // Commander's Born under Fire (2552: nearby enemies' physical damage converts to fire).
         PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
         PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyIllegalFisherman");
+        PassiveBuffAuras.Apply(module.Lifetime, "CustomAscendancyEnemyPhysicalDamageConvertedToFire");
         AscendancyPolicies.Register(module.Lifetime, new PhreciaFamilyPolicy());
         var gameplay = new Classes.Harbinger.HarbingerGameplay();
         GameEvents.CompanionTick.Add(module.Manifest.Id, gameplay.Tick);

@@ -19,6 +19,8 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
         host.Start(watch: false);
         Assert.True(host.IsLoaded("Idols"), "Build the Idols module before running this Gateway test.");
         Assert.True(host.IsLoaded("Portals"));
+        // The loaded module gives its item class the jewels' affix caps.
+        Assert.Equal((2, 2), new ItemRolls(Program.Items).RareMaxAffixes(ItemCatalog.Create(Program.Items.Find("Minor Idol")!)));
 
         var league = ServerLeagues.Resolve(null, "Phrecia", LeagueCatalog.Startup);
         Assert.Contains("Idols", league.Modules);

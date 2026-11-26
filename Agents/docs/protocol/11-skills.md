@@ -2715,7 +2715,7 @@ blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, n
 Only templates whose stats have a consumer are applied, through three views:
 
 - **Enemy auras** (`EnemyAurasFor`, `Game.EnemyAuraActs`): a module's own (`PassiveBuffAuras.Apply`: the Phrecia
-  module's 672, Augury of Penitence 2551, `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
+  module's 672, Augury of Penitence 2551, `elemental_damage_taken_+%`, and its hit conversion, Born under Fire: 674,
   BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
   Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
   The others, such as the Occultist's resistances and Kaom's Binding's
