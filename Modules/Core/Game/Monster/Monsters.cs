@@ -2283,8 +2283,16 @@ public static partial class Game
     {
         while (true)
         {
-            if (!MonsterPresent(player, id, m) || m.Invulnerable || m.HitAnimations is not { Count: > 0 }
-                || m.Effects.CannotBeStunned || HitReaction.Chance(stun, m.MaxLife) <= 0) return;
+            double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
+            if (m.Invulnerable || m.CannotBeStunned || m.Effects.CannotBeStunned || HitReaction.Chance(stun, threshold) <= 0) return;
+            if (m.Life == 0 || m.Dead || m.HitAnimations is not { Count: > 0 })
+            {
+                if (CurrentGameWork && !player.Closed && !player.LeavingArea && !player.RageRetired
+                    && ReferenceEquals(player.Area.Monsters.GetValueOrDefault(id), m))
+                    HitReaction.TryFlinch(m, stun, AreaTime(player), AreaRng(player));
+                return;
+            }
+            if (!MonsterPresent(player, id, m)) return;
             bool checkedAtGate = false;
             await SendWorldRecord(player, id, [], null, atGate: () =>
             {
@@ -3009,7 +3017,7 @@ public static partial class Game
             hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
         if (attackHit && !cannotEvade && StatOf(Stat.KeystoneWindDancer) != 0 && player.RecentEvents.Happened(EnemyAttackHit, now))
             hitChance = Math.Max(5, 100 - (100 - hitChance) * 110 / 100);
-        if (attackHit && EvadesLocked(player, hitChance, now))
+        if (attackHit && !cannotEvade && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} monster 0x{id:x} ({m.Label}) evaded: accuracy {monsterAccuracy} " +
@@ -3032,7 +3040,7 @@ public static partial class Game
         var suppression = spellHit && (map?.Get(Stat.MapPlayerCannotSuppressSpellDamage) ?? 0) == 0
             ? Suppression(player) : default;
         bool RollSuppression() => spellHit && suppression.Chance > 0
-            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+            && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom, suppression.Lucky, suppression.Unlucky);
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
         bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
         bool suppressed = suppressionChangesRoll && RollSuppression();
@@ -3042,12 +3050,13 @@ public static partial class Game
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
             : MonsterBaseCritChancePermyriad;
-        rolled = MonsterModHit(m, rolled, player.PlayerLife, player.PlayerMaxLife, player.IncomingHitRandom, out bool monsterCritical,
+        rolled = MonsterModHitAgainstTarget(m, rolled, player.PlayerLife, player.PlayerMaxLife, player.IncomingHitRandom, out bool monsterCritical,
             () => SelfCriticalReduction(player),
             now: now, cannotCrit: VaalOversoul.CannotCrit(m, a), additionalCritical: PlayerBrittleCriticalChance(player, now),
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
-            baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
+            baseCritPermyriad: baseCritPermyriad,
+            increasedCriticalAgainstTarget: StatOf(Stat.BaseEnemyCriticalStrikeChancePlusPctAgainstSelf));
         // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
@@ -3181,7 +3190,8 @@ public static partial class Game
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
             monsterCritical, blocked, now, stats, incomingAilments, source: id);
         AlternateAilmentsOnPlayerLocked(player, m, ailmentTaken.Select((_, r) =>
-            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), blocked, now, stats, incomingAilments);
+            new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))),
+            blocked, now, stats, incomingAilments, critical: monsterCritical);
         ApplyMonsterDamagingAilmentsLocked(player, id, m, baseHit, blocked, now, attack: attackHit, prepared: stats,
             skillPoisonChance: a.PoisonChance, skillPoisonSeconds: a.PoisonSeconds, critical: monsterCritical);
         ApplyMonsterDecayLocked(player, id, m, blocked, now, stats);
@@ -3219,7 +3229,7 @@ public static partial class Game
         bool alwaysStun = m.Effects[Stat.AlwaysStun] > 0;
         bool stunEligible = alwaysStun || (!a.Ranged && a.Damage.Components.All(c => c.Type == DamageType.Physical));
         if (!blocked && player.PlayerLife > 0 && stunEligible)
-            recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now);
+            recovery = CommitPlayerHitRecoveryLocked(player, alwaysStun ? Math.Max(damage, (int)player.PlayerMaxLife) : damage, now, id);
         else if (blocked && player.PlayerLife > 0 && stunEligible
             && StatOf(Stat.CannotBeStunnedIfHaveBeenStunnedOrBlockedStunningHitInPast2Seconds) != 0)
         {

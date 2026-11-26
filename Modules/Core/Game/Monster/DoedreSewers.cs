@@ -592,6 +592,7 @@ public static class DoedreSewers
         public void Stop()
         {
             stopped = true; boss.EntranceGrace = false;
+            boss.Walk.SetSpeed(speed, area.Time);
             boss.LifePhases!.DamageTakenPercent = 100;
             CampaignBossHelpers.ClearInvulnerableOnUnload(area, id, boss);
             var present = Present.ToArray();

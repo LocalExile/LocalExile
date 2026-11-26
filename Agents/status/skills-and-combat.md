@@ -43,7 +43,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md) Â§4â€“5, [20](../docs/protocol/20-damage.md) Â§2h.
 - Armour, Evasion and Energy Shield from passives and equipment, Iron Reflexes and Chaos Inoculation.
   Docs: [11](../docs/protocol/11-skills.md) Â§4, [13](../docs/protocol/13-items.md) Â§2.
-- Gem skills, their projectiles and triggered releases, including linked summons and Desecrate.
+- Gem skills, their projectiles and triggered releases, including linked summons and Desecrate's corpses and chaos
+  ground.
   Docs: [11](../docs/protocol/11-skills.md) Â§9â€“10, [25](../docs/protocol/25-gem-supports.md).
 - Resistances, with the Kitava penalties. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Spell Suppression. Docs: [11](../docs/protocol/11-skills.md) Â§12.
@@ -89,6 +90,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Summoned followers stop pathless walk orders and retry when a route becomes available.
 - Spell-totem summons keep their minion identity instead of inheriting their summoning skill's totem flags.
 - Righteous Fire's enemy burn with linked supports. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Increased and reduced damage over time taken on enemies combine with other damage-taken modifiers for persistent
+  damage.
 - Monster-hit bleeding and poison share timed damage, avoidance and paid flask cleansing; native QA pending.
 - Scorch, Brittle and Sap from chance, crit (Secrets of Suffering) and block sources on monsters; Scorch and Brittle
   on the player; not checked live. Docs: [20](../docs/protocol/20-damage.md) "Scorch, Brittle and Sap".
@@ -188,13 +191,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arcane Might (#364). Docs: [Arcane Might](../docs/game/arcane-might.md), [20](../docs/protocol/20-damage.md) Â§2c.
 - Ruthless and Hardcore rules per connection. Docs: [league modes](../docs/game/league-modes.md).
 - Grace Period on area entry. Docs: [11](../docs/protocol/11-skills.md), "Grace Period on combat-area entry".
+- Ice Spear uses a distance-based second form, and Splitting's children enter it at contact. Trarthus Spectral Throw
+  returns to its trap site.
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
-  radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
-  melee swings keep their hit over a queued Move.
+- Ground Slam's forward wave scales with area and gains more damage near the player.
+  Area attacks publish their final radius.
+  Volcanic Fissure hits along its path and launches landing projectiles at the end.
+  Snaking hits along each leg and erupts, seeking a reachable target outside the previous eruption's hit set.
+  Gem melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
+- Lacerate and its variants resolve two forward waves at their animation contacts. The overlap can take both hits,
+  and stance changes update the native angle and Blood Stance bleeding modifiers.
+- Cleave hits in a forward semicircle. Quality counts nearby enemies up to the radius cap, and Cleave of Rage
+  needs an axe and sword pair and adds reach at its Rage thresholds.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Heavy Strike and Trarthus confirmed-hit particles/audio, with typed and critical melee feedback. Single-clip Heavy Strike stances use their ACT contact.
@@ -276,6 +287,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   Only the default, Celestial and Tentacles grounds fade in and out.
 - Projectile modifiers and named projectile skills. Docs: [framework](../docs/game/projectile-framework.md),
   [skills](../docs/game/projectile-skills.md), [20](../docs/protocol/20-damage.md) Â§3.
+- Soulrend and its Spiral variant turn toward nearby enemies ahead and renew a non-stacking chaos debuff along each
+  flight. Spiral releases each projectile on its own timed angle.
+- Pact of Ghorr empowers eligible self-cast damage-over-time spells. Casting a different empowered spell raises
+  Hunger's trigger rate. Fleshrend flies periodically and stacks physical damage over time and increased damage over
+  time taken.
+- Pact casts grant timed Afflictions. Unholy Accomplice grants Boons in their place and improves Pact casting and
+  recovery speed. K'Tash empowers the next damaging Vaal spell, reducing its soul gain prevention and refunding its
+  spent souls. Lycia empowers the next three hand-cast channelling spells and triggers Heaven's Scourge during the
+  channel and again on release.
+- Beidat empowers eligible non-Vaal, non-Brand hand-cast spells with radial projectiles, spiral areas or additional
+  beam chains and increases the corresponding hit and ailment damage.
 - Bow and wand attack gems without a projectile row (Frenzy, Puncture, Power Siphon) fire the held weapon's
   projectile (not checked live). Docs: [skills](../docs/game/projectile-skills.md).
   Frenzy gives one Frenzy Charge per use and its more attack damage and speed per charge.
@@ -327,13 +349,27 @@ Part of [Status](../Status.md); what to build next in this area is in
   Invention scales trap and mine damage by their age at the trigger.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
 - Bladefall places timed volleys and eligible lingering blades for supported mine, totem and triggered casts.
-- Ball Lightning of Static places a finite stationary orb for self-casts, damage triggers and mines.
+- Ball Lightning applies repeated bolts with one hit interval per target and release. Orbiting steers one orb along
+  a widening spiral, checks clearance at each grid step and shares the client's seeded launch speed for hand casts.
+  Static places a finite orb for self-casts, damage triggers and mines and uses the same hit interval.
 - Frost Bomb uses its crystal duration and pulse or detonation behavior for supported triggers and totems.
 - Detonate Dead and Volatile Dead use eligible corpses and their timed effects across supported cast and proxy paths.
 - Cremation variants place finite geysers and resolve their corpse and impact effects.
 - Unearth pierces along its flight and creates a usable Bone Archer corpse at the landing.
 - Corpse Walk creates ordinary or eligible Spectral Corpses with elapsed walking while its item grant is equipped.
-- Cast when Damage Taken releases Arc from the triggering enemy when that enemy is still available.
+- Damage and stun triggers aim at the hit source when known. Arc of Surging keeps an eligible target through its
+  delayed split.
+- Shock Nova releases a ring and a larger nova, including when cast by a totem, trap or mine. The ring applies the
+  skill's shock chance, and the maximum shock modifier applies to both contacts.
+- Flame Surge hits forward and uses an existing ignite for burning ground. Combusting uses the ignite it inflicts,
+  with its own creation interval.
+- Glacial Cascade uses the same burst pattern for hand casts, spell totems, traps and mines. Its normal and Royale
+  final bursts are larger and cannot knock back, and earlier bursts limit knockback against unique enemies.
+- Dark Bargain of Trarthus tracks Ruin on the caster. The seventh stack consumes it, sacrifices life and adds base
+  chaos damage to that release.
+- Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split
+  targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets
+  and grants a timed Lucky Arc buff.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.
@@ -409,7 +445,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   [Paladin](../docs/game/paladin.md).
 - The player's debuffs on monsters: taunt, enemy auras, Intimidate, Unnerve and Wither.
   Docs: [11](../docs/protocol/11-skills.md) Â§12, [Paladin](../docs/game/paladin.md).
-- Cyclone's area of effect. Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
+- Cyclone and Cyclone of Tumult convert extra melee strike range into increased area.
+  Tumult gains and loses stages on the area clock, with per-stage radius, attack speed and movement speed.
+  Docs: [11](../docs/protocol/11-skills.md), "Cyclone area updates".
+- Player-cast Blade Flurry and Blade Flurry of Incision with aimed acquisition, paid stages, and release strikes.
+  Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
+- Charged Dash and its Projection variant steer a projection, hit along its path and release a scaled final wave.
+  The normal gem moves to a legal landing; the Projection variant stays in place.
+  Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Winter Orb. Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Dark Bargain (self-cast only; Summon Skeletons does not work yet). Docs: [11](../docs/protocol/11-skills.md) §9a.

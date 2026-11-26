@@ -169,6 +169,7 @@ public static partial class Game
         using var statScope = new PlayerStatScope(player, fresh: true);
         var skill = SupportedSkill(player, aura.SkillId);
         bool thunder = aura.EffectId == "HeraldOfThunder";
+        bool tempest = aura.EffectId == "TempestShield";
         if (!skill.RequirementsMet || skill.Effect != aura.Effect
             || SkillsFor(player).EffectId(skill.Effect) != aura.EffectId)
         {
@@ -190,7 +191,7 @@ public static partial class Game
         ReservationDamageProfile normalProfile, blindedProfile;
         Func<long, int, bool, bool, bool, TargetContact, ReservationDamageProfile> targetProfile;
         bool contactDamage = HasContactDamage(playerStats.GetValueOrDefault);
-        if (aura.EffectId == "TempestShield")
+        if (tempest)
         {
             if (SupportedHitInputsFor(player, aura.SkillId, capturedGem: skill) is not { } inputs) return false;
             ReservationDamageProfile Profile(long increased) => new(
@@ -219,20 +220,60 @@ public static partial class Game
             blindedProfile = additionalIncreased == 0 ? normalProfile : secondary(additionalIncreased, 0, false, false, false, default);
             targetProfile = secondary;
         }
-        double radius = ReservationRadius(player, aura, aura.EffectId == "TempestShield" ? 60 : 32, skill, playerStats);
-        var candidates = player.Area.MonstersNear(at, radius).Where(p => p.Value is { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
-                && !MonsterAsleep(player, p.Key) && Dist(p.Value.Walk.Position(now), at) <= radius)
-            .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at)).ToArray();
-        if (thunder) candidates = candidates.Take(1).ToArray();
-        else if (aura.EffectId == "TempestShield") candidates = candidates.Take(1 + Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains))).ToArray();
-        bool spell = aura.EffectId == "TempestShield";
+        double radius = ReservationRadius(player, aura, tempest ? 60 : 32, skill, playerStats);
+        bool Available(uint id, SpawnedMonster monster) => monster is
+            { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
+            && !MonsterAsleep(player, id);
+        var candidates = tempest ? TempestContacts() : AreaContacts();
+
+        IEnumerable<(uint Id, SpawnedMonster Monster, (int X, int Y) Origin)> AreaContacts()
+        {
+            var nearby = player.Area.MonstersNear(at, radius)
+                .Where(p => Available(p.Key, p.Value) && Dist(p.Value.Walk.Position(now), at) <= radius)
+                .OrderBy(p => target != 0 && p.Key == target ? -1 : Dist(p.Value.Walk.Position(now), at));
+            foreach (var (id, monster) in thunder ? nearby.Take(1) : nearby)
+                yield return (id, monster, at);
+        }
+
+        IEnumerable<(uint Id, SpawnedMonster Monster, (int X, int Y) Origin)> TempestContacts()
+        {
+            if (target == 0 || !player.Area.Monsters.TryGetValue(target, out var first) || !Available(target, first))
+                yield break;
+            int chains = Math.Max(0, GolemStat(skill.Stats, Stat.NumberOfChains));
+            var centre = first.Walk.Position(now);
+            yield return (target, first, player.Walk.Position(now));
+            if (chains == 0) yield break;
+            var hit = new HashSet<uint> { target };
+            for (int chain = 0; chain < chains; chain++)
+            {
+                uint nextId = 0;
+                SpawnedMonster? next = null;
+                double nearest = radius;
+                foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                {
+                    if (hit.Contains(id) || !Available(id, monster)) continue;
+                    double distance = Dist(centre, monster.Walk.Position(now));
+                    if (distance > nearest || distance == nearest && next is not null && id >= nextId) continue;
+                    nextId = id;
+                    next = monster;
+                    nearest = distance;
+                }
+                if (next is null) yield break;
+                hit.Add(nextId);
+                var origin = centre;
+                centre = next.Walk.Position(now);
+                yield return (nextId, next, origin);
+            }
+        }
+
+        bool spell = tempest;
         int Player(uint n) => GolemStat(playerStats, n);
         int Own(uint n) => GolemStat(skill.Stats, n);
         var hitRolls = HitRollsFor(playerStats).ForSkill(Own, spell);
         player.Reservations.Secondary = true;
         try
         {
-            foreach (var (id, m) in candidates)
+            foreach (var (id, m, origin) in candidates)
             {
                 if (m.Hostile != true || m.Dead || m.Life == 0 || m.Invulnerable || m.Asleep
                     || MonsterAsleep(player, id)
@@ -280,7 +321,7 @@ public static partial class Game
                 // Immediate kind 3 before the life update reaches the client's result consumer; 0xffff has no consuming action.
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.ActionHit(player.Id, 0xffff, id,
                     flags: MonsterHitFlags(blocked: false, critical), kind: 0x03, code: HitCode(mitigated),
-                    angle: HitAngle(to.X - at.X, to.Y - at.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
+                    angle: HitAngle(to.X - origin.X, to.Y - origin.Y)), aura.Name + " triggered hit", id, m, WorldId: player.Id));
                 CommitAcceptedHitLocked(player, id, m, hit, damage, now, aura.Name, playerKill: true);
                 if (selfDamage > 0)
                 {

@@ -63,12 +63,34 @@ public static partial class Game
             if (increase < 50) StatsChangeIn(rest + fullSeconds + 1 - now);
             typed = ActorScale.Saturate((long)typed + increase);
         }
+        if (Get(Stat.CycloneAreaOfEffectPlusPctPerAdditionalMeleeRange) is int perRange and > 0)
+        {
+            int additional = Math.Max(0, CycloneAdditionalMeleeRange(player, effect, own));
+            if (additional > 0)
+            {
+                int bonus = ActorScale.Saturate((long)additional * perRange);
+                stats[Stat.VirtualCycloneSkillAreaOfEffectPlusPctFromMeleeRange] = bonus;
+                typed = ActorScale.Saturate((long)typed + bonus);
+            }
+        }
         if (typed != 0)
             stats[SkillArea.Increase] = stats.GetValueOrDefault(SkillArea.Increase) + typed;
         if (Get(Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem) is int totemMore and not 0)
             stats[Stat.StygianSpireTotemAreaOfEffectPlusPctFinalPerMaximumTotem] = types.Totem
                 ? ActorScale.Saturate((long)totemMore * TotemAllowance(player, effect, own, stats)) : 0;
         return stats;
+    }
+
+    static int CycloneAdditionalMeleeRange(Player player, int effect, IReadOnlyDictionary<uint, int> own)
+    {
+        var weapon = WeaponFor(player);
+        if (!weapon.Melee) return 0;
+        int Additional(SkillCatalog.Unarmed w) =>
+            MeleeSkillReach(player, w, effect, own) - w.Range + (w.LocalSources?.GetValueOrDefault(Stat.LocalWeaponRangePlus) ?? 0);
+        int main = Additional(weapon);
+        if (OffhandWeaponFor(player) is { Melee: true } off)
+            return (main + Additional(off)) / 2;
+        return main;
     }
 
     // A player skill's radius in cells from baseRadius (its own active_skill_base_radius_+ added), through SkillAreaStats.

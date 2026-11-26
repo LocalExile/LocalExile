@@ -384,6 +384,7 @@ public static partial class Game
                     StopTotemChannel(old, bytes);
                     StopSearingBond(old, bytes);
                     TotemChannels.Remove(old);
+                    player.Area.Buffs.Clear(old.Id, TrarthanRuin, old.Id);
                 }
                 PresentNearby(player);
                 TotemsDiedLocked(player, now, playerStats);
@@ -645,6 +646,7 @@ public static partial class Game
                 StopTotemChannel(t, bytes);
                 StopSearingBond(t, bytes);
                 TotemChannels.Remove(t);
+                player.Area.Buffs.Clear(t.Id, TrarthanRuin, t.Id);
                 // Source 0 takes it off the roster; once, in the batch that carries its death.
                 if (!t.RosterRemovalSent)
                 {
@@ -689,6 +691,7 @@ public static partial class Game
             {
                 player.RemoveBlocker(totem.Id);
                 TotemChannels.Remove(totem);
+                player.Area.Buffs.Clear(totem.Id, TrarthanRuin, totem.Id);
                 if (SearingBondSources.TryGetValue(totem, out var source))
                 {
                     foreach (uint beam in source.Beams.Values) retired.Add(beam);
@@ -851,10 +854,12 @@ public static partial class Game
 
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
-        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0)
+        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
+        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
+        if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };
         var ownerStats = CharacterPlayerStats(player);
         var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
@@ -876,7 +881,7 @@ public static partial class Game
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
-            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
+            if (!TotemTargetable(m) || cascade is not null && m.WorldHidden || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
                 || covers?.Invoke(targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
@@ -908,8 +913,10 @@ public static partial class Game
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, ailmentSkillStats, now, AreaRng(player),
-                    sourceEffect: skill.Effect, blind: blind, hitOrigin: totem.At, playerHit: false,
-                    attackerSize: totem.BodySize, attackerHasReversedStat: false);
+                    attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
+                    sourceEffect: skill.Effect, blind: blind, hitOrigin: cascade?.HitOrigin(targetAt, totem.At) ?? totem.At,
+                    playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
+                    extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);

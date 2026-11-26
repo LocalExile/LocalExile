@@ -3,6 +3,11 @@
 ## Resolution
 
 `GemSupports` reads native GrantedEffects, ActiveSkills and GrantedEffectsPerLevel tables.
+
+Fissure and Crystalfall publish the active companion from `GemEffects.GrantedEffect2`. The native trigger uses
+`0x01ce` and the companion's skill ID. Fissure's `VolcanicSlam` uses behaviour variation 2. Its detached parent
+(ID 1) calls `0x141bee4b0` to seed the radial cracks from the sequence, actor and crack count. Falling Crystal's
+`CrystalFallSlam` uses `0x1414b3ad0` to start the 0.95-second fall and `0x1414b37a0` to land it at the hit's position.
 Physical support gems only affect usable gems in the same equipped item and link group.
 Item mods also contribute the support effects referenced by their `GrantedEffectsPerLevelKeys` to gems in that item.
 `SupportsGemsOnly` is retained from GrantedEffects. It excludes meta supports from item-granted non-gem actives while

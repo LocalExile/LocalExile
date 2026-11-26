@@ -199,7 +199,8 @@ public static class AilmentPanelStats
             // Burning Arrow's quality: 1% more ignite damage per quality (GrantedEffectQualityStats).
             * (ailmentType == DamageType.Fire ? Math.Max(0, 1 + get(Stat.ActiveSkillIgniteDamagePlusPctFinal) / 100.0) : 1)
             // Puncture's "49% more Damage with Bleeding".
-            * (ailment == "bleeding" ? Math.Max(0, 1 + get(Stat.ActiveSkillBleedingDamagePlusPctFinal) / 100.0) : 1)
+            * (ailment == "bleeding" ? Math.Max(0, 1 + get(Stat.ActiveSkillBleedingDamagePlusPctFinal) / 100.0)
+                * Math.Max(0, 1 + get(Stat.PunctureBleedingDamagePlusPctFinal) / 100.0) : 1)
             // Crimson Dance: "50% less Damage with Bleeding" (ReminderTextKeystoneCrimsonDance).
             * (ailment == "bleeding" && get(Stat.KeystoneCrimsonDance) != 0 ? .5 : 1);
         var typed = DamageTypes.ConversionOrder.Select(type => (History: DamageTypes.HistoryOf(type), Increased: get(Stat.Of(Slug(type) + "_damage_+%")))).ToArray();

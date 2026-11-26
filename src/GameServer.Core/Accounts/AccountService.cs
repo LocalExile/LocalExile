@@ -222,6 +222,21 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         return Result<bool>.Success(true);
     }
 
+    /// <summary>Migrates one non-permanently-dead character to <paramref name="targetLeague"/>.</summary>
+    public Result<Character> MigrateCharacterLeague(Guid accountId, Guid characterId, string targetLeague)
+    {
+        if (string.IsNullOrWhiteSpace(targetLeague)) return Result<Character>.Fail(AuthError.InvalidName);
+        lock (_gate)
+        {
+            var c = store.GetCharacter(characterId);
+            if (c is null || c.AccountId != accountId || c.HardcoreDeath?.PermanentlyDead == true)
+                return Result<Character>.Fail(AuthError.NotFound);
+            var migrated = c with { League = targetLeague };
+            store.UpdateCharacter(migrated);
+            return Result<Character>.Success(migrated);
+        }
+    }
+
     /// <summary>Sets a character's level (1 to 100), found by name.</summary>
     public Result<Character> SetLevel(string characterName, int level)
     {

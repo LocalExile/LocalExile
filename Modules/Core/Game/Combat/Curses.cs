@@ -127,10 +127,6 @@ public static partial class Game
             && existing.PreventsCriticalStrikes == preventsCritical
             && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         bool newlyCursed = !monster.HasCurses || !monster.Curses.HasActive(now);
-        if (definition.Mark)
-            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
-                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
-                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         double until = aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate;
         int amplify = double.IsFinite(until) ? Get(Stat.WhileCurseIs50PctExpiredCurseEffectPlusPct) : 0;
         var curse = new MonsterCurses.Curse(caster, effect, skill, definition.Buff, player.NextBuff++, now, until, aura, definition.Mark, stats)
@@ -147,7 +143,13 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
-        if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
+        if (curse.Mark)
+        {
+            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
+                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == caster && c.Mark).ToArray())
+                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
+            if (caster == player.Id) TrackMarkTarget(player, monster);
+        }
         if (!aura && !fromPlacement && casterId is null)
             player.RecentEvents.Record(CursedEnemyRecently, now);
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
@@ -294,7 +296,7 @@ public static partial class Game
                     || GemSkillInstanceDisabled(player, currentGem.Effect, skill) is not null) return false;
                 RecordCompletedCurseCast(player, effect, AreaTime(player));
                 ApplyCurseTargetsLocked(player, skill, currentGem, CurseCatalog.All[effect], aim, target, now, playerStats,
-                    cascadeFrom: player.Walk.Position(now));
+                    cascadeFrom: player.Walk.Position(now), extraAreas: CastingBeidatSpell(player, skill)?.ExtraAreas ?? 0);
                 break;
             }
             await AreaWait(PlayerUpdateRole.Minions, 25);
@@ -305,7 +307,7 @@ public static partial class Game
 
     static void ApplyCurseTargetsLocked(Player player, ushort skill, SupportedGem gem, CurseCatalog.Definition curse,
         (int X, int Y) aim, uint target, double now, IReadOnlyDictionary<uint, int> playerStats,
-        (int X, int Y)? cascadeFrom = null)
+        (int X, int Y)? cascadeFrom = null, int extraAreas = 0)
     {
         if (curse.Mark)
         {
@@ -315,6 +317,7 @@ public static partial class Game
         }
         int radius = CurseRadius(player, skill, false, gem, playerStats);
         var cascades = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
+        if (cascadeFrom is { } origin) AppendBeidatAreas(origin, aim, radius, extraAreas, cascades);
         foreach (var monster in player.Area.Monsters.Values)
         {
             var position = monster.Walk.Position(now);
@@ -444,6 +447,8 @@ public static partial class Game
                 m.SpiderWebs.SetExpiryRate(now, rate);
                 m.TauntedUntil = RecipientEffectTime.RetimedDeadline(m.TauntedUntil, now, oldRate, rate); m.RecipientDebuffRate = rate;
                 RetimePestilentStrike(player, id, m, now, oldRate, rate);
+                RetimeSoulrendDamage(player.Area, id, m, now, oldRate, rate);
+                RetimeFleshrendDamage(m, now, oldRate, rate);
                 m.Ruptures.SetExpiryRate(now, rate);
                 m.Bleeds.SetExpiryRate(now, BleedingExpiryRate(m, now));
             }

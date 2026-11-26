@@ -15,11 +15,7 @@ public sealed class HideoutEditingModule : IModule
             await SpawnDecorations(player);
             await SpawnMonsterStatues(player);
         });
-        GameEvents.PlayerEntered.Add(module.Manifest.Id, player =>
-        {
-            SyncAreaDecorations(player);
-            return Task.CompletedTask;
-        });
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, SyncAreaDecorations);
         GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, at) =>
             UseDisplayCase(player, use, at));
         GameEvents.Command(module.Manifest.Id, "save_hideout", "/save_hideout (save and report the current hideout layout)",

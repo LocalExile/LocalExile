@@ -335,7 +335,8 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null, int weaponWitherChance = 0)
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null,
+        int weaponWitherChance = 0, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None)
     {
         bool owned = ownHit ?? playerHit;
         int blindChilled = owned && m is { Hostile: true, EntranceGrace: false, Invulnerable: false }
@@ -368,9 +369,14 @@ public static partial class Game
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
             criticalProjectileKnockback = false;
-        KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
-            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback,
-            area: areaHit);
+        bool limitCascadeKnockback = cascadeBurst == CascadeBurst.Early && m.Rarity == MonsterRarity.Unique;
+        if (cascadeBurst != CascadeBurst.Final
+            && (!limitCascadeKnockback || !CascadeKnockbacks.TryGetValue(m, out var last) || now >= last.ReadyAt)
+            && KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
+                attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback,
+                area: areaHit)
+            && limitCascadeKnockback)
+            CascadeKnockbacks.GetValue(m, static _ => new()).ReadyAt = now + 1;
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
@@ -418,7 +424,7 @@ public static partial class Game
                 _ => 0,
             };
             if (effect != 0) value = ActorScale.Saturate(value + effect);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
+            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch

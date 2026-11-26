@@ -73,6 +73,38 @@ public static class PvpQueue
             $"0x0118 pvp queue status \"{queueName}\" (challenge={isChallenge}, withdraw={showWithdraw})");
     }
 
+    /// <summary>Handles C→S 0x156 (accept or decline a pending duel challenge).</summary>
+    public static async Task RespondToChallenge(Player player, bool accepted)
+    {
+        if (!accepted)
+        {
+            await Leave(player, withdraw: false);
+            return;
+        }
+        Player? challenger = null;
+        lock (Gate)
+        {
+            foreach (var (other, entry) in Entries)
+            {
+                if (entry.IsChallenge && ReferenceEquals(entry.Opponent, player))
+                {
+                    challenger = other;
+                    Entries.Remove(other);
+                    Entries.Remove(player);
+                    break;
+                }
+            }
+        }
+        if (challenger is null) return;
+        string cName = CharacterName(challenger), pName = CharacterName(player);
+        await SendTo(challenger, InstancePvp.QueueHide(), $"0x0119 duel accepted by {pName}");
+        await SendTo(player, InstancePvp.QueueHide(), $"0x0119 duel accepted against {cName}");
+        await SendTo(challenger, InstanceChat.ChatLine($"{pName} accepted your duel challenge."),
+            $"0x0017 duel accepted by {pName}");
+        await SendTo(player, InstanceChat.ChatLine($"Accepted duel challenge from {cName}."),
+            $"0x0017 duel accepted from {cName}");
+    }
+
     /// <summary>Handles C→S 0x11a (Leave Queue / decline) and C→S 0x18d (Withdraw): clears any tracked entry,
     /// always sends S→C 0x119 so stale HUD bars close cleanly, and notifies any linked opponent.</summary>
     public static async Task Leave(Player player, bool withdraw)
