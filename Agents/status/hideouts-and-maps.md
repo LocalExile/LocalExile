@@ -217,7 +217,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
   release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
   client yet.
-  The Domain of Timeless Conflict (soldiers as `LegionRevive` ghosts, 3.29 revival waves in the 60-cell control zone), the
+  The Domain of Timeless Conflict (3.29 rules: no Unrelenting emblems, area level 80 to 82, soldiers as `LegionRevive` ghosts, revival waves in the 60-cell control zone, the end at 00:00 also after the player left), the
   scarabs and the Atlas passives are built, not checked in the client yet.
   Docs: [Legion](../docs/game/legion.md).
 
