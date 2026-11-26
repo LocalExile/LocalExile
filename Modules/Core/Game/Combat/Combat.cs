@@ -3342,14 +3342,10 @@ public static partial class Game
                 {
                     if (sunder is not null)
                     {
-                        var savedScope = StatsScope.Value;
-                        try
-                        {
-                            StatsScope.Value = null;
-                            await SettleSweep();
-                            if (!await sunder.AppendContacts(targets)) break;
-                        }
-                        finally { StatsScope.Value = savedScope; }
+                        sweepStats?.Dispose();
+                        sweepStats = null;
+                        await SettleSweep();
+                        if (!await sunder.AppendContacts(targets)) break;
                     }
                     else if (iceCrash is not null)
                     {

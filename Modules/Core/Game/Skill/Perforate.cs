@@ -70,7 +70,7 @@ public static partial class Game
         var source = CaptureAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "spike");
         HashSet<uint>? struck = sand ? [] : null;
         bool Active() => session.Active && player.PlayerLife > 0;
-        long start = session.Runtime.Now;
+        long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(now));
         long interval = ProjectileRuntime.Time(sand ? .02 : bloodshed ? .10 : .05);
         int index = 0;
         void Release()

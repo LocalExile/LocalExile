@@ -21,7 +21,6 @@ public sealed class IceCrashContactTests
             if (id == inner.ObjectId) trial.Move(inner, 128);
             if (id == middle.ObjectId) trial.Move(enters, 126);
         });
-        Console.WriteLine($"[Ice Crash] initial contacts: {string.Join(", ", hits.Select(hit => hit.Id))}");
         Assert.Equal([inner.ObjectId, middle.ObjectId, outer.ObjectId, enters.ObjectId], hits.Select(hit => hit.Id));
         Assert.InRange(hits[1].At - hits[0].At, .39, .42);
         Assert.InRange(hits[2].At - hits[0].At, .79, .82);
@@ -46,7 +45,6 @@ public sealed class IceCrashContactTests
 
         await trial.Hit(0x8003);
         uint offDamage = Damage(inner) - mainDamage;
-        Console.WriteLine($"[Ice Crash of Cadence] main={mainDamage}, off={offDamage}, off outer={Damage(outer)}");
         Assert.True(Damage(outer) > 0);
         Assert.Equal(0u, Damage(outside));
         Assert.InRange((double)mainDamage / offDamage, 1.78, 1.82);

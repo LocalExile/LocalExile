@@ -6,8 +6,10 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class SunderWaveTests
 {
-    [Fact]
-    public async Task Waves_advance_with_variant_timing_and_cap_their_overlapping_shockwaves()
+    [Theory]
+    [InlineData(180)]
+    [InlineData(100)]
+    public async Task Waves_advance_with_variant_timing_and_cap_their_overlapping_shockwaves(int aimX)
     {
         foreach (var (name, shockwaves, delay) in new[] { ("Sunder", 5, .4), ("Sunder of Earthbreaking", 3, .1) })
         {
@@ -29,7 +31,7 @@ public sealed class SunderWaveTests
                 return damage;
             });
 
-            await trial.Cast(0x8001, (180, 100), id => contacts.Add((id, trial.Clock.At)));
+            await trial.Cast(0x8001, (aimX, 100), id => contacts.Add((id, trial.Clock.At)));
 
             Assert.All(emitters, monster => Assert.NotEqual(-1, monster.AttackEvasion.Value));
             Assert.Equal(-1, lateral.AttackEvasion.Value);

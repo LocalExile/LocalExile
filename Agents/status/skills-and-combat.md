@@ -190,10 +190,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
   radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
   melee swings keep their hit over a queued Move.
+  Docs: [11](../docs/protocol/11-skills.md) §9a.
 - Tectonic Slam uses a forward fissure with seeded branches. Contacts advance along each branch and one use can contact each target once.
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
-  landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
-  Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Sunder and its variants time their wave segments and victim shockwaves. Earthbreaking keeps overlapping uses, and
   Trarthus can redirect at enemies and terrain.
 - Ice Crash lands in three timed circles with one contact per enemy. Cadence uses the swinging hand's radius and

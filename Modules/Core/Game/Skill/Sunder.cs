@@ -49,6 +49,7 @@ public static partial class Game
             this.filter = filter;
             session = ProjectilesFor(player);
             direction = GroundSlamWave.Direction(from, aim);
+            if (direction == default) direction = (1, 0);
             dueAt = AreaTime(player);
             maxSegments = skillStats.GetValueOrDefault(Stat.SunderWaveMaxSteps);
             minimumSegments = skillStats.GetValueOrDefault(Stat.SunderWaveMinSteps);
