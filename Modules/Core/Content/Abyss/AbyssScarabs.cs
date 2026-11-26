@@ -22,7 +22,9 @@ public static class AbyssScarabs
             || !AbyssTables.HasRewardChest || AbyssTables.Families.Count == 0 || crystalStates is null
             || QuestObjectTypes.Find(Crystal) is not { } crystal || !QuestObject.CanSerialize(crystal.Components, true)
             || global::Game.Monsters.Find(Consort) is not { Supported: true } || global::Game.Monsters.Find(Spire) is not { Supported: true }
-            || AreaTransitionCatalog.HashOf("AbyssLeague") is null) return;
+            || opening.Mods.Get(Stat.MapContainsAbyssDepths) > 0 &&
+                (!ServerLevels.IsSupported("AbyssLeagueBoss") || !ServerLevels.IsSupported("AbyssLeagueBoss2")
+                || AreaTransitionCatalog.HashOf("AbyssLeagueBoss") is null || AreaTransitionCatalog.HashOf("AbyssLeagueBoss2") is null)) return;
         request.HandledContent.Add("Abyss");
     }
 

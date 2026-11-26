@@ -93,6 +93,8 @@ public sealed class AbyssEncounterTests
             var encounter = new AbyssEncounter();
             var rng = new Random(11);
             var state = encounter.Begin(player, AbyssEncounter.MakePlan(player.Layout, (300, 300), rng)!, 45, rng);
+            Assert.Equal(state.Plan.Family == "Lightless" ? "AbyssLeagueBoss2" : "AbyssLeagueBoss", state.DepthArea);
+            Assert.True(ServerLevels.IsSupported(state.DepthArea));
             // The encounter is the instance's: another player of it reads the same one.
             var second = new Player(Flat(1200), 2, 3316637604u) { Instance = player.Instance };
             Assert.Same(state, encounter.Of(second));

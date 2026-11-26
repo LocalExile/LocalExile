@@ -86,7 +86,7 @@ public sealed partial class AbyssEncounter
         public bool Final = true;
         public uint Crystal, DepthEntrance;
         public ulong DepthInstance;
-        public string DepthArea = "AbyssLeague";
+        public string DepthArea = "AbyssLeagueBoss";
         public bool Consort, Spire;
         public int MonsterIncrease, SoulIncrease, Souls, Seed;
         public List<Body> Bodies = [];
@@ -282,7 +282,8 @@ public sealed partial class AbyssEncounter
         var wave = plan.Wave;
         plan = plan with { Slots = scaledSlots, Wave = Enumerable.Range(0, Scale(wave.Count)).Select(i => wave[i % wave.Count]).ToList() };
         var state = new State { Plan = plan, Level = level, Random = rng, Area = player.Area, PitCell = LatCell(plan.PitLattice),
-            Seed = rng.Next(), MonsterIncrease = increase, SoulIncrease = stats.GetValueOrDefault(Stat.MapAbyssChasmMonsterQuantityPlusPct) };
+            Seed = rng.Next(), MonsterIncrease = increase, SoulIncrease = stats.GetValueOrDefault(Stat.MapAbyssChasmMonsterQuantityPlusPct),
+            DepthArea = plan.Family == "Lightless" ? "AbyssLeagueBoss2" : "AbyssLeagueBoss" };
         var all = (List<State>)AllOf(player);
         state.Snapshot = JsonSerializer.Serialize(state, Json);
         lock (all) all.Add(state);

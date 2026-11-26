@@ -128,9 +128,10 @@ The existing army population and chest/drop weights remain estimates.
 
 The nine Abyss inputs retain independent pit plans and reward claims through reload and reentry. They compose
 extra pits, pack size, guaranteed Spires, Depths entrances, Consorts and non-final pits' Abyssal Crystals. Depths has
-a return to the parent instance. The new inputs reuse the captured
-crack/pit lifecycle. Extra-pit placement, rare-monster distribution, crystal reward count and the uncaptured Depths
-layout are local models; the base encounter's recorded capture evidence does not establish retail parity for them.
+a return to the parent instance and uses the existing generated Lich areas, matched to its monster family. The removed
+non-Lich Depths areas cannot generate in this client. The new inputs reuse the captured crack/pit lifecycle.
+Extra-pit placement, rare-monster distribution and crystal reward count are local models; the base encounter's
+recorded capture evidence does not establish retail parity for them.
 
 The four Trarthan inputs select Infamous builds, unique equipment, wild companions and their quantity/difficulty
 modifiers. Wild mercenaries pay actual carried items through ordinary ground publication once. The ordinary hire
