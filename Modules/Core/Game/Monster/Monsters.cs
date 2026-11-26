@@ -177,7 +177,7 @@ public static partial class Game
         if (SkillAnimations.IsStanced(variety.Id) && SkillAnimations.Key(catalog, effect, DualWields(variety)) is { } key
             && SkillAnimations.StanceClip(variety.Id, SkillAnimations.StanceName(variety.Weapons), key, sequence) is { ContactFraction: double at } stanced)
             return new(stanced.Animation, at, null, Has(Stat.ActionShouldFaceAwayFromTarget));
-        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence);
+        var clip = catalog.MonsterContact(variety.Id, projectile.AnimationKey ?? "Melee", sequence, projectile.FallbackAnimationKey);
         if (clip is null) return null;
         var point = Has(Stat.ProjectileUsesContactPosition) ? clip.Point : null;
         if (point is { } p && Has(Stat.UseScaledContactOffset)) point = p.Scaled(variety.ModelScale);

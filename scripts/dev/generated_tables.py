@@ -86,6 +86,27 @@ def item_types(doc):
 
 
 def monster_contacts(doc):
+    # v9 (Option B): profile-normalized {"version": 9, "profiles": [...], "varieties": {...}}
+    if isinstance(doc, dict) and "profiles" in doc and "varieties" in doc:
+        monsters, clips, frames, events, clocks = [], [], [], [], []
+        for p_idx, prof in enumerate(doc["profiles"]):
+            for pool, entries in prof["pools"].items():
+                for i, c in enumerate(entries):
+                    clip = len(clips)
+                    clips.append({"profile": p_idx, "pool": pool,
+                                  **child("profile", p_idx, i, c, skip=("contacts", "events"))})
+                    frames += [{"clip": clip, "ord": k, "ms": f[0], "position": f[1]}
+                               for k, f in enumerate(c.get("contacts") or [])]
+                    events += [{"clip": clip, "ord": k, "name": ev["name"], "ms": ev["ms"],
+                                "position": ev.get("position"), "args": ev.get("args")}
+                               for k, ev in enumerate(c.get("events") or [])]
+        for m, (variety, value) in enumerate(doc["varieties"].items()):
+            monsters.append({"variety": variety, **flat(value, skip=("melee_clocks",))})
+            clocks += [child("monster", m, i, clip) for i, clip in enumerate(value.get("melee_clocks") or [])]
+        return {"monster_contacts": monsters, "monster_contact_clips": clips,
+                "monster_contact_clip_frames": frames, "monster_contact_clip_events": events,
+                "monster_melee_clocks": clocks}
+
     monsters, clips, frames, clocks = [], [], [], []
     for m, (variety, value) in enumerate(doc.items()):
         monsters.append({"variety": variety, **flat(value, skip=("pools", "melee_clocks"))})

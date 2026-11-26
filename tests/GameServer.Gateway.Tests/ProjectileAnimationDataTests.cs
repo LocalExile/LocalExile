@@ -46,4 +46,38 @@ public sealed class ProjectileAnimationDataTests
         Assert.Equal(("idle", 1000, (int?)1000), (fallback.Flight!.Name, fallback.Flight.Ms, fallback.Flight.Contact));
         Assert.Null(skills.Clips("Metadata/Projectiles/NonexistentBatch1Witness"));
     }
+
+    [Fact]
+    public void Monster_contacts_v9_recover_modifiers_aliases_ao_views_and_named_clip_events()
+    {
+        var skills = new SkillCatalog();
+
+        // 1. .ao view_of with view_exclude_event + view-local contact events (Harvest Sandspitter)
+        var harvest = skills.MonsterContactPool("Metadata/Monsters/LeagueHarvest/Blue/HarvestSandspitterT1", "SpellProjectile");
+        Assert.NotNull(harvest);
+        Assert.Equal(new[] { "attack1_01", "attack2_01" }, harvest.Select(c => c.Animation));
+        Assert.Equal(new int?[] { 359, 313 }, harvest.Select(c => c.ContactMs));
+
+        // 2. item_animation OffHand using + multiple contacts + MoveEventType / named events (Standalone Tora)
+        var tora = skills.MonsterContact("Metadata/Monsters/LeagueBetrayal/StandaloneTora", "SpellProjectile", 0);
+        Assert.NotNull(tora);
+        Assert.Equal("dash_spray_bow_01", tora.Animation);
+        Assert.NotNull(tora.Contacts);
+        Assert.Equal(8, tora.Contacts!.Count);
+        Assert.NotNull(tora.FirstEvent("move"));
+        Assert.NotNull(tora.FirstEvent("anim_leave"));
+
+        // 3. effect_locked (Scarecrow Effigy of Fear) & root @Alias (SpiderBossTalisman -> @SpellAreaOfEffect)
+        var scarecrow = skills.MonsterContact("Metadata/Monsters/Skeletons/Scarecrow/ScarecrowPitchforkBoss", "SpellProjectile", 0);
+        Assert.NotNull(scarecrow);
+        Assert.Equal(("attack_spear_01", (int?)600), (scarecrow.Animation, scarecrow.ContactMs));
+        var spider = skills.MonsterContact("Metadata/Monsters/Spiders/SpiderBossTalisman", "SpellProjectile", 0);
+        Assert.NotNull(spider);
+        Assert.Equal(("attack2", (int?)499), (spider.Animation, spider.ContactMs));
+
+        // 4. All Animation.dat keys + named combo clip events (Legion Templar General)
+        var templarThrow = skills.MonsterContact("Metadata/Monsters/LegionLeague/LegionTemplarGeneral", "Throw", 0);
+        Assert.NotNull(templarThrow);
+        Assert.NotEmpty(templarThrow.EventsNamed("trigger_proj"));
+    }
 }

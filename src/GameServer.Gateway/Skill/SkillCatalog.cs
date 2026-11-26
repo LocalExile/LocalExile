@@ -1199,9 +1199,12 @@ public sealed class SkillCatalog
         /// <summary>How many projectiles one release creates (VoodooKingBugRend's six BugSoulrends; a mortar's from its
         /// skill, MonsterProjectile; one otherwise).</summary>
         public int Count { get; init; } = 1;
-        /// <summary>The Animation.dat Id of the clips the client plays for the skill (MonsterMortar.Animation: the Sand
-        /// Spitter mortar's <c>SpellProjectile</c>, row 20), the key of the variety's ACT pool; null when the row names none.</summary>
+        /// <summary>The Animation.dat Id of the clips the client plays for the skill (GrantedEffects.Animation, else the
+        /// action class or table row such as MonsterMortar.Animation), the key of the variety's ACT pool; null when none.</summary>
         public string? AnimationKey { get; init; }
+        /// <summary>Secondary Animation.dat Id tried when <see cref="AnimationKey"/> is absent from the variety's ACT
+        /// (e.g. table/class fallback when GrantedEffects.Animation is not defined on that monster's ACT).</summary>
+        public string? FallbackAnimationKey { get; init; }
         /// <summary>The MonsterMortar row the client draws for a <c>monster_mortar_attack</c> skill (its GrantedEffects
         /// SkillID: 183 for the Sand Spitter's, 55 for a Cannibal's ThrowFire); 0 for any other projectile, for the spell
         /// forms (<c>monster_mortar</c>, not traced) and for the skills whose SkillID is row 0.</summary>
@@ -1220,6 +1223,14 @@ public sealed class SkillCatalog
         public int SpiralStartAngle { get; init; }
     }
 
+    /// <summary>One named animation event merged from the rig .amd and the .ao AnimationController chain
+    /// (client.db's monster_contact_clip_events, from scripts/re/monster_contacts.py v9).</summary>
+    public sealed record ClipNamedEvent(string Name, int Ms, ContactPoint? Point, string? ArgsJson = null)
+    {
+        /// <summary>Event time as a fraction of the clip length, clamped to [0, 1].</summary>
+        public double Fraction(int lengthMs) => lengthMs > 0 ? Math.Clamp((double)Ms / lengthMs, 0, 1) : 0;
+    }
+
     /// <summary>One clip of a monster's attack pool (client.db's monster_contact_clips, from scripts/re/monster_contacts.py): its name,
     /// its index in the rig's animation list, its length, and its contact keyframe's time and position when it has one
     /// (the Sand Spitter's attack1: 375 of 1000 ms, 45.9 units behind the model and 71.6 up).</summary>
@@ -1228,6 +1239,13 @@ public sealed class SkillCatalog
         /// <summary>Every contact of a clip with several (monster_contact_clip_frames: the Iguana's five spines), in time
         /// order; null for a clip with one or none.</summary>
         public IReadOnlyList<(int Ms, ContactPoint? Point)>? Contacts { get; init; }
+
+        /// <summary>All merged named clip events in time order (monster_contact_clip_events: contact, trigger_proj, slam,
+        /// hit_ground, move, start_face, end_face, etc.). Empty when none.</summary>
+        public IReadOnlyList<ClipNamedEvent> Events { get; init; } = [];
+
+        /// <summary>ACT clip selection weight (<c>:weight=N</c>); 1 when unspecified.</summary>
+        public int Weight { get; init; } = 1;
 
         /// <summary>The merged AO/rig clock was extracted completely. False for legacy data or an unsupported span;
         /// true with null slow bounds means the clip has no slow span.</summary>
@@ -1247,6 +1265,21 @@ public sealed class SkillCatalog
         /// <summary>The clip's contact at <paramref name="index"/> as a fraction of the clip; null past its last.</summary>
         public double? ContactFractionAt(int index) =>
             index < ContactsMs.Count && LengthMs > 0 ? Math.Clamp((double)ContactsMs[index] / LengthMs, 0, 1) : null;
+
+        /// <summary>Earliest named event matching <paramref name="name"/>, or null.</summary>
+        public ClipNamedEvent? FirstEvent(string name)
+        {
+            for (int i = 0; i < Events.Count; i++)
+                if (string.Equals(Events[i].Name, name, StringComparison.Ordinal)) return Events[i];
+            return null;
+        }
+
+        /// <summary>All named events matching <paramref name="name"/>, in time order.</summary>
+        public IEnumerable<ClipNamedEvent> EventsNamed(string name)
+        {
+            for (int i = 0; i < Events.Count; i++)
+                if (string.Equals(Events[i].Name, name, StringComparison.Ordinal)) yield return Events[i];
+        }
     }
 
     /// <summary>The clip the client plays for a monster's action: the variety's ACT pool for the skill's animation key
@@ -1256,11 +1289,16 @@ public sealed class SkillCatalog
     {
         if (!_monsterContacts.TryGetValue(varietyId, out var pools) || !pools.TryGetValue(animationKey, out var pool)
             || pool.Length == 0) return null;
-        // Equal weights for every clip; the pool's size comes from a data file, so only a small one lives on the stack.
         Span<uint> weights = pool.Length <= 32 ? stackalloc uint[pool.Length] : new uint[pool.Length];
-        weights.Fill(1);
+        for (int i = 0; i < pool.Length; i++) weights[i] = (uint)Math.Max(1, pool[i].Weight);
         return pool[AnimationVariantSelector.Select(sequence, weights)];
     }
+
+    /// <summary>Tries <paramref name="animationKey"/> first, then <paramref name="fallbackAnimationKey"/> if absent.</summary>
+    public MonsterClipContact? MonsterContact(string varietyId, string animationKey, ushort sequence, string? fallbackAnimationKey) =>
+        MonsterContact(varietyId, animationKey, sequence)
+        ?? (fallbackAnimationKey is not null && !string.Equals(fallbackAnimationKey, animationKey, StringComparison.Ordinal)
+            ? MonsterContact(varietyId, fallbackAnimationKey, sequence) : null);
 
     /// <summary>A variety's whole pool for an animation key (every clip the selector may pick), or null.</summary>
     public MonsterClipContact[]? MonsterContactPool(string varietyId, string animationKey) =>
@@ -1312,18 +1350,55 @@ public sealed class SkillCatalog
     {
         var result = new Dictionary<string, Dictionary<string, MonsterClipContact[]>>(StringComparer.Ordinal);
         if (ClientTables.TableOrNull("monster_contacts") is not { } varieties) return result;
-        var clipsByVariety = ClientTables.Table("monster_contact_clips").By("monster");
+        var clipsTable = ClientTables.Table("monster_contact_clips");
         var framesByClip = ClientTables.TableOrNull("monster_contact_clip_frames")?.By("clip");
+        var eventsByClip = ClientTables.TableOrNull("monster_contact_clip_events")?.By("clip");
         IReadOnlyList<(int, ContactPoint?)>? Frames(int clip) => framesByClip is null ? null
             : framesByClip[clip].OrderBy(f => f.Int("ord")).Select(f => (f.Int("ms"), AnimationContacts.Point(f, "position"))).ToArray() is { Length: > 1 } all
                 ? all : null;
+        IReadOnlyList<ClipNamedEvent> Events(int clip) => eventsByClip is null ? []
+            : eventsByClip[clip].OrderBy(e => e.Int("ord"))
+                .Select(e => new ClipNamedEvent(e.Text("name")!, e.Int("ms"), AnimationContacts.Point(e, "position"), e.TextOrNull("args")))
+                .ToArray();
+        MonsterClipContact BuildClip(ClientRow c) => new(c.Text("animation")!, c.UInt("index"),
+            c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position"))
+        {
+            Contacts = Frames(c.Index),
+            Events = Events(c.Index),
+            BudgetSeconds = clipsTable.HasColumn("budget") ? c.RealOrNull("budget") : null,
+            Weight = clipsTable.HasColumn("weight") ? Math.Max(1, c.IntOrNull("weight") ?? 1) : 1,
+        };
+
+        // v9 Option B: clips are deduplicated by unique (act, ao, amd) profile; share pool dictionaries across varieties.
+        if (varieties.HasColumn("profile") && clipsTable.HasColumn("profile"))
+        {
+            var clipsByProfile = clipsTable.By("profile");
+            var profilePools = new Dictionary<int, Dictionary<string, MonsterClipContact[]>>();
+            foreach (var variety in varieties)
+            {
+                if (variety.IntOrNull("profile") is not int pid) continue;
+                if (!profilePools.TryGetValue(pid, out var byKey))
+                {
+                    byKey = clipsByProfile[pid]
+                        .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
+                        .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
+                        .ToDictionary(pool => pool.Key, pool => pool.OrderBy(c => c.Int("ord")).Select(BuildClip).ToArray(),
+                            StringComparer.Ordinal);
+                    profilePools[pid] = byKey;
+                }
+                if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
+            }
+            return result;
+        }
+
+        // Legacy v8 schema fallback (keyed directly by monster row index).
+        var clipsByVariety = clipsTable.By("monster");
         foreach (var variety in varieties)
         {
             var byKey = clipsByVariety[variety.Index]
                 .Where(c => c.TextOrNull("animation") is not null && !c.IsNull("index") && c.IntOrNull("length") is > 0)
                 .GroupBy(c => c.Text("pool")!, StringComparer.Ordinal)
-                .ToDictionary(pool => pool.Key, pool => pool.Select(c => new MonsterClipContact(c.Text("animation")!, c.UInt("index"),
-                    c.Int("length"), c.IntOrNull("contact"), AnimationContacts.Point(c, "position")) { Contacts = Frames(c.Index) }).ToArray(),
+                .ToDictionary(pool => pool.Key, pool => pool.OrderBy(c => c.Int("ord")).Select(BuildClip).ToArray(),
                     StringComparer.Ordinal);
             if (byKey.Count > 0) result[variety.Text("variety")!] = byKey;
         }
@@ -1619,14 +1694,16 @@ public sealed class SkillCatalog
             row++;
             if (e.IntOrNull("ActiveSkill") is not int activeRow) continue;
             int projectileRow;
-            string? animationKey;
+            string? classAnimationKey;
             bool lobbed;
             int variation;
+            string? effectAnim = e.IntOrNull("Animation") is int ea && ea >= 0 && ea < animationIds.Count && animationIds[ea].Length > 0
+                ? animationIds[ea] : null;
             if (mortarSkills.TryGetValue(activeRow, out bool attackForm))
             {
                 if (e.IntOrNull("SkillID") is not int skill
                     || !mortarRows.TryGetValue(skill, out var mortar)) continue;
-                (projectileRow, animationKey, lobbed) = (mortar.Projectile, mortar.AnimationKey, true);
+                (projectileRow, classAnimationKey, lobbed) = (mortar.Projectile, mortar.AnimationKey ?? (attackForm ? "Melee" : "SpellProjectile"), true);
                 variation = attackForm ? skill : 0;
             }
             else if (spellProjectileSkills.Contains(activeRow))
@@ -1637,22 +1714,22 @@ public sealed class SkillCatalog
                     ? EffectStats(row, 1).Where(s => s.Item1 == key).Select(s => (int?)s.Item2).FirstOrDefault() ?? 0
                     : 0;
                 if (!spellRows.TryGetValue(variationRow, out var spell)) continue;
-                (projectileRow, animationKey, lobbed, variation) = (spell.Projectile, spell.AnimationKey ?? "SpellProjectile", false, 0);
+                (projectileRow, classAnimationKey, lobbed, variation) = (spell.Projectile, spell.AnimationKey ?? "SpellProjectile", false, 0);
             }
             else if (rollingMagmaSkills.Contains(activeRow) && magmaOrbRow >= 0)
             {
                 // Rolling Magma (Flame Mother): Frida-verified MagmaOrbShort lobbed projectile, server-published.
-                (projectileRow, animationKey, lobbed, variation) = (magmaOrbRow, "SpellProjectile", true, 0);
+                (projectileRow, classAnimationKey, lobbed, variation) = (magmaOrbRow, "SpellProjectile", true, 0);
             }
             else if (merveilIceSpearSkills.Contains(activeRow) && iceSpearRow >= 0)
             {
-                (projectileRow, animationKey, lobbed, variation) = (iceSpearRow, "SpellProjectile", false, 0);
+                (projectileRow, classAnimationKey, lobbed, variation) = (iceSpearRow, "SpellProjectile", false, 0);
             }
             else if (spectralThrowSkills.Contains(activeRow) && fairgravesThrowRow >= 0
                 && e.TextOrNull("Id") == "FairgravesThrownWeapon")
             {
                 // ThrownWeaponProjectile plays Melee (Animation.dat has no "Attack" row).
-                (projectileRow, animationKey, lobbed, variation) = (fairgravesThrowRow, "Melee", false, 0);
+                (projectileRow, classAnimationKey, lobbed, variation) = (fairgravesThrowRow, "Melee", false, 0);
             }
             else if (includeWeaponAttacks && equipmentProjectileSkills.Contains(activeRow) && variationKey is uint key)
             {
@@ -1662,8 +1739,8 @@ public sealed class SkillCatalog
                     configuredVariation = 0;
                 if (configuredVariation is not int variationRow || !attackRows.TryGetValue(variationRow, out projectileRow))
                     continue;
-                // The weapon projectile's ACT pool is the existing SpellProjectile contact for these varieties (superseded by GE.Animation in S2).
-                animationKey = "SpellProjectile";
+                // Weapon attacks default to Melee (bow/thrown 0x141b720e0), with SpellProjectile as secondary fallback.
+                classAnimationKey = "Melee";
                 lobbed = false;
                 variation = variationRow;
             }
@@ -1671,8 +1748,14 @@ public sealed class SkillCatalog
             if (projectileRow < 0 || projectileRow >= rows.Count) continue;
             var p = rows[projectileRow];
             if (p.Id.Length == 0 || p.Speed <= 0) continue;
+            // S2 key priority: GrantedEffects.Animation first, falling back to the action class / variation table row.
+            string? animationKey = effectAnim ?? classAnimationKey;
+            string? fallbackKey = effectAnim is not null && !string.Equals(effectAnim, classAnimationKey, StringComparison.Ordinal)
+                ? classAnimationKey
+                : (includeWeaponAttacks && equipmentProjectileSkills.Contains(activeRow) && !string.Equals(animationKey, "SpellProjectile", StringComparison.Ordinal)
+                    ? "SpellProjectile" : null);
             result[row] = new(p.Id, p.Speed, lobbed, Math.Max(1, p.Radius))
-                { AnimationKey = animationKey, Variation = variation };
+                { AnimationKey = animationKey, FallbackAnimationKey = fallbackKey, Variation = variation };
         }
         return result;
     }
