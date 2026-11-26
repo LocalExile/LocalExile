@@ -189,6 +189,27 @@ displayed the supplied tables and art.
 - `art/uiimages1.txt` is UTF-16LE without a BOM, a line per sprite: `"<name>" "<texture>.dds" x1 y1 x2 y2`. For
   `InGame/BreachItemSymbol` both coordinate differences are 43. For its `InGame/4K/` variant both are 58.
 
+### Monster skill coverage and the monster file cache
+
+Two local tools measure how much of a monster's skill data the server uses (run from the repository root; both read the
+client and `data/client.db` only):
+
+```bash
+python -I scripts/re/monster_files_cache.py            # once: the .act/.ao/.amd/.ot/.otc files of every MonsterVarieties row
+python -I scripts/re/monster_skill_coverage.py [--csv out.csv] [--no-cache]
+```
+
+The cache writes about 21,000 files (flat names, the `ot_components.py` layout) to `Tools/re/out/monster-files/` through
+ggdump in batches (git-ignored, never commit it; a rerun fetches only what is missing; `--out` names another folder). The
+report prints totals and percentages per category (campaign boss, map bar boss, league, ordinary, and a flag for varieties
+a hand-scripted encounter names) of: the kit (usable effects, kept, dropped), projectile and mortar effects with a release
+clip (the server's key, plus `GrantedEffects.Animation`, plus any `.act` entry), where each projectile comes from, combo
+parents (EmptyAction with an Animation row, with children that have none) and the shared states the `.ot`/`.otc` declare.
+It writes one CSV row per variety (default `G:/temp/monster-skill-coverage.csv`, else the temp folder). The rules are a
+Python mirror of `SkillCatalog.BuildMonsterProjectiles`, `BossKits.IsUsable` and `MonsterKits.IsExcludedOrdinaryEffect`, not
+the server's own run (no BossSummons overrides, stance clips or kit shaping), so compare before and after on the same
+version of the script. The `ggdump` tool needs `Tools/ooz/node_modules` (a worktree links the main checkout's).
+
 ## 4. Frida through REA (live client)
 
 REA's MCP tools: `start_frida_session` (mode `attach`, `pid`), `load_frida_script` (inline source), `frida_session_status`
