@@ -32,7 +32,7 @@ public static class AtlasProgress
     /// RandomContent nodes).</summary>
     const int MaskRows = 170, MaskBytes = 22;
 
-    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Loaded = default!;
+    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas, IReadOnlyDictionary<string, Node> ByArea) Loaded = default!;
 
     public static IReadOnlyList<Node> Maps => Loaded.Maps;
 
@@ -48,12 +48,29 @@ public static class AtlasProgress
     public static Node? FindByAreaHash16(ushort areaHash16) =>
         Maps.FirstOrDefault(n => n.AreaHashes.Contains(areaHash16)) ?? FindByHash16(areaHash16);
 
-    public static Node? OfArea(string areaId) => Maps.FirstOrDefault(n => n.Areas.Contains(areaId));
+    public static Node? OfArea(string areaId) =>
+        Loaded.ByArea is { } byArea && byArea.TryGetValue(areaId, out var node) ? node : null;
 
-    /// <summary>The last WorldAreas boss of each of the node's areas (Atziri after her vessels, Sirus after the throne).
-    /// A map with one boss uses that one.</summary>
+    /// <summary>True when <paramref name="monster"/> is one of the node's final bosses (the final phase of a phased
+    /// boss such as Atziri, Sirus, Maven, or Shakari; or any boss in a simultaneous multi-boss room).</summary>
     public static bool CompletesMap(Node node, MonsterInfo monster) =>
         node.FinalBosses.Contains(monster.VarietyId);
+
+    /// <summary>True when <paramref name="monster"/> is one of <paramref name="node"/>'s final bosses and no other
+    /// living or dormant final boss remains in <paramref name="area"/>.</summary>
+    public static bool CompletesMap(Node node, MonsterInfo monster, GameArea? area)
+    {
+        if (!CompletesMap(node, monster)) return false;
+        if (area is null) return true;
+        foreach (var remaining in area.Monsters.Values.Concat(area.DormantMonsters.Values))
+        {
+            if (!remaining.Hostile || remaining.Dead || remaining.Life <= 0) continue;
+            if (monster.ObjectId != 0 && remaining.ObjectId == monster.ObjectId) continue;
+            if (remaining.Variety is { Id.Length: > 0 } variety && node.FinalBosses.Contains(variety.Id))
+                return false;
+        }
+        return true;
+    }
 
     static HashSet<string> ReadIds(string? value) =>
         (value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
@@ -253,9 +270,10 @@ public static class AtlasProgress
     public static byte[] NodeMessage(Node node, bool bonus = true) =>
         [0x01, 0xa4, (byte)(node.Hash16 >> 8), (byte)node.Hash16, 0, 0, bonus ? (byte)0x02 : (byte)0x00];
 
-    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas) Load(string folder)
+    static (IReadOnlyList<Node> Maps, IReadOnlySet<int> OnAtlas, IReadOnlyDictionary<string, Node> ByArea) Load(string folder)
     {
-        if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas")) return ([], new HashSet<int>());
+        if (!ClientTables.Has("AtlasNode") || !ClientTables.Has("WorldAreas"))
+            return ([], new HashSet<int>(), new Dictionary<string, Node>(StringComparer.Ordinal));
         var areaRows = new List<(string Id, string Name, ushort Hash16, int[] Bosses)>();
         var a = ClientTables.Table("WorldAreas");
         foreach (var row in a)
@@ -304,31 +322,48 @@ public static class AtlasProgress
                 }
             }
         }
-        var bossIds = new Dictionary<int, string>();
+        var bossInfo = new Dictionary<int, (string Id, string Name)>();
         foreach (int boss in byRow.Values.SelectMany(n => n.Areas.SelectMany(i => areaRows[i].Bosses)))
-            bossIds[boss] = "";
-        if (bossIds.Count > 0 && ClientTables.Has("MonsterVarieties"))
+            bossInfo[boss] = ("", "");
+        if (bossInfo.Count > 0 && ClientTables.Has("MonsterVarieties"))
         {
             var v = ClientTables.Table("MonsterVarieties");
-            {
-                int count = v.Count;
-                foreach (int row in bossIds.Keys.ToList())
-                    bossIds[row] = row >= 0 && row < count ? v[row].Text("Id") ?? "" : "";
+            int count = v.Count;
+            foreach (int row in bossInfo.Keys.ToList())
+                bossInfo[row] = row >= 0 && row < count
+                    ? (v[row].Text("Id") ?? "", v[row].Text("Name") ?? "")
+                    : ("", "");
         }
-            }
-        string Variety(int row) => bossIds.GetValueOrDefault(row, "");
-        return ([.. byRow.OrderBy(kv => kv.Key).Select(kv =>
+        string Variety(int row) => bossInfo.TryGetValue(row, out var info) ? info.Id : "";
+        string BossName(int row) => bossInfo.TryGetValue(row, out var info) ? info.Name : "";
+        static bool IsPhasedBossList(string areaId, List<(string Id, string Name)> list) =>
+            list.Count > 1 && (MapBossFights.Current?.PhaseOf(areaId) is not null
+                || (list.Count == 2 && list[0].Name.Length > 0
+                    && string.Equals(list[0].Name, list[1].Name, StringComparison.Ordinal)));
+        List<Node> maps = [.. byRow.OrderBy(kv => kv.Key).Select(kv =>
         {
             var n = kv.Value;
             var bosses = n.Areas.SelectMany(i => areaRows[i].Bosses).Select(Variety).Where(id => id.Length > 0)
                 .ToHashSet(StringComparer.Ordinal);
-            var finals = n.Areas.Select(i => areaRows[i].Bosses).Where(list => list.Length > 0)
-                .Select(list => Variety(list[^1])).Where(id => id.Length > 0).ToHashSet(StringComparer.Ordinal);
+            var finals = new HashSet<string>(StringComparer.Ordinal);
+            foreach (int i in n.Areas)
+            {
+                var list = areaRows[i].Bosses.Select(row => (Id: Variety(row), Name: BossName(row)))
+                    .Where(b => b.Id.Length > 0).ToList();
+                if (list.Count == 0) continue;
+                if (IsPhasedBossList(areaRows[i].Id, list)) finals.Add(list[^1].Id);
+                else foreach (var b in list) finals.Add(b.Id);
+            }
             return new Node(kv.Key, n.Id, n.Hash16, n.Name,
                 n.Areas.Select(i => areaRows[i].Id).ToHashSet(StringComparer.Ordinal),
                 bosses, finals.Count > 0 ? finals : bosses,
                 n.Areas.Select(i => areaRows[i].Hash16).Where(h => h != 0).ToHashSet())
                 { IsNormalMap = nTable[kv.Key].Bool("IsNormalMap") };
-        })], onAtlas);
+        })];
+        var byArea = new Dictionary<string, Node>(StringComparer.Ordinal);
+        foreach (var node in maps)
+            foreach (string areaId in node.Areas)
+                byArea.TryAdd(areaId, node);
+        return (maps, onAtlas, byArea);
     }
 }

@@ -668,9 +668,9 @@ public static partial class Game
                     if (definition == ItemSpider)
                         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(consumed.ObjectId),
                             "Raise Spiders consumes a corpse", WorldId: consumed.ObjectId, RemovesObject: true));
-                    // Official: any other raised corpse leaves in the create's frame, after the create. A corpse that was
-                    // created as one (itemised, Desecrate) is not sent, as in the Offering, Devour and warcry paths.
-                    else if (!consumed.CreatedAsCorpse && consumed.ObjectId != 0)
+                    // Official: any other raised corpse leaves in the create's frame, after the create. Desecrate/created
+                    // corpses also require 0x02bd because AreaDelta does not poll-remove consumed corpses automatically.
+                    else if (consumed.ObjectId != 0)
                         player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(consumed.ObjectId),
                             $"0x02bd raised corpse 0x{consumed.ObjectId:x} removed", WorldId: consumed.ObjectId, RemovesObject: true));
                 }
@@ -846,7 +846,8 @@ public static partial class Game
 
     public static async Task SummonsTick(Player player, double now)
     {
-        if (!player.Connection.PlayerSent || !CurrentGameWork || player.Closed || player.LeavingArea) return;
+        if (!player.Connection.PlayerSent || !CurrentGameWork || player.Closed || player.LeavingArea
+            || player.Frames.WaitingFirstFrame(player)) return;
         var state = player.Summons;
         EnsureSpectreBankLoaded(player);
         // Persistent summons are suppressed in Town; keep Restored = false so SaveSummons on leaving Town never wipes them.

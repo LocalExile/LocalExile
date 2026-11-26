@@ -28,18 +28,6 @@ public static partial class Game
             gem.SourceGem is { } item && ReferenceEquals(Source, PlayerInventories.GemIdentity(item));
     }
 
-    // The base reach of the weapon does not scale Cyclone's area. The local flat range mod is
-    // included in WeaponFor's range; the character and the supported skill add the other bonuses.
-    static int CycloneAreaFromRange(Player player, IReadOnlyDictionary<uint, int> own)
-    {
-        int perCell = own.GetValueOrDefault(Stat.CycloneAreaOfEffectPlusPctPerAdditionalMeleeRange);
-        if (perCell == 0) return 0;
-        var weapon = WeaponFor(player);
-        int added = MeleeSkillReach(player, weapon, -1, own) - weapon.Range
-            + (weapon.LocalSources?.GetValueOrDefault(Stat.LocalWeaponRangePlus) ?? 0);
-        return ActorScale.Saturate((long)Math.Max(0, added) * perCell);
-    }
-
     static int CycloneStageCount(Player player, ushort skill) =>
         CycloneStages.TryGetValue(player, out var state) && state.InArea(player)
             && state.Skill == skill && player.PlayerLife > 0

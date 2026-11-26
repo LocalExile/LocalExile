@@ -1653,6 +1653,7 @@ public static partial class Game
 
         if (placement is null)
         {
+            ChargesOnHit(player, m, critical, spell: true, gem.Effect, gem.Level, gem.Quality, melee: false, primary: true, skillStats: gem.Stats);
             CrueltyOnHitLocked(player, skillId, damage, m.Life + (uint)damage, m.MaxLife, gem.Stats, now);
             ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
             if (ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical) is { } eoPacket)
@@ -1678,7 +1679,12 @@ public static partial class Game
                     player.Minions.OutputQueue.Add(new(packet, $"{label} ignite", monsterId, m));
             }
         }
-        CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: placement is null, stun: stun);
+        if (placement is null && applied.Life == 0) SetAcceptedKillSkill(player, gem.Stats);
+        try
+        {
+            CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: placement is null, stun: stun);
+        }
+        finally { if (placement is null && applied.Life == 0) ClearAcceptedKillSkill(player); }
     }
 
     // ---- Client Presentation: Effects, Beams, Monster Buffs, HUD Counters -----------------------------------------------

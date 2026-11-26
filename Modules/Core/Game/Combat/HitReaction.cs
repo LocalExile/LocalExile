@@ -55,8 +55,7 @@ public static class HitReaction
     /// <summary>Rolls the stun; true when a new recovery started (<c>FlinchUntil</c>), to present. Call in the area's frame.</summary>
     public static bool TryFlinch(SpawnedMonster m, StunHit hit, double now, Random random)
     {
-        if (m.Life == 0 || m.Dead || m.Invulnerable || m.HitAnimations is not { Count: > 0 }) return false;
-        if (m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
+        if (m.Invulnerable || m.CannotBeStunned || m.Effects.CannotBeStunned || now < m.StunImmuneUntil) return false;
         double threshold = m.MaxLife * Math.Max(.01, 1 + m.Effects[Stat.StunThresholdPlusPct] / 100d);
         if (random.NextDouble() * 100 >= Chance(hit, threshold)) return false;
         hit.OnStun?.Invoke();
@@ -81,6 +80,8 @@ public static class HitReaction
         int doubleChance = ActorScale.Saturate((long)hit.DoubleDurationChance + m.Effects[Stat.EnemyChanceToDoubleStunDurationPctVsSelf]);
         if (RandomRolls.Chance(doubleChance, 100, random)) seconds *= 2;
         hit.OnStunDuration?.Invoke(seconds);
+        // Lethal hits or monsters without TakeHit clips skip flinch recovery and 0x01d1 presentation.
+        if (m.Life == 0 || m.Dead || m.HitAnimations is not { Count: > 0 }) return false;
         double nextUntil = now + seconds;
         // A new qualifying stun whose recovery extends beyond an active recovery refreshes/extends the flinch,
         // rather than silently dropping consecutive hit reactions while the monster is still recovering.

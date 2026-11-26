@@ -34,9 +34,31 @@ static partial class Game
         }
     }
 
+    static void QueueUtilityEffect(Player player, (int X, int Y) at, string art, double seconds, string log,
+        uint parent = 0, byte flags0 = EffectObject.FixedRotation)
+    {
+        uint effectId = player.TakeObjectId();
+        var obj = new EffectObject(at.X, at.Y, art)
+        {
+            AnimatedFlags = 9,
+            Flags0 = flags0,
+            Parent = parent,
+        };
+        AddTemporarySkillEffect(player, effectId, seconds);
+        player.Minions.OutputQueue.Add(new(InstanceEntities.CreateObject(effectId,
+            InstanceEntities.ObjectTypeHash(EffectObject.TypePath), obj.Blob()), log, WorldId: effectId, CreatesObject: true));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.EnterWakeZone(effectId), log + " wake", WorldId: effectId));
+        player.Minions.OutputQueue.Add(new(InstanceProtocol.AnimationUpdate(effectId, 0, 0, 1), log + " play", WorldId: effectId));
+    }
+
     internal static void RecallMinionsLocked(Player player, SupportedGem gem, double now)
     {
         var playerStats = CharacterPlayerStats(player);
+        var playerPos = player.Walk.Position(now);
+        QueueUtilityEffect(player, playerPos, "Metadata/Effects/Spells/convocation/convocation_player.ao",
+            1.5, "Convocation caster effect", parent: player.Id);
+        QueueUtilityEffect(player, playerPos, "Metadata/Effects/Spells/convocation/convocation.ao",
+            1.5, "Convocation effect");
         double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration),
             n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n));
         double rate = GolemStat(gem.Stats, Stat.LifeRegenerationRatePerMinutePct)
@@ -78,8 +100,15 @@ static partial class Game
         var centre = first?.Walk.Position(now) ?? aim;
         var corpses = player.Area.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
             .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre)).Take(5).ToArray();
+        string dir = effect == "FleshOffering" ? "offering_offensive" : effect == "BoneOffering" ? "offering_defensive" : "offering_spirit";
+        string burstAo = $"Metadata/Effects/Spells/{dir}/goresplosion.ao";
+        string castAo = $"Metadata/Effects/Spells/{dir}/offering_offensive_souls.ao";
+        string auraAo = effect == "FleshOffering"
+            ? $"Metadata/Effects/Spells/{dir}/offering_offensive_effect.ao"
+            : $"Metadata/Effects/Spells/{dir}/rig.ao";
         foreach (var (id, corpse) in corpses)
         {
+            var corpseAt = corpse.Walk.Position(now);
             corpse.CorpseConsumed = true;
             NoteCorpseConsumedLocked(player, corpse);
             player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
@@ -90,7 +119,10 @@ static partial class Game
             }
             else if (!corpse.CreatedAsCorpse)
                 player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(id), "Offering corpse consumed"));
+            QueueUtilityEffect(player, corpseAt, burstAo, 1.5, "Offering corpse burst");
         }
+        QueueUtilityEffect(player, centre, castAo, 1.5, "Offering souls effect");
+        QueueUtilityEffect(player, centre, auraAo, 1.5, "Offering area effect");
         int extra = Math.Max(0, corpses.Length - 1);
         string kind = effect == "FleshOffering" ? "flesh" : effect == "BoneOffering" ? "bone" : "spirit";
         double duration = SkillDurationModifiers.Seconds(GolemStat(gem.Stats, Stat.BaseSkillEffectDuration)

@@ -884,6 +884,7 @@ public static partial class Game
         double factor = ailmentFactor * SappedDamageFactor(g.Monster, now);
         if (supported.Stats.ContainsKey(Stat.SupportDamageWhileOnFullLifePlusPctFinal)
             || supported.Stats.ContainsKey(Stat.SupportDebilitateHitDamagePlusPctFinalPerPoisonStack)
+            || supported.Stats.ContainsKey(Stat.SupportPowerChargeOnCritDamagePlusPctFinalPerPowerCharge)
             || supported.Stats.ContainsKey(Stat.EnduranceChargeOnMeleeStunDamagePlusPctFinalPerEnduranceCharge)
             || supported.Stats.ContainsKey(Stat.SupportHypothermiaDamagePlusPctVsChilledEnemiesFinal)
             || supported.Stats.ContainsKey(Stat.SupportExecutionerDamageVsEnemiesOnLowLifePlusPctFinal))
@@ -891,6 +892,7 @@ public static partial class Game
                 chilled: target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
                 lowLife: FlaskRecovery.LowLife(target.Life, target.MaxLife),
                 fullLife: g.Monster.Life >= g.Monster.MaxLife, lifetap: false, poisonStacks: target.Poisons.Stacks(now),
+                powerCharges: g.CombatCharges?.Held(ChargeType.Power) ?? 0,
                 enduranceCharges: g.CombatCharges?.Held(ChargeType.Endurance) ?? 0);
         if (!a.Attack.Spell && !a.Attack.Secondary && g.Definition.Kind == "Spectre" && g.Monster.Variety?.Id is
             ("Metadata/Monsters/LeagueAzmeri/SpecialCorpses/DualstrikeDemonMid" or
@@ -1005,16 +1007,25 @@ public static partial class Game
                     if (RandomRolls.Chance(gain, 100, random)) GrantMinionChargeLocked(player, g, ChargeType.Endurance, 1, now);
                 } };
         }
+        var monsterEffects = g.Monster.Mods.Effects;
+        var abilityStats = a.Stats;
+        int GolemRaw(uint key) => monsterEffects[key] + GolemStat(abilityStats, key);
+        Func<uint, int> golemRaw = GolemRaw;
+        int Golem(uint name) => PanelStats.Of(name, golemRaw);
+        double ailmentArea = golemRaw(Stat.ElementalStatusEffectAuraRadius) > 0
+            ? SkillArea.Modifier(golemRaw, a.Attack.Spell) : 1;
+        target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
+            n => target.Effects[n], AreaRng(player), ailmentArea);
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
+        if (critical && RandomRolls.Chance(GolemStat(supported.Stats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
+            GrantMinionChargeLocked(player, g, ChargeType.Power, 1, now);
+        if (hit.Life == 0 && target.Ailments.FrozenAtDeath(now)
+            && RandomRolls.Chance(GolemStat(supported.Stats, Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct), 100, random))
+            GrantMinionChargeLocked(player, g, ChargeType.Frenzy, 1, now);
         if (g.Definition.Kind == "Spectre" && damage > 0) SpectreRoleOnHitLocked(player, g, a, id, target, now);
         SpectreShockExplosionLocked(player, g, a, target, to, now);
         if (!target.Dead)
         {
-            int Golem(uint name) => g.Monster.Mods.Effects[name] + GolemStat(a.Stats, name);
-            double ailmentArea = Golem(Stat.ElementalStatusEffectAuraRadius) > 0
-                ? SkillArea.Modifier(Golem, a.Attack.Spell) : 1;
-            target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-                n => target.Effects[n], AreaRng(player), ailmentArea);
             if (damage > 0 && (Golem(Stat.FireExposureOnHitMagnitude) < 0 || Golem(Stat.ColdExposureOnHitMagnitude) < 0
                 || Golem(Stat.LightningExposureOnHitMagnitude) < 0))
                 ExposureOnHitLocked(target, Golem, mitigated, now, random);
