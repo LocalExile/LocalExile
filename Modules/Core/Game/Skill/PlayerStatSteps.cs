@@ -110,8 +110,6 @@ public static partial class Game
                 AddTo(stats, Stat.DamagePlusPct, travelDamage);
             if (GetIn(stats, Stat.ChaosDamagePlusPctPer100MaxManaUpTo80) is int chaosPerMana and not 0)
                 AddTo(stats, Stat.ChaosDamagePlusPct, Math.Min(80L, (player.Pools.Mana / 100L) * chaosPerMana));
-            if (GetIn(stats, Stat.AdditiveArmourModifiersApplyToEnergyShieldRechargeRateAtPctValue) is int rechargeShare and not 0)
-                AddTo(stats, Stat.EnergyShieldRechargeRatePlusPct, (long)player.Pools.ArmourPct * rechargeShare / 100);
             int daggerSpeed = GetIn(stats, Stat.ProjectileSpeedPlusPctWithDaggers);
             int poisonMultiplier = GetIn(stats, Stat.PosionDamageOverTimeMultiplierPlusPctWhileWieldingClawsDaggers);
             if (daggerSpeed != 0 || poisonMultiplier != 0)
@@ -340,6 +338,12 @@ public static partial class Game
         {
             int Get(uint name) => GetIn(stats, name);
             double statsAt = AreaTime(player);
+            if (Get(Stat.AdditiveArmourModifiersApplyToEnergyShieldRechargeRateAtPctValue) is int rechargeShare and not 0)
+            {
+                // Read the same frame's additive armour inputs, including active utility flask modifiers.
+                long armourIncrease = (long)Get(Stat.PhysicalDamageReductionRatingPlusPct) + SharedArmourAndEvasionIncrease(Get);
+                AddTo(stats, Stat.EnergyShieldRechargeRatePlusPct, armourIncrease * rechargeShare / 100);
+            }
             if (Get(Stat.ManaRegenerationRatePlusPctPer1PctSpellBlockChance) is int regenPerBlock and not 0)
                 AddTo(stats, Stat.ManaRegenerationRatePlusPct, (long)regenPerBlock * player.Pools.SpellBlockChance);
             if (Get(Stat.LifeAndEnergyShieldRecoveryRatePlusPctIfStoppedTakingDamageOverTimeRecently) is int stoppedDotRec and not 0
