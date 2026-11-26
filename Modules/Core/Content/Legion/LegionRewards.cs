@@ -297,11 +297,11 @@ static class LegionRewards
 
     /// <summary>GameEvents.MonsterKilled: a fighter's reward symbols end at its death (the area's Buffs end them only at removal). Only reads the entry:
     /// Drops may have run first and taken it, and then cleared them itself.</summary>
-    public static Task Killed(MonsterKill kill)
+    public static async Task Killed(MonsterKill kill)
     {
-        if (LegionStasis.AnyFighter && LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is { Rewards.Length: > 0 })
-            kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
-        return Task.CompletedTask;
+        if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is not { } fighter) return;
+        if (fighter.Rewards.Length > 0) kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
+        if (fighter.Tier == 3) await LegionSpeech.Say(kill.Player, kill.Monster.VarietyId, "Defeat");
     }
 
     /// <summary>GameEvents.Drops: the common path is a volatile flag, then one lookup in the area's table.</summary>

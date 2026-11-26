@@ -167,4 +167,10 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
   arena's own base environment, so the server sends no `0xdf` for it. GUESS: the `explode` clip index 2 (`SmallCentralCrystal01.ao` views
   unlit, lit_up, explode). Live check: the crystal's explode, the 3357 effect we play at the end (the real beams, `LegionSoulercoaster1..6`,
   are not known: not built), and the obelisk's `inactive` look.
+- Generals' lines: `NPCTextAudio` rows `Legion<General><Trigger>N` (their `NPCs` column is the speaker; an `NPCs` row's Id is the general's
+  `MonsterVarieties` Id, a variant such as `...GeneralFish` uses the longest prefix), sent as S->C 0x1c7 with object id 0 to the players in the
+  area. Normal encounters: MapIntro at the reveal, Fleeing when an unbroken general flees, Defeat on death. Domain: MapIntro once per
+  general, Defeat on death, Dismount when Aukuna on foot spawns, BattleCry when a revived general spawns. GUESS: the stem is the trigger,
+  the 8 s start delay plus 5 s per further general, one BattleCry/Dismount per 30 s per general; AttackN, Taunt and Injured are not played
+  (no clean trigger); object id 0 (global) rather than the general's id.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

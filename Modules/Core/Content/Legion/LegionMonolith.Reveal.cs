@@ -83,6 +83,7 @@ static partial class LegionMonolith
     {
         if (player.Instance is null) return;
         var done = new List<(LegionStasis.Member Member, StateMachineData? States, int StateComponent)>(members.Count);
+        List<string?>? intros = null;
         foreach (var m in members)
         {
             if (!player.Area.Monsters.TryGetValue(m.Id, out var monster) || monster.Dead || !Holds.TryGetValue(monster, out var hold)) continue;
@@ -101,8 +102,11 @@ static partial class LegionMonolith
             }
             // The action origin stays in state 0: a joiner is created hidden and gets the 0 -> 2 change as a 0x2c8 (LegionStasis.Present), as live viewers did.
             done.Add((m, states, component));
+            if (m.Tier == 3 && !m.Chest) (intros ??= []).Add(monster.Variety?.Id);
         }
         if (done.Count == 0) return;
+        if (intros is not null)
+            foreach (string? general in intros) await LegionSpeech.Say(player, general, "MapIntro");
         lock (e)
         {
             if (e.Army is { } army)

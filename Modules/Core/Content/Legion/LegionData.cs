@@ -49,6 +49,54 @@ public sealed class LegionData
     /// its MiscAnimatedKey (.ao floating symbol above clickable chests) and its scale (__col4). The client draws the symbol by row.</summary>
     public sealed record RewardType(int Row, int MinimapIcon, int MiscAnimatedKey = -1, double Scale = 3.0);
 
+    /// <summary>What a general says: the NPCs row of the speaker (its Id is the general's MonsterVarieties Id) and its NPCTextAudio rows by category
+    /// (MapIntro, Defeat, Fleeing, Dismount, BattleCry, Taunt, Injured, Attack; from the row Id's stem, GUESS that the stem is the trigger).</summary>
+    public sealed record GeneralVoice(ushort Npc, string NpcId, IReadOnlyDictionary<string, ushort[]> Lines)
+    {
+        /// <summary>The speaker is Aukuna on foot (her NPCs Id ends in Dismounted).</summary>
+        public bool Dismounted => NpcId.EndsWith("Dismounted", StringComparison.Ordinal);
+    }
+
+    static readonly string[] VoiceCategories = ["MapIntro", "Defeat", "Fleeing", "Dismount", "BattleCry", "Taunt", "Injured", "Attack", "Arrack"];
+    const string VoiceNpcPrefix = "Metadata/Monsters/LegionLeague/";
+    readonly Dictionary<string, GeneralVoice> voices = new(StringComparer.Ordinal);
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, GeneralVoice?> voiceByVariety = new(StringComparer.Ordinal);
+
+    /// <summary>The voice of a monster variety by its Id: the speaker whose NPCs Id is the longest prefix of it (the plan's general may be a variant
+    /// such as LegionKaruiGeneralFish), or null.</summary>
+    public GeneralVoice? VoiceOf(string? varietyId) =>
+        varietyId is null ? null : voiceByVariety.GetOrAdd(varietyId, id =>
+        {
+            GeneralVoice? best = null;
+            foreach (var (npcId, voice) in voices)
+                if (id.StartsWith(npcId, StringComparison.Ordinal) && (best is null || npcId.Length > best.NpcId.Length)) best = voice;
+            return best;
+        });
+
+    void LoadVoices()
+    {
+        var npcRows = new Dictionary<int, string>();
+        foreach (var r in ClientTables.TableOrEmpty("NPCs"))
+            if (r.Text("Id") is { } id && id.StartsWith(VoiceNpcPrefix, StringComparison.Ordinal) && r.Index <= ushort.MaxValue) npcRows[r.Index] = id;
+        var lines = new Dictionary<int, Dictionary<string, List<ushort>>>();
+        foreach (var r in ClientTables.TableOrEmpty("NPCTextAudio"))
+        {
+            if (r.Text("Id") is not { } id || !id.StartsWith("Legion", StringComparison.Ordinal) || r.Index > ushort.MaxValue) continue;
+            string? category = VoiceCategories.FirstOrDefault(c => id.Contains(c, StringComparison.Ordinal));
+            if (category is null) continue;
+            if (category == "Arrack") category = "Attack";
+            foreach (int npc in Tolerant(r, "NPCs"))
+                if (npcRows.ContainsKey(npc))
+                {
+                    if (!lines.TryGetValue(npc, out var byCategory)) lines[npc] = byCategory = new(StringComparer.Ordinal);
+                    if (!byCategory.TryGetValue(category, out var list)) byCategory[category] = list = [];
+                    list.Add((ushort)r.Index);
+                }
+        }
+        foreach (var (npc, byCategory) in lines)
+            voices[npcRows[npc]] = new GeneralVoice((ushort)npc, npcRows[npc], byCategory.ToDictionary(p => p.Key, p => p.Value.ToArray()));
+    }
+
     public IReadOnlyList<RewardType> RewardTypes { get; }
     /// <summary>O(1) lookup of LegionRewardTypeVisuals by row index.</summary>
     public IReadOnlyDictionary<int, RewardType> RewardTypesByRow { get; }
@@ -209,5 +257,6 @@ public sealed class LegionData
         }
         EmblemsByRow = emblemsByRow;
         EmblemsByHash = emblemsByHash;
+        LoadVoices();
     }
 }

@@ -896,6 +896,7 @@ static partial class LegionMonolith
         foreach (var g in flee)
         {
             if (!player.Area.Monsters.TryGetValue(g.Id, out var monster)) continue;
+            await LegionSpeech.Say(player, monster.Variety?.Id, "Fleeing");
             Holds.Remove(monster);
             // LIVE CHECK: with the action ended (state 5, sent above) and the animation running again, the client plays its flee animation (fleeing=1).
             if (LegionStasis.SendFreezeBuff)

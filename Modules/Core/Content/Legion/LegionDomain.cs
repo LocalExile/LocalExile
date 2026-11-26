@@ -117,6 +117,10 @@ static class LegionDomain
         public readonly HashSet<int> Rising = BuildRising(s.Slots);
         public readonly Queue<(int Slot, uint Corpse)> Fallen = BuildFallen(s.Slots, s.Phase);
         public readonly List<(int Slot, double At)> Falls = [];
+        /// <summary>Generals' lines waiting for the tick to say them (variety Id, category, delay ms), and when each faction's general last
+        /// had a BattleCry or Dismount line (the tick's time); not saved.</summary>
+        public readonly List<(string Variety, string Category, uint DelayMs)> Speech = [];
+        public readonly Dictionary<string, double> LastChatter = new(StringComparer.Ordinal);
 
         static HashSet<int> BuildRising(FighterSlot[] slots)
         {
@@ -869,8 +873,10 @@ static class LegionDomain
         List<int>? wave = null;
         ReviveWork? work = null;
         int litFrom = 0, litTo = 0;
+        (string Variety, string Category, uint DelayMs)[]? speech = null;
         lock (state)
         {
+            if (state.Speech.Count > 0) { speech = [.. state.Speech]; state.Speech.Clear(); }
             if (state.Phase == DomainPhase.Active)
             {
                 // The tracker: only the crystals that newly earned their 3 units are sent.
@@ -912,6 +918,8 @@ static class LegionDomain
                 }
             }
         }
+        if (speech is not null)
+            foreach (var (variety, category, delayMs) in speech) await LegionSpeech.Say(player, variety, category, delayMs);
         if (litTo > litFrom) await LightCrystals(player, state, litFrom, litTo);
         if (work is not null) await StepRising(module, player, state, work);
         if (action == 1) await StartDomain(module, player, state);
@@ -1024,6 +1032,15 @@ static class LegionDomain
                 rising.Add(i);
             }
             state.LiveByMonster.Clear();
+            // Each general says its MapIntro once, a while after the start (the tick says it).
+            uint introDelay = LegionSpeech.DomainIntroDelayMs;
+            var introduced = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var s in plannedSlots)
+                if (s.Tier == 3 && introduced.Add(s.FactionId) && VarietyOf(state, s.MonsterRow) is { } general)
+                {
+                    state.Speech.Add((general.Id, "MapIntro", introDelay));
+                    introDelay += LegionSpeech.DomainIntroStaggerMs;
+                }
             Keep(player, state);
         }
 
@@ -1154,6 +1171,17 @@ static class LegionDomain
             }
             state.Slots[slotIndex] = slot with { CurrentId = id, Alive = true };
             state.LiveByMonster[id] = slotIndex;
+            if (slot.Tier == 3)
+            {
+                // The general on foot says its Dismount line, a revived one a BattleCry; one such line per 30 s per faction (GUESS).
+                string? category = LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : slot.RevivalCount > 0 ? "BattleCry" : null;
+                double now = global::Game.AreaTime(player);
+                if (category is not null && (!state.LastChatter.TryGetValue(slot.FactionId, out double last) || now - last >= LegionSpeech.ChatterSeconds))
+                {
+                    state.LastChatter[slot.FactionId] = now;
+                    state.Speech.Add((variety.Id, category, 0));
+                }
+            }
         }
         return id;
     }
@@ -1173,7 +1201,11 @@ static class LegionDomain
             // Its corpse becomes its ghost on the next tick (not here: the kill is still being committed).
             if (state.Phase == DomainPhase.Active) state.Fallen.Enqueue((idx, monsterId));
             state.TotalKills++;
-            if (slot.Tier == 3) state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
+            if (slot.Tier == 3)
+            {
+                state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
+                if (state.Phase == DomainPhase.Active && VarietyOf(state, slot.MonsterRow) is { } general) state.Speech.Add((general.Id, "Defeat", 0));
+            }
             if (slot.Rewards is { Length: > 0 })
             {
                 state.BankedRewards.AddRange(slot.Rewards);
