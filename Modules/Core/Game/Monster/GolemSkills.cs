@@ -150,6 +150,9 @@ public static partial class Game
             if (value != 0) values[stat] = ActorScale.Saturate((long)values.GetValueOrDefault(stat) + value);
         }
         AddStat(Stat.BaseSkillAreaOfEffectPlusPct, PlaguebringerArea(player, playerStats, now));
+        int helmetPhysical = MinionPhysicalFromHelmet(player, playerStats);
+        AddStat(Stat.GlobalMinimumAddedPhysicalDamage, helmetPhysical);
+        AddStat(Stat.GlobalMaximumAddedPhysicalDamage, helmetPhysical);
         AddStat(Stat.GlobalMinimumAddedFireDamage, link.FireMin);
         AddStat(Stat.GlobalMaximumAddedFireDamage, link.FireMax);
         AddStat(Stat.BaseChanceToIgnitePct, link.Ignite);
@@ -742,6 +745,14 @@ public static partial class Game
         return result;
     }
 
+    static int MinionPhysicalFromHelmet(Player player, IReadOnlyDictionary<uint, int> stats)
+    {
+        int percent = stats.GetValueOrDefault(Stat.YourMinionsGainAddedPhysicalDamageEqualToPctOfEnergyShieldOnHelmet);
+        if (percent == 0 || ActiveHand(player, PlayerInventories.Helmet) is not { } helmet) return 0;
+        int energyShield = FactsOf(helmet.Item, ItemsFor(player)).EnergyShield;
+        return ActorScale.Saturate((long)energyShield * percent / 100);
+    }
+
     static void RefreshGolemLocked(Player player, GolemState.Golem golem, IReadOnlyDictionary<uint, int> playerStats, double? at = null)
     {
         double now = at ?? AreaTime(player);
@@ -754,6 +765,7 @@ public static partial class Game
         hash.Add(HasRecentCreationEffects(playerStats) && MinionCreatedRecently(golem, now));
         hash.Add(OwnerUsedMinionSkillRecently(player, playerStats, now));
         hash.Add(PlaguebringerArea(player, playerStats, now));
+        hash.Add(MinionPhysicalFromHelmet(player, playerStats));
         hash.Add(MinionHeraldCount(player, playerStats));
         hash.Add(PresentMinionDevouredSoulsLocked(player, golem, now));
         hash.Add(FreshMeatActive(golem, now));
