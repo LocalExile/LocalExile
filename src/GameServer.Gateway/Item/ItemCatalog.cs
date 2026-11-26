@@ -252,9 +252,14 @@ public sealed class ItemCatalog
             ? _rows.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
             : type;
 
-    /// <summary>Modern stackable Fragment Stash base type for legacy unstackable fragments (<c>FragmentBaseItemTypesKey</c>).</summary>
-    public BaseType? NormalizedFragment(BaseType type) =>
-        type.FragmentBaseItemTypesRow is int row && Row(row) is { Supported: true } modern ? modern : null;
+    /// <summary>Modern stackable Fragment Stash base type for legacy unstackable fragments (<c>FragmentBaseItemTypesKey</c>)
+    /// that do not themselves occupy a Fragment Stash slot.</summary>
+    public BaseType? NormalizedFragment(BaseType type)
+    {
+        if (type.FragmentBaseItemTypesRow is not int row || Row(row) is not { Supported: true } modern) return null;
+        var fragmentSlots = Stash.Slots(StashRules.Fragment);
+        return !fragmentSlots.ContainsKey(type.Hash) && fragmentSlots.ContainsKey(modern.Hash) ? modern : null;
+    }
 
     public static int ResonatorSockets(BaseType type) =>
         type.Id.StartsWith("Metadata/Items/Delve/Delve", StringComparison.Ordinal)

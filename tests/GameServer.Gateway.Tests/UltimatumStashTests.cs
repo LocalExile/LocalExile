@@ -142,6 +142,12 @@ public class UltimatumStashTests : IDisposable
                 var inv = items.Add(PlayerInventories.MainInventory, 0, 0, reloaded);
                 Assert.NotNull(ItemMoves.InventoryToStash(stash, items, tab, inv.Id, ShapeOf, out _));
             }
+            foreach (string slottedId in new[] { "Metadata/Items/Scarabs/ScarabBreach1", "Metadata/Items/MapFragments/CurrencyBreachFragmentFire2" })
+            {
+                var slottedType = catalog.Find(slottedId)!;
+                var reloaded = CharacterSaves.FromSaved(CharacterSaves.ToSaved(ItemCatalog.Create(slottedType), catalog.Mods), catalog);
+                Assert.Equal(slottedType.Hash, reloaded.TypeHash);
+            }
         }
         finally
         {
