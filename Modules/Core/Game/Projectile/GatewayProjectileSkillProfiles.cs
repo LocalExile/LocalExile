@@ -430,8 +430,18 @@ public static class GatewayProjectileSkillProfiles
         if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
             return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
-            return p with { EndArea = terminal with
-                { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };
+        {
+            int basis = SkillArea.BaseRadius(effect, get);
+            terminal = terminal with { Radius = SkillArea.Radius(basis, get, spell) };
+            if (terminal.Stage == "fireball-explosion"
+                && get(Stat.FireballBaseRadiusUpToPlusAtLongerRanges) is int maxTravelBonus and not 0)
+            {
+                // The client adds flat base radius before area scaling and reaches the full bonus at 50 cells.
+                terminal = terminal with { RadiusForTravel = distance => SkillArea.Radius(
+                    basis + (int)(Math.Clamp((float)distance / 50, 0, 1) * maxTravelBonus), get, spell) };
+            }
+            return p with { EndArea = terminal };
+        }
         return p;
     }
 }

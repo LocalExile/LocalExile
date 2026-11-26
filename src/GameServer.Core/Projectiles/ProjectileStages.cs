@@ -215,7 +215,8 @@ public sealed partial class ProjectileRuntime
     void ResolveArea(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileVector centre,
         ProjectileActorKey? victim, long areaId)
     {
-        double radius = recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
+        double radius = recipe.RadiusForTravel?.Invoke(p.Distance)
+            ?? recipe.RadiusForGroundBounce?.Invoke(p.GroundBounces) ?? recipe.Radius;
         world.Publish(new(ProjectileEventKind.Area, p, Now, centre, Radius: radius, Stage: recipe.Stage));
         var targets = ActorsInOrder(world.ActorsNear(centre, radius + 2, Now), generations: true, out int listed);
         double coneEdge = recipe.ConeHalfAngle > 0 ? Math.Cos(recipe.ConeHalfAngle) : -1;

@@ -35,6 +35,8 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public bool ExcludeContactTarget { get; init; }
     /// <summary>Radius sampled with the number of completed ground bounces at the impact.</summary>
     public Func<int, double>? RadiusForGroundBounce { get; init; }
+    /// <summary>Radius sampled with the projectile's total travelled distance in cells at the impact.</summary>
+    public Func<double, double>? RadiusForTravel { get; init; }
     /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
     public double ConeHalfAngle { get; init; }
     /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
