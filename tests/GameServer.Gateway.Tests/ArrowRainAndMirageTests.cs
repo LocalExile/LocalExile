@@ -923,6 +923,11 @@ public class ArrowRainAndMirageTests
         Assert.Equal(1.3, Game.MonsterDotTaken(m, DamageType.Physical), 6);
         Assert.Equal(1.3, Game.MonsterDotTaken(m, DamageType.Chaos), 6);
         Burn(1.5);
+        Taken((Stat.BaseDamageTakenPlusPct, 30), (Stat.FireDamageTakenPlusPct, 20), (Stat.DegenEffectPlusPct, 25));
+        Burn(1.75);
+        Assert.Equal(1.55, Game.MonsterDotTaken(m, DamageType.Physical), 6);
+        Assert.Equal(1.55, Game.MonsterDotTaken(m, DamageType.Chaos), 6);
+        Assert.Equal(1.30, Game.MonsterDamageTaken(m, spell: false, now: 0, hit: true), 6);
         Taken((Stat.BaseDamageTakenPlusPct, 50), (Stat.FireDamageTakenPlusPct, -100));
         Burn(.5);
         Taken((Stat.BaseDamageTakenPlusPct, 20), (Stat.FireDamageTakenPlusPct, -150));

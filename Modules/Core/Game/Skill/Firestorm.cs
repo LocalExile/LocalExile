@@ -27,6 +27,7 @@ public static partial class Game
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
             long release = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(release, () =>
             {
@@ -80,7 +81,7 @@ public static partial class Game
                         proxy.Apply(Player, at, hitRadius, ProjectileWorldTime(Player), impactMore);
                     else Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, at, at, immediate: true, repeat: repeat,
                         damageMore: impactMore, radiusOverride: hitRadius, criticalRoll: critical, sacrifice: sacrifice,
-                        triggeredCurrent: CanImpact, brandedTarget: brandedTarget));
+                        triggeredCurrent: CanImpact, brandedTarget: brandedTarget, hitAndAilmentMore: beidatMore));
                 }
 
                 void ScheduleImpact(long due, bool large)

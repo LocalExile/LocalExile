@@ -107,6 +107,8 @@ public static partial class Game
         Math.Max(0, Math.Min(to, minion.HolyRegenerationUntil) - Math.Max(from, minion.HolyRegenerationSince))
             * minion.HolyRegenerationPerSecond;
 
+    const double ReaperConsumeRange = 15;
+
     static bool ReaperConsumeLocked(Player player, GolemState.Golem reaper, double now)
     {
         if (reaper.Definition.Kind != "Reaper") return false;
@@ -118,10 +120,11 @@ public static partial class Game
         int effect = reaper.Monster.Life < reaper.Monster.MaxLife * .75 ? 12032 : 12033;
         if (effect == 12033 && now < reaper.SummonedAt + 25) return false;
         if (reaper.Abilities.FirstOrDefault(a => a.Effect == effect) is not { } consume || !GolemReady(reaper, consume, now)) return false;
+        var from = reaper.Monster.Walk.Position(now);
         var meal = player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Concat(player.Reservations.Fighters.Values)
             .Where(g => g != reaper && g.Definition.Kind is not ("Reaper" or "SkitterCold" or "SkitterLightning" or "Agony")
-                && !g.Monster.Dead && g.Monster.Life > 0 && Dist(g.Monster.Walk.Position(now), reaper.Monster.Walk.Position(now)) <= 15)
-            .MinBy(g => Dist(g.Monster.Walk.Position(now), reaper.Monster.Walk.Position(now)));
+                && !g.Monster.Dead && g.Monster.Life > 0 && Dist(g.Monster.Walk.Position(now), from) <= ReaperConsumeRange)
+            .MinBy(g => Dist(g.Monster.Walk.Position(now), from));
         if (meal is null) return false;
         GolemReserveLocked(player, reaper, consume, meal.Id, meal.Monster, meal.Monster.Walk.Position(now), now);
         return true;
@@ -129,7 +132,10 @@ public static partial class Game
 
     static void ReaperConsumedLocked(Player player, GolemState.Golem reaper, GolemState.Action action, double now)
     {
-        if (OwnedFighter(player, action.Target) is not { } meal || meal.Monster.Dead || meal.Monster.Life == 0) return;
+        if (OwnedFighter(player, action.Target) is not { } meal
+            || !ReferenceEquals(action.Victim, meal.Monster) || !GolemCurrent(player, meal)
+            || meal.Monster.Dead || meal.Monster.Life == 0
+            || Dist(meal.Monster.Walk.Position(now), reaper.Monster.Walk.Position(now)) > ReaperConsumeRange) return;
         GolemDieLocked(player, meal, now);
         reaper.Monster.Life = (uint)Math.Min(reaper.Monster.MaxLife, reaper.Monster.Life + reaper.Monster.MaxLife / 2L);
         reaper.WrathUntil = now + GolemStat(action.Ability.Stats, Stat.BaseSkillEffectDuration) / 1000d;

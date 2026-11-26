@@ -49,12 +49,32 @@ public static partial class Game
             soulGainPrevention: Get(Stat.HasSoulGainPrevention) != 0, nonDelayingRegenerationPerMinute: RageStats.ManaRegenerationPerMinute(player, Get));
     }
 
+    internal static void RageOnMarkedStunLocked(Player player, int rage, double now)
+    {
+        if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0) return;
+        var stats = CharacterPlayerStats(player);
+        int Get(uint name) => RageStat(stats, name);
+        player.Rage.Gain(rage, ProjectileWorldTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
+    }
+
     public static void RageWhenHitLocked(Player player)
     {
         if (player.RageRetired || player.Closed || player.LeavingArea || player.Paused) return;
         // The lethal hit retires combat here, before PlayerDiedAtEpoch: the orb's stage icon must be queued for removal
         // first, or RetireOwnedCombat drops the runtime and the icon keeps the charges the player died with.
-        if (player.PlayerLife == 0) { player.Rage.Clear(); player.Rampage.Clear(); WinterOrbRetire(player); SnipeRetire(player); MirageWarriorsRetire(player); player.RetireOwnedCombat(); return; }
+        if (player.PlayerLife == 0)
+        {
+            player.Rage.Clear();
+            player.Rampage.Clear();
+            ClearCycloneStages(player);
+            ClearReaveStages(player);
+            RetireBladeFlurry(player, player.ChannelGeneration);
+            WinterOrbRetire(player);
+            SnipeRetire(player);
+            MirageWarriorsRetire(player);
+            player.RetireOwnedCombat();
+            return;
+        }
         if (player.Character.Name is null) return;
         var stats = CharacterPlayerStats(player);
         player.Rage.EnemyHit(ProjectileWorldTime(player), RageStats.Inputs(player, name => RageStat(stats, name)),

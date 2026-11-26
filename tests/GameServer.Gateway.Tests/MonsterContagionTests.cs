@@ -35,6 +35,15 @@ public sealed class MonsterContagionTests
         Assert.Equal(1, recast.Active!.DamagePerSecond);
         Assert.Equal(6.01, recast.Until, 6);
 
+        // A projectile refresh and a stronger cast can both arrive before the area settles the owed damage.
+        var refreshed = new MonsterContagion();
+        var pulse = new MonsterContagion.Cast(100, 1, 10);
+        refreshed.Apply(0, pulse, trackContagion: false);
+        refreshed.Apply(0.25, pulse, trackContagion: false);
+        refreshed.Apply(0.5, new(200, 2, 10), trackContagion: false, durationRate: 2);
+        Assert.Equal(250, refreshed.Advance(1.5, 1));
+        Assert.True(refreshed.Idle);
+
         // Two owners: the winning application at the moment of death owns the kill, not the later or weaker one.
         var a = Player("a");
         var b = Player("b");

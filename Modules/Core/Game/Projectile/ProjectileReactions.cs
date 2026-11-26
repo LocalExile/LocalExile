@@ -73,7 +73,7 @@ public static partial class Game
                 + $" target=0x{id:x} damage={damage} life={hit.Life}/{target.MaxLife}");
         if (critical && shot.ActualCaster is null) CommitProjectileCritFlasks(session, now, random);
         if (hit.Life == 0 && shot.FromTotem) OwnedKillLocked(target, 0);
-        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null);
+        if (hit.Life == 0) CommitProjectileKill(session, id, target, contact.At, contact.Projectile.RewardRandomSource, playerKill: shot.ActualCaster is null, skillStats: shot.SkillStats);
         if (hit.StageStarts) CommitProjectileBossStage(session, id, target, contact.At);
         // Charges affect the next chronological hit/use, rather than waiting for the presentation ticker.
         var charges = ChargesOf(player);
@@ -130,7 +130,7 @@ public static partial class Game
     }
 
     public static void CommitProjectileKill(ProjectileSession session, uint id, SpawnedMonster monster, long at, Random random,
-        bool playerKill = true)
+        bool playerKill = true, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         var player = session.Player;
         // The projectile's lethal hit froze this decision before the output queue can publish it.
@@ -172,7 +172,7 @@ public static partial class Game
             if (GameEvents.MonsterKilled.Any)
                 session.EnqueueLater(() => GameEvents.RunMonsterKilled(new(PlayerOf(killer), modMonster)));
             if (OnslaughtOnKill(player)) session.EnqueueLater(() => SendKillOnslaught(player));
-            ChargesOnKill(player, monster);
+            ChargesOnKill(player, monster, skillStats ?? TakeAcceptedKillSkill(player));
             if (RecoverOnKill(player, monster, tinctureKill) is int deathEpoch)
                 session.EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             else if (player.PlayerLife > 0)

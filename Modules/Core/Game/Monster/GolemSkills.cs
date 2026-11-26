@@ -122,9 +122,6 @@ public static partial class Game
                 };
             }
             if (key == Stat.MinionAreaOfEffectPlusPct) id = Stat.BaseSkillAreaOfEffectPlusPct;
-            // SupportedSkill already projects its global added damage into the attack and spell forms.
-            if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
-                && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[id] = values.GetValueOrDefault(id) + value;
         }
         double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
@@ -250,6 +247,10 @@ public static partial class Game
                 + 4 * endurance;
             values[Stat.AdditionalElementalDamageReductionPct] = values.GetValueOrDefault(Stat.AdditionalElementalDamageReductionPct)
                 + 4 * endurance;
+            if (golem.Own.Count > 0 && ChargeEffects.HasAny(golem.Own, ChargeScaling.RuleStats))
+                foreach (var (stat, value) in ChargeEffects.Expand(key => GolemStat(golem.Own, key),
+                    t => charges.Held(t), _ => false, ChargeScaling.Rules, includePhysicalReduction: false))
+                    AddStat(stat, value);
         }
         // Unnatural Strength: "Your Minions have Unholy Might". The buff row (BuffDefinitions unholy_might)
         // grants full physical-to-chaos conversion and a 25% chance to Wither on hit for 2 seconds; the minion's

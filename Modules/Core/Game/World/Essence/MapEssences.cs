@@ -160,7 +160,7 @@ public static partial class MapEssences
             int variety = pool[^1].Variety;
             foreach (var e in pool) if ((roll -= e.Weight) < 0) { variety = e.Variety; break; }
             if (Monsters.Find(variety.ToString()) is not { Supported: true } v) continue;
-            minis.Add(new Mini(conn.Instance.World.NewMonsterId(), at.Value.X, at.Value.Y, v.Id));
+            minis.Add(new Mini(conn.Instance.World.TakeObjectId(), at.Value.X, at.Value.Y, v.Id));
         }
         return minis;
     }
@@ -194,7 +194,7 @@ public static partial class MapEssences
                 Console.WriteLine($"[map-content] Calcification area={player.Layout.Id}: no clear monolith cell for natural rare {source}; retaining the rare");
                 return false;
             }
-            var monolith = new Monolith(player.Instance.World.NewMonsterId(), monoliths.Count, at.Value.X, at.Value.Y,
+            var monolith = new Monolith(player.Instance.World.TakeObjectId(), monoliths.Count, at.Value.X, at.Value.Y,
                 variety.Id, essences) { Source = source };
             var weights = (InstancePacks(player)?.Scattered.SelectMany(p => p.Pack.Entries)
                 .Where(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })
@@ -236,7 +236,7 @@ public static partial class MapEssences
                 var essences = MapEssenceCatalog.Roll(Math.Clamp(req.Level, 1, 100), req.Mods, random);
                 if (essences.Count == 0) continue;
                 var monolith = await SpawnEncasedPreviews(player,
-                    new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences));
+                    new Monolith(player.Instance.World.TakeObjectId(), area.Monoliths.Count, req.X, req.Y, variety.Id, essences));
                 area.Monoliths.Add(monolith);
                 created.Add(monolith);
             }
@@ -277,7 +277,7 @@ public static partial class MapEssences
             (int X, int Y)? at = CollisionEscape.Clear((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, 4)
                 ? (x, y) : CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor, blockers, moverSize: 4);
             if (at is null) return false;
-            var monolith = await SpawnEncasedPreviews(player, new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count,
+            var monolith = await SpawnEncasedPreviews(player, new Monolith(player.Instance.World.TakeObjectId(), area.Monoliths.Count,
                 at.Value.X, at.Value.Y, variety.Id, essences) { Source = source });
             area.Monoliths.Add(monolith);
             Keep(player, area);
@@ -318,7 +318,7 @@ public static partial class MapEssences
                             int roll = random.Next(pool.Sum(e => e.Weight));
                             int variety = pool[^1].Variety;
                             foreach (var e in pool) if ((roll -= e.Weight) < 0) { variety = e.Variety; break; }
-                            var monolith = new Monolith(player.Instance.World.NewMonsterId(), area.Monoliths.Count, x, y,
+                            var monolith = new Monolith(player.Instance.World.TakeObjectId(), area.Monoliths.Count, x, y,
                                 Monsters.Find(variety.ToString())!.Id, essences);
                             monolith = monolith with { Minis = MakeMinis(player, monolith, weights, random) };
                             area.Monoliths.Add(await SpawnEncasedPreviews(player, monolith));
@@ -363,7 +363,7 @@ public static partial class MapEssences
             int roll = random.Next(pool.Sum(e => e.Weight));
             int variety = pool[^1].Variety;
             foreach (var e in pool) if ((roll -= e.Weight) < 0) { variety = e.Variety; break; }
-            var monolith = new Monolith(conn.Instance.World.NewMonsterId(), monoliths.Count, x, y,
+            var monolith = new Monolith(conn.Instance.World.TakeObjectId(), monoliths.Count, x, y,
                 Monsters.Find(variety.ToString())!.Id, essences);
             // The dev test spawns it at state 2: the client's create_state_2 plays stage_01b (the full crystal)
             // instead of state 1's stage_01 + PauseAnimation, which shows only the base ring. Two activations

@@ -206,6 +206,7 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     internal int Spend(ChargeType type, int count, double now)
     {
         SettleDegeneration(now);
+        if (State.Held(type) > 0 && now >= State.ExpiresAt(type)) State.Expire(now);
         if (count <= 0 || !CanSpend(type)) return 0;
         var (before, left) = State.Lose(type, count, limits[(int)type]);
         limits[(int)type] = ChargeMaxima.LimitsOf(type, Observed, left);
@@ -313,6 +314,11 @@ public sealed class ChargeSession(Charges.State? state = null, Action<ChargeType
     {
         if (gain is { Type: ChargeType.Frenzy, Count: > 0 } && Observed(Stat.KeystoneQuietMight) != 0)
             gain = gain with { Type = ChargeType.Power };
+        if (gain.Count != 0 && State.Held(gain.Type) > 0 && now >= State.ExpiresAt(gain.Type))
+        {
+            ExpireCharges(now, log);
+            Settle(now, rng, log);
+        }
         var current = limits[(int)gain.Type];
         if (gain.Count < 0)
         {

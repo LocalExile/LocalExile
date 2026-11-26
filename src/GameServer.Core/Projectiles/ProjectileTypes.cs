@@ -21,7 +21,11 @@ public sealed record ProjectileActor(ProjectileActorKey Key, int Team, Func<long
     /// −1 is no footprint, which the client never contacts.</summary>
     public int Size { get; init; }
 }
-public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal);
+public readonly record struct TerrainContact(double Fraction, ProjectileVector Normal)
+{
+    // Grid-step movement rejects the attempted cell and leaves the projectile on its previous cell.
+    public ProjectileVector? StopPosition { get; init; }
+}
 public enum ProjectileHitResult { Miss, Blocked, Hit }
 public enum ProjectileHitScope { Emission, Projectile }
 public enum ProjectileRepeat { Once, Interval, Window }
@@ -35,6 +39,8 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     public bool ExcludeContactTarget { get; init; }
     /// <summary>Radius sampled with the number of completed ground bounces at the impact.</summary>
     public Func<int, double>? RadiusForGroundBounce { get; init; }
+    /// <summary>Radius sampled with the projectile's total travelled distance in cells at the impact.</summary>
+    public Func<double, double>? RadiusForTravel { get; init; }
     /// <summary>Angular limit from the direction of travel. Zero keeps radial coverage.</summary>
     public double ConeHalfAngle { get; init; }
     /// <summary>The terminal impact supplies the direct victim's damage profile.</summary>
@@ -58,7 +64,14 @@ public sealed record ProjectileAreaRecipe(string Stage, double Radius, int Count
     /// overdue time without catching up (the client's cluster timer).</summary>
     public bool UpdateTimer { get; init; }
 }
-public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval);
+public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Interval)
+{
+    /// <summary>Whether each selected hit uses area damage modifiers.</summary>
+    public bool AreaDamage { get; init; } = true;
+    public ProjectileHitRule? HitRule { get; init; }
+}
+public sealed record ProjectileSteeringRecipe(long TargetInterval, long TurnInterval, double MaximumTurn,
+    Func<ProjectileEntity, long, ProjectileVector?> Direction);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
@@ -141,9 +154,11 @@ public sealed record ProjectileParallelOrigins(int PointsPerSide, double Lateral
 /// projectiles it draws itself, so the server's flight is the one on screen.</summary>
 public interface IProjectileLegs
 {
-    /// <summary>Seconds this flight lives, decided before its first leg.</summary>
+    /// <summary>Seconds this flight can live, read when the first leg is ready.</summary>
     double Lifetime { get; }
     ProjectileLeg First(ProjectileVector from, ProjectileVector aim);
+    /// <summary>Use the launch speed selected for this projectile when the path needs it.</summary>
+    ProjectileLeg First(ProjectileVector from, ProjectileVector aim, double launchSpeed) => First(from, aim);
     /// <summary>The leg after the last one ended (<paramref name="blocked"/> false) or terrain stopped it.</summary>
     ProjectileLeg Next(ProjectileVector from, bool blocked);
     /// <summary>Whether an enemy hit triggers the next leg before Pierce/Fork/Chain/Return.</summary>
@@ -158,6 +173,9 @@ public interface IProjectileLegs
 public readonly record struct ProjectileLeg(ProjectileVector Target, double Speed);
 public readonly record struct ProjectileLegTurn(ProjectileLeg Leg, ProjectileProfile? SecondaryProfile = null,
     ProjectileVector SecondaryDirection = default);
+
+/// <summary>Terrain clearance and launch height for flights that move in discrete grid steps at a fixed height.</summary>
+public readonly record struct ProjectileTerrainSteps(int Clearance, int LaunchHeight);
 
 /// <summary>Resolved stage parameters. Counts and restrictions are resolved before a use is released.</summary>
 public sealed record ProjectileProfile(string Id)
@@ -184,6 +202,7 @@ public sealed record ProjectileProfile(string Id)
     /// max(CollisionRadius, CollisionCandidateRadius). Set, a flight cell contacts an actor whose Chebyshev cell distance
     /// is at most this plus the actor's <see cref="ProjectileActor.Size"/>, and <see cref="Radius"/> is not used for actors.</summary>
     public int? ContactCells { get; init; }
+    public ProjectileTerrainSteps? TerrainSteps { get; init; }
     /// <summary>Symmetric speed variation sampled for each initial launch with no explicit speed.</summary>
     public int SpeedVariationPercent { get; init; }
     public long Lifetime { get; init; } = 1200000;
@@ -248,6 +267,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? EndEmission { get; init; }
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
+    public ProjectileSteeringRecipe? Steering { get; init; }
     /// <summary>Linear increase to the contact multiplier over this flight's lifetime, as a percentage.</summary>
     public int LifetimeDamageGainPercent { get; init; }
     public bool Lobbed { get; init; }
@@ -289,6 +309,10 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
 {
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
+    /// <summary>A fixed return location that stays valid after the emitting object is removed.</summary>
+    public ProjectileVector? ReturnPoint { get; init; }
+    public ProjectileVector? ReturnPosition(IProjectileWorld world, long at) => ReturnPoint
+        ?? (ReturnAnchor is { } key ? world.Actor(key, at)?.Position(at) : null);
     /// <summary>Extra split children granted by the current direct-hit recipient.</summary>
     public Func<ProjectileActorKey, long, int>? TargetSplit { get; init; }
     /// <summary>The current recipient grants a pierce without using a point of the projectile's own pierce budget.</summary>
@@ -301,6 +325,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
     /// <summary>Optional aim chosen at each initial emission. The selected direction keeps the projectile's flight range.</summary>
     public Func<ProjectileVector, ProjectileVector?>? InitialAim { get; init; }
+    /// <summary>Offset each initial projectile from the origin along its own launch direction.</summary>
+    public double RadialLaunchOffset { get; init; }
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }
@@ -363,6 +389,7 @@ public sealed class ProjectileEntity
     internal long ChildEmission;
     internal int EmissionNumber;
     internal IProjectileLegs? Legs;
+    public (ProjectileVector Start, ProjectileVector Target)? TerrainLeg { get; internal set; }
     internal ProjectileVector LegStart;
     internal bool LegLeashed;
     /// <summary>A legged flight stopped by terrain picks its next leg at once but moves from the next tick, as the

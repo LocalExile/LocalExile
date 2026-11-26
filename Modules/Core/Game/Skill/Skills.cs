@@ -477,9 +477,18 @@ public static partial class Game
             // The network skill record does not run the client's GrantedEffects.SkillID calculator. LeapSlam reads
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
+            string? effectId = skills.EffectId(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
-            if (IsLeapSlam(player, effect) || gatheringLightning)
-                stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
+            // These melee and projectile actions select their native behaviour through this stat.
+            if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) == HolyHammersAction
+                || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
+                || IsChargedDash(player, effect) || IsIceSpear(effectId))
+                stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
+            if (LacerateEffect(effectId))
+            {
+                stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
+                stats[Stat.InSandStance] = player.Stance == StanceCatalog.SandSelection ? 1 : 0;
+            }
             if (gatheringLightning)
                 stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);
             // The client reads the final duration, not its base: its own Spark sparks live skill_effect_duration ms
@@ -526,6 +535,9 @@ public static partial class Game
             if (Stat.SkillArtVariation is var artKey
                 && SkillArtBase.Variation(SkillsFor(player).EffectId(effect), stats.GetValueOrDefault(artKey)) is int art and not 0)
                 stats[artKey] = art;
+            // The Fissure support's companion uses the radial VolcanicSlam behaviour.
+            if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) != 0)
+                stats[Stat.SkillBehaviourVariation] = 2;
             // The native spell action divides virtual BASE time by cast speed itself. Keep the catalog base
             // intact; only the panel's final casts-per-second stat is adjusted here.
             int supportCastSpeed = own.GetValueOrDefault(Stat.BaseCastSpeedPlusPct)
@@ -557,18 +569,23 @@ public static partial class Game
             // Network stats run no calculators. The native melee action reads this final count (0x141b71600).
             if (SkillsFor(player).IsAttack(effect) && Stat.AttackRepeatCount is var attackRepeatKey)
                 stats[attackRepeatKey] = MeleeAttackRepeats(player, id);
+            if (IsBladeFlurry(player, effect))
+                stats[Stat.VirtualMaxChargedAttackStages] = BladeFlurryMaxStages(own, characterInputs);
             // Cyclone's client effect reads the final radius, not the increased-area input. Match AreaSkillHit.
             if (SkillArea.IsCyclone(SkillsFor(player).EffectId(effect)))
             {
-                // The player's base area is in the panel total already (AreaPlayerStats): only the gem's own counts here.
-                int AreaGet(uint name) => name == SkillArea.BaseIncreased ? own.GetValueOrDefault(name) : Get(name);
-                int baseRadius = SkillArea.BaseRadius(SkillsFor(player).EffectId(effect), AreaGet);
+                var areaStats = SkillAreaStats(player, own, effect, playerStats);
+                int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
+                int baseRadius = SkillArea.BaseRadius(skills.EffectId(effect), AreaGet);
                 int increased = SkillArea.Increased(AreaGet, spell: false);
                 int radiusPercent = SkillArea.RadiusPercent(AreaGet, spell: false);
                 int radius = SkillArea.Radius(baseRadius, AreaGet, spell: false);
                 if (Stat.ActiveSkillBaseAreaOfEffectRadius is var baseKey) stats[baseKey] = baseRadius;
                 if (Stat.ActiveSkillAreaOfEffectRadius is var radiusKey)
                     stats[radiusKey] = radius;
+                if (areaStats.TryGetValue(Stat.VirtualCycloneSkillAreaOfEffectPlusPctFromMeleeRange, out int meleeRangeArea)
+                    && meleeRangeArea != 0)
+                    stats[Stat.VirtualCycloneSkillAreaOfEffectPlusPctFromMeleeRange] = meleeRangeArea;
                 // Channelled Cyclone's conditional-radius path reads these derived stats instead of 0x4876.
                 // Compute them before writing skill_area_of_effect_+%, or the base increase would count twice.
                 if (Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal is var scaleKey) stats[scaleKey] = radiusPercent;
@@ -633,9 +650,14 @@ public static partial class Game
                 // A shield skill's rows are the shield's hit and swing (ShieldWeapon), as its hits are: the gem's own
                 // AttackTime at the off hand's speed, without the main weapon's local attack speed.
                 var shieldWeapon = ShieldWeapon(player, id);
+                double chargeMore = ConditionalSupportMore(own, attack: SkillsFor(player).IsAttack(effect),
+                    chilled: false, lowLife: false, fullLife: false, lifetap: false,
+                    powerCharges: ChargesOf(player).Effective(ChargeType.Power),
+                    enduranceCharges: ChargesOf(player).Effective(ChargeType.Endurance));
+                double hitMore = bloodMore * chargeMore;
                 var inputs = SupportedHitInputsFor(player, id, weapon: shieldWeapon);
                 SupportedHitInputs? offInputs = null;
-                if (inputs is not null && bloodMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(bloodMore) };
+                if (inputs is not null && hitMore != 1) inputs = inputs with { Raw = inputs.Raw.Scale(hitMore) };
                 var supportedHit = inputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(inputs, suppress: true);
                 // The skill's per-hand more multipliers, as its hits take them (SupportedSwingHit).
                 var (mainHandMore, dualWieldMore) = SkillsFor(player).IsAttack(effect) && shieldWeapon is null
@@ -700,6 +722,8 @@ public static partial class Game
                         && OffhandWeaponFor(player) is { } offWeapon)
                     {
                         offInputs = SupportedHitInputsFor(player, id, weapon: offWeapon);
+                        if (offInputs is not null && chargeMore != 1)
+                            offInputs = offInputs with { Raw = offInputs.Raw.Scale(chargeMore) };
                         var offHit = offInputs is null ? GameServer.Core.World.DamagePacket.Empty : SupportedHitFrom(offInputs, suppress: true);
                         if (dualWieldMore != 1) offHit = offHit.Scale(dualWieldMore);
                         var offRows = offHand.ToDictionary(r => r.Stat, r => r.Value);
@@ -770,22 +794,27 @@ public static partial class Game
                 stats[Stat.SpellUncastableIfTriggerable] = 1;
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             }
-            else if (TriggerOnlyReason(supported) is not null)
+            // These companion attacks have a native instant action, which checks the disabled flag too.
+            else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
             // runtime radius calculations so an already-derived selected AoE alias cannot count its base twice.
             int RawPanel(uint key) => panelSources.Raw.GetValueOrDefault(key);
             int OwnPanel(uint key) => own.GetValueOrDefault(key);
             bool projectileAttack = SkillsFor(player).IsAttack(effect) && ResolveProjectilePanelParameters(effect) is not null;
+            bool cyclone = SkillArea.IsCyclone(SkillsFor(player).EffectId(effect));
             foreach (var (stat, value) in PanelStats.Selected(RawPanel, OwnPanel, panelSources.PlayerLevel,
                 panelSources.MainHand.GetValueOrDefault, panelSources.OffHand.GetValueOrDefault,
                 panelSources.MainArmed, panelSources.OffArmed, projectileAttack, projectileAttack && panelSources.OffArmed))
-                if (stat is var key)
+                if (stat is var key && !(cyclone && key == Stat.SkillAreaOfEffectPlusPct))
                     stats[key] = value;
             if (VaalSoulCost.Aura is var aura)
                 stats[aura] = VaalSoulInput(player, playerStats, own, VaalSoulCost.Aura);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalSoulInputs(player, playerStats, own, stats);
+            if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
+                stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
@@ -1279,6 +1308,8 @@ public static partial class Game
         var skills = SkillsFor(player);
         var allowed = skills.WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
+        if (skills.EffectId(effect) == "CleaveAltX" && !CleaveHasAxeAndSword(player))
+            return "Cleave of Rage requires dual wielding a one-handed axe and a one-handed sword";
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));

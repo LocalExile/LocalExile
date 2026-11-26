@@ -57,6 +57,7 @@ public static partial class Game
             GolemStat(own, Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum), recentIgnites) : 1;
         var ignite = profile.Ignite with
         {
+            Chance = ActorScale.Saturate((long)profile.Ignite.Chance + target.Effects[Stat.ChanceToBeIgnitedPct]),
             Seconds = profile.Ignite.Seconds * MonsterIgnites.SelfDuration(n => target.Effects[n]),
             Min = profile.Ignite.Min * igniteMore, Max = profile.Ignite.Max * igniteMore,
             CriticalMin = profile.Ignite.CriticalMin * igniteMore, CriticalMax = profile.Ignite.CriticalMax * igniteMore,

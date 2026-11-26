@@ -20,6 +20,8 @@ public static class ChargeScaling
         new(Stat.LeechPctIsInstantPerMaximumPowerCharge, ChargeType.Power, [Stat.LeechPctIsInstant], PerMaximum: true),
     ];
 
+    public static readonly HashSet<uint> RuleStats = [.. Rules.Select(r => r.Stat)];
+
     /// <summary>"Count as having maximum number of … Charges" (Ralakesh's Impatience): the per-charge effects and the
     /// counts shown use the maximum.</summary>
     public static bool CountsAsMaximum(ChargeType type, Func<uint, int> get) =>
