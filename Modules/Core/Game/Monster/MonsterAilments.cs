@@ -362,9 +362,15 @@ public static partial class Game
         int frozenShock = spell && m.Ailments.Magnitude(Kind.Freeze, now) > 0
             ? ActorScale.Saturate((long)Player(Stat.SpellChanceToShockFrozenEnemiesPct) +
                 Skill(Stat.SpellChanceToShockFrozenEnemiesPct)) : 0;
+        long criticalEffect = critical && Player(Stat.KeystoneElementalOverload) == 0
+            ? (long)Player(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes)
+                + Skill(Stat.NonDamagingAilmentEffectPlusPctWithCriticalStrikes) : 0;
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
+            if (criticalEffect != 0 && name is Stat.VirtualChillEffectPlusPct or Stat.VirtualShockEffectPlusPct
+                or Stat.VirtualScorchEffectPlusPct or Stat.VirtualFrostburnEffectPlusPct or Stat.VirtualSapEffectPlusPct)
+                value = ActorScale.Saturate(value + criticalEffect);
             if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
