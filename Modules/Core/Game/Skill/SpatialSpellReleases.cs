@@ -4,7 +4,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        IsPurifyingFlame(effect) || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
+        IsPurifyingFlame(effect) || IsWaveOfConviction(effect) || effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
@@ -72,6 +72,13 @@ public static partial class Game
                             immediate: true, sequence: sequence, repeat: repeat, damageMore: damageMore, radiusOverride: radius,
                             criticalRoll: critical, sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget,
                             targetFilter: filter, hitAndAilmentMore: waveMore, onDirectHit: onHit)), repeat);
+                }
+                else if (IsWaveOfConviction(effect))
+                {
+                    var origin = SkillsFor(Player).BehaviourVariation(gem.Effect) == 1
+                        && caster.GetValueOrDefault(Stat.NovaSpellsCastAtTargetLocation) != 0 ? aim : from;
+                    ReleaseConvictionWave(Player.Id, gem.Effect, source.Stats, caster, origin, aim, CurrentSource,
+                        (reach, filter) => Hit(origin, reach, targetFilter: filter, centred: true), repeat);
                 }
                 else if (effect == "LightningConduitAltX")
                 {

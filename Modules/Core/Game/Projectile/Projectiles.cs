@@ -339,6 +339,7 @@ public static partial class Game
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
+            ClearConvictionWaves();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);

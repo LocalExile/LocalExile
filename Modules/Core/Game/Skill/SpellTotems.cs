@@ -19,7 +19,7 @@ public static partial class Game
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
-                || IsPurifyingFlame(SkillsFor(player).EffectId(effect))
+                || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -94,6 +94,16 @@ public static partial class Game
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         else if (CurseCatalog.Hex(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = CurseRadius(player, skill, aura: false, gem);
+        else if (IsWaveOfConviction(SkillsFor(player).EffectId(gem.Effect)))
+        {
+            var caster = TotemCasterStats(CharacterPlayerStats(player));
+            var area = SkillAreaStats(player, gem.Stats, gem.Effect, caster);
+            double duration = SkillDurationModifiers.Seconds(gem.Stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+                caster.GetValueOrDefault, gem.Stats.GetValueOrDefault, DurationKinds(player, gem.Effect));
+            payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
+            payload[Stat.SkillEffectDuration] = (int)Math.Round(1000 * duration);
+            payload[Stat.TotalSkillAreaOfEffectRadiusPlusPctIncludingFinal] = SkillArea.RadiusPercent(area.GetValueOrDefault, spell: true);
+        }
         if (!SkillsFor(player).IsAttack(gem.Effect) && TotemCastSeconds(player, skill) is double seconds && Stat.CastSpeedPlusPct is var speed)
             payload[speed] = (int)Math.Round(100 * (SkillsFor(player).CastTimeMs(gem.Effect) / (seconds * 1000) - 1));
         if (SkillsFor(player).IsAttack(gem.Effect))
@@ -351,7 +361,7 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
-            if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect))
+            if (BladefallEffect(effect) || FrostBombEffect(effect) || IsPurifyingFlame(effect) || IsWaveOfConviction(effect))
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
@@ -362,11 +372,16 @@ public static partial class Game
                     else if (FrostBombEffect(effect))
                         session.ReleaseFrostBomb(gem.Effect, SupportedSkill(player, totem.SkillId).Stats, at, Current,
                             (centre, radius, _) => TotemNovaLocked(player, session, totem, centre, radius, sequence));
-                    else
+                    else if (IsPurifyingFlame(effect))
                         SchedulePurifyingFlame(player, session, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
                             TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,
                             (radius, covers, more, onHit) => TotemNovaLocked(player, session, totem, at, radius, sequence,
                                 damageMore: more, targetFilter: covers, onHit: onHit));
+                    else
+                        session.ReleaseConvictionWave(totem.Id, gem.Effect, SupportedSkill(player, totem.SkillId).Stats,
+                            TotemCasterStats(CharacterPlayerStats(player)), totem.At, at, Current,
+                            (reach, filter) => TotemNovaLocked(player, session, totem, totem.At, reach, sequence,
+                                targetFilter: filter));
                 });
                 continue;
             }

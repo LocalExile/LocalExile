@@ -406,6 +406,8 @@ public static partial class Game
                 if (GolemStat(gem.Stats, Stat.BaseSkillEffectDuration) is int baseDuration and > 0)
                     payload[Stat.SkillEffectDuration] = (int)Math.Round(1000 * SkillDurationModifiers.Seconds(baseDuration,
                         n => GolemStat(playerStats, n), n => GolemStat(gem.Stats, n), DurationKinds(player, gem.Effect)));
+                if (IsWaveOfConviction(SkillsFor(player).EffectId(gem.Effect)))
+                    payload[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(gem.Effect);
                 bool spellArea = !SkillsFor(player).IsAttack(gem.Effect);
                 var areaStats = SkillAreaStats(player, gem.Stats, gem.Effect, playerStats);
                 int AreaGet(uint key) => areaStats.GetValueOrDefault(key);
@@ -684,7 +686,8 @@ public static partial class Game
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool purifyingFlame = IsPurifyingFlame(effect);
-        if (bladefall || purifyingFlame)
+        bool conviction = IsWaveOfConviction(effect);
+        if (bladefall || purifyingFlame || conviction)
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
                 : PlacedSpellTarget(player, placed.At, 60, now);
@@ -696,7 +699,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame))
+                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || purifyingFlame || conviction))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -726,6 +729,17 @@ public static partial class Game
                         (reach, filter, more, onHit) => PlacedAreaDamageLocked(player, placed, impact, reach,
                             ProjectileWorldTime(player), inventionMore * more, currentSkill: true, spellDamage: true,
                             targetFilter: filter, onHit: onHit)));
+            }
+            else if (conviction)
+            {
+                var targetAt = aim;
+                bool Casting() => player.PlayerLife > 0 && Current();
+                session.ScheduleContact(ProjectileRuntime.Time(now), Casting, () =>
+                    session.ReleaseConvictionWave(placed.Id, placed.Effect, placed.Own,
+                        placed.Offense?.Caster ?? CharacterPlayerStats(player), placed.At, targetAt, Casting,
+                        (reach, filter) => PlacedAreaDamageLocked(player, placed, placed.At, reach,
+                            ProjectileWorldTime(player), inventionMore, currentSkill: true, spellDamage: true,
+                            targetFilter: filter)));
             }
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, inventionMore), Current);
@@ -1095,7 +1109,8 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect) || IsPurifyingFlame(effect));
+                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect)
+                        || IsPurifyingFlame(effect) || IsWaveOfConviction(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null
