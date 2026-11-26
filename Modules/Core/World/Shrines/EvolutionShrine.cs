@@ -16,6 +16,8 @@ public static class EvolutionShrine
     public static Settings Policy { get; set; } = new();
     sealed class State { public int Successes; public readonly HashSet<SpawnedMonster> Seen = []; }
     static readonly ConditionalWeakTable<Player, State> States = new();
+    static ushort? BuffRow;
+    public static void Load() => BuffRow = ShrineCatalog.Find("UpgradeOnKill")?.BuffRow;
 
     public static int Chance(int basis, int successes, int coefficient) =>
         (int)Math.Clamp((long)basis * 10000 / (10000L + Math.Max(0, successes) * (long)Math.Max(1, coefficient)), 0, 10000);
@@ -29,12 +31,16 @@ public static class EvolutionShrine
 
     public static void OnKill(KillContext kill)
     {
+        if (BuffRow is ushort row && ShrineManager.HasBuff(kill.Player, row) && Eligible(kill.Monster))
+            Upgrade(kill, row);
+    }
+
+    static void Upgrade(KillContext kill, ushort row)
+    {
         var player = kill.Player;
-        var row = ShrineCatalog.Find("UpgradeOnKill");
-        if (row is null || !ShrineManager.HasBuff(player, row.BuffRow) || !Eligible(kill.Monster)) return;
         var state = States.GetOrCreateValue(player);
         if (!state.Seen.Add(kill.Monster)) return;
-        int basis = CharacterPlayerStats(player).GetValueOrDefault(Stat.ChanceToUpgradeMonstersOnKillPermyriad);
+        int basis = PlayerStatValues(player).GetValueOrDefault(Stat.ChanceToUpgradeMonstersOnKillPermyriad);
         int chance = Chance(basis, state.Successes, Policy.EvolutionDeclinePerSuccessPermyriad);
         if (AreaRng(player).Next(10000) >= chance) return;
         state.Successes++;
@@ -46,7 +52,7 @@ public static class EvolutionShrine
         kill.Later(async () =>
         {
             if (!States.TryGetValue(player, out var current) || !ReferenceEquals(current, state)
-                || !ReferenceEquals(player.Instance, instance) || !ShrineManager.HasBuff(player, row.BuffRow)) return;
+                || !ReferenceEquals(player.Instance, instance) || !ShrineManager.HasBuff(player, row)) return;
             uint id = await SpawnMonster(player, variety, level, rarity, at.X, at.Y, log: false,
                 unrisen: false, alone: true, placement: MonsterPlacement.Established);
             if (id != 0) Console.WriteLine($"[gateway] shrine evolution {kill.Monster.ObjectId:x} -> {id:x} {rarity}, chance {chance}/10000, successes {state.Successes}");

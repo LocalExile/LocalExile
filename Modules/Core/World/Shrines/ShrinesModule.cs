@@ -19,6 +19,7 @@ public sealed class ShrinesModule : IModule
         string id = module.Manifest.Id;
         ShrineRegistry.RegisterDefaults();
         ApparitionRewards.Load();
+        EvolutionShrine.Load();
         EvolutionShrine.Policy = module.Settings<EvolutionShrine.Settings>();
         GameEvents.AreaGenerated.Add(id, player => ShrineManager.SpawnArea(player));
         GameEvents.PlayerEntered.Add(id, player => ShrineManager.SpawnArea(player));

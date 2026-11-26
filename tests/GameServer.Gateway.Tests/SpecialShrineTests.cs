@@ -166,6 +166,7 @@ public sealed partial class ShrineTests
             Game.CombatLifetime = lifetime;
             Program.SetGameLogic(new GameServer.Modules.Game.GameLogic(lifetime));
             await ApparitionCombat(player);
+            await ApparitionPartyVisibility(player);
             TemporaryShrineDamage(player);
             await EvolutionLifecycle(player);
         }
@@ -226,12 +227,60 @@ public sealed partial class ShrineTests
             Assert.DoesNotContain(player.Area.Monsters.Values, m => m.Variety?.Id == profile.Body.Id);
             await effectController.Tick(new(player, 12), shrine);
             var leaving = Assert.Single(player.Area.Monsters, m => m.Value.Variety?.Id == profile.Body.Id);
+            if (id == "Redeemer")
+            {
+                await effectController.Tick(new(player, 12 + profile.CastSeconds + .7), shrine);
+                Assert.NotEmpty(Game.ProjectilesFor(player).Runtime.Projectiles);
+            }
+            var area = player.Area;
+            var sessionAtExit = player.ProjectileRuntime;
+            area.Driven = true;
             player.LeavingArea = true;
-            try { await effectController.OnMapUnload(new(player, 12), shrine); }
-            finally { player.LeavingArea = false; }
+            try
+            {
+                await effectController.OnMapUnload(new(player, 12), shrine);
+                Assert.False(area.Objects.Has(leaving.Key));
+                Assert.Contains(leaving.Key, area.Monsters.Keys); // Shared state waits for its owning frame.
+                if (sessionAtExit is not null) Assert.Empty(sessionAtExit.Runtime.Projectiles);
+                area.Step(1, 13);
+            }
+            finally { player.LeavingArea = false; area.Driven = false; }
             Assert.DoesNotContain(leaving.Key, player.Area.Monsters.Keys);
+            Assert.True(leaving.Value.Dead);
+            Assert.DoesNotContain(area.MonstersNear(leaving.Value.Walk.Position(13), 10), m => m.Key == leaving.Key);
             Assert.DoesNotContain(leaving.Key, player.MinionOrigins.Keys);
+            Assert.Contains(area.Delta.Take(), r => r.Entity == leaving.Key && r.Kind == AreaDelta.Kind.Remove);
             player.Area.Monsters.Remove(0x7071);
+        }
+    }
+
+    static async Task ApparitionPartyVisibility(Player driver)
+    {
+        await using var peer = await ShrineWire.Open(driver.Instance!);
+        await ShrineManager.SpawnArea(driver);
+        await ShrineManager.SpawnArea(peer.Player);
+        driver.Walk.Teleport(700, 700, 0);
+        peer.Player.Walk.Teleport(100, 100, 0);
+        peer.Player.Immune = true;
+        var row = ShrineCatalog.Find("Redeemer")!;
+        var shrine = new ShrineInstance { Definition = row, At = (100, 100), ObjectId = 0x9090 };
+        var effect = new ApparitionEffect();
+        try
+        {
+            await effect.Tick(new(driver, 0), shrine);
+            await effect.Tick(new(driver, ApparitionEffect.Describe(driver, row, false).CastSeconds + .7), shrine);
+            var session = Game.ProjectilesFor(peer.Player);
+            Assert.NotEmpty(session.Runtime.Projectiles);
+            Assert.All(session.Runtime.Projectiles, p => Assert.False(p.Profile.HideVisual));
+            await effect.OnMapUnload(new(driver, 7), shrine);
+            Assert.Empty(session.Runtime.Projectiles);
+        }
+        finally
+        {
+            await effect.OnMapUnload(new(driver, 7), shrine);
+            await ShrineManager.LeaveArea(peer.Player);
+            await ShrineManager.LeaveArea(driver);
+            driver.Walk.Teleport(100, 100, 0);
         }
     }
 
@@ -272,6 +321,17 @@ public sealed partial class ShrineTests
     static async Task EvolutionLifecycle(Player player)
     {
         ShrineRegistry.RegisterDefaults();
+        EvolutionShrine.Load();
+        var inactive = new KillContext(player, new("inactive", player.Walk, 20, 5, 1000), "inactive", (100, 100));
+        for (int i = 0; i < 100; i++) EvolutionShrine.OnKill(inactive);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        long allocated = GC.GetAllocatedBytesForCurrentThread();
+        for (int i = 0; i < 10000; i++) EvolutionShrine.OnKill(inactive);
+        allocated = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        watch.Stop();
+        Assert.Equal(0, allocated);
+        Assert.Empty(inactive.Afterwards);
+        Console.WriteLine($"Evolution inactive: {watch.Elapsed.TotalMilliseconds:0.###} ms / 10000 kills, {allocated} bytes");
         using var sources = GameEvents.PlayerStatSources.Add("shrine-regression", (p, stats) =>
         {
             ShrineManager.AddStats(p, stats);

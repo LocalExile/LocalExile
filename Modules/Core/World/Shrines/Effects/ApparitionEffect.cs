@@ -183,9 +183,10 @@ public sealed class ApparitionEffect : IShrineEffect
         var attack = attacks[contact.Effect];
         if (p.Claimed)
         {
-            foreach (var (id, target) in ctx.Player.Area.MonstersNear(contact.Centre, contact.Radius).ToArray())
-                if (Dist(contact.Centre, target.Walk.Position(ctx.Now)) <= contact.Radius)
-                    ScriptedAllyHitLocked(ctx.Player, actor, body, id, target, attack, ctx.Now, AreaRng(ctx.Player));
+            using (ProjectileMutation(ctx.Player))
+                foreach (var (id, target) in ctx.Player.Area.MonstersNear(contact.Centre, contact.Radius).ToArray())
+                    if (Dist(contact.Centre, target.Walk.Position(ctx.Now)) <= contact.Radius)
+                        ScriptedAllyHitLocked(ctx.Player, actor, body, id, target, attack, ctx.Now, AreaRng(ctx.Player));
             await PublishMinionOutcomes(ctx.Player);
         }
         else
@@ -207,8 +208,15 @@ public sealed class ApparitionEffect : IShrineEffect
     {
         ushort sequence = ++tornadoSequence;
         if (p.Claimed) TornadoesFor(ctx, p, contact, ctx.Player, true, sequence);
-        else foreach (var peer in ShrineManager.NearbyPlayers(ctx.Player, contact.Centre, 150))
-            TornadoesFor(ctx, p, contact, peer, ReferenceEquals(peer, ctx.Player), sequence);
+        else
+        {
+            bool shown = false;
+            foreach (var peer in ShrineManager.NearbyPlayers(ctx.Player, contact.Centre, 150))
+            {
+                TornadoesFor(ctx, p, contact, peer, !shown, sequence);
+                shown = true;
+            }
+        }
     }
 
     public static SkillCatalog.MonsterProjectileInfo TornadoProjectile(Player player, int effect, byte level)
@@ -281,22 +289,36 @@ public sealed class ApparitionEffect : IShrineEffect
         generation++;
         contacts.Clear();
         foreach (var (session, marker) in flights)
-            if (session.Active) session.Runtime.Discard(use => ReferenceEquals(use.Payload, marker));
+            using (LevelUpdatesFor(session.Player).Gate.EnterScope())
+                session.Runtime.Discard(use => ReferenceEquals(use.Payload, marker));
         flights.Clear();
-        if (body is not null) { body.Dead = true; body.Life = 0; body.ActionGeneration++; }
         if (actor != 0) producer?.MinionOrigins.TryRemove(actor, out _);
-        if (actor != 0 && player.Area.Monsters.Remove(actor))
+        if (actor != 0)
         {
-            if (!player.Closed && !player.LeavingArea && player.Connection.Connected)
-                await SendWorldRemoval(player, actor, "shrine apparition ends");
+            var area = player.Area;
+            uint removed = actor;
+            var retired = body;
+            var bytes = InstanceProtocol.RemoveObject(removed);
+            void Retire(GameArea a)
+            {
+                if (retired is not null) { retired.Dead = true; retired.Life = 0; retired.ActionGeneration++; }
+                a.Monsters.Remove(removed);
+            }
+            if (area.Driven && !area.Owned)
+            {
+                area.Objects.RecordDirect(removed, bytes, AreaDelta.Kind.Remove, player);
+                area.Defer(a => { Retire(a); a.Delta.RemoveSharedObject(removed, bytes); });
+            }
             else
             {
-                var area = player.Area;
-                uint removed = actor;
-                var bytes = InstanceProtocol.RemoveObject(removed);
-                area.Objects.RecordDirect(removed, bytes, AreaDelta.Kind.Remove, player);
-                if (area.Owned) area.Delta.RemoveSharedObject(removed, bytes);
-                else if (area.Driven) area.Defer(a => a.Delta.RemoveSharedObject(removed, bytes));
+                Retire(area);
+                if (!player.Closed && !player.LeavingArea && player.Connection.Connected)
+                    await SendWorldRemoval(player, removed, "shrine apparition ends");
+                else
+                {
+                    area.Objects.RecordDirect(removed, bytes, AreaDelta.Kind.Remove, player);
+                    if (area.Owned) area.Delta.RemoveSharedObject(removed, bytes);
+                }
             }
         }
         actor = 0; body = null; actionOpen = false;
