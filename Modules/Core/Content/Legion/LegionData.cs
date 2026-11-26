@@ -113,7 +113,6 @@ public sealed class LegionData
     public ushort EnvWorld { get; }
     public ushort EnvBattle { get; }
     public ushort EnvPostBattle { get; }
-    public ushort EnvDomain { get; }
     /// <summary>Rulesets row for LegionRules, or null when absent from client.db.</summary>
     public byte? RulesetRow { get; }
     /// <summary>MiscAnimated row -> AOFile path, loaded eagerly so hot-reload clears it cleanly.</summary>
@@ -183,7 +182,6 @@ public sealed class LegionData
         EnvWorld = Env("LegionLeagueWorld");
         EnvBattle = Env("LegionLeagueWorldBattle");
         EnvPostBattle = Env("LegionLeagueWorldPostBattle");
-        EnvDomain = Env("LegionLeague");
         RulesetRow = ClientTables.TableOrEmpty("Rulesets").FirstOrDefault(r => r.Text("Id") == "LegionRules") is { Table: not null } rr && rr.Index <= byte.MaxValue
             ? (byte)rr.Index : null;
         MiscAnimatedModels = ClientTables.TableOrEmpty("MiscAnimated")

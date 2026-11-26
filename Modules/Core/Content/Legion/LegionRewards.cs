@@ -15,7 +15,7 @@ static class LegionRewards
     /// and items per row; the generic loot from the kills; the cap on the drops.</summary>
     const int DomainJewelMaxRolls = 4, DomainKillsPerJewelRoll = 2, DomainJewelBasePct = 25,
         DomainJewelPerKillPct = 5, DomainJewelKillCapPct = 25, DomainJewelMaxPct = 85;
-    const int DomainCrystalBasePct = 20, DomainCrystalMaxPct = 75;
+    const int DomainCrystalBasePct = 20;
     const int DomainRewardRowsBase = 36;
     const double DomainGenericBase = 1.2;
     const int DomainGenericMax = 40, DomainRarityBase = 150, DomainMaxDrops = 140;
@@ -419,8 +419,7 @@ static class LegionRewards
             }
             if (Factions.TryGetValue(factionId == "Faridun" ? "Maraketh" : factionId, out var f))
             {
-                int crystalPct = Math.Clamp(DomainCrystalBasePct, 0, DomainCrystalMaxPct);
-                if (rng.Next(100) < crystalPct) stacks.Add((f.Crystal, 1));
+                if (rng.Next(100) < DomainCrystalBasePct) stacks.Add((f.Crystal, 1));
             }
         }
         // Guarantee at least one Timeless Jewel on 4-way/5-way runs when at least one General was slain.

@@ -118,7 +118,7 @@ public sealed class LegionTests
         Assert.Equal(0, alertMode0[17]);     // endless = 0
         Assert.Equal(1, alertMode0[18]);     // alertMode = 1
         Assert.Equal(0.5f, BinaryPrimitives.ReadSingleLittleEndian(alertMode0.AsSpan(29)));
-        Assert.True(data.EnvDomain > 0 && data.DomainAreas.Count == 4 && data.EmblemsByRow.Count == 10 && data.DomainAtlasNodeHash > 0);
+        Assert.True(data.DomainAreas.Count == 4 && data.EmblemsByRow.Count == 10 && data.DomainAtlasNodeHash > 0);
         Assert.True(LegionDomain.BuildInitiatorObject(333, 333, null, 0, true)!.Blob().Length > 20);
         Assert.True(LegionDomain.BuildCrystalObject(333, 333, null, false)!.Blob().Length > 10);
         // MapRunCatalog strips trailing "New" from Scarab*New* BaseItemTypes so map_legion_scarab_count resolves cleanly.
@@ -127,7 +127,7 @@ public sealed class LegionTests
         Assert.NotNull(scarabNew1);
         var scarabMods = runCatalog.Of([new MapDevice.Slot(scarabNew1!.Hash, scarabNew1.Class, scarabNew1.Name, scarabNew1.Row, [], 0) { BaseId = scarabNew1.Id }], Program.Items.Mods);
         Assert.Equal(1, scarabMods.ScarabKinds.GetValueOrDefault("legion"));
-        // Phase 3 Map Device opening: 2-5 normal & Unrelenting Emblems, rejection of 1 / duplicate / mixed, and "Legion" scarab claim.
+        // Phase 3 Map Device opening: 2-5 normal & Unrelenting Emblems, rejection of 1 / the same faction twice, and "Legion" scarab claim.
         var dummyLayout = new AreaLayout(0x1e9, "Hideout", 200, 200, 100, 100, (_, _) => true, []);
         var opener = new Player(dummyLayout, 1, 1);
         static MapDevice.Slot EmblemSlot(string id)
@@ -162,13 +162,13 @@ public sealed class LegionTests
             Assert.NotNull(req.Opening);
             Assert.Equal(expectedDomainAreas[n - 2], req.Opening!.Area.Id);
             Assert.Equal(80 + Math.Max(0, n - 3), req.Opening.Area.Level);
-            Assert.Equal(req.Opening.Area.Level, LegionDomain.AreaLevelFor(80, n));
+            Assert.Equal(80 + Math.Max(0, n - 3), LegionDomain.AreaLevelFor(60, n));   // the floor is 80
             Assert.False(req.Opening.Area.UsesAtlas);
             Assert.True(req.ReturnToSource);
             Assert.Equal(15.0 + 60.0 * n, LegionDomain.TimerSecondsFor(req.Opening.Mods.Stats, n));
             Assert.Equal(n, req.Opening.Mods.Get(Stat.MapNumLegionFragments));
             Assert.Equal(10 * n * 3, LegionDomain.RevivalToughness(req.Opening.Mods.Stats, 3));
-            Assert.True(LegionDomain.UberRevivalStats(req.Opening.Mods.Stats, 3)!.ContainsKey(Stat.PhysicalDamagePctToAddAsChaos) || n < 5);
+            Assert.True(LegionDomain.RevivalStats(req.Opening.Mods.Stats, 3)!.ContainsKey(Stat.PhysicalDamagePctToAddAsChaos) || n < 5);
         }
         // 3.29.0: an Unrelenting emblem is its faction's regular emblem: the same area, level and mods, no uber stats.
         var uberReq = new MapOpening(opener, [.. uberIds.Select(EmblemSlot)], false, null, "");

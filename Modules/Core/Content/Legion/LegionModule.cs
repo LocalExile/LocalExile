@@ -3,7 +3,7 @@ using GameServer.Modding;
 namespace GameServer.Modules.Legion;
 
 /// <summary>The Legion encounter: the Timeless Monolith, Legion Scarabs &amp; Atlas passives (including Timeless Conflict),
-/// and the Domain of Timeless Conflict (2–5 Timeless/Unrelenting Emblems). Loads the Legion client tables (<see cref="LegionData"/>)
+/// and the Domain of Timeless Conflict (2–5 Timeless Emblems). Loads the Legion client tables (<see cref="LegionData"/>)
 /// and registers both map monoliths (<see cref="LegionMonolith"/>) and the Domain (<see cref="LegionDomain"/>).</summary>
 public sealed class LegionModule : IModule
 {

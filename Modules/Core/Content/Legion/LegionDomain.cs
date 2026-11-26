@@ -8,7 +8,7 @@ namespace GameServer.Modules.Legion;
 
 /// <summary>
 /// Phase 3: Domain of Timeless Conflict (<c>WorldAreas</c> <c>LegionLeague</c>..<c>LegionLeague4</c>, 2–5 emblems).
-/// Resolves 2–5 Timeless Emblems in the Map Device (<see cref="ResolveOpening"/>; an Unrelenting one counts as its regular emblem, 3.29.0), claims the
+/// Resolves 2–5 Timeless Emblems in the Map Device (<see cref="ResolveOpening"/>), claims the
 /// <c>"Legion"</c> scarab content tag for standard maps, places the central <see cref="InitiatorType"/> (ControlZone)
 /// and <see cref="RewardCrystalType"/> on <see cref="GameEvents.PlayerEntered"/> (Domain areas have 0 MonsterPacks),
 /// drives the endless radial armies as LegionRevive ghosts (<see cref="LegionRevive"/>) with per-rank revival cooldowns
@@ -217,10 +217,10 @@ static class LegionDomain
         GameEvents.MonsterKilled.Add(id, Killed);
     }
 
-    // ---- Map Device Opening (2-5 Timeless / Unrelenting Emblems + Legion Scarab claim) ----
+    // ---- Map Device Opening (2-5 Timeless Emblems + Legion Scarab claim) ----
 
     /// <summary>GameEvents.MapOpening: claims "Legion" scarab handling on normal maps, and resolves 2–5 distinct
-    /// Timeless / Unrelenting Emblems into the matching Domain of Timeless Conflict area (<c>LegionLeague</c>..<c>LegionLeague4</c>).</summary>
+    /// Timeless Emblems into the matching Domain of Timeless Conflict area (<c>LegionLeague</c>..<c>LegionLeague4</c>).</summary>
     public static void ResolveOpening(MapOpening request)
     {
         if (request.Campaign) return;
@@ -339,9 +339,9 @@ static class LegionDomain
         revivalCount <= 0 ? 0 : areaStats.GetValueOrDefault(Stat.UberDomainMonsterTankinessPlusPctPerRevival) * Math.Min(MaxRevivalStacks, revivalCount);
 
     /// <summary>Per-revival EncounterStats of the emblems used (summed over them, times the revival count) for a monster revived
-    /// in a Domain of Timeless Conflict. The consumers today are damage_+% and the phys-as-chaos gain (hit damage); the rest is
-    /// carried for when monsters read them. Tankiness is applied as toughness (<see cref="RevivalToughness"/>).</summary>
-    public static Dictionary<uint, int>? UberRevivalStats(IReadOnlyDictionary<uint, int> areaStats, int revivalCount)
+    /// in a Domain of Timeless Conflict. Only the Timeless emblems' own stats are here (the Unrelenting mods are gone); the consumers today are the phys-as-chaos gain (hit
+    /// damage), the rest is carried for when monsters read them. Tankiness is applied as toughness (<see cref="RevivalToughness"/>).</summary>
+    public static Dictionary<uint, int>? RevivalStats(IReadOnlyDictionary<uint, int> areaStats, int revivalCount)
     {
         if (revivalCount <= 0) return null;
         int stacks = Math.Min(MaxRevivalStacks, revivalCount);
@@ -351,15 +351,9 @@ static class LegionDomain
             int per = areaStats.GetValueOrDefault(areaStat);
             if (per != 0) stats[monsterStat] = stats.GetValueOrDefault(monsterStat) + per * stacks;
         }
-        Add(Stat.UberDomainMonsterDamagePlusPctPerRevival, Stat.DamagePlusPct);
         Add(Stat.UberDomainMonsterAttackAndCastSpeedPlusPctPerRevival, Stat.AttackAndCastSpeedPlusPct);
-        Add(Stat.UberDomainMonsterMovementSpeedPlusPctPerRevival, Stat.BaseMovementVelocityPlusPct);
         Add(Stat.UberDomainMonsterCriticalStrikeChancePlusPctPerRevival, Stat.CriticalStrikeChancePlusPct);
         Add(Stat.UberDomainMonsterCriticalStrikeMultiplierPlusPctPerRevival, Stat.BaseCriticalStrikeMultiplierPlus);
-        Add(Stat.UberDomainMonsterLifeRegenerationRatePerMinutePctPerRevival, Stat.LifeRegenerationRatePerMinutePct);
-        Add(Stat.UberDomainMonsterAdditionalPhysicalDamageReductionPctPerRevival, Stat.BaseAdditionalPhysicalDamageReductionPct);
-        Add(Stat.UberDomainMonsterAllResistancesPlusPctPerRevival, Stat.BaseResistAllElementsPct);
-        Add(Stat.UberDomainMonsterAvoidStunPctPerRevival, Stat.BaseAvoidStunPct);
         Add(Stat.UberDomainMonsterAccuracyPlusPctPerRevival, Stat.AccuracyRatingPlusPct);
         Add(Stat.UberDomainMonsterPenetrateAllResistancesPctPerRevival, Stat.BasePenetrateElementalResistancesPct);
         Add(Stat.UberDomainMonsterPhysicalDamagePctToAddAsChaosPerRevival, Stat.PhysicalDamagePctToAddAsChaos);
@@ -437,7 +431,7 @@ static class LegionDomain
             var stats = LegionMonolith.AreaStats(player);
             string[] factions = ResolveFactions(stats, player.Layout.Id);
             int mapLevel = player.Instance.Map?.Area.Level ?? 0;
-            int level = Math.Clamp(mapLevel > 0 ? mapLevel : 80, 1, 100);
+            int level = Math.Clamp(mapLevel > 0 ? mapLevel : AreaLevelFor(80, factions.Length), 1, 100);
             double timerSec = TimerSecondsFor(stats, factions.Length);
             int pulseMs = stats.GetValueOrDefault(Stat.MapLegionEndlessMonolithPulseTimeMs);
             double waveSec = pulseMs >= 3000 ? pulseMs / 1000.0 : DefaultWaveSeconds;
@@ -480,13 +474,14 @@ static class LegionDomain
             }
         }
 
-        await ShowObjects(player, state);
         // A Domain whose timer ran out while nobody was in it (the player died and left, or left): the end runs now, once, for whoever
-        // comes in (a running one for the players already in it is the tick's). The area has no frames without a player.
+        // comes in (a running one for the players already in it is the tick's). The area has no frames without a player. It is taken
+        // first, so the objects and the rules are created in their final state (the end then does not repeat them).
         bool due;
         lock (state) due = TakeEnd(player, state, global::Game.AreaTime(player));
+        await ShowObjects(player, state);
         await SyncRulesToPlayer(player, state);
-        if (due) { await FinishDomain(module, player, state); return; }
+        if (due) { await FinishDomain(module, player, state, announced: true); return; }
         await SpawnWaitingGhosts(module, player, state);
     }
 
@@ -1158,7 +1153,7 @@ static class LegionDomain
 
         if (slot.RevivalCount > 0)
         {
-            if (UberRevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
+            if (RevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
                 monster.EncounterStats = revivalStats;
         }
         // No reward symbols (buff 1328) over the Domain's monsters (3.29.0); their rewards still bank (RecordKill).
@@ -1271,7 +1266,8 @@ static class LegionDomain
         return true;
     }
 
-    static async Task FinishDomain(IModuleContext module, Player player, DomainState state)
+    /// <param name="announced">The newcomer who runs the end was already created in the final state (the obelisk, the (2,5) rules state).</param>
+    static async Task FinishDomain(IModuleContext module, Player player, DomainState state, bool announced = false)
     {
         var liveIds = new List<uint>();
         List<int> bankedRewards;
@@ -1308,7 +1304,7 @@ static class LegionDomain
         foreach (var member in LegionOutput.Members(player))
         {
             await PlayerOf(member).Send(InstanceTimers.HideMissionTimer(InstanceTimers.MissionTimerType.Legion), "0x0163 mission timer Legion domain: hidden");
-            if (LegionRules.State(state.InitiatorId, 2, 5) is { } done) await PlayerOf(member).Send(done, "0x02c9 LegionRules state (2,5 domain ended)");
+            if (!announced && LegionRules.State(state.InitiatorId, 2, 5) is { } done) await PlayerOf(member).Send(done, "0x02c9 LegionRules state (2,5 domain ended)");
         }
 
         // Remove all surviving Domain fighters cleanly so no post-timer combat or loot continues.
@@ -1332,7 +1328,7 @@ static class LegionDomain
                 });
         }
 
-        await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
+        if (!announced) await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
         foreach (uint zone in new[] { state.ZoneId, state.PerimeterId })
             if (zone != 0 && player.Area.Objects.Has(zone)) await LegionOutput.Remove(player, zone);
         int litFrom, litTo;
