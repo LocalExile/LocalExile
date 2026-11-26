@@ -174,6 +174,9 @@ public static partial class Game
         var raw = StatSourceValues(player);
         ApplySiphoningSkillUseLocked(player, now, raw);
         int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);
+        if (raw.GetValueOrDefault(Stat.Recover10PctManaOnSkillUsePctChanceWhileAffectedByClarity) is int clarity and not 0
+            && AffectingAuras(player).Any(a => a.AffectsSelf && a.EffectId == "Clarity"))
+            chance = ActorScale.Saturate((long)chance + clarity);
         if (chance <= 0) return;
 
         uint cap = (uint)UnreservedMana(player);
