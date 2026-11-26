@@ -5,18 +5,21 @@ using GameServer.Core.World;
 public static partial class Game
 {
     const string VaalArcEffect = "VaalArc";
+    const string ArcSurgingEffect = "ArcAltX";
     const ushort LuckyArcBuffRow = 1152;
 
     static bool PlacedArcPayload(string? effect) => effect is "Arc" or "ArcAltY";
+    static bool ArcProxyEffect(string? effect) => PlacedArcPayload(effect) || effect == ArcSurgingEffect;
 
     static int ArcExtraRolls(Player player, string? effect, IReadOnlyDictionary<uint, int> caster) =>
-        effect is "Arc" or "ArcAltX" or "ArcAltY" or VaalArcEffect
+        effect is "Arc" or ArcSurgingEffect or "ArcAltY" or VaalArcEffect
             ? Math.Max(caster.GetValueOrDefault(Stat.ArcExtraDamageRolls),
                 player.Area.Buffs.Has(player.Id, LuckyArcBuffRow, player.Id) ? 1 : 0) : 0;
 
-    static void ReleaseArcTotem(Player player, ProjectileSession session, TotemState.Totem totem, uint first, ushort sequence) =>
-        ReleaseArcProxy(player, session, totem.SkillId, totem.Id, totem.At, totem.BodySize,
-            TotemTargetRange(player, totem.SkillId), first, sequence, totem: true);
+    static void ReleaseArcTotem(Player player, ProjectileSession session, TotemState.Totem totem, uint first,
+        ushort sequence, Func<bool> current) => ScheduleArcProxyContact(player, session, totem.SkillId, totem.Effect,
+            current, () => ReleaseArcProxy(player, session, totem.SkillId, totem.Id, totem.At, totem.BodySize,
+                TotemTargetRange(player, totem.SkillId), first, sequence, totem: true));
 
     const double PlacedArcTargetRange = 60;
 
@@ -27,7 +30,7 @@ public static partial class Game
             .OrderBy(p => Dist(p.Value.Walk.Position(now), origin)).ThenBy(p => p.Key).FirstOrDefault();
 
     static void ReleasePlacedArc(Player player, ProjectileSession session, PlacedSkills.Placed placed,
-        KeyValuePair<uint, SpawnedMonster> triggeringEnemy, double damageMore, WorldRecordBuilder bytes)
+        KeyValuePair<uint, SpawnedMonster> triggeringEnemy, double damageMore, WorldRecordBuilder bytes, Func<bool> current)
     {
         double now = ProjectileWorldTime(player);
         var target = triggeringEnemy.Value is not null ? triggeringEnemy : PlacedSpellTarget(player, placed.At, PlacedArcTargetRange, now);
@@ -35,8 +38,38 @@ public static partial class Game
         var at = target.Value.Walk.Position(now);
         bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y,
             at.X, at.Y, 0x4000, 0xffff, player.MonsterOrderFlags, targetObjectId: target.Key));
-        ReleaseArcProxy(player, session, placed.Skill, placed.Id, placed.At, 0, PlacedArcTargetRange,
+        if (SkillsFor(player).EffectId(placed.Effect) == ArcSurgingEffect)
+            ScheduleArcProxyContact(player, session, placed.Skill, placed.Effect, current,
+                () => ReleaseSurgingPlacement(player, session, placed, target.Key, damageMore));
+        else ReleaseArcProxy(player, session, placed.Skill, placed.Id, placed.At, 0, PlacedArcTargetRange,
             target.Key, 0xffff, totem: false, mine: placed.Mine, damageMore: damageMore);
+    }
+
+    sealed record PlacedArcSplit(ProjectileSession Session, uint Primary, IReadOnlySet<uint> Targets);
+
+    static void ReleaseSurgingPlacement(Player player, ProjectileSession session, PlacedSkills.Placed placed,
+        uint first, double damageMore)
+    {
+        double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+        if (!player.Area.Monsters.TryGetValue(first, out var primary) || !ArcProxyTarget(player, first, primary)) return;
+        var at = primary.Walk.Position(now);
+        if (Dist(at, placed.At) > PlacedArcTargetRange) return;
+        int range = placed.Own.GetValueOrDefault(Stat.ArcChainDistance);
+        var caster = placed.Offense?.Caster ?? CharacterPlayerStats(player);
+        var targets = ArcSplitTargets(player, first, at, now, range, ArcSplitCount(placed.Own, caster)).ToHashSet();
+        targets.Add(first);
+        PlacedAreaDamageLocked(player, placed, at, range, now, damageMore, currentSkill: true, spellDamage: true,
+            arcSplit: new(session, first, targets));
+    }
+
+    static void ScheduleArcProxyContact(Player player, ProjectileSession session, ushort skill, int effect,
+        Func<bool> current, Action release)
+    {
+        int delay = SkillsFor(player).EffectId(effect) == ArcSurgingEffect
+            ? SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.ArcAdditionalDelayMs) : 0;
+        if (delay <= 0) release();
+        else session.ScheduleContact(session.Runtime.Now + ProjectileRuntime.Time(delay / 1000d),
+            () => player.PlayerLife > 0 && !player.Paused && current(), release);
     }
 
     static void ScheduleTriggeredArc(Player player, ProjectileSession session,
@@ -163,16 +196,10 @@ public static partial class Game
                 totem ? 0 : BearTrapDamageTaken(m, now));
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: from) is not { } accepted) return;
             if (mine) LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, caster, id);
-            var targetAt = m.Walk.Position(now);
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, true, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     blind: blind, hitOrigin: from, attackerSize: bodySize, attackerHasReversedStat: false, playerHit: false);
-            byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
-            ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
-            byte hitKind = 3, hitAngle = HitAngle(targetAt.X - from.X, targetAt.Y - from.Y);
-            ConsumeNativeKnockbackLocked(m, ref hitFlags, ref hitKind, ref hitAngle, out ushort u3c, out ushort u3e);
-            session.World(emitter, InstanceProtocol.ActionHit(emitter, sequence, id, flags: hitFlags,
-                kind: hitKind, code: hitCode, angle: hitAngle, u3c: u3c, u3e: u3e));
+            WriteArcProxyHit(session, emitter, sequence, id, m, from, now, mitigated, damage, crit, accepted.Life);
             if (accepted.StageStarts)
             {
                 CommitProjectileBossStage(session, id, m, session.Runtime.Now);
@@ -182,8 +209,37 @@ public static partial class Game
             CommitAcceptedHitLocked(player, id, m, accepted, damage, now, totem ? "Arc totem" : "placed Arc", playerKill: false);
         }
 
-        ArcChainTargets(player, first, origin, now, range, chains, effect == "ArcAltY", Land);
+        if (effect == ArcSurgingEffect)
+        {
+            var at = initial.Walk.Position(now);
+            var splitTargets = ArcSplitTargets(player, first, at, now, range, ArcSplitCount(skill.Stats, caster)).ToArray();
+            Land(first, 0, origin);
+            foreach (uint target in splitTargets) Land(target, 0, at);
+        }
+        else ArcChainTargets(player, first, origin, now, range, chains, effect == "ArcAltY", Land);
     }
+
+    static void WriteArcProxyHit(ProjectileSession session, uint emitter, ushort sequence, uint id, SpawnedMonster monster,
+        (int X, int Y) from, double now, DamagePacket mitigated, int damage, bool critical, uint life)
+    {
+        var at = monster.Walk.Position(now);
+        byte code = HitCode(mitigated, damage, monster.MaxLife, critical || life == 0);
+        ushort flags = (ushort)(0x4200 | HitTypeFlag(code) | (critical ? 0x0020 : 0));
+        byte kind = 3, angle = HitAngle(at.X - from.X, at.Y - from.Y);
+        ConsumeNativeKnockbackLocked(monster, ref flags, ref kind, ref angle, out ushort u3c, out ushort u3e);
+        session.World(emitter, InstanceProtocol.ActionHit(emitter, sequence, id, flags: flags,
+            kind: kind, code: code, angle: angle, u3c: u3c, u3e: u3e));
+    }
+
+    static int ArcSplitCount(IReadOnlyDictionary<uint, int> skill, IReadOnlyDictionary<uint, int> caster) =>
+        (int)Math.Clamp((long)skill.GetValueOrDefault(Stat.ProjectileNumberToSplit)
+            + caster.GetValueOrDefault(Stat.ProjectileNumberToSplit)
+            + skill.GetValueOrDefault(Stat.NumberOfChains) + caster.GetValueOrDefault(Stat.NumberOfChains), 0, 256);
+
+    static IEnumerable<uint> ArcSplitTargets(Player player, uint primary, (int X, int Y) at, double now, int range, int splits) =>
+        player.Area.MonstersNear(at, range).Where(p => p.Key != primary && ArcProxyTarget(player, p.Key, p.Value))
+            .Select(p => (Id: p.Key, Distance: Dist(p.Value.Walk.Position(now), at)))
+            .Where(p => p.Distance <= range).OrderBy(p => p.Distance).ThenBy(p => p.Id).Take(splits).Select(p => p.Id);
 
     static void ArcChainTargets(Player player, uint first, (int X, int Y) origin, double now, int range, int chains,
         bool canOscillate, Action<uint, int, (int X, int Y)> land)

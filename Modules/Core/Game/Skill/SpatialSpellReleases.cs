@@ -5,7 +5,7 @@ public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
         effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or ArcSurgingEffect;
 
     static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
         SkillsFor(player).EffectId(effect) == "ShockNovaAltX"
@@ -118,12 +118,10 @@ public static partial class Game
                         });
                     }
                 }
-                else if (effect == "ArcAltX")
+                else if (effect == ArcSurgingEffect)
                 {
                     int distance = Own(Stat.ArcChainDistance);
-                    int splits = (int)Math.Clamp((long)Own(Stat.ProjectileNumberToSplit)
-                        + caster.GetValueOrDefault(Stat.ProjectileNumberToSplit)
-                        + Own(Stat.NumberOfChains) + caster.GetValueOrDefault(Stat.NumberOfChains), 0, 256);
+                    int splits = ArcSplitCount(source.Stats, caster);
                     if (distance > 0)
                         Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(Math.Max(0, Own(Stat.ArcAdditionalDelayMs)) / 1000d), () =>
                         {
@@ -133,11 +131,7 @@ public static partial class Game
                                 .Select(p => (p.Key, At: p.Value.Walk.Position(now))).Where(p => Dist(p.At, from) <= distance)
                                 .OrderBy(p => Dist(p.At, aim)).ThenBy(p => p.Key).FirstOrDefault();
                             if (primary.Key == 0) return;
-                            var selected = Player.Area.MonstersNear(primary.At, distance)
-                                .Where(p => p.Key != primary.Key && ArcProxyTarget(Player, p.Key, p.Value))
-                                .Select(p => (p.Key, Distance: Dist(p.Value.Walk.Position(now), primary.At)))
-                                .Where(p => p.Distance <= distance).OrderBy(p => p.Distance).ThenBy(p => p.Key)
-                                .Take(splits).Select(p => p.Key).ToHashSet();
+                            var selected = ArcSplitTargets(Player, primary.Key, primary.At, now, distance, splits).ToHashSet();
                             selected.Add(primary.Key);
                             Hit(primary.At, distance, targetFilter: (id, _) => selected.Contains(id));
                         });

@@ -688,7 +688,7 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
-        bool arc = PlacedArcPayload(effect);
+        bool arc = ArcProxyEffect(effect);
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = effect == "FrostBomb";
@@ -746,12 +746,13 @@ public static partial class Game
             }
             else if (arc)
             {
-                if (Current()) ReleasePlacedArc(player, session, placed, triggeringEnemy, inventionMore, bytes);
+                if (Current()) ReleasePlacedArc(player, session, placed, triggeringEnemy, inventionMore, bytes, Current);
             }
             else if (Current())
                 CommitTriggeredUtilityLocked(player, placed.Skill, gem, payload.Gem, effect!, placed.At, now, fromPlacement: true);
             return;
         }
+        if (arc) return; // A missing Arc source must not fall through to a generic area hit.
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
         if (rainSkill)
@@ -831,7 +832,7 @@ public static partial class Game
 
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
         (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
-        uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null)
+        uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -863,8 +864,10 @@ public static partial class Game
         bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
             placed.Own, attack, criticalRoll, owner);
         bool hexblast = hexblastTarget.HasValue;
-        var mods = hexblast ? HitResistMods(playerStats, placed.Own) : default;
-        var penetration = hexblast ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
+        bool targetedSpell = hexblast || arcSplit is not null;
+        var mods = targetedSpell ? HitResistMods(playerStats, placed.Own) : default;
+        var penetration = targetedSpell ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
+        int arcRolls = arcSplit is null ? 0 : ArcExtraRolls(player, ArcSurgingEffect, playerStats);
         bool hexblastSplash = false;
         var nearby = player.Area.MonstersNear(centre, radius).ToArray();
         var victims = hexblastTarget is { } primary ? nearby.Where(p => p.Key != primary.Key).Prepend(primary) : nearby;
@@ -873,6 +876,7 @@ public static partial class Game
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 || bearTarget is uint bear && bear != id || MonsterAsleep(player, id) || Dist(m.Walk.Position(now), centre) > radius
                 || hexblast && (m.WorldHidden || !hexblastSplash && id != hexblastTarget!.Value.Key)
+                || arcSplit is not null && (!arcSplit.Targets.Contains(id) || MonsterBlocks(m, AreaRng(player), spell: true))
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
@@ -886,7 +890,7 @@ public static partial class Game
             double targetMore = burningMorePct != 0 && BurningTarget(player, m, now)
                 ? Math.Max(0, 1 + burningMorePct / 100d) : 1;
             var rolled = WithConditionalSupportDamageLocked(player, placed.Own, !spell, m,
-                profile.Hit.Scale(hitMore).Roll(AreaRng(player)), now);
+                profile.Hit.Scale(hitMore).Roll(AreaRng(player), arcRolls), now);
             if (targetMore != 1) rolled = rolled.Scale(targetMore);
             var hex = hexblast ? HexblastHex(m, now) : null;
             if (hex is not null)
@@ -894,7 +898,7 @@ public static partial class Game
             DamagePacket mitigated;
             int damage;
             bool critical;
-            if (hexblast)
+            if (targetedSpell)
             {
                 critical = Critical(id);
                 (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, mods, penetration,
@@ -948,7 +952,10 @@ public static partial class Game
                 if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
                     ConsumeHexblastHex(player, id, m, hex);
             }
-            CommitAcceptedHitLocked(player, id, m, hit, damage, now, "trap/mine", playerKill: false);
+            if (arcSplit is not null)
+                WriteArcProxyHit(arcSplit.Session, placed.Id, 0xffff, id, m,
+                    id == arcSplit.Primary ? placed.At : centre, now, mitigated, damage, critical, hit.Life);
+            CommitAcceptedHitLocked(player, id, m, hit, damage, now, arcSplit is null ? "trap/mine" : "placed Arc", playerKill: false);
             if (bearTarget is not null)
                 BearTrapOnHitLocked(m, damage, now, n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n));
         }
@@ -1094,7 +1101,7 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect));
+                    bool targetedTrap = !placed.Mine && (ArcProxyEffect(effect) || IsHexblastEffect(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null

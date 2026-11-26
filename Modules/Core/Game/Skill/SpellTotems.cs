@@ -17,7 +17,7 @@ public static partial class Game
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
-            || (SkillsFor(player).EffectId(effect) == "Arc" || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
+            || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
@@ -262,7 +262,7 @@ public static partial class Game
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
-            bool arc = effect == "Arc";
+            bool arc = ArcProxyEffect(effect);
             var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || curse?.Mark == true ? target.Id : null));
@@ -303,10 +303,10 @@ public static partial class Game
             bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
             if (arc || nova || curse is not null)
             {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
                 {
-                    if (!session.Active || !ReferenceEquals(lifetime, CombatLifetime) || !SpellTotemCurrent(player, totem))
-                        return;
+                    if (!Current()) return;
                     if (curse is not null)
                     {
                         if (curse.Mark && player.Area.Monsters.GetValueOrDefault(target.Id) != target.Monster) return;
@@ -322,7 +322,7 @@ public static partial class Game
                         ReleaseTotemNova(player, session, totem, radius, sequence, SkillArtVariation(player, gem.Gem));
                     }
                     else if (player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
-                        ReleaseArcTotem(player, session, totem, target.Id, sequence);
+                        ReleaseArcTotem(player, session, totem, target.Id, sequence, Current);
                 });
                 continue;
             }
