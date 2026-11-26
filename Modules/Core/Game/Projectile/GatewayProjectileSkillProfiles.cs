@@ -229,14 +229,9 @@ public static class GatewayProjectileSkillProfiles
         if (Game.IsCreepingFrost(effect) && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Its chains bounce on the ground instead of seeking another monster.
-        if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
-        if (effect == "HolyFlameTotemAltX")
-        {
-            if (get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
-                p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
-            if (get(Stat.ActiveSkillProjectileSpeedPlusPctFinal) is int speedFinal and not 0)
-                p = p with { Speed = p.Speed * Math.Max(.01, 1 + speedFinal / 100.0) };
-        }
+        if (effect is "RollingMagma" or "RollingMagmaRoyale") p = p with { GroundChains = p.Chain, Chain = 0 };
+        if (effect == "HolyFlameTotemAltX" && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Spectral Throw pierces every enemy and flies back to the thrower, hitting again on the way back.
         if (effect == "SpectralThrow") p = p with { Pierce = -1, Returns = true };
         if (effect == "SpectralThrowAltX")

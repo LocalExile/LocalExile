@@ -127,10 +127,6 @@ public static partial class Game
             && existing.PreventsCriticalStrikes == preventsCritical
             && existing.Stats.Count == stats.Count && existing.Stats.All(p => stats.GetValueOrDefault(p.Key) == p.Value)) return true;
         bool newlyCursed = !monster.HasCurses || !monster.Curses.HasActive(now);
-        if (definition.Mark)
-            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
-                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == player.Id && c.Mark).ToArray())
-                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
         double until = aura || hexMaster && !definition.Mark ? double.PositiveInfinity : now + seconds / rate;
         int amplify = double.IsFinite(until) ? Get(Stat.WhileCurseIs50PctExpiredCurseEffectPlusPct) : 0;
         var curse = new MonsterCurses.Curse(caster, effect, skill, definition.Buff, player.NextBuff++, now, until, aura, definition.Mark, stats)
@@ -147,7 +143,13 @@ public static partial class Game
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
-        if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
+        if (curse.Mark)
+        {
+            foreach (var m in player.Area.Monsters.Values.Where(m => !ReferenceEquals(m, monster) && m.HasCurses))
+                foreach (var mark in m.Curses.All.Values.Where(c => c.Caster == caster && c.Mark).ToArray())
+                { m.Curses.Remove(mark.Caster, mark.Effect); m.PresentationChanged?.Invoke(); }
+            if (caster == player.Id) TrackMarkTarget(player, monster);
+        }
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
             monster.Ailments.RefreshChillAndShock(now);

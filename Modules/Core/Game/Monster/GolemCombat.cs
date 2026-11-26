@@ -172,13 +172,10 @@ public static partial class Game
         if (g.Definition.Kind == "Carrion" && g.Definition.Special && m.Life < m.MaxLife &&
             g.Abilities.FirstOrDefault(a => a.Effect == 10801) is { } consume && GolemReady(g, consume, now))
         {
-            var corpse = player.Area.MonstersNear(here, 15).FirstOrDefault(p => p.Value.Hostile && p.Value.Dead && !p.Value.CorpseConsumed
-                && !IsSpectreCorpse(p.Value)
+            var corpse = player.Area.MonstersNear(here, 15).FirstOrDefault(p => ScavengingCorpse(p.Value)
                 && Dist(here, p.Value.Walk.Position(now)) <= 15);
             if (corpse.Value is not null)
             {
-                corpse.Value.CorpseConsumed = true;
-                g.CorpseEmpowered = true; m.Life = (uint)Math.Min(m.MaxLife, m.Life + m.MaxLife / 5);
                 GolemReserveLocked(player, g, consume, corpse.Key, corpse.Value, corpse.Value.Walk.Position(now), now);
                 return;
             }
@@ -302,15 +299,22 @@ public static partial class Game
         charges.Enqueue(readyAt + ability.Cooldown);
     }
 
+    static bool ScavengingCorpse(SpawnedMonster corpse) => corpse.Hostile && !corpse.Ailments.Shattered
+        && !IsSpectreCorpse(corpse) && IsCorpse(corpse);
+
     static void GolemReserveLocked(Player player, GolemState.Golem g, GolemState.Ability ability, uint target,
         SpawnedMonster? victim, (int X, int Y) aim, double now)
     {
         var m = g.Monster;
         if (ability.Effect == 306)
         {
-            var elements = new[] { DamageType.Fire, DamageType.Cold, DamageType.Lightning };
-            ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: elements[AreaRng(player).Next(elements.Length)])
+            var last = g.LastPrismaticElement;
+            int roll = AreaRng(player).Next(last is null ? 3 : 2) + (int)DamageType.Lightning;
+            if (last is { } previous && roll >= (int)previous) roll++;
+            var element = (DamageType)roll;
+            ability = GolemAbilities(player, m.Variety!, m.Level, g, g.Player, prismatic: element)
                 .Single(a => a.Effect == 306);
+            g.LastPrismaticElement = element;
         }
         int generation = ++m.ActionGeneration;
         g.Pending = new(ability, target, victim, aim, now + ability.Attack.Seconds * ability.Contact, generation);
@@ -657,7 +661,21 @@ public static partial class Game
         }
         if (a.Effect is 9927 or 9928) HolyRelicRegenerationLocked(player, g, a, now);
         if (ActivateNativeMinionAuraLocked(player, g, a, now)) return;
-        if (a.Effect == 10801) { player.Minions.OutputQueue.Add(new([], "golem consumes corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life)); return; }
+        if (a.Effect == 10801)
+        {
+            if (action.Victim is { } corpse && ReferenceEquals(corpse, player.Area.Monsters.GetValueOrDefault(action.Target))
+                && ScavengingCorpse(corpse) && Dist(at, corpse.Walk.Position(now)) <= 15)
+            {
+                corpse.CorpseConsumed = true;
+                corpse.Ignites.RetireCorpse();
+                g.CorpseEmpowered = true;
+                g.Monster.Life = (uint)Math.Min(g.Monster.MaxLife, (long)g.Monster.Life + g.Monster.MaxLife / 5);
+                player.Minions.OutputQueue.Add(new(InstanceProtocol.RemoveObject(action.Target), "golem consumed corpse",
+                    WorldId: action.Target, RemovesObject: true));
+                player.Minions.OutputQueue.Add(new([], "golem recovers from consumed corpse", g.Id, g.Monster, PlayerMinions.OutputKind.Life));
+            }
+            return;
+        }
         if (a.Effect is 4336 or 4337)
         {
             var (dps, unitDps, normalIncrease) = GolemHazardDamage(player, g, now,
@@ -797,10 +815,12 @@ public static partial class Game
             int catchup = 0;
             while (pulse.Next <= Math.Min(now, pulse.Until) && catchup++ < 16)
             {
-                var centre = pulse.Follows ? g.Monster.Walk.Position(now) : pulse.At;
+                double contact = pulse.Next;
+                var centre = pulse.Follows ? g.Monster.Walk.Position(contact) : pulse.At;
                 foreach (var (id, m) in player.Area.Monsters.ToArray())
                 {
-                    if (!m.Hostile || m.Dead || pulse.Once && pulse.Hit.Contains(id) || Dist(m.Walk.Position(now), centre) > pulse.Ability.Radius + LivingCollision.Size(m)) continue;
+                    if (!m.Hostile || m.Dead || pulse.Once && pulse.Hit.Contains(id)
+                        || Dist(m.Walk.Position(contact), centre) > pulse.Ability.Radius + LivingCollision.Size(m)) continue;
                     if (GolemHitLocked(player, g, pulse.Ability, id, m, now)) pulse.Hit.Add(id);
                 }
                 pulse.Next += pulse.Interval;
@@ -995,7 +1015,7 @@ public static partial class Game
         double ailmentArea = golemRaw(Stat.ElementalStatusEffectAuraRadius) > 0
             ? SkillArea.Modifier(golemRaw, a.Attack.Spell) : 1;
         target.Ailments.Inflict(mitigated, critical, target.MaxLife, now, Golem,
-            n => target.Mods.Effects[n], AreaRng(player), ailmentArea);
+            n => target.Effects[n], AreaRng(player), ailmentArea);
         CommitMinionHitLocked(player, id, target, hit, damage, now, $"golem {g.Id:x} {a.Id}", stun, g.Monster, g.Own, g);
         if (critical && RandomRolls.Chance(GolemStat(supported.Stats, Stat.AddPowerChargeOnCriticalStrikePct), 100, random))
             GrantMinionChargeLocked(player, g, ChargeType.Power, 1, now);

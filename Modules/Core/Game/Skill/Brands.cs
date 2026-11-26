@@ -1479,7 +1479,7 @@ public static partial class Game
         ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats, double now)
     {
         var liveBrand = SupportedSkill(player, brand.SkillId);
-        if (liveBrand.Effect != brand.Effect || !liveBrand.RequirementsMet) return;
+        if (!liveBrand.RequirementsMet || !SameTriggerSource(brand.Gem, liveBrand)) return;
         var linked = ArcanistBrandLinkedSpellsLocked(player, liveBrand);
         if (linked.Count == 0) return;
 
@@ -1503,7 +1503,9 @@ public static partial class Game
             if (now < triggerState.ReadyAt.GetValueOrDefault(spellGem.Effect)) continue;
             if (GemSkillInstanceDisabled(player, spellGem.Effect, spellSkillId, triggered: true) is not null) continue;
             bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
-                && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0;
+                && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0
+                && SameTriggerSource(liveBrand, SupportedSkill(player, brand.SkillId))
+                && SameTriggerSource(spellGem, SupportedSkill(player, spellSkillId));
 
             var release = PrepareTriggeredPayload(player, session, spellSkillId, aim, Current, origin, brand.AttachedMonster);
             if (release is null) continue;
