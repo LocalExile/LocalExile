@@ -152,6 +152,7 @@ public static partial class Game
                 if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX")
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
+                if (IsIceSpear(effect)) return IceSpearRelease(context, use);
                 if (GatewayProjectileSkillProfiles.IsBlazingSalvo(effect)) return BlazingSalvoRelease(use, Get);
                 if (effect == "SpectralShieldThrowAltY") return StationaryShieldRelease(context, use);
                 if (effect is "IcicleMine" or "IcicleMineAltX" or "IcicleMineAltY")

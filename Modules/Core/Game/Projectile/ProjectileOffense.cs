@@ -101,6 +101,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpiderDamageSource? Spider { get; init; }
     public SpiderDamageSource? SpiderArea { get; init; }
     public int? SecondFormCriticalChance { get; init; }
+    internal sealed record FormCriticalOptions(int? VsBlinded, Game.GroundCritical? VsGround, int MultiplierPlus);
+    internal FormCriticalOptions? SecondFormOptions { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
     /// <summary>The chances against a target on the player's profane or consecrated ground (Game.GroundCritical), or null.</summary>

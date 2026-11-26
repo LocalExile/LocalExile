@@ -478,8 +478,9 @@ public static partial class Game
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
             bool gatheringLightning = IsGatheringLightning(effect);
-            // Spark of Unpredictability selects the wider length and speed ranges through variation 6.
-            if (IsLeapSlam(player, effect) || gatheringLightning || SkillsFor(player).EffectId(effect) == "SparkAltY")
+            // Spark of Unpredictability and Ice Spear use this variation for their flight rules.
+            if (IsLeapSlam(player, effect) || gatheringLightning || SkillsFor(player).EffectId(effect) == "SparkAltY"
+                || IsIceSpear(SkillsFor(player).EffectId(effect)))
                 stats[Stat.SkillBehaviourVariation] = SkillsFor(player).BehaviourVariation(effect);
             if (gatheringLightning)
                 stats[Stat.VirtualNumberOfChainsForBeams] = GatheringLightningChains(stats.GetValueOrDefault, 0);

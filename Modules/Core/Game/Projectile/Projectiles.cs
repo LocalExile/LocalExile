@@ -933,14 +933,19 @@ public static partial class Game
                         finalRepeat: contact.Projectile.Use.RepeatsLeft == 0), shot.IntimidatingCryExerted)
                     .ForWeapon(shot.WeaponLocal).RollOutgoingHit(packet, random)), at);
             rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
-            int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
+            bool secondForm = contact.Projectile.Form > 0;
+            var formCrit = secondForm ? shot.SecondFormOptions : null;
+            int chance = secondForm && shot.SecondFormCriticalChance is int second
+                ? CriticalChanceOn(Player, contact.Target.Id, second, formCrit?.VsBlinded, formCrit?.VsGround)
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
             bool critical = RollCriticalStrike(Player, chance, shot.SkillStats, attack: !shot.Spell, skillRoll: shot.CriticalRoll, playerStats: player)
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
-            int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
+            int criticalMultiplier = formCrit?.MultiplierPlus is int bonus and not 0
+                ? ActorScale.Saturate((long)shot.CriticalMultiplier + bonus) : shot.CriticalMultiplier;
+            int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
