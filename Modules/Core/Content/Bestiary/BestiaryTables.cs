@@ -58,19 +58,21 @@ public static partial class BestiaryTables
                 if (!entries.TryGetValue(pack, out var list)) entries[pack] = list = [];
                 list.Add((e.IntOrNull("Flag") ?? 0, (ushort)variety, e.IntOrNull("Weight") ?? 0));
             }
-        // The red beast is one of the Menagerie's own beasts: BestiaryEncounters also lists the four spirit bosses, the
-        // Harvest beasts and the Azmeri gull, none of which a mission spawns. The table has no weights, so each is as likely.
+        capturable = [.. ClientTables.TableOrEmpty("BestiaryCapturableMonsters")
+            .Where(r => (r.IntOrNull("IsDisabled") ?? 0) == 0 && Writable(r.IntOrNull("MonsterVarietiesKey")))
+            .Select(r => (ushort)r.Int("MonsterVarietiesKey"))];
+        // The red beast is one of the Menagerie's own capturable beasts: BestiaryEncounters also lists the four spirit
+        // bosses, Harvest beasts, Azmeri gull, and uncapturable leftovers (e.g. PurgeHound), none of which a mission
+        // spawns. The table has no weights, so each is as likely.
         redPool = [.. ClientTables.TableOrEmpty("BestiaryEncounters")
             .Where(r => (r.TextOrNull("MonsterSpawnerId") ?? "").StartsWith("Metadata/Monsters/LeagueBestiary/MenagerieSpawners/", StringComparison.Ordinal)
                 && !(r.TextOrNull("Id") ?? "").EndsWith("SpiritBoss", StringComparison.Ordinal)
-                && Writable(r.IntOrNull("MonsterVarietiesKey")))
+                && Writable(r.IntOrNull("MonsterVarietiesKey"))
+                && capturable.Contains((ushort)r.Int("MonsterVarietiesKey")))
             .Select(r => new RedKind(all[r.Int("MonsterVarietiesKey")].Id, (ushort)r.Int("MonsterVarietiesKey"),
                 r.IntOrNull("MonsterPacksKey") is int pack && entries.TryGetValue(pack, out var members)
                     ? [.. members.Where(m => m.Flag == 1 && m.Weight > 0).Select(m => (m.Row, m.Weight))] : []))
             .DistinctBy(k => k.Row)];
-        capturable = [.. ClientTables.TableOrEmpty("BestiaryCapturableMonsters")
-            .Where(r => (r.IntOrNull("IsDisabled") ?? 0) == 0 && Writable(r.IntOrNull("MonsterVarietiesKey")))
-            .Select(r => (ushort)r.Int("MonsterVarietiesKey"))];
         // EinharPackFallback: per Tags row the MonsterPacks Einhar uses when an area's own packs hold no beast. Which tag an
         // area takes is not in the tables; every map area takes the maps' own row [ESTIMATE].
         var tags = ClientTables.TableOrEmpty("Tags");

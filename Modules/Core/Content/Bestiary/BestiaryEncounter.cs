@@ -274,8 +274,8 @@ public sealed partial class BestiaryEncounter
                         {
                             CreditCapture(player, live, accepted, body.Walk.Position(now));
                             if (accepted.Last) live.CompletedAt ??= live.Clock;
+                            Keep(player.Instance, live);
                         }
-                        Keep(player.Instance, live);
                     }
                     await Taken(player, live, capture, body.Walk.Position(now));
                 }

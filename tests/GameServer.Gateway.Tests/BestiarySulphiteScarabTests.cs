@@ -93,6 +93,8 @@ public sealed class BestiarySulphiteScarabTests
                 if (i is >= 4 and < 8) Assert.All(plan.Reds.Skip(1), r => Assert.Equal(families[i - 4], r.Family));
                 Assert.All(plan.Reds, r => Assert.True(r.CapturableRow >= 0));
             }
+            Assert.NotEmpty(BestiaryTables.RedKinds);
+            Assert.All(BestiaryTables.RedKinds, r => { Assert.True(r.CapturableRow >= 0); Assert.False(string.IsNullOrEmpty(r.Family)); });
             var morrigan = BestiaryTables.BlackMorrigan!;
             Assert.True(morrigan.Unique);
             Assert.DoesNotContain(BestiaryTables.RedKinds, r => r.Row == morrigan.Row);

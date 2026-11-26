@@ -15,7 +15,7 @@ public static class BestiaryCaptures
         bool Red, MonsterRarity Rarity, IReadOnlyList<ItemMod> Mods, IReadOnlyList<uint> NameWords);
     sealed record Store(ulong NextId, List<Beast> Beasts);
 
-    static Store Read(string? text) => text is null ? new(1, []) : JsonSerializer.Deserialize<Store>(text)!;
+    static Store Read(string? text) => string.IsNullOrWhiteSpace(text) ? new(1, []) : JsonSerializer.Deserialize<Store>(text) ?? new(1, []);
 
     public static IReadOnlyList<Beast> Load(ISavedData account) => Read(account.Get(StorageKey)).Beasts;
 
