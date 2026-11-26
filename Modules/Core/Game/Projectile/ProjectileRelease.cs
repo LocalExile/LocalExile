@@ -434,7 +434,7 @@ public static partial class Game
         var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
         var shield = spell ? null : ShieldWeapon(player, skillId);
         var handWeapon = shield ?? OffHandSwing(player, swingHand);
-        int? handCritical = SwingWeaponCritical(player, swingHand);
+        int? handCritical = SwingWeaponCritical(player, swingHand, playerStats);
         var attackSource = spell || shield is not null ? null : HandWeapon(player, swingHand);
         var local = attackSource?.LocalSources;
         int addedChaos = sacrifice?.AddedChaos() ?? 0;

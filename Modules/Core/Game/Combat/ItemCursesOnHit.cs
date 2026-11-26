@@ -18,12 +18,13 @@ public static partial class Game
     // In the area's frame, with the other on-hit curses. Each hit reapplies a hex for its full duration, at most once a
     // second so a fast attacker does not re-send the buff on every hit.
     internal static void ItemCursesOnHitLocked(Player player, SpawnedMonster target, IReadOnlyDictionary<uint, int> hitStats,
-        double now)
+        double now, bool mayTriggerMark = true)
     {
         foreach (var (stat, effect) in ItemCurseOnHitStats)
             ApplyItemCurseLocked(player, target, effect, hitStats.GetValueOrDefault(stat), now, hitStats);
-        TryTriggeredAssassinsMarkLocked(player, target, hitStats.GetValueOrDefault(Stat.CurseOnHitLevelAssassinsMark),
-            now, hitStats, "AssassinsMarkTriggered");
+        if (mayTriggerMark)
+            TryTriggeredAssassinsMarkLocked(player, target, hitStats.GetValueOrDefault(Stat.CurseOnHitLevelAssassinsMark),
+                now, hitStats, "AssassinsMarkTriggered");
     }
 
     static void TryDeathmarkedLocked(Player player, SpawnedMonster target, double now, IReadOnlyDictionary<uint, int> stats) =>
@@ -34,7 +35,8 @@ public static partial class Game
     static void TryTriggeredAssassinsMarkLocked(Player player, SpawnedMonster target, int level, double now,
         IReadOnlyDictionary<uint, int> stats, string sourceEffect)
     {
-        if (level <= 0 || target is not { Hostile: true, Dead: false, Life: > 0, Rarity: MonsterRarity.Rare or MonsterRarity.Unique }
+        if (level <= 0 || !MayPaySkillCost(player)
+            || target is not { Hostile: true, Dead: false, Life: > 0, Rarity: MonsterRarity.Rare or MonsterRarity.Unique }
             || ActiveMarkTarget(player, now) is not null) return;
         var skills = SkillsFor(player);
         int row = skills.EffectRow(sourceEffect);

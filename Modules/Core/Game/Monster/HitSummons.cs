@@ -7,7 +7,25 @@ public static partial class Game
     sealed record HolyArmamentTarget(uint Id, SpawnedMonster Monster);
     static readonly RuleTable<Player, Dictionary<ushort, HolyArmamentTarget>> HolyArmamentTargets = new();
     static readonly RuleTable<SpawnedMonster, object> HitMarkedMonsters = new();
+    static readonly RuleTable<GameArea, object> IndexedHitMarkAreas = new();
     static readonly object HitMarkPresent = new();
+
+    // The marks are connection state and can survive a Game module reload. Rebuild the weak lookups
+    // once in the area's frame when the new module first touches the area.
+    static void IndexExistingHitMarksLocked(Player player)
+    {
+        if (IndexedHitMarkAreas.TryGetValue(player.Area, out _)) return;
+        Index(player);
+        foreach (var peer in player.Frames.Players())
+            if (!ReferenceEquals(peer, player) && ReferenceEquals(peer.Area, player.Area)) Index(peer);
+        IndexedHitMarkAreas.AddOrUpdate(player.Area, HitMarkPresent);
+
+        static void Index(Player owner)
+        {
+            foreach (var mark in owner.Summons.HitMarks.Values)
+                HitMarkedMonsters.AddOrUpdate(mark.Monster, HitMarkPresent);
+        }
+    }
 
     static bool IsAbsolutionHitSpell(Player player, int effect) =>
         SkillsFor(player).EffectId(effect) is "Absolution" or "AbsolutionAltX";
@@ -89,6 +107,7 @@ public static partial class Game
     {
         SummonedMinions.HitSummon[] pending;
         if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused) return;
+        IndexExistingHitMarksLocked(player);
         if (player.Summons.HitMarks.Count == 0 && player.Summons.HitSummons.Count == 0) return;
         foreach (var (key, mark) in player.Summons.HitMarks.ToArray())
             if (now >= mark.Until || player.Area.Monsters.GetValueOrDefault(key.Id) != mark.Monster || player.PlayerLife == 0)

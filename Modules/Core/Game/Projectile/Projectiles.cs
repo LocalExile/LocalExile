@@ -1023,6 +1023,8 @@ public static partial class Game
                 var emitterTotem = shot.FromTotem
                     ? Player.Totems.All.FirstOrDefault(t => t.Id == contact.Projectile.Use.Emitter.Id)
                     : null;
+                bool ownHit = shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
+                    && contact.Projectile.Use.Emitter.Id == Player.Id;
                 AilmentsOnHitLocked(Player, contact.Target.Id, target, mitigated, shot.Spell, critical, multiplier, player,
                     shot.SkillStats, at, contact.Projectile.ReactionRandomSource, poison: shot.Poison,
                     sourceSkill: shot.SourceSkill, blind: shot.Blind, playerHit: !shot.FromTotem,
@@ -1030,10 +1032,8 @@ public static partial class Game
                     hitOrigin: emitterTotem?.At,
                     attackerSize: emitterTotem?.BodySize ?? LivingCollision.PlayerSize,
                     attackerHasReversedStat: emitterTotem is null, projectileDamage: true, projectileFreezeChance: projectileFreezeChance,
-                    areaHit: contact.IsArea);
-                if (critical && shot.DirectAttackContact
-                    && shot is { ActualCaster: null, FromTrapOrMine: false, FromTotem: false, Mirage: false }
-                    && contact.Projectile.Use.Emitter.Id == Player.Id)
+                    areaHit: contact.IsArea, mayTriggerItemMark: ownHit);
+                if (critical && shot.DirectAttackContact && ownHit)
                     TryDeathmarkedLocked(Player, target, at, player);
             }
             if (!immune && hit.Value.Life > 0 && shot.EssenceDrain is { } drain)

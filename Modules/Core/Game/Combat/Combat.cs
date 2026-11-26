@@ -4620,12 +4620,14 @@ public static partial class Game
     {
         // Guarantee the mini life bar is hidden for every kill path (AreaStats deduplicates when already set at the hit/DoT site).
         SetStats(player, id, [(Stat.HideMiniLifeBar, 1)]);
-        if (m.HasCurses || (playerKill && m.Hostile && HitMarkedMonsters.TryGetValue(m, out _)))
+        if (m.HasCurses || playerKill && m.Hostile && (HitMarkedMonsters.TryGetValue(m, out _)
+                || !IndexedHitMarkAreas.TryGetValue(player.Area, out _)))
             using (ProjectileMutation(player, advance: false))
                 if (CurrentGameWork && !player.Closed && !player.LeavingArea
                     && player.Area.Monsters.GetValueOrDefault(id) == m)
                 {
                     double deathAt = ProjectileWorldTime(player);
+                    if (playerKill && m.Hostile) IndexExistingHitMarksLocked(player);
                     if (playerKill && m.Hostile && HitMarkedMonsters.TryGetValue(m, out _))
                         HitSummonsOnDeathLocked(player, id, m, deathAt);
                     TransferMarksOnDeathLocked(player, m, deathAt);

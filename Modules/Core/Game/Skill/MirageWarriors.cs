@@ -625,7 +625,9 @@ public static partial class Game
                     if (!m.Invulnerable)
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
-                            AreaRng(player), poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore), sourceSkill: skillId);
+                            AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
+                            poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore), sourceSkill: skillId,
+                            mayTriggerItemMark: false);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
                             && IgniteOnHitLocked(player, id, m, damageMore == 1 ? ignite : RepeatAilment(ignite, damageMore),
                                 critical, now, playerIgnite: false) is { } ign)

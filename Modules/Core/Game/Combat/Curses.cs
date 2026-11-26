@@ -146,8 +146,7 @@ public static partial class Game
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
         if (curse.Mark && curse.Caster == player.Id) TrackMarkTarget(player, monster);
-        if (!aura && !fromPlacement && casterId is null
-            && GolemStat(playerStats, Stat.EnergyShieldRegenerationPctPerMinuteIfEnemyCursedRecently) != 0)
+        if (!aura && !fromPlacement && casterId is null)
             player.RecentEvents.Record(CursedEnemyRecently, now);
         if (!fromPlacement && !aura && Get(Stat.RefreshDurationOfShockChillIgniteOnEnemyWhenCursingEnemy) != 0)
         {
@@ -226,14 +225,15 @@ public static partial class Game
     }
 
     static void CursesOnHitLocked(Player player, SpawnedMonster target, ushort sourceSkill, bool spell, double now,
-        IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats, bool playerHit, Random random)
+        IReadOnlyDictionary<uint, int>? sourceStats, IReadOnlyDictionary<uint, int> hitStats,
+        bool playerHit, bool mayTriggerItemMark, Random random)
     {
         if (target.Dead || target.Life == 0 || player.Reservations.Secondary) return;
         if (playerHit)
         {
             TemporalChainsOnSuccessfulHitLocked(player, target, now, hitStats,
                 hitStats.GetValueOrDefault(Stat.CurseOnHitPctTemporalChains), random);
-            ItemCursesOnHitLocked(player, target, hitStats, now);
+            ItemCursesOnHitLocked(player, target, hitStats, now, mayTriggerItemMark);
         }
         bool mayHextouch = sourceSkill != 0
             && (sourceStats is null || GolemStat(sourceStats, Stat.ApplyLinkedCursesOnHitPct) > 0);

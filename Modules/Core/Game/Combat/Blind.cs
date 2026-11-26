@@ -305,7 +305,8 @@ public static partial class Game
         AttackHand hand)
     {
         var weapon = WeaponProfileFor(player, activeSet: true);
-        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed, hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand),
+        return AttackBaseCriticalStrike.Chance(!weapon.Unarmed,
+            hand == AttackHand.Main ? weapon.Critical : HandWeaponCritical(player, hand, playerStats),
             player.Pools.CriticalStrikeChancePct + extra,
             name => release && IsCriticalProhibition(name) ? 0 : StatOf(playerStats, name));
     }

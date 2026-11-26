@@ -420,10 +420,20 @@ public static partial class Game
     static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
         out uint es, out uint fromEs, out int rage, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
     {
+        if (!MayPaySkillCost(player))
+        {
+            cost = es = fromEs = 0;
+            life = rage = 0;
+            playerStats = System.Collections.Frozen.FrozenDictionary<uint, int>.Empty;
+            return false;
+        }
         playerStats = SupportedStats(player, skillId);
         return SkillCostLocked(player, SupportedSkill(player, skillId).Effect, own, playerStats, out cost, out life,
             out es, out fromEs, out rage, costPercent);
     }
+
+    static bool MayPaySkillCost(Player player) => (CombatLifetime is null || CurrentGameRules)
+        && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0;
 
     static bool SkillCostLocked(Player player, int effect, IReadOnlyDictionary<uint, int> own,
         IReadOnlyDictionary<uint, int> playerStats, out uint cost, out int life, out uint es, out uint fromEs,
@@ -434,7 +444,7 @@ public static partial class Game
         es = 0;
         fromEs = 0;
         rage = 0;
-        if (CombatLifetime is not null && !CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
+        if (!MayPaySkillCost(player))
             return false;
         int Read(uint stat) => playerStats.GetValueOrDefault(stat);
         var skills = SkillsFor(player);

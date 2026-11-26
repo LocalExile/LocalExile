@@ -131,7 +131,7 @@ public static partial class Game
             if (GetIn(stats, Stat.AttackAndCastSpeedPlusPctPerCorpseConsumedRecently) > 0)
             {
                 AddTo(stats, Stat.CastSpeedPlusPct, CorpsePactSpeed(player, stats, now));
-                MarkLaterStep(player, PlayerStatStep.AttackSpeed);
+                MarkLaterStep(player, PlayerStatStep.Rage);
             }
             int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
             if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
@@ -276,14 +276,8 @@ public static partial class Game
         // The passives' conditional attack speed is already one final value in Pools. main_hand_attack_speed_+% is the
         // total the client swings with, so Unarmed reads only it.
         Step(PlayerStatStep.AttackSpeed, (player, stats, _) =>
-        {
-            long speed = (long)player.Pools.AttackSpeedPct + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats);
-            int corpseSpeed = CorpsePactSpeed(player, stats, AreaTime(player));
-            if (corpseSpeed > 0)
-                speed += (long)Math.Round(corpseSpeed * (1 + InherentAttackSpeedMore(
-                    WeaponProfileFor(player, activeSet: true), stats.GetValueOrDefault) / 100d));
-            stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate(speed);
-        });
+            stats[Stat.MainHandAttackSpeedPlusPct] = ActorScale.Saturate((long)player.Pools.AttackSpeedPct
+                + SoulEaterAttackSpeed(player, stats) + LeechingAttackSpeed(player, stats)));
         // The utility flasks' plain stats (UtilityFlasks.RawStats: maximum resistances, crit, damage, cast speed), with
         // Mageblood's permanent flasks deduplicated against the running ones, plus the flask grounds.
         Step(PlayerStatStep.UtilityFlasks, (player, stats, _) =>
