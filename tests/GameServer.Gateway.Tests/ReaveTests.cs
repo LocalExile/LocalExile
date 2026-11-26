@@ -47,6 +47,13 @@ public sealed class ReaveTests
             for (int i = 0; i < 3; ++i) clock.Advance(player, 1.1);
             Assert.Equal(0, Game.ReaveStages(player));
             Assert.False(player.Area.Buffs.HasRow(player.Id, 222));
+
+            var gem = Assert.Single(Game.GemSkillEffects(player));
+            await Game.AreaSkillHit(player, skill.Id, gem, (100, 100), (140, 100), immediate: true);
+            await Game.AreaSkillHit(player, skill.Id, gem, (100, 100), (140, 100), immediate: true);
+            Assert.Equal(0, Game.ReaveStages(player));
+            clock.Step(player);
+            Assert.Equal(2, Game.ReaveStages(player));
         }
         finally { Game.AreaUpdateContext.Value = old; }
     }

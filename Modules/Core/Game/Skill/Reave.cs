@@ -60,20 +60,17 @@ public static partial class Game
 
     static int ReaveCap(Func<uint, int> get) => (int)Math.Clamp(4L + get(Stat.ReaveAdditionalMaxStacks), 1L, short.MaxValue);
 
-    static void GainReaveStage(Player player, Func<uint, int> get)
-    {
-        int stages = ReaveStages(player);
-        SetReaveStages(player, stages < ReaveCap(get) ? stages + 1 : stages);
-    }
+    static void GainReaveStage(Player player, Func<uint, int> get) => UpdateReaveStages(player, ReaveCap(get));
 
     static void StartVaalReave(Player player, IReadOnlyDictionary<uint, int> stats)
     {
         int Get(uint key) => stats.GetValueOrDefault(key);
-        int start = Math.Min(ReaveCap(Get), Get(Stat.ReaveAdditionalStartingStacks));
-        if (start > 0) SetReaveStages(player, Math.Max(start, ReaveStages(player)));
+        int cap = ReaveCap(Get);
+        int start = Math.Min(cap, Get(Stat.ReaveAdditionalStartingStacks));
+        if (start > 0) UpdateReaveStages(player, cap, start);
     }
 
-    static void SetReaveStages(Player player, int stages)
+    static void UpdateReaveStages(Player player, int cap, int minimum = 0)
     {
         InArea(player, area =>
         {
@@ -84,7 +81,8 @@ public static partial class Game
                 ClearReaveStages(player);
                 ReaveCounters.Add(player, counter = new(area));
             }
-            counter.Stages = stages;
+            if (minimum > 0) counter.Stages = Math.Max(counter.Stages, minimum);
+            else if (counter.Stages < cap) counter.Stages++;
             if (counter.Timer is { } timer)
                 timer.EndFrame = area.Frame + Frames(ReaveIdleSeconds);
             else
