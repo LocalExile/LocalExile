@@ -23,6 +23,7 @@ public sealed class LegionModule : IModule
         module.Lifetime.Own(new Cleanup(() => { LegionDomain.UnloadData(); LegionMonolith.UnloadData(); LegionData.Unload(); }));
         LegionMonolith.Register(module);
         LegionDomain.Register(module);
+        LegionGenerals.Register(module);
         module.Log($"{data.Factions.Count} factions, {data.Ranks.Count} ranks, {data.MonsterVarieties.Count} monster varieties, {data.MonsterCounts.Count} monster counts, {data.ChestTypes.Count} chest types, {data.ChestCounts.Count} chest counts, {data.Balances.Count} balance rows, {data.DomainAreas.Count} Domain areas, {data.EmblemsByRow.Count} emblems");
     }
 

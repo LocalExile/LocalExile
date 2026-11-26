@@ -299,7 +299,8 @@ static class LegionRewards
     /// Drops may have run first and taken it, and then cleared them and scheduled the General's Defeat line itself.</summary>
     public static async Task Killed(MonsterKill kill)
     {
-        if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is not { } fighter) return;
+        if (!LegionStasis.AnyFighter || LegionGenerals.IsMount(kill.Player, kill.Monster.ObjectId)
+            || LegionStasis.FighterOf(kill.Player, kill.Monster.ObjectId, remove: false) is not { } fighter) return;
         if (fighter.Rewards.Length > 0) kill.Player.Area.Buffs.ClearRow(kill.Monster.ObjectId, LegionStasis.RewardBuff);
         if (fighter.Tier == 3 && LegionStasis.TryClaimDefeat(kill.Player, kill.Monster.ObjectId))
             await LegionSpeech.Say(kill.Player, kill.Monster.VarietyId, "Defeat");
@@ -308,7 +309,9 @@ static class LegionRewards
     /// <summary>GameEvents.Drops: the common path is a volatile flag, then one lookup in the area's table.</summary>
     public static void Drops(DropRoll drop)
     {
-        if (!LegionStasis.AnyFighter || LegionStasis.FighterOf(drop.Player, drop.Monster.ObjectId, remove: true) is not { } fighter) return;
+        // A mount's death is not the general's: its fighter entry passes to the form on foot (LegionGenerals).
+        if (!LegionStasis.AnyFighter || LegionGenerals.IsMount(drop.Player, drop.Monster.ObjectId)
+            || LegionStasis.FighterOf(drop.Player, drop.Monster.ObjectId, remove: true) is not { } fighter) return;
         var player = drop.Player;
         if (fighter.Rewards.Length > 0) player.Area.Buffs.ClearRow(drop.Monster.ObjectId, LegionStasis.RewardBuff);
         // Projectile kills run Drops before MonsterKilled (taking the fighter entry first): play the General's Defeat line here when unclaimed.

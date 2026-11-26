@@ -1257,34 +1257,17 @@ static class LegionDomain
             if (slot.Alive) return slot.CurrentId;
             areaLevel = (byte)Math.Clamp(state.Level, 1, 100);
         }
-        var variety = VarietyOf(state, slot.MonsterRow);
+        // A general that starts mounted rises mounted at every revival (Aukuna, E45; R18: she dismounts again in the Domain, an inference);
+        // the slot keeps her form on foot, whose ghost lies where she falls.
+        var variety = VarietyOf(state, LegionData.Current.SpawnRow(slot.MonsterRow));
         if (variety is not { Supported: true })
         {
             lock (state) state.NoSpawn.Add(slotIndex);   // never ready: no pulse, no revival count, no save for it
             return 0;
         }
         if (player.Closed || player.LeavingArea) return 0;
-
-        IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
-            ? [(Stat.MonsterMinimapIcon, icon)] : null;
-        // The per-revival toughness goes in the spawn's mods, so the client's values are right from the create.
-        int revivalToughness = RevivalToughness(areaStats, slot.RevivalCount);
-        MonsterModSet? revivalMods = revivalToughness > 0
-            ? new([], [], new MonsterModEffects(new Dictionary<uint, int> { [global::Game.MonsterToughness] = revivalToughness }))
-            : null;
-        // Its variety's own states: no stasis shape (the breakout / activated outlines are the map monolith's); in the Domain the
-        // client hides the crystal shell itself (LegionMonsterBase.ot: IfMapStat map_is_legion_endgame_map, hide_segments).
-        uint id = await SpawnMonster(player, variety, areaLevel, (MonsterRarity)slot.Rarity, slot.X, slot.Y,
-            friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false,
-            placement: MonsterPlacement.Established, rotation: slot.Facing, extraStats: extraStats, extraMods: revivalMods);
-        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var monster)) return 0;
-
-        if (slot.RevivalCount > 0)
-        {
-            if (RevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
-                monster.EncounterStats = revivalStats;
-        }
-        // No reward symbols (buff 1328) over the Domain's monsters (3.29.0); their rewards still bank (RecordKill).
+        uint id = await SpawnFighter(player, slot, variety, areaLevel, slot.X, slot.Y, slot.Facing, areaStats);
+        if (id == 0) return 0;
 
         bool ended = false;
         lock (state)
@@ -1294,13 +1277,9 @@ static class LegionDomain
             {
                 state.Slots[slotIndex] = slot with { CurrentId = id, Alive = true };
                 state.LiveByMonster[id] = slotIndex;
-                if (slot.Tier == 3)
-                {
-                    // The general on foot says its Dismount line, a revived one a BattleCry; one such line per 30 s per faction (GUESS).
-                    // Only a revived one (Aukuna's Domain variety is always the one on foot: she is not dismounting at the first wake).
-                    if (slot.RevivalCount > 0)
-                        state.Chatter.Add((variety.Id, LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : "BattleCry"));
-                }
+                // A revived general says a BattleCry (Aukuna her Dismount line when her mount falls: LegionGenerals); one such line per
+                // Domain per 30 s (GUESS).
+                if (slot.Tier == 3 && slot.RevivalCount > 0) state.Chatter.Add((variety.Id, "BattleCry"));
             }
         }
         if (ended)
@@ -1309,12 +1288,77 @@ static class LegionDomain
             await LegionRevive.Remove(player, [id]);
             return 0;
         }
+        if (slot.Tier == 3) await LegionGenerals.Woken(player, id);
+        return id;
+    }
+
+    /// <summary>A slot's fighting monster of <paramref name="variety"/> at (x, y), with the slot's reward icon and the per-revival toughness;
+    /// 0 when it could not be made.</summary>
+    static async Task<uint> SpawnFighter(Player player, FighterSlot slot, MonsterCatalog.Variety variety, byte areaLevel, int x, int y, float rotation,
+        IReadOnlyDictionary<uint, int> areaStats)
+    {
+        IReadOnlyList<(uint, int)>? extraStats = LegionStasis.RewardIcon(slot.Rewards) is int icon
+            ? [(Stat.MonsterMinimapIcon, icon)] : null;
+        // The per-revival toughness goes in the spawn's mods, so the client's values are right from the create.
+        int revivalToughness = RevivalToughness(areaStats, slot.RevivalCount);
+        MonsterModSet? revivalMods = revivalToughness > 0
+            ? new([], [], new MonsterModEffects(new Dictionary<uint, int> { [global::Game.MonsterToughness] = revivalToughness }))
+            : null;
+        // Its variety's own states: no stasis shape (the breakout / activated outlines are the map monolith's); in the Domain the
+        // client hides the crystal shell itself (LegionMonsterBase.ot: IfMapStat map_is_legion_endgame_map, hide_segments).
+        uint id = await SpawnMonster(player, variety, areaLevel, (MonsterRarity)slot.Rarity, x, y,
+            friendly: false, unrisen: false, alone: false, instanceOwned: true, bulk: true, log: false,
+            placement: MonsterPlacement.Established, rotation: rotation, extraStats: extraStats, extraMods: revivalMods);
+        if (id == 0 || !player.Area.Monsters.TryGetValue(id, out var monster)) return 0;
+        if (slot.RevivalCount > 0 && RevivalStats(areaStats, slot.RevivalCount) is { } revivalStats)
+            monster.EncounterStats = revivalStats;
+        // No reward symbols (buff 1328) over the Domain's monsters (3.29.0); their rewards still bank (RecordKill).
+        return id;
+    }
+
+    /// <summary>Whether the monster is a running Domain's fighter (not removed by its end).</summary>
+    public static bool Fights(Player player, uint id)
+    {
+        if (StateOf(player) is not { } state) return false;
+        lock (state) return state.Phase == DomainPhase.Active && state.LiveByMonster.ContainsKey(id);
+    }
+
+    /// <summary>Aukuna's mount fell (LegionGenerals): her form on foot takes the slot's place where it fell and says her Dismount line (in the
+    /// Domain's chatter). 0 when the Domain has ended or the mount is no longer the slot's fighter.</summary>
+    public static async Task<uint> Dismounted(Player player, uint mountId, MonsterCatalog.Variety foot, int x, int y, float rotation)
+    {
+        if (StateOf(player) is not { } state) return 0;
+        FighterSlot slot;
+        byte areaLevel;
+        lock (state)
+        {
+            if (state.Phase != DomainPhase.Active || !state.LiveByMonster.TryGetValue(mountId, out int idx)) return 0;
+            slot = state.Slots[idx];
+            areaLevel = (byte)Math.Clamp(state.Level, 1, 100);
+        }
+        uint id = await SpawnFighter(player, slot, foot, areaLevel, x, y, rotation, LegionMonolith.AreaStats(player));
+        if (id == 0) return 0;
+        bool kept;
+        lock (state)
+        {
+            int idx = -1;
+            kept = state.Phase == DomainPhase.Active && state.LiveByMonster.Remove(mountId, out idx);
+            if (kept)
+            {
+                state.LiveByMonster[id] = idx;
+                state.Slots[idx] = state.Slots[idx] with { CurrentId = id, Alive = true };
+                state.Chatter.Add((foot.Id, "Dismount"));
+                Keep(player, state, flush: false);
+            }
+        }
+        if (!kept) { await LegionRevive.Remove(player, [id]); return 0; }
         return id;
     }
 
     static bool RecordKill(Player player, DomainState state, uint monsterId, out FighterSlot? killedSlot)
     {
         killedSlot = null;
+        if (LegionGenerals.IsMount(player, monsterId)) return false;   // the slot's general fights on, on foot (LegionGenerals)
         lock (state)
         {
             if (!state.LiveByMonster.Remove(monsterId, out int idx)) return false;

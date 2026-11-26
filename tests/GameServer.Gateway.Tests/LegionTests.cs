@@ -194,6 +194,14 @@ public sealed class LegionTests
         LegionStasis.ClearFighters();
         Assert.True(LegionStasis.TryClaimDefeat(opener, 0x999u));
         LegionStasis.ClearFighters();
+        // E45: Aukuna (LegionMonsterVarieties 24, MonsterVarietiesKey2) is planned on foot (7754) and spawned mounted (7753, no drops); her mount
+        // leaves the bird 7756. The mounted type's own default is use_arrow2 = 1; nobird is the server's to set at the dismount.
+        Assert.Equal(new LegionData.MountRows(7753, 7754, 7756), data.Mounts[7754]);
+        Assert.Same(data.Mounts[7754], data.Mounts[7753]);
+        Assert.Equal((7753, 7753, 7704), (data.SpawnRow(7754), data.SpawnRow(7753), data.SpawnRow(7704)));
+        var mounted = Game.Monsters.Find("7753")!.StateMachine!;
+        Assert.Equal((1, 0), (mounted.SharedStates[mounted.IndexOf("use_arrow2")], mounted.SharedStates[mounted.IndexOf("nobird")]));
+        Assert.True(Game.Monsters.Find("7756")!.StateMachine!.IndexOf("explodeepk") >= 0);
         }
     }
 

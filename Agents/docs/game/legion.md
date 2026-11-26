@@ -171,7 +171,17 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Generals' lines: `NPCTextAudio` rows `Legion<General><Trigger>N` (their `NPCs` column is the speaker; an `NPCs` row's Id is the general's
   `MonsterVarieties` Id, a variant such as `...GeneralFish` uses the longest prefix), sent as S->C 0x1c7 with object id 0 to the players in the
   area. Normal encounters: MapIntro at the reveal, Fleeing when an unbroken general flees, Defeat on death. Domain: MapIntro once per
-  general, Defeat on death, Dismount (Aukuna, who is always on foot there) or BattleCry when a revived general spawns, one per Domain per 30 s. GUESS: the stem is the trigger,
+  general, Defeat on death, BattleCry when a revived general spawns and Dismount when Aukuna's mount falls, one per Domain per 30 s. GUESS: the stem is the trigger,
   the 8 s start delay plus 5 s per further general, several Defeat lines at once 2.5 s apart; AttackN, Taunt and Injured are not played
   (no clean trigger); object id 0 (global) rather than the general's id.
+- Aukuna starts mounted: `LegionMonsterVarieties` 24 plans 7754 (on foot, `MonsterMapBoss`, the loot) and its `MonsterVarietiesKey2`
+  7753 is the mounted form (`MonsterNoDropsOrExperience`), spawned in stasis, woken and revived in the Domain (R18: she dismounts again
+  there, an inference). The mount's death clip is `dismount_01`; the server plays its events (`LegionGenerals.cs`, R17): at `spawnbird`
+  the bird 7756 (`Invisible`, NoAi; its .ot copies the mount's pose and pauses it) and `nobird` 1 on the mount (detaches its own bird),
+  at `birdepk` the bird's `explodeepk` 1 (`DinoExplode.epk`), at `phase` 7754 where the mount fell; the mount's corpse goes (its own
+  `disappear` event already made it invisible). The fighter entry (drops, Defeat line), the encounter's released id and the Domain slot
+  pass to 7754, which says a Dismount line (in the Domain through the 30 s chatter). The mount's own `use_arrow2` default is 1.
+  GUESS: the event times 1.73, 1.945 and 2.64 s (names only; the server has no clip clock), the bird going 2 s after the phase; the
+  bird's `DinosaurExplosion` / `LandingBurningGround` hits are not played. Live check: does the bird copy the pose without a
+  `reference` object, and does the client play `dismount_01` from the mount's ordinary death.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

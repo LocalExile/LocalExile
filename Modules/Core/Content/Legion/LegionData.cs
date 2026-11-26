@@ -17,8 +17,13 @@ public sealed class LegionData
     public sealed record Rank(int Row, int Col0, int Col1, int Col2, int Col3, int Col4, int BalanceKey, int Col6, int Col7, int Col8);
 
     /// <summary>A LegionMonsterVarieties row; col3 meaning unknown, col5 prop chance (%), col6 variety spawn weight,
-    /// col10/col11 prop clip time range (ms), col15 prop count per MiscAnimatedKey entry.</summary>
-    public sealed record MonsterVariety(int Row, int Monster, int Faction, int RankKey, int Col3, int[] MiscAnimated, int PropChance = 0, int SpawnWeight = 1, int[]? PropFromMs = null, int[]? PropToMs = null, int[]? PropCounts = null);
+    /// col10/col11 prop clip time range (ms), col15 prop count per MiscAnimatedKey entry; Mounted is MonsterVarietiesKey2, the form a
+    /// general starts in (only Aukuna: 7754 on foot, 7753 mounted), -1 when none.</summary>
+    public sealed record MonsterVariety(int Row, int Monster, int Faction, int RankKey, int Col3, int[] MiscAnimated, int PropChance = 0, int SpawnWeight = 1, int[]? PropFromMs = null, int[]? PropToMs = null, int[]? PropCounts = null, int Mounted = -1);
+
+    /// <summary>A general that starts mounted (E45, R17): the mounted form (no drops), the form on foot it becomes at the mount's death
+    /// (MapBoss, the loot) and the Invisible bird object the dismount leaves (MonsterVarieties rows).</summary>
+    public sealed record MountRows(int Mounted, int OnFoot, int Bird);
 
     /// <summary>A LegionMonsterCounts row; cols 2-7 meaning unknown.</summary>
     public sealed record MonsterCount(int Row, int Faction, int RankKey, int Col2, int Col3, int Col4, int Col5, int Col6, int Col7);
@@ -105,6 +110,10 @@ public sealed class LegionData
     public IReadOnlyList<MonsterVariety> MonsterVarieties { get; }
     /// <summary>O(1) lookup of first LegionMonsterVarieties row by MonsterVarietiesKey (for stasis props).</summary>
     public IReadOnlyDictionary<int, MonsterVariety> VarietyByMonster { get; }
+    /// <summary>Mounted generals by the MonsterVarieties row of each of their forms (mounted and on foot).</summary>
+    public IReadOnlyDictionary<int, MountRows> Mounts { get; }
+    /// <summary>The variety a planned monster is spawned as: the mounted form of a general that starts mounted, else the row itself.</summary>
+    public int SpawnRow(int monsterRow) => Mounts.TryGetValue(monsterRow, out var m) && m.OnFoot == monsterRow ? m.Mounted : monsterRow;
     public IReadOnlyList<MonsterCount> MonsterCounts { get; }
     public IReadOnlyList<ChestType> ChestTypes { get; }
     public IReadOnlyList<ChestCount> ChestCounts { get; }
@@ -158,8 +167,21 @@ public sealed class LegionData
             int weight = Tolerant(r, "__col6").FirstOrDefault();
             return new MonsterVariety(r.Index, r.IntOrNull("MonsterVarietiesKey") ?? -1, r.IntOrNull("LegionFactionsKey") ?? -1, rank,
                 r.Int("__col3"), r.Ints("MiscAnimatedKey"), Tolerant(r, "__col5").FirstOrDefault(), weight > 0 ? weight : 1,
-                Tolerant(r, "__col10"), Tolerant(r, "__col11"), Tolerant(r, "__col15"));
+                Tolerant(r, "__col10"), Tolerant(r, "__col11"), Tolerant(r, "__col15"), r.IntOrNull("MonsterVarietiesKey2") ?? -1);
         })];
+        // The generals' companion objects are named after the general (R17: no table links them): the mount's bird is "<mounted>Bird".
+        var legionRows = new Dictionary<string, int>(StringComparer.Ordinal);
+        var legionIds = new Dictionary<int, string>();
+        foreach (var r in ClientTables.TableOrEmpty("MonsterVarieties"))
+            if (r.Text("Id") is { } vid && vid.StartsWith(VoiceNpcPrefix, StringComparison.Ordinal)) { legionRows.TryAdd(vid, r.Index); legionIds[r.Index] = vid; }
+        var mounts = new Dictionary<int, MountRows>();
+        foreach (var mv in MonsterVarieties)
+        {
+            if (mv.Mounted >= 0 && mv.Monster >= 0 && legionIds.TryGetValue(mv.Mounted, out string? mountedId)
+                && legionRows.TryGetValue(mountedId + "Bird", out int bird))
+                mounts[mv.Mounted] = mounts[mv.Monster] = new MountRows(mv.Mounted, mv.Monster, bird);
+        }
+        Mounts = mounts;
         MonsterCounts = [.. ClientTables.TableOrEmpty("LegionMonsterCounts").Select(r => new MonsterCount(r.Index,
             r.IntOrNull("LegionFactionsKey") ?? -1, r.IntOrNull("LegionRanksKey") ?? -1, r.Int("__col2"), r.Int("__col3"), r.Int("__col4"),
             r.Int("__col5"), r.Int("__col6"), r.Int("__col7")))];

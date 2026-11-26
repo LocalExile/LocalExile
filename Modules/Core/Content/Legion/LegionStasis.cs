@@ -81,6 +81,15 @@ static class LegionStasis
         if (map.Count > 0) anyFighter = true;
     }
 
+    /// <summary>Registers a fighter under a new monster id (a general's next form takes the drops of the first) and saves the table.</summary>
+    public static void AddFighter(Player player, uint id, Fighter fighter)
+    {
+        var map = FightersByArea.GetOrCreateValue(player.Area);
+        map[id] = fighter;
+        anyFighter = true;
+        PersistFighters(player, map);
+    }
+
     public static Fighter? FighterOf(Player player, uint id, bool remove)
     {
         if (!FightersByArea.TryGetValue(player.Area, out var fighters))
@@ -182,7 +191,8 @@ static class LegionStasis
         async Task Add(int faction, int row, MonsterRarity rarity, int tier, bool chest, bool hoard, int from, int to, int[]? rewards = null)
         {
             if (stopped) return;
-            if (FindVariety(row) is not { Supported: true } variety) { skipped++; skippedBy[faction]++; skipReasons[0]++; if (chest) skipReasons[4]++; return; }
+            // A general that starts mounted stands in stasis and breaks out mounted (Aukuna, E45): the plan keeps her form on foot.
+            if (FindVariety(LegionData.Current.SpawnRow(row)) is not { Supported: true } variety) { skipped++; skippedBy[faction]++; skipReasons[0]++; if (chest) skipReasons[4]++; return; }
             if (player.Closed || player.LeavingArea) { skipped++; skippedBy[faction]++; skipReasons[1]++; if (chest) skipReasons[4]++; return; }
             if (formations[faction].Place(from, to, variety.ObjectSize, tier == 3) is not { } at) { skipped++; skippedBy[faction]++; skipReasons[2]++; if (chest) skipReasons[4]++; return; }
             // bulk: no wait for the client's birth per monster (a frame each, 5-8 s for 150-250). The action is in its create (hidden from the first frame).
@@ -401,6 +411,7 @@ static class LegionStasis
             anyFighter = true;
             if (!deferPersist) PersistFighters(player, map);
         }
+        if (member.Tier == 3) await LegionGenerals.Woken(player, id);
         return id;
     }
 

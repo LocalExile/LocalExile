@@ -203,7 +203,22 @@ static partial class LegionMonolith
         GameEvents.ObjectUse.Add(id, (player, use, requestedAt) => Use(module, player, use, requestedAt));
     }
 
-    static bool HasLocator(Player player) => player.Layout.Level?.RoomObjects.Any(o => LocatorTypes.Contains(o.Type)) == true;
+    internal static bool HasLocator(Player player) => player.Layout.Level?.RoomObjects.Any(o => LocatorTypes.Contains(o.Type)) == true;
+
+    /// <summary>A general's next form takes its place among the released monsters (Aukuna on foot after her mount): the battle waits for it.</summary>
+    public static void Replace(Player player, uint oldId, uint newId)
+    {
+        if (player.Instance is not { } instance || !Encounters.TryGetValue(instance, out var all)) return;
+        foreach (var e in all)
+            lock (e)
+            {
+                if (e.ReleasedIds is not { } ids || Array.IndexOf(ids, oldId) is not (var i and >= 0)) continue;
+                e.ReleasedIds = [.. ids];
+                e.ReleasedIds[i] = newId;
+                e.ClearedAt = null;
+                Keep(player, e);
+            }
+    }
 
     /// <summary>Every Timeless Monolith in this instance (multiple when scarabs or mods add extra Legion rooms).
     /// Restores from <c>Instance.ContentState["Legion"]</c> after a hot reload, accepting both the array format and legacy single-object saves.</summary>
