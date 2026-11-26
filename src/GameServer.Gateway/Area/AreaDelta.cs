@@ -55,8 +55,12 @@ public sealed class AreaDelta(GameArea area)
     public void Add(Record record)
     {
         area.AssertOwner();
+        // Shared entities replayed to a joining player (peer players 0x20000000, shared monsters 0x08000000,
+        // dormant monsters, area objects) must never register that joiner as the entity's sole private viewer.
         if (record.Kind == Kind.Create && record.Only is { } owner && record.Except is null
-            && !area.Monsters.ContainsKey(record.Entity) && !area.Objects.Has(record.Entity))
+            && (record.Entity & 0xF0000000) != 0x20000000 && (record.Entity & 0xF8000000) != 0x08000000
+            && !area.Monsters.ContainsKey(record.Entity) && !area.DormantMonsters.ContainsKey(record.Entity)
+            && !area.Objects.Has(record.Entity))
         {
             lock (viewers)
             {

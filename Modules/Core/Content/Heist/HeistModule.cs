@@ -25,8 +25,24 @@ public sealed partial class HeistModule : IModule
     sealed class State { public uint Locker; }
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
-    readonly ConditionalWeakTable<IPlayer, State> _states = new();
+    // Key by GameArea (plus HideoutEditor fallback) so re-entering, guest visits, and module reloads resolve the locker.
+    readonly ConditionalWeakTable<GameArea, State> _states = new();
     readonly HeistMissionController _missions = new();
+
+    uint? LockerOf(Player player)
+    {
+        if (_states.TryGetValue(player.Area, out var state) && state.Locker != 0)
+            return state.Locker;
+        foreach (var (id, entry) in player.HideoutEditor.All())
+        {
+            if (entry.Key == "heist-locker")
+            {
+                _states.GetOrCreateValue(player.Area).Locker = id;
+                return id;
+            }
+        }
+        return null;
+    }
 
     public static void LoadData() => HeistTables.LoadGameData();
 
@@ -43,16 +59,15 @@ public sealed partial class HeistModule : IModule
 
         GameEvents.HideoutReady.Add(id, async player =>
         {
-            var modPlayer = PlayerOf(player);
-            if (await WorldOf(modPlayer).SpawnHideoutStation(HideoutSlot.Small, LockerType, "heist-locker", "Heist Locker") is { } lockerId)
-                _states.GetOrCreateValue(modPlayer).Locker = lockerId;
+            if (await WorldOf(PlayerOf(player)).SpawnHideoutStation(HideoutSlot.Small, LockerType, "heist-locker", "Heist Locker") is { } lockerId)
+                _states.GetOrCreateValue(player.Area).Locker = lockerId;
         });
 
         GameEvents.ObjectUse.Add(id, async (player, use, at) =>
         {
-            if (!_states.TryGetValue(PlayerOf(player), out var state) || state.Locker == 0 || use.TargetId != state.Locker) return false;
+            if (LockerOf(player) is not uint locker || use.TargetId != locker) return false;
             var world = WorldOf(player);
-            if (await world.WalkUpToStation(state.Locker, at))
+            if (await world.WalkUpToStation(locker, at))
                 await world.OpenWindow("heist", InstanceWaypoints.HeistLockerUi, "0x007b open native Heist Locker (HeistStashOpen)");
             return true;
         });
