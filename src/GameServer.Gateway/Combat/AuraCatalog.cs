@@ -178,8 +178,6 @@ public static class AuraCatalog
     /// lower snake-case effect family (for example EnvyNoReservationUnique__1 carries envy_reserves_no_mana).</summary>
     public static uint NoManaReservationStat(string effectId)
     {
-        if (Family(effectId) == "AspectOfTheAvian") return Stat.BirdAspectReservesNoMana;
-        if (Family(effectId) == "AspectOfTheSpider") return Stat.SpiderAspectReservesNoMana;
         if (Family(effectId) == "AspectOfTheCrab") return Stat.Of("crab_aspect_reserves_no_mana");
         string family = Family(effectId);
         var stat = new System.Text.StringBuilder(family.Length + 16);

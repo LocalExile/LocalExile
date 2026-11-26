@@ -121,6 +121,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The debuff icon and Survivors support remain open.
 - Ice Shot: its primary arrows (`IceArrow`) hit; the cone splash is open.
   Docs: [11](../docs/protocol/11-skills.md) Â§10.
+- Dual Strike applies its full-life damage and critical chance to each target at contact.
 - Multi-strike skills (Double Strike): each strike is its own hit, sharing one critical roll. Either Impaling strike
   can reflect stored physical damage to nearby enemies on a kill.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
@@ -189,8 +190,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Vaal souls (#308), Vaal Ground Slam's radial wave, Vaal Fireball, Vaal Spark and Vaal Discipline (allied recharge).
   Docs: [27](../docs/protocol/27-vaal-souls.md),
   [Behemoth](../docs/game/behemoth.md).
-- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final radius. Volcanic Fissure hits along its path and launches
-  landing projectiles at the end of the sweep. Gem melee swings keep their hit over a queued Move.
+- Ground Slam's forward wave scales with area and gains more damage near the player. Area attacks publish their final
+  radius. Volcanic Fissure checks for enemies as each part of its path arrives and launches projectiles at the end. Gem
+  melee swings keep their hit over a queued Move.
   Docs: [11](../docs/protocol/11-skills.md) Â§9a.
 - Shield Crush and Shield Crush of the Chieftain use their three ShieldBash wave events. Each enemy can be selected by
   the centre wave and one side wave. Docs: [11](../docs/protocol/11-skills.md) §9a.
@@ -251,6 +253,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Charge gains on stun, skill use and target state, supports' own chances, "lose all" and "on reaching maximum"
   uniques, loss triggers, cannot-gain and maximum-replacing mods (not checked live).
   Docs: [11](../docs/protocol/11-skills.md) Â§15.
+- Frost Blades of Katabasis checks its primary strike reach and selects one enemy before supported extra strikes.
 - Lightning Strike resolves its melee hit and secondary projectiles.
 - Infernal Blow charges detonate on expiry or the sixth charge, and marked corpses explode in a separate radius;
   Immolation charges the attacker.

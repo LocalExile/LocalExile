@@ -59,6 +59,10 @@ The panel binds to the inventory object of the row's first S→C 0xc0 in an area
   are added to the map, unscaled, as the device's fragments are.
   They reach the instance's area stats (S→C 0x1d) and whatever reads a map's stats; a stat the server has no consumer
   for does nothing yet, as on a map item.
+  The map also names the Atlas families its stats belong to (`MapMods.AtlasFamilies`), which carry those families'
+  league blocks. The two Idol-only stats the server acts on work through hand-overs: Endless Tide's less Beyond
+  merging radius (`GameEvents.BeyondMergeRadiusFinal`) and the chance of 20 more Rogue Exiles
+  (`GameEvents.AdditionalRogueExiles`).
 - **Drops.** Monsters in maps drop Idols unidentified, magic or rare, of a base whose drop level they reach
   (`GameEvents.Drops`), scaled by the map's item quantity (`MapMods.QuantityFactor`) and the module's `dropRate` setting.
   GGG does not publish the rates: the module's are its own (`IdolRules`).

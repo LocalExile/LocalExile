@@ -468,7 +468,15 @@ public static partial class Game
         // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
         id = !friendly || instanceOwned ? player.Instance.World.NewMonsterId() : player.TakeObjectId();
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        if (placement == MonsterPlacement.Proposed && bodySize >= 0)
+        // Kitava's immobile body stands in the pit. Its model and model-space contact tracks share the room point.
+        var kitava = friendly ? null : player.Layout.Id switch
+        {
+            KitavaActTen.Area when KitavaActTen.IsBody(variety) => KitavaActTen.FixedAnchor(player),
+            KitavaActFive.Area when KitavaActFive.IsBody(variety) => KitavaActFive.FixedAnchor(player),
+            _ => null,
+        };
+        if (kitava is { }) (x, y, rotation) = (kitava.X, kitava.Y, kitava.Angle);
+        else if (placement == MonsterPlacement.Proposed && bodySize >= 0)
         {
             bool Floor(int cx, int cy) => player.Layout.WalkableFor(cx, cy, bodySize) && !player.Barrier.Contains((cx, cy));
             if (CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor,
@@ -2469,7 +2477,7 @@ public static partial class Game
             await MonsterContact(player, id, m, action, begunSeq, a);
             return false;
         }
-        // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
+        // Its attack time now: a chill slows it by its action speed, Soul of Gruthkul's upgrade by the player's attacker slow.
         // A King skill carries its own cast time. Predictive keeps its existing sequence selection;
         // lockstep assigns the actor's sequence when the send gate admits the action below.
         double seconds;
@@ -3040,7 +3048,7 @@ public static partial class Game
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
             baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
-        // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
+        // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
@@ -3316,7 +3324,7 @@ public static partial class Game
 
     public const uint AttackerSlow = Stat.EnemiesThatHitYouWithAttackRecentlyAttackSpeedPlusPct;
 
-    // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
+    // A monster's attack time now. Soul of Gruthkul's upgrade: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
     public static double MonsterSwingSeconds(Player player, SpawnedMonster m, double now)
     {

@@ -196,7 +196,7 @@ a flask-bar `slot` (0-4) or `key` (1-5; CLI
 the Pantheon panel's C→S 0x1ee with row + 1 (for the later acts' Pantheon steps), and `stash:deposit` with an inventory item `id`
 and a stash `tab` (default 0), which sends the Ctrl + click C→S 0xe0 that puts the item into that tab's first free cell
 ([18](../protocol/18-stash.md) §5; open the Stash first, as a player would). `flask:use` sends the flask key's own C→S 0x70
-(u32 cell, [13](../protocol/13-items.md) §8), so a flask is used without keyboard input or window focus. These use the existing C?S interaction messages. Their result acknowledges
+(u32 cell, [13](../protocol/13-items.md) §8), so a flask is used without keyboard input or window focus. These use the existing C→S interaction messages. Their result acknowledges
 submission; wait for the resulting state or logs. Movement uses the client's Move action (0x2909). Interaction from
 far away can fail to find a path; `tp` next to the object first (`{"command":"tp","target":"GlyphWall"}`), then interact. Resource updates are bounded to 128 entries and drained on
 read, so persistent RPC is needed to observe a recovery interval. This measures client state, not HUD pixels.

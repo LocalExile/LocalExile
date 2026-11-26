@@ -1080,6 +1080,21 @@ public static partial class Game
         SuspendRestrictedOwnAuras(player, new(sources));
         var weapons = WeaponProfileFor(player);
         var activeWeapon = WeaponProfileFor(player, activeSet: true);
+        // A module's own per-attribute pool stats (GameEvents.PoolSources), on the final attributes the pools will have.
+        if (GameEvents.PoolSources.Any)
+        {
+            (int Strength, int Dexterity, int Intelligence)? attributes = null;
+            foreach (var run in GameEvents.PoolSources.For(player))
+            {
+                if (attributes is null)
+                {
+                    var c = SkillsFor(player).ClassFor(player.Character.ClassRow);
+                    int god = player.God ? 1000 : 0;
+                    attributes = snapshot.Attributes.Apply(c.Strength + god, c.Dexterity + god, c.Intelligence + god);
+                }
+                run(player, sources, attributes.Value);
+            }
+        }
         var bonus = PassiveBonus(sources, weapons, snapshot.Attributes);
         var map = MapModsOf(player);
         if (map?.Get(Stat.MapPlayerNonCurseAuraEffectPlusPct) is int auraEffect and not 0)
@@ -1285,15 +1300,6 @@ public static partial class Game
         }
         bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
-        int perDexterity = EquipmentStat(ManaRecoveryRules.PerDexterity);
-        var finalAttributes = (bonus.Attributes with
-        {
-            StrengthPct = bonus.Attributes.StrengthPct + bonus.StrengthPct + (long)bonus.AllAttributesPct,
-            DexterityPct = bonus.Attributes.DexterityPct + bonus.DexterityPct + (long)bonus.AllAttributesPct,
-            IntelligencePct = bonus.Attributes.IntelligencePct + bonus.IntelligencePct + (long)bonus.AllAttributesPct,
-        }).Apply((long)classInfo.Strength + bonus.Strength, (long)classInfo.Dexterity + bonus.Dexterity,
-            (long)classInfo.Intelligence + bonus.Intelligence);
-        bonus = bonus with { AdditionalMana = (long)finalAttributes.Dexterity * perDexterity };
         int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
         int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);
         if (weaponAccuracy != 0 && !activeWeapon.Sword) weaponAccuracy = 0;

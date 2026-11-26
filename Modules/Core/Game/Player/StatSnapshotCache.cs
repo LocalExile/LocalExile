@@ -207,11 +207,6 @@ public static partial class Game
             if (Get(Stat.DamagePlusPctWhileWieldingTwoDifferentWeaponTypes) is int differentDamage and not 0
                 && WeaponIdentity.WieldingDifferentTypes(Get))
                 stats[Stat.DamagePlusPct] = Get(Stat.DamagePlusPct) + differentDamage;
-            // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
-            // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
-            if (SkillDurationModifiers.IncreasedDuration is var durationKey)
-                stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
-                    Get(Stat.Strength), Get(SkillDurationModifiers.PerTenStrength));
             // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
             if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
                 stats[damageKey] = (int)Math.Clamp(Get(Stat.DamagePlusPct) + (long)perFive

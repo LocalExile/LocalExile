@@ -586,20 +586,25 @@ public static partial class Game
 
                 var hitRolls = HitRollsFor(playerStats);
                 int SkillStat(uint k) => skillStats.GetValueOrDefault(k);
+                var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
                 foreach (var (id, m, targetAt) in victims)
                 {
                     if (m.Dead || m.Life == 0) continue;
                     int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
                     if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom)) continue;
                     if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats)) continue;
+                    var fullLifeStrike = dualStrikeBonuses.Against(m);
+                    double damageMore = fullLifeStrike.DamageMore;
+                    var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
                             (hitRolls with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
-                                .ForWeapon(local).RollOutgoingHit(hitPacket, AreaRng(player))), now);
+                                .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                     int critChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                         SupportedCriticalChanceVsBlinded(player, skillId, release: false, null),
                         SupportedCriticalChanceVsGround(player, skillId, release: false, null));
-                    bool critical = RollCriticalStrike(player, critChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
+                    bool critical = RollCriticalStrike(player, fullLifeStrike.CriticalChance(critChance), skillStats,
+                        attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
@@ -621,12 +626,15 @@ public static partial class Game
                     if (!m.Invulnerable)
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
-                            AreaRng(player), sourceEffect: gem.Effect, poison: poison, sourceSkill: skillId, ownHit: false);
+                            AreaRng(player), sourceEffect: gem.Effect, poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore),
+                            sourceSkill: skillId, ownHit: false);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
-                            && IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) is { } ign)
+                            && IgniteOnHitLocked(player, id, m, damageMore == 1 ? ignite : RepeatAilment(ignite, damageMore),
+                                critical, now, playerIgnite: false) is { } ign)
                             dotPackets.AddRange(ign);
                         if (applied.Life > 0 && rolled[DamageType.Physical].Max > 0
-                            && BleedOnHitLocked(player, id, m, bleed, critical, now) is { } bld)
+                            && BleedOnHitLocked(player, id, m, damageMore == 1 ? bleed : RepeatAilment(bleed, damageMore),
+                                critical, now) is { } bld)
                             dotPackets.AddRange(bld);
                     }
                     if (meleeExcludedId == 0 && IsLightningStrike(gem.Effect)) meleeExcludedId = id;

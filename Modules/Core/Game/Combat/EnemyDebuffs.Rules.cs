@@ -126,8 +126,8 @@ public static partial class Game
     //
     // What a step shows: a taunt the taunted buff (408) for its time left, gone when it ends, the monster dies or the
     // player dies (wiki: a taunt ends when its source dies); his hits' Intimidate, Unnerve, Crush, Maim, Hinder, Exposure
-    // and Withered the same way; each enemy aura of his passives (Light of Divinity's Augury of Penitence, 2551, Born under
-    // Fire's) on every hostile living monster in its zone while he lives; Pride's own enemy aura (BuffDefinitions 1331)
+    // and Withered the same way; each enemy aura of his passives (elemental damage taken, Born under
+    // Fire's conversion) on every hostile living monster in its zone while he lives; Pride's own enemy aura (BuffDefinitions 1331)
     // with the ramp each monster keeps while it stays inside; his curse auras (Blasphemy). Each monster then keeps the
     // increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and burns read. The blind auras
     // (SaboteurBlind, Physical Aegis) follow their zones' members.

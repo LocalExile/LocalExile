@@ -551,9 +551,7 @@ public static partial class Game
                     || id == KitavaActFive.First && KitavaActFive.IsActor(m.Variety));
                 if (spawned) continue;
                 var owner = player.Frames.View ?? (instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : player);
-                var point = area == KitavaActFive.Area && id == KitavaActFive.First
-                    ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
-                    : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
+                var point = owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
                 byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
                 spawned = await SpawnMonster(owner, variety, level,
                     MonsterRarity.Unique, point.Item1, point.Item2) != 0;

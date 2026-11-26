@@ -1,10 +1,9 @@
 
 
-/// <summary>Owner skill-duration increases derived from final attributes. Duration consumers must choose their own
+/// <summary>A skill's duration from the owner's and the skill's increases and more multipliers. Duration consumers must choose their own
 /// inputs; this does not give a minion's own skills or buffs the owner's skill duration.</summary>
 public static class SkillDurationModifiers
 {
-    public const uint PerTenStrength = Stat.SkillEffectDurationPlusPctPer10Strength;
     public const uint IncreasedDuration = Stat.SkillEffectDurationPlusPct;
 
     /// <summary>What a duration belongs to, for the increases scoped to it (<see cref="Seconds(int, Func{string, int},
@@ -38,10 +37,6 @@ public static class SkillDurationModifiers
     /// <summary>Call to Arms (<c>keystone_call_to_arms</c>): "100% more Warcry Duration", a final multiplier on a warcry's
     /// duration.</summary>
     public static double CallToArmsMore(Func<uint, int> player) => player(Stat.KeystoneCallToArms) != 0 ? 2 : 1;
-
-    public static int Total(int rawIncreasedDuration, int finalStrength, int increasedPerTenStrength) =>
-        (int)Math.Clamp(rawIncreasedDuration + (long)(Math.Max(0, finalStrength) / 10) * increasedPerTenStrength,
-            int.MinValue, int.MaxValue);
 
     // minion: a CreatesMinion skill, whose duration also takes the player's increased minion duration.
     public static double Seconds(int baseMilliseconds, Func<uint, int> player, Func<uint, int> own, bool minion = false) =>

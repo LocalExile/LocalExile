@@ -96,8 +96,8 @@ Antiquarian's Ward, Adrenaline, duration, stun and Lioneye consumers are describ
 
 Antiquarian node 27339, `Exhibit 39: Whaletooth Bangle`, supplies
 `skill_effect_duration_+%_per_10_strength` = 1 (3.29.3b Stats key 2817).
-`SkillDurationModifiers` adds `floor(max(0, final Strength) / 10) * per-ten value` to the raw
-`skill_effect_duration_+%` in `CharacterPlayerStats`.
+The module's `PhreciaStats.DurationPerTenStrength` (`GameEvents.DerivedStats`) adds
+`floor(max(0, final Strength) / 10) * per-ten value` to the raw `skill_effect_duration_+%` in `CharacterPlayerStats`.
 For example, 455 final Strength gives +45%; an ordinary +10% duration passive makes the total +55%.
 The calculation uses the resolved attributes after flat/increased sources, or the explicit final Strength override.
 It runs on a fresh dictionary, never writes back into sources and clamps signed totals after addition.

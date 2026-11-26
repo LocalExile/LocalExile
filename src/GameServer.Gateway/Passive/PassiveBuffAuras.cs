@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
+using GameServer.Modding;
 using DamageConversion = GameServer.Core.World.DamageConversion;
 
 /// <summary>
@@ -13,8 +15,8 @@ using DamageConversion = GameServer.Core.World.DamageConversion;
 /// 3 enemies (every Augury of Penitence, Occultist and Saboteur enemy aura has [3]; not confirmed in the client).
 /// One table, three views, each limited to the templates whose stats have a consumer:
 /// <list type="bullet">
-/// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): Light of Divinity's elemental damage taken,
-/// Born under Fire's hit conversion, Overwhelm's crit multiplier and the <c>SaboteurBlind</c> blind (Devout of Solaris, Born in the Shadows: a
+/// <item>enemy auras (<see cref="EnemyAurasFor"/>, Game.EnemyAuraActs): Overwhelm's crit multiplier,
+/// a module's own (<see cref="Apply"/>) and the <c>SaboteurBlind</c> blind (Born in the Shadows: a
 /// stat-less generic_buff_aura, shown on monsters as BuffDefinitions <c>blinded</c>). Game.EnemyDebuffsTick puts
 /// them on every living hostile monster within their radius of the living player; hits read them.</item>
 /// <item>player-and-ally auras (<see cref="AllyAurasFor"/>): the relic trigger (Program.TriggerElementalRelicLocked).</item>
@@ -44,13 +46,29 @@ public static class PassiveBuffAuras
 
     const int PlayerTarget = 1, AlliesTarget = 2, EnemiesTarget = 3;
 
-    // Enemy auras applied by name: their stats have consumers (MonsterTakesMitigated reads elemental_damage_taken_+%).
-    // A template whose every stat is a hit conversion acts too (Program.EnemyAuraActs).
+    // Enemy auras applied by name: their stats have consumers (Game.EnemyAuraActs).
     static readonly HashSet<string> EnemyAuraTemplates =
     [
-        "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken", // Paladin Light of Divinity: 2551 Augury of Penitence
         "SlayerCritMultiplier", // Slayer Overwhelm: 1343 slayer_crit_multi_aura, -30 to their crits on the player
     ];
+
+    // The templates of a module's own nodes (Apply), once per Apply: an owner's unload takes away only its own.
+    static ImmutableList<string> moduleTemplates = [];
+
+    /// <summary>Has the server apply this BuffTemplates row of a module's own nodes until the module unloads. With a radius
+    /// it is an enemy aura, and its stats must be ones the game's rules read on a monster (elemental_damage_taken_+%,
+    /// MonsterTakesMitigated; a conversion of its hits, Game.EnemyAuraConversionLocked). With radius 0 it is a permanent,
+    /// unconditional buff on the player: its stats join the passives' sum and the buff is shown.</summary>
+    public static IDisposable Apply(IModuleLifetime owner, string template)
+    {
+        ImmutableInterlocked.Update(ref moduleTemplates, list => list.Add(template));
+        return owner.Own(new Applied(template));
+    }
+
+    sealed class Applied(string template) : IDisposable
+    {
+        public void Dispose() => ImmutableInterlocked.Update(ref moduleTemplates, list => list.Remove(template));
+    }
 
     /// <summary>The passive blind aura: every enemy in it is Blinded (Game.Blinded).</summary>
     public const string BlindTemplate = "SaboteurBlind";
@@ -60,12 +78,6 @@ public static class PassiveBuffAuras
     [
         // Paladin Elemental Valiance and the Guardian's Unwavering Crusade: 2258 trigger_allied_guardian_relic_on_kill
         "GuardianAlliesSpawnRelicsForYouOnKill",
-    ];
-
-    // Permanent, unconditional and on the player itself (AuraRadius 0, CancelOnDeath false).
-    static readonly HashSet<string> SelfBuffTemplates =
-    [
-        "CustomAscendancyIllegalFisherman", // Surfcaster Ghost of the Deep: BuffDefinitions 2550 Torment Touched
     ];
 
     static Dictionary<ushort, Aura[]> normal = default!;
@@ -94,17 +106,18 @@ public static class PassiveBuffAuras
     public static IReadOnlyList<Aura> EnemyAurasFor(IEnumerable<ushort> nodes, bool ruthless, Func<Aura, bool> acts) =>
         [.. For(nodes, ruthless).Where(acts)];
 
-    /// <summary>Whether this enemy aura is applied by name (not by its stats).</summary>
-    public static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template);
+    /// <summary>Whether this enemy aura is applied: by name.</summary>
+    public static bool AppliedByName(Aura aura) => aura.Template == BlindTemplate || EnemyAuraTemplates.Contains(aura.Template)
+        || moduleTemplates.Contains(aura.Template);
 
     /// <summary>The player-and-ally auras of these nodes the server applies.</summary>
     public static IReadOnlyList<Aura> AllyAurasFor(IEnumerable<ushort> nodes, bool ruthless) =>
         [.. For(nodes, ruthless).Where(a => a.Radius > 0 && AllyAuraTemplates.Contains(a.Template)
             && a.Targets.SequenceEqual([PlayerTarget, AlliesTarget]))];
 
-    /// <summary>The self buffs of these nodes the server applies.</summary>
+    /// <summary>The self buffs of these nodes the server applies: the ones a module's nodes give (<see cref="Apply"/>).</summary>
     public static IReadOnlyList<Aura> SelfBuffsFor(IEnumerable<ushort> nodes, bool ruthless) =>
-        [.. For(nodes, ruthless).Where(a => a.Radius == 0 && SelfBuffTemplates.Contains(a.Template))];
+        [.. For(nodes, ruthless).Where(a => a.Radius == 0 && moduleTemplates.Contains(a.Template))];
 
     /// <summary>The largest blind radius of these auras, or null without one.</summary>
     public static int? BlindRadius(IEnumerable<Aura> auras) =>

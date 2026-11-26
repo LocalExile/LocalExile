@@ -73,7 +73,7 @@ public static partial class Game
         {
             hit = RageStats.ApplyAttack(hit, Get);
             if (source.Volatile) hit = Volatility.Apply(hit, Get);
-            hit = MaximumAttackDamage.Apply(hit, Get);
+            hit = GameEvents.WithAttackHit(hit, Get);
         }
         if (source.HitIntensityMore != 1) hit = hit.Scale(source.HitIntensityMore);
         if (source.Context)

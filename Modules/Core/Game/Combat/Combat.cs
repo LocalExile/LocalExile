@@ -2797,6 +2797,7 @@ public static partial class Game
         int effectiveness = SkillsFor(player).DamageEffectiveness(gem.Effect, gem.Level);
         int Stat(uint k) => skillStats.GetValueOrDefault(k);
         int inversionChance = Stat(global::Stat.TreatEnemyResistancesAsNegatedOnElementalDamageHitPctChance);
+        var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
         if (Stat(global::Stat.BaseDealNoDamage) != 0) return;
         double chargeAttackMore = 1, chargeRadius = 1;
         int perChargeDamage = Stat(global::Stat.ActiveSkillAttackDamagePlusPctFinalPerEnduranceCharge);
@@ -2866,6 +2867,7 @@ public static partial class Game
         bool infernalStrike = infernalBlast is null && IsInfernalBlow(effectId);
         bool immolation = effectId == "InfernalBlowAltX";
         bool pestilentStrike = IsPestilentStrike(effectId);
+        bool katabasisStrike = effectId == "FrostBladesAltX";
         double phaseDamageMore = divineBlast && immediate && scheduledSession is not null
             ? Math.Max(0, 1 + Stat(global::Stat.DiscusSlamDamagePlusPctFinalForShockwave) / 100d)
             : infernalBlast is not null ? damageMore : 1;
@@ -2905,7 +2907,7 @@ public static partial class Game
         // still lands in front of the player, and a sweep around it (MeleeAreaCentre); a self-targeted spell goes off
         // around the caster.
         var centre = shieldWaves is { } shieldArea ? shieldArea.Origin
-            : infernalBlast is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
+            : katabasisStrike || infernalBlast is not null || IsSmite(gem.Effect) && singleStrikeTarget is null ? to
             : wave || vaalSlam || SkillsFor(player).EffectId(gem.Effect) == "VaalSweep" ? from
             : spell ? SpellCentre(player, gem.Effect, from, to)
             : MeleeAreaCentre.Of(SkillsFor(player).ActionHash(gem.Effect), from, to, radius + MeleeSkillReach(player, weapon, gem.Effect, skillStats));
@@ -2983,6 +2985,8 @@ public static partial class Game
         int artVariation = ring ? SkillArtVariation(player, gem.Gem) : 0;
         double sweepStart = 0;
         double[] reach = [];
+        (int X, int Y) fissureEnd = default;
+        HashSet<uint> struck;
         int epoch = player.ProjectileEpoch;
         using (ProjectileMutation(player, advance: scheduledSession is null))
         {
@@ -3021,8 +3025,7 @@ public static partial class Game
                     damageMore *= slam.HitFactor;
                 }
             }
-            (int X, int Y) end = fissure ? VolcanicFissureSweep.End(player.Layout, from, to, radius) : default;
-            double reachLimit = wave ? waveLength : fissure ? Dist(from, end) : radius;
+            double reachLimit = wave ? waveLength : radius;
             // Ice Nova of Frostbolts expands from up to N active player Frostbolt projectiles near the aimed point,
             // with its native damage multiplier, instead of only expanding once around the caster.
             List<(int X, int Y)>? centres = null;
@@ -3046,8 +3049,7 @@ public static partial class Game
             IEnumerable<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> TargetsAt((int X, int Y) c) =>
                 (boneshatter is null ? player.Area.Monsters : player.Area.MonstersNear(c, radius))
                 .Select(e => (e.Key, e.Value, At: e.Value.Walk.Position(now)))
-                .Select(e => (e.Key, e.Value, e.At, Distance: fissure
-                    ? VolcanicFissureSweep.ContactDistance(from, end, e.At, radius) : Dist(e.At, c)))
+                .Select(e => (e.Key, e.Value, e.At, Distance: Dist(e.At, c)))
                 .Where(e => e.Key != excludeMonster && e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0 && e.Value.OwnerId is null
                     && (singleStrikeTarget is null || e.Key == singleStrikeTarget)
                     && (shieldWaves is not null || e.Distance <= reachLimit)
@@ -3055,12 +3057,26 @@ public static partial class Game
                     && (!wave || GroundSlamWave.Covers(waveDir, from, e.At, waveHalfAngle, waveLength))
                     && (targetFilter is null || targetFilter(e.Key, e.At)));
             List<(uint Key, SpawnedMonster Value, (int X, int Y) At, double Distance)> found;
-            if (infernalStrike && singleStrikeTarget is null)
+            if (fissure)
+                found = [];
+            else if (infernalStrike && singleStrikeTarget is null)
             {
                 int extraReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) - WeaponFor(player).Range;
                 uint primary = LightningStrikeTarget(player, player.Walk.Position(now), to, targetId, now, extraReach);
                 found = primary != 0 && player.Area.Monsters.TryGetValue(primary, out var struckTarget)
                     ? TargetsAt(struckTarget.Walk.Position(now)).Where(e => e.Key == primary).ToList() : [];
+            }
+            else if (katabasisStrike)
+            {
+                // The chilling area's radius does not increase the reach or target count of the strike.
+                uint requested = singleStrikeTarget ?? targetId;
+                if (requested != 0 && player.Area.Monsters.TryGetValue(requested, out var selected))
+                    centre = selected.Walk.Position(now);
+                int strikeReach = MeleeSkillReach(player, weapon, gem.Effect, skillStats) + 2;
+                found = TargetsAt(centre)
+                    .Where(entry => (requested == 0 || entry.Key == requested) && !entry.Value.WorldHidden
+                        && SwingInReach(player, entry.Value, from, entry.At, strikeReach))
+                    .OrderBy(entry => entry.Distance).ThenBy(entry => entry.Key).Take(1).ToList();
             }
             else
             {
@@ -3106,24 +3122,27 @@ public static partial class Game
             }
             // Hits that may reach each monster only once across several sweeps record it here.
             if (once is not null) foreach (var f in found) once.Add(f.Key);
-            if (travellingSweep)
+            if (travellingSweep) sweepStart = AreaTime(player);
+            if (travellingSweep && !fissure)
             {
                 found.Sort((a, b) => a.Distance.CompareTo(b.Distance));
                 reach = vaalWave
                     ? [.. found.Select(f => GroundSlamWave.VaalAdvanceSeconds(f.Distance, radius))]
-                    : wave || fissure
+                    : wave
                         ? [.. found.Select(f => GroundSlamWave.AdvanceSeconds(f.Distance))]
                         : [.. found.Select(f => IceNovaRing.Reach(f.Distance, radius, artVariation))];
-                sweepStart = AreaTime(player);
             }
             if (fissure)
-                ScheduleFissureEruption(player, ProjectilesFor(player), skillId, gem, from, end,
+            {
+                fissureEnd = VolcanicFissureSweep.End(player.Layout, from, to, radius);
+                ScheduleFissureEruption(player, ProjectilesFor(player), skillId, gem, from, fissureEnd,
                     now, epoch, criticalRoll, sequence, repeat, damageMore, cryExerted == true);
+            }
             targets = [.. found.Select(f => (f.Key, f.Value))];
             sweep = targets.Count;
             // shortcut: spirit and echo targets come after the ring's own and get no ring delay; time them by their
             // distance too once the client's rule for them is read.
-            var struck = targets.Select(t => t.Id).ToHashSet();
+            struck = targets.Select(t => t.Id).ToHashSet();
             foreach (uint id in spirit)
                 if (struck.Add(id) && player.Area.Monsters.TryGetValue(id, out var s) && !s.Dead && s.Life > 0
                     && (additionalStrikeTargets is null || s is { Hostile: true, OwnerId: null, WorldHidden: false }))
@@ -3157,6 +3176,58 @@ public static partial class Game
                     }
             }
         }
+        var fissureOrigin = ProjectileSession.Vector(from);
+        var fissurePath = fissure ? ProjectileSession.Vector(fissureEnd) - fissureOrigin : default;
+        double fissureLength = fissurePath.Length;
+        var fissureDirection = fissurePath.Unit;
+        double fissureFront = -1;
+        List<(uint Id, SpawnedMonster M, double Distance)>? fissureContacts = fissure ? [] : null;
+
+        async Task<bool> AddFissureContacts()
+        {
+            var contacts = fissureContacts!;
+            contacts.Clear();
+            while (fissureFront < fissureLength)
+            {
+                double speed = GroundSlamWave.CellsPerSecond;
+                double next = fissureFront < 0 ? 0 : Math.Min(fissureLength, fissureFront + speed * FrameMs / 1000d);
+                if (!await WaitProjectileTime(player, sweepStart + GroundSlamWave.AdvanceSeconds(next), epoch))
+                    return false;
+                using (ProjectileMutation(player, advance: scheduledSession is null))
+                {
+                    if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return false;
+                    double start = Math.Max(0, fissureFront);
+                    if (fissureFront >= 0)
+                        next = Math.Clamp((AreaTime(player) - sweepStart) * speed, next, fissureLength);
+                    fissureFront = next;
+
+                    // The client's fissure checks the actors around each new path segment. Look up only the
+                    // newly covered capsule, using the same area clock as the walkers.
+                    var midpoint = fissureOrigin + fissureDirection * ((start + next) / 2);
+                    double now = ProjectileWorldTime(player);
+                    foreach (var (id, monster) in player.Area.MonstersNear((midpoint.X, midpoint.Y), radius + (next - start) / 2))
+                    {
+                        if (id == excludeMonster || !monster.Hostile || monster.Dead || monster.Life == 0 || monster.OwnerId is not null
+                            || monster.WorldHidden || struck.Contains(id) || (singleStrikeTarget is not null && id != singleStrikeTarget)
+                            || (strikeIndex > 0 ? SkillMultiStrike.WasHitBeforeUse(alreadyHit, id) : once?.Contains(id) == true)) continue;
+                        var at = monster.Walk.Position(now);
+                        double distance = VolcanicFissureSweep.ContactDistance(fissureOrigin, fissureDirection, start, next, at, radius);
+                        if (double.IsFinite(distance) && (targetFilter is null || targetFilter(id, at)))
+                            contacts.Add((id, monster, distance));
+                    }
+                    contacts.Sort(static (a, b) => a.Distance != b.Distance ? a.Distance.CompareTo(b.Distance) : a.Id.CompareTo(b.Id));
+                    foreach (var (id, monster, _) in contacts)
+                    {
+                        struck.Add(id);
+                        once?.Add(id);
+                        targets.Add((id, monster));
+                    }
+                }
+                if (contacts.Count > 0) return true;
+            }
+            return false;
+        }
+
         // One simultaneous sweep, independent of notification latency. A holy hammer's hits are melee area hits that can
         // grant Fortification (the wiki's Holy Sweep of Hammerfalls); Rage stays with its sweep.
         bool fortificationGranted = shieldUse?.FortificationGranted == true;
@@ -3193,8 +3264,9 @@ public static partial class Game
         PlayerStatScope? sweepStats = null;
         try
         {
-            for (int victim = 0; victim < targets.Count; victim++)
+            for (int victim = 0; ; victim++)
             {
+                if (victim == targets.Count && (!fissure || !await AddFissureContacts())) break;
                 if (hexblast && victim > 0 && !hexblastExpanded) break;
                 var (id, m) = targets[victim];
                 // A ring and a wave arrive over time: the victim nearest the caster (or the player) first, each one when its
@@ -3376,7 +3448,8 @@ public static partial class Game
                         if (scaledBlastChaos > 0) conditionalHit = conditionalHit.Add(DamageType.Chaos, new(scaledBlastChaos, scaledBlastChaos));
                         profile = new(conditionalHit, woven.Ignite, woven.Bleed, woven.Poison);
                     }
-                    double profileMore = phaseDamageMore * hitAndAilmentMore;
+                    var fullLifeStrike = dualStrikeBonuses.Against(m);
+                    double profileMore = phaseDamageMore * hitAndAilmentMore * fullLifeStrike.DamageMore;
                     if (boneshatter is not null)
                     {
                         profileMore *= boneshatter.More;
@@ -3496,7 +3569,8 @@ public static partial class Game
                                     SupportedCriticalChanceVsBlinded(player, skillId, release: false, swingCritical, bleedingCrit),
                                     SupportedCriticalChanceVsGround(player, skillId, release: false, swingCritical, bleedingCrit));
                         }
-                        critical = RollCriticalStrike(player, shatteringCritical ? 10_000 : criticalChance, skillStats,
+                        int targetChance = shatteringCritical ? 10_000 : fullLifeStrike.CriticalChance(criticalChance);
+                        critical = RollCriticalStrike(player, targetChance, skillStats,
                                 attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
                     }

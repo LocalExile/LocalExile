@@ -69,7 +69,7 @@ public static partial class Game
         int Read(uint name) => name == Stat.IsTotem ? 0 : Get(name);
         // The owner's Arcane Surge cast speed is his buff's, not the totem's.
         var owner = CharacterPlayerStats(player);
-        int speed = FinalCastSpeedPct(Read, () => HoldingFishingRod(player),
+        int speed = FinalCastSpeedPct(Read, player,
             CastSpeedPct(owner) - GolemStat(owner, Stat.ArcaneSurgeCastSpeedPlusPct)
             + GolemStat(gem.Stats, Stat.BaseCastSpeedPlusPct) + Get(Stat.TotemSkillCastSpeedPlusPct));
         return SpellCastTiming.ForSkill(SkillsFor(player), gem.Effect, speed)?.DurationMilliseconds is int ms
