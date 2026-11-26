@@ -38,6 +38,7 @@ public static partial class Game
             session.World(id, GameServer.Core.Protocol.Instance.InstanceProtocol.Orientation(id,
                 MathF.Atan2((float)(aim.X - from.X), (float)(from.Y - aim.Y)), locked: false), null);
         var effects = m.Effects;
+        projectile = projectile with { Count = Math.Clamp(projectile.Count + effects.AdditionalProjectiles - m.Mods.Effects.AdditionalProjectiles, 1, 256) };
         int EffectStat(uint id) => effects[id];
         double speed = Math.Max(0.1, ProjectileSpeed.CellsPerSecond(projectile.Speed, EffectStat, EffectStat,
             Environment.GetEnvironmentVariable("Game_PROJECTILE_SPEED")));

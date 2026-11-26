@@ -5,7 +5,7 @@ static partial class Game
     internal const uint ExpandedInventoryStat = Stat.PrimalistAscendancyExpandedMainInventory;
 
     // The grant is the real source value, never the presentation-only recovery flag below.
-    internal static bool ExpandedInventoryGranted(Player player)
+    public static bool ExpandedInventoryGranted(Player player)
     {
         if (!(ExpandedInventoryStat is var key)) return false;
         long value = StatSourceValues(player).GetValueOrDefault(key);

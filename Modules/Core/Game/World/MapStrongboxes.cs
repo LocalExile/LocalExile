@@ -648,13 +648,13 @@ public static partial class MapStrongboxes
     /// <c>number_of_packs_to_summon</c> packs and <c>number_of_monsters_to_summon</c> single monsters at that rarity; the
     /// implicit ChestSummonNormals is 3 normal packs), one more normal pack by <c>map_strongboxes_additional_pack_chance_%</c>,
     /// and on the instance's first opened box <c>map_first_strongbox_contains_x_additional_rare_monsters</c> rares. Packs
-    /// are the area's own scattered packs by weight.</summary>
+    /// are the instance's own scattered packs by weight (<see cref="InstancePacks(Player)"/>).</summary>
     public static List<AreaPopulation.Spawn> Guards(Player player, Box box, bool first) => Guards(player, box, first, false);
 
     /// <param name="summoned">The box's daemons bring guards of their own: no stand-in packs.</param>
     static List<AreaPopulation.Spawn> Guards(Player player, Box box, bool first, bool summoned)
     {
-        var packs = (box.PackArea is { Length: > 0 } ? Packs.For(box.PackArea) : null) ?? Packs.For(player.Layout.Id);
+        var packs = (box.PackArea is { Length: > 0 } ? Packs.For(box.PackArea) : null) ?? InstancePacks(player);
         if (packs is null || StrongboxCatalog.Find(box.Type) is not { } type) return [];
         var pool = packs.Scattered.Where(p => p.Pack.Entries.Count > 0
             && p.Pack.Entries.All(e => Monsters.Find(e.Variety.ToString()) is { Supported: true })).ToList();

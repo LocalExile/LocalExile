@@ -135,12 +135,12 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   - For the client's current party (`+0xc680`) it resets the party; for another id it drops it from `+0xc668`.
   - S→C 0xab (case 0x2c) only clears a pending invite (`+0xc730`) and did nothing for a party.
   - With fewer than two members left, every member gets 0xaa (disbanded); otherwise the others get the smaller party.
-- **Public parties & disconnects.** `C→S 0x98` updates the party's public description (published as `0xa9`'s title;
-  empty description clears public state and disbands a solo party). Accepting an invite (`0x95`) whose inviter has
+- **Public parties, noticeboard & disconnects.** `C→S 0x98` updates the party's public description (published as `0xa9`'s title;
+  empty description clears public state and disbands a solo party). `C→S 0xac` (u8 filter) requests the public party noticeboard and is answered with `S→C 0xad` (reader `0x1421ab5e0` → `0x1421c0e10`: u16 count, then per entry u32 party id, wstr description, u8 member count, u8 min level, u8 max level, u8 flagsA, u8 flagsB). `C→S 0xa2` (u32 party id; 0 unsubscribes) inspects a public party, returning member `0xa7` rows (with character level in `+0xb9`) and `0xa9` details. Clicking Join on the noticeboard sends `C→S 0x95` with the public party's id directly. Accepting an invite (`0x95`) whose inviter has
   already disconnected cleans up the stale invite and sends `0xaa` instead of throwing on a disposed socket; true
   disconnects (`DisconnectHuman`) remove the member from parties and cancel pending invites while preserving area-change
   rebinds.
-- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4.
+- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4. `C→S 0x155` (duel challenge) enqueues the challenge through `PvpQueue.Enqueue` (`S→C 0x118` / `0x157`) and `C→S 0x156` (duel response, u8 accept/decline) settles or withdraws it.
 
 ## 6. Friends, ignore list, status, hideout invites and duels
 

@@ -80,6 +80,36 @@ start an arm; kills of monsters created 62 to 85 cells from a piece did, one cre
 **Testing:** `Game_LEAGUE_CHANCES=Anarchy=100` (CoreLeagues ids, comma-separated) gives that chance in every area the
 Gateway populates. `Game_ENCOUNTERS_AT_ARRIVAL=1` places each encounter about 12 cells from where the player arrives.
 
+## Ritual
+
+CoreLeagues 20 is rolled by the module at `AreaPopulated` in maps (`ExtraTerrainFeatures.LeagueCount`; `map_area_contains_rituals`
+forces it) and in the retail 3.29 campaign areas carrying `MapActsRitualSpawn` in `WorldAreas.ModsKeys` (`1_2_8` The Northern
+Forest and `1_2_13` The Dread Thicket, 3 forced altars). Maps roll 3–4 altars by level (`RitualBalancePerLevel`; 4 with
+`map_ritual_encounter_count_is_four`), each with a rune and its guard packs. Nothing is sent until a player comes within 250
+cells of an altar; it then shows, spawns its guards, and ties hostile monsters in its 87-cell circle while inactive. Tied deaths
+spawn BloodPools and credit the altar; clearing all tied monsters marks it ready (`S→C 0x165`). Clicking a ready altar starts
+the waves, activates circular arena containment (`RitualBlocker` ring radius 87), sets `is_in_ritual` (enabling life/ES recovery
+ceilings), spawns rune daemons/hazards, and grants Tribute (`S→C 0x167`).
+
+**Favour window (3.29.3c/d verified):** `S→C 0x0166` (`0x1421b5aa0` → `0x14250f110`) carries `u32 BE tribute`, `u8 rerollsUsed`,
+`u8 count`, `count × (u32 BE itemId, u16 BE buyCost, u16 BE originalCost, u8 flag)` sorted ascending by `itemId` (`0x140320c60`),
+`u8 totalAltars`, `u8 completedAltars` (`buyCost=0xffff` = hidden placeholder `HiddenItem*Ritual`, `originalCost=0xffff` = not
+deferrable; `flag` 0 normal / 1 deferred / 2 warning / 3 final warning). `S→C 0x007b` kind `0x38` opens `RitualRewardWindow`
+bound to a Manager-1 shop inventory (`0x620`, `flags=0x60`); Manager-0 row 57 (`RitualSavedRewards1`, `invId=58`) mirrors the
+league-isolated persisted deferred items (`PersonalStashOf(player)` `ModuleData["ritual.deferred"]`) for the client's 50-item
+defer cap (`0x14032049e`). `QuestFlags` row 2020 (`IsMapOwner`) is granted to the instance owner via `GameEvents.AreaQuestFlags`
+and flushed in `Placed` after `AreaPopulated`. Client actions: `C→S 0x0169`
+(open), `0x0168` (reroll, base cost from `RitualBalancePerLevel.__col13`), `0x0283` (buy/claim, 18 B), `0x0284` (defer, 6 B,
+min area level 47).
+
+**Vessels, Scarabs, Atlas & Omens:** Using a `Ritual Vessel` (`CurrencyRitualStone`, `C→S 0x0074`/`0x0079`) on a completed altar
+captures its first-kill monsters into a `Blood-filled Vessel` (`RitualFragment`, item component 157 `RitualEncounter`: `u8 count`,
+`u32 LE monsterLevel`, `count × (u16 LE MonsterVarieties HASH16, u16 LE count)`, `u16 LE WorldAreas HASH16`, persisted in
+`items.ritual_encounter`). Placing up to 4 Blood-filled Vessels in the Map Device injects their captured monsters and stacking
+bonuses (+5% IIQ via `MapFragmentMods` row 247, +20% spawn speed/max alive/rewards). All 4 Ritual Scarabs, Ritual Atlas passives
+(`Immutable Dogma`, `Arbitrary Tenets`, `Occult Devotion`, `Sacrificial Due`, `Answered Appeals`, `Flexible Dogma`, `Secular
+Focus`, Wisps buff `2502`), and all 16 `AncestralOmen*` Omens (1 per combat area) are wired.
+
 ## Mercenaries (CoreLeagues row 28)
 
 A map area rolls one mercenary of the Mercenaries of Trarthus at its WorldAreaLeagueChances chance (column +0xa4: 8% in
@@ -93,5 +123,5 @@ at the area's monster level.
 The mercenary is the instance's. It waits friendly and scripted (team 70, `encounter_state` 1), a click opens the panel,
 the panel's duel choice (a 0x2ca action of ruleset 161) starts a countdown of 54 frames, the friendly one is replaced by a
 hostile one of its variety, and its death leaves the `*Allied` mercenary. The rulesets 161 and 162 are added by 0x1f when the
-mercenary is placed or a player enters. Not built: the build's own skills, the hire following and fighting for the player,
+mercenary is placed or a player enters. Not built: the hire following and fighting for the player,
 the duel opponent's drops, and the header listing of the two rulesets.

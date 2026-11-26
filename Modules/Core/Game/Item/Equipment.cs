@@ -108,7 +108,10 @@ public static partial class Game
         var result = new Dictionary<uint, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(player).Mods));
         var local = ItemModStats.Local(item, ItemsFor(player).Mods);
         if (!local.Keys.Any(name => StatConditions.PlainOf(Stats.Name(name)) is not null)) return result;
-        var flags = player.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(player, ResourceEffectsTime(player));
+        // The cached key's flags are the build-time values: a flag the sum never read can flip while the cache still
+        // hits, and the first local-mods read after the flip would see the build-time value. Read the live flags, so
+        // a conditional local mod always answers from the flag as it is now.
+        var flags = ItemConditionFlags(player, ResourceEffectsTime(player));
         foreach (uint name in local.Keys) result.Remove(name);
         foreach (var (name, value) in ItemModStats.Local(item, ItemsFor(player).Mods, new(Flags: flags), Stats.Has))
             result[name] = value;
@@ -301,10 +304,11 @@ public static partial class Game
         foreach (var worn in WornCosmetics(player))
         {
             if (MtxEffects.SlotOf(worn.Slot) is not { ModelSlot: byte model } slot || MtxEffects.Of(worn.MtxTypeHash) is not { } fx) continue;
+            byte tier = fx.ResolveTier(worn.Option);
             if (cosmeticSlots.ContainsKey(model))
             {
                 if (fx.Visual != 0)
-                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                    cosmeticSlots[model] = new VisibleItem(model, fx.Visual) { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
                 continue;
             }
             // With a bow the main hand's cosmetics dress the bow, which is the left hand's entry, and the off hand's dress
@@ -314,9 +318,9 @@ public static partial class Game
             if (at < 0 || looks[at].VisualIdentity == 0) continue;   // nothing equipped there to dress
             if (!classes.TryGetValue(model, out int itemClass) || !fx.Fits(itemClass)) continue;   // not an item it dresses
             if (slot.IsWeaponEffect && fx.WeaponEffect != 0)
-                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { EffectVisual = fx.WeaponEffect, EffectHash = worn.MtxTypeHash, EffectTier = tier };
             else if (!slot.IsWeaponEffect && fx.Visual != 0)
-                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash };
+                looks[at] = looks[at] with { SkinVisual = fx.Visual, SkinHash = worn.MtxTypeHash, SkinTier = tier };
         }
         return [.. looks, .. cosmeticSlots.Values];
     }
@@ -342,7 +346,7 @@ public static partial class Game
 
     // What the player wears changed (an item went into or out of a visible equipment row): 0x2bc Inventories for the model,
     // then the Actor skill list again, since the gems socketed in the equipment grant skills.
-    public static async Task SendEquipment(Player player, PlayerInventories items)
+    public static async Task SendEquipment(Player player, PlayerInventories items, bool refreshCosmetics = true)
     {
         RefreshVaalSouls(player);
         // Refresh the canonical inactive qualification before reconciling grants: a swapped item may change another
@@ -355,7 +359,7 @@ public static partial class Game
         }
         await SendModel(player, Looks(player, items), "equipment");
         // The socketed gems may have changed: the Cosmetics tab's skill slots follow them.
-        await SendWornCosmetics(player, "equipment changed");
+        if (refreshCosmetics) await SendWornCosmetics(player, "equipment changed");
         await SendSkills(player);
         await SendPlayerStatSnapshot(player,
             () => PlayerStatsOffFrames(player),

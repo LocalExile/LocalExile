@@ -61,39 +61,52 @@ public static class BossKits
         if (variety.GrantedEffects is not { Count: > 0 } effects) return [];
         List<int> usable = [];
         foreach (int effect in effects)
-        {
-            if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) continue;
-            if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
-                // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
-                // keeps only its non-movement skills.
-                || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
-                // An aura is no move: it stands on the monster from its spawn (MonsterSkills.Auras).
-                || catalog.IsAura(effect)) continue;
-            string? id = catalog.EffectId(effect);
-            if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
-                || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
-                || id.Contains("MemoryGame", StringComparison.Ordinal)
-                || id.Contains("Bond", StringComparison.Ordinal)
-                || id.Contains("Mark", StringComparison.Ordinal)
-                || id.Contains("Souls", StringComparison.Ordinal)
-                // This action drives the arena's ArakaaliTurret_A/B objects, not a standalone hit. Without them its
-                // native shuffle dereferences an empty turret list (live Arakaali crash at 0x141c7a0e4).
-                || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
-                || id.Contains("EmptyAction", StringComparison.Ordinal)
-                || id.Contains("Emerge", StringComparison.Ordinal)
-                || id.Contains("Retreat", StringComparison.Ordinal)
-                // GA* GeometryAttack rows (e.g. GANavaliGoatmanLeapDamage, GAGoatmanLeapSlamDamage) are secondary
-                // payloads paired with another action (such as a leap), not standalone swings.
-                || IsLeapDamagePayload(id, effect))) continue;
-            // A summon row the tables give no attack, spell or projectile type (Piety's eye spawners: their
-            // ActiveSkills rows carry no type at all) is still an action when the server can name what it raises;
-            // anything else without a type is no action.
-            if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect)) && !BossSummons.HasOverride(effect)) continue;
-            // A skill on a corpse is no hit of its own: without one the client plays nothing (MonsterSkills.OnCorpse).
-            if (MonsterSkills.IsCorpseSkill(effect)) continue;
-            if (!usable.Contains(effect)) usable.Add(effect);
-        }
+            if (IsUsable(catalog, variety, effect, forSummon) && !usable.Contains(effect)) usable.Add(effect);
         return usable;
+    }
+
+    /// <summary>The effect a mercenary leaves by (the first granted effect of most mercenary varieties): it is no attack and no
+    /// kit entry, whatever its type says.</summary>
+    public const string MercenaryPortalOut = "EASMercenaryPortalOut";
+
+    /// <summary>Whether the effect is <see cref="MercenaryPortalOut"/>.</summary>
+    public static bool IsLeavePortal(SkillCatalog catalog, int effect) => effect >= 0 && catalog.EffectId(effect) == MercenaryPortalOut;
+
+    /// <summary>Whether one granted effect is something the ordinary AI can play as an action (the test <see cref="Effects"/>
+    /// applies to each of a variety's effects), for a caller whose effects do not come from the variety's own list: a
+    /// mercenary's build skills.</summary>
+    public static bool IsUsable(SkillCatalog catalog, MonsterCatalog.Variety variety, int effect, bool forSummon = false)
+    {
+        if (SolarisLunaris.IsBody(variety) && effect is 6739 or 6740) return false;
+        if (effect < 0 || catalog.CastsOnDeath(effect) || IsDamageTakenTrigger(catalog, effect)
+            // A summon's movement attack is how it reaches the player (Doubt's spider MonsterFlickerStrike); a boss
+            // keeps only its non-movement skills.
+            || (catalog.IsMovement(effect) && !(forSummon && catalog.IsAttack(effect)))
+            // An aura is no move: it stands on the monster from its spawn (MonsterSkills.Auras).
+            || catalog.IsAura(effect)) return false;
+        string? id = catalog.EffectId(effect);
+        if (id == MercenaryPortalOut) return false;
+        if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
+            || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
+            || id.Contains("MemoryGame", StringComparison.Ordinal)
+            || id.Contains("Bond", StringComparison.Ordinal)
+            || id.Contains("Mark", StringComparison.Ordinal)
+            || id.Contains("Souls", StringComparison.Ordinal)
+            // This action drives the arena's ArakaaliTurret_A/B objects, not a standalone hit. Without them its
+            // native shuffle dereferences an empty turret list (live Arakaali crash at 0x141c7a0e4).
+            || id.StartsWith("SpiderGodActivateLaser", StringComparison.Ordinal)
+            || id.Contains("EmptyAction", StringComparison.Ordinal)
+            || id.Contains("Emerge", StringComparison.Ordinal)
+            || id.Contains("Retreat", StringComparison.Ordinal)
+            // GA* GeometryAttack rows (e.g. GANavaliGoatmanLeapDamage, GAGoatmanLeapSlamDamage) are secondary
+            // payloads paired with another action (such as a leap), not standalone swings.
+            || IsLeapDamagePayload(id, effect))) return false;
+        // A summon row the tables give no attack, spell or projectile type (Piety's eye spawners: their
+        // ActiveSkills rows carry no type at all) is still an action when the server can name what it raises;
+        // anything else without a type is no action.
+        if (!(catalog.IsAttack(effect) || catalog.IsSpell(effect) || catalog.IsProjectile(effect)) && !BossSummons.HasOverride(effect)) return false;
+        // A skill on a corpse is no hit of its own: without one the client plays nothing (MonsterSkills.OnCorpse).
+        return !MonsterSkills.IsCorpseSkill(effect);
     }
 
     internal static bool IsLeapDamagePayload(string id, int effect) =>
@@ -119,6 +132,35 @@ public static class BossKits
         return kit;
     }
 
+    /// <summary>A kit made only of the given effects (a mercenary's build skills), shaped as a unique's kit is (<see cref="Kit"/>):
+    /// the effects <see cref="UniqueOrder"/> keeps, each with the cooldown the tables give it, its travel, buff or curse form,
+    /// its barrage, teleport and damage-taken trigger marks, and only the ones that do something. The variety's own default
+    /// attack is not put in front: for a mercenary variety that attack is the effect it leaves by.</summary>
+    public static IReadOnlyList<MonsterKitSkill> KitFromEffects(Player conn, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<int> effects)
+    {
+        var kit = BuildKit(conn, variety, level, UniqueOrder(SkillsFor(conn), variety, effects), null, unique: true, keepFirst: false);
+        if (kit.Count <= 1 || (kit[0].Attack.Use is null && kit[0].TriggerThreshold == 0 && kit[0].CooldownSeconds <= 0))
+            return kit;
+        // Put a direct attack at slot 0 (preferring zero cooldown): SpawnMonster and walk-up fallbacks treat kit[0] as
+        // the actor's default attack, so a build whose Skills1 starts with a hex or buff must not leave a Use skill there.
+        int primary = -1;
+        for (int i = 0; i < kit.Count; i++)
+            if (kit[i].Attack.Use is null && kit[i].TriggerThreshold == 0)
+            {
+                if (kit[i].CooldownSeconds <= 0) { primary = i; break; }
+                if (primary < 0) primary = i;
+            }
+        if (primary <= 0) return kit;
+        List<MonsterKitSkill> ordered = new(kit.Count) { kit[primary] with { Attack = kit[primary].Attack with { SkillId = 0x4000 } } };
+        for (int i = 0; i < kit.Count; i++)
+        {
+            if (i == primary) continue;
+            ordered.Add(kit[i] with { Attack = kit[i].Attack with { SkillId = (ushort)(0x4000 + ordered.Count) } });
+        }
+        return ordered;
+    }
+
     /// <summary>A monster's own kit with a caller's extra specials appended (SpawnMonster's <c>extraKit</c>). An effect the
     /// kit already plays is not a second copy; every appended entry takes the next free kit id (0x4000 + its index), the id
     /// <see cref="SkillsOf"/> sends the actor and <see cref="Consume"/> matches its cooldown by.</summary>
@@ -137,12 +179,20 @@ public static class BossKits
     /// <summary>A unique's effects: those <see cref="Effects"/> plays as hits, then those it plays as a travel, a buff on
     /// itself or a curse (MonsterSkills.ShapeOf; a Rogue Exile's Leap Slam, Enduring Cry, Temporal Chains), then its
     /// triggers on damage taken, which only the damage it takes plays (<see cref="DamageTakenThreshold"/>).</summary>
-    public static IReadOnlyList<int> UniqueEffects(SkillCatalog catalog, MonsterCatalog.Variety variety)
+    public static IReadOnlyList<int> UniqueEffects(SkillCatalog catalog, MonsterCatalog.Variety variety) =>
+        UniqueOrder(catalog, variety, variety.GrantedEffects ?? []);
+
+    /// <summary>The candidates a unique plays, in the order of <see cref="UniqueEffects"/>: the usable ones, then the shaped ones,
+    /// then the triggers on damage taken. Never the effect a mercenary leaves by.</summary>
+    public static IReadOnlyList<int> UniqueOrder(SkillCatalog catalog, MonsterCatalog.Variety variety, IReadOnlyList<int> candidates)
     {
-        List<int> effects = [.. Effects(catalog, variety)];
+        List<int> effects = [];
+        foreach (int effect in candidates)
+            if (IsUsable(catalog, variety, effect) && !effects.Contains(effect)) effects.Add(effect);
         foreach (bool trigger in new[] { false, true })
-            foreach (int effect in variety.GrantedEffects ?? [])
-                if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && IsDamageTakenTrigger(catalog, effect) == trigger
+            foreach (int effect in candidates)
+                if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
                     effects.Add(effect);
         return effects;
@@ -180,15 +230,31 @@ public static class BossKits
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false) =>
+        Kit(player, variety, level, defaultEffect, defaultAttack, unique, null, 1);
+
+    public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
+        int defaultEffect, MonsterAttack? defaultAttack, bool unique, MonsterModEffects? modifiers, double mapDamage)
     {
         var catalog = SkillsFor(player);
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
-        List<MonsterKitSkill> kit = [];
         IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect) && !IsDamageTakenTrigger(catalog, defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
+        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true, modifiers, mapDamage);
+    }
+
+    /// <summary>The entries of a kit for these effects, in order. <paramref name="keepFirst"/>: the first entry is kept whatever
+    /// it does (it is the monster's own default attack); without it every entry must do something.</summary>
+    static IReadOnlyList<MonsterKitSkill> BuildKit(Player player, MonsterCatalog.Variety variety, byte level,
+        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst,
+        MonsterModEffects? modifiers = null, double mapDamage = 1)
+    {
+        var catalog = SkillsFor(player);
+        List<MonsterKitSkill> kit = [];
         foreach (int effect in effects)
         {
+            // The first entry stays a monster's own attack whatever it is; the other entries must be something.
+            bool kept = kit.Count == 0 && keepFirst;
             int effectLevel = catalog.MaxLevelAt(effect, level);
             double cooldown = catalog.CooldownMs(effect, effectLevel) / 1000d;
             bool isBarrage = BossMoves.BarrageOf(catalog, effect) is not null;
@@ -198,8 +264,9 @@ public static class BossKits
             var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
             // attack makes of it (Vickas Giantbone's Ethereal Knives totem).
-            var attack = (kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null)
-                ? defaultAttack with { SkillId = id } : built) with { Effect = effect };
+            bool keepsDefault = kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null);
+            var attack = (keepsDefault
+                ? defaultAttack! with { SkillId = id } : built) with { Effect = effect };
             if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
             {
                 // A travel reaches as far as it carries the monster; a buff on itself is used from where it sees the
@@ -215,7 +282,7 @@ public static class BossKits
                     : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
                     : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
-                kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+                kit.Add(new(effect, Scaled(attack), cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
                 continue;
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
@@ -232,7 +299,7 @@ public static class BossKits
                 // A totem's skill is its body's to use: the summon is kept only when that body has something to do.
                 if (attack.Summon is { Effect: >= 0 } totem)
                 {
-                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && kit.Count > 0) continue;
+                    if (BodyAttack(player, Monsters.Find(totem.Variety.ToString()), level, totem.Effect, 0x4000) is null && !kept) continue;
                 }
                 else if (attack.Summon is null)
                 {
@@ -246,11 +313,33 @@ public static class BossKits
                     // A monster's own skill the shaping has no form for stays the action it was: the client plays its
                     // clip and what that draws (Merveil, the Twisted's geysers, screech and cascade), and it hits as a
                     // plain hit.
-                    else if (kit.Count > 0 && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
+                    else if (!kept && !(Acts(attack) && KeepsUnshaped(catalog, variety, effect))) continue;
                 }
             }
-            if (!Acts(attack) && kit.Count > 0) continue;
-            kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+            if (!Acts(attack) && !kept) continue;
+            kit.Add(new(effect, Scaled(attack), Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+
+            MonsterAttack Scaled(MonsterAttack action)
+            {
+                // Spawn's default attack already carries the map, rarity and species modifiers. Every other kit
+                // entry is built from native skill data and needs the same scaling before its actor record is sent.
+                if (keepsDefault || modifiers is null) return action;
+                return ScaleAttack(action);
+            }
+            MonsterAttack ScaleAttack(MonsterAttack action, bool placed = false) => action with
+            {
+                Damage = modifiers!.Hit(action.Damage.Scale(mapDamage), level),
+                Seconds = modifiers.AttackSeconds(action.Seconds, action.Spell),
+                AreaRadius = action.AreaRadius * (action.Strike is not null || placed ? modifiers.AreaScaleFactor : 1),
+                Range = action.AreaAtSelf && action.AreaRadius > 0 ? action.Range * modifiers.AreaScaleFactor : action.Range,
+                Projectile = action.Projectile is { } shot ? shot with
+                {
+                    Count = Math.Max(1, shot.Count + modifiers.AdditionalProjectiles),
+                    SpreadRadians = shot.Count + modifiers.AdditionalProjectiles > 1 && shot.SpreadRadians == 0 ? .45 : shot.SpreadRadians,
+                    AreaRadius = shot.AreaRadius * modifiers.AreaScaleFactor,
+                } : null,
+                Trap = action.Trap is { } trap ? ScaleAttack(trap, placed: true) : null,
+            };
         }
         return kit;
     }

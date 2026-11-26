@@ -293,6 +293,16 @@ public static class LocalShopFeature
             ? LocalRecordsOf(player).FirstOrDefault(r => r.Id == recordId)
             : Mtx.Find(recordId);
 
+    /// <summary>Resolves a saved cosmetic pick against local grants first, then the base catalog.</summary>
+    public static InstanceMicrotransactions.Record? ResolveSaved(Player player, CharacterSaves.SavedCosmetic saved)
+    {
+        if (saved.Record >= FirstLocalGrantId
+            && FindRecord(player, saved.Record) is { } local
+            && (saved.Hash is null || local.MtxTypeHash == saved.Hash))
+            return local;
+        return Mtx.Resolve(saved);
+    }
+
     static uint? ResolvePackageHash(string packageId)
     {
         if (string.IsNullOrWhiteSpace(packageId)) return null;
