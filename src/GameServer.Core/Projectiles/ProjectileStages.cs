@@ -4,6 +4,7 @@ public sealed partial class ProjectileRuntime
 {
     void StartStages(ProjectileEntity p)
     {
+        if (p.Phase == 0 && p.Profile.Steering is { } steering) StartSteering(p, steering);
         if (p.Profile.WanderInterval > 0)
         {
             void Wander()
@@ -62,6 +63,37 @@ public sealed partial class ProjectileRuntime
             }
             Schedule(Now + emission.Interval, Emit);
         }
+    }
+
+    void StartSteering(ProjectileEntity p, ProjectileSteeringRecipe steering)
+    {
+        var desired = steering.Direction(p, Now);
+        long nextTarget = Now + steering.TargetInterval;
+
+        void Turn()
+        {
+            if (!projectiles.ContainsKey(p.Id) || p.Phase != 0) return;
+            if (Now >= nextTarget)
+            {
+                desired = steering.Direction(p, Now);
+                nextTarget = Now + steering.TargetInterval;
+            }
+            if (desired is { Length: > 0 } target)
+            {
+                var direction = target.Unit;
+                double cross = p.Direction.X * direction.Y - p.Direction.Y * direction.X;
+                double delta = Math.Atan2(cross, p.Direction.Dot(direction));
+                if (Math.Abs(delta) > 1e-6)
+                {
+                    p.Direction = Math.Abs(delta) <= steering.MaximumTurn ? direction
+                        : p.Direction.Rotate(Math.CopySign(steering.MaximumTurn, delta));
+                    Publish(ProjectileEventKind.Redirect, p);
+                }
+            }
+            Schedule(Now + steering.TurnInterval, Turn);
+        }
+
+        Schedule(Now + steering.TurnInterval, Turn);
     }
 
     void EmitAfterEnd(ProjectileEntity parent, ProjectileEmissionRecipe recipe, ProjectileActorKey? excluded)

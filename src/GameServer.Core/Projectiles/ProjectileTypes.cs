@@ -70,6 +70,8 @@ public sealed record ProjectilePulseRecipe(string Stage, double Radius, long Int
     public bool AreaDamage { get; init; } = true;
     public ProjectileHitRule? HitRule { get; init; }
 }
+public sealed record ProjectileSteeringRecipe(long TargetInterval, long TurnInterval, double MaximumTurn,
+    Func<ProjectileEntity, long, ProjectileVector?> Direction);
 public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radial = false, long Interval = 0,
     bool RandomDirections = false, Func<ProjectileEntity, ProjectileVector>? BaseDirection = null)
 {
@@ -265,6 +267,7 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? EndEmission { get; init; }
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
+    public ProjectileSteeringRecipe? Steering { get; init; }
     /// <summary>Linear increase to the contact multiplier over this flight's lifetime, as a percentage.</summary>
     public int LifetimeDamageGainPercent { get; init; }
     public bool Lobbed { get; init; }

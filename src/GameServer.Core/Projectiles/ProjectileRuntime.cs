@@ -124,7 +124,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             || p.SpeedVariationPercent is < 0 or > 99
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
-            || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
+            || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0
+            || p.Steering is { } s && (s.TargetInterval < s.TurnInterval || s.TurnInterval <= 0
+                || !double.IsFinite(s.MaximumTurn) || s.MaximumTurn <= 0 || s.MaximumTurn > Math.PI))
             throw new ArgumentOutOfRangeException(nameof(p));
         foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
             if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
