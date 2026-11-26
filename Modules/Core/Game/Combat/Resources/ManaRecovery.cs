@@ -1,7 +1,6 @@
 /// <summary>Stat-driven Mana costs.</summary>
 public static class ManaRecoveryRules
 {
-    public const uint PerDexterity = Stat.XManaPerDexterity;
     public const uint RagePer200 = Stat.GainXRagePer200ManaSpent;
     public static int Cost(int supportedBase, Func<uint, int> player, bool? channelled = null, double more = 1) =>
         Cost(supportedBase, player, channelled, more, applyManaEfficiency: true);

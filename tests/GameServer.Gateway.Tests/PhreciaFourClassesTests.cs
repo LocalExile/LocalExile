@@ -1,4 +1,7 @@
+using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using GameServer.Modding;
+using GameServer.Modules.PhreciaAscendancies;
 
 namespace GameServer.Gateway.Tests;
 
@@ -89,5 +92,106 @@ public sealed class PhreciaFourClassesTests
         Assert.Equal(.70, Factor(), 6);
         Assert.Equal(1.10, Factor(("chill_effect_is_reversed", 1)), 6);
         Assert.Equal(1, Factor(("chill_effect_is_reversed", 1), ("not_affected_by_action_speed_modifiers", 1)), 6);
+    }
+
+    // Three of the stats only this family's nodes give, by the module's own rules: the values the game's rules gave when
+    // they read the stats themselves (30% more maximum, 455 Strength is 45 groups of ten, 107 Dexterity at 2 Mana each).
+    [Fact]
+    public void The_familys_own_stats_keep_their_values_in_the_module()
+    {
+        var hit = PhreciaStats.MaximumAttackDamage(DamagePacket.Of(DamageType.Physical, 10, 20).Add(DamageType.Fire, new(4, 8)),
+            key => key == Stat.MaximumAttackDamagePlusPctFinalFromAscendancy ? 30 : 0);
+        Assert.Equal(10, hit[DamageType.Physical].Min);
+        Assert.Equal(26, hit[DamageType.Physical].Max, 9);
+        Assert.Equal(4, hit[DamageType.Fire].Min);
+        Assert.Equal(10.4, hit[DamageType.Fire].Max, 9);
+
+        var stats = new PlainStatMap(new() { [Stat.Strength] = 455, [Stat.SkillEffectDurationPlusPct] = 10 });
+        PhreciaStats.DurationPerTenStrength(null!, stats);
+        Assert.Equal(10, stats[Stat.SkillEffectDurationPlusPct]);
+        stats[Stat.SkillEffectDurationPlusPctPer10Strength] = 1;
+        PhreciaStats.DurationPerTenStrength(null!, stats);
+        Assert.Equal(55, stats[Stat.SkillEffectDurationPlusPct]);
+
+        var sources = new Dictionary<uint, int> { [Stat.BaseMaximumMana] = 15, [Stat.XManaPerDexterity] = 2 };
+        PhreciaStats.ManaPerDexterity(null!, sources, (0, 107, 0));
+        Assert.Equal(229, sources[Stat.BaseMaximumMana]);
+    }
+
+    // The game's hand-overs run where its rules read those stats before: the default attack's hit, the stats on the final
+    // Strength, the pool's sources on the final Dexterity (the pool comes out as with the same flat Mana), and the cast.
+    [Fact]
+    public void The_games_hand_overs_give_the_familys_own_stats_their_effect()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var player = fixture.Player;
+        bool Mine(Player p) => ReferenceEquals(p, player);
+        void Rebuild() { player.StatSourcesCache = null; Game.RecomputePoolsAndSpeed(player); }
+
+        Rebuild();
+        var weapon = Game.WeaponFor(player);
+        var withMore = new Dictionary<uint, int>(Game.CharacterPlayerStats(player)) { [Stat.MaximumAttackDamagePlusPctFinalFromAscendancy] = 30 };
+        DamageRange Swing() => Game.AttackHit(weapon, withMore, melee: true, accuracy: new(Game.PlayerAccuracy(player)))[DamageType.Physical];
+        var plain = Swing();
+        Assert.True(plain.Max > 0);
+        using (GameEvents.AttackHit.Add("Game", PhreciaStats.MaximumAttackDamage))
+        {
+            Assert.Equal(plain.Min, Swing().Min, 9);
+            Assert.Equal(plain.Max * 1.3, Swing().Max, 9);
+        }
+
+        int durationBefore = Game.CharacterPlayerStats(player).GetValueOrDefault(Stat.SkillEffectDurationPlusPct);
+        using (GameEvents.DerivedStats.Add("Game", PhreciaStats.DurationPerTenStrength))
+        using (GameEvents.PlayerStatSources.Add("Game", (p, s) => !Mine(p) ? s
+            : new Dictionary<uint, int>(s) { [Stat.SkillEffectDurationPlusPctPer10Strength] = 1 }))
+        {
+            Rebuild();
+            var built = Game.CharacterPlayerStats(player);
+            Assert.True(built[Stat.Strength] >= 10);
+            Assert.Equal(durationBefore + built[Stat.Strength] / 10, built[Stat.SkillEffectDurationPlusPct]);
+        }
+
+        player.God = true;
+        Rebuild();
+        var (manaBefore, dexterity) = (player.Pools.Mana, player.Pools.Dexterity);
+        Assert.True(dexterity > 1000);
+        using (GameEvents.PlayerStatSources.Add("Game", (p, s) => !Mine(p) ? s
+            : new Dictionary<uint, int>(s) { [Stat.XManaPerDexterity] = 2 }))
+        using (GameEvents.PoolSources.Add("Game", PhreciaStats.ManaPerDexterity))
+            Rebuild();
+        var manaPerDexterity = player.Pools.Mana;
+        Assert.True(manaPerDexterity > manaBefore);
+        using (GameEvents.PlayerStatSources.Add("Game", (p, s) => !Mine(p) ? s
+            : new Dictionary<uint, int>(s) { [Stat.BaseMaximumMana] = s.GetValueOrDefault(Stat.BaseMaximumMana) + 2 * dexterity }))
+        {
+            Rebuild();
+            Assert.Equal(player.Pools.Mana, manaPerDexterity);
+        }
+
+        using (GameEvents.CastSpeedMore.Add("Game", PhreciaStats.CastSpeedWithFishingRod))
+        {
+            int Speed() => Game.FinalCastSpeedPct(key => key == Stat.CastSpeedPlusPctFinalWhileHoldingFishingRod ? 50 : 0, player, 0);
+            Assert.Equal(0, Speed());
+            var items = Game.ItemsOf(player);
+            foreach (var held in items.Items(PlayerInventories.Weapon1).ToArray()) items.Remove(PlayerInventories.Weapon1, held.Id);
+            items.Add(PlayerInventories.Weapon1, 0, 0, ItemCatalog.Create(Program.Items.Find("Fishing Rod")!));
+            Rebuild();
+            Assert.Equal(50, Speed());
+        }
+
+        // The buff rows of the family's nodes (Ghost of the Deep 37553, Light of Divinity 13763) act while an owner
+        // applies them: one owner letting go does not take another's away.
+        bool Self() => PassiveBuffAuras.SelfBuffsFor([37553], false).Any(a => a.Template == "CustomAscendancyIllegalFisherman");
+        bool Enemy() => PassiveBuffAuras.EnemyAurasFor([13763], false, Game.EnemyAuraActs)
+            .Any(a => a.Template == "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken");
+        Assert.False(Self() || Enemy());
+        var one = PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyIllegalFisherman");
+        using (PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyIllegalFisherman"))
+        using (PassiveBuffAuras.Apply(fixture.Lifetime, "CustomAscendancyNearbyEnemiesIncreasedElementalDamageTaken"))
+        {
+            one.Dispose();
+            Assert.True(Self() && Enemy());
+        }
+        Assert.False(Self() || Enemy());
     }
 }

@@ -699,11 +699,11 @@ target modifiers/Blind, source removal and noncritical impale storage.
 
 ## 2i. More maximum attack damage
 
-`maximum_attack_damage_+%_final_from_ascendancy` (Devout of Ryslatha's 30%) scales the maximum of the attack's base and
-added damage, which for a hit is the maximum of every final component after conversion; minima and spells are unchanged
-(`MaximumAttackDamage`).
+A module's more maximum attack damage (`GameEvents.AttackHit`; the Phrecia module's Devout of Ryslatha, 30%) scales the
+maximum of the attack's base and added damage, which for a hit is the maximum of every final component after conversion;
+minima and spells are unchanged.
 It also scales the damaging ailments an attack inflicts (the wiki; PoB builds an ailment's base through the same
-`calcDamage`), so an attack's flat ailment packet must go through `MaximumAttackDamage.Apply` too (§3).
+`calcDamage`), so an attack's flat ailment packet must go through `GameEvents.WithAttackHit` too (§3).
 PoB CalcOffence applies `MaxDamage` MORE to each type's own maximum and carries it through conversion, which is the same.
 It sits next to Rage's final multiplier at every attack site: the default attack and its panel rows, the native
 physical bounds, attack gems, `AttackSkillHit` and ordinary bow and wand shots (`OrdinaryRangedShot`).
@@ -771,7 +771,7 @@ The ignite goes onto the monster's one `MonsterIgnites` (`MonsterIgnites.Add`, t
 projectile hits add to (below), so every source shares one burn and one `ignited` buff.
 Only Abberath's Fury's footstep hits use `IgniteFromHit` ([Polytheist](../game/polytheist.md)); every other hit uses the
 panel rows (below).
-An attack's flat packet will go through `MaximumAttackDamage.Apply` (§2i) before it. The ignites burn on while the
+An attack's flat packet will go through `GameEvents.WithAttackHit` (§2i) before it. The ignites burn on while the
 player is dead (unverified), and a dead Hardcore character's kills make no progress. Shaper of Flames-style ignites from
 other damage types and ignite proliferation are not modelled.
 
