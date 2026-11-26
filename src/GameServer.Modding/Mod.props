@@ -3,6 +3,9 @@
        user's, gitignored). Mods/Source/<Name>/<Name>.csproj builds into Mods/Binaries/<name>/ as <name>.dll beside its
        mod.json, where the running Gateway sees the new files and reloads the mod (Agents/docs/dev/modding.md). -->
   <PropertyGroup>
+    <!-- The checkout, for a reference to one of its modules ($(LocalExileDir)Modules\Core\Content\Harvest\Harvest.csproj):
+         LocalExile-Mods' build file sets the same, so a mod's project builds in both places. -->
+    <LocalExileDir>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)..\..'))</LocalExileDir>
     <ModId>$(MSBuildProjectName.ToLowerInvariant())</ModId>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>$(ModId)</AssemblyName>
