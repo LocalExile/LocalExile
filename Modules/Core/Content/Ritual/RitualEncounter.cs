@@ -487,13 +487,17 @@ public sealed class RitualEncounter
             }
             if (state.Done) return;
             double now = AreaTime(runner);
-            if (state.Now >= state.RevealAt && state.Altars.Any(a => !a.Shown))
+            if (state.Now >= state.RevealAt && HasUnshownAltar(state.Altars))
             {
                 state.RevealAt = state.Now + RevealSeconds;
-                var here = InstanceClients(runner).Select(c => c.Walk.Position(AreaTime(c))).DefaultIfEmpty(runner.Walk.Position(now)).ToList();
+                var runnerPos = runner.Walk.Position(now);
                 for (int k = 0; k < state.Altars.Count; k++)
-                    if (!state.Altars[k].Shown && here.Any(p => Distance(p, state.Altars[k].Cell) <= RitualTables.RevealDistance))
+                {
+                    var altar = state.Altars[k];
+                    if (!altar.Shown && (Distance(runnerPos, altar.Cell) <= RitualTables.RevealDistance
+                        || AnyPeerNear(runner, altar.Cell, RitualTables.RevealDistance)))
                         await Reveal(runner, state, k);
+                }
             }
             await Deaths(runner, state);
             for (int k = 0; k < state.Altars.Count; k++)
@@ -501,6 +505,34 @@ public sealed class RitualEncounter
             if (state.Run is { } run) await RunStep(runner, state, run);
         }
         finally { state.Gate.Release(); }
+    }
+
+    static bool HasUnshownAltar(List<Altar> altars)
+    {
+        for (int i = 0; i < altars.Count; i++)
+            if (!altars[i].Shown) return true;
+        return false;
+    }
+
+    static bool HasShownInactiveAltar(List<Altar> altars)
+    {
+        for (int i = 0; i < altars.Count; i++)
+        {
+            var altar = altars[i];
+            if (altar.State == Inactive && altar.Shown) return true;
+        }
+        return false;
+    }
+
+    static bool AnyPeerNear(Player runner, (int X, int Y) cell, double maxDistance)
+    {
+        foreach (var entry in InGame)
+        {
+            var c = entry.Key;
+            if (ReferenceEquals(c, runner) || !c.HasClient || !ReferenceEquals(c.Instance, runner.Instance) || !Current(c)) continue;
+            if (Distance(c.Walk.Position(AreaTime(c)), cell) <= maxDistance) return true;
+        }
+        return false;
     }
 
     async Task Reveal(Player player, State state, int k)
@@ -590,7 +622,7 @@ public sealed class RitualEncounter
     async Task Deaths(Player player, State state)
     {
         int radius = RitualTables.RadiusCells;
-        if (state.Now >= state.ScanAt && state.Altars.Any(a => a.State == Inactive && a.Shown))
+        if (state.Now >= state.ScanAt && HasShownInactiveAltar(state.Altars))
         {
             state.ScanAt = state.Now + ScanSeconds;
             double now = AreaTime(player);
@@ -654,7 +686,9 @@ public sealed class RitualEncounter
     async Task CheckReady(Player player, State state, int k)
     {
         var altar = state.Altars[k];
-        if (altar.Tied.Any(id => !altar.Dead.Contains(id))) return;
+        if (altar.Dead.Count < altar.Tied.Count) return;
+        foreach (uint id in altar.Tied)
+            if (!altar.Dead.Contains(id)) return;
         if (altar.Tied.Count == 0 && altar.Credit.Count == 0) return;
         altar.State = Ready;
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Ready), $"0x165 Ritual altar 0x{altar.Interactable:x} ready");
@@ -890,6 +924,8 @@ public sealed class RitualEncounter
         };
         state.Run = run;
         state.Revived = [];
+        // Bottled vessel monsters enter once on the first activated altar and revive normally via state.Revived on later altars.
+        state.VesselMonsters.Clear();
 
         // Apply server-side circular arena containment ring + IsInRitual stat refresh for all clients in the instance.
         if (state.SpawnWisp)
@@ -978,7 +1014,9 @@ public sealed class RitualEncounter
             }
             if (wave.Spawned >= RitualTables.WaveSize && run.Next < run.Monsters.Count)
             {
-                int alive = wave.Ids.Count(id => Alive(player, id));
+                int alive = 0;
+                for (int i = 0; i < wave.Ids.Count; i++)
+                    if (Alive(player, wave.Ids[i])) alive++;
                 if (alive <= RitualTables.NextWaveAlive * Math.Max(1, wave.Ids.Count) || t >= wave.At + wave.Spawned * spacing + gap)
                     run.Waves.Add(new Wave { At = t });
             }

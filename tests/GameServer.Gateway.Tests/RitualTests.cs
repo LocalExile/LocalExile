@@ -91,9 +91,17 @@ public class RitualTests
         Assert.True(ClientPathfinder.ObjectBlocks(ring, 287, 200, 2, 5));  // perimeter (d=87)
         Assert.False(ClientPathfinder.ObjectBlocks(ring, 310, 200, 2, 5)); // exterior (d=110)
 
-        // Recovery ceiling while IsInRitual is set.
+        // Recovery ceiling while IsInRitual is set (both Life ceiling pct and ES Gain ceiling).
         Assert.Equal(100, PetrifiedBlood.RecoveryCeilingPct(s => s == Stat.MapRitualCannotRecoverLifeOrEnergyShieldAboveXPct ? 50 : 0));
         Assert.Equal(50, PetrifiedBlood.RecoveryCeilingPct(s => s == Stat.MapRitualCannotRecoverLifeOrEnergyShieldAboveXPct ? 50 : s == Stat.IsInRitual ? 1 : 0));
+        var es = new EnergyShield();
+        es.SetMaximum(100, refill: false);
+        es.Gain(20);
+        es.Gain(60, ceiling: 50);
+        Assert.Equal(50u, es.Current);
+        es.SetMaximum(100, refill: true);
+        es.Gain(20, ceiling: 50);
+        Assert.Equal(100u, es.Current);
 
         // The environment on and off as the captures send them.
         Assert.Equal("00df0104ff0000000000", Hex(InstanceEnvironments.Data((1279, 0))));
@@ -187,13 +195,20 @@ public class RitualTests
             Assert.Equal(guards, altar.Credit.Count);
             Assert.NotEmpty(altar.Pools);
 
+            // Inject 2 bottled Blood-filled Vessel monsters: they must enter Altar 1 once (N=1), clear VesselMonsters,
+            // and revive once (N=2) on Altar 2 without duplicating.
+            string vesselPath = altar.Credit[0].Path;
+            state.VesselMonsters.Add((vesselPath, MonsterRarity.Normal));
+            state.VesselMonsters.Add((vesselPath, MonsterRarity.Normal));
+
             var use = new InstanceTransfer.UseSkillOnObject(altar.Interactable, 0x0266, 0, 0x0408) { Started = true };
             player.Walk.Teleport(altar.Cell.X, altar.Cell.Y, Game.AreaTime(player));
             Assert.True(await encounter.OnUse(player, use, Game.AreaTime(player)));
             Assert.Equal(RitualEncounter.Running, altar.State);
             Assert.Contains(player.StationaryBlockers, b => b.RingRadius == RitualTables.RadiusCells);
             var run = state.Run!;
-            Assert.Equal(guards, run.Monsters.Count);
+            Assert.Equal(guards + 2, run.Monsters.Count);
+            Assert.Empty(state.VesselMonsters);
             Assert.True(await encounter.OnUse(player, use, Game.AreaTime(player)));
             Assert.Same(run, state.Run);
             await encounter.Entered(second);
@@ -201,8 +216,8 @@ public class RitualTests
 
             for (int f = 0; f < 59; f++) await encounter.Advance(player, 1 / 30.0);
             Assert.Equal(0, run.Next);
-            for (int f = 0; f < 60 + 3 * guards; f++) await encounter.Advance(player, 1 / 30.0);
-            Assert.Equal(guards, run.Next);
+            for (int f = 0; f < 60 + 3 * (guards + 2); f++) await encounter.Advance(player, 1 / 30.0);
+            Assert.Equal(guards + 2, run.Next);
             Assert.NotEmpty(run.Alive);
 
             int revived = run.Alive.Count;
@@ -213,6 +228,32 @@ public class RitualTests
             Assert.Null(state.Run);
             Assert.Equal(1, state.Completed);
             Assert.DoesNotContain(player.StationaryBlockers, b => b.RingRadius == RitualTables.RadiusCells);
+
+            // Second altar: bottled monsters must revive once at N=2 via state.Revived, never re-injected at N=1.
+            int carriedFromAltar0 = state.Revived.Count;
+            var altar1 = state.Altars[1];
+            altar1.Cell = layout.Near((layout.SpawnX + 10, layout.SpawnY));
+            await encounter.Advance(player, 0.30);
+            Assert.True(altar1.Shown);
+            foreach (uint id in altar1.Tied) player.Area.Monsters[id].Life = 0;
+            await encounter.Advance(player, 0.30);
+            Assert.Equal(RitualEncounter.Ready, altar1.State);
+            var use1 = new InstanceTransfer.UseSkillOnObject(altar1.Interactable, 0x0266, 0, 0x0408) { Started = true };
+            player.Walk.Teleport(altar1.Cell.X, altar1.Cell.Y, Game.AreaTime(player));
+            Assert.True(await encounter.OnUse(player, use1, Game.AreaTime(player)));
+            var run2 = state.Run!;
+            Assert.Equal(altar1.Credit.Count + carriedFromAltar0, run2.Monsters.Count);
+            Assert.Equal(carriedFromAltar0, run2.Monsters.Count(m => m.N == 2));
+            Assert.Equal(altar1.Credit.Count, run2.Monsters.Count(m => m.N == 1));
+            for (int f = 0; f < 120 + 3 * run2.Monsters.Count && state.Run is not null; f++)
+            {
+                if (run2.Alive.Count > 0)
+                    foreach (uint id in run2.Alive.Keys) player.Area.Monsters[id].Life = 0;
+                await encounter.Advance(player, 1 / 30.0);
+            }
+            Assert.Equal(RitualEncounter.Done, altar1.State);
+            Assert.Null(state.Run);
+            Assert.Equal(2, state.Completed);
 
             // Favour window: open (0x0169), defer (0x0284), buy (0x0283), reroll (0x0168).
             state.Tribute = 20000;
@@ -291,6 +332,41 @@ public class RitualTests
             var linked = await RitualOmens.OnCurrencyCrafting(player, unlinked, fusingHash, new Random(1));
             Assert.NotNull(linked);
             Assert.Equal([3, 1], linked!.Links);
+
+            // Omen of Fortune: refuses bases whose only uniques are EncounterOnly/Replica/Corrupted/Mirrored without consuming the Omen.
+            var fortuneOmenType = Program.Items.Find(RitualOmens.Fortune)!;
+            var fortuneStack = inv.Add(PlayerInventories.MainInventory, 3, 0, ItemCatalog.Create(fortuneOmenType));
+            uint chanceHash = Program.Items.Find(CurrencyEffects.OrbOfChance)!.Hash;
+            var allUniques = Game.UniquesFor(player).All;
+            var excludedOnlyBaseId = allUniques
+                .GroupBy(u => u.BaseTypeId, StringComparer.OrdinalIgnoreCase)
+                .FirstOrDefault(g => g.All(u => u.EncounterOnly || u.Corrupted || u.Mirrored || u.Name.StartsWith("Replica ", StringComparison.Ordinal))
+                    && Program.Items.Find(g.Key) is { Supported: true })?.Key;
+            if (excludedOnlyBaseId is not null)
+            {
+                var excludedTarget = ItemCatalog.Create(Program.Items.Find(excludedOnlyBaseId)!);
+                Assert.Null(await RitualOmens.OnCurrencyCrafting(player, excludedTarget, chanceHash, new Random(1)));
+                Assert.Contains(inv.Items(PlayerInventories.MainInventory), i => i.Id == fortuneStack.Id);
+            }
+
+            // Act 2 campaign Favour page (level 18): every rolled unique must be drop-eligible (no EncounterOnly, Replica, or T0).
+            var lowState = new RitualEncounter.State { Level = 18, Seed = 999 };
+            var drops = Game.DropsFor(player);
+            for (int pageSeed = 1; pageSeed <= 5; pageSeed++)
+            {
+                var lowOffers = RitualFavours.GeneratePage(player, lowState, new Random(pageSeed), isReroll: false);
+                foreach (var offer in lowOffers)
+                {
+                    if (offer.RealItem.Rarity != ItemRarity.Unique) continue;
+                    Assert.False(offer.RealItem.Corrupted);
+                    Assert.False(offer.RealItem.Mirrored);
+                    var bt = Program.Items.ByHash(offer.RealItem.TypeHash);
+                    Assert.NotNull(bt);
+                    Assert.Contains(allUniques, u => u.BaseTypeId.Equals(bt!.Id, StringComparison.OrdinalIgnoreCase)
+                        && drops.IsDropEligibleUnique(u, 18) && !u.Corrupted && !u.Mirrored
+                        && !u.Name.StartsWith("Replica ", StringComparison.Ordinal));
+                }
+            }
 
             // Omen of Refreshment: refills flasks in-place via GainFlaskCharges (preserving item ID and per-flask MaxCharges).
             var flaskType = Program.Items.Find("Metadata/Items/Flasks/FlaskLife1")!;

@@ -85,6 +85,7 @@ public static class RitualFavours
         var catalog = ItemsFor(player);
         var rolls = RollsFor(player);
         var uniques = UniquesFor(player);
+        var drops = DropsFor(player);
         var rune = state.Altars.Count > 0 ? state.Altars[0].Rune : null;
         string runeKind = rune?.Type ?? "";
         string runeId = rune?.Id ?? "";
@@ -158,7 +159,14 @@ public static class RitualFavours
         }
 
         int level = Math.Clamp(state.Level, 1, 100);
-        var equipBases = catalog.All.Where(b => b.Supported && b.DropLevel <= level && b.DropLevel >= Math.Max(1, level - 22)
+        var eligibleUniques = uniques.All
+            .Where(u => drops.IsDropEligibleUnique(u, level)
+                && !u.Corrupted && !u.Mirrored
+                && !u.Name.StartsWith("Replica ", StringComparison.Ordinal)
+                && catalog.Find(u.BaseTypeId) is { Supported: true } bt
+                && ItemDrops.Droppable(bt) && bt.DropLevel <= level)
+            .ToList();
+        var equipBases = catalog.All.Where(b => ItemDrops.Droppable(b) && b.DropLevel <= level && b.DropLevel >= Math.Max(1, level - 22)
             && (b.Components.Contains("Armour") || b.Components.Contains("Weapon")
                 || b.Class is "Ring" or "Amulet" or "Belt" or "Jewel")).ToList();
         var scarabBases = level >= 68 ? catalog.All.Where(b => b.Supported && b.Class == "MapFragment"
@@ -168,7 +176,7 @@ public static class RitualFavours
         int safety = targetCount * 4;
         while (candidates.Count < targetCount && safety-- > 0)
         {
-            var rolled = RollRewardItem(catalog, rolls, uniques, equipBases, scarabBases, cardBases, state, opulent, vaal, nameless, qualityBoost, rng);
+            var rolled = RollRewardItem(catalog, rolls, uniques, drops, eligibleUniques, equipBases, scarabBases, cardBases, state, opulent, vaal, nameless, qualityBoost, rng);
             if (rolled is not { } r) continue;
             int price = PriceWithModifiers(r.BasePrice, state, isReroll, rng);
             candidates.Add((r.Item, price, price, RitualWire.FlagNormal, null));
@@ -275,7 +283,8 @@ public static class RitualFavours
     ];
 
     static (Item Item, int BasePrice)? RollRewardItem(
-        ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques,
+        ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques, ItemDrops drops,
+        IReadOnlyList<UniqueCatalog.Definition> eligibleUniques,
         IReadOnlyList<ItemCatalog.BaseType> equipBases,
         IReadOnlyList<ItemCatalog.BaseType> scarabBases,
         IReadOnlyList<ItemCatalog.BaseType> cardBases,
@@ -291,7 +300,7 @@ public static class RitualFavours
         // Vaal altars favour corrupted items & Vaal gems / Vaal Orbs.
         if (vaal && roll < 45)
         {
-            var item = RollRareOrUnique(catalog, rolls, uniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 25);
+            var item = RollRareOrUnique(catalog, rolls, uniques, drops, eligibleUniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 25);
             if (item is not null)
                 return (item.Value.Item with { Corrupted = true }, (int)(item.Value.BasePrice * 1.15));
         }
@@ -323,7 +332,7 @@ public static class RitualFavours
                 return (ItemCatalog.Create(king), rng.Next(6500, 11000));
         }
         if (roll < 86)
-            return RollRareOrUnique(catalog, rolls, uniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 22 + qualityBoost / 3);
+            return RollRareOrUnique(catalog, rolls, uniques, drops, eligibleUniques, equipBases, level, qualityBoost, rng, forceUniqueChance: 22 + qualityBoost / 3);
         if (roll < 94)
             return RollDivCardOrScarab(scarabBases, cardBases, level, rng);
         return RollCurrency(catalog, state, level, rng, bonusStack: false);
@@ -356,18 +365,12 @@ public static class RitualFavours
     }
 
     static (Item Item, int BasePrice)? RollRareOrUnique(ItemCatalog catalog, ItemRolls rolls, UniqueCatalog uniques,
+        ItemDrops drops, IReadOnlyList<UniqueCatalog.Definition> eligibleUniques,
         IReadOnlyList<ItemCatalog.BaseType> equipBases, int level, int qualityBoost, Random rng, int forceUniqueChance)
     {
-        if (rng.Next(100) < forceUniqueChance && uniques.All.Count > 0)
-        {
-            for (int tries = 0; tries < 10; tries++)
-            {
-                var def = uniques.All[rng.Next(uniques.All.Count)];
-                if (catalog.Find(def.BaseTypeId) is not { Supported: true } bt || bt.DropLevel > level + 2) continue;
-                if (uniques.Create(def, rng) is { } u)
-                    return (u with { ItemLevel = (byte)level, Identified = true }, rng.Next(2200, 6200) + qualityBoost * 15);
-            }
-        }
+        if (rng.Next(100) < forceUniqueChance && eligibleUniques.Count > 0
+            && drops.PickUnique(eligibleUniques, rng) is { } def && uniques.Create(def, rng) is { } u)
+            return (u with { ItemLevel = (byte)level, Identified = true }, rng.Next(2200, 6200) + qualityBoost * 15);
         if (equipBases.Count == 0) return null;
         var chosen = equipBases[rng.Next(equipBases.Count)];
         var item = ItemCatalog.Create(chosen) with { ItemLevel = (byte)level };

@@ -73,7 +73,8 @@ public static class RitualOmens
         var items = ItemsOf(player);
         if (ItemsFor(player).Find(omenId) is not { } type) return false;
         foreach (byte row in BagRows)
-            if (items.Items(row).Any(i => i.Item.TypeHash == type.Hash)) return true;
+            foreach (var item in items.Items(row))
+                if (item.Item.TypeHash == type.Hash) return true;
         return false;
     }
 
@@ -108,7 +109,8 @@ public static class RitualOmens
         {
             if (catalog.Find(id) is not { } type) continue;
             foreach (byte row in BagRows)
-                if (items.Items(row).Any(i => i.Item.TypeHash == type.Hash)) return true;
+                foreach (var item in items.Items(row))
+                    if (item.Item.TypeHash == type.Hash) return true;
         }
         return false;
     }
@@ -122,13 +124,37 @@ public static class RitualOmens
         var targetType = catalog.ByHash(target.TypeHash);
         if (curr is null || targetType is null || target.Corrupted || target.Mirrored || target.Vestigial) return null;
 
-        // Omen of Fortune: Orb of Chance -> guaranteed Unique of that base type (create first so Omen is only consumed on success).
+        // Omen of Fortune: Orb of Chance -> guaranteed chanceable Unique of that base type (excludes EncounterOnly,
+        // Corrupted, Mirrored, and Replica uniques; weighted by UniqueWeight when available; creates before consuming).
         if (curr.Id == CurrencyEffects.OrbOfChance && target.Rarity == ItemRarity.Normal && HasOmen(player, Fortune))
         {
-            var uniques = UniquesFor(player).All.Where(u => u.BaseTypeId.Equals(targetType.Id, StringComparison.OrdinalIgnoreCase)).ToList();
-            if (uniques.Count > 0)
+            var drops = DropsFor(player);
+            var candidates = new List<(UniqueCatalog.Definition Def, double Weight)>();
+            double totalWeight = 0;
+            foreach (var u in UniquesFor(player).All)
             {
-                var def = uniques[random.Next(uniques.Count)];
+                if (u.EncounterOnly || u.Corrupted || u.Mirrored
+                    || u.Name.StartsWith("Replica ", StringComparison.Ordinal)
+                    || !u.BaseTypeId.Equals(targetType.Id, StringComparison.OrdinalIgnoreCase)) continue;
+                double w = drops.UniqueWeight(u.Name);
+                candidates.Add((u, w));
+                if (w > 0) totalWeight += w;
+            }
+            if (candidates.Count > 0)
+            {
+                UniqueCatalog.Definition? def = null;
+                if (totalWeight > 0)
+                {
+                    double pick = random.NextDouble() * totalWeight;
+                    foreach (var (u, w) in candidates)
+                    {
+                        if (w <= 0) continue;
+                        def = u;
+                        if (pick < w) break;
+                        pick -= w;
+                    }
+                }
+                def ??= candidates[random.Next(candidates.Count)].Def;
                 if (UniquesFor(player).Create(def, random) is { } created
                     && await TryConsumeOmen(player, Fortune, combatLimit: false))
                     return created with { ItemLevel = target.ItemLevel, Quality = target.Quality, Sockets = target.Sockets, Links = target.Links };
