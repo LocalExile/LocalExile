@@ -316,14 +316,14 @@ public static partial class Game
             return;
         }
         int radius = CurseRadius(player, skill, false, gem, playerStats);
-        var cascades = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
-        if (cascadeFrom is { } origin) AppendBeidatAreas(origin, aim, radius, extraAreas, cascades);
-        foreach (var monster in player.Area.Monsters.Values)
-        {
-            var position = monster.Walk.Position(now);
-            if (Dist(position, aim) <= radius || cascades.Any(centre => Dist(position, centre) <= radius))
-                ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
-        }
+        var centres = cascadeFrom is { } from ? SpellCascadeAreas(player, gem.Effect, gem.Stats, from, aim, radius) : [];
+        centres.Insert(0, aim);
+        if (cascadeFrom is { } origin) AppendBeidatAreas(origin, aim, radius, extraAreas, centres);
+        var applied = new HashSet<uint>();
+        foreach (var centre in centres)
+            foreach (var (id, monster) in player.Area.MonstersNear(centre, radius))
+                if (Dist(monster.Walk.Position(now), centre) <= radius && applied.Add(id))
+                    ApplyCurseLocked(player, monster, skill, now, false, gem, playerStats);
     }
 
     static bool IsHexblastEffect(string? effect) => effect is "Hexblast" or "HexblastAltX" or "HexblastAltY";
