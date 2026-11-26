@@ -24,6 +24,7 @@ public static partial class Game
         uint Chance, uint OnCritical, uint OnBlock, double Base, int Cap, int WithoutHit, ushort BuffRow, ushort Instance,
         int Sign, uint? SelfEffect, uint? Threshold, uint? TakenCan, uint? WhenHit, bool OnPlayer)
     {
+        public uint Always { get; init; }
         public uint VirtualEffect { get; } = Stat.Of($"virtual_{StatName}_effect_+%");
         public uint VirtualDuration { get; } = Stat.Of($"virtual_{StatName}_duration_+%");
         public uint Never { get; } = Stat.Of($"never_{StatName}");
@@ -42,16 +43,17 @@ public static partial class Game
         new(AlternateKind.Scorch, "scorch", "scorched", DamageType.Fire, "scorch", Stat.Of("chance_to_scorch_%"),
             Stat.Of("scorch_on_critical_strike"), Stat.Of("chance_to_inflict_scorch_on_enemy_on_block_%"), 50, 30, 10, 1243,
             Player.FixedBuffInstances, -1, Stat.Of("scorch_ailment_effect_on_self_+%"), null, Stat.Of("all_damage_taken_can_scorch"),
-            Stat.Of("chance_to_be_scorched_when_hit_%"), OnPlayer: true),
+            Stat.Of("chance_to_be_scorched_when_hit_%"), OnPlayer: true) { Always = Stat.VirtualAlwaysInflictScorch },
         // frostburn ("Brittle"): enemy_additional_critical_strike_chance_against_self, divided by 100 in its description.
         new(AlternateKind.Brittle, "frostburn", "frostburned", DamageType.Cold, "inflict_brittle", Stat.Of("chance_to_inflict_frostburn_%"),
             Stat.Of("frostburn_on_critical_strike"), Stat.Of("chance_to_inflict_brittle_on_enemy_on_block_%"), 1000, 600, 200, 1244,
-            (ushort)(Player.FixedBuffInstances + 1), 1, null, Stat.Of("brittle_ailment_threshold_+%_final"), null, null, OnPlayer: true),
+            (ushort)(Player.FixedBuffInstances + 1), 1, null, Stat.Of("brittle_ailment_threshold_+%_final"), null, null, OnPlayer: true)
+            { Always = Stat.VirtualAlwaysInflictFrostburn },
         // sapped: sapped_damage_+%_final, negative.
         new(AlternateKind.Sap, "sap", "sapped", DamageType.Lightning, "sap", Stat.Of("chance_to_inflict_sapped_%"),
             Stat.Of("sap_on_critical_strike"), Stat.Of("chance_to_inflict_sap_on_enemy_on_block_%"), 100 / 3.0, 20, 6, 1245,
             (ushort)(Player.FixedBuffInstances + 2), -1, null, Stat.Of("sap_ailment_threshold_+%_final"), Stat.Of("all_damage_taken_can_sap"),
-            Stat.Of("chance_to_be_sapped_when_hit_%"), OnPlayer: false),
+            Stat.Of("chance_to_be_sapped_when_hit_%"), OnPlayer: false) { Always = Stat.VirtualAlwaysInflictSapped },
     ];
 
     /// <summary>Their base duration (ReminderText: "for 4 seconds"; PoB duration 4).</summary>
@@ -140,7 +142,7 @@ public static partial class Game
         foreach (var a in AlternateAilments)
         {
             // Per hit (Hot paths): a hit without a source of this ailment stops here, before any other stat is read.
-            bool sure = secrets || critical && attacker(a.OnCritical) != 0;
+            bool sure = secrets || attacker(a.Always) != 0 || critical && attacker(a.OnCritical) != 0;
             int chance = attacker(a.Chance) + any;
             if (!sure && chance <= 0) continue;
             double inflicting = AlternateInflicting(a, damage, attacker, critical);
@@ -232,11 +234,12 @@ public static partial class Game
     /// modelled for the player's hits. Under the Monsters lock.
     /// </summary>
     public static void AlternateAilmentsOnPlayerLocked(Player player, SpawnedMonster m, DamagePacket taken, bool blocked,
-        double now, IReadOnlyDictionary<uint, int> stats, PlayerElementalAilments.HitSettings settings)
+        double now, IReadOnlyDictionary<uint, int> stats, PlayerElementalAilments.HitSettings settings, bool critical = false)
     {
         if (blocked || player.Immune || player.Closed || player.LeavingArea || player.PlayerLife == 0 || InGracePeriod(player)
             || player.PlayerMaxLife == 0) return;
         int Get(uint key) => stats.GetValueOrDefault(key);
+        int critAvoid = critical ? Math.Max(0, Get(Stat.AvoidAilmentsPctFromCrit)) : 0;
         foreach (var a in AlternateAilments)
         {
             if (!a.OnPlayer) continue;
@@ -245,16 +248,16 @@ public static partial class Game
             double damage = a.TakenCan is uint can && Get(can) != 0 ? taken.MinTotal : taken[a.Element].Min;
             if (chance <= 0 || damage <= 0 || !RandomRolls.Chance(chance, 100, player.IncomingHitRandom)) continue;
             int magnitude = AlternateMagnitude(a, damage, player.PlayerMaxLife, AlternateEffectOnSelf(a, Get));
-            AlternateOnPlayerLocked(player, a, magnitude, now, Get, player.IncomingHitRandom);
+            AlternateOnPlayerLocked(player, a, magnitude, now, Get, player.IncomingHitRandom, critAvoid);
         }
     }
 
     // One Scorch or Brittle on the player: its immunity, then the avoidance roll, then its duration on self.
     static void AlternateOnPlayerLocked(Player player, AlternateAilment a, double magnitude, double now, Func<uint, int> get,
-        Random random)
+        Random random, int critAvoid = 0)
     {
         if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)
-            || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct), 100, random))
+            || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct) + critAvoid, 100, random))
             return;
         double seconds = AlternateAilmentSeconds
             * Math.Max(0, 1 - (get(Stat.SelfElementalStatusDurationMinusPct) - get(Stat.BaseAllAilmentDurationOnSelfPlusPct)) / 100.0);

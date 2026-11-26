@@ -1,10 +1,11 @@
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 
 public static partial class Game
 {
     // Called only inside SpendFlask's accepted charge transaction, in the area's frame and FlaskBarGate.
     // No continuation after the inventory send is allowed to install or acknowledge this paid use again.
-    static void AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
+    static int? AcceptRecoveryFlaskLocked(Player player, uint slot, InventoryItem flask,
         ItemCatalog.BaseType type, Flasks.Flask use, FlaskRecovery.Use recovery, bool copyLife,
         IReadOnlyDictionary<uint, int> local, Func<uint, int> character, bool appliesToPlayer,
         IReadOnlyList<UtilityFlasks.Source>? during = null)
@@ -27,19 +28,40 @@ public static partial class Game
         RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id,
             use.LifePerUse > 0 && use.ManaPerUse > 0 ? "hybrid" : use.LifePerUse > 0 ? "life" : "mana"));
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
+        // Sample the payer at accepted use, including a hybrid flask whose life recovery goes to a minion.
+        // An effect rule live for the stat rolls it itself (power_charge_on_mana_flask_use).
+        int chargeChance = use.ManaPerUse > 0 && !EffectRules.LiveFor(player, Stat.GainPowerChargeOnManaFlaskUsePctChance)
+            ? character(Stat.GainPowerChargeOnManaFlaskUsePctChance) : 0;
+        if (chargeChance > 0 && RandomRolls.Chance(chargeChance, 100, AreaRng(player)))
+            ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, 1,
+                Stats.Name(Stat.GainPowerChargeOnManaFlaskUsePctChance)));
         if (!appliesToPlayer)
         {
             TryGrantAlchemistsGenius(player);
-            return;
+            return null;
         }
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
             LifeCap(player), UnreservedMana(player))!.Value;
         (player.PlayerLife, player.PlayerMana) = (life, mana);
+        // Paid recovery flask modifiers can remove a pool, deal a separate hit, or grant charges.
+        if (local.GetValueOrDefault(Stat.LocalFlaskRemovesPctMaximumEnergyShieldOnUse) is > 0 and var shieldPct)
+        {
+            double carry = 0;
+            player.EnergyShield.Lose(player.EnergyShield.Maximum * (long)shieldPct / 100, ref carry);
+        }
+        if (local.GetValueOrDefault(Stat.LocalFlaskDealsPctMaximumLifeAsChaosDamageOnUse) is > 0 and var chaosPct)
+        {
+            int chaos = ActorScale.Saturate(player.PlayerMaxLife * (long)chaosPct / 100);
+            if (chaos > 0) ApplySelfHitLocked(player, DamagePacket.Of(DamageType.Chaos, chaos, chaos), now);
+        }
+        (life, mana) = (player.PlayerLife, player.PlayerMana);
         TrimLeechLocked(player); // Full-Mana leech/Recoup settlement is part of the accepted pool commit.
         if (life != lifeBefore) state.Packets.Add(new([], $"0x01b1 player life {life} (flask)", FlaskOutputPool.Life));
         if (mana != manaBefore) state.Packets.Add(new([], $"0x01b1 player mana {mana} (flask)", FlaskOutputPool.Mana));
+        if (life == 0) return player.IncomingHitEpoch;
+        QueueFlaskUseCharges(player, type.Name, local);
         if (local.GetValueOrDefault(Stat.LocalUniqueFlaskStartEnergyShieldRecharge) != 0)
             player.EnergyShield.StartRecharge(now, character);
         ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
@@ -75,6 +97,7 @@ public static partial class Game
             }
         }
         TryGrantAlchemistsGenius(player);
+        return null;
     }
 
     // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then
@@ -105,6 +128,31 @@ public static partial class Game
         || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurning) != 0
         || local.GetValueOrDefault(Stat.LocalFlaskIgniteImmunityIfIgnitedAndRemoveBurningS) > 0;
 
+    static void ApplyEquipmentFlaskCleansesLocked(Player player, double now)
+    {
+        if (!player.IncomingAilments.Bleeding(now) && !player.ElementalAilments.HasEffects
+            && FlameTouchedOf(player)?.Source is null) return;
+        // Read equipment at the paid use, after the flask's own suffix has had a chance to grant immunity.
+        var stats = CharacterStatSources(player).Stats;
+        if (stats.GetValueOrDefault(Stat.RemoveBleedOnFlaskUse) != 0)
+            player.IncomingAilments.RemoveOrProtectBleeding(now, 0);
+        if (stats.GetValueOrDefault(Stat.RemoveIgniteAndBurningOnFlaskUse) != 0)
+        {
+            player.ElementalAilments.RemoveOrProtectIgnite(now, 0);
+            EndFlameTouched(player, now);
+        }
+        if (stats.GetValueOrDefault(Stat.RemoveChillAndFreezeOnFlaskUse) != 0)
+            RemoveFlaskChillFreezeLocked(player, now, 0);
+    }
+
+    static bool RemoveFlaskChillFreezeLocked(Player player, double now, int protectSeconds)
+    {
+        if (!player.ElementalAilments.RemoveOrProtectChillFreeze(now, protectSeconds)) return false;
+        if (player.FreezeHeldUntil > now) player.FreezeHeldUntil = now;
+        player.ApplyMovementSpeedAt(now);
+        return true;
+    }
+
     internal static void ApplyConditionalFlaskAilmentProtectionLocked(Player player,
         IReadOnlyDictionary<uint, int> local, double now)
     {
@@ -121,13 +169,8 @@ public static partial class Game
             Console.WriteLine($"[gateway] flask removed poison and protects for {poison} s");
         int chillFreeze = ChillFreezeFlaskProtection(local);
         bool dispelsFreezeChill = local.GetValueOrDefault(Stat.LocalFlaskDispelsFreezeAndChill) != 0;
-        if ((chillFreeze > 0 || dispelsFreezeChill)
-            && player.ElementalAilments.RemoveOrProtectChillFreeze(now, chillFreeze))
-        {
-            if (player.FreezeHeldUntil > now) player.FreezeHeldUntil = now;
-            player.ApplyMovementSpeedAt(now);
+        if ((chillFreeze > 0 || dispelsFreezeChill) && RemoveFlaskChillFreezeLocked(player, now, chillFreeze))
             Console.WriteLine($"[gateway] flask removed chill/freeze{(chillFreeze > 0 ? $" and protects for {chillFreeze} s" : "")}");
-        }
         int ignite = IgniteFlaskProtection(local);
         if (ignite > 0 && player.ElementalAilments.RemoveOrProtectIgnite(now, ignite))
             Console.WriteLine($"[gateway] flask removed ignite and protects for {ignite} s");

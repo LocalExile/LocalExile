@@ -29,7 +29,8 @@ public static partial class Game
     /// aggravate_bleeding_on_attack_crit_chance_%), and aggravate_inflicted_bleeding aggravates the hit's own; Crimson
     /// Dance (keystone_crimson_dance) stacks 8 instead and cannot aggravate (ReminderTextKeystoneCrimsonDance). It lasts
     /// 5 s × (1 + bleed_duration_+%, base_bleed_duration_+% and
-    /// base_all_ailment_duration_+%); faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
+    /// base_all_ailment_duration_+% and, for a bow, status_ailments_you_inflict_duration_+%_with_bows);
+    /// faster_bleed_% and damaging_ailments_deal_damage_+%_faster multiply its damage per
     /// second and divide its duration, as ignite's faster stats do. cannot_cause_bleeding and never_damaging_ailments stop
     /// it; a physical prohibition already leaves its rows empty.
     /// </summary>
@@ -59,9 +60,12 @@ public static partial class Game
         // Puncture (bleed_duration_is_skill_duration): its bleed lasts the skill's duration, with the skill duration
         // modifiers (ActiveSkills puncture: "affected by modifiers to skill duration"), then the bleed's own.
         double baseSeconds = get(Stat.BleedDurationIsSkillDuration) != 0 && get(Stat.BaseSkillEffectDuration) > 0
-            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get) : Ailments.BleedDurationSeconds;
+            ? SkillDurationModifiers.Seconds(get(Stat.BaseSkillEffectDuration), _ => 0, get,
+                bow ? SkillDurationModifiers.Kinds.Bow : SkillDurationModifiers.Kinds.None)
+            : Ailments.BleedDurationSeconds;
         double seconds = baseSeconds * Math.Max(0, 1 + ((double)get(Stat.BleedDurationPlusPct)
-            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)) / 100) / faster
+            + get(Stat.BaseBleedDurationPlusPct) + get(Stat.BaseAllAilmentDurationPlusPct)
+            + (bow ? get(Stat.StatusAilmentsYouInflictDurationPlusPctWithBows) : 0)) / 100) / faster
             * MonsterIgnites.DurationMultiplier(get);
         bool dance = get(Stat.KeystoneCrimsonDance) != 0;
         int aggravate = dance ? 0 : get(Stat.BaseAggravateBleedingOnAttackHitChancePct);
@@ -89,8 +93,9 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, "main_hand", weapon, additionalIncreased)
             : SupportedAilmentRowsFrom(capturedInputs, "main_hand", additionalIncreased);
+        bool bow = capturedInputs?.WieldingBow ?? (weapon ?? WeaponFor(player)).Bow;
         return WithOverheat(player, skillId, BleedSettings(rows, "main_hand", get,
-            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow: false));
+            weapon is null ? MainHandLocalSources(player) : weapon.LocalSources, melee, bow));
     }
 
     /// <summary>The default melee attack's bleed, from the rows <see cref="DefaultAttackIgnite"/> reads.</summary>
@@ -125,7 +130,11 @@ public static partial class Game
         if (target.Bleeds.Burning
             && RandomRolls.Chance(critical ? settings.CriticalAggravate : settings.Aggravate, 100, player.IgniteRandom))
             target.Bleeds.Aggravate();
-        if (!RandomRolls.Chance(critical ? settings.CriticalChance : settings.Chance, 100, player.IgniteRandom)) return null;
+        if (settings.Seconds <= 0 || settings.OnlyFromCrit && !critical
+            || (critical ? settings.CriticalMax : settings.Max) <= 0) return null;
+        int chance = ActorScale.Saturate((long)(critical ? settings.CriticalChance : settings.Chance)
+            + target.Effects[Stat.ReceiveBleedingChancePctWhenHitByAttack]);
+        if (!RandomRolls.Chance(chance, 100, player.IgniteRandom)) return null;
         var e = target.Mods.Effects;
         if (!target.Bleeds.TryApply(settings with { Chance = 100 }, critical, now, e[Stat.AvoidBleedPct] + e[Stat.BaseAvoidBleedPct],
                 e[Stat.ImmuneToBleeding] != 0 || e[Stat.CannotGainBleeding] != 0 || e[Stat.BaseCannotGainBleeding] != 0,

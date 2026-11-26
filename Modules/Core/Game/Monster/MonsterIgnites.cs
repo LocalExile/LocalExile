@@ -5,6 +5,14 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static MonsterIgnites.Settings IgniteSettingsFrom(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get)
+    {
+        var settings = MonsterIgnites.Settings.From(rows, hand, get, get(Stat.BaseElementalStatusAilmentDurationPlusPct));
+        double factor = Math.Max(0, 1 + get(Stat.EmberglowIgniteDurationPlusPctFinal) / 100d)
+            * Math.Max(0, 1 + get(Stat.UniqueReplicaVolkuursGuidanceIgniteDurationPlusPctFinal) / 100d);
+        return settings with { Seconds = settings.Seconds * factor };
+    }
+
     /// <summary>BuffDefinitions row 0 <c>ignited</c> ("You're on fire", BuffVisuals 2: the burning flames).</summary>
     public const ushort IgnitedBuffRow = 0;
 
@@ -29,8 +37,9 @@ public static partial class Game
     {
         if (baseFire <= 0 || MonsterElementalAilments.CannotInflict("ignite", attacker)
             || attacker(Stat.NeverDamagingAilments) != 0) return null;
-        int chance = attacker(Stat.BaseChanceToIgnitePct) + attacker(Stat.ChanceToIgnitePct) + attacker(Stat.ChanceToFreezeShockIgnitePct)
-            + (attacker(Stat.AlwaysIgnite) != 0 ? 100 : 0);
+        int chance = ActorScale.Saturate((long)attacker(Stat.BaseChanceToIgnitePct) + attacker(Stat.ChanceToIgnitePct)
+            + attacker(Stat.ChanceToFreezeShockIgnitePct) + m.Effects[Stat.ChanceToBeIgnitedPct]
+            + (attacker(Stat.AlwaysIgnite) != 0 ? 100 : 0));
         if (!critical && !RandomRolls.Chance(chance, 100, random)) return null;
         double multiplier = 1 + (attacker(Stat.DotMultiplierPlus) + attacker(Stat.FireDotMultiplierPlus) + attacker(Stat.IgniteDotMultiplierPlus)
             + (critical ? attacker(Stat.CriticalAilmentDotMultiplierPlus) : 0)) / 100.0;
@@ -132,10 +141,10 @@ public static partial class Game
         var get = SupportedAilmentStats(player, skillId, playerStats, capturedInputs);
         string hand = spell ? "spell" : "main_hand";
         NoteIgniteArt(player, skillId);
-        var rows = capturedInputs is null
-            ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased)
-            : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
-        var settings = MonsterIgnites.Settings.From(rows, hand, get);
+        var inputs = capturedInputs ?? SupportedHitInputsFor(player, skillId, weapon: weapon);
+        var settings = inputs is null ? IgniteSettingsFrom([], hand, get)
+            : IgniteWithTargetCondition(SupportedAilmentRowsFrom(inputs, hand, additionalIncreased), inputs, hand, get,
+                additionalIncreased);
         // Controlled Blaze: "(10-18)% more Damage with Ignite per Enemy Ignited Recently", capped by the support.
         int per = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinal);
         if (per > 0)
@@ -143,21 +152,36 @@ public static partial class Game
             int cap = get(Stat.SupportRecentIgnitesIgniteDamagePerRecentIgnitePlusPctFinalMaximum);
             int recent = RecentlyIgnitedCount(player, ProjectileWorldTime(player));
             double more = ControlledBlazeIgniteFactor(per, cap, recent);
-            settings = settings with { Min = settings.Min * more, Max = settings.Max * more,
-                CriticalMin = settings.CriticalMin * more, CriticalMax = settings.CriticalMax * more };
+            settings = settings.ScaleDamage(more);
         }
         return WithOverheat(player, skillId,
             WithIgniteSpread(settings, playerStats, SupportedSkill(player, skillId).Stats, spell, hand));
     }
 
+    static MonsterIgnites.Settings IgniteWithTargetCondition(List<(uint Stat, int Value)> rows, SupportedHitInputs inputs,
+        string hand, Func<uint, int> get, long additionalIncreased = 0) =>
+        IgniteWithTargetCondition(rows, AilmentContext(inputs, hand), inputs.Raw, inputs.Conversion, inputs.Get, get,
+            additionalIncreased, hand);
+
+    static MonsterIgnites.Settings IgniteWithTargetCondition(List<(uint Stat, int Value)> rows,
+        AilmentPanelStats.Context context, DamagePacket raw, DamageConversion conversion, Func<uint, int> damageStats,
+        Func<uint, int> get, long additionalIncreased, string? hand = null)
+    {
+        hand ??= context.Hand;
+        var settings = IgniteSettingsFrom(rows, hand, get);
+        int increasedAgainstChilled = get(Stat.IgniteDamagePlusPctVsChilledEnemies);
+        if (settings.Seconds <= 0 || increasedAgainstChilled == 0) return settings;
+        var chilled = AilmentPanelStats.Ignite(context, raw, conversion, damageStats,
+            additionalIncreased + increasedAgainstChilled);
+        return settings with { ChilledTarget = IgniteSettingsFrom(chilled, hand, get).Ranges };
+    }
+
     static MonsterIgnites.Settings VoraciousFlame(MonsterIgnites.Settings settings, Func<uint, int> get)
     {
         if (get(Stat.KeystoneFirePurist) == 0) return settings;
-        return settings with
+        return settings.ScaleDamage(.75) with
         {
             Seconds = settings.Seconds / 4,
-            Min = settings.Min * .75, Max = settings.Max * .75,
-            CriticalMin = settings.CriticalMin * .75, CriticalMax = settings.CriticalMax * .75,
             Stacks = (int)Math.Min(int.MaxValue, (long)settings.Stacks + 1),
         };
     }
@@ -224,12 +248,13 @@ public static partial class Game
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
-        return WithIgniteSpread(MonsterIgnites.Settings.From(AilmentPanelStats.Compute(
-            new("main_hand", Spell: false, Melee: true) { WeaponStats = sourceWeapon.LocalSources },
-            SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
-            conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
-            Get, additionalIncreased),
-            "main_hand", Get), playerStats, null, spell: false, "main_hand");
+        var context = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: true) { WeaponStats = sourceWeapon.LocalSources };
+        var raw = SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true);
+        var damageConversion = conversion ?? SupportedAttackDamage.WithWeaponGains(
+            DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get);
+        var rows = AilmentPanelStats.Compute(context, raw, damageConversion, Get, additionalIncreased);
+        return WithIgniteSpread(IgniteWithTargetCondition(rows, context, raw, damageConversion, Get, Get, additionalIncreased),
+            playerStats, null, spell: false, "main_hand");
     }
 
     // Called under the combat lock at an accepted hit that dealt fire damage and left the monster alive: the hit's ignite
@@ -250,8 +275,14 @@ public static partial class Game
     {
         igniteDps = 0;
         if (target.Invulnerable) return null;
+        if (settings.ChilledTarget is { } chilled && target.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0)
+            settings = settings.WithRanges(chilled);
         var e = target.Mods.Effects;
-        settings = settings with { Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]) };
+        settings = settings with
+        {
+            Seconds = settings.Seconds * MonsterIgnites.SelfDuration(name => e[name]),
+            Chance = ActorScale.Saturate((long)settings.Chance + target.Effects[Stat.ChanceToBeIgnitedPct]),
+        };
         if (!target.Ignites.TryApply(settings, critical, now, e[Stat.AvoidIgnitePct],
                 e[Stat.ImmuneToIgnite] != 0 || e[Stat.CannotBeIgnited] != 0, player.IgniteRandom,
                 UtilityFlaskStat(player, UtilityFlasks.IgnitedDuringEffectTakenStat), out igniteDps)) return null;
@@ -262,17 +293,28 @@ public static partial class Game
         if (playerIgnite && target.Hostile)
         {
             player.RecentEvents.Record(StatConditions.IgnitedEnemy, now);
+            RecoverLifeOnIgniteLocked(player);
             HerEmbraceOnIgniteLocked(player, now);
-            // "Recover # Life when you Ignite an Enemy" (Ngamahu's Sign, Xoph's Nurture).
-            // and "Recover #% of Life when you Ignite an Enemy" (Razor of the Seventh Sun).
-            var igniter = CharacterPlayerStats(player);
-            int onIgnite = igniter.GetValueOrDefault(Stat.RecoverXLifeOnEnemyIgnited),
-                onIgnitePct = igniter.GetValueOrDefault(Stat.RecoverPctMaximumLifeOnEnemyIgnited);
-            if (onIgnite > 0 || onIgnitePct > 0) RecoverByRuleLocked(player, "life", false, Math.Max(0, onIgnite), Math.Max(0, onIgnitePct));
+            // "Recover #% of Life when you Ignite an Enemy" (Razor of the Seventh Sun). The flat "Recover # Life when you
+            // Ignite an Enemy" (Ngamahu's Sign, Xoph's Nurture) is main's RecoverLifeOnIgniteLocked, above.
+            int onIgnitePct = CharacterPlayerStats(player).GetValueOrDefault(Stat.RecoverPctMaximumLifeOnEnemyIgnited);
+            if (onIgnitePct > 0) RecoverByRuleLocked(player, "life", false, 0, onIgnitePct);
             GainFromAttackAilmentLocked(player, attackGains.IgniteFrenzy, ChargeType.Frenzy, FrenzyOnAttackIgnite);
         }
         ShowDotBuffLocked(player, id, target.Ignites, IgnitedBuffRow, now);
         return [];
+    }
+
+    // Called only for a hostile enemy the player actually ignited. The stat is cached with the other instant gains.
+    static void RecoverLifeOnIgniteLocked(Player player)
+    {
+        if (player.PlayerLife == 0) return;
+        var session = LeechOf(player);
+        if (session.LifeOnIgnite <= 0) return;
+        uint before = player.PlayerLife;
+        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before, session.LifeOnIgnite,
+            ref session.LifeInstantCarry, minimum: 1);
+        session.InstantLifeChanged |= player.PlayerLife != before;
     }
 
     static void ApplyIgniteFirePenaltyLocked(SpawnedMonster target, MonsterIgnites.Settings settings, double now)

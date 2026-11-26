@@ -65,6 +65,10 @@ public static partial class Game
             return "this skill can only trigger on a melee critical strike with the item it is socketed in";
         if (GolemStat(gem.Stats, Stat.SkillTriggeredBySnipe) != 0)
             return "this skill can only be triggered by Snipe";
+        if (GolemStat(gem.Stats, Stat.TriggeredByFissureSupport) != 0)
+            return "Fissure triggers on a supported slam's ground impact";
+        if (GolemStat(gem.Stats, Stat.TriggeredByCrystalfallSupport) != 0)
+            return "Falling Crystal triggers on a supported slam hit";
         if (GolemStat(gem.Stats, Stat.TriggerOnSkillUsePctIfYouHaveASpiritCharge) > 0)
             return "Spirit Burst triggers on skill use while a Spirit Charge is held";
         if (gem.Effect >= 0 && IsRelicSkill(Skills.EffectId(gem.Effect) ?? ""))
@@ -104,6 +108,7 @@ public static partial class Game
             triggers.Add(player, state = new(player.ProjectileEpoch, CombatLifetime));
         }
         var live = new HashSet<ushort>();
+        ((int X, int Y) At, uint Target)? source = null;
         foreach (var skill in GemSkillEffects(player)) // native equipment/socket order
         {
             var gem = SupportedSkill(player, skill.Id);
@@ -130,18 +135,21 @@ public static partial class Game
             }
             if (state.Pending.Count >= 128) continue;
             counter.Damage = 0; counter.Pending = true;
-            var origin = player.Walk.Position(at);
-            var aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
-                .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
-                .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
-            uint target = 0;
-            if (attacker != 0 && PlacedArcPayload(SkillsFor(player).EffectId(gem.Effect))
-                && player.Area.Monsters.TryGetValue(attacker, out var enemy) && ArcProxyTarget(player, attacker, enemy))
+            if (source is null)
             {
-                target = attacker;
-                aim = enemy.Walk.Position(at);
+                // Target the hit that crossed this spell's threshold or caused the stun.
+                if (attacker != 0 && player.Area.Monsters.TryGetValue(attacker, out var enemy))
+                    source = (enemy.Walk.Position(at), attacker);
+                else
+                {
+                    var origin = player.Walk.Position(at);
+                    var aim = player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+                        .OrderBy(e => Dist(origin, e.Value.Walk.Position(at))).ThenBy(e => e.Key)
+                        .Select(e => e.Value.Walk.Position(at)).FirstOrDefault((origin.X + 20, origin.Y));
+                    source = (aim, 0);
+                }
             }
-            state.Pending.Enqueue((skill.Id, counter, aim, at, target));
+            state.Pending.Enqueue((skill.Id, counter, source.Value.At, at, source.Value.Target));
         }
         foreach (var id in state.Counters.Keys.Where(id => !live.Contains(id)).ToArray()) state.Counters.Remove(id);
     }

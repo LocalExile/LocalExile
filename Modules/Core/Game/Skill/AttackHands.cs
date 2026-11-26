@@ -119,7 +119,8 @@ public static partial class Game
         int Own(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) : 0;
         // A channel's stages (Cyclone) share one use; which stage swings which hand is not traced, so a channel keeps the
         // main hand when both fit, as its interval does (SupportedChannelSeconds).
-        return AttackHands.Choose(mainFits, offFits, Own("skill_double_hits_when_dual_wielding") != 0,
+        return AttackHands.Choose(mainFits, offFits, LacerateEffect(SkillsFor(player).EffectId(gem.Effect))
+            || Own("skill_double_hits_when_dual_wielding") != 0,
             SkillsFor(player).IsChannelled(gem.Effect) ? (ushort)0 : sequence);
     }
 

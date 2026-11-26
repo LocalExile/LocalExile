@@ -109,9 +109,42 @@ public static partial class Game
         if (SpiritCharges.TryGetValue(player, out var spirit)) ChangeSpiritCharges(player, spirit, 0, AreaTime(player));
     }
 
+    static readonly Store<Player, IReadOnlyDictionary<uint, int>> PendingAcceptedKillSkills = new();
+
+    static void SetAcceptedKillSkill(Player player, IReadOnlyDictionary<uint, int> skillStats) =>
+        PendingAcceptedKillSkills.AddOrUpdate(player, skillStats);
+
+    static void ClearAcceptedKillSkill(Player player) => PendingAcceptedKillSkills.Remove(player);
+
+    static IReadOnlyDictionary<uint, int>? TakeAcceptedKillSkill(Player player)
+    {
+        if (!PendingAcceptedKillSkills.TryGetValue(player, out var skill)) return null;
+        PendingAcceptedKillSkills.Remove(player);
+        return skill;
+    }
+
+    // Expands per-charge stats residing on a skill/support gem (such as Ice Bite's cold damage and quality per Frenzy Charge),
+    // using the player's current effective/counted charges and charge conversions without mutating ChargeSession.
+    static Dictionary<uint, int>? ExpandSkillChargeStats(Player player, IReadOnlyDictionary<uint, int> playerStats,
+        IReadOnlyDictionary<uint, int> skillStats)
+    {
+        if (skillStats.Count == 0 || !ChargeEffects.HasAny(skillStats, ChargeScaling.RuleStats)) return null;
+        var session = ChargesOf(player);
+        int PlayerStat(uint k) => playerStats.GetValueOrDefault(k);
+        int MaxOf(ChargeType type) => ChargeMaxima.Of(type, PlayerStat);
+        int Counted(ChargeType type)
+        {
+            var limits = ChargeMaxima.LimitsOf(type, PlayerStat, session.State.Held(type));
+            int held = session.State.Effective(type, limits);
+            return limits.Maximum > held && ChargeScaling.CountsAsMaximum(type, PlayerStat) ? limits.Maximum : held;
+        }
+        return ChargeEffects.Expand(key => skillStats.GetValueOrDefault(key), Counted,
+            type => Charges.Converted(type, PlayerStat), ChargeScaling.Rules, MaxOf, includePhysicalReduction: false);
+    }
+
     // A hostile monster the player killed (MonsterKilled): its "on kill" gains, "on Killing a Frozen Enemy" too when the
     // corpse kept a freeze (its killing hit's included) or shattered.
-    public static void ChargesOnKill(Player player, SpawnedMonster m)
+    public static void ChargesOnKill(Player player, SpawnedMonster m, IReadOnlyDictionary<uint, int>? skillStats = null)
     {
         if (player.PlayerLife == 0) return;
         bool frozen;
@@ -121,8 +154,10 @@ public static partial class Game
         RecordPlayerMonsterKill(player, m, now);
         if (player.TinctureEffects.BurnStacks > 0) TinctureOnKillLocked(player, CharacterPlayerStats(player));
         TryGainElusiveLocked(player, critical: false, kill: true, now);
-        var killingSkill = KillingSkills.TryGetValue(m, out var by) ? by.Stats : null;
-        RaiseCombatEvent(player, new ChargeEvent.Kill(m.Rarity, frozen, poisons, killingSkill) { Monster = m });
+        // The skill whose hit killed it: the one handed in, else the one its killing hit left (KillingSkills).
+        Func<uint, int>? skill = skillStats is { Count: > 0 } own ? key => own.GetValueOrDefault(key) : null;
+        skill ??= KillingSkills.TryGetValue(m, out var by) ? by.Stats : null;
+        RaiseCombatEvent(player, new ChargeEvent.Kill(m.Rarity, frozen, poisons, skill) { Monster = m });
         SpiritChargeOnKill(player, AreaTime(player));
         SelfBuffsOnKill(player);
         CurseCharges(player, m, death: true, now);
@@ -437,7 +472,7 @@ public static partial class Game
                 * buffEffect;
             if (!callToArms && !suppressBuffs) player.EnduringCryRecovery.Begin(now, duration, player.PlayerMaxLife * percentPerMinute / 6000d);
             Console.WriteLine($"[gateway] Enduring Cry recovery: {power} power, {duration:0.###} seconds, "
-                + $"{percentPerMinute:0.###}% Life/min (Whaletooth included)");
+                + $"{percentPerMinute:0.###}% Life/min");
             int charges = per > 0 ? power / per : 0;
             Console.WriteLine($"[gateway] Enduring Cry: {power} power within {radius} cells, {charges} endurance charge(s), {taunted} taunted");
             if (charges > 0 && !callToArms && !suppressBuffs) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Endurance, charges, $"Enduring Cry ({power} power)"));

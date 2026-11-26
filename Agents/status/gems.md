@@ -95,7 +95,8 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
-  Crystalfall accepts a compatible Slam with an unarmed main hand, including while holding a shield.
+  Fissure releases radial travelling attacks on a supported Slam's ground impact. Crystalfall releases Falling Crystals
+  on accepted hits, with three stored cooldown uses. Crystalfall also accepts a compatible unarmed Slam with a shield.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
@@ -182,7 +183,7 @@ Nothing yet.
   `/gem <name> [level] [quality]` (`ItemCatalog.cs`, `SkillCatalog.cs`; [19](../docs/protocol/19-gems.md) §1, §3).
   Not yet: corruption.
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its
-  level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 . 70 at 20, the client's tooltips),
+  level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 … 70 at 20, the client's tooltips),
   and its attribute requirements follow the client's own formula (`0x142476710`: `trunc((3 * level_req + 11) *
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).

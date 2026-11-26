@@ -36,6 +36,44 @@ public sealed class AtlasModule : IModule
             $"0x0018 Atlas passive point(s) earned: +{earned} ({player.Character.AtlasPassivePoints}/{MapCompletionPoints})");
     }
 
+    static IEnumerable<Player> InstanceClients(Player player)
+    {
+        var peers = InGame.Keys.Where(c => c.HasClient && ReferenceEquals(c.Instance, player.Instance)
+            && c.Connection.PlayerSent && !c.LeavingArea && !c.Closed).ToList();
+        return peers.Contains(player) ? peers : [player, .. peers];
+    }
+
+    static async Task CompleteMapOnBossKill(Player player, MonsterInfo monster)
+    {
+        if (AtlasProgress.OfArea(PlayerOf(player).AreaId) is not { } node
+            || !AtlasProgress.CompletesMap(node, monster, player.Area)) return;
+        await AtlasFeature.DropScryingOrbOnCompletion(player, monster, node);
+        foreach (var peer in InstanceClients(player))
+        {
+            try
+            {
+                var modPeer = PlayerOf(peer);
+                var data = WorldOf(modPeer).CharacterData;
+                bool completed = AtlasProgress.Complete(data, [node]);
+                bool bonus = global::Game.MapRunOf(peer) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
+                    && AtlasProgress.CompleteBonus(data, [node]);
+                int earned = bonus ? ApplyBonusPoints(peer, data) : 0;
+                if (completed)
+                {
+                    await Send(peer, AtlasProgress.NodeMessage(node, bonus),
+                        $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {monster.Name}");
+                    await AtlasFeature.Refresh(peer);
+                    await modPeer.Tell($"Atlas: {node.Name} completed.");
+                }
+                else if (bonus)
+                    await AtlasFeature.Refresh(peer);
+                if (bonus) await PublishBonusPoints(peer, modPeer, earned, "Atlas bonus objective completed");
+                else if (completed) await AtlasFeature.SyncTreeFlags(peer);
+            }
+            catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+        }
+    }
+
     /// <summary>This module's game data, built in a fixed order when it loads: before the Gateway listens, as the
     /// Gateway's own (WorldLoader). Tests that use the module call it once.</summary>
     public static void LoadData()
@@ -63,27 +101,16 @@ public sealed class AtlasModule : IModule
             int n = await AtlasFeature.EnsureUnlocked(player);
             await PlayerOf(player).Tell(n == 0 ? "Atlas: beacons and invitations already unlocked." : $"Atlas: granted {n} beacon/invitation flag(s).");
         });
-        GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
+        GameEvents.MonsterKilled.Add(module.Manifest.Id, kill => CompleteMapOnBossKill(kill.Player, kill.Monster));
+        // Minion, party, and non-playerKill deaths emit GameEvents.Kill without MonsterKilled.
+        GameEvents.Kill.Add(module.Manifest.Id, kill =>
         {
-            if (AtlasProgress.OfArea(kill.ModPlayer.AreaId) is not { } node || !AtlasProgress.CompletesMap(node, kill.Monster)) return;
-            var player = kill.Player;
-            var data = WorldOf(kill.ModPlayer).CharacterData;
-            await AtlasFeature.DropScryingOrbOnCompletion(kill, node);
-            bool completed = AtlasProgress.Complete(data, [node]);
-            bool bonus = global::Game.MapRunOf(player) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run)
-                && AtlasProgress.CompleteBonus(data, [node]);
-            int earned = bonus ? ApplyBonusPoints(player, data) : 0;
-            if (completed)
-            {
-                await Send(player, AtlasProgress.NodeMessage(node, bonus),
-                    $"0x01a4 Atlas map completed: {node.Name} ({node.Id}) by {kill.Monster.Name}");
-                await AtlasFeature.Refresh(player);
-                await kill.ModPlayer.Tell($"Atlas: {node.Name} completed.");
-            }
-            else if (bonus)
-                await AtlasFeature.Refresh(player);
-            if (bonus) await PublishBonusPoints(player, kill.ModPlayer, earned, "Atlas bonus objective completed");
-            else if (completed) await AtlasFeature.SyncTreeFlags(player);
+            if (kill.PlayerKill) return;
+            if (AtlasProgress.OfArea(kill.Player.Layout.Id) is not { } node
+                || !node.FinalBosses.Contains(kill.VarietyId)) return;
+            var monster = global::Game.ModMonster(kill.Monster, kill.At);
+            if (!AtlasProgress.CompletesMap(node, monster, kill.Player.Area)) return;
+            kill.Later(() => CompleteMapOnBossKill(kill.Player, monster));
         });
         GameEvents.Command(module.Manifest.Id, "atlas_complete", "/atlas_complete <map name or AtlasNode id | all> (dev: mark Atlas maps completed, saved)",
             async (player, args) =>
@@ -198,6 +225,7 @@ public sealed class AtlasModule : IModule
             await AtlasFeature.SocketVoidstone(player, held.Id);
             return true;
         });
+        GameEvents.NpcQuestConversation.Add(module.Manifest.Id, AtlasFeature.KiracStarterConversation);
         // Kirac's invitation rows FinishNPCChat + DispatchRulesetEvent("open_maven_invitation …"). The chat end ran
         // with no item. Hand the matching MavenFights invitation into the bag first; the empty FinishNPCChat still closes.
         GameEvents.NpcOptionPicked.Add(module.Manifest.Id, async (player, talk) =>
@@ -260,6 +288,27 @@ public static class AtlasFeature
     };
 
     static readonly Regex OpenMavenInvitation = new(@"open_maven_invitation\s+(\w+)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    internal static async Task<bool?> KiracStarterConversation(Player player, uint id, SpawnedNpc npc)
+    {
+        const int tookStarterMap = 216, enteredMap = 1037;
+        const int introductionOption = 3;
+        var flags = player.Character.LeagueQuestFlags;
+        if (player.Layout.Id != "2_11_endgame_town" || npc.Npc.Id != "Metadata/NPC/Epilogue/Kirac"
+            || !player.Character.HasQuestFlag(Quests.EndGameAvailable)
+            || flags.Contains(tookStarterMap) || flags.Contains(enteredMap)) return null;
+
+        // NPCTalk 2257 has a start flag but is categorized as Gossip. The next rows, 2258 and 2297,
+        // have the manual-start sentinel. Leave their choices visible before the pre-granted Atlas
+        // flags can advance unrelated automatic Elder and Maven conversations.
+        if (global::Game.Npcs.TalkOf(npc.Npc, introductionOption) is { StartLeagueFlag: int introduced } introduction
+            && !flags.Contains(introduced))
+        {
+            await global::Game.ExecuteQuestConversation(player, id, npc, introduction);
+            if (player.InNpcTalk) return true;
+        }
+        return false;
+    }
 
     // Kirac's rows (NPCs.dat 410, also the hideout Kirac's) mark their conversation heard with league quest flags
     // (NPCTalk column 15), which open his next ones. Reward rows are left to their reward offer.
@@ -530,16 +579,15 @@ public static class AtlasFeature
     const string ScryingOrb = "Metadata/Items/Currency/CurrencyScryingOrb";
     const string ScouringOrb = "Metadata/Items/Currency/CurrencyConvertToNormal";
 
-    internal static async Task DropScryingOrbOnCompletion(MonsterKill kill, AtlasProgress.Node node)
+    internal static async Task DropScryingOrbOnCompletion(Player player, MonsterInfo monster, AtlasProgress.Node node)
     {
-        var player = kill.Player;
         if (!node.IsNormalMap || global::Game.MapRunOf(player) is not { Atlas: true, Area.Tier: >= 14 } run
             || !GameEvents.AllowsLoot(player)) return;
         var stats = player.Instance.AreaStats(() => global::Game.AreaLeagueStats(player));
         int chance = stats.GetValueOrDefault(Stat.MapDropScryingOrbOnCompletionChancePct);
         if (chance <= 0 || !player.Instance.ContentState.TryAdd("Atlas.ScryingOrbRolled", "1")
             || Random.Shared.Next(100) >= chance || ItemsFor(player).Find(ScryingOrb) is not { Supported: true } type) return;
-        var at = player.Layout.Near((kill.Monster.X, kill.Monster.Y));
+        var at = player.Layout.Near((monster.X, monster.Y));
         var item = ItemCatalog.Create(type) with { ScryingAreaHash = player.Layout.Hash,
             ItemLevel = (byte)Math.Clamp(run.Area.Level > 0 ? run.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100) };
         var ground = new WorldItemObject(at.X, at.Y, item);

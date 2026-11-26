@@ -233,6 +233,7 @@ public sealed partial class DelveModule
                                 {
                                     var spawn = player.Layout.Near((encounter.X, encounter.Y));
                                     uint monster = await SpawnMonster(player, variety, level, GameServer.Core.Protocol.Instance.MonsterRarity.Normal, spawn.X, spawn.Y);
+                                    if (monster == 0) continue;
                                     created++;
                                     trip.EncounterMonsters.Add(monster);
                                     if (encounter.Destination) trip.DestinationMonsters.Add(monster);

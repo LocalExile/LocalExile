@@ -16,7 +16,7 @@ public static class AttackSkillHit
         // Match ConversionFor exactly: player keys win; level-only skill keys fill gaps, without quality conversion.
         var conversionInputs = new Dictionary<uint, int>(character);
         foreach (var (key, value) in levelConversionInputs) conversionInputs.TryAdd(key, value);
-        return MaximumAttackDamage.Apply(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get),
+        return GameEvents.WithAttackHit(RageStats.ApplyAttack(PlayerHitDamage.Resolve(raw, SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
             SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(conversionInputs, catalog, attack: true), weapon, Get), spell: false,
             melee: melee, projectile: projectile, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: SupportedAttackDamage.WeaponIncrease(weapon, Get),

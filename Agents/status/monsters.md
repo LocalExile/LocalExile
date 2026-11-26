@@ -33,7 +33,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   scattered set on top of them (#668). The scattered packs stand only on cells the arrival can walk to, so the pockets
   a generated map's walk map walls off from the entrance get none: a pack standing in one was a monster the area
   counted and nobody could reach or kill.
-  Code: `MonsterPacks.cs`, Gateway (`PopulateArea`), `scripts/walkmaps`, `scripts/re/atlas room-points`.
+  A map area adds a draw from the shared `chaos-*` pool to its Maps.dat signature packs, cut to the packs whose `Tags`
+  suit the area's `AreaTypeTags`: before that Forbidden Woods had only `chaos-vendigo1` and every monster of the map was
+  a Vendigo. The draw is the instance's one set of packs (`AreaPopulation.ForInstance`, asked for through
+  `Game.InstancePacks`): the scattered monsters, a strongbox's guards and summons, an Essence's monster, a Harbinger's
+  wave and the Torment dig pick from it where they run. The Harbinger and Torment on/off checks
+  read the instance's own packs, and the Essence opening checks the signature packs and the pool alike, so on an
+  ordinary map whose list is empty they start from the pool draw.
+  Unique map areas (WorldAreas `IsUniqueMapArea`) get no pool. Which key the areas whose `AreaTypeTags` is not their
+  terrain use (Summit, Estuary, Pier) is open; the per-instance draw size is our own number.
+  Code: `MonsterPacks.cs`, Gateway (`PopulateArea`, `Game.InstancePacks`), `scripts/walkmaps`,
+  `scripts/re/atlas room-points`.
   Docs: [14](../docs/protocol/14-monster-packs.md).
 - The map overlay's "X monsters remain" line: S→C 0x1a0 carries living hostile monsters, including dormant enemies,
   excluding friendly summons and corpses. Shared-instance updates follow entry, kills, spawns and removals; emerging
@@ -194,6 +204,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
 - Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
 - Mercenaries: a map area may hold one to talk to, duel and hire.
+  The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
@@ -244,6 +255,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
+  Kitava's Act 5 and Act 10 bodies stay at the terrain's exact boss point and keep its facing during combat.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
   Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI

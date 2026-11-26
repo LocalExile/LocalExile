@@ -242,6 +242,11 @@ the Id the variation: "index 2 … (ground_slam_ancestral:1, )" came with Blood 
 
 Verified live 2026-10-23: skins, attachments, character effects, footprints, portals, cursors and flask skins.
 
+**Tiered MTX, incremental deltas and mannequins.** `VisibleItem` (`0x1424fab70` / `0x1424fae00`) encodes a 1-based tier byte after `SkinHash` (`+0x38`) and `EffectHash` (`+0x60`) for cosmetics present in `TieredMicrotransactions`.
+Character cosmetic updates emit incremental deltas (`S→C 0x01ff` worn slot, `0x0200`/`0x0201` skill slot, `0x0202`/`0x0203` extra slot, `0x0204`/`0x0205` owned record, `0x020c` reclaim-query reply, `0x0210`/`0x0211` stat reset replies) and handle `C→S 0x01f7`/`0x01f8` (display flags), `0x01fb`/`0x01fc` (extra equip/unequip), `0x01fd`/`0x01fe` (visual tiers), `0x020b` (reclaim query), and `0x020e`/`0x020f` (stat reset).
+Hideout decoration sync emits `S→C 0x0214` (personal/guild in-use decoration record bits, reader `0x1421b2b00` → `0x14077eec0`) on entry, placement, reclaim (`0x5c`/`0x5d`), layout import (`0x0213`), and reset (`0x5e`).
+Hideout Armour Mannequins open `S→C 0x7b` kind `0x47` (`CosmeticsEquipScreen`) with a non-zero `targetId` (`session+0xd678`), synchronized via `S→C 0x006a`–`0x006f` (`TargetSnapshot`, `TargetWornSlotUpdate`, `TargetExtraSlotUpdate`/`Remove`, `TargetDisplayFlags`, `TargetWeaponClasses`) and controlled by `C→S 0x005f`–`0x0066`.
+
 ## 4. Open
 
 - Pets, the portrait and skill effects are built as above and await live verification (skill picks: 0x1fa seen live,

@@ -373,6 +373,8 @@ public static partial class Game
             bytes.World(player.Id, InstanceEntities.PlayerMinionsChange(player.Id, [new(objectId, skillId, TotemMinionType)],
                 CanDetonateMines(player)));
             onslaughtChanged |= TotemSummonedLocked(player, placed.At, now, playerStats);
+            if (playerStats.GetValueOrDefault(Stat.TotemsTauntEnemiesAroundThemForXSecondsWhenSummoned) is > 0 and var tauntSeconds)
+                TauntFromTotemLocked(player, placed, 30, tauntSeconds, now);
             StartTotemTimer(player);
             if (replaced.Count > 0)
             {
@@ -382,6 +384,7 @@ public static partial class Game
                     StopTotemChannel(old, bytes);
                     StopSearingBond(old, bytes);
                     TotemChannels.Remove(old);
+                    player.Area.Buffs.Clear(old.Id, TrarthanRuin, old.Id);
                 }
                 PresentNearby(player);
                 TotemsDiedLocked(player, now, playerStats);
@@ -566,9 +569,11 @@ public static partial class Game
     static (int NonChaos, int Chaos) RedirectTotemHitLocked(Player player, TotemState.Totem totem,
         int nonChaos, int chaos, int pct, double clock, IReadOnlyDictionary<uint, int>? stats)
     {
-        var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, totem.Life);
+        uint before = totem.Life;
+        var (keptNonChaos, life) = TotemState.Redirect(nonChaos, pct, before);
         var (keptChaos, left) = TotemState.Redirect(chaos, pct, life);
         totem.Life = left;
+        RecoupTotemHitLocked(player, before - left, clock, stats);
         if (left == 0)
         {
             totem.DiedAt = clock;
@@ -641,6 +646,7 @@ public static partial class Game
                 StopTotemChannel(t, bytes);
                 StopSearingBond(t, bytes);
                 TotemChannels.Remove(t);
+                player.Area.Buffs.Clear(t.Id, TrarthanRuin, t.Id);
                 // Source 0 takes it off the roster; once, in the batch that carries its death.
                 if (!t.RosterRemovalSent)
                 {
@@ -685,6 +691,7 @@ public static partial class Game
             {
                 player.RemoveBlocker(totem.Id);
                 TotemChannels.Remove(totem);
+                player.Area.Buffs.Clear(totem.Id, TrarthanRuin, totem.Id);
                 if (SearingBondSources.TryGetValue(totem, out var source))
                 {
                     foreach (uint beam in source.Beams.Values) retired.Add(beam);
@@ -847,11 +854,14 @@ public static partial class Game
 
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
-        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0)
+        Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
+        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
-        var caster = TotemCasterStats(CharacterPlayerStats(player));
+        if (baseChaos > 0) inputs = inputs with { Raw = inputs.Raw.Add(GameServer.Core.World.DamageType.Chaos, new(baseChaos, baseChaos)) };
+        var ownerStats = CharacterPlayerStats(player);
+        var caster = TotemCasterStats(ownerStats);
         var blind = BlindHitInput.Capture(caster, skill.Stats);
         bool attack = SkillsFor(player).IsAttack(skill.Effect);
         var hit = new SkillDamageContext(attack ? SkillHitKind.Attack : SkillHitKind.Spell, caster)
@@ -862,11 +872,16 @@ public static partial class Game
         var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
+        var weaponLocal = attack && !SkillsFor(player).RequiresShield(skill.Effect)
+            ? HandWeapon(player, AttackHand.Main).LocalSources : null;
+        var ailmentSkillStats = attack ? WithWeaponAilmentStats(skill.Stats, weaponLocal) : skill.Stats;
+        var hitRolls = HitRollsFor(caster).ForSkill(skill.Stats.GetValueOrDefault, spell: !attack)
+            .ForWeapon(weaponLocal);
         void Contact(uint id, SpawnedMonster m)
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
-            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
+            if (!TotemTargetable(m) || cascade is not null && m.WorldHidden || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
                 || covers?.Invoke(targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
@@ -877,11 +892,13 @@ public static partial class Game
                 SupportedCriticalChanceFor(player, totem.SkillId, release: false, extraIncrease: extraCriticalIncrease),
                 SupportedCriticalChanceVsBlinded(player, totem.SkillId, false), SupportedCriticalChanceVsGround(player, totem.SkillId, false));
             bool crit = RollCriticalStrike(player, chance, skill.Stats, attack, skillRoll: criticalRoll, playerStats: caster);
-            var (damage, _, mitigated) = MonsterHitDamage(m, rolled, crit, attack, now, resistance, penetration,
-                HitRollsFor(caster).InvertsResistance(AreaRng(player)), AreaRng(player));
+            rolled = hitRolls.ForCriticalStrike(crit, caster, skill.Stats).ApplyDamageMultiplier(rolled, AreaRng(player));
+            var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, crit, attack, now, resistance, penetration,
+                hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
             int sourceMultiplier = crit ? SupportedCriticalMultiplier(player, totem.SkillId) : 100;
             if (crit) damage = DamageModel.CriticalDamage(damage, CriticalMultiplierOn(m, sourceMultiplier, now, caster, skill.Stats));
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: !attack, now, damage);
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: !attack, now, damage, takenRules);
+            int directDamage = damage;
             if (spellImpale)
             {
                 var settings = ImpaleStats.From(caster, Stats, attack: false, skill.Stats, critical: crit);
@@ -889,12 +906,17 @@ public static partial class Game
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
+            if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
+            LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }
             if (hitSummon)
                 HitSummonsOnHitLocked(player, m, skill.Stats, totem.SkillId, now, AreaRng(player), playerConsumesCorpse: false);
             if (!m.Dead && damage > 0)
-                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, skill.Stats, now, AreaRng(player),
-                    blind: blind, hitOrigin: totem.At, playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false, who: CombatActors.Totem);
+                AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, ailmentSkillStats, now, AreaRng(player),
+                    attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
+                    sourceEffect: skill.Effect, blind: blind, hitOrigin: cascade?.HitOrigin(targetAt, totem.At) ?? totem.At,
+                    playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
+                    extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None, who: CombatActors.Totem);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);

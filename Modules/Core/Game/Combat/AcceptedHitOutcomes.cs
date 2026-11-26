@@ -15,11 +15,15 @@ public static partial class Game
         var session = ChargesOf(player);
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         session.Observe(Get);
+        var killSkill = accepted.Any(e => e.KillEvent && e.Skill is null) ? TakeAcceptedKillSkill(player) : null;
+        Func<uint, int>? SkillLookup(PlayerMinions.AcceptedCharges e)
+        {
+            var skill = e.Skill ?? (e.KillEvent ? killSkill : null);
+            return skill is null ? null : name => name is var key ? skill.GetValueOrDefault(key) : 0;
+        }
         ChargeEvent[] events = [.. accepted.Select(e => e.KillEvent
-            ? (ChargeEvent)new ChargeEvent.Kill(e.Rarity, e.Frozen,
-                Skill: e.Skill is { } killing ? key => killing.GetValueOrDefault(key) : null)
-            : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect,
-                name => name is var key ? e.Skill!.GetValueOrDefault(key) : 0, e.Killed, e.Primary))];
+            ? (ChargeEvent)new ChargeEvent.Kill(e.Rarity, e.Frozen, Skill: SkillLookup(e))
+            : new ChargeEvent.Hit(e.Critical, true, null, e.Rarity, e.Effect, SkillLookup(e), e.Killed, e.Primary))];
         var step = session.Admit(accepted.Max(e => e.At), events, Get, () => WeaponProfileFor(player), player.PlayerLife > 0, AreaRng(player));
         // A kill credited to the player through another path (a brand's, a herald's, a granted skill's) is the player's
         // kill for rules and mods too. Its hits were raised where they landed (HitLanded).

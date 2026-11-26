@@ -15,15 +15,21 @@ public static class ProjectileSpeed
     public static float CellsPerSecond(int worldUnitsPerSecond, Func<uint, int> playerFinal,
         Func<uint, int> skillRaw, string? testOverride = null)
     {
-        if (float.TryParse(testOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out float forced)
-            && float.IsFinite(forced) && forced > 0)
-            return forced;
-
-        long increased = (long)playerFinal(Stat.ProjectileSpeedPlusPct) + skillRaw(Stat.BaseProjectileSpeedPlusPct);
-        double speed = Math.Max(0, worldUnitsPerSecond) / (250.0 / 23.0) * Math.Max(0, 1 + increased / 100.0);
-        return (float)(speed * Math.Max(0, 1 + skillRaw(Stat.ActiveSkillProjectileSpeedPlusPctFinal) / 100d)
-            * Math.Max(0, 1 + skillRaw(Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal) / 100d));
+        if (SpeedOverride(testOverride) is float forced) return forced;
+        return (float)Scale(Math.Max(0, worldUnitsPerSecond) / (250.0 / 23.0), playerFinal, skillRaw);
     }
+
+    internal static double Scale(double speed, Func<uint, int> playerFinal, Func<uint, int> skillRaw)
+    {
+        long increased = (long)playerFinal(Stat.ProjectileSpeedPlusPct) + skillRaw(Stat.BaseProjectileSpeedPlusPct);
+        return speed * Math.Max(0, 1 + increased / 100.0)
+            * Math.Max(0, 1 + skillRaw(Stat.ActiveSkillProjectileSpeedPlusPctFinal) / 100d)
+            * Math.Max(0, 1 + skillRaw(Stat.SupportSlowerProjectilesProjectileSpeedPlusPctFinal) / 100d);
+    }
+
+    internal static float? SpeedOverride(string? testOverride) =>
+        float.TryParse(testOverride, NumberStyles.Float, CultureInfo.InvariantCulture, out float forced)
+            && float.IsFinite(forced) && forced > 0 ? forced : null;
 
     /// <summary>Keep the longest possible flight within Task.Delay's numeric limit before predicting collisions.
     /// Ordinary positive overrides remain exact; only a zero/unsafe delay needs a distance-dependent speed floor.</summary>

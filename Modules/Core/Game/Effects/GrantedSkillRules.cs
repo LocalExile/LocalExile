@@ -353,8 +353,10 @@ public static partial class Game
                 double seconds = SkillDurationModifiers.Seconds(GolemStat(own, Stat.BaseSkillEffectDuration), key => GolemStat(playerStats, key), key => GolemStat(own, key));
                 if (seconds <= 0) seconds = row.Seconds;
                 int radius = SkillRadius(player, row.Radius ?? 12, gem.Stats, spell: true, gem.Effect);
-                int taken = kind == FlaskGrounds.Kind.ConsecratedGround ? OwnConsecratedGroundCreatedLocked(player, playerStats) : 0;
-                player.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds, QueueGroundArtLocked(player, kind, at, radius), taken));
+                // Consecrated Ground made by the character: main's own creation (its Zealotry and flask modifiers).
+                player.FlaskGrounds.Add(kind == FlaskGrounds.Kind.ConsecratedGround
+                    ? CreateOwnConsecratedGroundLocked(player, at, radius, now + seconds, playerStats)
+                    : new(kind, at.X, at.Y, radius, now + seconds, QueueGroundArtLocked(player, kind, at, radius), 0));
                 PresentNearby(player);
                 Console.WriteLine($"[gateway] {grant.EffectId}: {kind} at ({at.X}, {at.Y}) radius {radius} for {seconds:0.##} s");
             }));

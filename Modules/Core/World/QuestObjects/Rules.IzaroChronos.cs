@@ -47,7 +47,7 @@ static partial class QuestobjectsRules
             scripted: true, placement: MonsterPlacement.Established);
         IdolSlot slot;
         if (player.Area.Monsters.GetValueOrDefault(id) is not { } m) return null;
-        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId, m.NoRewards) = (double.PositiveInfinity, false, true, 0, true);
+        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId, m.NoRewards, m.ScriptHeld) = (double.PositiveInfinity, false, true, 0, true, true);
         m.StunImmuneUntil = double.PositiveInfinity;
         m.LifePhases = new([1]);
         slot = new IdolSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"));

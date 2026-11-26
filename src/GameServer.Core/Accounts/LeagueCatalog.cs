@@ -3,7 +3,7 @@ using GameServer.Core.Protocol.Login;
 
 namespace GameServer.Core.Accounts;
 
-/// <summary>A league (<c>Leagues/&lt;Name&gt;/league.json</c>): where characters live, a set of modules, and where they go next.
+/// <summary>A league (<c>Leagues/&lt;Name&gt;/league.json</c>): where characters live, a set of modules and mods, and where they go next.
 /// A variant the client shows through a check box on another league's card names it in <see cref="EntryOf"/>; with none it has a
 /// card of its own.</summary>
 public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, string? Form = null,
@@ -23,12 +23,13 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
     public bool Ended { get; init; }
     /// <summary>"HardMode": which of the game files' data its characters use.</summary>
     public string? DataSet { get; init; }
-    /// <summary>The modules its <c>modules.json</c> loads: paths under Modules/.</summary>
+    /// <summary>What it is made of: the modules its <c>modules.json</c> loads (paths under Modules/), then its <see cref="Mods"/>.</summary>
     public IReadOnlyList<string> Modules { get; init; } = [];
     /// <summary>False for a character's league with no folder: it can be listed but not entered.</summary>
     public bool Loaded { get; init; } = true;
-    /// <summary>The mods that run for its players (<c>league.json</c> "mods": "all", "none" or a list of ids). Null: all.</summary>
-    public IReadOnlyList<string>? Mods { get; init; }
+    /// <summary>The mods it is made of (<c>league.json</c> "mods", ids): without one that is installed and on it does not
+    /// load. A mod that runs in every league needs no listing.</summary>
+    public IReadOnlyList<string> Mods { get; init; } = [];
 
     public bool IsMain => EntryOf is null;
 
@@ -38,20 +39,42 @@ public sealed record League(string Name, string Base, bool Hardcore, bool Ssf, s
 
     /// <summary>Optional LeagueCategory id sent in S→C 0x1b LeagueEntry.C1 (+0xc1), configured per league in league.json.</summary>
     public byte LaunchCategory { get; init; }
+    /// <summary>Private league flag (S→C 0x1b Flags0 bit 0 and Flags2 bit 0 for login+0xe58 pagination count).</summary>
+    public bool Private { get; init; }
+    /// <summary>Optional password for a private league, verified against C→S 0x12 PasswordDigest (SHA-256 of UTF-16LE).</summary>
+    public string? Password { get; init; }
+    /// <summary>Optional league timestamps (Unix seconds) written into S→C 0x1b +0xd0, +0xd8, +0xc8 when non-zero.</summary>
+    public long StartTimeUnix { get; init; }
+    public long EndTimeUnix { get; init; }
+    public long RegisterTimeUnix { get; init; }
+
+    public bool PasswordMatches(ReadOnlySpan<byte> digest)
+    {
+        if (string.IsNullOrEmpty(Password)) return true;
+        return digest.Length == 32
+            && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(digest, AccountService.ClientPasswordDigest(Password));
+    }
 
     /// <summary>The S→C 0x1b entry. Main leagues get a card on the create screen; variants are reached through its check
     /// boxes. The client has one check box for a league form, and its wire names call it Ruthless.</summary>
-    public LeagueEntry Entry() => new(Name, Description, SsfParent, HardcoreParent, FormParent, 0, 0, 0,
-        (byte)((IsMain ? LeagueEntry.Main : 0) | (Hardcore ? LeagueEntry.Hardcore : 0)),
-        (byte)((IsMain ? 0 : LeagueEntry.Variant) | (Form is not null ? LeagueEntry.Ruthless : 0)),
-        0, 0, LaunchCategory, 0xd1);
+    public LeagueEntry Entry()
+    {
+        bool timed = EndTimeUnix > 0 || RegisterTimeUnix > 0;
+        byte flags0 = (byte)((Private ? LeagueEntry.Private : 0) | (Hardcore ? LeagueEntry.Hardcore : 0)
+            | (timed ? LeagueEntry.Timed : 0) | (IsMain ? LeagueEntry.Main : 0));
+        byte flags1 = (byte)((IsMain ? 0 : LeagueEntry.Variant) | (Form is not null ? LeagueEntry.Ruthless : 0));
+        byte flags2 = Private ? LeagueEntry.PrivateCounted : (byte)0;
+        return new(Name, Description, SsfParent, HardcoreParent, FormParent,
+            (ulong)Math.Max(0, StartTimeUnix), (ulong)Math.Max(0, EndTimeUnix), (ulong)Math.Max(0, RegisterTimeUnix),
+            flags0, flags1, flags2, 0, LaunchCategory, 0xd1);
+    }
 }
 
 /// <summary>
-/// The leagues in <c>Game_LEAGUES_FOLDER</c> (default Leagues) and in the packages (<see cref="Packages"/>), read once when a
+/// The leagues in <c>Game_LEAGUES_FOLDER</c> (default Leagues) and in the mods (<see cref="ModFolders"/>), read once when a
 /// server starts. Standard is required; every other league's parents must lead to Standard or Void, and one that does not is not
-/// loaded, nor is one whose modules cannot share a league (<see cref="Packages.Clash"/>). Auth and the Gateway read the same
-/// folders. Any name works: the client has no league list of its own.
+/// loaded, nor is one whose modules and mods cannot share a league (<see cref="ModFolders.Clash"/>) or that names a mod
+/// that is not on. Auth and the Gateway read the same folders. Any name works: the client has no league list of its own.
 /// </summary>
 public sealed class LeagueCatalog
 {
@@ -66,11 +89,13 @@ public sealed class LeagueCatalog
     /// <summary>Why a folder's league did not load.</summary>
     public IReadOnlyList<string> Errors { get; }
 
-    public LeagueCatalog(IEnumerable<League> leagues, IReadOnlyList<string>? errors = null, IReadOnlyDictionary<string, ModuleLimits>? limits = null)
+    /// <param name="mods">The ids of the mods that are on; null: not checked.</param>
+    public LeagueCatalog(IEnumerable<League> leagues, IReadOnlyList<string>? errors = null, IReadOnlyDictionary<string, ModuleLimits>? limits = null,
+        IReadOnlySet<string>? mods = null)
     {
         var errs = new List<string>(errors ?? []);
         var list = new List<League>();
-        // The first of a name stays: the repository's own leagues come before a package's.
+        // The first of a name stays: the repository's own leagues come before a mod's.
         foreach (var l in leagues)
             if (list.Any(o => o.Name.Equals(l.Name, StringComparison.OrdinalIgnoreCase))) errs.Add($"{l.Name}: a league of that name is already loaded");
             else list.Add(l);
@@ -91,7 +116,14 @@ public sealed class LeagueCatalog
         {
             if (!Rooted(l)) { errs.Add($"{l.Name}: its parents do not lead to Standard or Void"); continue; }
             if (l.Modules.Distinct(StringComparer.OrdinalIgnoreCase).Count() != l.Modules.Count) { errs.Add($"{l.Name}: a module is listed twice"); continue; }
-            if (limits is not null && Packages.Clash(l.Modules, limits) is { } clash) { errs.Add($"{l.Name}: {clash}"); continue; }
+            // Not one its user removed from it (ChangeModules).
+            if (mods is not null && l.Mods.FirstOrDefault(m => !mods.Contains(m)
+                && l.Modules.Any(listed => ModFolders.Id(listed).Equals(m, StringComparison.OrdinalIgnoreCase))) is { } missing)
+            {
+                errs.Add($"{l.Name}: it needs the mod {missing}, which is not installed or is turned off");
+                continue;
+            }
+            if (limits is not null && ModFolders.Clash(l.Modules, limits) is { } clash) { errs.Add($"{l.Name}: {clash}"); continue; }
             good.Add(l);
         }
         Loaded = good;
@@ -101,14 +133,15 @@ public sealed class LeagueCatalog
 
     /// <summary>The leagues in a folder: each a subfolder with a league.json and a modules.json, and Source/ or Binaries/; with the
     /// user's changes to their module lists from <paramref name="moduleChanges"/> (<see cref="ChangeModules"/>) when it exists.
-    /// <paramref name="more"/> are the packages' folders of leagues, read after it; <paramref name="modules"/> are the folders
-    /// of modules whose limits the leagues must keep.</summary>
-    public static LeagueCatalog FromFolder(string folder, string? moduleChanges = null, IEnumerable<string>? more = null, IEnumerable<string>? modules = null)
+    /// <paramref name="modules"/> are the folders of modules, and <paramref name="mods"/> the folders of the mods that are on
+    /// (<see cref="ModFolders.On"/>): a mod's <c>Leagues/</c> is read after <paramref name="folder"/>, and the leagues must
+    /// keep the limits both declare.</summary>
+    public static LeagueCatalog FromFolder(string folder, string? moduleChanges = null, IEnumerable<string>? modules = null, IReadOnlyList<string>? mods = null)
     {
         var leagues = new List<League>();
         var errors = new List<string>();
-        var limits = modules is null ? null : Packages.Limits(modules, errors);
-        foreach (string dir in new[] { folder }.Concat(more ?? []).Where(Directory.Exists).SelectMany(Directory.GetDirectories))
+        var limits = modules is null && mods is null ? null : ModFolders.Limits(modules ?? [], errors, mods);
+        foreach (string dir in new[] { folder }.Concat((mods ?? []).Select(m => Path.Combine(m, "Leagues"))).Where(Directory.Exists).SelectMany(Directory.GetDirectories))
         {
             string path = Path.Combine(dir, "league.json");
             // A league exists as Source or as Binaries.
@@ -117,11 +150,12 @@ public sealed class LeagueCatalog
             catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or IOException) { errors.Add($"{Path.GetFileName(dir)}: {e.Message}"); }
         }
         if (moduleChanges is not null && File.Exists(moduleChanges)) leagues = ChangeModules(leagues, File.ReadAllText(moduleChanges), errors, limits);
-        return new(leagues.OrderBy(l => !l.Name.Equals(Standard, StringComparison.OrdinalIgnoreCase)), errors, limits);
+        return new(leagues.OrderBy(l => !l.Name.Equals(Standard, StringComparison.OrdinalIgnoreCase)), errors, limits,
+            mods?.Select(m => Path.GetFileName(m)!).ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
-    /// <summary>The user's own module lists, over the leagues' <c>modules.json</c> (which stay as LocalExile ships them):
-    /// <c>{"&lt;league&gt;": {"add": [paths under Modules/], "remove": [paths or ids]}}</c>. An added module goes last, so a
+    /// <summary>The user's own lists, over the leagues' <c>modules.json</c> and "mods" (which stay as they ship):
+    /// <c>{"&lt;league&gt;": {"add": [paths under Modules/, or mod ids], "remove": [paths or ids]}}</c>. An added one goes last, so a
     /// module listed before it that gives rules keeps them. The game itself cannot be removed. A wrong entry is an error
     /// line and changes nothing, as is a change that leaves modules that cannot share a league; an unreadable file changes
     /// no league.</summary>
@@ -146,7 +180,7 @@ public sealed class LeagueCatalog
                     errors.Add($"{Name}: {entry.Name}'s changes are not {{\"add\": [...], \"remove\": [...]}} lists of modules");
                     continue;
                 }
-                static string Id(string path) => Packages.Id(path);
+                static string Id(string path) => ModFolders.Id(path);
                 var modules = changed[at].Modules.ToList();
                 foreach (string gone in remove)
                 {
@@ -155,7 +189,7 @@ public sealed class LeagueCatalog
                 }
                 foreach (string added in add)
                     if (!modules.Any(m => Id(m).Equals(Id(added), StringComparison.OrdinalIgnoreCase))) modules.Add(added.Replace('\\', '/'));
-                if (limits is not null && Packages.Clash(modules, limits) is { } clash) { errors.Add($"{Name}: {entry.Name}: {clash}"); continue; }
+                if (limits is not null && ModFolders.Clash(modules, limits) is { } clash) { errors.Add($"{Name}: {entry.Name}: {clash}"); continue; }
                 changed[at] = changed[at] with { Modules = modules };
             }
             return changed;
@@ -169,29 +203,32 @@ public sealed class LeagueCatalog
         string? Text(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         bool Flag(string n, bool or = false) => r.TryGetProperty(n, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : or;
         byte Byte(string n, byte or = 0) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetByte(out byte b) ? b : or;
+        long Int64(string n, long or = 0) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out long l) ? l : or;
         string name = Text("name") ?? folderName;
         string? entryOf = Text("entryOf"), kind = Text("entryKind");
         // Beside league.json: the modules the league loads.
         using var modules = JsonDocument.Parse(File.ReadAllText(Path.Combine(Path.GetDirectoryName(path)!, "modules.json")), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
         string[] listed = modules.RootElement.TryGetProperty("modules", out var moduleList) ? [.. moduleList.EnumerateArray().Select(e => e.GetString()!)] : [];
-        IReadOnlyList<string>? mods = !r.TryGetProperty("mods", out var allowed) || allowed.ValueKind == JsonValueKind.String && allowed.GetString() == "all" ? null
-            : allowed.ValueKind == JsonValueKind.String && allowed.GetString() == "none" ? []
-            : allowed.ValueKind == JsonValueKind.Array && allowed.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String) ? [.. allowed.EnumerateArray().Select(e => e.GetString()!)]
-            : throw new InvalidOperationException("\"mods\" is not \"all\", \"none\" or a list of mod ids");
+        string[] mods = !r.TryGetProperty("mods", out var own) ? []
+            : own.ValueKind == JsonValueKind.Array && own.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String && e.GetString()!.IndexOfAny(['/', '\\']) < 0)
+                ? [.. own.EnumerateArray().Select(e => e.GetString()!)]
+            : throw new InvalidOperationException("\"mods\" is not a list of mod ids");
         return new League(name, Text("base") ?? name, Flag("hardcore"), Flag("ssf"), Text("form"),
             SsfParent: kind == "ssf" ? entryOf ?? "" : "", HardcoreParent: kind == "hardcore" ? entryOf ?? "" : "", FormParent: kind == "form" ? entryOf ?? "" : "",
             PermanentDeath: string.Equals(Text("deathLeague"), HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase))
         {
             Parent = Text("parent"), EntryOf = entryOf, CardText = Text("description"), DeathLeague = Text("deathLeague"),
-            Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), Modules = listed,
+            Creatable = Flag("creatable", true), Ended = Flag("ended"), DataSet = Text("dataSet"), Modules = [.. listed, .. mods],
             LaunchCategory = Byte("launchCategory"), Mods = mods,
+            Private = Flag("private"), Password = Text("password"),
+            StartTimeUnix = Int64("startTime"), EndTimeUnix = Int64("endTime"), RegisterTimeUnix = Int64("registerTime"),
         };
     }
 
-    /// <summary>The leagues in the configured folder and in the packages, with the user's module lists (<c>data/league-modules.json</c>).</summary>
+    /// <summary>The leagues in the configured folder and in the mods, with the user's own lists (<c>data/league-modules.json</c>).</summary>
     public static LeagueCatalog FromEnvironment() => FromFolder(Environment.GetEnvironmentVariable("Game_LEAGUES_FOLDER") ?? "Leagues",
-        Environment.GetEnvironmentVariable("Game_LEAGUE_MODULES") ?? Path.Combine("data", "league-modules.json"), Packages.Roots("Leagues"),
-        [Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules", .. Packages.Roots("Modules")]);
+        Environment.GetEnvironmentVariable("Game_LEAGUE_MODULES") ?? Path.Combine("data", "league-modules.json"),
+        [Environment.GetEnvironmentVariable("Game_MODULES_FOLDER") ?? "Modules"], ModFolders.On());
 
     /// <summary>The leagues as they were when this server started: leagues come and go only with a restart.</summary>
     public static LeagueCatalog Startup => _startup.Value;
@@ -218,5 +255,20 @@ public sealed class LeagueCatalog
     public League? ResolveSavedLeague(string? name) => name is null ? null : FindLoaded(name)
         ?? new League(name, name, false, false) { Loaded = false };
 
+    /// <summary>Ended (past) loaded leagues, available for past-league filtering and migration.</summary>
+    public IReadOnlyList<League> PastLeagues => [.. Loaded.Where(l => l.Ended)];
+
     public IReadOnlyList<LeagueEntry> Entries() => [.. All.Select(l => l.Entry())];
+
+    /// <summary>Private creatable leagues sliced for C→S 0x1c pagination (offset = client's login+0xe58 count).</summary>
+    public IReadOnlyList<LeagueEntry> PrivateEntries(int offset = 0, int? limit = null)
+    {
+        if (limit is <= 0) return [];
+        IEnumerable<League> q = All.Where(l => l.Private);
+        if (offset > 0) q = q.Skip(offset);
+        if (limit is int take) q = q.Take(take);
+        return [.. q.Select(l => l.Entry())];
+    }
+
+    public IReadOnlyList<LeagueEntry> PastEntries() => [.. PastLeagues.Select(l => l.Entry())];
 }

@@ -36,6 +36,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Voidbringer loses mana after a successful skill use, independently of the skill cost.
+- Equipped jewel, weapon and flask modifiers affect qualifying hits, projectiles and recovery.
 - Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.

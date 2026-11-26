@@ -38,7 +38,7 @@ public static class FlaskGrounds
     /// 200%).</summary>
     public const uint ConsecratedAreaStat = Stat.LocalFlaskAreaOfConsecratedGroundPlusPct;
 
-    /// <summary>Increased critical strike chance against enemies on consecrated ground (Bottled Faith during
+    /// <summary>Increased critical strike chance against enemies on the player's consecrated ground (Bottled Faith during
     /// its effect: Game.CriticalChanceOn).</summary>
     public const uint VsConsecratedCriticalStat = Stat.CriticalStrikeChancePlusPctVsEnemiesOnConsecratedGround;
 
@@ -145,12 +145,16 @@ public static class FlaskGrounds
         public uint Id { get; init; } = Interlocked.Increment(ref lastId);
         public Func<double, bool>? SourceAlive { get; init; }
         public bool GrantsCurseImmunity { get; init; }
+        public int AdditionalLingerMs { get; init; }
         public bool Covers((int X, int Y) at) => (at.X - X) * (at.X - X) + (at.Y - Y) * (at.Y - Y) <= Radius * Radius;
     }
 
     /// <summary>Rational Doctrine's profane ground at a critically struck monster's cell.</summary>
     public static Ground ProfaneGround((int X, int Y) at, double now, uint? obj = null) =>
         new(Kind.ProfaneGround, at.X, at.Y, ProfaneRadius, now + ProfaneSeconds, obj);
+
+    /// <summary>Coverage and timing values for an effect. The rules resolve the source and the extra linger deadline.</summary>
+    public readonly record struct Coverage(bool Inside, int LingerMs = 0, double SourceEnds = 0, double? LingersUntil = null);
 
     /// <summary>One connection's flask grounds, the monsters blinded by smoke (with their buff ids), whether the player
     /// stands on consecrated ground (its buff id), and the consecrated ground around him while stationary.</summary>
@@ -166,6 +170,7 @@ public static class FlaskGrounds
         double _lingerSeconds, _profaneLingerSeconds, _lastCovered = double.NegativeInfinity;
         Ground? _stationary;
         double _lastCurseImmune = double.NegativeInfinity;
+        Coverage _coverage, _curseCoverage;
         bool _curseImmune;
 
         public bool Any
@@ -232,32 +237,39 @@ public static class FlaskGrounds
         /// by leaving or by the ground ending). A death ends the linger.</summary>
         public bool OnConsecrated(bool alive, (int X, int Y) at, double now)
         {
-            bool covered, protectedHere;
-            lock (_lock)
-            {
-                covered = _grounds.Any(g => g.Kind == Kind.ConsecratedGround && g.Covers(at));
-                protectedHere = covered && _grounds.Any(g => g.GrantsCurseImmunity && g.Covers(at));
-            }
-            return OnConsecrated(alive, covered, now, protectedHere);
+            var covering = Grounds.Where(g => g.Kind == Kind.ConsecratedGround && g.Covers(at));
+            return OnConsecrated(alive, covering.Any(), now, covering.Any(g => g.GrantsCurseImmunity));
         }
 
         /// <summary>The same, when whether a consecrated ground covers the player is known (the grounds' zones).</summary>
-        public bool OnConsecrated(bool alive, bool covered, double now, bool curseImmune = false)
+        public bool OnConsecrated(bool alive, bool covered, double now, bool curseImmune = false) =>
+            OnConsecrated(alive, now, new(covered), new(curseImmune));
+
+        /// <summary>Records effect coverage. An optional rule resolves extra linger from the previous and current values.
+        /// Keeping the values here lets the current rule resume after a module reload.</summary>
+        public bool OnConsecrated(bool alive, double now, Coverage coverage, Coverage curseCoverage,
+            Func<Coverage, Coverage, double, Coverage>? resolveLinger = null)
         {
             lock (_lock)
             {
                 if (!alive)
                 {
                     _lastCovered = _lastCurseImmune = double.NegativeInfinity;
+                    _coverage = _curseCoverage = default;
                     _curseImmune = false;
                     return false;
                 }
-                if (covered) _lastCovered = now;
-                if (curseImmune) _lastCurseImmune = now;
-                _curseImmune = curseImmune || now < _lastCurseImmune + _lingerSeconds;
-                return covered || now < _lastCovered + _lingerSeconds;
+                if (coverage.Inside) _lastCovered = now;
+                if (curseCoverage.Inside) _lastCurseImmune = now;
+                _coverage = resolveLinger?.Invoke(_coverage, coverage, now) ?? coverage;
+                _curseCoverage = resolveLinger?.Invoke(_curseCoverage, curseCoverage, now) ?? curseCoverage;
+                _curseImmune = curseCoverage.Inside || now < CurseLingerEnd;
+                return coverage.Inside || now < ConsecratedLingerEnd;
             }
         }
+
+        double ConsecratedLingerEnd => Math.Max(_lastCovered, _coverage.LingersUntil ?? double.NegativeInfinity) + _lingerSeconds;
+        double CurseLingerEnd => Math.Max(_lastCurseImmune, _curseCoverage.LingersUntil ?? double.NegativeInfinity) + _lingerSeconds;
 
         /// <summary>Adds a ground; returns whether the legacy ticker flag was idle. Game's current area owner advances it.</summary>
         public bool Add(Ground ground)
@@ -297,7 +309,8 @@ public static class FlaskGrounds
                 double next = double.PositiveInfinity;
                 void Next(double at) { if (at > now && at < next) next = at; }
                 foreach (var g in _grounds) Next(g.Ends);
-                if (_consecrated is not null) Next(_lastCovered + _lingerSeconds);
+                if (_consecrated is not null) Next(ConsecratedLingerEnd);
+                if (_curseImmune) Next(CurseLingerEnd);
                 foreach (var (_, profane) in _profane) Next(profane.LastCovered + _profaneLingerSeconds);
                 return double.IsFinite(next) ? next : null;
             }

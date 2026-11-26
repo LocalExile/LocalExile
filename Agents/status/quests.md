@@ -151,15 +151,11 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [pantheon](../docs/game/campaign/pantheon.md).
 - Acts 7–10 and the Epilogue (live 2026-10-31, seed 1, on the engine before the modules: one Witch from
   `/quest_preset E3StartOfAct7`, the runner unattended per act, no `/goto`; on the modules checked by the oracle and
-  the offline exit audit; firefly pickup and Arakaali entry checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's portal into the
-  Sanctum, Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
-  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable;
-  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
-  the offline exit audit; Reverie device also checked in the client): a7q5, a7q2 (Maligaro's Map, the Reverie Device's
-  native inventory and six consumable portals into one Sanctum instance with return to the same device;
-  Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into The Den), a7q1
-  (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable; native pickup checked;
-  Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
+  the offline exit audit; the Reverie device and Arakaali entry checked in the client): a7q5, a7q2
+  (Maligaro's Map, the Reverie Device's native inventory and six consumable portals into one Sanctum instance with
+  return to the same device; Black Death's venom), a7q3 (Silk's Obsidian Key, the Sins barrier, the passage into
+  The Den), a7q1 (Greust), a7q8, a7q9, a7q7 (seven scattered Fireflies, unopened chests remain targetable; native
+  pickup checked; Yeena burns the webs), a7q6, a7q4 (Arakaali's entrance lands inside the arena, the bridge into
   Act 8); a8q1, a8q5, a8q4, a8q6, a8q7 (the legion's multi-kill), a8q3 and a8q2 (both orbs at the fight starter,
   Solaris and Lunaris, the bridge exit into Act 9); a9q3 (the mummy event), a9q5 (the Bottled Storm carried to the
   barrier, Shakari retreats at 65% life and resumes in her second arena, and the last Oasis gate is the checkpoint),

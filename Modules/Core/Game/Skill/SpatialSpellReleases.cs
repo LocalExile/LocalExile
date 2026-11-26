@@ -4,18 +4,9 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool SpatialSpellEffect(string? effect) =>
-        effect is "CracklingLanceAltX" or "CracklingLanceAltY" or "GlacialCascade" or "GlacialCascadeAltX"
-            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurgeAltX" or "ShockNovaAltX" or "ArcAltX";
-
-    static int ShockNovaProcessionRepeats(Player player, int effect, int level, int quality) =>
-        SkillsFor(player).EffectId(effect) == "ShockNovaAltX"
-            ? Math.Clamp(SkillsFor(player).EffectStats(effect, level, quality)
-                .FirstOrDefault(s => s.Item1 == Stat.BaseSpellRepeatCount).Item2, 0, 8)
-            : 0;
-
-    // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
-    static (int X, int Y) CascadeKnockbackOrigin((int X, int Y) target, (double X, double Y) direction) =>
-        (target.X - (int)Math.Round(100 * direction.X), target.Y - (int)Math.Round(100 * direction.Y));
+        effect is "CracklingLanceAltX" or "CracklingLanceAltY"
+            or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect or TrarthanBargain
+            || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
 
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
@@ -35,24 +26,23 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        // The gem rows provide the branch angle modifier and the cascade count and damage. Beam lengths, spike spacing
-        // and spike travel time are local collision estimates in the absence of a captured client collision trace.
+        // The gem rows provide the branch angle modifier. Beam lengths use local collision estimates.
         const int LanceLength = 60;
         const double LanceBranchAngle = 24;
-        const int CascadeBaseSpacing = 12;
-        const double CascadeInterval = .045;
 
         internal void ScheduleSpatialSpell((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) from, (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice,
             SkillCriticalRoll? critical, ushort sequence = 0, int repeat = 0, double damageMore = 1,
-            SpawnedMonster? brandedTarget = null)
+            SpawnedMonster? brandedTarget = null, uint targetId = 0)
         {
             if (!Active || !current()) return;
             var source = SupportedSkill(Player, gem.Id);
+            double beidatMore = CastingBeidatSpell(Player, gem.Id)?.More ?? 1;
+            double dotMore = GhorrDotMore(Player, gem.Id);
             long released = Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))) + ProjectileRuntime.Time(windup);
             Runtime.Schedule(released, () =>
             {
-                if (!current() || !CurrentSource()) return;
+                if (!CurrentSource() || !sacrifice.Triggered && !current()) return;
                 int Own(uint key) => source.Stats.GetValueOrDefault(key);
                 var caster = CharacterPlayerStats(Player);
                 var effect = SkillsFor(Player).EffectId(gem.Effect);
@@ -60,10 +50,14 @@ public static partial class Game
                 if (direction == default) direction = (1, 0);
                 int Radius(int baseRadius) => SkillRadius(Player, baseRadius, source.Stats, true, gem.Effect, caster);
                 void Hit((int X, int Y) centre, int radius, double more = 1,
-                    Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false) =>
+                    Func<uint, (int X, int Y), bool>? targetFilter = null, bool centred = false,
+                    int extraShockChance = 0, double burstMore = 1, CascadeBurst cascadeBurst = CascadeBurst.None,
+                    long baseChaos = 0) =>
                     Enqueue(() => AreaSkillHitForUse(null, Player, gem.Id, gem, centred ? centre : from, centre, immediate: true, sequence: sequence,
                         repeat: repeat, damageMore: damageMore * more, radiusOverride: radius, criticalRoll: critical,
-                        sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter));
+                        sacrifice: sacrifice, triggeredCurrent: CurrentSource, brandedTarget: brandedTarget, targetFilter: targetFilter,
+                        hitAndAilmentMore: beidatMore * burstMore, extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
+                        baseChaos: baseChaos));
 
                 if (effect == "LightningConduitAltX")
                 {
@@ -94,53 +88,53 @@ public static partial class Game
                 }
                 else if (effect == "VortexAltX")
                     ReleaseVortexProjection(gem, from, aim, source.Stats, caster, critical, sacrifice, CurrentSource,
-                        sequence, repeat, damageMore, brandedTarget);
-                else if (effect == "ShockNovaAltX")
+                        sequence, repeat, damageMore, brandedTarget, dotMore);
+                else if (effect == TrarthanBargain)
                 {
-                    int rings = ShockNovaProcessionRepeats(Player, gem.Effect, gem.Level, gem.Quality) + 1;
-                    int radius = Radius(26), ringOuter = Radius(20), ringInner = Radius(13);
-                    // The authored repeat count is independent of Spell Echo. The pulse spacing is a local estimate.
-                    for (int pulse = 0; pulse < rings; pulse++)
+                    long chaos = GainTrarthanRuin(Player, Player.Id, gem.Id, source.Stats,
+                        Player.PlayerLife, Player.PlayerMaxLife, out uint paid);
+                    if (paid > 0)
                     {
-                        double offset = pulse * ringOuter;
-                        var centre = (from.X + (int)Math.Round(offset * direction.X), from.Y + (int)Math.Round(offset * direction.Y));
-                        long due = Runtime.Now + ProjectileRuntime.Time(pulse * .16);
-                        Runtime.Schedule(due, () =>
-                        {
-                            if (CurrentSource()) Hit(centre, ringOuter, targetFilter: (_, at) => Dist(at, centre) >= ringInner, centred: true);
-                        });
-                        Runtime.Schedule(due + ProjectileRuntime.Time(.045), () =>
-                        {
-                            if (CurrentSource()) Hit(centre, radius, centred: true);
-                        });
+                        Player.PlayerLife -= paid;
+                        PresentStats(Player);
                     }
+                    var centre = SpellCentre(Player, gem.Effect, from, aim);
+                    Hit(centre, SkillRadius(Player, source.Stats, spell: true, gem.Effect), centred: true, baseChaos: chaos);
                 }
-                else if (effect == "ArcAltX")
+                else if (ShockNovaEffect(effect))
+                    ScheduleShockNova(gem.Effect, gem.Level, gem.Quality, SpellCentre(Player, gem.Effect, from, aim), aim, source.Stats, caster, CurrentSource,
+                        pulse => Hit(pulse.Centre, pulse.Radius, pulse.DamageMore,
+                            targetFilter: (_, at) => pulse.OutsideInnerRadius(at), centred: true, extraShockChance: pulse.ExtraShockChance));
+                else if (effect == ArcSurgingEffect)
                 {
                     int distance = Own(Stat.ArcChainDistance);
-                    int splits = (int)Math.Clamp((long)Own(Stat.ProjectileNumberToSplit) + caster.GetValueOrDefault(Stat.ProjectileNumberToSplit), 0, 256);
+                    int splits = ArcSplitCount(source.Stats, caster);
                     if (distance > 0)
                         Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(Math.Max(0, Own(Stat.ArcAdditionalDelayMs)) / 1000d), () =>
                         {
                             if (!CurrentSource()) return;
                             double now = ProjectileWorldTime(Player);
-                            var primary = Player.Area.MonstersNear(from, distance).Where(p => ArcProxyTarget(Player, p.Key, p.Value))
-                                .Select(p => (p.Key, At: p.Value.Walk.Position(now))).Where(p => Dist(p.At, from) <= distance)
-                                .OrderBy(p => Dist(p.At, aim)).ThenBy(p => p.Key).FirstOrDefault();
+                            var primary = (Key: 0u, At: (X: 0, Y: 0));
+                            if (targetId != 0 && Player.Area.Monsters.TryGetValue(targetId, out var target)
+                                && ArcProxyTarget(Player, targetId, target))
+                            {
+                                var at = target.Walk.Position(now);
+                                if (Dist(at, from) <= distance) primary = (targetId, at);
+                            }
+                            if (primary.Key == 0)
+                                primary = Player.Area.MonstersNear(from, distance).Where(p => ArcProxyTarget(Player, p.Key, p.Value))
+                                    .Select(p => (p.Key, At: p.Value.Walk.Position(now))).Where(p => Dist(p.At, from) <= distance)
+                                    .OrderBy(p => Dist(p.At, aim)).ThenBy(p => p.Key).FirstOrDefault();
                             if (primary.Key == 0) return;
-                            var selected = Player.Area.MonstersNear(primary.At, distance)
-                                .Where(p => p.Key != primary.Key && ArcProxyTarget(Player, p.Key, p.Value))
-                                .Select(p => (p.Key, Distance: Dist(p.Value.Walk.Position(now), primary.At)))
-                                .Where(p => p.Distance <= distance).OrderBy(p => p.Distance).ThenBy(p => p.Key)
-                                .Take(splits).Select(p => p.Key).ToHashSet();
+                            var selected = ArcSplitTargets(Player, primary.Key, primary.At, now, distance, splits).ToHashSet();
                             selected.Add(primary.Key);
                             Hit(primary.At, distance, targetFilter: (id, _) => selected.Contains(id));
                         });
                 }
-                else if (effect == "FlameSurgeAltX")
+                else if (effect is "FlameSurge" or "FlameSurgeAltX")
                 {
-                    // The spell data describes a forward surge. The local reach and cone angle approximate its hitbox.
-                    int reach = Radius(46);
+                    // Both gems have the same base reach; the client data adds length with gem level.
+                    int reach = Radius(30 + Own(Stat.ActiveSkillBaseAreaLengthPlus));
                     Hit(from, reach, targetFilter: (_, at) => GroundSlamWave.Covers(direction, from, at, 25, reach));
                 }
                 else if (effect is "CracklingLanceAltX" or "CracklingLanceAltY")
@@ -172,27 +166,14 @@ public static partial class Game
                         }
                     }
                 }
-                else if (effect is "GlacialCascade" or "GlacialCascadeAltX")
-                {
-                    int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
-                    int spikes = Math.Clamp(Own(Stat.UpheavalNumberOfSpikes) + Own(Stat.GlacialCascadeNumberOfAdditionalBursts), 0, 32);
-                    double spacing = CascadeBaseSpacing * Math.Max(.25, radius / 12d);
-                    double interval = CascadeInterval / Math.Max(.1, 1 + Own(Stat.GlacialCascadeTravelSpeedPlusPct) / 100d);
-                    for (int i = 0; i < spikes; i++)
-                    {
-                        double distance = (i + 1) * spacing;
-                        var at = (from.X + (int)Math.Round(distance * direction.X), from.Y + (int)Math.Round(distance * direction.Y));
-                        bool final = i == spikes - 1;
-                        double more = final ? Math.Max(0, 1 + Own(Stat.GlacialCascadeFinalSpikeDamagePlusPctFinal) / 100d) : 1;
-                        Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(i * interval), () =>
-                        {
-                            if (CurrentSource()) Hit(at, radius, more);
-                        });
-                    }
-                }
+                else if (effect is not null && GlacialCascadeEffect(effect))
+                    ScheduleGlacialCascade(effect, from, aim, source.Stats,
+                        () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,
+                        pulse => Hit(pulse.Centre, pulse.Radius, burstMore: pulse.DamageMore, cascadeBurst: pulse.Burst));
             });
 
             bool CurrentSource() => Active && !Player.Paused && Player.PlayerLife > 0 && sacrifice.Current
+                && (!sacrifice.Triggered || current())
                 && SameTriggerSource(source, SupportedSkill(Player, gem.Id));
         }
     }

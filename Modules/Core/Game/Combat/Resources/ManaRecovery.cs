@@ -1,7 +1,6 @@
 /// <summary>Stat-driven Mana costs.</summary>
 public static class ManaRecoveryRules
 {
-    public const uint PerDexterity = Stat.XManaPerDexterity;
     public const uint RagePer200 = Stat.GainXRagePer200ManaSpent;
     public static int Cost(int supportedBase, Func<uint, int> player, bool? channelled = null, double more = 1) =>
         Cost(supportedBase, player, channelled, more, applyManaEfficiency: true);
@@ -19,8 +18,16 @@ public static class ManaRecoveryRules
 
     static decimal ScaledCost(int supportedBase, Func<uint, int> player, double more)
     {
-        decimal scaled = decimal.Floor(Math.Max(0, supportedBase) * Math.Max(0m, 100m - player(Stat.BaseManaCostMinusPct))
-            * Math.Max(0m, 100m + player(Stat.ManaCostPlusPct) + player(Stat.BaseCostPlusPct)) / 10000m);
+        // The published cost takes a floored reduction off the base, not a floored product: base 55 with 47% less and a
+        // flat -14 publishes 16 (flooring the product gives 15), 50% less publishes 14 (13). Those samples carry no
+        // increase, so a reduction together with an increased mana cost is not measured: the increase keeps its own floor.
+        int reduction = player(Stat.BaseManaCostMinusPct);
+        decimal baseCost = Math.Max(0, supportedBase);
+        decimal reduced = reduction > 0
+            ? baseCost - decimal.Floor(baseCost * Math.Min(100, reduction) / 100m)
+            : baseCost * (100m - reduction) / 100m;
+        decimal scaled = decimal.Floor(reduced
+            * Math.Max(0m, 100m + player(Stat.ManaCostPlusPct) + player(Stat.BaseCostPlusPct)) / 100m);
         scaled = Math.Clamp(scaled, 0m, int.MaxValue);
         if (more != 1)
             scaled = (decimal)Math.Clamp(Math.Round((double)scaled * more), 0, int.MaxValue);
@@ -99,21 +106,35 @@ public static class ManaRecoveryRules
 public sealed class ManaRecoupState
 {
     public const double RecoupSeconds = 4;
-    public int SpentRemainder { get; private set; }
+    int rageRemainder, frenzyRemainder, powerRemainder;
+    public int SpentRemainder => rageRemainder;
     readonly record struct Grant(double Until, decimal Rate, decimal Remaining);
     readonly List<Grant> recoup = [];
     double at;
     decimal pending;
 
-    public void Observe(int ragePer200) { if (ragePer200 <= 0) SpentRemainder = 0; }
-    public long Spent(uint amount, int ragePer200)
+    public void Observe(int ragePer200) { if (ragePer200 <= 0) rageRemainder = 0; }
+
+    public void Observe(int ragePer200, int frenzyPer200, int powerPer200)
     {
         Observe(ragePer200);
-        if (ragePer200 <= 0) return 0;
-        long total = SpentRemainder + (long)amount;
-        SpentRemainder = (int)(total % 200);
-        return total / 200 * ragePer200;
+        if (frenzyPer200 <= 0) frenzyRemainder = 0;
+        if (powerPer200 <= 0) powerRemainder = 0;
     }
+
+    static long Spend(uint amount, int per200, ref int remainder)
+    {
+        if (per200 <= 0) { remainder = 0; return 0; }
+        long total = remainder + (long)amount;
+        remainder = (int)(total % 200);
+        return total / 200 * per200;
+    }
+
+    public long Spent(uint amount, int ragePer200) => Spend(amount, ragePer200, ref rageRemainder);
+
+    public (int Frenzy, int Power) SpentForCharges(uint amount, int frenzyPer200, int powerPer200) =>
+        ((int)Math.Min(int.MaxValue, Spend(amount, frenzyPer200, ref frenzyRemainder)),
+            (int)Math.Min(int.MaxValue, Spend(amount, powerPer200, ref powerRemainder)));
     /// <param name="seconds">The window the hit's recoup is paid over: <see cref="RecoupSeconds"/>, or three with
     /// "Recoup Effects instead occur over 3 seconds" (<see cref="Game.ManaRecoupSeconds"/>). The total is the same;
     /// only the rate changes.</param>
@@ -144,17 +165,23 @@ public sealed class ManaRecoupState
         Integrate(now); decimal whole = decimal.Truncate(pending); pending -= whole; return (double)whole;
     }
     public void DiscardRecoveryFraction() => pending = 0;
-    public void Clear() { SpentRemainder = 0; recoup.Clear(); at = 0; pending = 0; }
-    public sealed record Carried(int Spent, decimal Pending, (double Seconds, decimal Rate, decimal Remaining)[] Recoup);
+    public void Clear() { rageRemainder = frenzyRemainder = powerRemainder = 0; recoup.Clear(); at = 0; pending = 0; }
+    public sealed record Carried(int Spent, decimal Pending, (double Seconds, decimal Rate, decimal Remaining)[] Recoup)
+    {
+        public int FrenzySpent { get; init; }
+        public int PowerSpent { get; init; }
+    }
     public Carried Capture(double now)
     {
         Integrate(now);
-        return new(SpentRemainder, pending, [.. recoup.Select(r => (r.Until - now, r.Rate, r.Remaining))]);
+        return new(SpentRemainder, pending, [.. recoup.Select(r => (r.Until - now, r.Rate, r.Remaining))])
+            { FrenzySpent = frenzyRemainder, PowerSpent = powerRemainder };
     }
     public Carried Carry(double now) { var value = Capture(now); Clear(); return value; }
     public void Restore(Carried value, double now)
     {
-        Clear(); SpentRemainder = value.Spent; pending = value.Pending; at = now;
+        Clear(); rageRemainder = value.Spent; frenzyRemainder = value.FrenzySpent; powerRemainder = value.PowerSpent;
+        pending = value.Pending; at = now;
         recoup.AddRange(value.Recoup.Select(r => new Grant(now + r.Seconds, r.Rate, r.Remaining)));
     }
 }

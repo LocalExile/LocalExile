@@ -326,19 +326,26 @@ public static partial class Game
                     UpdateWarcryStats(player);
                 }
             }
-            if (stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0)
+            bool givesAlliesOnslaught = stats.GetValueOrDefault(Stat.YouAndNearbyAllysGainOnslaughtFor4SecondsOnWarcry) != 0;
+            const double nearbyOnslaught = 4;
+            double personalOnslaught = Math.Max(givesAlliesOnslaught ? nearbyOnslaught : 0,
+                // An effect rule live for the stat grants it itself (onslaught_on_warcry).
+                EffectRules.LiveFor(player, Stat.GainOnslaughtMsOnUsingAWarcry) ? 0 : stats.GetValueOrDefault(Stat.GainOnslaughtMsOnUsingAWarcry) / 1000d);
+            if (personalOnslaught > 0 && KillOnslaughtOf(player).Gain(now, personalOnslaught)
+                && Marked(player, PlayerStatStep.Onslaught))
+                (onslaught ??= []).Add(player);
+            if (givesAlliesOnslaught)
             {
-                const double duration = 4;
                 foreach (var owner in (player.Instance?.PlayersExcept(player.Id) ?? []).Prepend(player))
                 {
                     if (owner.Closed || owner.LeavingArea || owner.PlayerLife == 0) continue;
-                    if ((ReferenceEquals(owner, player) || Dist(owner.Walk.Position(now), at) <= radius)
-                        && KillOnslaughtOf(owner).Gain(now, duration) && Marked(owner, PlayerStatStep.Onslaught))
+                    if (!ReferenceEquals(owner, player) && Dist(owner.Walk.Position(now), at) <= radius
+                        && KillOnslaughtOf(owner).Gain(now, nearbyOnslaught) && Marked(owner, PlayerStatStep.Onslaught))
                         (onslaught ??= []).Add(owner);
                     foreach (var fighter in owner.Summons.Fighters.Values)
                         if (!fighter.Monster.Hostile && !fighter.Monster.Dead && fighter.Monster.Life > 0
                             && Dist(fighter.Monster.Walk.Position(now), at) <= radius && GolemCurrent(owner, fighter))
-                            GainMinionOnslaughtLocked(owner, fighter, now, duration);
+                            GainMinionOnslaughtLocked(owner, fighter, now, nearbyOnslaught);
                 }
             }
         }
@@ -348,8 +355,7 @@ public static partial class Game
         // "Removes Bleeding when you use a Warcry": the bleed owner a flask's bleed suffix also clears, with no protection.
         if (Get(Stat.RemoveBleedingOnWarcry) != 0) player.IncomingAilments.RemoveOrProtectBleeding(AreaTime(player), 0);
         if (Get(CorpseExplosionStat) is int percent and > 0)
-            await ExplodeCorpses(player, at, radius, epoch, percent, Get,
-                DamageStats.Conversion(stats, Stats, attack: null));
+            await ExplodeCorpses(player, at, radius, epoch, percent, stats);
         bool current;
         current = player.ProjectileActive(epoch) && player.PlayerLife > 0;
         if (current && Get(OpenChestsStat) != 0) await OpenChestsInRadius(player, at, radius);
@@ -398,9 +404,15 @@ public static partial class Game
     // monsters around its corpse (not an attack or a spell: no block, no evasion; 0% base crit, and flat crit chance and
     // global added damage, which the wiki's Explode page says apply, are not modelled).
     static async Task ExplodeCorpses(Player player,
-        (int X, int Y) at, int radius, int epoch, int percent, Func<uint, int> get, DamageConversion conversion)
+        (int X, int Y) at, int radius, int epoch, int percent, IReadOnlyDictionary<uint, int> stats)
     {
-        int blast = SkillArea.Radius(CorpseExplosionRadius, get, spell: false);
+        int Get(uint key) => stats.GetValueOrDefault(key);
+        int blast = SkillArea.Radius(CorpseExplosionRadius, Get, spell: false);
+        var conversion = DamageStats.Conversion(stats, Stats, attack: null);
+        var penetration = Penetration.Of(stats, Stats, attack: false);
+        int cannotPenetrate = Get(Stat.CannotPenetrateOrIgnoreElementalResistances);
+        bool lowestElemental = Get(Stat.ElementalDamageResistedByLowestElementalResistance) != 0;
+        int witherElementalPerStack = Get(Stat.EnemiesWitheredByYouTakePlusPctIncreasedElementalDamageFromYourHits);
         var consumed = new List<(uint Id, string Label, (int X, int Y) At, bool Remove)>();
         var hits = new List<(uint Id, SpawnedMonster M, MonsterHit Hit, int Damage)>();
         using (ProjectileMutation(player))
@@ -414,16 +426,19 @@ public static partial class Game
                 NoteCorpseConsumedLocked(player, corpse);
                 player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
                 player.Area.Monsters.Remove(id);
-                var hit = CorpseExplosionHit(corpse.MaxLife, percent, get, conversion);
+                var hit = CorpseExplosionHit(corpse.MaxLife, percent, Get, conversion);
                 var centre = corpse.Walk.Position(now);
                 consumed.Add((id, corpse.Label, centre, !corpse.CreatedAsCorpse));
                 foreach (var (targetId, m) in player.Area.MonstersNear(centre, blast).Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0
                     && Dist(e.Value.Walk.Position(now), centre) <= blast).ToList())
                 {
                     var rng = AreaRng(player);
-                    var resisted = DamageModel.Mitigate(hit.Roll(rng), type => MonsterHitResistance(m, type, default, now));
-                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng);
-                    if (ApplyTypedMonsterHitLocked(player, m, damage, MonsterHitChaosDamage(m, resisted, false, now, damage)) is not { } applied) continue;
+                    var resisted = MitigateMonsterHit(m, hit.Roll(rng), now, penetration, cannotPenetrate, lowestElemental);
+                    int witheredElemental = WitheredElementalHitTaken(m, player.Id, now, witherElementalPerStack);
+                    int damage = MonsterTakesMitigated(m, resisted, false, now, random: rng, additionalElementalTakenPct: witheredElemental);
+                    int chaosDamage = MonsterHitChaosDamage(m, resisted, false, now, damage,
+                        new HitTakenRules(0, witheredElemental, false));
+                    if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage) is not { } applied) continue;
                     if (applied.StageStarts)
                     {
                         CommitBossStage(player, targetId, m, now);

@@ -54,7 +54,8 @@ Three legal eight-point builds cover all 18 non-start nodes:
   (0xb34) calculator before it.
   Bow shots resolve at projectile contact like other projectiles, so they reach `RollCriticalStrike` and the ailment
   consumers too; Baited Breath never applies to them only because a bow and a rod cannot be held together.
-- **Screaming Reels.** `FinalCastSpeedPct` applies the 60% more to the summed increases, the skill's own
+- **Screaming Reels.** `FinalCastSpeedPct` applies the 60% more (the module's answer to `GameEvents.CastSpeedMore`,
+  while the active main hand is a rod) to the summed increases, the skill's own
   `base_cast_speed_+%` included, the way the client's `cast_speed_+%` calculator `0x1427101c0` does it:
   `round((increased + 100) × (1 + more / 100) − 100)`, at least −99.
   Its combined final (`combined_cast_speed_+%_final`, `0x14270ed40`) reads key 0x529f only for weapon type 15.
@@ -249,5 +250,5 @@ hit roll it.
 Hit a normal monster: it runs about 5 m away from you without attacking (`0x01ab monster … flees`), then comes back.
 A rare or unique monster never flees, and a magic one flees from about half of the hits.
 
-Coverage: `PhreciaFourClassesTests` (admission with the class's own opt-in, and its node stats). The class's earlier
+Coverage: `PhreciaFourClassesTests`, kept with the mod in `tests/` and not run yet (admission with the class's own opt-in, and its node stats). The class's earlier
 Gateway tests went with the Gateway test reset of `3877f119`.

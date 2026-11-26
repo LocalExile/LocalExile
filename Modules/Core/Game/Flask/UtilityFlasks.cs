@@ -91,10 +91,7 @@ public static partial class Game
                 string.Join(", ", stats.Select(s => $"{s.Stat} {s.Value}")) + $"; walk estimate {player.Walk.Speed:0.##} cells/s");
             state.Packets.Add(new([], $"0x01c1 player buff: {type.Name} (flask {slot}), {seconds:0.##} s",
                 UtilityStart: effect));
-            // "Gain X Endurance/Frenzy/Power Charge(s) on use" (Replica Rumi's Concoction).
-            foreach (var (stat, charge) in ChargesOnFlaskUse)
-                if (local.GetValueOrDefault(stat) is int count and > 0)
-                    ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{type.Name} on use"));
+            QueueFlaskUseCharges(player, type.Name, local);
             MakeFlaskGroundsLocked(player, local, seconds, now, character);
             TryGrantAlchemistsGenius(player);
             state.StatRevision++;
@@ -147,6 +144,13 @@ public static partial class Game
         (Stat.LocalFlaskGainFrenzyChargesOnUse, ChargeType.Frenzy),
         (Stat.LocalFlaskGainPowerChargesOnUse, ChargeType.Power),
     ];
+
+    static void QueueFlaskUseCharges(Player player, string name, IReadOnlyDictionary<uint, int> local)
+    {
+        foreach (var (stat, charge) in ChargesOnFlaskUse)
+            if (local.GetValueOrDefault(stat) is > 0 and var count)
+                ChargesOf(player).Enqueue(new ChargeEvent.Grant(charge, count, $"{name} on use"));
+    }
 
     // Innate monster IIQ/IIR baselines already represented by ItemDrops.Roll's rarity count ratios
     // (MonsterMagic3 +600%, MonsterRare3 +1400%, MonsterUnique3 +2850%) and RarityChances

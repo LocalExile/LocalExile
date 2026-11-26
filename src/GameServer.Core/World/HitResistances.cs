@@ -40,6 +40,7 @@ public static class HitResistances
         public int Overwhelm { get; init; }
         public bool IgnoreCold { get; init; }
         public ResistanceSelection ChaosSelection { get; init; }
+        public bool ElementalUsesLowestResistance { get; init; }
 
         /// <summary>Additional elemental resistance penetration applied only to a critical strike.</summary>
         public int CriticalPenetration { get; init; }
@@ -70,6 +71,9 @@ public static class HitResistances
                 || mods.UnconditionalIgnoreElemental
                 || strike.Critical && (mods.CriticalIgnoreElemental != 0 ||
                     (strike.Attack && mods.AttackCriticalIgnoreElemental != 0))));
+
+    public static bool Ignores(DamageType type, in Strike strike, in Mods mods) =>
+        (!DamageTypes.IsElemental(type) || mods.CannotPenetrateOrIgnore == 0) && Ignored(type, strike, mods);
 
     /// <summary>
     /// The resistance one type of the hit mitigates with, resolved for the pass that applies cap-then-pen

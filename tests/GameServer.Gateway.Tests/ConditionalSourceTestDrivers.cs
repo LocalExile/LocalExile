@@ -119,7 +119,7 @@ static class ConditionalSourceTestDrivers
                 : MitigationLabel(player, type, amount, resistance, maximum, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(player) : default;
             bool suppressed = suppress && DamageModel.Suppresses(suppression.Chance,
-                player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+                player.IncomingHitRandom, suppression.Lucky, suppression.Unlucky);
             if (suppressed) dealt = DamageModel.Suppress(dealt, suppression.Effect);
             uint manaBefore = player.PlayerMana;
             var onBlock = blocked ? BlockRecovery(player, stats) : default;

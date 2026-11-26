@@ -142,7 +142,7 @@ public static class CharacterStats
         int EnergyShieldPctPerTenStrength = 0, int EvasionPctPerTenIntelligence = 0,
         bool NoLifeFromStrength = false, bool NoManaFromIntelligence = false,
         bool NoStrengthBonuses = false, bool NoDexterityBonuses = false, bool NoIntelligenceBonuses = false,
-        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, long AdditionalMana = 0, int EvasionWhileMovingPct = 0,
+        bool MentalConditioning = false, decimal Ward = 0, int WardPct = 0, int EvasionWhileMovingPct = 0,
         // Dexterity's inherent evasion grant can be removed on its own, leaving its accuracy bonus alone, and a source
         // can add spell suppression chance per complete group of 15 Dexterity.
         bool NoDexterityEvasion = false, int SpellSuppressionPerFifteenDexterity = 0,
@@ -237,7 +237,7 @@ public static class CharacterStats
         decimal flatLife = c.BaseMaxLife + 12m * level + strengthLife + b.Life
             + LifeManaPoolSources.AdditionalLife(level, dex, intel, b);
         long flatMana = c.BaseMaxMana + 6L * level + intelligenceMana + b.Mana
-            + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana;
+            + LifeManaPoolSources.AdditionalMana(level, b);
         int lifeConversion = Math.Clamp(b.LifeToEnergyShieldPct, 0, 100);
         decimal lifeMore = Math.Max(0m, 100m + b.LifeMorePct) / 100m;
         uint life = b.ChaosInoculation ? 1 : (uint)Math.Clamp(decimal.Floor(flatLife
@@ -314,7 +314,7 @@ public static class CharacterStats
         if (b.MentalConditioning && !b.NoMana)
         {
             long rawFlatManaTwice = (long)Math.Clamp(2m * (c.BaseMaxMana + 6L * level + b.Mana
-                + LifeManaPoolSources.AdditionalMana(level, b) + b.AdditionalMana + StrengthMana.Flat(str, b.ManaPerFourStrength))
+                + LifeManaPoolSources.AdditionalMana(level, b) + StrengthMana.Flat(str, b.ManaPerFourStrength))
                 + (b.NoManaFromIntelligence || b.NoIntelligenceBonuses ? 0 : intel), long.MinValue, long.MaxValue);
             (mana, armour) = PowerOfPurpose.Pools(rawFlatManaTwice, b with { ManaPct = manaPct }, intel);
         }

@@ -21,8 +21,7 @@ public static partial class Game
         if (stats.GetValueOrDefault(Stat.GainConvergenceOnHittingUniqueEnemy) == 0) return;
 
         ConvergenceWindows.AddOrUpdate(player, new(area, now + ConvergenceSeconds, now + ConvergenceCooldown));
-        area.Buffs.Set(player.Id, new(ConvergenceBuffRow, player.Id, Values: [ConvergenceDamageMore],
-            U68: Buff.Seconds(ConvergenceSeconds)));
+        area.Buffs.Set(player.Id, BuffRows.Spec(ConvergenceBuffRow, player.Id, null, ConvergenceSeconds));
         MarkPlayerStats(player, PlayerStatStep.PanelDefaults);
     }
 

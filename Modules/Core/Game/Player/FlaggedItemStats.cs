@@ -26,7 +26,7 @@ public static partial class Game
         if (flags is null) return;
         foreach (var (input, flag, outputs) in FlaggedItemStatRules)
         {
-            if (!flags.GetValueOrDefault(flag) || stats.GetValueOrDefault(input) is not (var value and not 0)) continue;
+            if (stats.GetValueOrDefault(input) is not (var value and not 0) || !flags.GetValueOrDefault(flag)) continue;
             foreach (uint output in outputs)
                 stats[output] = ActorScale.Saturate((long)stats.GetValueOrDefault(output) + value);
         }

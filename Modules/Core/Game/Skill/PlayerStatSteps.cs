@@ -333,7 +333,13 @@ public static partial class Game
         });
         Step(PlayerStatStep.TailPanels, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Panels));
         Step(PlayerStatStep.Rampage, (player, stats, _) => WithRampage(player, stats));
-        Step(PlayerStatStep.TailOffence, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence));
+        Step(PlayerStatStep.TailOffence, (player, stats, _) =>
+        {
+            // A module's own derived stats (GameEvents.DerivedStats), from this fresh snapshot: never written to the raw sources.
+            if (GameEvents.DerivedStats.Any)
+                foreach (var run in GameEvents.DerivedStats.For(player)) run(player, stats);
+            ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence);
+        });
         Step(PlayerStatStep.TailCritical, (player, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);

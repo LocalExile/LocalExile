@@ -1479,7 +1479,7 @@ Live 2026-10-18 with the Witch's Fireball. Code: `SkillCatalog.EffectStats`, `Ge
   and `cast_speed_+%_final`, `essence_support_` and `covered_in_spiders_attack_and_cast_speed_+%_final`, the weapon
   tree's main- and off-hand finals and `cast_speed_+%_final_for_minion`, unconditionally.
   The two totem supports' count when `is_totem` is 0, Fanaticism's when `casting_spell` is set and `is_not_hand_cast`
-  is not, Screaming Reels' with `main_hand_weapon_type` 15 (a fishing rod).
+  is not. A module's own sources multiply after Fanaticism's (`GameEvents.CastSpeedMore`).
   The Frostbolt factor is min(200, per destroyed × destroyed recently) and the metamorphosis boss's is in permyriad.
   A genuine spell's record carries the total, a support's `base_cast_speed_+%` included, as its `cast_speed_+%`.
 - **Spell repeats (Spell Echo).** The spell action base `0x1419e5460` gets `spell_repeat_count` (0x912) from its
@@ -1932,7 +1932,7 @@ the contact (`HeldMove`) would align them.
 **Winter Orb** fires `Metadata/Projectiles/FrostFuryMortar` (the effect's own name has no Projectiles row). While
 channelling, a volley every `frost_fury_base_fire_interval_ms` (1200), with the 80% more while channelling and cast
 speed added (`display_frost_fury_additive_cast_speed_modifiers_apply_to_fire_speed`), lands
-`base_number_of_projectiles` area hits along a line across the nearest enemy. Stages build at the channel cast tick
+its volley along a line across the nearest enemy: the count goes through the general projectile path, so the row's base count plus additional projectiles, with its gates and caps, decides how many area hits land. Stages build at the channel cast tick
 (`hundred_times_casts_per_second` 400 with cast speed, the client's own rate) up to
 `frost_fury_max_number_of_stages` (8) plus quality's `frost_fury_additional_max_number_of_stages`, each adding
 `frost_fury_fire_speed_+%_per_stage` (20; the first none).
@@ -2714,8 +2714,8 @@ Column 4 holds 3 on every enemy debuff aura (Born under Fire, Overwhelm, Augury 
 blind), `[1, 2]` on the ally ones; that reading comes from comparing the rows, not from the client code.
 Only templates whose stats have a consumer are applied, through three views:
 
-- **Enemy auras** (`EnemyAurasFor`, `Game.EnemyAuraActs`): Light of Divinity (672, Augury of Penitence 2551:
-  `elemental_damage_taken_+%`), any template whose every stat is a hit conversion (Born under Fire: 674,
+- **Enemy auras** (`EnemyAurasFor`, `Game.EnemyAuraActs`): a module's own (`PassiveBuffAuras.Apply`: the Phrecia
+  module's 672, Augury of Penitence 2551, `elemental_damage_taken_+%`, and its hit conversion, Born under Fire: 674,
   BuffDefinitions 2552, 60 cells, `base_physical_damage_%_to_convert_to_fire` 50), `SaboteurBlind` (below) and
   Overwhelm (`SlayerCritMultiplier`, 1343: -30 to a monster's crits on the player, `EnemyAuraStatLocked`).
   The others, such as the Occultist's resistances and Kaom's Binding's
@@ -2727,7 +2727,8 @@ Only templates whose stats have a consumer are applied, through three views:
   increased damage taken ([20](20-damage.md) §4).
 - **Player-and-ally auras** (`AllyAurasFor`, targets `[1, 2]`): Elemental Valiance's and Unwavering Crusade's relic
   trigger (546, `GuardianAlliesSpawnRelicsForYouOnKill`; §12, Passive-granted skills).
-- **Self buffs** (`SelfBuffsFor`, radius 0): Ghost of the Deep (671 → Torment Touched 2550); §12, Passive self buffs.
+- **Self buffs** (`SelfBuffsFor`, radius 0): a module's own (`PassiveBuffAuras.Apply`: the phreciaascendancies mod's 671 →
+  Torment Touched 2550); §12, Passive self buffs.
 
 ## 10f. Skills that passives grant or trigger
 
@@ -2868,7 +2869,7 @@ The Spirit chieftains are the first (section 10f).
   charges skip it; an area change or logout drops it with the connection.
 - AI (`StartMonsterAi`): the monster AI walks a friendly monster with the player and never lets an owned one give up.
   A fighting one goes for the nearest living hostile monster within its aggro range of both itself and the player,
-  not one lurking unrisen.
+  one a minion may target: a lurking one is, one a script holds is not.
   In reach (its `MaximumAttackDistance` plus the target's body) it stops and swings; otherwise it walks to the
   target's edge, re-ordered when the target moves 3 cells or, once there, every 0.5 s.
 - Swing (`MinionSwing`): S→C 0x1ab with its first skill aimed at the target (flags 0x0408 | 0x80), the contact at half
@@ -2879,8 +2880,10 @@ The Spirit chieftains are the first (section 10f).
   and a kill gives the player experience and loot through `MonsterKilled` (no on-kill charges: the player did not
   kill it).
   A minion's hit does not count as the player hitting.
-- End: at its duration's end or the player's death it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is
-  removed a second later (0x2bd).
+- End: when it ends in play (its time is up, it is killed, its owner dies, or a new one replaces it past the
+  limit) it dies (0x1b3 hiding its Life bar, 0x1b1 Life 0) and its body is removed 21 frames later (0x2bd).
+  The 21 frames are the Gateway's implemented value (SummonBodySeconds); no live or capture source for the 21 frames
+  is cited yet.
 
 The timed chieftain controller still uses only its first skill. Golems have a separate controller and saved source
 intent (`GolemState`), rather than persisting their area objects. Minion commands and party buff sharing remain partial.
@@ -2984,7 +2987,8 @@ node is refunded. This is the same LocalExile policy, not proven GGG behaviour.
 A Righteous Fire already burning keeps burning: it deals the enemies no damage (`spell_skills_deal_no_damage`, 20-damage
 §2g) and still burns the player, as the wiki describes for spells cast before Gruthkul's Pelt was equipped. Real-game
 handling of an aura that is running when the restriction starts is unverified.
-Coverage: `PhreciaFourClassesTests` (Polytheist's admission).
+Coverage: `PhreciaFourClassesTests`, kept with the `phreciaascendancies` mod in `tests/` and not run yet (Polytheist's
+admission).
 
 ## 10k. Shield Charge: the charge action
 
@@ -3456,6 +3460,26 @@ BuffDefinitions row 1873 is `trauma`, with a countdown and stack count. The nati
   the allocated nodes at each step, `taunted_enemies_damage_taken_+%` from the stats last sent
   (`PlayerStatsWithCleared`). Each monster keeps the increased damage taken they give ([20](20-damage.md) §4).
 
+### Blade Flurry
+
+The 3.29.3c `ChargedAttackChannelled` action (0xaf62) places its acquisition centre 22 cells along
+the aim from the actor (`0x141d07390`). While held, `0x141d07340` adds one stage before the scan up to
+the skill's virtual maximum. The hit circle is 14 cells around the chosen opponent (`0x141d075b0`).
+Release copies the last acquisition centre. Its scans widen from 22 to 28 cells (`0x141d06d50`).
+All three radii use the skill's radius scale. The release copy runs one scan for each stage reached
+(`0x141d06d10`), spaced by 25 ms after a 10 ms initial delay. The client's chosen contacts have a
+70 ms visual lead. The seeded selection weights nearby enemies and lowers the weight of repeated targets.
+
+The player's ordinary and Incision channels use the gained stage for each hit. Their release strikes
+use the completed stage's damage or critical modifiers throughout. The area publishes the count on
+the current charged attack stat and buff row 640 while held.
+
+### Charged Dash projection and release
+
+The 3.29.3c client uses action `0x2d76` for both gems. The plan at `0x141d093a0` applies separate 60-cell radial and 90-cell path limits using `skill_travel_distance_+%`. The path update at `0x141d09a40` records wave centres every 10 cells. A release before the projection stops copies those recorded centres. A stopped projection also records its endpoint. The contact radius at `0x141d09f80` grows with travel distance and can add a separate final-contact bonus. Native wave copies start at `0x141d09110` and their sampled contacts advance about one area frame apart.
+
+The predictive client turns the active projection when the server sends `0x01ad` for the changed aim. The shared release action locally tries to teleport either gem. The server sends its authoritative landing (`0x01b7`) immediately after the finish (`0x01ae`). The normal gem can step back from the projection endpoint to a legal standing cell; the Projection gem's authoritative landing is its current cell.
+
 ### Cyclone area updates (2026-10-25)
 
 `/set_aoe` sends the increased-area input, but Cyclone's visual also needs the final
@@ -3473,7 +3497,11 @@ Other area skills' effects read 0x4876 as well: every skill whose record has a b
 radius, the one its hit uses (`SkillRadius`). Without it Ice Nova's nova drew nothing (live 2026-10-30).
 Increased area is not increased radius: +300% area changes radius 16 → 32, +0% restores 16 without
 other modifiers. Tests cover this calculation, spell-area exclusion, explicit bases and the fallback.
-Additional melee-range/stage modifiers specific to Cyclone remain outside this initial area model.
+Ordinary Cyclone and Tumult add the granted skill's increased area per cell of extra melee strike
+range to the same area calculation. Tumult's action at `0x141d47fd0` reads the entity's current stage
+stat (0x24de) and applies the skill's radius per stage (0x24df) before the radius scale. The area publishes
+the entity stat as the stages gain or decay. The supported client places each stage's radius before the
+area multiplier, so the granted skill record projects the un-staged base.
 Live visual verification after restarting Gateway is pending.
 
 **Follow-up after live failure:** sending only 0x4875/0x4876 did not change the rendered channel.
@@ -3583,7 +3611,7 @@ The client reads these two to know the player's minion (the link-target filter 0
 `Player.Minions` keeps each one's skill, kind, end time, aura on the owner and death explosion, under the Monsters
 lock. `StartPlayerMinions` runs `PlayerMinionsTick` every 100 ms of game time:
 
-- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) a second later.
+- A minion whose time is up dies (hide its life bar, 0x1b1 life 0) and explodes; its body goes (0x2bd) 1 second later (`PlayerMinions.cs` adds `now + 1`). Only `Summons.cs` uses `SummonBodySeconds` (21 * `Program.TickSeconds`, for golem bodies).
 - The owner's death or the loss of the granting passive kills it without an explosion; with the passive lost, the
   living owner's links to it end without killing him.
 - The queued summons are made, with the owner's `minion_maximum_life_+%` as the monster's `maximum_life_+%` and his
@@ -3719,7 +3747,7 @@ evidence and limits: [Paladin](../game/paladin.md#link-skills).
 The panel's 387 rows depend on 357 virtual stats and 134 nonvirtual ones. A matching source name or a historical
 native run does not make a virtual stat complete; each needs its sources, consumers and lifecycle traced.
 
-Whaletooth Bangle's owner duration is projected by `SkillDurationModifiers` in `CharacterPlayerStats`:
+Whaletooth Bangle's owner duration is projected by the phreciaascendancies mod (`GameEvents.DerivedStats`) in `CharacterPlayerStats`:
 `skill_effect_duration_+%` gains the signed per-ten-Strength value (key 2817) for each complete group of ten final Strength.
 It adds to ordinary raw duration once per rebuild, after attribute resolution; explicit final-stat overrides win.
 The resulting stat reaches the normal player/GrantedSkill stat publication without changing message layouts.
@@ -4129,8 +4157,8 @@ buffs), `Modules/Core/Game/Combat/Resources/Charges.cs` (the Gateway glue) and `
   `frenzy_charge_duration_+%_per_frenzy_charge` × the Frenzy Charges after the gain) × (1 +
   `power_charge_duration_+%_final`), floored to milliseconds. Gaining a charge restarts the duration of every charge of
   its type, also at the maximum, where none is added, and all charges of a type expire together (poewiki). The maximum
-  is `ChargePanelStats`' (3 from Character.ot plus `max_*_charges`, the combined power-and-endurance and
-  power-and-frenzy mods and `maximum_frenzy_power_endurance_charges`; verified on the native Charges tab with all three
+  is `ChargePanelStats`' (3 from Character.ot plus `max_*_charges`, the combined power-and-endurance
+  mod and `maximum_frenzy_power_endurance_charges`; verified on the native Charges tab with all three
   baseline rows at `0 / 3`); the minimum is `base_minimum_*_charges` +
   `minimum_frenzy_power_endurance_charges`, at most the maximum, and is always held; a gain adds on top of what the
   character has (Path of Building: max(charges, min(maximum, minimum)); poewiki: the maximum takes priority). A lower
@@ -4397,6 +4425,10 @@ to the same packet writer. Native icon was confirmed; corrected countdown awaits
 - **Flame Dash segment (`S→C 0x2c8`)**: `InstanceClientActionUpdate` (`0x141fe54d0`, Actor dispatch `0x14219be04`)
   carries `(u16 actionTypeHash, u16 skillId, u16 actionSequence, u8 detachId, blob16)`. Flame Dash's slot `+0x300`
   reader (`0x141478930` → `0x1414786c0` → `0x142196f20`) takes 20 LE bytes `(i32 x1, i32 y1, i32 x2, i32 y2, f32 duration)`.
+- **Volcanic Fissure continuation (`S→C 0x2c8`)**: the first path starts at contact in the client. The continuation
+  addresses the detached `VolcanicSlam` action (`0x5eea`, detach ID 2). Its reader `0x141bf05a0` takes a byte count,
+  that many `(f32 x, f32 y)` world-unit points and an `f32` total world-unit length, all LE. At least two points
+  start a new leg, and a count of zero by itself finishes the action.
 - **Component updates (`S→C 0x2bc`)**: Shrine slot 20 (`0x1415e49f0`, index `7`) reads the creation layout
   (`0x141e3e0c0`, bit 7 claimed flag + `Shrines.dat` row) plus `u32 LE` taker object id; `GroundEffect` slot 20
   (`0x141e1ea90` → `0x141e1ead0`, index `2`) reads `(u8 state, f32 LE remainingSeconds)` (`<= 0` triggers `EndEffect`);

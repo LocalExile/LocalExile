@@ -23,6 +23,8 @@ public static partial class Game
             var stats = CharacterPlayerStats(player);
             if (spell && DodgesSpellHit(player)) return false;
             GainLifeBeforeEnemyHitLocked(player, stats);
+            uint manaBefore = player.PlayerMana;
+            GainManaBeforeEnemyHitLocked(player, stats);
             // The order a monster's hit takes (Monsters.cs): damage taken as shifts the packet, each type taken is avoided
             // (Elusive's one roll for the whole hit first), the Gambler's one 90% resistance roll and each type's resistance,
             // then block, one armour decision for the hit, and each part through armour and the rest.
@@ -42,7 +44,7 @@ public static partial class Game
             string mitigation = MitigationLabels(player, shifted, avoided, immune, ninety, armour.EffectiveArmour, stats);
             var suppression = suppress ? Suppression(player) : default;
             bool suppressed = suppress && DamageModel.Suppresses(suppression.Chance,
-                player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
+                player.IncomingHitRandom, suppression.Lucky, suppression.Unlucky);
             // Each part through armour and the rest, kept as the damage taken the ailments and recoup read.
             var ailmentTaken = DamagePacket.Empty;
             int physicalDealt = 0, chaosDealt = 0, dealt = 0;
@@ -63,7 +65,6 @@ public static partial class Game
             dealt = FortificationDamageTakenLocked(player, dealt, now, stats);
             chaosDealt = FortificationDamageTakenLocked(player, chaosDealt, now, stats);
             physicalDealt = Math.Min(FortificationDamageTakenLocked(player, physicalDealt, now, stats), Math.Max(0, dealt - chaosDealt));
-            uint manaBefore = player.PlayerMana;
             if (blocked) RecoverOnBlockLocked(player, stats, now, attack: !spell);
             var recouped = ailmentTaken.Select((_, r) => new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats),
                 FortificationDamageTakenLocked(player, (int)r.Max, now, stats)));

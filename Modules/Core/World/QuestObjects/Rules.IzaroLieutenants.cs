@@ -59,7 +59,7 @@ static partial class QuestobjectsRules
         uint id = await SpawnMonster(player, variety, level, MonsterRarity.Unique, at.X, at.Y, rotation: at.Angle,
             placement: MonsterPlacement.Established, ownedLooks: variety.Weapons);
         if (player.Area.Monsters.GetValueOrDefault(id) is not { } m) return null;
-        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId) = (double.PositiveInfinity, false, true, 0);
+        (m.BusyUntil, m.Aggro, m.EntranceGrace, m.SummonerId, m.ScriptHeld) = (double.PositiveInfinity, false, true, 0, true);
         return new LieutenantSlot(effect, id, m, (byte)variety.ComponentsOrBase.ToList().IndexOf("Transitionable"));
     }
 
@@ -68,7 +68,7 @@ static partial class QuestobjectsRules
         double seconds, Func<bool> here)
     {
         if (LieutenantDead(player, l)) return;
-        (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace) = (AreaTime(player) + seconds, true, false);
+        (l.Monster.BusyUntil, l.Monster.Aggro, l.Monster.EntranceGrace, l.Monster.ScriptHeld) = (AreaTime(player) + seconds, true, false, false);
         _ = IzaroSkills.Run(player, l.Id, l.Monster, here);
     }
 
