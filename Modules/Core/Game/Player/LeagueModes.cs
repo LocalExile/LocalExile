@@ -23,7 +23,6 @@ public static partial class Game
                 HardModeSkills = new("data", hardMode: true);
                 HardModePassives = new("data", hardMode: true);
                 HardModeAtlasPassives = new("data", hardMode: true);
-                LoadMapAreaStats();
                 HardModeRolls = new(HardModeItems);
                 HardModeUniques = new(HardModeItems);
                 HardModeEssences = new(HardModeItems, HardModeRolls);

@@ -34,6 +34,21 @@ public sealed class PackageTests
             Assert.Equal(["Core/Game", "PackModule"], changed[1].Modules);
             Assert.Equal(["Core/Game", "Rival"], changed[0].Modules);
             Assert.Equal(["league-modules.json: Shared: PackModule cannot run with Rival"], errors);
+
+            // Its world data: the package that is on brings its update files to the world database, the others none.
+            Assert.Equal([Path.Combine(mods, "pack", "sql")], Packages.Roots("sql", mods));
+            string? folder = Environment.GetEnvironmentVariable("Game_MODS_FOLDER");
+            try
+            {
+                Environment.SetEnvironmentVariable("Game_MODS_FOLDER", mods);
+                string world = Path.Combine(root, "world.db");
+                using (new GameServer.Storage.GameDataStore(world)) { }
+                using var db = GameServer.Storage.SqlUpdater.Open(world);
+                using var command = db.CreateCommand();
+                command.CommandText = "SELECT group_concat(name) FROM pack_things";
+                Assert.Equal("pack", command.ExecuteScalar());
+            }
+            finally { Environment.SetEnvironmentVariable("Game_MODS_FOLDER", folder); }
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -113,6 +128,9 @@ public sealed class PackageTests
         AddModule("mods/pack/Modules", "Rival", "{}");
         AddModule("mods/pack/Modules", "Solo", """{ "only": [] }""");
 
+        Put("mods/pack/sql/updates/world/2026_01_01_000000_pack.sql", "CREATE TABLE pack_things (name TEXT NOT NULL) STRICT; INSERT INTO pack_things VALUES ('pack');");
+        Put("mods/off/sql/updates/world/2026_01_01_000000_off.sql", "CREATE TABLE off_things (name TEXT NOT NULL) STRICT;");
+        Put("mods/stated/sql/updates/world/2026_01_01_000000_stated.sql", "INSERT INTO pack_things VALUES ('stated');");
         Put("mods/off/mod.json", """{ "id": "off", "kind": "league", "enabled": false }""");
         AddLeague("mods/off/Leagues", "Hidden", """{ "parent": "Standard" }""", "Core/Game");
         Put("mods/stated/mod.json", """{ "id": "stated", "kind": "league" }""");

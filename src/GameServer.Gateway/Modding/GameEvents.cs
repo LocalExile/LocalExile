@@ -654,6 +654,12 @@ public static class GameEvents
     public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
     /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
     public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
+    /// <summary>A module's own final percent on the radius within which Beyond portals merge, from the stats the area
+    /// reads; the answers add to the Endless Tide keystone's.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> BeyondMergeRadiusFinal = new();
+    /// <summary>A module's own additional Rogue Exiles for the area, from the stats the area reads and with the
+    /// encounter's own draws (the same instance gets the same exiles); the answers add.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, Random, int>> AdditionalRogueExiles = new();
     public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();

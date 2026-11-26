@@ -19,6 +19,36 @@ public sealed class IdolPortalLimitTests(ITestOutputHelper output)
         host.Start(watch: false);
         Assert.True(host.IsLoaded("Idols"), "Build the Idols module before running this Gateway test.");
         Assert.True(host.IsLoaded("Portals"));
+        // The loaded module gives the two stats only Idols have their effect (Endless Tide's rolled less Beyond merging
+        // radius; a chance of 20 more Rogue Exiles, drawn like the game's own chances), and a map with Idols names the
+        // Atlas family a stat belongs to, which carries that family's league block.
+        var idolLeague = ServerLeagues.Resolve(null, "Phrecia", LeagueCatalog.Startup);
+        Func<uint, int> Stats(uint stat, int value) => id => id == stat ? value : 0;
+        Assert.Equal(-40, GameEvents.BeyondMergeRadiusFinal.For(idolLeague)
+            .Sum(run => run(null!, Stats(Stat.MapBeyondPortalSearchRadiusPlusPctFinal, -40))));
+        Assert.Equal(27.0, MapBeyond.MergeRadius(0, -40, false), 6);
+        int Exiles(int chance, Random rng) => GameEvents.AdditionalRogueExiles.For(idolLeague)
+            .Sum(run => run(null!, Stats(Stat.MapSpawn20AdditionalExilesChancePct, chance), rng));
+        Assert.Equal(20, Exiles(100, new Random(1)));
+        var untouched = new Random(1);
+        Assert.Equal(0, Exiles(0, untouched));
+        Assert.Equal(new Random(1).Next(), untouched.Next());
+        // A chance an Idol can roll (5 to 8): one draw of 100, as the game's own chances.
+        for (int seed = 0; seed < 40; seed++)
+        {
+            var (drawn, expected) = (new Random(seed), new Random(seed));
+            Assert.Equal(expected.Next(100) < 6 ? 20 : 0, Exiles(6, drawn));
+            Assert.Equal(expected.Next(), drawn.Next());
+        }
+        var rules = AppDomain.CurrentDomain.GetAssemblies().First(a => a.GetName().Name == "idols")
+            .GetType("GameServer.Modules.Idols.IdolRules", throwOnError: true)!;
+        MapMods With(params (uint Stat, int Value)[] idols) => (MapMods)rules.GetMethod("With")!.Invoke(null,
+            [MapMods.None, idols.ToDictionary(s => s.Stat, s => s.Value)])!;
+        var harvest = Game.AtlasPassiveNodes.Nodes.Where(n => AtlasStats.Family(n) == "harvest").SelectMany(n => n.Stats)
+            .Select(s => With((s.Key, 1))).First(m => m.AtlasFamilies.Count > 0);
+        Assert.Equal(["harvest"], harvest.AtlasFamilies);
+        Assert.Equal(1, Game.ComposeMapAreaStats(harvest, 3, new Dictionary<uint, int>(), new HashSet<string>(), 0)[Stat.MapHarvestSeedsAreTier1]);
+        Assert.Empty(With((Stat.MapPackSizePlusPct, 5)).AtlasFamilies);
         // The loaded module gives its item class the jewels' affix caps.
         Assert.Equal((2, 2), new ItemRolls(Program.Items).RareMaxAffixes(ItemCatalog.Create(Program.Items.Find("Minor Idol")!)));
 

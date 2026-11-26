@@ -8,7 +8,7 @@ public sealed record ModuleLimits(IReadOnlyList<string> Conflicts, IReadOnlyList
 
 /// <summary>
 /// The packages among the mods (<c>Mods/Binaries/&lt;id&gt;/</c>, Agents/docs/dev/modding.md): a mod's folder that carries leagues
-/// in <c>Leagues/</c> and modules in <c>Modules/</c>, laid out as the repository's own. Read once when a server starts, as the
+/// in <c>Leagues/</c>, modules in <c>Modules/</c> and world data in <c>sql/</c>, laid out as the repository's own. Read once when a server starts, as the
 /// leagues are, by Auth and the Gateway alike.
 /// </summary>
 public static class Packages
@@ -17,7 +17,7 @@ public static class Packages
 
     static readonly JsonDocumentOptions Json = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
-    /// <summary>The <paramref name="name"/> folder ("Leagues" or "Modules") of every package that is on: one with a readable
+    /// <summary>The <paramref name="name"/> folder ("Leagues", "Modules" or "sql") of every package that is on: one with a readable
     /// <c>mod.json</c>, not turned off by it or by the state file (/mod_disable). None with <c>Game_MODS=0</c>.</summary>
     public static IReadOnlyList<string> Roots(string name, string? folder = null)
     {
