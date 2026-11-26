@@ -306,12 +306,15 @@ static class HideoutEditingFeature
             return;
         }
         bool resetPlacements = mode != 0;
+        uint? previousDeviceHash = global::Game.AccountMapDevice(player)?.Hash;
         if (!global::Game.ClearAccountHideoutDecorations(player, player.Layout.Id, resetPlacements)) return;
         var custom = player.HideoutEditor.All()
             .Where(o => o.Entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
             .ToList();
         var areaDecorations = DecorationsOf(player);
-        var clearedHashes = new List<uint>();
+        var clearedHashes = new HashSet<uint>();
+        if (resetPlacements && previousDeviceHash is uint prevDevice && prevDevice != 0)
+            clearedHashes.Add(prevDevice);
         foreach (var (id, entry) in custom)
         {
             lock (areaDecorations)
@@ -328,6 +331,8 @@ static class HideoutEditingFeature
             await global::Game.SendWorldRemoval(player, id,
                 $"0x02bd reclaim hideout decoration {entry.Key} (0x{id:x})");
         }
+        if (!resetPlacements && previousDeviceHash is uint keptDevice && keptDevice != 0)
+            clearedHashes.Remove(keptDevice);
         player.Furniture = null;
         if (clearedHashes.Count > 0) await SendInUseDecorations(player, inUse: false, clearedHashes);
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after 0x5e mode {mode}");
