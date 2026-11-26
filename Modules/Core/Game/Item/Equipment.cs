@@ -108,7 +108,10 @@ public static partial class Game
         var result = new Dictionary<uint, int>(weaponSources ?? SupportedAttackDamage.WeaponSources(item, ItemsFor(player).Mods));
         var local = ItemModStats.Local(item, ItemsFor(player).Mods);
         if (!local.Keys.Any(name => StatConditions.PlainOf(Stats.Name(name)) is not null)) return result;
-        var flags = player.StatSourcesCache?.Key.Flags ?? ItemConditionFlags(player, ResourceEffectsTime(player));
+        // The cached key's flags are the build-time values: a flag the sum never read can flip while the cache still
+        // hits, and the first local-mods read after the flip would see the build-time value. Read the live flags, so
+        // a conditional local mod always answers from the flag as it is now.
+        var flags = ItemConditionFlags(player, ResourceEffectsTime(player));
         foreach (uint name in local.Keys) result.Remove(name);
         foreach (var (name, value) in ItemModStats.Local(item, ItemsFor(player).Mods, new(Flags: flags), Stats.Has))
             result[name] = value;
