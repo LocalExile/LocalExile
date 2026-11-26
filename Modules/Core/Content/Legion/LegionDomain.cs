@@ -1156,12 +1156,44 @@ static class LegionDomain
         module.Log($"Domain started: {string.Join("+", state.Factions)} ({woken}/{plannedSlots.Length} soldiers waking, timer {state.TimerSeconds:0}s) in {System.Diagnostics.Stopwatch.GetElapsedTime(startedTicks).TotalMilliseconds:0} ms");
     }
 
+    /// <summary>GUESS (R17/R18: the army fills the disc out to the crystal lobes, about 3 character lengths round the monolith stay clear): the clear radius, in cells.</summary>
+    const double DomainInnerClear = 18;
+    /// <summary>GUESS: the arena radius is the one holding this share of the walkable cells within DomainSearchRadius of the centre.</summary>
+    const double DomainArenaShare = 0.9;
+    /// <summary>GUESS: how far the arena is looked for, in cells.</summary>
+    const int DomainSearchRadius = 300;
+    /// <summary>GUESS: the arena radius without a walk map, in cells (encounter_1.arm: 90 % of the floor within 196).</summary>
+    const double DomainArenaFallback = 200;
+
+    /// <summary>The radius holding DomainArenaShare of the walkable cells round (cx, cy), once per Domain (every 2nd cell is counted).</summary>
+    static double ArenaRadius(AreaLayout layout, int cx, int cy)
+    {
+        if (layout.Walkable is not { } walk) return DomainArenaFallback;
+        var byRadius = new int[DomainSearchRadius + 1];
+        int total = 0;
+        for (int dy = -DomainSearchRadius; dy <= DomainSearchRadius; dy += 2)
+            for (int dx = -DomainSearchRadius; dx <= DomainSearchRadius; dx += 2)
+            {
+                int d2 = dx * dx + dy * dy;
+                if (d2 > DomainSearchRadius * DomainSearchRadius || !walk(cx + dx, cy + dy)) continue;
+                byRadius[(int)Math.Sqrt(d2)]++;
+                total++;
+            }
+        if (total < 100) return DomainArenaFallback;
+        int acc = 0;
+        for (int r = 0; r <= DomainSearchRadius; r++)
+            if ((acc += byRadius[r]) >= total * DomainArenaShare)
+                return Math.Max(r, DomainInnerClear + 40);
+        return DomainSearchRadius;
+    }
+
     static FighterSlot[] BuildRadialSlots(Player player, int cx, int cy, LegionArmy.ArmyPlan plan, Random rng)
     {
         var list = new List<FighterSlot>();
         int fCount = Math.Max(1, plan.Factions.Length);
         double sectorSpan = Math.Tau / fCount;
         double baseAngle = rng.NextDouble() * Math.Tau;
+        double arena = ArenaRadius(player.Layout, cx, cy);
         for (int f = 0; f < plan.Factions.Length; f++)
         {
             var faction = plan.Factions[f];
