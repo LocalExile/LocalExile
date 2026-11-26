@@ -217,6 +217,20 @@ public static class GameEvents
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
+    /// <summary>The player's client finished entering an area (after initial area population, <see cref="PlayerEntered"/>,
+    /// and arrival grace setup). Fires once per area connection.</summary>
+    public static readonly GameEvent<Func<Player, Task>> ClientReady = new();
+
+    /// <summary>A chat line or slash command sent by the client (<c>C->S 0x0015</c>), before chat routing or command dispatch.
+    /// True: this subscriber consumed the message and no further chat or command handling runs.</summary>
+    public static readonly GameEvent<Func<ClientMessage, Task<bool>>> ClientMessage = new();
+
+    /// <summary>The player gained one or more character levels: (player, previousLevel, newLevel).</summary>
+    public static readonly GameEvent<Func<Player, int, int, Task>> LevelUp = new();
+
+    /// <summary>The player changed a cosmetic slot or skill-gem cosmetic.</summary>
+    public static readonly GameEvent<Func<CosmeticChange, Task>> CosmeticChanged = new();
+
     /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
     /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
     /// client's flag set (the player's create and every quest flag update) and the server's checks
@@ -1067,5 +1081,40 @@ public static class GameEvents
     {
         foreach (var (owner, run) in ChatActivity.Subscribers(player))
             await GameEventOwners.Guard(owner, nameof(ChatActivity), () => run(player));
+    }
+
+    public static async Task RunClientReady(Player player)
+    {
+        if (!ClientReady.Any) return;
+        foreach (var (owner, run) in ClientReady.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(ClientReady), () => run(player));
+    }
+
+    /// <summary>True when a subscriber consumed the client message.</summary>
+    public static async Task<bool> AnyClientMessage(Player player, InstanceChat.ChatInput input)
+    {
+        if (!ClientMessage.Any) return false;
+        var message = new ClientMessage(player, input.Text, input.Links);
+        foreach (var (owner, run) in ClientMessage.Subscribers(player))
+        {
+            bool taken = false;
+            if (await GameEventOwners.Guard(owner, nameof(ClientMessage), async () => taken = await run(message)) && taken)
+                return true;
+        }
+        return false;
+    }
+
+    public static async Task RunLevelUp(Player player, int previousLevel, int newLevel)
+    {
+        if (newLevel <= previousLevel || !LevelUp.Any) return;
+        foreach (var (owner, run) in LevelUp.Subscribers(player))
+            await GameEventOwners.Guard(owner, nameof(LevelUp), () => run(player, previousLevel, newLevel));
+    }
+
+    public static async Task RunCosmeticChanged(CosmeticChange change)
+    {
+        if (!CosmeticChanged.Any) return;
+        foreach (var (owner, run) in CosmeticChanged.Subscribers(change.Player))
+            await GameEventOwners.Guard(owner, nameof(CosmeticChanged), () => run(change));
     }
 }

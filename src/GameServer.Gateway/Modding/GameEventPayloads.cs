@@ -247,3 +247,17 @@ public enum ExchangeRatesLeague
 public sealed record ExchangeOptions(ExchangeRatesLeague StandardPrices = ExchangeRatesLeague.Standard, ExchangeRatesLeague LeaguePrices = ExchangeRatesLeague.Current,
     int OrderSlots = 20, double SpreadScale = 1, double VolumeShare = .1, double PatientRange = 1, double PatientSpeed = 1, int CatchUpHours = 168, double GoldFee = 1,
     double MaxRateAgeDays = 7, bool FaustusSpeaks = true);
+
+/// <summary>A chat message or slash command sent by the client (<c>C->S 0x0015</c>, <see cref="GameEvents.ClientMessage"/>).</summary>
+public sealed record ClientMessage(Player Player, string Text, IReadOnlyList<uint> Links)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public bool IsCommand => Text.StartsWith('/');
+}
+
+/// <summary>A cosmetic slot or skill-gem cosmetic was changed by the player (<see cref="GameEvents.CosmeticChanged"/>).</summary>
+public sealed record CosmeticChange(Player Player, byte Slot, uint RecordId, uint MtxTypeHash, byte Option = 0, uint GemHash = 0)
+{
+    public IPlayer ModPlayer => Program.PlayerOf(Player);
+    public bool IsSkillCosmetic => GemHash != 0;
+}

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
@@ -105,6 +106,11 @@ public sealed class ItemCatalogueTests
         Assert.True(ItemStates.NeedsMods("split") && !ItemStates.NeedsMods("corrupted"));
         var saved = CharacterSaves.FromSaved(CharacterSaves.ToSaved(state, items.Mods), items);
         Assert.True(saved.Split && saved.Synthesised && saved.Influences == ItemInfluence.Shaper);
+        var customNamed = state with { CustomName = "Mirrored Edge" };
+        string customNamedJson = JsonSerializer.Serialize(CharacterSaves.ToSaved(customNamed, items.Mods));
+        Assert.Contains("\"CustomName\":\"Mirrored Edge\"", customNamedJson);
+        Assert.DoesNotContain("CustomName", JsonSerializer.Serialize(CharacterSaves.ToSaved(state, items.Mods)));
+        Assert.Equal("Mirrored Edge", CharacterSaves.FromSaved(JsonSerializer.Deserialize<CharacterSaves.SavedItem>(customNamedJson)!, items).CustomName);
         Assert.Contains("boots_shaper", rolls.TagsWith(boots, ItemInfluence.Shaper));
         Assert.Equal(rolls.Pool(boots, 86, ItemInfluence.Shaper), rolls.Pool(boots, state));
         Assert.True(rolls.Pool(boots, state).Count > rolls.Pool(boots, 86).Count);
