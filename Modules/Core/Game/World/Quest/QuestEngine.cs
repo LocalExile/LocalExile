@@ -984,38 +984,14 @@ public static partial class Game
         if (rule is null) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} {m.Label} 0x{id:x} reached {rule.LifePct}% life: {string.Join(", ", rule.Flags)}; it leaves the fight");
         var at = m.Walk.Position(ProjectileWorldTime(player));
-        if (m.Variety?.Id == "Metadata/Monsters/Axis/PietyEscape")
-            await SpawnPietyRetreatPortal(player, at);
+        // No retreat portal object: Metadata/QuestObjects/Piety/PietySinsPortal is placed only in a Ruined Temple boss room
+        // (RuinedTempleForest/Rooms/Unique/boss_1a.arm), so the client has not registered the type in the Crematorium and
+        // closes on its 0x2bb ("Unknown object type serialized by server").
         await Game.SendWorldRemoval(player, id, $"0x02bd monster 0x{id:x} {m.Label} leaves (quest threshold)");
         var own = rule.Flags.Where(f => !Quests.IsInstanceFlag(f)).ToArray();
         if (own.Length > 0) await SetQuestFlags(player, own);
         if (m.Variety is { } variety)
             await FormQuestBosses(player, m, variety.Id, at);
-    }
-
-    static async Task SpawnPietyRetreatPortal(Player player, (int X, int Y) at)
-    {
-        const string portalType = "Metadata/QuestObjects/Piety/PietySinsPortal";
-        if (QuestObjectTypes.Find(portalType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
-        uint portalId = player.TakeObjectId();
-        var instance = player.Instance;
-        // Create untransitioned (state 1), then step Transitionable so on_transition plays Piety's portal retreat clip.
-        var blob = new QuestObject(at.X, at.Y, info.Components, 0, null, info.Model, 1, Blocked: false).Blob();
-        await SendWorldCreate(player, portalId, () => InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(portalType), blob),
-            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false);
-        if (QuestObject.TransitionableIndex(info.Components) is int slot and >= 0 && info.States > 1)
-            await SendWorldRecord(player, portalId, InstanceEntities.TransitionableUpdate(portalId, (byte)slot, (byte)info.States),
-                $"0x02bc Piety retreat portal 0x{portalId:x} Transitionable -> {info.States}");
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await AreaDelay(player, 2.5);
-                if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)) return;
-                await SendWorldRemoval(player, portalId, $"0x02bd Piety retreat portal 0x{portalId:x} closed");
-            }
-            catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) { }
-        });
     }
 
     // A FormsRule can follow either a death or a quest threshold, using the point fitted for the new variety.
