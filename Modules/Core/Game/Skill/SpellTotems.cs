@@ -18,7 +18,7 @@ public static partial class Game
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
-                || ShockNovaEffect(SkillsFor(player).EffectId(effect))
+                || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
                 || BladefallEffect(SkillsFor(player).EffectId(effect)) || FrostBombEffect(SkillsFor(player).EffectId(effect))
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
@@ -90,7 +90,7 @@ public static partial class Game
         // A totem never walks. Without this the client sends a server-driven action through its own walk-into-range
         // step, which drops it (11 §"skill_is_non_pathing"): the totem stood still and its spell drew nothing.
         payload[Stat.SkillIsNonPathing] = 1;
-        if (SpellTotemNova(player, gem.Effect))
+        if (SpellTotemNova(player, gem.Effect) || GlacialCascadeEffect(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, gem.Stats, spell: true, gem.Effect);
         else if (ShockNovaEffect(SkillsFor(player).EffectId(gem.Effect)))
             payload[Stat.ActiveSkillAreaOfEffectRadius] = SkillRadius(player, 26, gem.Stats, spell: true, gem.Effect);
@@ -267,6 +267,7 @@ public static partial class Game
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
             bool arc = ArcProxyEffect(effect);
             bool shockNova = ShockNovaEffect(effect);
+            bool cascade = GlacialCascadeEffect(effect);
             var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
                 0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || curse?.Mark == true ? target.Id : null));
@@ -305,7 +306,7 @@ public static partial class Game
                 continue;
             }
             bool rain = totem.Ballista && BallistaRain(player, gem.Effect);
-            if (arc || nova || shockNova || curse is not null)
+            if (arc || nova || shockNova || cascade || curse is not null)
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
                 session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), () =>
@@ -332,6 +333,8 @@ public static partial class Game
                             && SpellTotemTargetable(player, target.Id, live) ? live.Walk.Position(releasedAt) : aim;
                         session.ReleaseTotemShockNova(totem, at, sequence, Current);
                     }
+                    else if (cascade)
+                        session.ReleaseTotemGlacialCascade(effect, totem, aim, sequence, Current);
                     else if (player.Area.Monsters.GetValueOrDefault(target.Id) == target.Monster)
                         ReleaseArcTotem(player, session, totem, target.Id, sequence, Current);
                 });

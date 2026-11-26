@@ -695,11 +695,13 @@ public static partial class Game
         bool staticOrb = effect == "BallLightningAltY";
         bool bladefall = effect == "Bladefall";
         bool shockNova = ShockNovaEffect(effect);
-        if (bladefall || effect == "ShockNovaAltX")
+        bool cascade = GlacialCascadeEffect(effect);
+        if (bladefall || cascade || effect == "ShockNovaAltX")
         {
             var enemy = triggeringEnemy.Value is not null ? triggeringEnemy
                 : PlacedSpellTarget(player, placed.At, 60, now);
             aim = locusAim ? player.Walk.Position(now) : enemy.Value?.Walk.Position(now) ?? placed.At;
+            if (cascade && aim == placed.At) aim = (placed.At.X + 1, placed.At.Y);
         }
         bool detonateDead = effect == "DetonateDead";
         bool volatileDead = effect == "VolatileDead";
@@ -707,7 +709,7 @@ public static partial class Game
             bytes.World(placed.Id, InstanceProtocol.ActionStarted(placed.Id, placed.At.X, placed.At.Y, aim.X, aim.Y, 0x4000, 0xffff, player.MonsterOrderFlags));
         if (currentSkill && placed.Source is { } source && SupportedSkill(player, placed.Skill) is var gem
             && (TriggerSummonSpell(player, gem) || PlacedUtilityPayload(effect) || arc || storm || brand
-                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || shockNova))
+                || frostBomb || staticOrb || bladefall || detonateDead || volatileDead || shockNova || cascade))
         {
             var session = ProjectilesFor(player);
             var lifetime = CombatLifetime;
@@ -729,6 +731,8 @@ public static partial class Game
                 session.SchedulePlacedBladefall(new(placed, inventionMore), aim, Current);
             else if (shockNova)
                 session.ReleasePlacedShockNova(placed, aim, inventionMore, Current);
+            else if (cascade)
+                session.ReleasePlacedGlacialCascade(effect!, placed, aim, inventionMore, Current);
             else if (detonateDead)
                 session.SchedulePlacedDetonateDead(new(placed, inventionMore), Current);
             else if (volatileDead)
@@ -755,7 +759,7 @@ public static partial class Game
                 CommitTriggeredUtilityLocked(player, placed.Skill, gem, payload.Gem, effect!, placed.At, now, fromPlacement: true);
             return;
         }
-        if (arc || shockNova) return; // A missing shaped spell source must not fall through to a generic area hit.
+        if (arc || shockNova || cascade) return; // A missing shaped spell source must not fall through to a generic area hit.
         // A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) comes down as the player's own does, around the nearest
         // enemy within 60 cells or on the trap or mine itself, instead of one area hit with nothing drawn.
         if (rainSkill)
@@ -836,7 +840,7 @@ public static partial class Game
     static void PlacedAreaDamageLocked(Player player, PlacedSkills.Placed placed,
         (int X, int Y) centre, double radius, double now, double damageMore, bool currentSkill, bool spellDamage,
         uint? bearTarget = null, KeyValuePair<uint, SpawnedMonster>? hexblastTarget = null, PlacedArcSplit? arcSplit = null,
-        PlacedShockNova? shockNova = null)
+        PlacedShockNova? shockNova = null, PlacedCascade? cascade = null)
     {
         using var statScope = new PlayerStatScope(player, fresh: true);
         var owner = CharacterPlayerStats(player);
@@ -868,7 +872,7 @@ public static partial class Game
         bool Critical(uint id) => currentSkill && RollCriticalStrike(player, CriticalChanceOn(player, id, chance, vsBlinded, vsGround),
             placed.Own, attack, criticalRoll, owner);
         bool hexblast = hexblastTarget.HasValue;
-        bool targetedSpell = hexblast || arcSplit is not null || shockNova is not null;
+        bool targetedSpell = hexblast || arcSplit is not null || shockNova is not null || cascade is not null;
         var mods = targetedSpell ? HitResistMods(playerStats, placed.Own) : default;
         var penetration = targetedSpell ? Penetration.Of(playerStats, Stats, attack, placed.Own) : default;
         int arcRolls = arcSplit is null ? 0 : ArcExtraRolls(player, ArcSurgingEffect, playerStats);
@@ -883,6 +887,7 @@ public static partial class Game
                 || arcSplit is not null && (!arcSplit.Targets.Contains(id) || MonsterBlocks(m, AreaRng(player), spell: true))
                 || shockNova is { } release && (m.WorldHidden || !release.Pulse.OutsideInnerRadius(m.Walk.Position(now))
                     || MonsterBlocks(m, AreaRng(player), spell: true))
+                || cascade is not null && (m.WorldHidden || MonsterBlocks(m, AreaRng(player), spell: true))
                 || !player.Area.Monsters.TryGetValue(id, out var current) || !ReferenceEquals(current, m)) continue;
             var profile = offenseSnapshot is { } captured
                 ? Blinded(player, id, now) ? captured.Blinded : captured.Normal
@@ -940,7 +945,9 @@ public static partial class Game
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
                 poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false,
-                extraShockChance: shockNova?.Pulse.ExtraShockChance ?? 0);
+                hitOrigin: cascade?.Pulse.HitOrigin(m.Walk.Position(now), placed.At),
+                attackerSize: cascade is null ? LivingCollision.PlayerSize : 0, attackerHasReversedStat: cascade is null,
+                extraShockChance: shockNova?.Pulse.ExtraShockChance ?? 0, cascadeBurst: cascade?.Pulse.Burst ?? CascadeBurst.None);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
                 var ignite = RepeatAilment(profile.Ignite, targetAilmentMore);
@@ -965,6 +972,8 @@ public static partial class Game
                     id == arcSplit.Primary ? placed.At : centre, now, mitigated, damage, critical, hit.Life);
             else if (shockNova is not null)
                 WriteSpellProxyHit(shockNova.Session, placed.Id, 0xffff, id, m, centre, now, mitigated, damage, critical, hit.Life);
+            else if (cascade is not null)
+                WriteSpellProxyHit(cascade.Session, placed.Id, 0xffff, id, m, centre, now, mitigated, damage, critical, hit.Life);
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, arcSplit is null ? "trap/mine" : "placed Arc", playerKill: false);
             if (bearTarget is not null)
                 BearTrapOnHitLocked(m, damage, now, n => GolemStat(playerStats, n), n => GolemStat(placed.Own, n));
@@ -1111,7 +1120,8 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (ArcProxyEffect(effect) || IsHexblastEffect(effect) || effect == "ShockNovaAltX");
+                    bool targetedTrap = !placed.Mine && (ArcProxyEffect(effect) || IsHexblastEffect(effect)
+                        || effect == "ShockNovaAltX" || GlacialCascadeEffect(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null

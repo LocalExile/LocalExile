@@ -848,7 +848,7 @@ public static partial class Game
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
-        int extraShockChance = 0)
+        int extraShockChance = 0, CascadePulse? cascade = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -867,7 +867,7 @@ public static partial class Game
         {
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
-            if (!TotemTargetable(m) || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
+            if (!TotemTargetable(m) || cascade is not null && m.WorldHidden || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
                 || covers?.Invoke(targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
@@ -896,8 +896,9 @@ public static partial class Game
             if (!m.Dead && damage > 0)
                 AilmentsOnHitLocked(player, id, m, mitigated, !attack, crit, 100, caster, skill.Stats, now, AreaRng(player),
                     attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
-                    blind: blind, hitOrigin: totem.At, playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
-                    extraShockChance: extraShockChance);
+                    blind: blind, hitOrigin: cascade?.HitOrigin(targetAt, totem.At) ?? totem.At,
+                    playerHit: false, attackerSize: totem.BodySize, attackerHasReversedStat: false,
+                    extraShockChance: extraShockChance, cascadeBurst: cascade?.Burst ?? CascadeBurst.None);
             byte hitCode = HitCode(mitigated, damage, m.MaxLife, crit || accepted.Life == 0);
             ushort hitFlags = (ushort)(0x4200 | HitTypeFlag(hitCode) | (crit ? 0x0020 : 0));
             byte hitKind = 3, hitAngle = HitAngle(targetAt.X - totem.At.X, targetAt.Y - totem.At.Y);

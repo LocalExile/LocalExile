@@ -8,10 +8,6 @@ public static partial class Game
             or "LightningConduitAltX" or "Manabond" or "VortexAltX" or "FlameSurge" or "FlameSurgeAltX" or ArcSurgingEffect
             || ShockNovaEffect(effect) || GlacialCascadeEffect(effect);
 
-    // Knockback reads the direction from an origin to the target. Put that origin on the burst's axis at the target.
-    static (int X, int Y) CascadeKnockbackOrigin((int X, int Y) target, (double X, double Y) direction) =>
-        (target.X - (int)Math.Round(100 * direction.X), target.Y - (int)Math.Round(100 * direction.Y));
-
     static DamagePacket BladeBlastDaggerDamage(Player player, int gain)
     {
         static DamagePacket? DaggerDamage(SkillCatalog.Unarmed? weapon) =>
@@ -30,12 +26,9 @@ public static partial class Game
 
     public sealed partial class ProjectileSession
     {
-        // The gem rows provide the branch angle modifier and the cascade count and damage. Beam lengths, spike spacing
-        // and spike travel time are local collision estimates in the absence of a captured client collision trace.
+        // The gem rows provide the branch angle modifier. Beam lengths use local collision estimates.
         const int LanceLength = 60;
         const double LanceBranchAngle = 24;
-        const int CascadeBaseSpacing = 12;
-        const double CascadeInterval = .045;
 
         internal void ScheduleSpatialSpell((ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
             (int X, int Y) from, (int X, int Y) aim, double windup, Func<bool> current, SacrificeUse sacrifice,
@@ -159,28 +152,10 @@ public static partial class Game
                         }
                     }
                 }
-                else if (GlacialCascadeEffect(effect))
-                {
-                    int spikes = Math.Clamp(Own(Stat.UpheavalNumberOfSpikes) + Own(Stat.GlacialCascadeNumberOfAdditionalBursts), 0, 32);
-                    double interval = CascadeInterval / Math.Max(.1, 1 + Own(Stat.GlacialCascadeTravelSpeedPlusPct) / 100d);
-                    bool hasFinal = GlacialCascadeHasFinalBurst(effect);
-                    double finalMore = Math.Max(0, 1 + Own(Stat.GlacialCascadeFinalSpikeDamagePlusPctFinal) / 100d);
-                    for (int i = 0; i < spikes; i++)
-                    {
-                        double distance = (i + 1) * CascadeBaseSpacing;
-                        var at = (from.X + (int)Math.Round(distance * direction.X), from.Y + (int)Math.Round(distance * direction.Y));
-                        bool final = hasFinal && i == spikes - 1;
-                        CascadeBurst burst = final ? CascadeBurst.Final : hasFinal ? CascadeBurst.Early : CascadeBurst.None;
-                        Runtime.Schedule(Runtime.Now + ProjectileRuntime.Time(i * interval), () =>
-                        {
-                            if (!CurrentSource()) return;
-                            // Area changes the overlap, including if a modifier changes during the cascade.
-                            int radius = SkillRadius(Player, source.Stats, spell: true, gem.Effect);
-                            if (final) radius = ActorScale.Saturate(2L * radius);
-                            Hit(at, radius, burstMore: final ? finalMore : 1, cascadeBurst: burst);
-                        });
-                    }
-                }
+                else if (effect is not null && GlacialCascadeEffect(effect))
+                    ScheduleGlacialCascade(effect, from, aim, source.Stats,
+                        () => SkillRadius(Player, source.Stats, spell: true, gem.Effect), CurrentSource,
+                        pulse => Hit(pulse.Centre, pulse.Radius, burstMore: pulse.DamageMore, cascadeBurst: pulse.Burst));
             });
 
             bool CurrentSource() => Active && !Player.Paused && Player.PlayerLife > 0 && sacrifice.Current
