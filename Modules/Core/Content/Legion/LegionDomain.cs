@@ -103,6 +103,7 @@ static class LegionDomain
         /// <summary>True when individual kill updates have not yet been flushed to ContentState JSON.</summary>
         public bool Dirty;
         public double LastFlushAt;
+        public readonly Dictionary<string, double> DefeatSaid = [];
         /// <summary>Cached MonsterVarieties lookups per MonsterRow so spawns and revivals avoid repeated string allocations.</summary>
         public readonly Dictionary<int, MonsterCatalog.Variety?> VarietyCache = [];
         /// <summary>Fast lookup from live SpawnedMonster.ObjectId -> slot index (rebuilt on restore).</summary>
@@ -397,6 +398,7 @@ static class LegionDomain
     }
 
     const double DomainFlushSeconds = 0.5;
+    const double DefeatLineSeconds = 60;
 
     static void Keep(Player player, DomainState state, bool flush = true)
     {
@@ -629,7 +631,7 @@ static class LegionDomain
     const double RevivedAfterSeconds = 1.0, SwapAfterSeconds = 2.0;
     /// <summary>Monster spawns per tick (a fighter for a stood-up ghost, a ghost for a fallen fighter, together), so the start's wave of
     /// every soldier spreads over a few frames.</summary>
-    const int MaxSpawnsPerTick = 24;
+    const int MaxSpawnsPerTick = 6;   // a spawn costs about 4 ms in the live log (24 per tick took 100-270 ms); GUESS: 6 keeps a tick near 30 ms
 
     /// <summary>What one tick takes to do; made only when something is due.</summary>
     sealed class ReviveWork
@@ -972,12 +974,14 @@ static class LegionDomain
             }
             else if (state.Phase == DomainPhase.Active)
             {
-                if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
                 if (TakeEnd(player, state, now)) action = 2;
                 else
                 {
                     if (state.Rising.Count > 0 || state.Fallen.Count > 0 || state.Falls.Count > 0)
                         work = TakeReviveWork(state, now);
+                    // The JSON save waits for a tick with no spawns (the backlog drains in a few ticks).
+                    if (work is null || work.Swaps.Count + work.Fallen.Count == 0)
+                        if (state.Dirty && now - state.LastFlushAt >= DomainFlushSeconds) Keep(player, state, flush: true);
                     // 3.29: a wave only while a player stands in the zone (no wave without one), at most every WaveSeconds; the slots
                     // are scanned only then.
                     if (now - state.LastWaveAt >= state.WaveSeconds && now >= state.NextWaveCheck)
@@ -1005,7 +1009,13 @@ static class LegionDomain
         if (speech is not null)
             foreach (var (variety, category, delayMs) in speech) await LegionSpeech.Say(player, variety, category, delayMs);
         if (litTo > litFrom) await LightCrystals(player, state, litFrom, litTo);
-        if (work is not null) await StepRising(module, player, state, work);
+        if (work is not null)
+        {
+            long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            await StepRising(module, player, state, work);
+            double ms = System.Diagnostics.Stopwatch.GetElapsedTime(t0).TotalMilliseconds;
+            if (ms > 30) module.Log($"Domain revive tick slow: {ms:0} ms ({work.Swaps.Count} swaps, {work.Fallen.Count} fallen, {work.Revived.Count} revived)");
+        }
         if (action == 1) await StartDomain(module, player, state);
         else if (action == 2) await FinishDomain(module, player, state);
         else if (action == 3) await Wave(module, player, state, wave!);
@@ -1288,7 +1298,14 @@ static class LegionDomain
             if (slot.Tier == 3)
             {
                 state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
-                if (state.Phase == DomainPhase.Active && VarietyOf(state, slot.MonsterRow) is { } general) state.Speech.Add((general.Id, "Defeat", 2500u * (uint)state.Speech.Count(l => l.Category == "Defeat")));
+                if (state.Phase == DomainPhase.Active && VarietyOf(state, slot.MonsterRow) is { } general) {
+                    // One Defeat line per general per DefeatLineSeconds (GUESS: generals revive and die over and over); lines stay 2.5 s apart.
+                    if (!state.DefeatSaid.TryGetValue(general.Id, out double said) || global::Game.AreaTime(player) - said >= DefeatLineSeconds)
+                    {
+                        state.DefeatSaid[general.Id] = global::Game.AreaTime(player);
+                        state.Speech.Add((general.Id, "Defeat", 2500u * (uint)state.Speech.Count(l => l.Category == "Defeat")));
+                    }
+                }
             }
             if (slot.Rewards is { Length: > 0 })
             {
