@@ -176,7 +176,6 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Shared Mana/Recoup and Blind from Whisperer's nodes. Docs: [Whisperer](../docs/game/whisperer.md).
 - Selected supported-spell panel. Docs: [11](../docs/protocol/11-skills.md) Â§9.
 - Percentage attributes, attribute-scaled pools and defences, and inherent-bonus prohibitions.
-- Armour Mastery's Energy Shield recharge conversion reads current additive Armour modifiers from the same stat update.
   Docs: [11](../docs/protocol/11-skills.md) Â§4, [13](../docs/protocol/13-items.md) Â§2d,
   [20](../docs/protocol/20-damage.md#player-energy-shield-2026-10-25).
 - Weapon-local damage and timing; wand/claw/dagger added ranges, Varunastra, Fan of Blades, Eclipse Solaris and the

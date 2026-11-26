@@ -1581,10 +1581,6 @@ public static partial class Game
         }
     }
 
-    static int SharedArmourAndEvasionIncrease(Func<uint, int> get) => ActorScale.Saturate(
-        (long)get(Stat.GlobalDefencesPlusPct) + get(Stat.CombinedGlobalDefencesPlusPct)
-        + get(Stat.EvasionAndPhysicalDamageReductionRatingPlusPct) + get(Stat.CombinedArmourAndEvasionRatingPlusPct));
-
     // What the allocated passives add to the pools: attributes (base_* and additional_*, all attributes and the pairs),
     // flat and increased life, mana and accuracy, flat and increased armour and evasion, energy shield and melee physical
     // damage, the base resistances (base_resist_all_elements_% applies to fire, cold and lightning), the shield-specific
@@ -1700,7 +1696,9 @@ public static partial class Game
         int auraArea = Get(Stat.BaseAuraAreaOfEffectPlusPct);
         // Defences: the tree's flat armour/evasion and their increased modifiers. "Defences" and the combined armour and
         // evasion increase apply to both ratings, as in PoB's calcLib.mod.
-        int defencesPct = SharedArmourAndEvasionIncrease(Get);
+        int defencesPct = Get(Stat.GlobalDefencesPlusPct) + Get(Stat.CombinedGlobalDefencesPlusPct)
+            + Get(Stat.EvasionAndPhysicalDamageReductionRatingPlusPct)
+            + Get(Stat.CombinedArmourAndEvasionRatingPlusPct);
         int armourPct = Get(Stat.PhysicalDamageReductionRatingPlusPct) + defencesPct;
         int evasionPct = Get(Stat.EvasionRatingPlusPct) + defencesPct;
         long attackBlockLuck = (long)Get(Stat.BaseBlockLuck) + Get(Stat.AttackBlockLuck) + Get(Stat.BaseAttackBlockLuck);
