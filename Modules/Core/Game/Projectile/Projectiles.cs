@@ -858,6 +858,7 @@ public static partial class Game
                 return ApplyFleshrendDamage(contact, target, fleshrend);
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
+            if (MonsterAvoidsProjectile(target, random)) return ProjectileHitResult.Miss;
             if (shot.RampageEpoch is long ownedEpoch)
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)

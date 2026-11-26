@@ -164,7 +164,7 @@ public static partial class Game
         }
         bool critical = false;
         var rolled = reflectedPhysical ? attack.Damage
-            : MonsterModHit(source, attack.Damage.Roll(random), m.Life, m.MaxLife, random, out critical,
+            : MonsterModHit(source, MonsterTemporaryHit(source, attack.Damage, random).Roll(random), m.Life, m.MaxLife, random, out critical,
             now: now, cannotCrit: VaalOversoul.CannotCrit(source, attack), additionalCritical: BrittleCriticalChance(m, now))
             .Scale(SappedDamageFactor(source, now) * TauntedHitAgainstMinion(player, attacker, source, g, now)
                 * SigilEnemyDamageFactor(player, source, now));
@@ -208,6 +208,7 @@ public static partial class Game
         {
             if (elementalImmune && type is DamageType.Fire or DamageType.Cold or DamageType.Lightning) continue;
             var resistance = MonsterHitResistance(m, type, default, now);
+            if (!reflectedPhysical) resistance = resistance with { Penetration = Math.Max(0, MonsterPenetration(source.Effects, type)) };
             if (type != DamageType.Physical)
                 resistance = resistance with { Maximum = Math.Clamp(resistance.Maximum
                     + effects[Stat.Of($"base_maximum_{type.ToString().ToLowerInvariant()}_damage_resistance_%")], 0, 90) };

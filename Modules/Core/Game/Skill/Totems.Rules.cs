@@ -687,7 +687,8 @@ public static partial class Game
         var retired = new List<uint>();
         MinionOwnershipChange[] rosterChanges;
         bool canDetonateMines = false;
-        using (ProjectileMutation(player, advance: false))
+        // Area exit can retire owner-local objects off-frame; shared delta changes are deferred below.
+        using (LevelUpdatesFor(player).Gate.EnterScope())
         {
             var totems = player.Totems;
             if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
