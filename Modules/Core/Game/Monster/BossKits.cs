@@ -10,12 +10,33 @@ using static Program;
 /// it the rest of its list.</summary>
 public static class BossKits
 {
+    static uint ProjectileMinimumRangeStat;
+    static uint LeapSlamMinimumDistanceStat;
+
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadBossKitsData()
     {
         CampaignBosses = LoadCampaignBosses();
         GemGranted = [.. ClientTables.TableOrEmpty("GemEffects")
             .SelectMany(g => new[] { g.IntOrNull("GrantedEffect"), g.IntOrNull("GrantedEffect2") }).OfType<int>()];
+        ProjectileMinimumRangeStat = Stat.Of("projectile_minimum_range");
+        LeapSlamMinimumDistanceStat = Stat.Of("leap_slam_minimum_distance");
+    }
+
+    /// <summary>Extracts data-driven minimum distance (<c>projectile_minimum_range</c>, <c>leap_slam_minimum_distance</c>)
+    /// and shared <c>GrantedEffectsPerLevel.CooldownGroup</c> (normalizing the independent sentinel 36 to 0) for a kit skill.</summary>
+    internal static (double MinRange, int CooldownGroup) KitSkillConstraints(
+        SkillCatalog catalog, int effect, byte level, double reach)
+    {
+        int effectLevel = catalog.MaxLevelAt(effect, level);
+        int rawGroup = catalog.CooldownGroup(effect, effectLevel);
+        int group = rawGroup is > 0 and not 36 ? rawGroup : 0;
+        var stats = GolemData.Skill(catalog, effect, level).Stats;
+        uint projKey = ProjectileMinimumRangeStat != 0 ? ProjectileMinimumRangeStat : Stat.Of("projectile_minimum_range");
+        uint leapKey = LeapSlamMinimumDistanceStat != 0 ? LeapSlamMinimumDistanceStat : Stat.Of("leap_slam_minimum_distance");
+        int rawMin = Math.Max(stats.GetValueOrDefault(projKey), stats.GetValueOrDefault(leapKey));
+        double minRange = rawMin > 0 && rawMin < reach ? rawMin : 0;
+        return (minRange, group);
     }
 
     /// <summary>A boss the ordinary AI plays as a kit: a monster the campaign places as a boss (IsCampaignBoss: any of
@@ -85,6 +106,7 @@ public static class BossKits
             // An aura is no move: it stands on the monster from its spawn (MonsterSkills.Auras).
             || catalog.IsAura(effect)) return false;
         string? id = catalog.EffectId(effect);
+        if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, id)) return false;
         if (id == MercenaryPortalOut) return false;
         if (id is not null && (id.Contains("Teleport", StringComparison.Ordinal)
             || (!forSummon && id.Contains("Daemon", StringComparison.Ordinal))
@@ -127,7 +149,12 @@ public static class BossKits
             int effectLevel = catalog.MaxLevelAt(effect, level);
             var attack = AttackFor(conn, variety, level, effect, (ushort)(0x4000 + kit.Count));
             if (attack.Damage.IsZero && attack.Summon is null && attack.Projectile is null) continue;
-            kit.Add(new(effect, attack, catalog.CooldownMs(effect, effectLevel) / 1000d));
+            var (minRange, cdGroup) = KitSkillConstraints(catalog, effect, level, attack.Range);
+            kit.Add(new(effect, attack, catalog.CooldownMs(effect, effectLevel) / 1000d)
+            {
+                MinRange = minRange,
+                CooldownGroup = cdGroup,
+            });
         }
         return kit;
     }
@@ -190,6 +217,7 @@ public static class BossKits
         List<int> effects = [];
         foreach (int effect in candidates)
         {
+            if (MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect))) continue;
             if (allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect)) continue;
             if ((IsUsable(catalog, variety, effect)
                     || (allowCombos && MonsterCombos.HasCombo(catalog, variety, effect)))
@@ -199,6 +227,7 @@ public static class BossKits
         foreach (bool trigger in new[] { false, true })
             foreach (int effect in candidates)
                 if (effect >= 0 && !effects.Contains(effect) && !catalog.CastsOnDeath(effect) && !IsLeavePortal(catalog, effect)
+                    && !(MonsterKitHooks.HasEffectFilters && !MonsterKitHooks.AllowEffect(variety, effect, catalog.EffectId(effect)))
                     && !(allowCombos && MonsterCombos.IsComboChild(catalog, variety, effect))
                     && IsDamageTakenTrigger(catalog, effect) == trigger
                     && (MonsterSkills.ShapeOf(catalog, effect) is not null || trigger && (catalog.IsAttack(effect) || catalog.IsSpell(effect))))
@@ -276,7 +305,8 @@ public static class BossKits
                 {
                     double comboCd = Math.Max(cooldown, Math.Max(combo.Seconds + 1.5, 4.0));
                     var scaledCombo = modifiers is null ? combo : MonsterCombos.ScaleComboAttack(combo, modifiers, c => ScaleAttack(c));
-                    kit.Add(new(effect, scaledCombo, comboCd));
+                    var (comboMin, comboGroup) = KitSkillConstraints(catalog, effect, level, scaledCombo.Range);
+                    kit.Add(new(effect, scaledCombo, comboCd) { MinRange = comboMin, CooldownGroup = comboGroup });
                 }
                 continue;
             }
@@ -301,7 +331,12 @@ public static class BossKits
                     : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
                     : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
-                kit.Add(new(effect, Scaled(attack), cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+                var (useMin, useGroup) = KitSkillConstraints(catalog, effect, level, reach);
+                kit.Add(new(effect, Scaled(attack), cooldown)
+                {
+                    TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage,
+                    MinRange = useMin, CooldownGroup = useGroup,
+                });
                 continue;
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
@@ -336,7 +371,13 @@ public static class BossKits
                 }
             }
             if (!Acts(attack) && !kept) continue;
-            kit.Add(new(effect, Scaled(attack), Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+            var scaled = Scaled(attack);
+            var (minRange, cdGroup) = KitSkillConstraints(catalog, effect, level, scaled.Range);
+            kit.Add(new(effect, scaled, Math.Max(0, cooldown))
+            {
+                TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage,
+                MinRange = minRange, CooldownGroup = cdGroup,
+            });
 
             MonsterAttack Scaled(MonsterAttack action)
             {
@@ -652,7 +693,14 @@ public static class BossKits
         {
             var entry = monster.Kit[i];
             if (entry.Attack.SkillId == attack.SkillId)
-                return entry.CooldownSeconds <= 0 || monster.KitReadyAt.GetValueOrDefault(entry.Effect) <= now;
+            {
+                if (entry.CooldownSeconds <= 0) return true;
+                if (monster.KitReadyAt.GetValueOrDefault(entry.Effect) > now) return false;
+                if (entry.CooldownGroup > 0 && monster.KitCooldownGroupReadyAt is { } grp
+                    && grp.GetValueOrDefault(entry.CooldownGroup) > now)
+                    return false;
+                return true;
+            }
         }
         return true;
     }
@@ -772,21 +820,37 @@ public static class BossKits
     /// the cooldown is for. Between specials (and for the skills without one, the default swing included) the skill used
     /// longest ago takes it, so the whole list is played rather than one move repeated; on a tie the default swing does,
     /// which is what a boss does with nothing to prove.</para></summary>
-    public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null)
+    public static MonsterAttack? Choose(SpawnedMonster monster, double now, double distance, Func<MonsterAttack, bool>? usable = null) =>
+        ChooseCore(monster, now, distance, player: null, monsterId: 0, usable, cachedAreaLists: false);
+
+    /// <summary>Zero-allocation hot-path overload called by <c>PlanMonsterAi</c>: evaluates <see cref="MonsterSkills.Usable"/>
+    /// directly without allocating a closure per tick, and reuses the area's per-step living-summon/corpse snapshots.</summary>
+    public static MonsterAttack? Choose(Player player, uint monsterId, SpawnedMonster monster, double now, double distance,
+        bool cachedAreaLists = true) =>
+        ChooseCore(monster, now, distance, player, monsterId, usable: null, cachedAreaLists);
+
+    static MonsterAttack? ChooseCore(SpawnedMonster monster, double now, double distance,
+        Player? player, uint monsterId, Func<MonsterAttack, bool>? usable, bool cachedAreaLists)
     {
-        if (monster.Kit.Count == 0) return monster.Attack;
+        var kit = monster.Kit;
+        int count = kit.Count;
+        if (count == 0) return monster.Attack;
+
+        bool isArakaali = Arakaali.IsBoss(monster.Variety) && monster.LifePhases is not null;
+        KitState? state = monster.HasKitState && States.TryGetValue(monster, out var existingState) ? existingState : null;
+
         // A form that has just taken shape teleports first (OpenWithTeleport), when it has a teleport and the player is
         // in its reach (respecting MinRange so it is not consumed while out of range or point-blank).
-        if (States.TryGetValue(monster, out var state) && state.OpenWithTeleport)
+        if (state is { OpenWithTeleport: true })
         {
             MonsterKitSkill? opener = null;
-            for (int i = 0; i < monster.Kit.Count; i++)
-                if (monster.Kit[i].IsTeleport) { opener = monster.Kit[i]; break; }
+            for (int i = 0; i < count; i++)
+                if (kit[i].IsTeleport) { opener = kit[i]; break; }
             if (opener is null) state.OpenWithTeleport = false;
             else if (opener.Attack.Range >= distance
-                && distance >= (opener.Attack.Use?.MinRange ?? 0)
-                && Arakaali.Allowed(monster, opener.Effect)
-                && (usable is null || usable(opener.Attack)))
+                && distance >= Math.Max(opener.MinRange, opener.Attack.Use?.MinRange ?? 0)
+                && (!isArakaali || Arakaali.Allowed(monster, opener.Effect))
+                && IsSkillUsable(player, monsterId, monster, opener.Attack, now, usable, cachedAreaLists))
             {
                 state.OpenWithTeleport = false;
                 return opener.Attack;
@@ -794,9 +858,12 @@ public static class BossKits
         }
         // A ranged default attack comes in a burst (Merveil, the Siren's Ice Spears follow one another): once begun it
         // is used again until the burst is full, then the list takes its turns.
-        if (monster.Kit[0] is { CooldownSeconds: 0, IsBarrage: false, Attack: { Ranged: true, Use: null, Summon: null } first }
-            && state is { StreakCount: > 0 } && state.StreakCount < DefaultBurst
-            && first.Range >= distance && Arakaali.Allowed(monster, monster.Kit[0].Effect) && (usable is null || usable(first)))
+        if (state is { StreakCount: > 0 } && state.StreakCount < DefaultBurst
+            && kit[0] is { CooldownSeconds: 0, IsBarrage: false, Attack: { Ranged: true, Use: null, Summon: null } first }
+            && first.Range >= distance
+            && distance >= kit[0].MinRange
+            && (!isArakaali || Arakaali.Allowed(monster, kit[0].Effect))
+            && IsSkillUsable(player, monsterId, monster, first, now, usable, cachedAreaLists))
             return first;
         // A boss whose other skills all reach across the room (Merveil's Ice Spear: her whole aggro range) would never
         // walk again: its melee swing is only a candidate in reach, and the spell always is. When the swing has waited
@@ -805,44 +872,63 @@ public static class BossKits
         // Specials take a ready turn, but not every one: with several cooldowns between them (Merveil, the Twisted, has
         // five) they would take every turn and the skills without one would never come. So after a special, a skill
         // without a cooldown goes next when one can, and after one of those a ready special does.
-        double lastSpecial = 0, lastPlain = 0;
-        foreach (var entry in monster.Kit)
+        double lastSpecial = monster.LastSpecialAt, lastPlain = monster.LastPlainAt;
+        if (lastSpecial == 0 && lastPlain == 0 && monster.KitReadyAt.Count > 0)
         {
-            if (!monster.KitReadyAt.TryGetValue(entry.Effect, out double at)) continue;
-            if (entry.CooldownSeconds > 0) lastSpecial = Math.Max(lastSpecial, Math.Min(now, at - entry.CooldownSeconds));
-            else if (at <= now) lastPlain = Math.Max(lastPlain, at);
+            for (int i = 0; i < count; i++)
+            {
+                var entry = kit[i];
+                if (!monster.KitReadyAt.TryGetValue(entry.Effect, out double at)) continue;
+                if (entry.CooldownSeconds > 0) lastSpecial = Math.Max(lastSpecial, Math.Min(now, at - entry.CooldownSeconds));
+                else if (at <= now) lastPlain = Math.Max(lastPlain, at);
+            }
         }
         bool plainFirst = lastSpecial > 0 && lastSpecial >= lastPlain;
+        var slots = monster.KitReadyAtSlot;
+        bool useSlots = slots is not null && slots.Length == count;
+        var cdGroups = monster.KitCooldownGroupReadyAt;
+        int firstEffect = kit[0].Effect;
         MonsterKitSkill? best = null;
         int bestTier = -1;
         double bestUsed = 0;
-        foreach (var entry in monster.Kit)
+        for (int i = 0; i < count; i++)
         {
-            if (!Arakaali.Allowed(monster, entry.Effect)) continue;
-            // A skill that does not reach the player is no candidate: the boss keeps its attack and walks up.
-            if (entry.Attack.Range < distance) continue;
-            // A travel is for closing a distance: nearer than its least, the monster swings.
-            if (entry.Attack.Use is { } use && distance < use.MinRange) continue;
-            // A skill that needs what is not there (a corpse) waits.
-            if (usable is not null && !usable(entry.Attack)) continue;
-            double used = monster.KitReadyAt.GetValueOrDefault(entry.Effect);
+            var entry = kit[i];
+            var atk = entry.Attack;
+            // Cheap geometric & cooldown filters first before touching usability/corpse/summon queries.
+            if (atk.Range < distance) continue;
+            double minRange = atk.Use is { MinRange: > 0 } u
+                ? (entry.MinRange > u.MinRange ? entry.MinRange : u.MinRange)
+                : entry.MinRange;
+            if (minRange > 0 && distance < minRange) continue;
+            double used = useSlots ? slots![i] : monster.KitReadyAt.GetValueOrDefault(entry.Effect);
             bool special = entry.CooldownSeconds > 0;
             if (special && used > now) continue;
+            if (special && entry.CooldownGroup > 0 && cdGroups is not null && cdGroups.GetValueOrDefault(entry.CooldownGroup) > now) continue;
             // A trigger on damage taken is played only by the damage: once enough has been taken, before anything else.
             int tier = entry.TriggerThreshold > 0 ? 2 : special ? 1 : 0;
             if (tier == 2 && monster.KitDamageTaken.GetValueOrDefault(entry.Effect) < entry.TriggerThreshold) continue;
+            if (isArakaali && !Arakaali.Allowed(monster, entry.Effect)) continue;
+            // A skill that needs what is not there (a corpse, charges, summon capacity) waits.
+            if (!IsSkillUsable(player, monsterId, monster, atk, now, usable, cachedAreaLists)) continue;
             bool better;
             if (best is null) better = true;
             else if (tier != bestTier) better = plainFirst && tier < 2 && bestTier < 2 ? tier < bestTier : tier > bestTier;
             else if (used != bestUsed) better = used < bestUsed;
-            else better = entry.Effect == monster.Kit[0].Effect;
+            else better = entry.Effect == firstEffect;
             if (!better) continue;
             best = entry;
             bestTier = tier;
             bestUsed = used;
         }
-        return best?.Attack ?? Fallback(monster, usable);
+        return best?.Attack ?? FallbackCore(monster, now, player, monsterId, usable, cachedAreaLists, isArakaali);
     }
+
+    static bool IsSkillUsable(Player? player, uint monsterId, SpawnedMonster monster, MonsterAttack attack, double now,
+        Func<MonsterAttack, bool>? usable, bool cachedAreaLists) =>
+        player is not null
+            ? MonsterSkills.Usable(player, monsterId, monster, attack, now, cachedAreaLists)
+            : usable is null || usable(attack);
 
     // Per-monster kit state: walk-up/fight timers (NaN when unset), default-attack burst count, and pending teleport opener.
     sealed class KitState
@@ -857,7 +943,11 @@ public static class BossKits
     static readonly System.Runtime.CompilerServices.ConditionalWeakTable<SpawnedMonster, KitState> States = new();
 
     /// <summary>Makes the monster's first kit action its teleport, if its kit has one (a boss's later form).</summary>
-    public static void OpenWithTeleport(SpawnedMonster monster) => States.GetOrCreateValue(monster).OpenWithTeleport = true;
+    public static void OpenWithTeleport(SpawnedMonster monster)
+    {
+        monster.HasKitState = true;
+        States.GetOrCreateValue(monster).OpenWithTeleport = true;
+    }
 
     /// <summary>How many times in a row a boss uses a ranged default attack once it begins (ours: the official AI's
     /// weights are not in the client).</summary>
@@ -874,6 +964,7 @@ public static class BossKits
             return null;
         // Its melee swing: a damaging attack with no cooldown that is neither a spell, ranged nor a move.
         MonsterKitSkill? melee = null;
+        int meleeIndex = -1;
         for (int i = 0; i < monster.Kit.Count; i++)
         {
             var k = monster.Kit[i];
@@ -881,6 +972,7 @@ public static class BossKits
                 && k.Attack.Use is null && k.Attack.Summon is null)
             {
                 melee = k;
+                meleeIndex = i;
                 break;
             }
         }
@@ -898,6 +990,7 @@ public static class BossKits
             }
         }
         if (!hasOtherInReach) return null;
+        monster.HasKitState = true;
         var state = States.GetOrCreateValue(monster);
         if (distance <= melee.Attack.Range) { state.WalkingSince = double.NaN; return null; }
         // A swing not used yet has waited since the fight began, not for ever: the boss opens with its spells.
@@ -909,6 +1002,9 @@ public static class BossKits
         {
             // It could not get there: the turn is spent, as if it had swung.
             monster.KitReadyAt[melee.Effect] = now;
+            if (monster.KitReadyAtSlot is { } slots && meleeIndex >= 0 && meleeIndex < slots.Length)
+                slots[meleeIndex] = now;
+            monster.LastPlainAt = Math.Max(monster.LastPlainAt, now);
             state.WalkingSince = double.NaN;
             return null;
         }
@@ -919,14 +1015,16 @@ public static class BossKits
     // would be an InPlace ranged skill on cooldown and immediately re-fire, bypassing its cooldown). Prefer a
     // zero-cooldown pathing melee swing so the boss walks into melee reach, then any zero-cooldown skill, then any
     // pathing melee skill, then the first allowed entry.
-    static MonsterAttack? Fallback(SpawnedMonster monster, Func<MonsterAttack, bool>? usable = null)
+    static MonsterAttack? FallbackCore(SpawnedMonster monster, double now, Player? player, uint monsterId,
+        Func<MonsterAttack, bool>? usable, bool cachedAreaLists, bool isArakaali)
     {
         MonsterAttack? anyNoCooldown = null, anyMelee = null, anyUsable = null, anyAllowed = null;
-        for (int i = 0; i < monster.Kit.Count; i++)
+        var kit = monster.Kit;
+        for (int i = 0; i < kit.Count; i++)
         {
-            var entry = monster.Kit[i];
-            if (entry.TriggerThreshold != 0 || !Arakaali.Allowed(monster, entry.Effect)) continue;
-            bool ok = usable is null || usable(entry.Attack);
+            var entry = kit[i];
+            if (entry.TriggerThreshold != 0 || (isArakaali && !Arakaali.Allowed(monster, entry.Effect))) continue;
+            bool ok = IsSkillUsable(player, monsterId, monster, entry.Attack, now, usable, cachedAreaLists);
             bool noCooldown = entry.CooldownSeconds <= 0;
             bool melee = !entry.Attack.InPlace;
             if (ok && melee && noCooldown) return entry.Attack;
@@ -938,7 +1036,7 @@ public static class BossKits
             }
             anyAllowed ??= entry.Attack;
         }
-        return anyNoCooldown ?? anyMelee ?? anyUsable ?? anyAllowed ?? monster.Kit[0].Attack;
+        return anyNoCooldown ?? anyMelee ?? anyUsable ?? anyAllowed ?? kit[0].Attack;
     }
 
     /// <summary>Records the swing just ordered: the skill it used goes on cooldown, and even one without a cooldown
@@ -946,18 +1044,47 @@ public static class BossKits
     /// in the area's frame.</summary>
     public static void Consume(SpawnedMonster monster, MonsterAttack attack, double now)
     {
-        if (monster.Kit.Count == 0) return;
-        foreach (var entry in monster.Kit)
-            if (entry.Attack.SkillId == attack.SkillId)
+        var kit = monster.Kit;
+        int count = kit.Count;
+        if (count == 0) return;
+        for (int i = 0; i < count; i++)
+        {
+            var entry = kit[i];
+            if (entry.Attack.SkillId != attack.SkillId) continue;
+            // The burst of the default attack (Choose): only allocate KitState when slot 0 is a ranged default burst
+            // candidate (or the monster already owns a KitState).
+            if (monster.HasKitState || kit[0] is { CooldownSeconds: 0, IsBarrage: false, Attack: { Ranged: true, Use: null, Summon: null } })
             {
-                // The burst of the default attack (Choose): counted once a swing, ended by any other skill.
+                monster.HasKitState = true;
                 var state = States.GetOrCreateValue(monster);
-                if (entry != monster.Kit[0]) state.StreakCount = 0;
+                if (i != 0) state.StreakCount = 0;
                 else if (now - state.StreakAt > .2)
                     (state.StreakCount, state.StreakAt) = (state.StreakCount >= DefaultBurst ? 1 : state.StreakCount + 1, now);
-                monster.KitReadyAt[entry.Effect] = now + entry.CooldownSeconds;
-                if (entry.TriggerThreshold > 0) monster.KitDamageTaken[entry.Effect] = 0;
-                return;
             }
+            double readyAt = now + entry.CooldownSeconds;
+            monster.KitReadyAt[entry.Effect] = readyAt;
+            var slots = monster.KitReadyAtSlot;
+            if (slots is null || slots.Length != count)
+            {
+                slots = new double[count];
+                if (monster.KitReadyAt.Count > 1)
+                    for (int k = 0; k < count; k++)
+                        slots[k] = monster.KitReadyAt.GetValueOrDefault(kit[k].Effect);
+                monster.KitReadyAtSlot = slots;
+            }
+            slots[i] = readyAt;
+            if (entry.CooldownSeconds > 0)
+            {
+                monster.LastSpecialAt = Math.Max(monster.LastSpecialAt, now);
+                if (entry.CooldownGroup > 0)
+                    (monster.KitCooldownGroupReadyAt ??= [])[entry.CooldownGroup] = readyAt;
+            }
+            else
+            {
+                monster.LastPlainAt = Math.Max(monster.LastPlainAt, now);
+            }
+            if (entry.TriggerThreshold > 0) monster.KitDamageTaken[entry.Effect] = 0;
+            return;
+        }
     }
 }

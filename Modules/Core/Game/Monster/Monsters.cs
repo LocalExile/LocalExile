@@ -708,11 +708,12 @@ public static partial class Game
             : scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
             : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique,
                 modifiers: mods.Effects, mapDamage: mapBossScaling.Damage);
+        bool fromOrdinaryKit = false;
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
                 mods.Effects, mapBoss ? mapBossScaling.Damage : 1.0, applyAuraStats: freshMods && auras.Stats is null);
-            if (ordinaryKit.Count > 0) kit = ordinaryKit;
+            if (ordinaryKit.Count > 0) { kit = ordinaryKit; fromOrdinaryKit = true; }
             if (freshMods && auras.Stats is null && ordinaryAuraStats.Count > 0)
                 mods = mods with { Effects = mods.Effects.Combine(ordinaryAuraStats) };
             if ((auras.Rows is null || auras.Rows.Count == 0) && ordinaryAuraRows.Count > 0)
@@ -724,11 +725,16 @@ public static partial class Game
         if (kit.Count == 0 && extraKit is { Count: > 0 } && skill is not null)
             kit = [new MonsterKitSkill(effect, attack with { SkillId = (ushort)0x4000 }, 0)];
         // A caller's extra specials (a summon's own usable kit, BossKits.SummonKit) append to the built kit.
-        kit = BossKits.WithExtra(kit, extraKit);
+        var combinedKit = BossKits.WithExtra(kit, extraKit);
+        if (!ReferenceEquals(combinedKit, kit)) fromOrdinaryKit = false;
+        kit = combinedKit;
         // The kit's first entry is the effect the default attack uses, given its own id in the kit: the actor needs that
         // list, not a second copy of the default attack under the hash-derived id. The stage skill stays: it is 0x0103.
+        IReadOnlyList<GrantedSkill>? kitSkills = kit.Count > 0
+            ? (fromOrdinaryKit ? MonsterKits.SkillsForOrdinary(player, variety, level, kit) : BossKits.SkillsOf(player, variety, level, kit))
+            : null;
         var skills = kingSkills is { Count: > 0 } ? kingSkills
-            : kit.Count > 0 ? [.. BossKits.SkillsOf(player, variety, level, kit), .. stageSkill is null ? [] : new List<GrantedSkill> { stageSkill }]
+            : kitSkills is not null ? (stageSkill is null ? kitSkills : [.. kitSkills, stageSkill])
             : skill is null ? null : stageSkill is null ? [skill] : [skill, stageSkill];
         if (ownedSkills is not null) skills = ownedSkills;
         if (skills is not null) skills = MonsterCombos.WithChildSkills(player, variety, level, kit, skills);
@@ -1193,7 +1199,8 @@ public static partial class Game
             bool protectedEntry = InGracePeriod(player);
             bool hasRampageWeapons = CurrentRampageWork && player.StandingRampageWorld is { Actors.Count: > 0 };
             var askers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, double D)>();
-            bool crowdedPack = player.Area.Driven && player.Area.SyncLivingMonsters().Count > 16;
+            var living = player.Area.SyncLivingMonsters();
+            bool crowdedPack = player.Area.Driven && living.Count > 16;
             bool playerMoving = player.Walk.Moving(now);
             var decoyChasers = new List<(MonsterSurround.Asker Asker, SpawnedMonster M, TotemState.Totem Totem)>();
             var bandit = BanditChoices.In(player);
@@ -1289,22 +1296,22 @@ public static partial class Game
                 var decoy = DecoyTarget(m, now);
                 if (m.Hostile && decoy is null && !(m.TauntedUntil > now && m.TauntingPlayerId == player.Id)
                     && GolemEnemyOrderLocked(player, id, m, now, d)) continue;
-                // A boss's kit (BossKits): the skill that is ready and reaches the player, else its chase swing. Never
-                // while a swing or arrived lockstep walk-up swing still runs: the attack an order names must stay the one
-                // its hit is applied with, and switching skills must close any open melee walk-up so StepWalkUp never
-                // tests a melee chase against a newly chosen ranged skill's reach.
-                if (m.Kit.Count > 0 && now >= m.BusyUntil && m.ClientSwingAt is null && !cadence.SwingPending(m))
-                {
-                    var chosen = BossKits.Choose(m, now, d, a => MonsterSkills.Usable(player, id, m, a, now));
-                    if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
-                    m.Attack = chosen;
-                }
                 if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
                     m.LastTarget = null;
                     AlertPackLocked(player, m, (mx, my), now);
+                }
+                // A boss's or multi-skill monster's kit (BossKits): only evaluated once aggroed (idle monsters skip
+                // skill selection completely), and never while a swing or arrived lockstep walk-up swing still runs:
+                // the attack an order names must stay the one its hit is applied with, and switching skills must close
+                // any open melee walk-up so StepWalkUp never tests a melee chase against a newly chosen ranged reach.
+                if (m.Aggro && m.Kit.Count > 0 && now >= m.BusyUntil && m.ClientSwingAt is null && !cadence.SwingPending(m))
+                {
+                    var chosen = BossKits.Choose(player, id, m, now, d, cachedAreaLists: true);
+                    if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
+                    m.Attack = chosen;
                 }
                 // No boss bar during an encounter's entrance: its script shows the bar as the fight starts.
                 if (m.Aggro && !m.BossBarShown && !m.EntranceGrace && m.Variety is { BossHealthBar: true } && m.States?.IndexOf("boss_life_bar") >= 0)
@@ -2718,8 +2725,23 @@ public static partial class Game
     // limit of its own, fewer than MaxSummoned of its monsters alive; one with a limit retires its oldest instead);
     // any other attack may.
     public static bool SummonReadyLocked(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now) =>
-        a.Summon is null || now >= m.SummonReadyAt && (a.Summon.Limit > 0
-            || player.Area.Monsters.Values.Count(s => s.SummonerId == id && !s.Dead && s.Life > 0) < MaxSummoned);
+        SummonReadyLocked(player, id, m, a, now, cachedAreaLists: false);
+
+    internal static bool SummonReadyLocked(Player player, uint id, SpawnedMonster m, MonsterAttack a, double now, bool cachedAreaLists)
+    {
+        if (a.Summon is null) return true;
+        if (now < m.SummonReadyAt) return false;
+        if (a.Summon.Limit > 0) return true;
+        if (!cachedAreaLists) player.Area.SyncLivingMonsters();
+        var summons = player.Area.LivingSummons;
+        int count = 0;
+        for (int i = 0; i < summons.Count; i++)
+        {
+            var s = summons[i].Monster;
+            if (s.SummonerId == id && !s.Dead && s.Life > 0 && ++count >= MaxSummoned) return false;
+        }
+        return true;
+    }
 
     // A summoning skill's contact: its monsters (normal, at the summoner's level) where the skill puts them, its offset
     // ahead of the summoner towards the player (summon_specific_monsters_in_front_offset); hostile, as their summoner's,

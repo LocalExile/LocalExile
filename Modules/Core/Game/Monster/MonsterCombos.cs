@@ -57,7 +57,7 @@ public static class MonsterCombos
         MonsterComboDispatch Dispatch,
         ContactPoint? Point);
 
-    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<int, VarietyCombos>> Cache = new();
+    static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int VarietyRow, int HookVersion), VarietyCombos>> Cache = new();
 
     static readonly HashSet<string> EngineControlTypes = new(StringComparer.Ordinal)
     {
@@ -247,8 +247,8 @@ public static class MonsterCombos
     {
         if (variety is null || variety.GrantedEffects is not { Count: > 0 }) return VarietyCombos.Empty;
         if (IsBossControllerVariety(variety)) return VarietyCombos.Empty;
-        var map = Cache.GetValue(catalog, static _ => new ConcurrentDictionary<int, VarietyCombos>());
-        return map.GetOrAdd(variety.Row, _ => ResolveVariety(catalog, variety));
+        var map = Cache.GetValue(catalog, static _ => new ConcurrentDictionary<(int, int), VarietyCombos>());
+        return map.GetOrAdd((variety.Row, MonsterKitHooks.ComboProviderVersion), _ => ResolveVariety(catalog, variety));
     }
 
     /// <summary>True when <paramref name="parentEffect"/> is an <c>EmptyAction*</c> parent with at least one bound
@@ -336,7 +336,7 @@ public static class MonsterCombos
             allCandidates.Add(new(effect, id, at, isNullAnim, StemTokens(id, varTokens), new HashSet<string>(SplitTokens(id), StringComparer.OrdinalIgnoreCase)));
         }
 
-        if (parentEffects.Count == 0 || allCandidates.Count == 0)
+        if (parentEffects.Count == 0 || (allCandidates.Count == 0 && !MonsterKitHooks.HasComboProviders))
             return VarietyCombos.Empty;
 
         // Prefer Animation=NULL candidates (matching client ExecuteTriggered +0x1e8=1 design); fall back to strict payload ActionTypes.
@@ -391,6 +391,43 @@ public static class MonsterCombos
                 if (!groups.TryGetValue(en, out var list)) groups[en] = list = [];
                 list.Add(ev);
             }
+
+            // Tier-1 module overrides via MonsterKitHooks.AddComboBindings (zero-cost when empty).
+            if (MonsterKitHooks.HasComboProviders)
+            {
+                var hookBindings = MonsterKitHooks.ExtraComboBindings(variety, pi.Effect);
+                if (hookBindings.Count > 0)
+                {
+                    var byEvent = new Dictionary<string, List<MonsterKitHooks.ComboEventBinding>>(StringComparer.Ordinal);
+                    for (int h = 0; h < hookBindings.Count; h++)
+                    {
+                        string en = NormalizeEventName(hookBindings[h].EventName);
+                        if (!byEvent.TryGetValue(en, out var bList)) byEvent[en] = bList = [];
+                        bList.Add(hookBindings[h]);
+                    }
+                    var hookOcc = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var hookEvents = new List<ResolvedComboEvent>();
+                    foreach (var ev in pi.CombatEvents)
+                    {
+                        string en = NormalizeEventName(ev.Name);
+                        if (!byEvent.TryGetValue(en, out var bList)) continue;
+                        int occ = hookOcc.GetValueOrDefault(en);
+                        hookOcc[en] = occ + 1;
+                        var b = bList.Count == 1 ? bList[0] : bList[Math.Min(occ, bList.Count - 1)];
+                        double frac = pi.ClipLengthMs > 0 ? Math.Clamp((double)ev.Ms / pi.ClipLengthMs, 0.0, 1.0) : 0.5;
+                        var dispatch = b.DispatchOverride ?? DispatchFor(SkillCatalog.ActionTypeId(b.ChildEffect));
+                        hookEvents.Add(new(en, ev.Ms, frac, b.ChildEffect, dispatch, ev.Point));
+                        boundChildren.Add(b.ChildEffect);
+                    }
+                    if (hookEvents.Count > 0)
+                    {
+                        hookEvents.Sort(static (a, b) => a.Ms.CompareTo(b.Ms));
+                        resolvedParents[pi.Effect] = new(pi.Effect, pi.ClipAnimation, pi.ClipLengthMs, hookEvents, pi.Controls);
+                        continue;
+                    }
+                }
+            }
+            if (candidates.Count == 0) continue;
 
             var pStem = StemTokens(pi.Id, varTokens);
             var clipToks = new HashSet<string>(
@@ -840,7 +877,7 @@ public static class MonsterCombos
             var eventOrigin = ComputeEventOrigin(monsterPos, step.Point, facingAngle);
             var stepAim = trackingFace ? playerPos : aim;
 
-            await FireComboStepAsync(player, id, m, action, seq, step, monsterPos, eventOrigin, stepAim);
+            await FireComboStepAsync(player, id, m, parent.Effect ?? -1, action, seq, step, monsterPos, eventOrigin, stepAim);
         }
     }
 
@@ -893,6 +930,7 @@ public static class MonsterCombos
         Player player,
         uint id,
         SpawnedMonster m,
+        int parentEffect,
         int action,
         ushort seq,
         MonsterComboStep step,
@@ -900,6 +938,9 @@ public static class MonsterCombos
         (int X, int Y) eventOrigin,
         (int X, int Y) stepAim)
     {
+        if (MonsterKitHooks.HasClipObservers)
+            MonsterKitHooks.NotifyClipEvent(player, id, m, parentEffect, step.EventName, AreaTime(player));
+
         var child = step.ChildAttack;
         (int X, int Y)? customOrigin = eventOrigin != monsterPos ? eventOrigin : null;
 

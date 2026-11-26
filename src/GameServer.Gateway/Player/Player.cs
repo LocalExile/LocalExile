@@ -74,6 +74,11 @@ public sealed record MonsterKitSkill(int Effect, MonsterAttack Attack, double Co
     public bool IsTeleport { get; init; }
     /// <summary>Whether one cast of this kit skill fires a barrage of shots (<c>BossMoves.BarrageOf</c>).</summary>
     public bool IsBarrage { get; init; }
+    /// <summary>Minimum distance in cells before this skill may be chosen (e.g. <c>projectile_minimum_range</c>,
+    /// <c>leap_slam_minimum_distance</c>; 0 means no extra minimum beyond <see cref="MonsterSkillUse.MinRange"/>).</summary>
+    public double MinRange { get; init; }
+    /// <summary>Shared cooldown group from <c>GrantedEffectsPerLevel.CooldownGroup</c> (0 = independent cooldown).</summary>
+    public int CooldownGroup { get; init; }
 }
 
 /// <summary>A delayed strike: how long its marker waits, the art it shows while it waits and as it strikes (null for
@@ -391,6 +396,15 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public IReadOnlyList<(int Effect, ushort Id)> SkillIds { get; init; } = [];
     /// <summary>When each kit skill is ready again, by granted effect (Clock seconds), in the area's frame.</summary>
     public readonly Dictionary<int, double> KitReadyAt = [];
+    /// <summary>Slot-indexed mirror of <see cref="KitReadyAt"/> aligned with <see cref="Kit"/> for O(1) zero-hash AI selection.</summary>
+    public double[]? KitReadyAtSlot;
+    /// <summary>Shared cooldown group expiry times (<see cref="MonsterKitSkill.CooldownGroup"/> → ready Clock seconds).</summary>
+    public Dictionary<int, double>? KitCooldownGroupReadyAt;
+    /// <summary>Most recent Clock time a cooldown skill (special) or zero-cooldown skill (plain) was consumed from <see cref="Kit"/>.</summary>
+    public double LastSpecialAt;
+    public double LastPlainAt;
+    /// <summary>True once per-monster kit state (teleport opener, ranged burst streak, or melee walk-up timer) is attached.</summary>
+    public bool HasKitState;
     /// <summary>The damage taken toward each kit trigger on damage taken since it was last cast, by granted effect.</summary>
     public readonly Dictionary<int, double> KitDamageTaken = [];
     bool originallyHostile = true;

@@ -58,14 +58,28 @@ public sealed class GameArea(ulong seed)
         || MonsterContagion.AnyApplied || MonsterEssenceDrain.AnyApplied;
 
     // Order-preserving living-monster cache so 30 Hz movement, collision, blocker, and regen loops do not scan
-    // thousands of dead corpses remaining in Monsters for corpse skills.
+    // thousands of dead corpses remaining in Monsters for corpse skills. Also maintains the active living-summon
+    // subset and a lazy dead-monster (corpse) list with zero per-tick allocations.
     readonly List<(uint Id, SpawnedMonster Monster)> livingMonsters = [];
+    readonly List<(uint Id, SpawnedMonster Monster)> livingSummons = [];
+    readonly List<(uint Id, SpawnedMonster Monster)> deadMonsters = [];
     int livingSyncedCount = -1;
     int livingSyncedVersion = -1;
+    int deadSyncedCount = -1;
+    int deadSyncedVersion = -1;
+    int deadSyncedLivingCount = -1;
     public int MonstersVersion;
 
+    /// <summary>Living summoned monsters (those with <see cref="SpawnedMonster.SummonerId"/> set), refreshed by
+    /// <see cref="SyncLivingMonsters"/> with zero allocations.</summary>
+    public IReadOnlyList<(uint Id, SpawnedMonster Monster)> LivingSummons => livingSummons;
+
+    /// <summary>True when at least one dead monster (corpse) is currently held in <see cref="Monsters"/>, after
+    /// <see cref="SyncLivingMonsters"/> has run.</summary>
+    public bool HasDeadMonsters => Monsters.Count > livingMonsters.Count;
+
     /// <summary>Living monsters in ascending object id order. Rebuilt only when Monsters' count or version changes;
-    /// dead entries are compacted in place in O(living) with zero allocations.</summary>
+    /// dead entries are compacted in place in O(living) with zero allocations. Also refreshes <see cref="LivingSummons"/>.</summary>
     public List<(uint Id, SpawnedMonster Monster)> SyncLivingMonsters()
     {
         int count = Monsters.Count;
@@ -73,12 +87,18 @@ public sealed class GameArea(ulong seed)
         if (count != livingSyncedCount || version != livingSyncedVersion)
         {
             livingMonsters.Clear();
+            livingSummons.Clear();
             foreach (var (id, m) in Monsters)
-                if (!m.Dead && m.Life > 0) livingMonsters.Add((id, m));
+                if (!m.Dead && m.Life > 0)
+                {
+                    livingMonsters.Add((id, m));
+                    if (m.SummonerId is not null) livingSummons.Add((id, m));
+                }
             livingSyncedCount = count;
             livingSyncedVersion = version;
             return livingMonsters;
         }
+        livingSummons.Clear();
         int write = 0;
         int n = livingMonsters.Count;
         for (int i = 0; i < n; i++)
@@ -89,10 +109,39 @@ public sealed class GameArea(ulong seed)
             {
                 if (write != i) livingMonsters[write] = entry;
                 write++;
+                if (m.SummonerId is not null) livingSummons.Add(entry);
             }
         }
         if (write < n) livingMonsters.RemoveRange(write, n - write);
         return livingMonsters;
+    }
+
+    /// <summary>Dead monsters (corpses) in ascending object id order. Returns empty in O(1) when
+    /// <see cref="HasDeadMonsters"/> is false; otherwise rebuilt lazily when monster count, version, or living count changes.</summary>
+    public List<(uint Id, SpawnedMonster Monster)> SyncDeadMonsters(bool livingAlreadySynced = false)
+    {
+        if (!livingAlreadySynced) SyncLivingMonsters();
+        int count = Monsters.Count;
+        int livingCount = livingMonsters.Count;
+        if (count <= livingCount)
+        {
+            deadMonsters.Clear();
+            deadSyncedCount = count;
+            deadSyncedVersion = MonstersVersion;
+            deadSyncedLivingCount = livingCount;
+            return deadMonsters;
+        }
+        int version = MonstersVersion;
+        if (count != deadSyncedCount || version != deadSyncedVersion || livingCount != deadSyncedLivingCount)
+        {
+            deadMonsters.Clear();
+            foreach (var (id, m) in Monsters)
+                if (m.Dead && m.Life == 0) deadMonsters.Add((id, m));
+            deadSyncedCount = count;
+            deadSyncedVersion = version;
+            deadSyncedLivingCount = livingCount;
+        }
+        return deadMonsters;
     }
     /// <summary>Where the walkers stand, by grid cell (AreaGrid): set by the movement phase each frame, and a monster as it
     /// joins the area.</summary>
