@@ -134,8 +134,8 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - The arena has `LegionEndlessInitiator` (`obelisk_state`, `checking_control_zone`) at `LegionEndgame_EncounterLocator`; quest flag
   `QuestFlags` 2770 `EnteredDomainOfTimelessConflict`. Reward tracker (3.29.0: 100 small crystals at the centre light up, one per 3
   reward icons, past 100 still counts): the server creates 100 `LegionDomainRewardCrystal` (`active`, server_only) and sets `active` 1 on
-  one more per 3 reward units banked; a unit is one reward icon times (100 + the emblems' `uber_domain_monster_reward_chance_+%`)/100,
-  fractions kept; only newly lit crystals are sent. GUESS: their positions, a ring of radius 12 cells, evenly spaced.
+  one more per 3 reward units banked; a unit is one reward icon times (100 + the emblems' `map_legion_monster_reward_chance_+%`)/100,
+  fractions kept; only newly lit crystals are sent. GUESS: their positions, a ring of radius 18 cells, evenly spaced (100 distinct cells).
   The client runs the control zone itself while `checking_control_zone` is 1 (`0x141629580`): a player within 60 cells
   (grid distance squared below 3601) gets pack 0x1f `LegionEndlessControlZone` (`counter.epk`). Revival waves (3.29) need a player
   there: all ready sergeants and generals and half the ready soldiers. GUESS: the start radius of 28 cells, the (333, 333)
@@ -170,10 +170,7 @@ The ruleset `LegionRules` (Rulesets 94) is added via `0x1f` (and via `GameEvents
 - Generals' lines: `NPCTextAudio` rows `Legion<General><Trigger>N` (their `NPCs` column is the speaker; an `NPCs` row's Id is the general's
   `MonsterVarieties` Id, a variant such as `...GeneralFish` uses the longest prefix), sent as S->C 0x1c7 with object id 0 to the players in the
   area. Normal encounters: MapIntro at the reveal, Fleeing when an unbroken general flees, Defeat on death. Domain: MapIntro once per
-  general, Defeat on death, Dismount when Aukuna on foot spawns, BattleCry when a revived general spawns. GUESS: the stem is the trigger,
-  the 8 s start delay plus 5 s per further general, one BattleCry/Dismount per 30 s per general; AttackN, Taunt and Injured are not played
+  general, Defeat on death, Dismount (Aukuna, who is always on foot there) or BattleCry when a revived general spawns, one per Domain per 30 s. GUESS: the stem is the trigger,
+  the 8 s start delay plus 5 s per further general, several Defeat lines at once 2.5 s apart; AttackN, Taunt and Injured are not played
   (no clean trigger); object id 0 (global) rather than the general's id.
-- Cost at the start (a 5-way Domain has 165 soldiers; the log showed an area tick of 173 ms): the 0x2c8 updates of all ghosts (wake, stand
-  up, fall) go to the area in one pass, not one member scan each, and the start saves the Domain once. Fighters are still spawned at most 24
-  per tick. The "Domain started" log line prints its own time; not measured live yet.
 - Not yet built: the `LegionCocoonCrystal` item-insertion UI window for Enshrouding Crystals (requires client protocol RE).

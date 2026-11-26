@@ -120,7 +120,8 @@ static class LegionDomain
         /// <summary>Generals' lines waiting for the tick to say them (variety Id, category, delay ms), and when each faction's general last
         /// had a BattleCry or Dismount line (the tick's time); not saved.</summary>
         public readonly List<(string Variety, string Category, uint DelayMs)> Speech = [];
-        public readonly Dictionary<string, double> LastChatter = new(StringComparer.Ordinal);
+        public readonly List<(string Variety, string Category)> Chatter = [];
+        public double LastChatter = double.NegativeInfinity;
 
         static HashSet<int> BuildRising(FighterSlot[] slots)
         {
@@ -155,10 +156,10 @@ static class LegionDomain
 
     /// <summary>The reward tracker (3.29.0): 100 small crystals at the centre light up, one per 3 reward units; progress past 100 crystals
     /// still counts. A reward unit is one reward icon of a killed monster (one entry of its Rewards), times (100 + the emblems' reward
-    /// progress)/100 (20% per emblem, stat uber_domain_monster_reward_chance_+%), so fractions add up across kills.</summary>
+    /// progress)/100 (20% per emblem, stat map_legion_monster_reward_chance_+%, and uber_domain_monster_reward_chance_+% if a mod carries it), so fractions add up across kills.</summary>
     const int CrystalCount = 100, RewardsPerCrystal = 3;
-    /// <summary>GUESS: the ring of crystals around the initiator, in cells (the real positions are the server's; no room places them).</summary>
-    const double CrystalRingRadius = 12.0;
+    /// <summary>GUESS: the ring of crystals around the initiator, in cells (at 18 the 100 points fall on 100 distinct cells; at 12 only about 70) (the real positions are the server's; no room places them).</summary>
+    const double CrystalRingRadius = 18.0;
 
     static int LitCrystals(double progress) => progress <= 0 ? 0 : (int)Math.Min(CrystalCount, progress / RewardsPerCrystal);
 
@@ -497,7 +498,9 @@ static class LegionDomain
     static (int X, int Y) CrystalAt(Player player, DomainState state, int i)
     {
         double angle = Math.Tau * i / CrystalCount;
-        return player.Layout.Near((state.X + (int)Math.Round(Math.Cos(angle) * CrystalRingRadius), state.Y + (int)Math.Round(Math.Sin(angle) * CrystalRingRadius)));
+        var at = (X: state.X + (int)Math.Round(Math.Cos(angle) * CrystalRingRadius), Y: state.Y + (int)Math.Round(Math.Sin(angle) * CrystalRingRadius));
+        // Near never returns the cell it is given: only a blocked ring point moves.
+        return player.Layout.Walkable?.Invoke(at.X, at.Y) != false ? at : player.Layout.Near(at);
     }
 
     /// <summary>Before the start: every reviving slot without a ghost gets one, lying ready (state 4).</summary>
@@ -875,6 +878,17 @@ static class LegionDomain
         lock (state)
         {
             if (state.Speech.Count > 0) { speech = [.. state.Speech]; state.Speech.Clear(); }
+            if (state.Chatter.Count > 0)
+            {
+                // One BattleCry/Dismount per Domain per ChatterSeconds, at random among those revived together.
+                if (now - state.LastChatter >= LegionSpeech.ChatterSeconds)
+                {
+                    var (v, c) = state.Chatter[Random.Shared.Next(state.Chatter.Count)];
+                    speech = [.. speech ?? [], (v, c, 0u)];
+                    state.LastChatter = now;
+                }
+                state.Chatter.Clear();
+            }
             if (state.Phase == DomainPhase.Active)
             {
                 // The tracker: only the crystals that newly earned their 3 units are sent.
@@ -1173,13 +1187,9 @@ static class LegionDomain
             if (slot.Tier == 3)
             {
                 // The general on foot says its Dismount line, a revived one a BattleCry; one such line per 30 s per faction (GUESS).
-                string? category = LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : slot.RevivalCount > 0 ? "BattleCry" : null;
-                double now = global::Game.AreaTime(player);
-                if (category is not null && (!state.LastChatter.TryGetValue(slot.FactionId, out double last) || now - last >= LegionSpeech.ChatterSeconds))
-                {
-                    state.LastChatter[slot.FactionId] = now;
-                    state.Speech.Add((variety.Id, category, 0));
-                }
+                // Only a revived one (Aukuna's Domain variety is always the one on foot: she is not dismounting at the first wake).
+                if (slot.RevivalCount > 0)
+                    state.Chatter.Add((variety.Id, LegionData.Current.VoiceOf(variety.Id) is { Dismounted: true } ? "Dismount" : "BattleCry"));
             }
         }
         return id;
@@ -1203,7 +1213,7 @@ static class LegionDomain
             if (slot.Tier == 3)
             {
                 state.GeneralKills[slot.FactionId] = state.GeneralKills.GetValueOrDefault(slot.FactionId) + 1;
-                if (state.Phase == DomainPhase.Active && VarietyOf(state, slot.MonsterRow) is { } general) state.Speech.Add((general.Id, "Defeat", 0));
+                if (state.Phase == DomainPhase.Active && VarietyOf(state, slot.MonsterRow) is { } general) state.Speech.Add((general.Id, "Defeat", 2500u * (uint)state.Speech.Count(l => l.Category == "Defeat")));
             }
             if (slot.Rewards is { Length: > 0 })
             {
@@ -1328,7 +1338,7 @@ static class LegionDomain
                 });
         }
 
-        if (!announced) await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
+        await UpdateInitiatorState(player, state, obeliskState: EndedObeliskState, checkingControlZone: false);
         foreach (uint zone in new[] { state.ZoneId, state.PerimeterId })
             if (zone != 0 && player.Area.Objects.Has(zone)) await LegionOutput.Remove(player, zone);
         int litFrom, litTo;
