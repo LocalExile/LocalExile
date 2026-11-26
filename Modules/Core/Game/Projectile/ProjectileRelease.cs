@@ -244,15 +244,17 @@ public static partial class Game
             use = use with { Payload = totemShot with { ClientPredicted = false,
                 Presentation = WithProjectileClips(totemShot.Presentation, SkillsFor(player).Clips(use.Profile.Id),
                     use.Profile.Range / Math.Max(1, use.Profile.Speed)) } };
-        if (GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(SkillsFor(player).EffectId(gem.Effect)))
+        var effect = SkillsFor(player).EffectId(gem.Effect);
+        bool selfThrown = GatewayProjectileSkillProfiles.IsSelfThrownSpectralWeapon(effect);
+        if (selfThrown || GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effect))
         {
-            bool materialising = SkillsFor(player).EffectId(gem.Effect) == "SpectralThrowAltX";
+            bool materialising = effect == "SpectralThrowAltX";
             double thrown = use.Profile.Speed;
             double deceleration = Math.Max(.01, 1 + Get(Stat.SpectralThrowProjectileDecelerationPlusPct) / 100d);
             return use with
             {
                 // Its hits showed no blood or particles without the 0x1af the ordinary arrow sends (live 2026-11-02).
-                Payload = (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence },
+                Payload = selfThrown ? (ProjectileOffense)use.Payload! with { HitPacket = true, ActionSequence = sequence } : use.Payload,
                 Profile = use.Profile with
                 {
                     Legs = _ => new SpectralThrowLegs(thrown, deceleration, returnAtWall: materialising),
@@ -355,6 +357,14 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
         SkillCriticalRoll criticalRoll, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
         TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
+        (int X, int Y)? from = null, SupportedGem? capturedSkill = null) =>
+        CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, weaponHand: null, sequence, repeatsLeft,
+            releaseDelay, totem, cryExerted, repeat, sacrifice, reoccurrenceMore, from, capturedSkill);
+
+    static ProjectileUse CaptureGemProjectile(Player player, ProjectileSession session, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) aim,
+        SkillCriticalRoll criticalRoll, AttackHand? weaponHand, ushort sequence = 0, uint repeatsLeft = 0, double releaseDelay = 0,
+        TotemState.Totem? totem = null, bool cryExerted = false, int repeat = 0, SacrificeUse? sacrifice = null, double reoccurrenceMore = 1,
         (int X, int Y)? from = null, SupportedGem? capturedSkill = null)
     {
         // from: where a placed trap or mine stands, when it and not the player releases the skill.
@@ -432,7 +442,7 @@ public static partial class Game
         profile = profile with { Id = Art.Projectile(profile.Id, variation) };
         // A dual-wielded attack's projectiles carry the hand this use swings (AttackHands): its weapon's damage, local
         // modifiers, accuracy and critical chance. A totem's own use swings the main hand.
-        var swingHand = spell || totem is not null ? AttackHand.Main : AttackHandFor(player, skillId, sequence);
+        var swingHand = spell || totem is not null ? AttackHand.Main : weaponHand ?? AttackHandFor(player, skillId, sequence);
         var shield = spell ? null : ShieldWeapon(player, skillId);
         var handWeapon = shield ?? OffHandSwing(player, swingHand);
         int? handCritical = SwingWeaponCritical(player, swingHand);

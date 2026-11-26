@@ -291,6 +291,10 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
 {
     public Func<bool>? CanEmit { get; init; }
     public ProjectileActorKey? ReturnAnchor { get; init; }
+    /// <summary>A fixed return location that stays valid after the emitting object is removed.</summary>
+    public ProjectileVector? ReturnPoint { get; init; }
+    public ProjectileVector? ReturnPosition(IProjectileWorld world, long at) => ReturnPoint
+        ?? (ReturnAnchor is { } key ? world.Actor(key, at)?.Position(at) : null);
     /// <summary>Extra split children granted by the current direct-hit recipient.</summary>
     public Func<ProjectileActorKey, long, int>? TargetSplit { get; init; }
     /// <summary>The current recipient grants a pierce without using a point of the projectile's own pierce budget.</summary>

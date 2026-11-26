@@ -419,7 +419,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 ? Math.Clamp(p.Use.TargetSplit?.Invoke(target.Key, Now) ?? 0, 0, 256) : 0;
             var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea
                 && AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
-                && !CanContinue(p, actors, targetPierces) && ReturnAnchor(p, ProjectileEndReason.Enemy) is null ? endArea : null;
+                && !CanContinue(p, actors, targetPierces) && ReturnDestination(p, ProjectileEndReason.Enemy) is null ? endArea : null;
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
             if (result == ProjectileHitResult.Miss) return;
@@ -629,14 +629,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void End(ProjectileEntity p, ProjectileEndReason reason, bool allowReturn = true, ProjectileActorKey? victim = null,
         ProjectileVector? terrainNormal = null, ProjectileActorKey? hitTarget = null)
     {
-        if (allowReturn && ReturnAnchor(p, reason) is { } anchor)
+        if (allowReturn && ReturnDestination(p, reason) is { } destination)
         {
             if (p.Profile.EndAreaOnReturnTurnaround && AllowsEndArea(p, reason) && p.Profile.EndArea is { } turnArea)
                 Area(p, turnArea, victim);
             if (terrainNormal is { } normal) p.Position += normal * .001;
             p.Phase = 1; p.Contacts.Clear();
             if (p.Profile.ExcludeTurnaroundTarget) p.TurnaroundTarget = victim;
-            var delta = anchor.Position(Now) - p.Position;
+            var delta = destination - p.Position;
             p.Direction = delta.Unit; p.Remaining = Math.Max(.001, delta.Length + p.Profile.ReturnOvershoot);
             p.Speed *= p.Profile.ReturnSpeedMultiplier;
             Publish(ProjectileEventKind.Redirect, p);
@@ -686,13 +686,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         return hit;
     }
 
-    ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>
+    ProjectileVector? ReturnDestination(ProjectileEntity p, ProjectileEndReason reason) =>
         p.Phase == 0 && p.Profile.Returns && !p.Profile.CannotReturn
         && Now < p.ExpiresAt
         && (reason != ProjectileEndReason.Enemy || !p.Profile.StopOnEnemy)
         && (reason != ProjectileEndReason.Distance || p.Profile.ReturnOnDistance)
         && reason is ProjectileEndReason.Enemy or ProjectileEndReason.Distance or ProjectileEndReason.Lifetime or ProjectileEndReason.Terrain
-        && p.Use.ReturnAnchor is { } key ? world.Actor(key, Now) : null;
+            ? p.Use.ReturnPosition(world, Now) : null;
 
     static bool AllowsEndArea(ProjectileEntity p, ProjectileEndReason reason) =>
         AllowsTerminalArea(p) && (p.Profile.EndAreaReasons is null || p.Profile.EndAreaReasons.Contains(reason));

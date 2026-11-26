@@ -1128,8 +1128,8 @@ public static partial class Game
             else if (value.Kind == ProjectileEventKind.Redirect && flightRays.TryGetValue(p.Id, out var prevRay))
             {
                 double currentSteps = prevRay.StepsAt(p.Position);
-                if (p.Phase > 0 && p.Use.ReturnAnchor is { } anchorKey && Actor(anchorKey, value.At) is { } anchor)
-                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, anchor.Position(value.At), currentSteps, Height)
+                if (p.Phase > 0 && p.Use.ReturnPosition(this, value.At) is { } destination)
+                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, destination, currentSteps, Height)
                         ?? prevRay.WithLeg(p.Position, p.Direction);
                 else
                     flightRays[p.Id] = new ProjectileAimHeight.Ray(p.Position, p.Direction.Unit, currentSteps, 0);

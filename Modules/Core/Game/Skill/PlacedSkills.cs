@@ -6,6 +6,9 @@ using GameServer.Core;
 
 public static partial class Game
 {
+    sealed record SpectralTrapHand(AttackHand Hand);
+    static readonly RuleTable<PlacedSkills.Placed, SpectralTrapHand> SpectralTrapHands = new();
+
     /// <summary>Fills this type's game data at startup (the world loader, before the Gateway listens).</summary>
     public static void LoadPlacedSkillsData()
     {
@@ -422,6 +425,9 @@ public static partial class Game
                 var stats = PlacedObjectStats(admission.Mine, flight);
                 var bytes = new WorldRecordBuilder(player, worldAdmission);
                 bool committed = false;
+                bool spectralTrap = !admission.Mine
+                    && GatewayProjectileSkillProfiles.IsSpectralThrowTrap(SkillsFor(player).EffectId(gem.Effect));
+                var spectralHands = spectralTrap ? HandsFit(player, gem.Effect, gem.Stats) : default;
                 for (int i = 0; i < count; i++)
                 {
                     // Several from one use scatter around the aim; one that would land off the walkable ground lands on it.
@@ -458,6 +464,12 @@ public static partial class Game
                         else RemovePlacedLocked(player, trim, bytes);
                     }
                     if (!player.Placed.All.ContainsKey(id)) continue;
+                    if (spectralTrap)
+                    {
+                        ushort roll = spectralHands is (true, true) ? (ushort)AreaRng(player).Next(2) : (ushort)0;
+                        SpectralTrapHands.Add(placement, new(AttackHands.Choose(spectralHands.Main, spectralHands.Off,
+                            doubleHits: false, sequence: roll)));
+                    }
                     bytes.Create(id, InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(path),
                         new TrapMineObject(from.X, from.Y, admission.Mine, [proxy], stats).Blob()));
                     bytes.Presentation(id, InstanceProtocol.EnterWakeZone(id));
@@ -777,9 +789,12 @@ public static partial class Game
             var critical = CaptureSkillCriticalRoll(player, placed.Skill);
             var at = placed.At;
             var shot = aim;
+            bool spectralTrap = !placed.Mine && GatewayProjectileSkillProfiles.IsSpectralThrowTrap(effect);
+            AttackHand? trapHand = spectralTrap && SpectralTrapHands.TryGetValue(placed, out var choice) ? choice.Hand : null;
             session.Schedule(session.Runtime.Now, () => session.Active && ReferenceEquals(lifetime, CombatLifetime), () =>
             {
-                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, (ushort)placed.Id, from: at);
+                var use = CaptureGemProjectile(player, session, placed.Skill, payload, shot, critical, trapHand, (ushort)placed.Id, from: at);
+                if (spectralTrap) use = use with { ReturnAnchor = null, ReturnPoint = use.Origin };
                 if (placed.Mine && placed.Chain > 0)
                 {
                     int group = GolemStat(placed.Own, Stat.DisplayAdditionalProjectilePer2MinesInDetonationSequence) != 0 ? 2
