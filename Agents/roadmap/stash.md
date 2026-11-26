@@ -16,7 +16,7 @@ verify the corrected fossil/resonator presentation in the real client (18-stash.
   tabs each item in its slot, and affinities (0xd3) are saved (18 §7).
   Currency stack limits follow the extracted table; lifeforce merging to 50 000 is verified in the real client.
   Switching to a loaded tab sends nothing to the server.
-- **Start:** anointing from the Blight tab (the "Strange Growths" quest flag, then the anoint itself).
+- **Start:** live-verify anointing from the Blight tab (`C→S 0x026b` and `CassiaOnAnointingOils` unlock are wired offline).
   Unique collection categories and `/item_tab` filling are implemented; unique Heist contract generation and
   catalogue entries absent from the native collection remain unsupported.
   The divination and gem tabs show items (18 §7).

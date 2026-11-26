@@ -140,7 +140,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   Act 6–10 Smuggler's Caches, while five core league encounters that appear during the campaign have no league module yet:
   - **Vaal Side Areas** (Acts 1–10 corruption side areas and Vaal Vessel bosses).
   - **Bestiary / Einhar** (Act 2+ campaign beast spawns, Einhar appearances and capture encounters).
-  - **Blight / Cassia** (campaign Blight encounters, lanes and tower defence).
+  - **Blight / Cassia** (wired offline for campaign/maps/Blighted/Blight-ravaged; live client verification and HUD packets `0x0266`–`0x0269` pending).
   - **Ritual** (campaign Ritual altars and favour windows).
   - **Delirium Mirrors** (Act 5+ campaign Delirium Mirror spawns and fog scaling).
 - **Done when:** each league module is implemented and wired into campaign area generation at its retail act threshold.
