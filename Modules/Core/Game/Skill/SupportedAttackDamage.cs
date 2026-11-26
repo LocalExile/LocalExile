@@ -73,7 +73,7 @@ public static class SupportedAttackDamage
         AttackAccuracyProfile accuracy)
     {
         get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), get);
-        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy, melee: types.Contains(19)), HitModifiers(weapon, get),
+        return PlayerHitDamage.Resolve(Raw(weapon, get, accuracy, melee: types.Contains(19)), HitModifiers(weapon, get, accuracy.Rating),
             WithWeaponGains(new(), weapon, get), spell: false,
             melee: types.Contains(19), area: types.Contains(7), projectile: types.Contains(2), skillTypes: types,
             wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand, retaliation: types.Contains(120),
@@ -83,13 +83,17 @@ public static class SupportedAttackDamage
     // Fan of Blades' damage is "with" the attacking weapon, unlike its either-hand "while wielding" count.
     // Keep this in the existing projectile-hit increase bucket, so it cannot increase melee hits or ailments.
     // "Increased Projectile Attack Damage" is the same bucket for every attack.
-    public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get)
+    public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get) => HitModifiers(weapon, get, 0);
+
+    public static Func<uint, int> HitModifiers(SkillCatalog.Unarmed weapon, Func<uint, int> get, int accuracy)
     {
-        int increased = get(Stat.ProjectileAttackDamagePlusPct);
+        long increased = (long)get(Stat.ProjectileAttackDamagePlusPct)
+            + (long)get(Stat.ProjectileAttackDamagePlusPctPer200Accuracy) * (Math.Max(0, accuracy) / 200);
         if (WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Claw")
             || WeaponIdentity.CountsAs(weapon.ItemClass, weapon.LocalSources, "Dagger") || weapon.ItemClass == "Rune Dagger")
             increased += get(Stat.ProjectileAttackDamagePlusPctWithClawOrDagger);
-        return increased == 0 ? get : name => get(name) + (name == Stat.ProjectileDamagePlusPct ? increased : 0);
+        return increased == 0 ? get : name => name == Stat.ProjectileDamagePlusPct
+            ? ActorScale.Saturate(get(name) + increased) : get(name);
     }
 
     /// <summary>The weapon's own damage (its local packet, or its base physical plus any local added components a

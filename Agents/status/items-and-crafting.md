@@ -36,6 +36,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Voidbringer loses mana after a successful skill use, independently of the skill cost.
+- Equipped jewel, weapon and flask modifiers affect qualifying hits, projectiles and recovery.
 - Read-only inventories emit `0x00c2` permissions; Heist NPC equipment handles `0x00fd` and controller `0x002d` moves.
 - Soul Ripper spends charges for Vaal souls when allowed, and Forbidden Taste applies its recovery and chaos damage.
 - The Wise Oak, Taste of Hate and Soul Catcher apply their qualified damage modifiers during the flask effect.
@@ -62,8 +64,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [13](../docs/protocol/13-items.md), "Kill explosions and attribute damage reduction".
 - Conditional item operators and qualified source lifetimes (#504). Docs: [13](../docs/protocol/13-items.md).
 - Influenced item mods (Shaper, Elder, conquerors) apply, curses on hit and ground immunities included.
-  Not checked live: ground immunities, bleeding removal on warcry.
-  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, triggered marks, damage against ailing enemies,
+  Item-local Assassin's Mark levels enter the wearer's accepted-hit trigger path.
+  Not checked live: ground immunities, bleeding removal on warcry, Assassin's Mark after this change.
+  Not read yet: nearby-enemy auras, reflect, Unholy Might, Conflux, damage against ailing enemies,
   damage over time with attacks and the weapon-local ailment stats.
 - Item modifier effect and affix-cap implicits. Docs: [13](../docs/protocol/13-items.md), "Item modifier effect".
 - Utility-flask orbs: Enkindling/Instilling enchantments, incoming Bleed/Poison triggers, and automatic use of full utility flasks.

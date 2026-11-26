@@ -161,6 +161,7 @@ public static class ItemModStats
     /// <summary>Whether a stat marks its mod as an aura for other creatures. The marker is a display stat: "nearby"
     /// (enemies or allies) or a debuff the wearer puts on them.</summary>
     static bool IsOthersAura(ModCatalog.ModStat stat) => stat.Name is var id && id.StartsWith("local_display_", StringComparison.Ordinal)
+        && !StatConditions.SourceLocalCondition(id)
         && (id.Contains("nearby", StringComparison.OrdinalIgnoreCase)
             || id.EndsWith("_debuff", StringComparison.OrdinalIgnoreCase));
 
@@ -215,13 +216,6 @@ public static class ItemModStats
             .GetValueOrDefault(Stat.LocalMaximumEnergyShieldPlusPctIfItemCorrupted);
         if (conditionalES != 0 && Stat.MaximumEnergyShieldPlusPct is var esKey)
             result[esKey] = (int)Math.Clamp((long)result.GetValueOrDefault(esKey) + conditionalES, int.MinValue, int.MaxValue);
-
-        // The client stores this trigger on the item, but its wearer can trigger it with any eligible hit.
-        int markLevel = 0;
-        foreach (Item item in items)
-            markLevel = Math.Max(markLevel, LocalValue(item, mods, Stat.CurseOnHitLevelAssassinsMark));
-        if (markLevel > 0)
-            result[Stat.CurseOnHitLevelAssassinsMark] = markLevel;
         return result;
     }
 

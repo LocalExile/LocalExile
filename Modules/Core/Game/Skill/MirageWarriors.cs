@@ -532,6 +532,7 @@ public static partial class Game
                 var poison = ScaleSnipePoison(SupportedPoison(player, skillId, false, playerStats, null, 0, capturedInputs), factor);
                 var accuracy = SupportedAccuracy(player, skillId, AttackHand.Main);
                 var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
+                var ailmentStats = WithWeaponAilmentStats(skillStats, local);
                 var resMods = HitResistMods(playerStats, skillStats);
                 int critMult = SupportedCriticalMultiplier(player, skillId);
                 var impale = WeaponImpaleSettings(playerStats, Stats, attack: true, skillStats, weapon);
@@ -585,6 +586,8 @@ public static partial class Game
 
                 var hitRolls = HitRollsFor(playerStats);
                 int SkillStat(uint k) => skillStats.GetValueOrDefault(k);
+                var damageRoll = (hitRolls with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false).ForWeapon(local);
+                long criticalDoubleDamage = HitRollModifiers.CriticalDoubleDamageOf(playerStats, skillStats);
                 var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
                 foreach (var (id, m, targetAt) in victims)
                 {
@@ -597,20 +600,20 @@ public static partial class Game
                     var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
-                            (hitRolls with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
-                                .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
+                            damageRoll.RollBeforeCritical(contactHit, AreaRng(player), criticalDoubleDamage)), now);
                     int critChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                         SupportedCriticalChanceVsBlinded(player, skillId, release: false, null),
                         SupportedCriticalChanceVsGround(player, skillId, release: false, null));
                     bool critical = RollCriticalStrike(player, fullLifeStrike.CriticalChance(critChance), skillStats,
                         attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
+                    rolled = damageRoll.CompleteCriticalMultiplier(rolled, AreaRng(player), critical, criticalDoubleDamage);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
-                    var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
+                    var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: true, now, resMods, pen,
                         hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
-                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
+                    int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage, takenRules);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
                         sourceMultiplier + FullLifeCriticalMultiplier(m, playerStats, skillStats), critical ? critImpale : impale, 1).Damage;
                     var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: true, spell: false, critical, playerStats, skillStats);
@@ -624,10 +627,9 @@ public static partial class Game
                     }
                     if (!m.Invulnerable)
                     {
-                        AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
-                            AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
-                            poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore), sourceSkill: skillId,
-                            ownHit: false,
+                        AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, ailmentStats, now,
+                            AreaRng(player), sourceEffect: gem.Effect, poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore),
+                            sourceSkill: skillId, ownHit: false,
                             weaponWitherChance: local?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
                             && IgniteOnHitLocked(player, id, m, damageMore == 1 ? ignite : RepeatAilment(ignite, damageMore),

@@ -66,6 +66,9 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- Vaal Immortal Call protects the last point of Life from on-kill Life loss while active.
+- Aura-dependent recovery, mana-spent charges and the wearer's Withered hit modifiers resolve on the server.
+- The equipped weapon and the target's pre-hit ailments govern qualified hit recovery and debuffs.
 - Frost Shield and Sigil of Power run staged areas. Docs: [11](../docs/protocol/11-skills.md).
 - Supreme Ego changes the caster's aura reservation, effect and recipients. Docs: [11](../docs/protocol/11-skills.md).
 - Native keystone damage shifts, charge replacement and Ward rules have server consumers (live combat checks pending).
@@ -279,7 +282,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Puncture always bleeds, for its skill duration and with its more bleeding damage.
   Power Siphon fires one projectile at each of the nearest enemies ahead, with its per-Power-Charge criticals.
 - Doomfletch's weapon physical gain reaches attacks as separate fire, cold and lightning damage.
-- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance, and
+- Equipment modifiers scale from final attributes, Oskarm uses final Accuracy for attack critical chance and
+  its item-local Assassin's Mark level for qualifying hits by the wearer, and
   Mask of the Stitched Demon uses full maximum Energy Shield for Life regeneration.
 - Blink Arrow and its variants leave clones at departure; clones use arrows, arrow rain or elemental shots.
   Lightning Warp queues teleports and hits both endpoints.

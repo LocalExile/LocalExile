@@ -74,8 +74,9 @@ public static partial class Game
 
     public static (bool Trap, bool Mine) PlacedKind(SupportedGem gem)
     {
-        var types = (Supports.Of(gem.Effect)?.Types ?? []).Concat(gem.Supports.SelectMany(s => s.Effect.Added)).ToHashSet();
-        return (types.Contains(32), types.Contains(35));
+        var types = Supports.Of(gem.Effect)?.Types;
+        bool Has(int type) => types?.Contains(type) == true || gem.Supports.Any(s => s.Effect.Added.Contains(type));
+        return (Has(32), Has(35));
     }
 
     private sealed record PlacedCastAdmission(ushort Skill, int Effect, bool Trap, bool Mine,
@@ -179,12 +180,20 @@ public static partial class Game
         [Stat.SupportTrapAndMineDamageMineThrowingSpeedPlusPctFinal, Stat.SupportMinefieldMineThrowingSpeedPlusPctFinal];
     public static double PlacedThrowSeconds(Func<uint, int> get, bool mine, int frenzyCharges = 0)
     {
-        // Charged Traps and Charged Mines: increased throwing speed per Frenzy Charge.
-        double speed = Math.Max(0, 1 + (get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
-            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + frenzyCharges
-                * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge)) / 100d);
+        double speed = Math.Max(0, 1 + PlacedThrowIncrease(get, mine, frenzyCharges) / 100d);
         foreach (uint stat in mine ? MineThrowFinal : TrapThrowFinal) speed *= Math.Max(0, 1 + get(stat) / 100d);
         return (mine ? .3 : .5) / Math.Max(.01, speed);
+    }
+
+    static int PlacedThrowIncrease(Func<uint, int> get, bool mine, int frenzyCharges)
+    {
+        // Charged Traps and Charged Mines add increased throwing speed per Frenzy Charge.
+        long increased = (long)get(mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
+            + get(Stat.TrapAndMineThrowingSpeedPlusPct) + (long)frenzyCharges
+                * get(mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge);
+        if (!mine && get(Stat.AdditiveCastSpeedModifiersApplyToTrapThrowingSpeed) != 0)
+            increased += get(Stat.CastSpeedPlusPct);
+        return ActorScale.Saturate(increased);
     }
 
     static double PlacedThrowContactFraction(Player player)
@@ -621,13 +630,44 @@ public static partial class Game
     }
 
     static void LeechPlacedMineHitLocked(Player player, SpawnedMonster target, DamagePacket mitigated, bool spell,
-        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0)
+        int damage, double now, IReadOnlyDictionary<uint, int> owner, uint targetId = 0, HitTakenRules rules = default)
     {
         int coefficient = GolemStat(owner, Stat.MineDamageLeechedAsLifeToYouPermyriad);
         if (coefficient <= 0) return;
         var life = DamagePacket.Empty.Select((_, _) => new(coefficient, coefficient));
-        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now), damage,
+        LeechOnHitTargetLocked(player, target, MonsterTakenComponents(target, mitigated, spell, now, rules), damage,
             new(life, DamagePacket.Empty, DamagePacket.Empty), targetId);
+    }
+
+    sealed class FogOfWarCooldown
+    {
+        public GameArea? Area;
+        public double ReadyAt = double.NegativeInfinity;
+    }
+
+    static readonly RuleTable<Player, FogOfWarCooldown> FogOfWarCooldowns = new();
+
+    static void TrapFogOfWarLocked(Player player, (int X, int Y) at, int level, double now,
+        IReadOnlyDictionary<uint, int> ownerStats)
+    {
+        if (level <= 0) return;
+        var skills = SkillsFor(player);
+        int effect = skills.EffectRow("FogOfWar");
+        if (effect < 0) return;
+        var cooldown = FogOfWarCooldowns.GetOrCreateValue(player);
+        if (ReferenceEquals(cooldown.Area, player.Area) && now < cooldown.ReadyAt) return;
+        var stats = skills.EffectStats(effect, level, 0).ToDictionary(pair => pair.Item1, pair => pair.Item2);
+        double seconds = SkillDurationModifiers.Seconds(stats.GetValueOrDefault(Stat.BaseSkillEffectDuration),
+            ownerStats.GetValueOrDefault, stats.GetValueOrDefault, DurationKinds(player, effect));
+        if (seconds <= 0 || !RandomRolls.Chance(stats.GetValueOrDefault(Stat.ChanceToCastWhenYourTrapIsTriggeredPct),
+            100, AreaRng(player))) return;
+        int cooldownMs = skills.CooldownMs(effect, level);
+        cooldown.Area = player.Area;
+        cooldown.ReadyAt = cooldownMs > 0 ? now + cooldownMs / 1000d : double.NegativeInfinity;
+        var kind = FlaskGrounds.Kind.SmokeCloud;
+        int radius = SkillRadius(player, stats, spell: true, effect);
+        player.FlaskGrounds.Add(new(kind, at.X, at.Y, radius, now + seconds, QueueGroundArtLocked(player, kind, at, radius)));
+        PresentNearby(player);
     }
 
     static void PlacedDamageLocked(Player player, PlacedSkills.Placed placed, double now,
@@ -685,7 +725,7 @@ public static partial class Game
                 .OrderBy(p => Dist(p.Value.Walk.Position(now), placed.At)).FirstOrDefault();
             aim = target.Value?.Walk.Position(now) ?? placed.At;
         }
-        bool arc = PlacedArcPayload(effect);
+        bool arc = ArcProxyPayload(effect);
         bool storm = IsStormCall(effect) || IsFirestorm(player, placed.Effect);
         bool brand = TriggerBrandSpell(player, placed.Effect);
         bool frostBomb = effect == "FrostBomb";
@@ -846,6 +886,7 @@ public static partial class Game
         double hitMore = (placed.Offense is null ? skitterMore : 1) * damageMore;
         double ailmentMore = skitterMore * damageMore;
         bool spell = offenseSnapshot?.Spell ?? spellDamage;
+        var hitRolls = HitRollsFor(owner).ForSkill(placed.Own.GetValueOrDefault, spell);
         bool attack = SkillsFor(player).IsAttack(placed.Effect);
         int burningMorePct = GolemStat(placed.Own, Stat.FlamethrowerTrapDamagePlusPctFinalVsBurningEnemies);
         int killingBlowImpale = placed.Own.GetValueOrDefault(Stat.ApplyEnemyImpaleDamageToNearbyEnemiesOnKillingBlowPctChance);
@@ -888,26 +929,28 @@ public static partial class Game
                 rolled = rolled.Scale(Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastHitDamagePlusPctFinalIfHexed) / 100d));
             DamagePacket mitigated;
             int damage;
-            bool critical;
+            bool critical = Critical(id);
+            rolled = hitRolls.ForCriticalStrike(critical, owner, placed.Own).ApplyDamageMultiplier(rolled, AreaRng(player));
+            HitTakenRules takenRules;
             if (hexblast)
             {
-                critical = Critical(id);
-                (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack, now, mods, penetration,
+                (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack, now, mods, penetration,
                     HitRollsFor(playerStats).InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: true);
             }
             else
             {
                 mitigated = MitigateMonsterHit(m, rolled, now, cannotPenetrateOrIgnore:
                     Math.Max(GolemStat(owner, Stat.CannotPenetrateOrIgnoreElementalResistances),
-                        GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)));
+                        GolemStat(placed.Own, Stat.CannotPenetrateOrIgnoreElementalResistances)),
+                    elementalUsesLowestResistance: playerStats.GetValueOrDefault(Stat.ElementalDamageResistedByLowestElementalResistance) != 0);
                 damage = MonsterTakesTrapOrMineHit(m, mitigated, spell, now, AreaRng(player));
-                critical = Critical(id);
+                takenRules = new(BearTrapDamageTaken(m, now), 0, false);
             }
             int hitMultiplier = critical ? CriticalMultiplierOn(m, multiplier, now, owner, placed.Own) : 100;
             if (critical) damage = DamageModel.CriticalDamage(damage, hitMultiplier);
-            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, BearTrapDamageTaken(m, now));
+            int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell, now, damage, takenRules);
             if (placed.Mine)
-                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner);
+                LeechPlacedMineHitLocked(player, m, mitigated, spell, damage, now, owner, rules: takenRules);
             if (killingBlowImpale > 0)
             {
                 double physical = rolled[DamageType.Physical].Min * (critical ? Math.Max(0, multiplier) / 100d : 1);
@@ -923,8 +966,8 @@ public static partial class Game
                 targetAilmentMore *= Math.Max(0, 1 + GolemStat(placed.Own, Stat.HexblastAilmentDamagePlusPctFinalIfHexed) / 100d);
             var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
-                AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
-                poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own),
+                AreaRng(player), sourceEffect: placed.Effect, poison: poison, sourceSkill: placed.Skill,
+                blind: BlindHitInput.Capture(playerStats, placed.Own),
                 playerHit: false, weaponWitherChance: weaponWither);
             if (!m.Dead && profile.Ignite.Max > 0)
             {
@@ -1091,7 +1134,7 @@ public static partial class Game
                     }
                     string? effect = SkillsFor(player).EffectId(placed.Effect);
                     bool conversion = !placed.Mine && effect == "ConversionTrap";
-                    bool targetedTrap = !placed.Mine && (PlacedArcPayload(effect) || IsHexblastEffect(effect));
+                    bool targetedTrap = !placed.Mine && (ArcProxyPayload(effect) || IsHexblastEffect(effect));
                     var trigger = conversion ? ConversionTrapTarget(player, placed, now)
                         : targetedTrap ? PlacedSpellTarget(player, placed.At, placed.TriggerRadius, now) : default;
                     bool nearby = !placed.Mine && (conversion || targetedTrap ? trigger.Value is not null
@@ -1109,6 +1152,19 @@ public static partial class Game
                     if (conversion) TriggerConversionTrap(player, placed, trigger, now, bytes);
                     else PlacedDamageLocked(player, placed, now, trigger, bytes);
                     PlacedChargesLocked(player, placed, nearby, now);
+                    if (!placed.Mine && (nearby || skitter || expired))
+                    {
+                        var ownerStats = PlayerStatValues(player);
+                        if (nearby && ownerStats.GetValueOrDefault(Stat.GainXEsOnTrapTriggeredByAnEnemy) is > 0 and var shield
+                            && ownerStats.GetValueOrDefault(Stat.CannotRecoverEnergyShield) == 0
+                            && ownerStats.GetValueOrDefault(Stat.NoEnergyShieldRecovery) == 0)
+                        {
+                            player.EnergyShield.Recover((uint)shield);
+                            TrimLeechLocked(player);
+                        }
+                        TrapFogOfWarLocked(player, placed.At,
+                            ownerStats.GetValueOrDefault(Stat.LocalDisplayTriggerLevelXSmokeCloudOnTrapTriggered), now, ownerStats);
+                    }
                     bool rearm = skitter && placed.Mine && effect != "SmokeMine";
                     Console.WriteLine($"[gateway] placed skill 0x{placed.Id:x} {(skitter ? "Skitterbot" : nearby ? "proximity" : expired ? "duration" : "chain")} trigger; rearm={rearm}");
                     if (rearm)

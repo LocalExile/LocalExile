@@ -9,7 +9,8 @@ public static class CriticalChanceFinal
     public const uint Unhinged = Stat.CriticalStrikeChancePlusPctFinalWhileUnhinged;
     static readonly uint[] Sources = [ControlledDestruction, Stat.SupportMultipleProjectilesCriticalStrikeChancePlusPctFinal,
         Stat.UniqueCriticalStrikeChancePlusPctFinal, Stat.ActiveSkillCriticalStrikeChancePlusPctFinal,
-        Unhinged, Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger];
+        Unhinged, Stat.GladiatorCriticalStrikeChancePlusPctFinalWhileWieldingDagger,
+        Stat.CriticalStrikeChancePlusPctFinalWhileAffectedByPrecision];
 
     const uint SpellMore = Stat.AssassinAscendancySpellCriticalStrikeChancePlusPctFinal;
 

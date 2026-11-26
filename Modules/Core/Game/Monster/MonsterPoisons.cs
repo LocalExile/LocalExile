@@ -5,6 +5,14 @@ using GameServer.Core.World;
 
 public static partial class Game
 {
+    static MonsterPoisons.Settings PoisonSettingsFrom(IEnumerable<(uint Stat, int Value)> rows, string hand, Func<uint, int> get,
+        IReadOnlyDictionary<uint, int>? local = null, bool projectileAttack = false)
+    {
+        var settings = MonsterPoisons.Settings.From(rows, hand, get, local, projectileAttack);
+        double factor = Math.Max(0, 1 + get(Stat.UniqueVolkuursClutchPoisonDurationPlusPctFinal) / 100d);
+        return settings with { Seconds = settings.Seconds * factor };
+    }
+
     /// <summary>BuffDefinitions row 10 <c>poison</c>.</summary>
     public const ushort PoisonBuffRow = 10;
 
@@ -18,7 +26,7 @@ public static partial class Game
         var rows = capturedInputs is null
             ? SupportedAilmentRows(player, skillId, hand, weapon, additionalIncreased, addedChaos: addedChaos)
             : SupportedAilmentRowsFrom(capturedInputs, hand, additionalIncreased);
-        return WithOverheat(player, skillId, MonsterPoisons.Settings.From(rows, hand, get,
+        return WithOverheat(player, skillId, PoisonSettingsFrom(rows, hand, get,
             spell ? null : weapon is null ? MainHandLocalSources(player) : weapon.LocalSources));
     }
 
@@ -29,7 +37,7 @@ public static partial class Game
     {
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         var sourceWeapon = weapon ?? WeaponFor(player);
-        return MonsterPoisons.Settings.From(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true) { WeaponStats = sourceWeapon.LocalSources },
+        return PoisonSettingsFrom(AilmentPanelStats.Compute(new("main_hand", Spell: false, Melee: true) { WeaponStats = sourceWeapon.LocalSources },
             SupportedAttackDamage.Raw(sourceWeapon, Get, new(accuracy ?? PlayerAccuracy(player, playerStats)), melee: true),
             conversion ?? SupportedAttackDamage.WithWeaponGains(DamageStats.Conversion(playerStats, Stats, attack: true), sourceWeapon, Get),
             Get, additionalIncreased),

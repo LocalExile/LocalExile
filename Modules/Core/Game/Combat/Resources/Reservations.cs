@@ -28,6 +28,9 @@ public static partial class Game
         || curse && get(Stat.CurseAuraSkillsReserveLife) != 0
         || Supports.Of(gem.Effect)?.Types.Contains(35) == true && get(Stat.SkillsThatThrowMinesReserveLife) != 0;
 
+    static bool HasFixedManaReservation(string effect, Func<uint, int> get) =>
+        IsHeraldAura(effect) && get(Stat.HeraldManaReservationOverride45Pct) != 0;
+
     public static (bool Life, int Efficiency) ReservationContext(Player player, ushort skill)
     {
         var gem = SupportedSkill(player, skill);

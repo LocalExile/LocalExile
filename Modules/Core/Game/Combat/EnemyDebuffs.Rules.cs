@@ -1,6 +1,7 @@
 using System.Net.Sockets;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Core.World;
 
 public static partial class Game
 {
@@ -23,23 +24,65 @@ public static partial class Game
         int taunted = 0;
         foreach (var m in player.Area.Monsters.Values)
         {
-            if (m.Dead || m.Life == 0 || !m.Hostile || Dist(m.Walk.Position(now), at) > radius) continue;
-            m.TauntedUntil = now + seconds / m.RecipientDebuffRate;
-            m.TauntingPlayerId = player.Id;
-            m.TakenFromPlayer = m.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
-            m.PresentationChanged?.Invoke();
-            taunted++;
+            if (Dist(m.Walk.Position(now), at) <= radius && ApplyPlayerTauntLocked(player, m, now, seconds)) taunted++;
         }
         return taunted;
     }
 
+    static bool ApplyPlayerTauntLocked(Player player, SpawnedMonster target, double now, double seconds)
+    {
+        if (player.PlayerLife == 0 || seconds <= 0 || target.Dead || target.Life == 0 || !target.Hostile
+            || target.Effects[Stat.CannotBeTaunted] != 0) return false;
+        if (target.TauntingPlayerId is uint previous && previous != player.Id)
+            ClearPlayerTauntLocked(player.Area, target.ObjectId, target, previous);
+        target.TauntedUntil = now + seconds / target.RecipientDebuffRate;
+        target.TauntingPlayerId = player.Id;
+        target.TakenFromPlayer = target.TakenFromPlayer with { All = player.EnemyDebuffs.TauntedDamageTakenPct };
+        target.PresentationChanged?.Invoke();
+        return true;
+    }
+
     static bool TauntPreventsAttackEvasion(Player attacker, SpawnedMonster target, double now)
     {
-        if (target.TauntedUntil <= now || target.TauntingPlayerId is not uint source) return false;
-        var taunter = source == attacker.Id ? attacker : attacker.Instance.Player(source);
-        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
-            && ReferenceEquals(taunter.Area, attacker.Area)
+        return target.TauntedUntil > now && target.TauntingPlayerId is uint source
+            && TauntingPlayer(attacker, source) is { } taunter
             && PlayerStat(taunter, Stat.EnemiesTauntedByYouCannotEvadeAttacks) != 0;
+    }
+
+    static Player? TauntingPlayer(Player viewer, uint source)
+    {
+        var taunter = source == viewer.Id ? viewer : viewer.Instance.Player(source);
+        return taunter is { PlayerLife: > 0, Closed: false, LeavingArea: false }
+            && ReferenceEquals(taunter.Area, viewer.Area) ? taunter : null;
+    }
+
+    static void ClearPlayerTauntLocked(GameArea area, uint id, SpawnedMonster target, uint source)
+    {
+        if (target.TauntBuff != 0) area.Buffs.Clear(id, FlaskGrounds.TauntedBuffRow, source);
+        target.TauntBuff = 0;
+        target.TauntingPlayerId = null;
+        target.TauntedUntil = double.NegativeInfinity;
+    }
+
+    static int StepPlayerTauntLocked(Player viewer, uint id, SpawnedMonster target, double now, int[] counts)
+    {
+        if (target.TauntingPlayerId is not uint source) return 0;
+        if (target.TauntedUntil <= now || target.Dead || target.Life == 0 || !target.Hostile
+            || TauntingPlayer(viewer, source) is not { } taunter)
+        {
+            if (target.TauntBuff != 0) counts[1]++;
+            ClearPlayerTauntLocked(viewer.Area, id, target, source);
+            return 0;
+        }
+        if (target.TauntBuff == 0 || target.TauntShownUntil != target.TauntedUntil)
+        {
+            target.TauntShownUntil = target.TauntedUntil;
+            target.TauntBuff = 1;
+            viewer.Area.Buffs.Set(id, new(FlaskGrounds.TauntedBuffRow, source, Values: TauntedBuffValues(source),
+                U68: Buff.Seconds((target.TauntedUntil - now) * target.RecipientDebuffRate)));
+            counts[0]++;
+        }
+        return taunter.EnemyDebuffs.TauntedDamageTakenPct;
     }
 
     /// <summary>This player's Yoke of Suffering value on a monster, as their enemy-debuff step sets it (0 while they do
@@ -51,8 +94,21 @@ public static partial class Game
     /// the other participants' stay.</summary>
     public static void ForgetSourceValues(Player player)
     {
-        foreach (var m in player.Area.Monsters.Values) m.ForgetSource(player.Id);
-        foreach (var m in player.Area.DormantMonsters.Values) m.ForgetSource(player.Id);
+        if (DebuffStepsOf.TryGetValue(player, out var steps)) steps.ClearNearbyChills();
+        double now = AreaTime(player);
+        foreach (var m in player.Area.Monsters.Values) Forget(m);
+        foreach (var m in player.Area.DormantMonsters.Values) Forget(m);
+
+        void Forget(SpawnedMonster m)
+        {
+            m.ForgetSource(player.Id);
+            if (m.TauntingPlayerId == player.Id)
+            {
+                ClearPlayerTauntLocked(player.Area, m.ObjectId, m, player.Id);
+                m.PresentationChanged?.Invoke();
+            }
+            if (SetNearbyFireExposure(m, player.Id, 0)) PresentFireExposureLocked(player.Area, m.ObjectId, m, now);
+        }
     }
 
     // A nearby presentation (StatPresentations) steps the player's debuffs on the monsters that changed.
@@ -71,17 +127,46 @@ public static partial class Game
     // with the ramp each monster keeps while it stays inside; his curse auras (Blasphemy). Each monster then keeps the
     // increased damage taken they give (SpawnedMonster.TakenFromPlayer), which its hits and burns read. The blind auras
     // (SaboteurBlind, Physical Aegis) follow their zones' members.
-    sealed class DebuffSteps
+    sealed class DebuffSteps(Player player)
     {
         public readonly Lock Gate = new();
         public int Scope;
         public bool Stepped, HadCursedCorpses;
         public readonly HashSet<uint> Changed = [];
+        public readonly Dictionary<uint, SpawnedMonster> NearbyChills = [];
+        // Nearby chill writes to monsters that survive reload. The previous generation can clear its own aura even
+        // after the replacement has applied a new one for the same player.
+        public readonly ulong ChillSource = 1UL << 63
+            | (((ulong)(CombatLifetime?.Generation ?? 0) & 0x7fff_ffffUL) << 32) | player.Id;
         // Each monster's next timed change on the area's timers (the earliest one asked for).
         public readonly Dictionary<uint, double> Wakes = [];
+
+        public void RemoveNearbyChill(SpawnedMonster target) =>
+            target.Ailments.RemoveAura(MonsterElementalAilments.Kind.Chill, ChillSource);
+
+        public void ClearNearbyChills()
+        {
+            foreach (var target in NearbyChills.Values) RemoveNearbyChill(target);
+            NearbyChills.Clear();
+        }
     }
     static readonly Store<Player, DebuffSteps> DebuffStepsOf = new();
     static readonly RuleTable<GameArea, Dictionary<uint, uint>> MarkTargets = new();
+
+    internal static IDisposable CleanupNearbyChills() => new NearbyChillCleanup();
+
+    sealed class NearbyChillCleanup : IDisposable
+    {
+        public void Dispose()
+        {
+            foreach (var (player, steps) in DebuffStepsOf)
+            {
+                var area = player.Area;
+                if (area.Driven && !area.Owned) area.Defer(_ => steps.ClearNearbyChills());
+                else steps.ClearNearbyChills();
+            }
+        }
+    }
 
     static void TrackMarkTarget(Player caster, SpawnedMonster marked) =>
         MarkTargets.GetOrCreateValue(caster.Area)[caster.Id] = marked.ObjectId;
@@ -109,7 +194,7 @@ public static partial class Game
     /// is stepped with the player's next nearby presentation.</summary>
     public static void MonsterDebuffsChanged(Player player, uint id)
     {
-        var steps = DebuffStepsOf.GetOrCreateValue(player);
+        var steps = DebuffStepsOf.GetValue(player, static owner => new(owner));
         lock (steps.Gate) steps.Changed.Add(id);
         PresentNearby(player);
     }
@@ -118,6 +203,63 @@ public static partial class Game
     // rows, a curse aura's by its skill.
     const ZoneKind EnemyAuraZones = ZoneKind.EnemyAuras;
     const uint FleshZone = 0x10000, BlindZone = 0x10001, AegisBlindZone = 0x10002, DoryaniZone = 0x10003, CurseZone = 0x20000;
+    const uint NearbyChillZone = 0x10004, NearbyFireExposureZone = 0x10005;
+
+    sealed class NearbyFireExposures
+    {
+        public readonly Dictionary<uint, int> BySource = [];
+        public int Strongest;
+    }
+    static readonly RuleTable<SpawnedMonster, NearbyFireExposures> NearbyFireExposuresOf = new();
+
+    static int NearbyFireExposureOn(SpawnedMonster target) =>
+        NearbyFireExposuresOf.TryGetValue(target, out var exposure) ? exposure.Strongest : 0;
+
+    static bool SetNearbyFireExposure(SpawnedMonster target, uint source, int value)
+    {
+        if (!NearbyFireExposuresOf.TryGetValue(target, out var exposure))
+        {
+            if (value == 0) return false;
+            exposure = NearbyFireExposuresOf.GetOrCreateValue(target);
+        }
+        int previous = exposure.BySource.GetValueOrDefault(source);
+        if (previous == value) return false;
+        if (value == 0) exposure.BySource.Remove(source);
+        else exposure.BySource[source] = value;
+        if (exposure.BySource.Count == 0) NearbyFireExposuresOf.Remove(target);
+        else if (value < exposure.Strongest) exposure.Strongest = value;
+        else if (previous == exposure.Strongest) exposure.Strongest = exposure.BySource.Values.Min();
+        return true;
+    }
+
+    static void PresentFireExposureLocked(GameArea area, uint id, SpawnedMonster target, double now, int[]? counts = null)
+    {
+        ushort row = ExposureBuffRows[0];
+        bool living = !target.Dead && target.Life > 0 && target.Hostile;
+        bool immune = target.Effects[Stat.ImmuneToExposure] != 0;
+        if (!living) NearbyFireExposuresOf.Remove(target);
+        if (!living || target.ExposureUntil[0] <= now)
+        {
+            target.ExposureUntil[0] = double.NegativeInfinity;
+            EndExposureLocked(target, DamageType.Fire);
+        }
+        double until = immune ? double.NegativeInfinity : NearbyFireExposureOn(target) < 0
+            ? double.PositiveInfinity : target.ExposureUntil[0];
+        bool shown = target.ExposureBuff[0] != 0;
+        if (shown && target.ExposureShownUntil[0] == until) return;
+        if (until <= now)
+        {
+            if (!shown) return;
+            area.Buffs.Clear(id, row);
+            target.ExposureBuff[0] = 0;
+            if (counts is not null) counts[1]++;
+            return;
+        }
+        target.ExposureBuff[0] = 1;
+        target.ExposureShownUntil[0] = until;
+        area.Buffs.Set(id, new(row, U68: double.IsFinite(until) ? Buff.Seconds(until - now) : null));
+        if (counts is not null) counts[0]++;
+    }
 
     // Doryani's Prototype: while its wearer lives, the hostile monsters in its aura keep his capped lightning resistance
     // (EnemyDebuffsTick sets it; MonsterHitResistance replaces their own with it). 60 cells (6 metres) is the retail
@@ -128,9 +270,9 @@ public static partial class Game
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
     sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
-        int FleshRadius, int FleshPhysical, int? LightningEquals, int TauntedTakenPct, int PerAilmentType, CurseAura[] Curses,
+        int FleshRadius, int FleshPhysical, int? LightningEquals, int PerAilmentType, CurseAura[] Curses,
         IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
-        IReadOnlyDictionary<ushort, double>? Impurities, int Hash);
+        IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int FireExposure, int Hash);
 
     static EnemyDebuffScope PrepareEnemyDebuffs(Player player, double now, IReadOnlyList<PassiveBuffAuras.Aura> current,
         DebuffSteps steps)
@@ -144,6 +286,13 @@ public static partial class Game
         if (StatOf(playerStats, Stat.VirtualNearbyEnemiesAreIntimidated) > 0)
             auras.Add(new(0, "NearbyEnemiesAreIntimidatedUnique__1", IntimidatedBuffRow, 25, [3], []));
         bool alive = player.PlayerLife > 0;
+        bool nearbyChill = alive && (playerStats.GetValueOrDefault(Stat.NearbyEnemiesAreChilled) != 0
+            || playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesAreChilled) != 0);
+        bool masterOfFire = playerStats.GetValueOrDefault(Stat.LocalDisplayNearbyEnemiesHaveFireExposure) != 0;
+        bool heraldry = playerStats.GetValueOrDefault(Stat.NearbyEnemiesHaveFireExposureWhileYouAreAffectedByHeraldOfAsh) != 0
+            && ReservationAura(player, "HeraldOfAsh") is not null;
+        int nearbyFireExposure = alive && (masterOfFire || heraldry)
+            ? InflictedExposure(playerStats.GetValueOrDefault, DamageType.Fire, DefaultExposure) : 0;
         var here = player.Walk.Position(now);
         // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp is kept
         // per monster.
@@ -188,9 +337,11 @@ public static partial class Game
         SyncZones(player, player.Id, EnemyAuraZones, !alive ? []
             : [.. auras.Select(a => ((uint)a.Definition, a.Radius, here)),
                 .. flesh is not null ? [(FleshZone, fleshRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
+                .. nearbyChill ? [(NearbyChillZone, 30, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. lightningEquals is not null ? [(DoryaniZone, DoryaniAuraRadius, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. blindRadius is int blindAt and > 0 ? [(BlindZone, blindAt, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. aegisReach > 0 ? [(AegisBlindZone, aegisReach, here)] : Array.Empty<(uint, int, (int, int))>(),
+                .. nearbyFireExposure < 0 ? [(NearbyFireExposureZone, 30, here)] : Array.Empty<(uint, int, (int, int))>(),
                 .. cursing ? curses.Select(c => (CurseZone + c.Aura.SkillId, c.Radius, here)) : Array.Empty<(uint, int, (int, int))>()],
             new(ReachesHostileMonsters(player, body: false), new EntityId(player.Id), id => MonsterDebuffsChanged(player, id.Value)));
         // Yoke of Suffering: each wearer keeps their own value on a shared monster (PerAilmentTypeTaken).
@@ -202,6 +353,13 @@ public static partial class Game
             hash.Add(a.Definition); hash.Add(a.Radius);
             foreach (var s in a.Stats) hash.Add(s);
         }
+        hash.Add(nearbyChill);
+        hash.Add(nearbyFireExposure);
+        if (nearbyChill)
+        {
+            hash.Add(playerStats.GetValueOrDefault(Stat.VirtualChillEffectPlusPct));
+            hash.Add(playerStats.GetValueOrDefault(Stat.ElementalistChillMaximumMagnitudeOverride));
+        }
         hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
         if (impurities is not null)
             foreach (var (row, until) in impurities) { hash.Add(row); hash.Add(until); }
@@ -209,8 +367,9 @@ public static partial class Game
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
         return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
-            player.EnemyDebuffs.TauntedDamageTakenPct, perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
-            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities, hash.ToHashCode());
+            perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
+            alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities,
+            nearbyChill ? playerStats : null, nearbyFireExposure, hash.ToHashCode());
     }
 
     public static async Task EnemyDebuffsTick(Player player, double now)
@@ -226,20 +385,26 @@ public static partial class Game
             ushort[] currentNodes = [.. player.Character.Passives, .. player.Character.MainAscendancy.Allocated];
             var current = nodes.SequenceEqual(currentNodes) ? all
                 : PassiveBuffAuras.EnemyAurasFor(currentNodes, LeagueFor(player).HardMode, EnemyAuraActs);
-            var steps = DebuffStepsOf.GetOrCreateValue(player);
+            var steps = DebuffStepsOf.GetValue(player, static owner => new(owner));
+            if (!CurrentGameWork) return null;
             var scope = PrepareEnemyDebuffs(player, now, current, steps);
             uint[] ids;
             lock (steps.Gate)
             {
                 bool everyone = !steps.Stepped || steps.Scope != scope.Hash;
                 (steps.Scope, steps.Stepped) = (scope.Hash, true);
-                ids = everyone ? [.. player.Area.Monsters.Keys] : [.. steps.Changed];
+                ids = everyone ? [.. player.Area.Monsters.Keys,
+                    .. steps.NearbyChills.Keys.Where(id => !player.Area.Monsters.ContainsKey(id))] : [.. steps.Changed];
                 steps.Changed.Clear();
             }
             var bytes = new List<byte>();
             var counts = new int[2];
             foreach (uint id in ids)
-                if (player.Area.Monsters.TryGetValue(id, out var m)) StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
+            {
+                if (player.Area.Monsters.TryGetValue(id, out var m))
+                    StepMonsterDebuffsLocked(player, scope, steps, id, m, now, bytes, counts);
+                else if (steps.NearbyChills.Remove(id, out var departed)) steps.RemoveNearbyChill(departed);
+            }
             ReconcileBlinds(player, now, scope.CursedCorpses, scope.MarkBlind, counts);
             if (counts[0] + counts[1] > 0)
                 Console.WriteLine($"[gateway] {player.Connection.Remote} enemy debuffs: {counts[0]} added, {counts[1]} removed (t={now:0.000})");
@@ -257,15 +422,28 @@ public static partial class Game
         SettleBleeding(m, now);
         if (MonsterShown(player, id))
             foreach (var packet in PresentRupturesLocked(player, id, m, now)) bytes.AddRange(packet);
-        bool targetAlive = !m.Dead && m.Life > 0 && m.Hostile;
-        bool living = scope.Alive && targetAlive;
+        bool living = scope.Alive && !m.Dead && m.Life > 0 && m.Hostile;
+        if (steps.NearbyChills.Count != 0 || scope.ChillStats is not null)
+        {
+            bool covered = living && scope.ChillStats is not null && In(NearbyChillZone);
+            if (steps.NearbyChills.TryGetValue(id, out var previous) && (!covered || !ReferenceEquals(m, previous)))
+            {
+                steps.RemoveNearbyChill(previous);
+                steps.NearbyChills.Remove(id);
+            }
+            if (covered && scope.ChillStats is { } chill)
+            {
+                if (m.Ailments.KeepPermanentAura(MonsterElementalAilments.Kind.Chill, steps.ChillSource,
+                    now, chill.GetValueOrDefault, name => m.Effects[name])) steps.NearbyChills[id] = m;
+                else steps.NearbyChills.Remove(id);
+            }
+        }
+        SetNearbyFireExposure(m, player.Id, living && scope.FireExposure < 0 && In(NearbyFireExposureZone) ? scope.FireExposure : 0);
         // One timed debuff: its buff shown for the time left, shown again when that changes, taken off when it ends or
         // the monster or the player dies. Whether it is on.
-        bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values,
-            double rate = 1, bool allowPermanent = false)
+        bool Timed(ref double until, ref double shown, ref ushort buff, ushort row, IReadOnlyList<uint>? values, double rate = 1)
         {
-            bool permanent = allowPermanent && double.IsPositiveInfinity(until);
-            bool on = (permanent ? targetAlive : living) && until > now;
+            bool on = living && until > now;
             if (!on) until = double.NegativeInfinity;
             if (buff != 0 && (!on || shown != until))
             {
@@ -277,15 +455,14 @@ public static partial class Game
             {
                 shown = until;
                 buff = 1;
-                player.Area.Buffs.Set(id, new(row, permanent ? id : player.Id, Values: values,
-                    U68: permanent ? null : Buff.Seconds((until - now) * rate)));
+                player.Area.Buffs.Set(id, new(row, player.Id, Values: values,
+                    U68: double.IsFinite(until) ? Buff.Seconds((until - now) * rate) : null));
                 counts[0]++;
             }
             return on;
         }
-        bool taunted = Timed(ref m.TauntedUntil, ref m.TauntShownUntil, ref m.TauntBuff,
-            FlaskGrounds.TauntedBuffRow, TauntedBuffValues(player.Id), m.RecipientDebuffRate);
-        Timed(ref m.IntimidatedUntil, ref m.IntimidateShownUntil, ref m.IntimidateBuff, IntimidatedBuffRow, null, allowPermanent: true);
+        int tauntedTaken = StepPlayerTauntLocked(player, id, m, now, counts);
+        PresentTimedIntimidateLocked(player.Area, id, m, now, counts);
         Timed(ref m.UnnervedUntil, ref m.UnnerveShownUntil, ref m.UnnerveBuff, UnnervedBuffRow, null);
         Timed(ref m.CrushedUntil, ref m.CrushShownUntil, ref m.CrushBuff, CrushedBuffRow, null);
         Timed(ref m.MaimedUntil, ref m.MaimShownUntil, ref m.MaimBuff, MaimedBuffRow, null);
@@ -294,22 +471,31 @@ public static partial class Game
             m.HinderedUntil = m.TotemHinderedUntil = double.NegativeInfinity;
         Timed(ref m.CoveredInAshUntil, ref m.CoveredInAshShownUntil, ref m.CoveredInAshBuff, CoveredInAshBuffRow, null);
         StepDebilitateLocked(player, id, m, now);
-        for (int i = 0; i < ExposureTypes.Length; i++)
-            if (!Timed(ref m.ExposureUntil[i], ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null))
+        PresentFireExposureLocked(player.Area, id, m, now, counts);
+        for (int i = 1; i < ExposureTypes.Length; i++)
+        {
+            if (!living || m.ExposureUntil[i] <= now)
+            {
+                m.ExposureUntil[i] = double.NegativeInfinity;
                 EndExposureLocked(m, ExposureTypes[i]);
+            }
+            double until = m.ExposureUntil[i];
+            Timed(ref until, ref m.ExposureShownUntil[i], ref m.ExposureBuff[i], ExposureBuffRows[i], null);
+        }
         // Its Withered stacks: one buff with their count and the time the last one has left, shown
-        // again when either changes; off when none runs or it or the player dies.
+        // again when either changes; off when none runs or the monster dies.
+        bool witherTarget = !m.Dead && m.Life > 0 && m.Hostile;
         if (m.Withered.Count > 0)
         {
-            if (living) m.Withered.RemoveAll(s => s.Until <= now);
+            if (witherTarget) m.Withered.RemoveAll(s => s.Until <= now);
             else m.Withered.Clear();
         }
-        var (stacks, _, witheredUntil, witheredPct) = living ? ReadWithered(m, now) : default;
+        var (stacks, _, witheredUntil, witheredPct, _) = witherTarget ? ReadWithered(m, now) : default;
         if (stacks > 0 || m.WitherBuff != 0)
         {
             if (m.WitherBuff != 0 && (stacks != m.WitherShownStacks || witheredUntil != m.WitherShownUntil))
             {
-                player.Area.Buffs.Clear(id, WitheredBuffRow, player.Id);
+                player.Area.Buffs.Clear(id, WitheredBuffRow, id);
                 m.WitherBuff = 0;
                 counts[1]++;
             }
@@ -317,7 +503,7 @@ public static partial class Game
             {
                 (m.WitherShownStacks, m.WitherShownUntil) = (stacks, witheredUntil);
                 m.WitherBuff = 1;
-                player.Area.Buffs.Set(id, new(WitheredBuffRow, player.Id, Values: [(uint)Math.Round(witheredPct), 1],
+                player.Area.Buffs.Set(id, new(WitheredBuffRow, id, Values: [(uint)Math.Round(witheredPct), 1],
                     U68: Buff.Seconds(witheredUntil - now), Stacks: (ushort)stacks, U82: 0));
                 counts[0]++;
             }
@@ -367,7 +553,7 @@ public static partial class Game
             living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist + DoryaniResistOffset : 0);
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
-        m.TakenFromPlayer = ((taunted ? scope.TauntedTakenPct : 0) + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
+        m.TakenFromPlayer = (tauntedTaken + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
         KeepPerAilmentTypeTakenLocked(player, m, living ? scope.PerAilmentType : 0);
         // Its next timed change: a debuff or curse ending.
         void Next(double until) { if (until > now && until < wake) wake = until; }
@@ -391,6 +577,25 @@ public static partial class Game
             lock (steps.Gate) if (steps.Wakes.GetValueOrDefault(id) == wake) steps.Wakes.Remove(id);
             MonsterDebuffsChanged(player, id);
         });
+    }
+
+    static void PresentTimedIntimidateLocked(GameArea area, uint id, SpawnedMonster m, double now, int[] counts)
+    {
+        if (m.Dead || m.Life == 0 || !m.Hostile || m.IntimidatedUntil <= now)
+        {
+            m.IntimidatedUntil = double.NegativeInfinity;
+            if (m.IntimidateBuff == 0) return;
+            area.Buffs.Clear(id, IntimidatedBuffRow, id);
+            m.IntimidateBuff = 0;
+            counts[1]++;
+            return;
+        }
+        if (m.IntimidateBuff != 0 && m.IntimidateShownUntil == m.IntimidatedUntil) return;
+        area.Buffs.Set(id, new(IntimidatedBuffRow, id,
+            U68: double.IsFinite(m.IntimidatedUntil) ? Buff.Seconds(m.IntimidatedUntil - now) : null));
+        m.IntimidateShownUntil = m.IntimidatedUntil;
+        m.IntimidateBuff = 1;
+        counts[0]++;
     }
 
     // Flesh and Stone's Blood Stance on a hit: its value falls off with the monster's distance from the player, full at 0

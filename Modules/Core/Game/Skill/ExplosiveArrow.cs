@@ -31,9 +31,9 @@ public static partial class Game
         int baseRadius = Math.Max(0, 15 + stats.GetValueOrDefault(Stat.ActiveSkillBaseRadiusPlus));
         var damage = new ProjectileOffenseAlternate(SupportedHitFrom(explosion, suppress: false), null,
             WithOverheat(player, skill, NotedIgnite(player, skill, WithIgniteSpread(
-                MonsterIgnites.Settings.From(rows, hand, context.Get), playerStats, own, spell: false, hand))),
+                IgniteSettingsFrom(rows, hand, context.Get), playerStats, own, spell: false, hand))),
             WithOverheat(player, skill, BleedSettings(rows, hand, context.Get, local, melee: false, bow: true, projectileAttack: true)),
-            WithOverheat(player, skill, MonsterPoisons.Settings.From(rows, hand, context.Get, local, projectileAttack: true)));
+            WithOverheat(player, skill, PoisonSettingsFrom(rows, hand, context.Get, local, projectileAttack: true)));
         double seconds = SkillDurationModifiers.Seconds(context.Own(Stat.BaseSkillEffectDuration), context.PlayerStat,
             key => context.Own(key) + (key == Stat.SkillEffectDurationPlusPct ? context.Get(Stat.ExplosiveArrowDurationPlusPct) : 0));
         return new(Math.Max(1, ProjectileRuntime.Time(seconds)), Math.Clamp(context.Get(Stat.ExplosiveArrowStackLimit), 1, 256),

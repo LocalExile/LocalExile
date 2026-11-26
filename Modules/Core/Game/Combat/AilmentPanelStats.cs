@@ -79,7 +79,15 @@ public static class AilmentPanelStats
     ];
 
     public static List<(uint Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
-        Func<uint, int> get, long additionalIncreased = 0)
+        Func<uint, int> get, long additionalIncreased = 0) =>
+        Compute(context, raw, conversion, get, additionalIncreased, igniteOnly: false);
+
+    public static List<(uint Stat, int Value)> Ignite(Context context, DamagePacket raw, DamageConversion conversion,
+        Func<uint, int> get, long additionalIncreased) =>
+        Compute(context, raw, conversion, get, additionalIncreased, igniteOnly: true);
+
+    static List<(uint Stat, int Value)> Compute(Context context, DamagePacket raw, DamageConversion conversion,
+        Func<uint, int> get, long additionalIncreased, bool igniteOnly)
     {
         get = WeaponAttributeDamage.Read(context.Attack && !context.Spell && WeaponAttributeDamage.Armed(
             get(context.Hand == "off_hand" ? Stat.OffHandWeaponType : Stat.MainHandWeaponType)), get);
@@ -98,13 +106,14 @@ public static class AilmentPanelStats
             }
         }
         bool tinctureWeapon = context.Attack && !context.Spell && get(Stat.TinctureApplied) != 0;
-        if (context.Attack) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
+        if (context.Attack && !igniteOnly) Add("bleeding", DamageType.Physical, [DamageType.Physical], BleedPercent);
         DamageType[] ignite = get(Stat.AllDamageCanIgnite) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanIgnite) != 0
             ? DamageTypes.ConversionOrder : get(Stat.UniqueColdDamageIgnites) != 0
                 ? [DamageType.Fire, DamageType.Cold] : [DamageType.Fire];
         if (get(Stat.UniqueFireDamageShocks) != 0) ignite = [.. ignite.Where(type => type != DamageType.Fire)];
         Add("ignite", DamageType.Fire, ignite, IgnitePercent);
+        if (igniteOnly) return rows;
         Add("poison", DamageType.Chaos, get(Stat.AllDamageCanPoison) != 0
             || context.Attack && (context.WeaponStats?.GetValueOrDefault(Stat.LocalAllDamageCanPoison) ?? 0) != 0
             || tinctureWeapon && get(Stat.AllDamageWithTincturedWeaponsCanPoison) != 0

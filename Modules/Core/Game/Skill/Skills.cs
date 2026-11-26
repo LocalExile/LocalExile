@@ -333,7 +333,7 @@ public static partial class Game
         bool melee, GameServer.Core.World.DamageConversion? conversion, AttackAccuracyProfile accuracy, long additionalIncreased = 0)
     {
         var Get = WeaponAttributeDamage.Read(WeaponAttributeDamage.Armed(weapon), name => RageStat(stats, name));
-        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get),
+        var hit = PlayerHitDamage.Resolve(SupportedAttackDamage.Raw(weapon, Get, accuracy, melee: melee), SupportedAttackDamage.HitModifiers(weapon, Get, accuracy.Rating),
             conversion ?? new(), spell: false, melee: melee, projectile: !melee, wieldingBow: weapon.Bow, wieldingWand: weapon.WieldingWand,
             additionalIncreased: additionalIncreased + SupportedAttackDamage.WeaponIncrease(weapon, Get),
             additional: WeaponTypeDamage.Of(weapon, Get));
@@ -447,7 +447,7 @@ public static partial class Game
             UnleashSeals(player, id, supported, ProjectileWorldTime(player));
             var skills = SkillsFor(player);
             var stats = MergeSkillStats(playerStats, own, skills.IsChannelled(effect), SkillCostMore(player, own),
-                CostEfficiencyFor(skills, effect));
+                SkillCostScopeFor(skills, supported));
             // A shield attack swings the shield in the off hand, which OffStats leaves out (not a weapon): the client then
             // read off_hand_total_base_weapon_attack_duration_ms 0, and Shield Charge's end-of-charge attack never finished
             // (Frida 2026-11-01, 11-skills.md "Shield Charge"). Its base time is the gem's own AttackTime.
@@ -795,7 +795,7 @@ public static partial class Game
             // Network stat snapshots do not run the client's stat calculators.
             void Publish(uint stat, int value) { if (stat is var key) stats[key] = value; }
             // A cost of a share of maximum mana over time (Bladefall of Trarthus): its final, virtual per-minute amount.
-            bool paysLife = Lifetap.ConvertsCostToLife(own, playerStats);
+            bool paysLife = Lifetap.ConvertsCostToLife(own, stats);
             if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
                 Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, paysLife ? player.Pools.Life : player.Pools.Mana));
             // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
@@ -878,9 +878,9 @@ public static partial class Game
                 Publish(placed.Mine ? Stat.NumberOfMinesToPlace : Stat.NumberOfTrapsToThrow,
                     PlacedSkillCount(player, supported, placed.Mine));
                 int frenzy = ChargesOf(player).Effective(ChargeType.Frenzy);
-                int throwSpeed = Get(placed.Mine ? Stat.MineLayingSpeedPlusPct : Stat.TrapThrowingSpeedPlusPct)
-                    + Get(Stat.TrapAndMineThrowingSpeedPlusPct)
-                    + frenzy * Get(placed.Mine ? Stat.MineThrowingSpeedPlusPctPerFrenzyCharge : Stat.TrapThrowingSpeedPlusPctPerFrenzyCharge);
+                // Read the same additive inputs as placement, before final cast speed is projected into the skill stats.
+                int ThrowStat(uint key) => GolemStat(supported.Stats, key) + GolemStat(playerStats, key);
+                int throwSpeed = PlacedThrowIncrease(ThrowStat, placed.Mine, frenzy);
                 Publish(placed.Mine ? Stat.VirtualMineThrowingSpeedPlusPct : Stat.VirtualTrapThrowingSpeedPlusPct, throwSpeed);
                 if (Get(Stat.TrapTriggerRadiusPlusPct) is int triggerPct and not 0)
                     Publish(Stat.VirtualTrapTriggerRadiusPlusPct, triggerPct);
@@ -1534,12 +1534,14 @@ public static partial class Game
                 ManaFlat = reservation.ManaFlat, ManaPercent = reservation.ManaPercent,
                 LifeFlat = reservation.LifeFlat, LifePercent = reservation.LifePercent,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
+                FixedManaReservation = reservation.FixedMana,
                 Level = gem.Level, Quality = gem.Quality, WornGrant = gem.WornGrant,
                 SkillStats = skillStats
             };
             player.AuraStatsDirty |= before.ManaFlat != reservation.ManaFlat || before.ManaPercent != reservation.ManaPercent
                 || before.LifeFlat != reservation.LifeFlat || before.LifePercent != reservation.LifePercent
                 || before.ReservesLife != context.Life || before.ReservationEfficiencyPct != context.Efficiency
+                || before.FixedManaReservation != reservation.FixedMana
                 || before.Level != gem.Level || before.Quality != gem.Quality || before.WornGrant != gem.WornGrant
                 || before.SkillStats is null || !before.SkillStats.SequenceEqual(skillStats);
         }

@@ -147,6 +147,10 @@ public static partial class Game
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
         if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
+        var (frenzy, power) = state.Mana.SpentForCharges(amount, Get(Stat.GainXFrenzyChargesAfterSpending200Mana),
+            Get(Stat.LocalDisplayGainPowerChargeOnSpendingMana) > 0 ? 1 : 0);
+        if (frenzy > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Frenzy, frenzy, "mana spent"));
+        if (power > 0) ChargesOf(player).Enqueue(new ChargeEvent.Grant(ChargeType.Power, power, "mana spent"));
     }
     public static void SettleFullManaLocked(Player player, double at)
     {
@@ -154,7 +158,7 @@ public static partial class Game
             && player.PlayerMana >= UnreservedMana(player))
         { state.Mana.Take(at); state.Mana.DiscardRecoveryFraction(); }
     }
-    static void RecordUsedSkillLocked(Player player, double now)
+    static void RecordUsedSkillLocked(Player player, double now, int effect = -1, bool activated = true)
     {
         if (MapSkillActionSpeedPerUse(player) != 0)
         {
@@ -172,7 +176,22 @@ public static partial class Game
         }
         else player.RecentEvents.Record(StatConditions.UsedSkill, now);
         var raw = StatSourceValues(player);
+        if (activated && effect >= 0) BlindOnElementalSkillUseLocked(player, effect, now, raw);
         ApplySiphoningSkillUseLocked(player, now, raw);
+        int loss = activated ? raw.GetValueOrDefault(Stat.LoseXManaWhenYouUseSkill) : 0;
+        if (loss > 0 && player.PlayerMana != 0)
+        {
+            uint before = player.PlayerMana, maximum = player.Pools.Mana;
+            uint after = before - Math.Min(before, (uint)loss);
+            player.PlayerMana = after;
+            if (maximum > 0 && (before >= maximum && after < maximum
+                || (long)before * 2 > maximum && (long)after * 2 <= maximum))
+            {
+                EnsureConditionalItemPools(player);
+                player.AuraStatsDirty = true;
+            }
+            player.Frames.Area?.Life.Resend(player);
+        }
         int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);
         if (raw.GetValueOrDefault(Stat.Recover10PctManaOnSkillUsePctChanceWhileAffectedByClarity) is int clarity and not 0
             && AffectingAuras(player).Any(a => a.AffectsSelf && a.EffectId == "Clarity"))

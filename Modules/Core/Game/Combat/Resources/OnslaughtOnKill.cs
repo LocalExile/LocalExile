@@ -28,7 +28,8 @@ public sealed class KillOnslaught
 
     public static IReadOnlyList<(int Chance, double Seconds)> From(Func<uint, int> get)
     {
-        int ms = get(Stat.OnslaughtTimeGrantedOnKillMs), always = get(Stat.OnslaughtBuffDurationOnKillMs);
+        int ms = get(Stat.OnslaughtTimeGrantedOnKillMs);
+        int always = Math.Max(get(Stat.OnslaughtBuffDurationOnKillMs), get(Stat.GainOnslaughtOnKillMsWhileAffectedByHaste));
         return [.. new[]
         {
             (get(Stat.ChanceToGainOnslaughtOnKillPct), ms > 0 ? ms / 1000.0 : 4),

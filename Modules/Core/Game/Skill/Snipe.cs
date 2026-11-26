@@ -329,13 +329,8 @@ public static partial class Game
         Poison = ScaleSnipePoison(shot.Poison, ailmentFactor),
     };
 
-    static MonsterIgnites.Settings ScaleSnipeIgnite(MonsterIgnites.Settings value, double factor) => value with
-    {
-        Min = value.Min * factor,
-        Max = value.Max * factor,
-        CriticalMin = value.CriticalMin * factor,
-        CriticalMax = value.CriticalMax * factor,
-    };
+    static MonsterIgnites.Settings ScaleSnipeIgnite(MonsterIgnites.Settings value, double factor) =>
+        value.ScaleDamage(factor);
 
     static MonsterPoisons.Settings ScaleSnipePoison(MonsterPoisons.Settings value, double factor) => value with
     {

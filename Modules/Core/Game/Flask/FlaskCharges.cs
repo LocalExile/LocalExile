@@ -112,6 +112,7 @@ public static partial class Game
                 if (player.EntryProtection.End(now, player.Walk.Position(now), action: true) is ushort)
                     player.Area.Buffs.Clear(player.Id, GracePeriod.BuffRow, player.Id);
                 accepted(done);
+                ApplyEquipmentFlaskCleansesLocked(player, now);
                 if (player.PlayerLife > 0 && player.PlayerLife < player.PlayerMaxLife)
                 {
                     var stats = CharacterPlayerStats(player);
