@@ -309,7 +309,7 @@ Not implemented: `UnlockPantheonPowerFromItem`, `RemoveQuestItem`, `DispatchRule
 - **Tabs**: ordinary shops use manager 1, inventory kind 71, row 117, 12×11, flags 0x60.
   All tabs arrive together; 0x8c has no custom names, so the client supplies labels.
   Standard disables the development catalogue (`FullGemStock` and `SellsMaps` default false).
-  The `NessaDevelopmentTabs` module, listed in a league's `modules.json`, brings them back. Its `settings.json` mode
+  The mod `nessadevelopmenttabs` in LocalExile-Mods, listed by a league, brings them back. Its `settings.json` mode
   `add` puts Awakened Gems, Exceptional Gems, Maps, Originator Maps and Unique Maps after the progression tabs;
   `replace` sets both flags, for the custom colour tabs as well, instead of them. These bypass ordinary progression.
   With `add` the window goes out as development tabs (row 83, names in 0x8c), so the added tabs show their names

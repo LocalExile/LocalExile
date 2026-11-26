@@ -197,14 +197,24 @@ public static partial class Game
     /// <summary>A supported attack's time with a hand. Both hands at once: the average of the two weapons' times
     /// (Path of Building's harmonic mean of the two speeds), or the off hand's alone with
     /// <c>dual_strike_off_hand_weapon_determines_attack_time</c>, then <c>viper_strike_dual_wield_attack_speed_+%_final</c>.</summary>
-    public static double SupportedAttackSeconds(Player player, ushort skillId, AttackHand hand)
+    public static double SupportedAttackSeconds(Player player, ushort skillId, AttackHand hand) =>
+        AttackSecondsForHand(player, skillId, hand, startingPair: false);
+
+    static double StartingAttackSeconds(Player player, ushort skillId, ushort sequence) =>
+        AttackSecondsForHand(player, skillId, AttackHandFor(player, skillId, sequence), startingPair: true);
+
+    static double AttackSecondsForHand(Player player, ushort skillId, AttackHand hand, bool startingPair,
+        int? doubleStrikeStages = null)
     {
-        if (hand == AttackHand.Main || OffhandWeaponFor(player) is not { } off) return SupportedAttackSeconds(player, skillId);
-        double offSeconds = SupportedOffHandAttackSeconds(player, skillId, off);
+        double Seconds(SkillCatalog.Unarmed? weapon) =>
+            SupportedAttackTiming(player, skillId, weapon, clampToTick: true, proxy: false,
+                doubleStrikeStages: doubleStrikeStages, startingPair: startingPair).Seconds;
+        if (hand == AttackHand.Main || OffhandWeaponFor(player) is not { } off) return Seconds(null);
+        double offSeconds = Seconds(off);
         if (hand == AttackHand.Off) return offSeconds;
         int Own(string name) => Stats.Key(name) is uint key ? SupportedSkill(player, skillId).Stats.GetValueOrDefault(key) : 0;
         double seconds = Own("dual_strike_off_hand_weapon_determines_attack_time") != 0 ? offSeconds
-            : (SupportedAttackSeconds(player, skillId) + offSeconds) / 2;
+            : (Seconds(null) + offSeconds) / 2;
         return Math.Max(TickSeconds, seconds / Math.Max(.01, 1 + Own("viper_strike_dual_wield_attack_speed_+%_final") / 100.0));
     }
 
@@ -268,12 +278,15 @@ public static partial class Game
     /// <summary><see cref="SupportedCriticalChance(Player, ushort, AttackHand)"/> with the off-hand weapon's base
     /// critical chance read once by the caller (null: no off-hand weapon), for a sweep that asks per victim.</summary>
     public static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical) =>
-        (hand, offCritical) switch
+        SupportedCriticalChance(player, skillId, hand, offCritical, 0);
+
+    static int SupportedCriticalChance(Player player, ushort skillId, AttackHand hand, int? offCritical,
+        long extraIncrease) => (hand, offCritical) switch
         {
-            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, weaponCritical: off),
-            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChance(player, skillId)
-                + SupportedCriticalChanceFor(player, skillId, false, weaponCritical: off)) / 2.0, MidpointRounding.AwayFromZero),
-            _ => SupportedCriticalChance(player, skillId),
+            (AttackHand.Off, int off) => SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off),
+            (AttackHand.Both, int off) => (int)Math.Round((SupportedCriticalChanceFor(player, skillId, false, extraIncrease)
+                + SupportedCriticalChanceFor(player, skillId, false, extraIncrease, off)) / 2.0, MidpointRounding.AwayFromZero),
+            _ => SupportedCriticalChanceFor(player, skillId, false, extraIncrease),
         };
 
     /// <summary>A supported attack's accuracy with a hand: the off hand's local accuracy in the main hand's place.

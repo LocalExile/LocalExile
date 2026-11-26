@@ -15,10 +15,9 @@ static class KitavaActFive
     static readonly int[] Effects = [6598, 6599, 6600, 6601, 6602, 6590, 6594, 6636, 6638, 6603, 6604, 6619, 6622, 6586];
     static readonly Store<InstanceState, Fight> Fights = new();
     static readonly Store<Player, Exposure> Exposures = new();
-    static readonly RuleTable<AreaLayout, Anchor> Anchors = new();
+    static readonly RuleTable<AreaLayout, AreaPopulation.RoomPoint?> Anchors = new();
     static readonly Store<Player, DockCleanup> Docks = new();
     static readonly RuleTable<SkillCatalog, ConcurrentDictionary<(int, byte), (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit)>> Native = new();
-    sealed record Anchor(int X, int Y, float Rotation);
     sealed class Exposure { public double Dps; }
     sealed class DockCleanup { public double Next; }
     internal static bool IsBody(MonsterCatalog.Variety? v) => v?.Id is First or Second or Last;
@@ -28,13 +27,10 @@ static class KitavaActFive
     {
         First => new([50]), Second => new([75, 50]), Heart => new([50, 1]), _ => null,
     };
-    internal static (int X, int Y) SpawnPoint(Player c, (int X, int Y) fallback) => AnchorOf(c, fallback) is var a ? (a.X, a.Y) : fallback;
-    static Anchor AnchorOf(Player c, (int X, int Y) fallback) => Anchors.GetValue(c.Layout, _ =>
+    internal static AreaPopulation.RoomPoint? FixedAnchor(Player c) => Anchors.GetValue(c.Layout, _ =>
     {
-        if (c.LaterFormPoints.TryGetValue(First, out var supplied)) return new(supplied.X, supplied.Y, 0);
-        var points = AreaPopulation.LoadPoints(Area, c.Seed, []);
-        var point = points.FirstOrDefault(p => p.Name == "force:mapboss");
-        return point is null ? new(fallback.X, fallback.Y, 0) : new(point.X, point.Y, point.Angle);
+        if (c.LaterFormPoints.TryGetValue(First, out var supplied)) return new("force:mapboss", supplied.X, supplied.Y);
+        return AreaPopulation.LoadPoints(Area, c.Seed, []).FirstOrDefault(p => p.Name == "force:mapboss");
     });
     static ushort Skill(int effect) => (ushort)(0x4000 + Array.IndexOf(Effects, effect));
     static (int Level, Dictionary<uint, int> Stats, double Multiplier, int Crit) Data(Player c, int effect, byte level) =>
@@ -79,7 +75,8 @@ static class KitavaActFive
         if (v.Id is not (First or Second)) return null;
         var catalog = Game.SkillsFor(c);
         return [.. Effects.Where(e => v.Id == Second || Array.IndexOf(Effects, e) < 11).Select(e => catalog.FindByRow(Skill(e), e,
-            catalog.MaxLevelAt(e, level), WithBehaviourVariation(c, e, MonsterProjectileSkillStats(c, e, catalog.MaxLevelAt(e, level), Attack(c, v, level, e))))).OfType<GrantedSkill>()];
+            catalog.MaxLevelAt(e, level), WithBehaviourVariation(c, e,
+                [.. MonsterProjectileSkillStats(c, e, catalog.MaxLevelAt(e, level), Attack(c, v, level, e)), (global::Stat.ActionDoNotFaceTarget, 1)]))).OfType<GrantedSkill>()];
     }
     public static async Task Tick(Player c)
     {
@@ -162,7 +159,7 @@ static class KitavaActFive
         uint id, heartId, signId;
         SpawnedMonster body;
         SpawnedMonster? heart;
-        readonly Anchor anchor;
+        readonly AreaPopulation.RoomPoint anchor;
         readonly (int X, int Y) signAt, heartAt;
         double deadline, ready, nextSpecial, nextDark, nextDebris, nextAdds, lastGround;
         bool stopped, initialized, championSpawned;
@@ -171,7 +168,8 @@ static class KitavaActFive
         // 0 emerge, 1 first body, 2 change form, 3 second body, 4 expose, 5 heart, 6 recover, 7 enrage, 8 beam, 9 rescue, 10 complete.
         public Fight(uint objectId, SpawnedMonster monster, Player c)
         {
-            id = objectId; body = monster; anchor = AnchorOf(c, monster.Walk.Position(AreaTime(c)));
+            id = objectId; body = monster; var (x, y) = monster.Walk.Position(AreaTime(c));
+            anchor = FixedAnchor(c) ?? new("force:mapboss", x, y);
             var sign = c.Layout.Level?.RoomObjects.FirstOrDefault(o => o.Type == Sign);
             signAt = sign is null ? (anchor.X, anchor.Y - 100) : (sign.X, sign.Y);
             heartAt = c.Layout.Near(((anchor.X + signAt.X) / 2, (anchor.Y + signAt.Y) / 2));
@@ -235,7 +233,7 @@ static class KitavaActFive
             foreach (var p in Present) { BossBars(p).Remove(previous); }
             var v = Monsters.Find(type) ?? throw new InvalidOperationException("Missing campaign Kitava form");
             id = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
-                anchor.X, anchor.Y, rotation: anchor.Rotation, scripted: true, placement: MonsterPlacement.Established);
+                anchor.X, anchor.Y, rotation: anchor.Angle, scripted: true, placement: MonsterPlacement.Established);
             if (id == 0) throw new InvalidOperationException("Could not create campaign Kitava form");
             body = c.Area.Monsters[id]; body.EntranceGrace = true; bound.Clear();
             await Bar(false);
@@ -291,7 +289,7 @@ static class KitavaActFive
                 {
                     var v = Monsters.Find(Heart)!;
                     heartId = await SpawnMonster(c, v, body.Level, MonsterRarity.Unique,
-                        heartAt.X, heartAt.Y, rotation: anchor.Rotation, scripted: true, placement: MonsterPlacement.Established);
+                        heartAt.X, heartAt.Y, rotation: anchor.Angle, scripted: true, placement: MonsterPlacement.Established);
                     if (heartId == 0) throw new InvalidOperationException("Could not create Kitava's Heart");
                     heart = c.Area.Monsters[heartId];
                     if (body.LifePhases!.Completed > 0)
@@ -462,7 +460,7 @@ static class KitavaActFive
         }
         (int X, int Y) ModelCell(double x, double y)
         {
-            double cos = Math.Cos(anchor.Rotation), sin = Math.Sin(anchor.Rotation);
+            double cos = Math.Cos(anchor.Angle), sin = Math.Sin(anchor.Angle);
             return (anchor.X + (int)Math.Round((x * cos - y * sin) / WorldUnits.PerCell),
                 anchor.Y + (int)Math.Round((x * sin + y * cos) / WorldUnits.PerCell));
         }

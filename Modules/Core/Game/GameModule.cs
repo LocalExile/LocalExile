@@ -75,6 +75,10 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadMinionSupportsData();
         Rules.LoadWornGrantedSkillsData();
         Rules.LoadPhasingData();
+        Rules.LoadAlchemistsGeniusData();
+        // The Heist rogue allies carry SectorEvents, which the client's create reads nothing for; the other types that
+        // carry it (Kirac, the Sanctum NPC, Expedition, pirates, Delve) stay uncreatable.
+        MonsterObject.AllowExtraFor("SectorEvents", "Metadata/Monsters/LeagueHeist/NPCAllies/NPCAlliesBase");
         Rules.LoadBuffCancelData();
         Rules.LoadDeathPenaltyData();
         Rules.LoadModuleWorldData();
@@ -87,7 +91,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadPlacedSkillsData();
         Rules.LoadTotemsRulesData();
         // Flasks.
-        global::AntiquarianEffects.LoadAntiquarianEffectsData();
+        global::WardBreakEffects.LoadWardBreakEffectsData();
         Rules.LoadFlaskGroundsData();
         // Monsters.
         global::BossKits.LoadBossKitsData();
@@ -242,7 +246,9 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.InstallJoining());
         string id = module.Manifest.Id;
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.LeaveArea(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
@@ -322,6 +328,11 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.TransientClosing.Add(id, global::Game.EndTimedSkillBuffs);
         GameEvents.PlayerLeaving.Add(id, (player, _) => { global::Game.EndTimedSkillBuffs(player); return Task.CompletedTask; });
         module.Lifetime.Own(new global::Game.TimedSkillBuffCleanup());
+        GameEvents.SkillCastAt.Add(id, Rules.CastZoneSpell);
+        GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => Rules.TickZoneSpells(player)));
+        GameEvents.PlayerStatSources.Add(id, Rules.ZoneSpellPlayerStats);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndZoneSpells(player); return Task.CompletedTask; });
+        GameEvents.TransientClosing.Add(id, Rules.EndZoneSpells);
         GameEvents.PlayerLeaving.Add(id, (player, _) => global::Game.LeavingVaalImmortalCall(player));
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, _) => global::Hierophant.Tick(player)));
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::Hierophant.PlayerStats);
@@ -341,25 +352,21 @@ public sealed class GameModule : IModule, IDisposable
         module.Lifetime.Own(Rules.CleanupBrandsOnUnload());
         GameEvents.AreaGenerated.Add(id, CharacterVoiceLines.OnAreaGenerated);
         GameEvents.Kill.Add(id, CharacterVoiceLines.OnKill);
-        GameEvents.AreaHeader.Add(id, _ => new AreaHeader(null, [InstanceAchievements.PermanentAchievementSetId]));
+        GameEvents.AreaHeader.Add(id, player => new AreaHeader(null, Rules.ActiveAchievementSets(player)));
         GameEvents.EnterMessages.Add(id, Rules.AchievementEnterMessages);
         GameEvents.PlayerEntered.Add(id, Rules.CheckAreaEntryAchievements);
         GameEvents.Kill.Add(id, Rules.OnMonsterKillAchievements);
     }
 }
 
-public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IControlledPlayerRules, IControlledPlayerCommands, IWorldAdmissionRules
+public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IWorldAdmissionRules
 {
     public IModuleLifetime? Lifetime { get; } = lifetime ?? Rules.CombatLifetime;
     public bool WorldAdmissionActive => Lifetime is { IsActive: true } && ReferenceEquals(Lifetime, Rules.CombatLifetime);
-    public double MaximumLeaderDistance => Rules.ControlledFollowerLeash;
     public ItemModStats.ModifierValueRule? ItemModifierValues(Item item, ModCatalog mods) =>
         HeistModifierMagnitudes.For(item, mods);
     public void ValidateImportedBuild(GameServer.Core.Accounts.Character character, CharacterSaves.Save save) =>
         Rules.ValidateImportedBuild(character, save);
-    public void QueueControlledIntent(Player player, ControlledPlayerIntent intent) => Rules.QueueControlledIntent(player, intent);
-    public void ClearControlledIntent(Player player) => Rules.ClearControlledIntent(player);
-    public object ObserveControlledPlayer(Player player, Player leader) => Rules.ObserveControlledPlayer(player, leader);
     public void ResumePlayerUpdates(Player player)
     {
         if (ReferenceEquals(Program.GameLogicOrNull, this) && ReferenceEquals(Lifetime, Rules.CombatLifetime))
@@ -465,6 +472,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     {
         Rules.ReleaseCharacter(player);
         Rules.ForgetVitalsAdmission(player);
+        Rules.ClearPyroclastAuras(player);
         Rules.ForgetSourceValues(player);
         // The instance keeps its monsters as they are now, for the next connection (#12); the player's minions go with him.
         Rules.KeepInstanceMonsters(player);
@@ -476,8 +484,4 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IC
     public IEnumerable<(string Value, string Detail)>? CompletionValues(string kind) => Rules.CompletionValues(kind);
     public double PlayerActionFactor(Player player) => Rules.PlayerActionFactor(player);
     public double MovementSpeedMultiplier(Player player) => Rules.MovementSpeedMultiplier(player);
-    public CharacterSaves.Save BuildControlled(GameServer.Core.Accounts.CharacterClass characterClass, int level) => Rules.BuildControlledPlayer(characterClass, level);
-    public Task InitializeControlled(Player player, Player leader) => Rules.InitializeControlledPlayer(player, leader);
-    public Task StepControlled(Player player, Player leader) => Rules.StepControlledPlayer(player, leader);
-    public Task ControlledCompletion(Player player) => player.PlayerUpdatesState is PlayerUpdatesState updates ? updates.Completion : Task.CompletedTask;
 }

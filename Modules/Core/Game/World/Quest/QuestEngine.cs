@@ -184,7 +184,7 @@ public static partial class Game
 
     // C→S 0x58 on a quest item with a use_flag (the quest books): it is used up and its flag set, in one save; the
     // QuestStaticRewards of the flag (passive or refund points) follow from it (SetQuestFlags sends the tree).
-    public static async Task UseQuestItem(Player player, PlayerInventories items,
+    public static async Task<bool> UseQuestItem(Player player, PlayerInventories items,
         byte row, InventoryItem item, ItemCatalog.BaseType type)
     {
         var flags = type.Quest!;
@@ -192,14 +192,15 @@ public static partial class Game
         try
         {
             PlayerInventories.Consumption? taken;
-            if (HardcoreProgressBlocked(player)) return;
+            if (HardcoreProgressBlocked(player)) return false;
             taken = QuestItems.Use(items, CharacterName(player), row, item.Id, flags);
-            if (taken is null) return;
+            if (taken is null) return false;
             uint inventoryId = PlayerInventories.InventoryId(row);
             await Send(player, InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [item.Id], taken.Left is { } left ? [left] : []),
                 $"0x00bf inventory {inventoryId}: {type.Name} used ({flags.Use})");
             await SetQuestFlagsHeld(player, [flags.Use!]);
             if (flags.Grant is { } grant) await SetQuestFlagsHeld(player, [grant], on: false);
+            return true;
         }
         finally { player.Character.QuestGate.Release(); }
     }
@@ -550,9 +551,7 @@ public static partial class Game
                     || id == KitavaActFive.First && KitavaActFive.IsActor(m.Variety));
                 if (spawned) continue;
                 var owner = player.Frames.View ?? (instance.World.Runner is { Closed: false, LeavingArea: false } runner ? runner : player);
-                var point = area == KitavaActFive.Area && id == KitavaActFive.First
-                    ? KitavaActFive.SpawnPoint(owner, (at.X, at.Y))
-                    : owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
+                var point = owner.Layout.Walkable is { } walks && !walks(at.X, at.Y) ? owner.Layout.Near((at.X, at.Y)) : (at.X, at.Y);
                 byte level = (byte)Math.Clamp(Packs.For(area)?.AreaLevel ?? 1, 1, 100);
                 spawned = await SpawnMonster(owner, variety, level,
                     MonsterRarity.Unique, point.Item1, point.Item2) != 0;

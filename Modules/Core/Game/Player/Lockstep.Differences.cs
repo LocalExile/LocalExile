@@ -40,7 +40,7 @@ public static partial class Game
     // for lockstep would drift from them. Beside the frames, which must not wait for a cast.
     static void StartLockstepSkill(Player player, ushort sequence, double at,
         int actionBefore = -1, double busyBefore = 0, double busySet = 0,
-        double startedBefore = 0, double scheduledBefore = 0)
+        double startedBefore = 0, double scheduledBefore = 0, double totemHoldBefore = 0)
     {
         void ReleaseIfRejected()
         {
@@ -49,6 +49,7 @@ public static partial class Game
                 player.LockstepBusyUntil = busyBefore;
                 player.LockstepActionStartedAt = startedBefore;
                 player.LockstepActionScheduledAt = scheduledBefore;
+                player.LockstepTotemHoldUntil = totemHoldBefore;
                 player.LockstepCastWindow = null;
             }
         }

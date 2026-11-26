@@ -92,7 +92,7 @@ public static partial class Game
                     ApplyMinionRecoveryFlaskLocked(player, minion, paid.Item, paid.X, recovery, local, GetOwner, now);
             }
             return ([.. spent.Select(flask => flask.Id)], spent);
-        }, spent => $"0x00bf flask charges (minion 0x{minion.Id:x} used {spent.Count} flasks)");
+        }, spent => $"0x00c6 flask charges (minion 0x{minion.Id:x} used {spent.Count} flasks)");
     }
 
     static void StartMinionRecoveryFlaskLocked(Player player, GolemState.Golem minion, byte slot,

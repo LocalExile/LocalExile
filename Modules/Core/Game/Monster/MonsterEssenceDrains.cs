@@ -128,7 +128,7 @@ static partial class Game
         TrimLeechLocked(player);
         if (player.PlayerLife != 0) return (null, esSpend > 0);
         player.InvalidateIncomingHits();
-        ClearAntiquarianOnDeath(player);
+        ClearWardBreakOnDeath(player);
         RecordHardcoreDeath(player);
         loss.Fraction = 0;
         return (player.IncomingHitEpoch, esSpend > 0);

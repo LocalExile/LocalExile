@@ -69,9 +69,12 @@ public static class DepravedTrinity
                     Replace(id, gate, pads[0], Label(names[n] + "ArenaName"), false);
             }
         }
-        foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
-            if (AreaTransitionCatalog.HashOf("2_9_10_1") is { } destination)
-                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = destination, TeleportTo = null, Label = null, Kind = 0 });
+        // The hub's teleport2-%areaname% returns to telepad2 at the Black Core entrance. Its room
+        // shares the organ portal slots, so use the graph destination with the authored return object.
+        if (level.Exits.FirstOrDefault(e => e is
+                { Room: "boss_2.arm", Kind: ExitKind.Teleport, Number: 2, Label: "%areaname%" })?.Target is { } backToCore)
+            foreach (var (id, gate) in original.Where(p => p.Transition.SourceType == "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"))
+                c.ReplaceAreaTransition(id, gate with { DestinationHash16 = c.Layout.Hash, TeleportTo = backToCore, Label = null, Kind = 1 });
     }
     static readonly int[] Effects = [406, 209, 3101, 4995, 6446, 8479, 1490, 8480, 8546, 5573, 5574, 5606, 5607, 8878];
     static readonly Store<InstanceState, Fight> Fights = new();
@@ -196,17 +199,24 @@ public static class DepravedTrinity
     }
     public static (int X, int Y)? Landing(Player c) => c.Layout.Level?.RoomObjects.FirstOrDefault(o =>
         o.Type == "Metadata/Terrain/Act9/Area10Level2/Objects/UnholyTrioLootLocator") is { } point ? c.Layout.Near((point.X, point.Y)) : null;
-    public static void CarryLoot(Player c, (int X, int Y) from, (int X, int Y) to)
+    public static async Task CarryLoot(Player c, (int X, int Y) from, (int X, int Y) to)
     {
         var ground = c.Instance.Ground;
         foreach (var (id, item) in ground.Within(from.X, from.Y, 160, _ => true))
         {
-            // Take checks the exact object atomically: a concurrent pickup wins rather than being restored or duplicated.
-            // Private quest items keep their ownership and place. Existing drops move silently, not as new filter events.
-            if (!ground.Origin(id).Shared || ground.Take(id, item) is null) continue;
-            double scale = Math.Min(1, 18 / Math.Max(1, Distance((item.GridX, item.GridY), from)));
-            var at = c.Layout.Near((to.X + (int)((item.GridX - from.X) * scale), to.Y + (int)((item.GridY - from.Y) * scale)));
-            ground.Add(item with { GridX = at.X, GridY = at.Y }, null, shared: true, justDropped: false);
+            // Match the original object so a competing pickup can take it only once.
+            var (owner, shared) = ground.Origin(id);
+            if (!shared || ground.Take(id, item) is null) continue;
+
+            double scale = Math.Min(1, 6 / Math.Max(1, Distance((item.GridX, item.GridY), from)));
+            int x = to.X + (int)((item.GridX - from.X) * scale);
+            int y = to.Y + (int)((item.GridY - from.Y) * scale);
+            if (!c.Layout.WalkableFor(x, y, 1)) (x, y) = to;
+
+            var relocated = item with { GridX = x, GridY = y };
+            uint newId = ground.Add(relocated, owner, shared: true, justDropped: false);
+            await SendWorldRemoval(c, id, $"[Rotting Core] removed carried item 0x{id:x}");
+            await SendGroundItem(c, newId, relocated, $"[Rotting Core] carried item 0x{newId:x} to ({x}, {y})");
         }
     }
     public static List<uint> RetireCreatures(Player c)
@@ -309,9 +319,14 @@ public static class DepravedTrinity
                     await SendWorldRemoval(c, id, "[Rotting Core] encounter creature retired");
             }
         }
-        var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
-        if (p.Value is null) return;
-        var f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        // Take the fight while its own boss is still in the area; otherwise search for the boss as before, and
+        // step nothing when the area has none.
+        if (!Fights.TryGetValue(c.Instance, out var f) || !f.BossIn(c.Area))
+        {
+            var p = c.Area.Monsters.FirstOrDefault(m => IsBoss(m.Value.Variety));
+            if (p.Value is null) return;
+            f = Fights.GetValue(c.Instance, _ => new(p.Key, p.Value, c));
+        }
         await f.Gate.WaitAsync();
         try { await f.Bind(c); if (IsMonsterRunner(c)) await f.Step(c, AreaTime(c)); }
         finally { f.Gate.Release(); }
@@ -335,6 +350,7 @@ public static class DepravedTrinity
     public sealed class Fight
     {
         public readonly SemaphoreSlim Gate = new(1);
+        public bool BossIn(GameArea a) => a.Monsters.TryGetValue(id, out var m) && ReferenceEquals(m, boss);
         public bool Stopped;
         readonly uint id; readonly SpawnedMonster boss;
         readonly GameArea area;
@@ -420,7 +436,7 @@ public static class DepravedTrinity
                 { await Fx(c, centre, Art + "blood_vortex/rig.ao", now + 8); evacuationAt = now + 2.5; }
                 if (!returned && now >= evacuationAt && Landing(c) is { } landing)
                 {
-                    CarryLoot(c, centre, landing);
+                    await CarryLoot(c, centre, landing);
                     returned = true;
                     foreach (var p in Present.Where(p => p.PlayerLife > 0 && Distance(p.Walk.Position(now), centre) < 160).ToArray())
                         await BloodReturn(p, now);

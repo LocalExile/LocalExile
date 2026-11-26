@@ -28,7 +28,8 @@ public static partial class Game
         var lifeReservation = LifeReservationForConditions(player, activeItems, out reservationSnapshot);
         long manaRequired = (long)AuraCatalog.RequiredMana(player.Pools, player.Auras.Values)
             + PetrifiedBlood.RequiredMana(player.Pools, player.PetrifiedBlood)
-            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false);
+            + PlacedSkills.Reserved(player.Pools, player.Placed.All.Values, false)
+            + CooldownTriggerReservation(player, life: false);
         int manaReserved = (int)Math.Min(player.Pools.Mana, Math.Min(int.MaxValue, manaRequired));
         var lowLifeSources = SelfCurseConditionInputs(player, activeItems, conditionTime: now);
         bool lowLife = alive && CriticalOnLowLife(player, lowLifeSources);
@@ -225,7 +226,8 @@ public static partial class Game
     // Each entry needs a production Record call; the slice that adds an event's recorder adds it here, never earlier.
     public static readonly IReadOnlySet<string> TrackedItemRecentEvents = new HashSet<string>(TrackedCurseCastEvents())
     {
-        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.Crit, StatConditions.BeenHit,
+        StatConditions.HitEnemy, StatConditions.KilledEnemy, StatConditions.KilledCursedEnemy,
+        StatConditions.Crit, StatConditions.BeenHit,
         StatConditions.Blocked, StatConditions.BlockedAttack, StatConditions.BlockedSpell,
         StatConditions.SuppressedSpell, StatConditions.TakenSavageHit, StatConditions.BeenStunned,
         StatConditions.BeenFrozen,

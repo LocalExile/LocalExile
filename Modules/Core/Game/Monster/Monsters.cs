@@ -21,6 +21,18 @@ public static partial class Game
     static int NativeMonsterStat(IReadOnlyDictionary<uint, int>? stats, uint key) =>
         stats is not null ? stats.GetValueOrDefault(key) : 0;
 
+    /// <summary>The distance (cells) at which a monster first notices a player: its variety's MinAgroRange when that
+    /// is a real notice distance (0 &lt; Min &lt;= the monster's AggroRange), else its AggroRange. Official captures: zombies
+    /// with a MinAgroRange of 40 first move towards the player at 36.6-39.9 cells.</summary>
+    public static int MonsterNoticeRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? min : m.AggroRange;
+
+    /// <summary>The player distance (cells) past which a chasing monster lets go: its AggroRange (MaxAgroRange) when
+    /// its variety has a real notice distance, else twice its AggroRange. Official captures: no chase is re-issued past
+    /// MaxAgroRange (106-108 cells).</summary>
+    public static int MonsterLeashRange(SpawnedMonster m) =>
+        m.Variety is { MinAgroRange: > 0 and var min } && min <= m.AggroRange ? m.AggroRange : 2 * m.AggroRange;
+
     /// <summary>Ranged spell engagement reach in cells: scales a 60-cell base by native
     /// <c>spell_maximum_action_distance_+%</c> and caps unmodified spells to on-screen range (40 cells for projectiles
     /// like bow monsters, 28 cells for non-projectile area spells like BatScreech), instead of firing across the full
@@ -310,13 +322,50 @@ public static partial class Game
             extraMods, scripted, ownedLooks, extraKit: null, ownedAdmission, ownedInitialDeath, placement, lifePercent,
             movement, attachTo, instanceOwned, bulk, nonBlocking);
 
-    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level)
+    // Keep the signature used by mods built before shape, currentAction and noBodyUntilReleased.
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, string? name, bool friendly, bool log, uint? damagedLife,
+        MonsterModSet? mods, bool alone, bool? unrisen, float rotation,
+        IReadOnlyList<(uint Key, int Value)>? extraStats, Action<uint, SpawnedMonster>? owned, Func<bool>? ownedCurrent,
+        IReadOnlyList<GrantedSkill>? ownedSkills, uint? ownedMaximumLife, uint ownedMaximumEnergyShield, uint ownedEnergyShield,
+        MonsterModSet? extraMods, bool scripted, IReadOnlyList<VisibleItem>? ownedLooks, IReadOnlyList<MonsterKitSkill>? extraKit,
+        Func<bool>? ownedAdmission, bool ownedInitialDeath, MonsterPlacement placement, int? lifePercent, MonsterMovement? movement,
+        (uint Parent, string Bone, byte Kind, byte Flags)? attachTo, bool instanceOwned, bool bulk, bool nonBlocking) =>
+        SpawnMonster(player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen, rotation,
+            extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield, ownedEnergyShield,
+            extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement, lifePercent,
+            movement, attachTo, instanceOwned, bulk, nonBlocking, shape: null);
+
+    // The area's type set is shared. Every existing viewer needs the registration before
+    // an ordinary spawn or a restored summon publishes a create using that type.
+    static async Task EnsureMonsterTypeSent(Player player, MonsterCatalog.Variety variety, byte level,
+        Func<bool>? ownedCurrent = null)
     {
         if (player.MonsterTypes.Contains((variety.Row, level))) return;
-        await Send(player, [], $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})", atGate: () =>
-            CurrentGameWork && !player.Closed && !player.LeavingArea
-                && player.MonsterTypes.Add((variety.Row, level))
-                ? InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]) : null);
+        string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
+        if (player.Area.Owned)
+        {
+            if (CurrentGameWork && !player.Closed && !player.LeavingArea
+                && (ownedCurrent is null || ownedCurrent()))
+                await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
+        }
+        else
+        {
+            byte[]? typeBytes = null;
+            await Send(player, [], typeLog, atGate: () =>
+            {
+                if (!CurrentGameWork || player.Closed || player.LeavingArea
+                    || (ownedCurrent is not null && !ownedCurrent())
+                    || !player.MonsterTypes.Add((variety.Row, level)))
+                    return null;
+                typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
+                return typeBytes.ToArray();
+            });
+            if (typeBytes is not null)
+                foreach (var peer in player.Frames.Players())
+                    if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
+                        await Send(peer, typeBytes.ToArray(), typeLog);
+        }
     }
 
     public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
@@ -332,11 +381,55 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false) =>
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null) =>
         SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
             rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
             ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
-            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking);
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape);
+
+    /// <summary>The same, for a monster created running a client action (<see cref="MonsterObject.CurrentAction"/>) and optionally
+    /// held non-blocking on the server until released. A separate overload so the primary signature stays binary-compatible with compiled mods.</summary>
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, ActorAction? currentAction, bool noBodyUntilReleased = false,
+        string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
+        IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
+        uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        bool bulk = false, bool nonBlocking = false, Func<MonsterObject, MonsterObject>? shape = null) =>
+        SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
+            rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
+            ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape, ownedBaseData: null,
+            currentAction: currentAction, noBodyUntilReleased: noBodyUntilReleased);
+
+    /// <summary>The same, for an owned object whose create carries base data (owner, the object it came from, itself) and object
+    /// flag 0x02, as the official servers' minions. A separate overload: the one above keeps its signature for compiled mods.</summary>
+    public static Task<uint> SpawnMonster(Player player, MonsterCatalog.Variety variety,
+        byte level, MonsterRarity rarity, int x, int y, Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData,
+        string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
+        MonsterModSet? mods = null, bool alone = true, bool? unrisen = null, float rotation = 0,
+        IReadOnlyList<(uint Key, int Value)>? extraStats = null, Action<uint, SpawnedMonster>? owned = null, Func<bool>? ownedCurrent = null,
+        IReadOnlyList<GrantedSkill>? ownedSkills = null,
+        uint? ownedMaximumLife = null, uint ownedMaximumEnergyShield = 0,
+        uint ownedEnergyShield = 0,
+        MonsterModSet? extraMods = null, bool scripted = false, IReadOnlyList<VisibleItem>? ownedLooks = null, IReadOnlyList<MonsterKitSkill>? extraKit = null,
+        Func<bool>? ownedAdmission = null, bool ownedInitialDeath = false,
+        MonsterPlacement placement = MonsterPlacement.Proposed, int? lifePercent = null,
+        MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
+        bool bulk = false, bool nonBlocking = false, Func<MonsterObject, MonsterObject>? shape = null) =>
+        SpawnPackMonster(0, player, variety, level, rarity, x, y, name, friendly, log, damagedLife, mods, alone, unrisen,
+            rotation, extraStats, owned, ownedCurrent, ownedSkills, ownedMaximumLife, ownedMaximumEnergyShield,
+            ownedEnergyShield, extraMods, scripted, ownedLooks, extraKit, ownedAdmission, ownedInitialDeath, placement,
+            lifePercent, movement, attachTo, instanceOwned, bulk, nonBlocking, shape, ownedBaseData);
 
     static async Task<uint> SpawnPackMonster(int packId, Player player, MonsterCatalog.Variety variety,
         byte level, MonsterRarity rarity, int x, int y, string? name = null, bool friendly = false, bool log = true, uint? damagedLife = null,
@@ -351,8 +444,20 @@ public static partial class Game
         MonsterMovement? movement = null, (uint Parent, string Bone, byte Kind, byte Flags)? attachTo = null, bool instanceOwned = false,
         // An area's population (PopulateArea) is created in bulk: its create carries the wake and its glow, and the
         // producer does not wait for the birth, which on a lockstep client is a frame per monster.
-        bool bulk = false, bool nonBlocking = false)
+        bool bulk = false, bool nonBlocking = false,
+        // The create's own shape where its variety's row does not say (a mercenary's team, states and build); it is what the
+        // instance keeps for a later player too.
+        Func<MonsterObject, MonsterObject>? shape = null,
+        Func<uint, IReadOnlyList<(uint Key, byte Kind, uint Value)>>? ownedBaseData = null,
+        // The action the client creates the monster running (MonsterObject.CurrentAction): in its create, and in the create a
+        // client that joins later gets, until the caller changes the instance's record (MonsterOrigins).
+        ActorAction? currentAction = null,
+        // No body on the server (no living collision: SpawnedMonster.NonBlocking) until the caller sets NonBlocking false;
+        // unlike nonBlocking the client keeps the type's blocking, for a monster whose client action holds its collision.
+        bool noBodyUntilReleased = false)
     {
+        // Flag 0x02 wakes the object in its create, which only the owned branch sends that way; the other one wakes it separately.
+        if (ownedBaseData is not null && owned is null) throw new ArgumentException("base data needs an owned spawn", nameof(ownedBaseData));
         movement ??= MonsterMovement.Default;
         // A hostile unique (a Rogue Exile, a kept one too) holds the weapons its variety names, as Izaro's are given.
         if (ownedLooks is null && !friendly && rarity == MonsterRarity.Unique && variety.Weapons.Count > 0) ownedLooks = variety.Weapons;
@@ -363,7 +468,15 @@ public static partial class Game
         // them under the same id, and whoever runs the instance next keeps them (SharedMonsters.cs).
         id = !friendly || instanceOwned ? player.Instance.World.NewMonsterId() : player.TakeObjectId();
         int bodySize = Math.Clamp(variety.ObjectSize - 1, -1, 127);
-        if (placement == MonsterPlacement.Proposed && bodySize >= 0)
+        // Kitava's immobile body stands in the pit. Its model and model-space contact tracks share the room point.
+        var kitava = friendly ? null : player.Layout.Id switch
+        {
+            KitavaActTen.Area when KitavaActTen.IsBody(variety) => KitavaActTen.FixedAnchor(player),
+            KitavaActFive.Area when KitavaActFive.IsBody(variety) => KitavaActFive.FixedAnchor(player),
+            _ => null,
+        };
+        if (kitava is { }) (x, y, rotation) = (kitava.X, kitava.Y, kitava.Angle);
+        else if (placement == MonsterPlacement.Proposed && bodySize >= 0)
         {
             bool Floor(int cx, int cy) => player.Layout.WalkableFor(cx, cy, bodySize) && !player.Barrier.Contains((cx, cy));
             if (CollisionEscape.Find((x, y), player.Layout.GridW, player.Layout.GridH, Floor,
@@ -400,9 +513,6 @@ public static partial class Game
         if (extraMods is not null) mods = mods with { Effects = mods.Effects.Plus(extraMods.Effects) };
         if (!friendly && MapModsOf(player) is { } mapMods && MapMonsterEffects(mapMods) is { Count: > 0 } mapStats)
             mods = mods with { Effects = mods.Effects.Combine(mapStats) };
-        // The party bonus (Game.PartyBonus): each player beyond the first adds to the monsters' life by their rarity.
-        if (!friendly && PartyMonsterLife(player, rarity) is int party and > 0)
-            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = party }) };
         // Full life: the client derives the base from the level (MonsterCatalog.BaseLife); the mods' maximum goes on its Stats.
         // A unique map boss also has the map's and the map-boss table's life and damage increases (MonsterMapBossDifficulty
         // and MonsterMapDifficulty): level 83 is 20.73× life, 1.15× damage.
@@ -413,6 +523,13 @@ public static partial class Game
         var mapBossScaling = mapBoss ? Monsters.MapBossScaling(level) : (Life: 1.0, Damage: 1.0);
         int baseLife = Monsters.BaseLife(variety, level) ?? 100;
         if (mapBoss) baseLife = (int)Math.Round(baseLife * mapBossScaling.Life);
+        // Corpse damage that uses unscaled life keeps the spawn's solo value even if party membership changes.
+        uint? lifeWithoutParty = null;
+        if (!friendly && PartyMonsterLife(player, rarity) is int party and > 0)
+        {
+            lifeWithoutParty = (uint)mods.Effects.MaxLife(baseLife, level);
+            mods = mods with { Effects = mods.Effects.Combine(new Dictionary<uint, int> { [Stat.MaximumLifePlusPct] = party }) };
+        }
         uint life = (uint)mods.Effects.MaxLife(baseLife, level);
         if (ownedMaximumLife is uint ownLife) life = ownLife;
         // A part of its full life (Izaro's later Aspirant's Trials start with what the earlier ones left).
@@ -623,15 +740,19 @@ public static partial class Game
         var monster = new MonsterObject(x, y, wireLife, variety.ComponentsOrBase, ao, rarity, name, states, BossKits.StartState(variety, SolarisLunaris.StartState(player, variety, MonsterEmerge.CreateState(variety, emerge, waits))), team,
             skills, stats)
         {
-            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
+            // An owned object's create names its owner, what it came from and itself, with object flag 0x02 (MonsterObject.BaseData).
+            BaseData = ownedBaseData?.Invoke(id) ?? [], ObjectFlags = ownedBaseData is null ? (byte)0 : (byte)0x02,
+            Mods = mods.Mods, NameWords = mods.NameWords, LifeData = variety.LifeData, Chain = variety.Chain, Rotation = rotation, Equipped = ownedLooks ?? variety.Weapons,
             EnergyShield = energyShieldValue,
             ActorStance = Arakaali.Stance(player, variety),
             AnimationSeed = animationSeed,
             HasDialogue = waitingForBanditChoice,
             Blocking = !nonBlocking && variety.PositionedBlocking,
+            CurrentAction = currentAction,
             Parent = attachTo?.Parent ?? 0, Bone = attachTo?.Bone ?? "<root>",
             AttachKind = attachTo?.Kind ?? EffectObject.AttachWithoutRotation, AttachFlags = attachTo?.Flags ?? 0,
         };
+        if (shape is not null) monster = shape(monster);
         // A monster type needs a level: 0x20 registers "<Id>@<level>" (once per connection), the 0x2bb type is its hash.
         if (QuestKillCommitOutput is { } output)
             output.Add(new([], "quest phase monster type", Kind: PlayerMinions.OutputKind.MonsterType,
@@ -642,33 +763,7 @@ public static partial class Game
             // for the combat lock stalled the next cast behind the monster AI, 297 ms on one spawn (live 2026-11-17).
             // In the area's frame, register via Area.Delta (Kind.Message, WorldOrder.First) so every party member
             // receives 0x0020 before the 0x02bb create (WorldOrder.Last) in the same frame.
-            if (!player.MonsterTypes.Contains((variety.Row, level)))
-            {
-                string typeLog = $"0x0020 monster type {variety.Id}@{level} (row {variety.Row})";
-                if (player.Area.Owned)
-                {
-                    if (CurrentGameWork && !player.Closed && !player.LeavingArea
-                        && (ownedCurrent is null || ownedCurrent()))
-                        await RegisterMonsterType(player, (ushort)variety.Row, level, typeLog);
-                }
-                else
-                {
-                    byte[]? typeBytes = null;
-                    await Send(player, [], typeLog, atGate: () =>
-                    {
-                        if (!CurrentGameWork || player.Closed || player.LeavingArea
-                            || (ownedCurrent is not null && !ownedCurrent())
-                            || !player.MonsterTypes.Add((variety.Row, level)))
-                            return null;
-                        typeBytes = InstanceEntities.MonsterTypes([((ushort)variety.Row, level)]);
-                        return typeBytes.ToArray();
-                    });
-                    if (typeBytes is not null)
-                        foreach (var peer in player.Frames.Players())
-                            if (!ReferenceEquals(peer, player) && !peer.Closed && !peer.LeavingArea)
-                                await Send(peer, typeBytes.ToArray(), typeLog);
-                }
-            }
+            await EnsureMonsterTypeSent(player, variety, level, ownedCurrent);
         }
         uint type = InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level));
         // The client multiplies this monster's pathing speed by its own roll in the variety's range, drawn from [id, type]
@@ -692,7 +787,7 @@ public static partial class Game
                     AddMonsterLocked(); admitted = true;
                     return create;
                 }
-            }, createLog, wake: true,
+            }, createLog, wake: (monster.ObjectFlags & 0x02) == 0,   // flag 0x02 wakes it itself (CreateInWakeZone)
                 afterCreation: initialDeath ? () => [InstanceProtocol.LifeUpdate(id, 0)] : null);
             if (!admitted) return 0;
         }
@@ -739,14 +834,15 @@ public static partial class Game
                 variety.AggroRange, Math.Max(2, variety.ObjectSize + 1), life)
             {
                 PackId = packId,
+                MaxLifeWithoutParty = lifeWithoutParty,
                 SpawnAnchor = (x, y),
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
                 Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
-                NonBlocking = nonBlocking,
-                Life = initialLife, Stage = stageSkill is null ? null : stage, States = states,
+                NonBlocking = nonBlocking || noBodyUntilReleased,
+                Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
                 HitAnimations = Monsters.TakeHit(variety.Id), Mods = mods, SpeedRoll = speedRoll,
                 Threshold = QuestsOf(player).ThresholdOf(player.Layout.Id, variety.Id),
                 CannotBeStunned = !friendly && (KingInMists.IsBoss(variety) || scripted || atlas),
@@ -1118,7 +1214,7 @@ public static partial class Game
                     Player? reaggroTarget = null;
                     if (homeDist <= reaggroAnchorCap)
                     {
-                        double bestDist = m.AggroRange;
+                        double bestDist = MonsterNoticeRange(m);
                         foreach (var peer in player.Frames.Players())
                         {
                             if (peer.Closed || peer.LeavingArea || peer.PlayerLife == 0 || InGracePeriod(peer)) continue;
@@ -1176,7 +1272,7 @@ public static partial class Game
                     if (chosen?.SkillId != m.Attack?.SkillId) m.ClientChase = null;
                     m.Attack = chosen;
                 }
-                if (!m.Aggro && d <= m.AggroRange)
+                if (!m.Aggro && d <= MonsterNoticeRange(m))
                 {
                     m.Aggro = true;
                     m.ReturningHome = false;
@@ -1190,10 +1286,10 @@ public static partial class Game
                     plan.BossBars.Add((id, m));
                 }
                 // A flee walk is not cut short. A minion or temporary ally keeps its own target policy.
-                // Retail leash: break pursuit when the player pulls beyond 2 × AggroRange OR when an ordinary monster is
-                // dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
+                // Retail leash: break pursuit when the player pulls beyond MonsterLeashRange OR when an ordinary monster
+                // is dragged beyond 2 × AggroRange from its SpawnAnchor, then walk back to SpawnAnchor.
                 else if (decoy is null && m.Aggro && !m.Fleeing && !player.Minions.Owns(id) && !m.TemporarilyAllied
-                    && (d > 2 * m.AggroRange || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
+                    && (d > MonsterLeashRange(m) || (CanLeashReturn(player, id, m) && Dist((mx, my), m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange))))
                 {
                     m.Aggro = false;
                     m.Target = null;
@@ -2369,7 +2465,7 @@ public static partial class Game
             await MonsterContact(player, id, m, action, begunSeq, a);
             return false;
         }
-        // Its attack time now: a chill slows it by its action speed, Devout of Gruthkul by the player's attacker slow.
+        // Its attack time now: a chill slows it by its action speed, Soul of Gruthkul's upgrade by the player's attacker slow.
         // A King skill carries its own cast time. Predictive keeps its existing sequence selection;
         // lockstep assigns the actor's sequence when the send gate admits the action below.
         double seconds;
@@ -2419,6 +2515,13 @@ public static partial class Game
             ? (a.Summon is not null ? $"0x01d1 monster 0x{id:x} ({m.Label}) summons, cast time {seconds:0.00} s"
                 : $"0x01ab monster 0x{id:x} ({m.Label}) attacks the player with {(a.Effect is int used ? SkillsFor(player).EffectId(used) : null) ?? "its attack"} 0x{a.SkillId:x4}, attack time {seconds:0.00} s")
             : null)) return false;
+        if (a.Summon is null && BossKits.EffectOf(m, a) is int channelEffect && SkillsFor(player).IsChannelled(channelEffect))
+        {
+            double remaining = Math.Max(0, startedAt + seconds - AreaTime(player));
+            SendAfter(player, remaining, () => MonsterActionCurrent(player, id, m, action)
+                ? SendWorldRecord(player, id, InstanceProtocol.ChannelFinished(id, seq), $"0x01ae monster 0x{id:x} channel 0x{seq:x4} ended")
+                : Task.CompletedTask);
+        }
 // A clip-only action (a dev command's NoContact) lands nothing: its hit or area belongs to the caller, which
         // sends it on its own clock. A zero-damage contact here would only play the clip's hit effect.
         if (a.NoContact) return true;
@@ -2892,6 +2995,8 @@ public static partial class Game
             || StatOf(Stat.BaseCannotEvade) != 0 || StatOf(Stat.MapCannotEvade) != 0;
         if (attackHit && !cannotEvade && StatOf(Stat.ChanceToEvadeAttacksPct) is int additionalEvade and not 0)
             hitChance = (int)Math.Clamp((long)hitChance - additionalEvade, 5L, 100L);
+        if (attackHit && !cannotEvade && StatOf(Stat.KeystoneWindDancer) != 0 && player.RecentEvents.Happened(EnemyAttackHit, now))
+            hitChance = Math.Max(5, 100 - (100 - hitChance) * 110 / 100);
         if (attackHit && EvadesLocked(player, hitChance, now))
         {
             if (ServerTrace.Combat)
@@ -2902,22 +3007,24 @@ public static partial class Game
         GainLifeBeforeEnemyHitLocked(player, stats);
         // Roll the whole monster-mod packet (the Gambler's incoming luck included), then mitigate each component
         // with this hit's one armour decision.
-        var gambler = GamblerFor(stats);
+        var hitRolls = HitRollsFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
         var hitDamage = a.Damage;
         if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);
         foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
-        var suppression = spellHit ? Suppression(player) : default;
+        var map = MapModsOf(player);
+        var suppression = spellHit && (map?.Get(Stat.MapPlayerCannotSuppressSpellDamage) ?? 0) == 0
+            ? Suppression(player) : default;
         bool RollSuppression() => spellHit && suppression.Chance > 0
             && DamageModel.Suppresses(suppression.Chance, player.IncomingHitRandom.Next(100), suppression.Lucky, suppression.Unlucky);
         // Vaal Grace needs the suppression outcome before rolling the damage. Other hits keep their ordinary roll order.
         bool suppressionChangesRoll = spellHit && StatOf(Stat.DamageTakenFromSuppressedHitsIsUnlucky) != 0;
         bool suppressed = suppressionChangesRoll && RollSuppression();
-        if (suppressed && gambler.EnemyDamageExtraRolls >= 0)
-            gambler = gambler with { EnemyDamageExtraRolls = gambler.EnemyDamageExtraRolls - 1 };
-        var rolled = gambler.RollIncomingHit(hitDamage, player.IncomingHitRandom);
+        if (suppressed && hitRolls.EnemyDamageExtraRolls >= 0)
+            hitRolls = hitRolls with { EnemyDamageExtraRolls = hitRolls.EnemyDamageExtraRolls - 1 };
+        var rolled = hitRolls.RollIncomingHit(hitDamage, player.IncomingHitRandom);
         int baseCritPermyriad = a.Secondary ? 0
             : spellHit ? (a.Effect is int eff ? SkillsFor(player).SpellCritChance(eff, m.Level) ?? 0 : 0)
             : MonsterBaseCritChancePermyriad;
@@ -2927,13 +3034,14 @@ public static partial class Game
             // Overwhelm's aura lowers the multiplier of a monster in it: -30 base_critical_strike_multiplier_+.
             extraCriticalMultiplier: () => EnemyAuraStatLocked(player, m, here, now, Stat.BaseCriticalStrikeMultiplierPlus),
             baseCritPermyriad: baseCritPermyriad);   // its crit, Frenzy charges, Executioner's
-        // The player's passive enemy auras (Born under Fire): the hit and its ailment base convert alike, so ignite
+        // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
         var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
-        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now);
+        double lessened = m.Ailments.ChillDamageDealtFactor(now) * SappedDamageFactor(m, now)
+            * SigilEnemyDamageFactor(player, m, now);
         if (lessened < 1) (rolled, baseHit) = (rolled.Scale(lessened), baseHit.Scale(lessened));
         // Damage taken as shifts the hit's types before any mitigation. Chill, freeze and shock read the shifted damage
         // taken; ignite still reads the damage dealt (baseHit), as the wiki's Damage taken as says.
@@ -2947,7 +3055,7 @@ public static partial class Game
             projectile, projectile && player.RecentEvents.Happened(TakenProjectileDamage, now));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
         int elemPen = Math.Max(0, m.Effects[Stat.ReduceEnemyElementalResistancePct]);
-        var mitigated = gambler.MitigateIncomingHit(taken, type =>
+        var mitigated = hitRolls.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(player, type), MaxResistance(player, type),
                 Penetration: type is DamageType.Fire or DamageType.Cold or DamageType.Lightning ? elemPen : 0), player.IncomingHitRandom);
         var immune = PlayerImmunities(player, stats);
@@ -2956,6 +3064,9 @@ public static partial class Game
         int blockChance = a.Spell ? player.Pools.SpellBlockChance : player.Pools.BlockChance;
         if (projectile)
             blockChance = stats.GetValueOrDefault(a.Spell ? Stat.SpellProjectileBlockPct : Stat.ProjectileAttackBlockPct, blockChance);
+        if (map is not null && (map.Get(Stat.MapPlayerCannotBlock) != 0
+            || map.Get(a.Spell ? Stat.MapPlayerCannotBlockSpells : Stat.MapPlayerCannotBlockAttacks) != 0))
+            blockChance = 0;
         bool blocked = !a.Secondary && DamageModel.Blocks(blockChance,
             player.IncomingHitRandom.NextDouble() * 100, a.Spell ? player.Pools.SpellBlockLucky : player.Pools.AttackBlockLucky,
             a.Spell ? player.Pools.SpellBlockUnlucky : player.Pools.AttackBlockUnlucky);
@@ -2965,7 +3076,8 @@ public static partial class Game
         int rawDamage = (int)Math.Round(taken[DamageType.Physical].Min);
         int damage = 0, chaosDamage = 0, physicalDamage = 0;
         var ailmentTaken = DamagePacket.Empty;
-        int sourceTakenPct = DamageTakenFromBlindedPct(player, id, stats) + DamageTakenFromMonster(m, stats);
+        int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
+            + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -2974,6 +3086,7 @@ public static partial class Game
         bool halfAreaDamage = isAreaHit && StatOf(Stat.TakeHalfAreaDamageFromHitPctChance) is int halfAreaChance and > 0
             && GameServer.Core.World.RandomRolls.Chance(halfAreaChance, 100, player.IncomingHitRandom);
         double reservationFactor = ReservationHitTakenFactor(player, m, now);
+        double windDancer = WindDancerHitFactor(player, attackHit, now, stats);
         foreach (var (type, range) in mitigated.Components)
         {
             int value = immune.Contains(type) ? 0 : (int)Math.Round(range.Min);
@@ -2986,11 +3099,11 @@ public static partial class Game
             // unless ranged.
             if (!immune.Contains(type)) value = Math.Max(0, value + PlayerDamageTaken.Flat(type, attack: attackHit, StatOf));
             if (type == DamageType.Physical)
-                value = AntiquarianEffects.RangedPhysical(value, a.Ranged, StatOf);
+                value = WardBreakEffects.RangedPhysical(value, a.Ranged, StatOf);
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
-                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now)
+                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer
                 * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -3022,15 +3135,27 @@ public static partial class Game
         // Untiring: avoidance, suppression and what a block keeps out count as prevented; damage taken as another type does not.
         PreventedDamageOf(player).Add(now, shifted[DamageType.Physical].Min - physicalDamage);
         if (!blocked) m.HitPlayerAt = now;
+        if (m.Hostile && damage > 0 && HasFrostShieldZones(player))
+        {
+            int kept = AbsorbFrostShield(player, player.Walk.Position(now), m.Walk.Position(now), damage, now);
+            chaosDamage = (int)((long)chaosDamage * kept / damage);
+            physicalDamage = (int)((long)physicalDamage * kept / damage);
+            damage = kept;
+        }
         uint manaBefore = player.PlayerMana;
         if (blocked) RecoverOnBlockLocked(player, stats, now, attackHit);
         // A blocked hit recoups the share it deals (ailmentTaken holds it).
         RecoupHitLocked(player, ailmentTaken.Select((_, r) =>
             new(FortificationDamageTakenLocked(player, (int)r.Min, now, stats), FortificationDamageTakenLocked(player, (int)r.Max, now, stats))), now, stats);
         long lifeBefore = player.PlayerLife;
-        int lifeDamage = DamagePlayerHitTyped(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage, now, stats,
-            ailmentTaken);
+        int lifeDamage = DamagePlayerHitFrom(player, physicalDamage, Math.Max(0, damage - physicalDamage - chaosDamage), chaosDamage,
+            now, stats, ailmentTaken, attacker: id);
         player.PlayerLife = (uint)Math.Max(0, lifeBefore - lifeDamage);
+        if (!blocked)
+        {
+            ApplyEqualisingHitLocked(player, m);
+            if (player.PlayerLife > 0) QueueMonsterFlaskChargeLossLocked(player, m);
+        }
         TrimLeechLocked(player);
         var incomingAilments = MergeMonsterModAilments(a.Ailments, m.Effects);
         ApplyPlayerAilmentsLocked(player, baseHit, ailmentTaken.Select((_, r) =>
@@ -3051,7 +3176,8 @@ public static partial class Game
             long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
-        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile);
+        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
+            projectile: projectile, attack: attackHit);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
@@ -3063,7 +3189,7 @@ public static partial class Game
             InflictMonsterBlind(player, id, m, now, (blindAttackerChance, StatOf(Stat.BlindEffectPlusPct), BlindSeconds(StatOf)),
                 AreaRng(player));
         ReservationWhenHitLocked(player, id, m, blocked, now);
-        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearAntiquarianOnDeath(player); }
+        if (player.PlayerLife == 0) { ClearIncomingHitTriggers(player); player.InvalidateIncomingHits(); ClearWardBreakOnDeath(player); }
         RecordHardcoreDeath(player);
         bool spirit = m.Rarity == MonsterRarity.Unique
             && SpiritChieftainsWhenHitLocked(player, stats, blocked, monsterCritical, Math.Max(0, lifeBefore - player.PlayerLife));
@@ -3079,7 +3205,7 @@ public static partial class Game
             if (alwaysStun || AreaRng(player).NextDouble() * 100 < PlayerHitRecovery.Chance(stunCheckDamage, player.PlayerMaxLife, StatOf))
                 player.LastStunnedOrBlockedStunAt = now;
         }
-        else if (AntiquarianEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
+        else if (WardBreakEffects.StunRecoverySource is var turtle && stats.GetValueOrDefault(turtle) > 0)
             Console.WriteLine($"[gateway] Turtle Shell hit ineligible: block={blocked}, ranged={a.Ranged}, "
                 + $"alive={player.PlayerLife > 0}, types={string.Join(',', a.Damage.Components.Select(c => c.Type))}");
         if (recovery is not null && StatOf(Stat.DamageTakenPctRecoveredAsLifeFromStunningHits) is > 0 and var recoverPct
@@ -3089,6 +3215,8 @@ public static partial class Game
             player.PlayerLife = PetrifiedBlood.RecoverLife(player, player.PlayerLife, (long)damage * recoverPct / 100, ref carry);
             TrimLeechLocked(player);
         }
+        if (!blocked && player.PlayerLife > 0)
+            IncomingImpaleContactLocked(player, id, m, attackHit, rolled[DamageType.Physical].Min, now, here, stats);
         uint life = player.PlayerLife;
         RageWhenHitLocked(player);
         if (!blocked && player.PlayerLife > 0 && m.Effects[Stat.GlobalChanceToBlindOnHitPct] is > 0 and var blindChance
@@ -3109,15 +3237,18 @@ public static partial class Game
 
     static PlayerElementalAilments.HitSettings MergeMonsterModAilments(PlayerElementalAilments.HitSettings skill, MonsterModEffects e)
     {
-        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : 0;
-        int freeze = Math.Max(0, e[Stat.BaseChanceToFreezePct]);
-        int shock = e[Stat.AlwaysShock] > 0 ? 100 : 0;
-        if (ignite == 0 && freeze == 0 && shock == 0) return skill;
+        int ignite = e[Stat.AlwaysIgnite] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToIgnitePct]);
+        int freeze = e[Stat.AlwaysFreeze] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToFreezePct]);
+        int shock = e[Stat.AlwaysShock] > 0 ? 100 : Math.Max(0, e[Stat.BaseChanceToShockPct]);
+        bool all = e[Stat.AllDamageCanIgniteFreezeShock] != 0;
         return skill with
         {
-            IgniteChance = Math.Min(100, skill.IgniteChance + ignite),
-            FreezeChance = Math.Min(100, skill.FreezeChance + freeze),
-            ShockChance = Math.Min(100, skill.ShockChance + shock),
+            IgniteChance = (int)Math.Min(100, (long)skill.IgniteChance + ignite),
+            FreezeChance = (int)Math.Min(100, (long)skill.FreezeChance + freeze),
+            ShockChance = (int)Math.Min(100, (long)skill.ShockChance + shock),
+            AllDamageCanIgnite = skill.AllDamageCanIgnite || all || e[Stat.AllDamageCanIgnite] != 0,
+            AllDamageCanFreeze = skill.AllDamageCanFreeze || all || e[Stat.AllDamageCanFreeze] != 0,
+            AllDamageCanShock = skill.AllDamageCanShock || all || e[Stat.AllDamageCanShock] != 0,
         };
     }
 
@@ -3180,7 +3311,7 @@ public static partial class Game
 
     public const uint AttackerSlow = Stat.EnemiesThatHitYouWithAttackRecentlyAttackSpeedPlusPct;
 
-    // A monster's attack time now. Devout of Gruthkul: an enemy whose attack hit the player in the last 4 s gets the
+    // A monster's attack time now. Soul of Gruthkul's upgrade: an enemy whose attack hit the player in the last 4 s gets the
     // player's current reduced attack speed (Pools.AttackerSlowPct), additive with its own increases.
     public static double MonsterSwingSeconds(Player player, SpawnedMonster m, double now)
     {

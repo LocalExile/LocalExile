@@ -114,7 +114,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Ordinary monster spells use level-scaled `GrantedEffectStatSets` elemental/chaos base damage, native cast-speed
   modifiers and cooldowns, and on-screen reach capped by `spell_maximum_action_distance_+%`.
   `MinimumAttackDistance` is not read yet.
-  A give-up beyond twice the aggro range ends the client's chase action with S→C 0x1ac before its Move (GGG's server
+  A monster notices at its MinAgroRange and gives up past its MaxAgroRange (twice the aggro range for a row
+  without a MinAgroRange); a give-up ends the client's chase action with S→C 0x1ac before its Move (GGG's server
   does the same: 925 of 1166 live give-ups carried one, 3.29 capture; a predictive client needs it, a lockstep one
   ignores it — [07](../docs/protocol/07-latency-visibility-movement.md) §11).
   Attack busy time covers the full attack duration; pending swing and stage generations prevent duplicate work.
@@ -182,11 +183,17 @@ Part of [Status](../Status.md); what to build next in this area is in
   shaped by type and client action class (rains, class radii and projectiles, grounds that burn and debuffs on the
   player: Fire Trap, Bear Trap, Desecrate, Caustic Arrow, Wither, Ensnaring Arrow, the totems' arrows and flames)); the
   map's, the Anarchy scarabs' and the Atlas wheel's stats add, pair, gigantify and make exceptional exiles, guard map
-  bosses and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items). All 71 exile
-  varieties played headless against the real client; map stats and guards not yet seen live. Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
+  bosses and strongboxes and change their drops (extra jewels; fully linked, fractured, corrupted, duplicated items).
+  Rewards follow retained world ids across players and reentry; Anarchy scarab counts and strongbox guards seen live.
+  All 71 exile varieties played headless; other map modifiers and boss guards not yet seen live.
+  Left out: Flameblast and Toxic Rain (no radius found), Desecrate's corpses, the tether's break by distance, the
   alternate-minion skills (Raise Zombie, Summon Raging Spirit, Ice Golem), Cremation's and Volatile Dead's flights;
   possessed exiles (Torment) and the special and exceptional rewards' contents are guesses or missing; the active Atlas
   preset is the last one changed.
+  Docs: [league encounters](../docs/game/league-encounters.md).
+- Bestiary: maps roll Einhar's mission from their master-mission stats; red and yellow beasts, captured at the kill.
+- Abyss: pit, crack arms, wave, reward chest per instance. [Docs](../docs/game/league-encounters.md)
+- Mercenaries: a map area may hold one to talk to, duel and hire.
   Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
@@ -237,6 +244,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Exact official AI weights remain unverified.
   Docs: [Act 9](../docs/game/campaign/act9.md).
 - Act 10 Kitava: three hearts, finale and manual Epilogue portal; allies retain visibility for later observers.
+  Kitava's Act 5 and Act 10 bodies stay at the terrain's exact boss point and keep its facing during combat.
   AI provisional ([Act 10](../docs/game/campaign/act10.md)).
 - Act 1–10 boss encounters have dedicated staged controllers (Hillock through Kitava, including Act 6–10 Pantheon gods,
   Ryslatha, Abberath, Tukohama, Shavronne/Brutus, Tolman, General Adus, Basilisk and Plaguewing) and multi-skill AI

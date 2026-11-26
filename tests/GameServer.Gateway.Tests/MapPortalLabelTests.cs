@@ -101,7 +101,11 @@ public sealed class MapPortalLabelTests
             var reef = Slot("Metadata/Items/Maps/MapWorldsReef");
             var vessel = Slot(ItemDrops.DivineVesselId);
             Assert.Null(device.Check([reef, vessel, vessel], owner, catalog.Mods, out _));
+            var legacyVessel = Slot(PantheonCatalog.DivineVesselId);
+            Assert.Null(device.Check([reef, vessel, legacyVessel], owner, catalog.Mods, out _));
+            var legacyOpening = Assert.IsType<MapDevice.Opening>(device.Check([reef, legacyVessel], owner, catalog.Mods, out _));
             var opening = Assert.IsType<MapDevice.Opening>(device.Check([reef, vessel], owner, catalog.Mods, out _));
+            Assert.Equal(legacyOpening.PantheonSoul, opening.PantheonSoul);
             Assert.Equal("MapWorldsReef", opening.Area.Id);
             var soul = Assert.IsType<PantheonCatalog.Soul>(opening.PantheonSoul);
             Assert.Equal("BrineKingUpgrade1", soul.UpgradeFlag);

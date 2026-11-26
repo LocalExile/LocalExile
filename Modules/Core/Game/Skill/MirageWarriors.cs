@@ -534,8 +534,8 @@ public static partial class Game
                 var pen = Penetration.Of(playerStats, Stats, attack: true, skillStats, local);
                 var resMods = HitResistMods(playerStats, skillStats);
                 int critMult = SupportedCriticalMultiplier(player, skillId);
-                var impale = ImpaleStats.From(playerStats, Stats, attack: true, skillStats, local);
-                var critImpale = ImpaleStats.From(playerStats, Stats, attack: true, skillStats, local, critical: true);
+                var impale = WeaponImpaleSettings(playerStats, Stats, attack: true, skillStats, weapon);
+                var critImpale = WeaponImpaleSettings(playerStats, Stats, attack: true, skillStats, weapon, critical: true);
                 bool isArea = Supports.Of(gem.Effect)?.Types.Contains(7) == true
                     || SkillsFor(player).IsChannelled(gem.Effect);
                 int radius = isArea
@@ -583,27 +583,32 @@ public static partial class Game
                     }
                 }
 
-                var gambler = GamblerFor(playerStats);
+                var hitRolls = HitRollsFor(playerStats);
                 int SkillStat(uint k) => skillStats.GetValueOrDefault(k);
+                var dualStrikeBonuses = DualStrikeBonuses.From(skillStats);
                 foreach (var (id, m, targetAt) in victims)
                 {
                     if (m.Dead || m.Life == 0) continue;
                     int hitChance = AttackHitChanceAt(player, id, m, now, accuracy, playerStats);
                     if (!accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(hitChance, now, player.AttackAccuracyRandom)) continue;
                     if (MonsterBlocks(m, AreaRng(player), spell: false, now, skillStats)) continue;
+                    var fullLifeStrike = dualStrikeBonuses.Against(m);
+                    double damageMore = fullLifeStrike.DamageMore;
+                    var contactHit = damageMore == 1 ? hitPacket : hitPacket.Scale(damageMore);
                     var rolled = WithConditionalSupportDamageLocked(player, skillStats, attack: true, m,
                         GameEvents.WithOutgoingDamage(player, playerStats, m,
-                            (gambler with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
-                                .ForWeapon(local).RollOutgoingHit(hitPacket, AreaRng(player))), now);
+                            (hitRolls with { DamageMorePct = 0 }).ForSkill(SkillStat, spell: false)
+                                .ForWeapon(local).RollOutgoingHit(contactHit, AreaRng(player))), now);
                     int critChance = CriticalChanceOn(player, id, SupportedCriticalChance(player, skillId),
                         SupportedCriticalChanceVsBlinded(player, skillId, release: false, null),
                         SupportedCriticalChanceVsGround(player, skillId, release: false, null));
-                    bool critical = RollCriticalStrike(player, critChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)
+                    bool critical = RollCriticalStrike(player, fullLifeStrike.CriticalChance(critChance), skillStats,
+                        attack: true, skillRoll: criticalRoll, playerStats: playerStats)
                         && EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom);
                     int sourceMultiplier = CriticalMultiplierWithWeapon(critMult, m, local);
                     int multiplier = CriticalMultiplierOn(m, sourceMultiplier, now, playerStats, skillStats);
                     var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: true, now, resMods, pen,
-                        gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+                        hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player));
                     if (critical) damage = DamageModel.CriticalDamage(damage, multiplier);
                     int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: false, now, damage);
                     damage = WithImpaleHitLocked(player, m, damage, rolled, critical,
@@ -620,12 +625,14 @@ public static partial class Game
                     if (!m.Invulnerable)
                     {
                         AilmentsOnHitLocked(player, id, m, mitigated, spell: false, critical, multiplier, playerStats, skillStats, now,
-                            AreaRng(player), poison: poison, sourceSkill: skillId);
+                            AreaRng(player), poison: damageMore == 1 ? poison : RepeatAilment(poison, damageMore), sourceSkill: skillId);
                         if (applied.Life > 0 && ignite.CanIgnite(rolled)
-                            && IgniteOnHitLocked(player, id, m, ignite, critical, now, playerIgnite: false) is { } ign)
+                            && IgniteOnHitLocked(player, id, m, damageMore == 1 ? ignite : RepeatAilment(ignite, damageMore),
+                                critical, now, playerIgnite: false) is { } ign)
                             dotPackets.AddRange(ign);
                         if (applied.Life > 0 && rolled[DamageType.Physical].Max > 0
-                            && BleedOnHitLocked(player, id, m, bleed, critical, now) is { } bld)
+                            && BleedOnHitLocked(player, id, m, damageMore == 1 ? bleed : RepeatAilment(bleed, damageMore),
+                                critical, now) is { } bld)
                             dotPackets.AddRange(bld);
                     }
                     if (meleeExcludedId == 0 && IsLightningStrike(gem.Effect)) meleeExcludedId = id;

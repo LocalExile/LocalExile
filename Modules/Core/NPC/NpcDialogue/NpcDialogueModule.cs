@@ -12,6 +12,9 @@ public sealed class NpcDialogueModule : IModule
         var world = WorldOf(talk.Player);
         switch (talk.Category)
         {
+            case "ManageAsyncTrade":
+                await global::Game.OpenAsyncTradeStash(talk.Player);
+                return true;
             case "SelectHideout":
                 await world.NpcClose("0x0084 close NPC dialogue for hideout selection");
                 await talk.ModPlayer.Send(InstanceWaypoints.OpenUi(InstanceNpcs.HideoutSelectionUi, talk.OpensGuildHideouts ? 1u : 0u),

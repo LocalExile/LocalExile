@@ -14,17 +14,22 @@ public static partial class Game
         if (use.LifePerUse > 0) state.Enqueue(new(FlaskEnchantments.Trigger.LifeFlask, flask.Id, (byte)slot));
         state.Packets.Add(new(InstanceItems.ItemUsed(flask.Item.TypeHash,
             PlayerInventories.InventoryId(PlayerInventories.Flask), flask.Id), $"0x0263 flask {slot} used (native use sound)"));
+        double now = AreaTime(player);
+        QueueMapFlaskMeteor(player, now);
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0070 use flask {slot} ({type.Name}): {recovery.Life:0.#} life, {recovery.Mana:0.#} mana over {recovery.Seconds:0.##} s, " +
             $"instantly {recovery.InstantLife:0.#} life, {recovery.InstantMana:0.#} mana{(recovery.ManaAtEnd > 0 ? $", {recovery.ManaAtEnd:0.#} mana at the end" : "")}" +
             $"{(recovery.RemovesLife + recovery.RemovesMana > 0 ? $", removes {recovery.RemovesLife:0.#} life, {recovery.RemovesMana:0.#} mana" : "")}" +
             $"{(recovery.ExtraLife > 0 ? $", {recovery.ExtraLife:0.#} more life over {FlaskRecovery.ExtraLifeSeconds} s" : "")}");
-        double now = AreaTime(player);
         if (use.LifePerUse > 0)
         {
             player.RecentEvents.Record(StatConditions.UsedLifeFlask, now);
         }
         ApplyMinionRecoveryFlasksLocked(player, flask.Item, (byte)slot, use, recovery, local, character, now);
-        if (!appliesToPlayer) return;
+        if (!appliesToPlayer)
+        {
+            TryGrantAlchemistsGenius(player);
+            return;
+        }
         uint lifeBefore = player.PlayerLife, manaBefore = player.PlayerMana;
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
@@ -43,7 +48,8 @@ public static partial class Game
         StartRecoveryEffectsLocked(player, effects, copyLife);
         bool startedDuring = during is { Count: > 0 } && effects.Count > 0;
         if (startedDuring) player.RecoveryFlaskStats.Start(effects, during!);
-        if (startedDuring || !hadRecoveryFlask && player.FlaskEffects.Any)
+        bool grantedArcaneSurge = character(Stat.ArcaneSurgeDuringManaFlaskEffect) != 0 && effects.Any(e => e.RestoresMana);
+        if (startedDuring || grantedArcaneSurge || !hadRecoveryFlask && player.FlaskEffects.Any)
         {
             RecomputePoolsAndSpeed(player);
             state.StatRevision++;   // PublishFlaskChanges sends the character's stats
@@ -66,6 +72,7 @@ public static partial class Game
                     $"(BuffDefinitions row {effect.BuffRow}), {perMinute} per minute, {(withDuration ? $"{duration:0.##} s" : "no duration")}");
             }
         }
+        TryGrantAlchemistsGenius(player);
     }
 
     // The extracted "if afflicted" suffixes remove an ailment that exists when the paid use is accepted and then

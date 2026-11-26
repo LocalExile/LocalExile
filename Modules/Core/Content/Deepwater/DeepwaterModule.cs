@@ -176,6 +176,16 @@ public sealed partial class DeepwaterModule : IModule
             await WorldOf(player).TravelTo(HubId, "/boat");
             return true;
         });
+        GameEvents.Command(id, "deepwater_voyage", "/deepwater_voyage (opens the active Deepwater Voyage panel)", async (player, _) =>
+        {
+            var area = PlayerOf(player).AreaId;
+            if (area != HubId && !DeepwaterGrid.IsEncounter(area))
+            {
+                await PlayerOf(player).Tell("Current Voyage is only available on The Sovereign or inside an Allflame run.");
+                return;
+            }
+            await OpenCurrentVoyage(player, "/deepwater_voyage");
+        });
         GameEvents.PlayerEntered.Add(id, async player =>
         {
             var previousView = Program.ViewOf.Value;
@@ -203,6 +213,13 @@ public sealed partial class DeepwaterModule : IModule
         {
             if (bytes.Length < InstanceItems.CollectionTakeLength) return false;
             await DeepwaterExtraction.TakeFromCollection(module, player, InstanceItems.ReadCollectionTake(bytes));
+            return true;
+        });
+        // C→S 0x0114: Ctrl + click an item from the Loot window (inventory 114) directly into the open personal stash.
+        GameEvents.Packet(InstanceStash.CollectionToStashId).Add(id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceStash.CollectionToStashLength) return false;
+            await DeepwaterExtraction.MoveCollectionToStash(module, player, InstanceStash.ReadCollectionToStash(bytes));
             return true;
         });
         GameEvents.AreaTick.Add(id, GameEvents.Always(async (player, _) =>

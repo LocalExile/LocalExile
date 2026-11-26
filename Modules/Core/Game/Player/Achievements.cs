@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using GameServer.Core;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
@@ -17,6 +18,8 @@ public static partial class Game
 
     public sealed record AchievementSetLayout(byte SetId, int ByteLength, AchievementItemEntry[] Items);
 
+    public sealed record AchievementSetRewardEntry(byte SetId, int Required, string Message);
+
     sealed class AchievementCatalog
     {
         public static readonly AchievementCatalog Empty = new();
@@ -25,6 +28,10 @@ public static partial class Game
         public Dictionary<ushort, AchievementItemEntry> ItemsByRow { get; } = [];
         public Dictionary<ushort, AchievementEntry> AchievementsByRow { get; } = [];
         public Dictionary<byte, AchievementSetLayout> Sets { get; } = [];
+        public Dictionary<byte, AchievementEntry[]> AchievementsBySet { get; } = [];
+        public Dictionary<byte, AchievementSetRewardEntry[]> RewardsBySet { get; } = [];
+        public byte LeagueChallengeSetId { get; private set; } = InstanceAchievements.DefaultLeagueChallengeSetId;
+        public byte RuthlessChallengeSetId { get; private set; } = InstanceAchievements.DefaultRuthlessChallengeSetId;
         public Dictionary<string, ushort[]> KillItemsByVariety { get; } = new(StringComparer.Ordinal);
         public Dictionary<string, ushort[]> FullClearItemsByArea { get; } = new(StringComparer.Ordinal);
         public Dictionary<uint, ushort> EquipItemByTypeHash { get; } = [];
@@ -141,11 +148,57 @@ public static partial class Game
                 catalog.Sets[setId] = new(setId, byteLen, [.. list]);
             }
 
-            bool IsTrackablePermanent(ushort itemRow) =>
+            foreach (var group in catalog.AchievementsByRow.Values
+                .Where(a => a.ItemRows.Length > 0 && !string.Equals(a.Id, "FillerSpace", StringComparison.Ordinal))
+                .GroupBy(a => a.SetId))
+                catalog.AchievementsBySet[group.Key] = [.. group];
+
+            if (!catalog.Sets.ContainsKey(catalog.LeagueChallengeSetId) || !catalog.Sets.ContainsKey(catalog.RuthlessChallengeSetId))
+            {
+                var challengeSets = catalog.Sets.Keys
+                    .Where(id => id != InstanceAchievements.PermanentAchievementSetId)
+                    .OrderBy(id => id)
+                    .ToList();
+                if (challengeSets.Count >= 2)
+                {
+                    if (!catalog.Sets.ContainsKey(catalog.LeagueChallengeSetId))
+                        catalog.LeagueChallengeSetId = challengeSets[^2];
+                    if (!catalog.Sets.ContainsKey(catalog.RuthlessChallengeSetId))
+                        catalog.RuthlessChallengeSetId = challengeSets[^1];
+                }
+                else if (challengeSets.Count == 1)
+                {
+                    if (!catalog.Sets.ContainsKey(catalog.LeagueChallengeSetId))
+                        catalog.LeagueChallengeSetId = challengeSets[0];
+                    if (!catalog.Sets.ContainsKey(catalog.RuthlessChallengeSetId))
+                        catalog.RuthlessChallengeSetId = challengeSets[0];
+                }
+            }
+
+            if (ClientTables.Has("AchievementSetRewards"))
+            {
+                var rewardsBySet = new Dictionary<byte, List<AchievementSetRewardEntry>>();
+                foreach (var row in ClientTables.Table("AchievementSetRewards"))
+                {
+                    int setId = row.Int("SetId");
+                    int required = row.Int("AchievementsRequired");
+                    string msg = row.Text("Message") ?? "";
+                    if (setId is < 0 or > byte.MaxValue || required <= 0 || msg.Length == 0) continue;
+                    if (!rewardsBySet.TryGetValue((byte)setId, out var list))
+                        rewardsBySet[(byte)setId] = list = [];
+                    list.Add(new((byte)setId, required, msg));
+                }
+                foreach (var (setId, list) in rewardsBySet)
+                    catalog.RewardsBySet[setId] = [.. list.OrderBy(r => r.Required)];
+            }
+
+            bool IsTrackableItem(ushort itemRow) =>
                 catalog.ItemsByRow.TryGetValue(itemRow, out var it)
                 && catalog.AchievementsByRow.TryGetValue(it.AchievementRow, out var ach)
-                && ach.SetId == InstanceAchievements.PermanentAchievementSetId
-                && !string.Equals(ach.Id, "FillerSpace", StringComparison.Ordinal);
+                && !string.Equals(ach.Id, "FillerSpace", StringComparison.Ordinal)
+                && (ach.SetId == InstanceAchievements.PermanentAchievementSetId
+                    || ach.SetId == catalog.LeagueChallengeSetId
+                    || ach.SetId == catalog.RuthlessChallengeSetId);
 
             var killMap = new Dictionary<string, List<ushort>>(StringComparer.Ordinal);
             void AddKill(string varietyId, ushort itemRow)
@@ -163,7 +216,7 @@ public static partial class Game
                     {
                         if (row.Text("Id") is not { Length: > 0 } mvId) continue;
                         foreach (int key in row.Ints("KillSpecificMonsterCount_AchievementItemsKeys"))
-                            if (key >= 0 && key <= ushort.MaxValue && IsTrackablePermanent((ushort)key))
+                            if (key >= 0 && key <= ushort.MaxValue && IsTrackableItem((ushort)key))
                                 AddKill(mvId, (ushort)key);
                     }
                 }
@@ -184,7 +237,7 @@ public static partial class Game
                         if (row.Text("Id") is not { Length: > 0 } areaId) continue;
                         List<ushort>? matched = null;
                         foreach (int key in row.Ints("FullClear_AchievementItemsKeys"))
-                            if (key >= 0 && key <= ushort.MaxValue && IsTrackablePermanent((ushort)key))
+                            if (key >= 0 && key <= ushort.MaxValue && IsTrackableItem((ushort)key))
                                 (matched ??= []).Add((ushort)key);
                         if (matched is { Count: > 0 })
                             catalog.FullClearItemsByArea[areaId] = [.. matched];
@@ -200,7 +253,7 @@ public static partial class Game
                     foreach (var row in bitTable)
                     {
                         if (row.IntOrNull("Equip_AchievementItemsKey") is not int key || key < 0 || key > ushort.MaxValue) continue;
-                        if (!IsTrackablePermanent((ushort)key)) continue;
+                        if (!IsTrackableItem((ushort)key)) continue;
                         if (row.Text("Id") is { Length: > 0 } baseId)
                             catalog.EquipItemByTypeHash[InstanceEntities.ObjectTypeHash(baseId)] = (ushort)key;
                     }
@@ -367,15 +420,44 @@ public static partial class Game
         return bitset;
     }
 
-    /// <summary>Initial <c>S->C 0x126</c> permanent achievement progress message sent on area entry (<see cref="GameEvents.EnterMessages"/>).</summary>
+    static bool IsPermanentLeague(Player player)
+    {
+        var runtime = LeagueFor(player);
+        string? baseName = LeagueCatalog.Startup.FindLoaded(runtime.Name)?.Base ?? runtime.Name;
+        return string.IsNullOrEmpty(baseName)
+            || baseName.Equals(LeagueCatalog.Standard, StringComparison.OrdinalIgnoreCase)
+            || baseName.Equals(HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Achievement sets active for <paramref name="player"/> (advertised in S→C 0x1d and synced via S→C 0x126):
+    /// always permanent Achievements (set 2), plus the current league's challenge set (standard 79 or Ruthless 80) for
+    /// non-permanent challenge leagues.</summary>
+    public static byte[] ActiveAchievementSets(Player player)
+    {
+        var catalog = AchievementsCatalog();
+        if (IsPermanentLeague(player))
+            return [InstanceAchievements.PermanentAchievementSetId];
+        byte challengeSet = LeagueFor(player).HardMode ? catalog.RuthlessChallengeSetId : catalog.LeagueChallengeSetId;
+        return catalog.Sets.ContainsKey(challengeSet)
+            ? [InstanceAchievements.PermanentAchievementSetId, challengeSet]
+            : [InstanceAchievements.PermanentAchievementSetId];
+    }
+
+    /// <summary>Initial <c>S->C 0x126</c> achievement and league challenge progress messages sent on area entry (<see cref="GameEvents.EnterMessages"/>).</summary>
     public static IReadOnlyList<(string Log, byte[] Bytes)> AchievementEnterMessages(Player player)
     {
-        if (player.Controlled) return [];
+        if (!player.HasClient) return [];
         var catalog = AchievementsCatalog();
-        if (!catalog.Sets.ContainsKey(InstanceAchievements.PermanentAchievementSetId)) return [];
-        byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(player), InstanceAchievements.PermanentAchievementSetId);
-        return [($"0x0126 achievement progress (set {InstanceAchievements.PermanentAchievementSetId}, {bitset.Length} bytes)",
-            InstanceAchievements.AchievementProgress(InstanceAchievements.PermanentAchievementSetId, bitset))];
+        var completed = ReadCompletedItems(player);
+        var messages = new List<(string Log, byte[] Bytes)>();
+        foreach (byte setId in ActiveAchievementSets(player))
+        {
+            if (!catalog.Sets.ContainsKey(setId)) continue;
+            byte[] bitset = BuildAchievementProgressBitset(catalog, completed, setId);
+            messages.Add(($"0x0126 achievement progress (set {setId}, {bitset.Length} bytes)",
+                InstanceAchievements.AchievementProgress(setId, bitset)));
+        }
+        return messages;
     }
 
     static Task SendAchievementPacket(Player player, byte[] bytes, string log)
@@ -387,7 +469,7 @@ public static partial class Game
     /// <summary>Sends <c>S->C 0x126</c> achievement progress bitset for <paramref name="setId"/>.</summary>
     public static Task SendAchievementProgress(Player player, byte setId = InstanceAchievements.PermanentAchievementSetId)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea) return Task.CompletedTask;
+        if (!player.HasClient || player.Closed || player.LeavingArea) return Task.CompletedTask;
         var catalog = AchievementsCatalog();
         if (!catalog.Sets.ContainsKey(setId)) return Task.CompletedTask;
         byte[] bitset = BuildAchievementProgressBitset(catalog, ReadCompletedItems(player), setId);
@@ -422,8 +504,9 @@ public static partial class Game
 
     static async Task<bool> AwardAchievementItemCore(Player player, AchievementCatalog catalog, AchievementItemEntry item)
     {
-        if (player.Controlled || HardcoreProgressBlocked(player)) return false;
+        if (!player.EarnsProgress || HardcoreProgressBlocked(player)) return false;
         if (!catalog.AchievementsByRow.TryGetValue(item.AchievementRow, out var parent)) return false;
+        if (!ActiveAchievementSets(player).Contains(parent.SetId)) return false;
         if (player.Character.Hardcore && parent.SoftcoreOnly) return false;
         if (!player.Character.Hardcore && parent.HardcoreOnly) return false;
 
@@ -468,8 +551,23 @@ public static partial class Game
             await SendAchievementPacket(player, InstanceAchievements.AchievementProgress(parent.SetId, bitset),
                 $"0x0126 achievement progress (set {parent.SetId}, {bitset.Length} bytes)");
             if (parentCompletedNow)
+            {
                 await SendAchievementPacket(player, InstanceAchievements.AchievementComplete(parent.Row),
                     $"0x0124 achievement complete: {parent.Id} (row {parent.Row})");
+                if (parent.SetId != InstanceAchievements.PermanentAchievementSetId
+                    && catalog.AchievementsBySet.TryGetValue(parent.SetId, out var setAchs)
+                    && catalog.RewardsBySet.TryGetValue(parent.SetId, out var rewards))
+                {
+                    int completedCount = 0;
+                    foreach (var ach in setAchs)
+                        if (IsAchievementComplete(ach, catalog, afterSet))
+                            completedCount++;
+                    foreach (var reward in rewards)
+                        if (reward.Required == completedCount)
+                            await SendAchievementPacket(player, InstanceChat.ChatLine(reward.Message),
+                                $"0x0017 league challenge reward milestone ({completedCount} completed in set {parent.SetId})");
+                }
+            }
         }
         return true;
     }
@@ -487,7 +585,7 @@ public static partial class Game
     /// <summary>Notifies the client via <c>S->C 0x127</c> that an achievement/challenge item failed (0-based row).</summary>
     public static Task FailAchievementItem(Player player, ushort itemRow)
     {
-        if (player.Controlled || !player.Connection.PlayerSent || player.Closed || player.LeavingArea)
+        if (!player.HasClient || !player.Connection.PlayerSent || player.Closed || player.LeavingArea)
             return Task.CompletedTask;
         return SendAchievementPacket(player, InstanceAchievements.AchievementItemFailed(itemRow),
             $"0x0127 achievement item failed (row {itemRow})");
@@ -498,7 +596,7 @@ public static partial class Game
     /// <summary><see cref="GameEvents.PlayerEntered"/>: awards <c>OpenAndEnterAMap</c> when entering a Map Device map.</summary>
     public static async Task CheckAreaEntryAchievements(Player player)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         if (MapRunOf(player) is not null && MapDevices.IsMapArea(player.Layout.Hash))
             await AwardAchievementItem(player, "OpenAndEnterAMap");
     }
@@ -522,7 +620,7 @@ public static partial class Game
             .Where(p => !ReferenceEquals(p, player))];
         foreach (var recipient in recipients)
         {
-            if (recipient.Controlled || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent || recipient.PlayerLife == 0)
+            if (!recipient.EarnsProgress || recipient.Closed || recipient.LeavingArea || !recipient.Connection.PlayerSent || recipient.PlayerLife == 0)
                 continue;
             foreach (ushort itemRow in rows)
                 await AwardAchievementItem(recipient, itemRow);
@@ -553,7 +651,7 @@ public static partial class Game
     /// <summary>Called when character quest flags are published (<c>Quests.cs</c>).</summary>
     public static async Task CheckQuestFlagAchievements(Player player, IReadOnlyList<string> flags)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || flags.Count == 0 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || flags.Count == 0 || !AchievementsCatalog().IsLoaded) return;
         foreach (string flag in flags)
         {
             if (QuestFlagAchievementItems.TryGetValue(flag, out var itemId))
@@ -575,7 +673,7 @@ public static partial class Game
     /// <summary>Called when Labyrinth ascendancy points are awarded (<c>Progression.cs</c>).</summary>
     public static async Task CheckAscendancyAwardAchievements(Player player, IEnumerable<string> awards)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         foreach (string award in awards)
         {
             string? itemId = award switch
@@ -593,7 +691,7 @@ public static partial class Game
     /// <summary>Called on level-up (<c>Skills.cs</c>).</summary>
     public static async Task CheckLevelAchievements(Player player, int level)
     {
-        if (player.Controlled || level < 60 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || level < 60 || !AchievementsCatalog().IsLoaded) return;
         bool hc = player.Character.Hardcore;
         if (level >= 60) await AwardAchievementItem(player, hc ? "Level60HC" : "Level60");
         if (level >= 70) await AwardAchievementItem(player, hc ? "Level70HC" : "Level70");
@@ -604,7 +702,7 @@ public static partial class Game
     /// <summary>Called when worn equipment changes (<c>Equipment.cs</c>).</summary>
     public static async Task CheckEquipmentAchievements(Player player, PlayerInventories items)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         var catalog = AchievementsCatalog();
         if (!catalog.IsLoaded) return;
         var itemCatalog = ItemsFor(player);
@@ -674,7 +772,7 @@ public static partial class Game
     /// <summary>Called after passive nodes are allocated (<c>Progression.cs</c>).</summary>
     public static async Task CheckPassiveAchievements(Player player, IReadOnlyList<ushort> allocatedNodes)
     {
-        if (player.Controlled || allocatedNodes.Count == 0 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || allocatedNodes.Count == 0 || !AchievementsCatalog().IsLoaded) return;
         var tree = PassivesFor(player);
         int keystones = 0;
         for (int i = 0; i < allocatedNodes.Count; i++)
@@ -687,7 +785,7 @@ public static partial class Game
     /// <summary>Called when a skill gem levels up (<c>Items.cs</c>).</summary>
     public static async Task CheckGemLevelAchievements(Player player, Item gem, int newLevel)
     {
-        if (player.Controlled || newLevel < 20 || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || newLevel < 20 || !AchievementsCatalog().IsLoaded) return;
         await AwardAchievementItem(player, "Level20Gem");
         if (IsVaalSkillGem(ItemsFor(player), gem))
             await AwardAchievementItem(player, "Level20VaalGem");
@@ -701,7 +799,7 @@ public static partial class Game
     /// <summary>Called when an area's living hostile monster count drops from &gt;0 to 0 (<c>MonsterRemaining.cs</c>).</summary>
     public static async Task CheckFullClearAchievements(Player player)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent) return;
         var catalog = AchievementsCatalog();
         if (!catalog.IsLoaded) return;
         if (MapDevices.IsMapArea(player.Layout.Hash))
@@ -714,7 +812,7 @@ public static partial class Game
     /// <summary>Called after currency crafting succeeds on an item (<c>Items.cs</c>).</summary>
     public static async Task CheckCraftingAchievements(Player player, string currencyId, Item before, Item after)
     {
-        if (player.Controlled || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
+        if (!player.EarnsProgress || player.Closed || player.LeavingArea || !player.Connection.PlayerSent || !AchievementsCatalog().IsLoaded) return;
         if (currencyId == CurrencyEffects.OrbOfChance)
         {
             if (after.Rarity == ItemRarity.Unique)
@@ -743,6 +841,10 @@ public static partial class Game
                 && CurrencyEffects.IsMap(after, targetType)
                 && after.Mods.Count(m => m.Section == ModSection.Explicit) >= 8)
                 await AwardAchievementItem(player, "CorruptMap8Mods");
+            if (ItemsFor(player).ByHash(after.TypeHash)?.Class == "Jewel"
+                && after.Rarity == ItemRarity.Unique
+                && (before.Rarity != ItemRarity.Unique || !before.NameWords.SequenceEqual(after.NameWords)))
+                await AwardAchievementItem(player, "CorruptToCorruptUniqueJewel");
         }
     }
 

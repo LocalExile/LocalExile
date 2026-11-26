@@ -23,6 +23,31 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
         ["Positioned", "BaseEvents", "Stats", "Animated", "Buffs", "Life", "ObjectMagicProperties", "Shrine", "MinimapIcon", "InteractionAction"];
     public static readonly string[] LesserComponents = [.. Components, "Transitionable", "DiesAfterTime"];
 
+    /// <summary>Shrine in <see cref="Components"/>; S→C 0x2bc updates use this index.</summary>
+    public const byte ShrineComponentIndex = 7;
+
+    /// <summary>Bit 7 of the Shrine key byte (0x141e3e0c0 → +0x24): marks the shrine as claimed.</summary>
+    public const byte ClaimedFlag = 0x80;
+
+    /// <summary>Key 0xff: no shrine row (0x141e3e0c0 sets +0x24 = 1 and returns after the +0x50 byte).</summary>
+    public const byte NoShrineRow = 0xff;
+
+    /// <summary>
+    /// S→C 0x2bc Shrine component update payload (slot 20 reader <c>0x1415e49f0</c>): calls creation reader
+    /// <c>0x141e3e0c0</c> (key byte with bit 7 claimed flag + low 7-bit <c>Shrines.dat</c> row, u8 +0x50, and
+    /// when key != 0xff an extra-row count u8), followed by u32 LE taker object id (+0x20). When claimed flips
+    /// 0 → 1, the client plays Animated clip 0, ShrineSounds, and Shrines.Description for the local taker.
+    /// </summary>
+    public static byte[] UpdateBlob(byte row, uint takerObjectId, bool claimed = true, byte state = 0)
+    {
+        var w = new BlobWriter();
+        byte key = row == NoShrineRow ? NoShrineRow : (byte)((row & 0x7f) | (claimed ? ClaimedFlag : 0));
+        w.U8(key).U8(state);
+        if (key != NoShrineRow) w.U8(0);
+        w.U32(takerObjectId);
+        return w.ToArray();
+    }
+
     public byte[] Blob()
     {
         var w = new BlobWriter();
@@ -41,9 +66,13 @@ public sealed record ShrineObject(int GridX, int GridY, float Rotation = 0, floa
                 // u16 flags: rarity in bits 0-2 (0 = normal) and bit 3 identified. Without bit 3 the client tags the target
                 // with its unidentified line ("Undefined" for this object), which is what a hovered shrine showed.
                 case "ObjectMagicProperties": w.U16(0x08).U8(0).U8(0); break;
-                // Shrine (0x141e3e0c0): the key byte is the Shrines row (the client copies that row for the icon it draws
-                // over the object), then the u8 the reader stores at +0x50, then its closed list's trailing byte.
-                case "Shrine": w.U8((byte)Row).U8(0).U8(0); break;
+                // Shrine (0x141e3e0c0): the key byte is the Shrines row (0xff = no shrine, returns after +0x50 without
+                // reading the extra-shrine count), then the u8 at +0x50, then for key != 0xff the extra-row count.
+                case "Shrine":
+                    byte key = (byte)Row;
+                    w.U8(key).U8(0);
+                    if (key != NoShrineRow) w.U8(0);
+                    break;
                 case "MinimapIcon": w.U8(0); break;
                 case "InteractionAction": w.U8(0); break;
                 case "Transitionable": w.U8(1); break; // States are one-based; 0 crashes the native post-create event.

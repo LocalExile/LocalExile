@@ -63,6 +63,8 @@ public sealed class MonsterCatalog
         /// <summary>The row's ModelSizeMultiplier as a factor (100 → 1): the client scales the model, and a skill with
         /// <c>use_scaled_contact_offset</c> scales its release offset with it.</summary>
         public double ModelScale { get; init; } = 1;
+        /// <summary>The row's MinAgroRange (cells); 0 when the row has none.</summary>
+        public int MinAgroRange { get; init; }
         /// <summary>The row's AilmentThreshold multiplier (percent of DefaultMonsterStats.AilmentThreshold); 0 means use LifeMultiplier.</summary>
         public int AilmentThreshold { get; init; }
         /// <summary>The row's MinimumAttackDistance (cells).</summary>
@@ -74,13 +76,16 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int>? Part2Mods { get; init; }
         public IReadOnlyList<int>? EndgameMods { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>The type's .ot chain from object-types.json, for lineage-gated extras
+        /// (<see cref="MonsterObject.CanSerialize"/>): empty when object-types.json is absent.</summary>
+        public IReadOnlyList<string> Chain { get; init; } = [];
         /// <summary>Mods.dat rows owned by this MonsterVarieties row (ModsKeys, ModsKeys2 and Special_ModsKeys).</summary>
         public IReadOnlyList<int> SpeciesModsOrEmpty => SpeciesMods ?? [];
         public IReadOnlyList<int> ActiveSpeciesModsOrEmpty => ActiveSpeciesMods ?? SpeciesModsOrEmpty;
         public IReadOnlyList<int> Part1ModsOrEmpty => Part1Mods ?? [];
         public IReadOnlyList<int> Part2ModsOrEmpty => Part2Mods ?? [];
         public IReadOnlyList<int> EndgameModsOrEmpty => EndgameMods ?? [];
-        public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null);
+        public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null, Chain);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
     }
 
@@ -643,10 +648,12 @@ public sealed class MonsterCatalog
                     {
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
+                        Chain = chain,
                         SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),
                         ModelScale = Column(r, "ModelSizeMultiplier") is int scale and > 0 ? scale / 100.0 : 1,
+                        MinAgroRange = r.IntOrNull("MinAgroRange") ?? 0,
                         AilmentThreshold = ailmentThreshold,
                         MinimumAttackDistance = r.IntOrNull("MinimumAttackDistance") ?? 0,
                         ActiveSpeciesMods = activeSpeciesMods,

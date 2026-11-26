@@ -18,16 +18,20 @@ public static class InstanceMicrotransactions
     public const ushort TargetExtraSlotRemoveId = 0x006d;
     public const ushort TargetDisplayFlagsId = 0x006e;
     public const ushort TargetWeaponClassesId = 0x006f;
-    public const ushort WornSlotUpdateId = 0x1ff;
-    public const ushort SkillSlotUpdateId = 0x200;
-    public const ushort SkillSlotRemoveId = 0x201;
-    public const ushort ExtraSlotUpdateId = 0x202;
-    public const ushort ExtraSlotRemoveId = 0x203;
-    public const ushort RecordUpsertId = 0x204;
-    public const ushort RecordRemoveId = 0x205;
-    public const ushort ReclaimQueryResultId = 0x20c;
-    public const ushort RecordStatUpdateId = 0x210;
-    public const ushort RecordStatResetId = 0x211;
+    public const ushort WornSlotUpdateId = 0x01ff;
+    public const ushort SkillSlotUpdateId = 0x0200;
+    public const ushort SkillSlotRemoveId = 0x0201;
+    public const ushort ExtraSlotUpdateId = 0x0202;
+    public const ushort ExtraSlotRemoveId = 0x0203;
+    /// <summary>S→C 0x0204 (reader <c>0x1421b1f10</c>, dispatcher case <c>0x9b</c> at <c>0x1421587be</c>):
+    /// incremental MTX record upsert (<c>u8 isStore</c>, <c>u8 isGuild</c>, record, <c>u8 justReceived</c>).</summary>
+    public const ushort RecordUpsertId = 0x0204;
+    /// <summary>S→C 0x0205 (reader <c>0x1421b2130</c>, dispatcher case <c>0x9c</c> at <c>0x14215889c</c>):
+    /// incremental MTX record remove (<c>u8 isStore</c>, <c>u8 isGuild</c>, <c>u32 BE recordId</c>).</summary>
+    public const ushort RecordRemoveId = 0x0205;
+    public const ushort ReclaimQueryResultId = 0x020c;
+    public const ushort RecordStatUpdateId = 0x0210;
+    public const ushort RecordStatResetId = 0x0211;
 
     /// <summary>S→C 0x7b kind 0x47: opens CosmeticsEquipScreen bound to a non-zero cosmetic target (hideout Armour Mannequin).</summary>
     public const byte CosmeticsEquipScreenUi = 0x47;
@@ -134,19 +138,6 @@ public static class InstanceMicrotransactions
     /// <summary>S→C 0x203 (vtable 0x1435cb210, write 0x141fa2bb0, read 0x141fa2c10, case 0x9a): remove an extra slot by raw u32 LE key.</summary>
     public static byte[] ExtraSlotRemove(uint key) =>
         new LoginWriter().U16(ExtraSlotRemoveId).RawU32(key).ToArray();
-
-    /// <summary>S→C 0x204 (vtable 0x1435e7820, write 0x1421b1e70, read 0x1421b1f10, case 0x9b): upsert one owned record
-    /// into personal (+0xd600 when <paramref name="isStore"/> is false), store owned (+0xd618), or guild (+0xd630).</summary>
-    public static byte[] RecordUpsert(Record record, bool isStore = false, bool isGuild = false, bool justReceived = false)
-    {
-        var w = new LoginWriter().U16(RecordUpsertId).Bool(isStore).Bool(isGuild);
-        WriteRecord(w, record);
-        return w.Bool(justReceived).ToArray();
-    }
-
-    /// <summary>S→C 0x205 (vtable 0x1435e69a8, write 0x1421b2090, read 0x1421b2130, case 0x9c): remove one owned record by id.</summary>
-    public static byte[] RecordRemove(uint recordId, bool isStore = false, bool isGuild = false) =>
-        new LoginWriter().U16(RecordRemoveId).Bool(isStore).Bool(isGuild).U32(recordId).ToArray();
 
     /// <summary>S→C 0x20c (vtable 0x1435e7a20, write 0x1421b21f0, read 0x1421b25e0, case 0x9d): empty in-use reclaim query response.</summary>
     public static byte[] ReclaimQueryEmpty() =>
@@ -299,6 +290,18 @@ public static class InstanceMicrotransactions
         foreach (var r in records) WriteRecord(w, r);
         return w.U8(flags).ToArray();
     }
+
+    /// <summary>Encodes S→C 0x0204: incremental MTX record upsert (used by local shop purchases and mystery/salvage box opens).</summary>
+    public static byte[] RecordUpsert(Record record, bool isStore = false, bool isGuild = false, bool justReceived = true)
+    {
+        var w = new LoginWriter().U16(RecordUpsertId).U8((byte)(isStore ? 1 : 0)).U8((byte)(isGuild ? 1 : 0));
+        WriteRecord(w, record);
+        return w.U8((byte)(justReceived ? 1 : 0)).ToArray();
+    }
+
+    /// <summary>Encodes S→C 0x0205: incremental MTX record remove (consumed mystery/salvage box or salvaged records).</summary>
+    public static byte[] RecordRemove(uint recordId, bool isStore = false, bool isGuild = false) =>
+        new LoginWriter().U16(RecordRemoveId).U8((byte)(isStore ? 1 : 0)).U8((byte)(isGuild ? 1 : 0)).U32(recordId).ToArray();
 
     /// <summary>
     /// C→S 0x1f9 (class vtable 0x1435cb0c8, write 0x141fa28c0), the Cosmetics tab's pick: the slot flyout sends it when

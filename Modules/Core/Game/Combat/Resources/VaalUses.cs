@@ -16,10 +16,11 @@ public static partial class Game
     public static bool VaalExecutor(Player player, int effect)
     {
         string id = SkillsFor(player).EffectId(effect) ?? "";
-        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap"
+        return id is "VaalGroundSlam" or "VaalFireball" or "VaalSpark" or "VaalMoltenStrike" or "VaalFireTrap" or "VaalSweep"
             or VaalImmortalCallEffect or VaalArcticArmourEffect or VaalRejuvenationTotemEffect
-            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect
-            || IsVaalMinion(id) || VaalAuras.ContainsKey(id) || TimedVaalAuraBuffRows.ContainsKey(id);
+            or "VaalHaste" or "VaalSmite" or "VaalHeavyStrike" or VaalMoltenShellEffect or VaalLightningWarpEffect
+            or VaalAncestralWarchiefEffect or "VaalDetonateDead"
+            || IsVaalMinion(id) || TimedVaalAuraBuffRows.ContainsKey(id);
     }
     static double VaalResourceTime(Player player) => player.LeavingArea && player.RampageTransferAt is double frozen
         ? frozen : ProjectileWorldTime(player);
@@ -50,6 +51,7 @@ public static partial class Game
             conversion, true, SkillsFor(player).IsAttack(gem.Effect), true, new(Get(Stat.BaseCostPlusPct), Get(Stat.BaseRageCostPlusPct),
                 Get(Stat.CostPlusPctFinal), Sum(Stat.BaseSkillCostEfficiencyPlusPct, Stat.BaseAttackSkillCostEfficiencyPlusPct),
                 Get(Stat.BaseRageCostEfficiencyPlusPct), free));
+        rage = ActorScale.Saturate((long)rage + ChainbreakerRageCost(Get));
         uint souls = conversion || free ? 0 : (uint)VaalSoulCost.Required(definition.BaseCost, Get);
         uint mana = free ? 0 : (uint)Math.Max(0, SupportedStats(player, id).GetValueOrDefault(Stat.ManaCost));
         // Lifetap and Blood Magic turn the whole upfront Mana cost into Life.
@@ -84,7 +86,7 @@ public static partial class Game
     static bool CanPayVaalUse(Player player, VaalUseReservation plan)
     {
         var stats = CharacterPlayerStats(player);
-        var rage = player.Rage.Read(VaalResourceTime(player), RageStats.Inputs(n => RageStat(stats, n)));
+        var rage = player.Rage.Read(VaalResourceTime(player), RageStats.Inputs(player, n => RageStat(stats, n)));
         if (player.PlayerMana < plan.Mana || plan.Life > 0 && player.PlayerLife <= plan.Life
             || rage.Current < plan.Rage) return false;
         if (plan.Souls == 0) return true;
@@ -110,7 +112,7 @@ public static partial class Game
         // The caller checked every resource under this same combat lock before changing action/cooldown state.
         var stats = CharacterPlayerStats(player);
         double now = VaalResourceTime(player);
-        if (!player.Rage.Spend(plan.Rage, now, RageStats.Inputs(n => RageStat(stats, n))))
+        if (!player.Rage.Spend(plan.Rage, now, RageStats.Inputs(player, n => RageStat(stats, n))))
             throw new InvalidOperationException("Vaal Rage reservation changed inside admission");
         if (plan.Souls > 0)
         {

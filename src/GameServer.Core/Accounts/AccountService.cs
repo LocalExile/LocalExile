@@ -237,30 +237,6 @@ public sealed class AccountService(IAccountStore store, TimeProvider? clock = nu
         }
     }
 
-    /// <summary>Migrates all non-permanently-dead characters of <paramref name="accountId"/> in <paramref name="sourceLeague"/>
-    /// into <paramref name="targetLeague"/>, returning the migrated characters.</summary>
-    public Result<IReadOnlyList<Character>> MigrateAllCharactersLeague(Guid accountId, string sourceLeague, string targetLeague)
-    {
-        if (string.IsNullOrWhiteSpace(sourceLeague) || string.IsNullOrWhiteSpace(targetLeague))
-            return Result<IReadOnlyList<Character>>.Fail(AuthError.InvalidName);
-        lock (_gate)
-        {
-            var matching = store.CharactersOf(accountId)
-                .Where(c => c.HardcoreDeath?.PermanentlyDead != true
-                    && string.Equals(c.League, sourceLeague, StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (matching.Count == 0) return Result<IReadOnlyList<Character>>.Fail(AuthError.NotFound);
-            var migrated = new List<Character>(matching.Count);
-            foreach (var c in matching)
-            {
-                var updated = c with { League = targetLeague };
-                store.UpdateCharacter(updated);
-                migrated.Add(updated);
-            }
-            return Result<IReadOnlyList<Character>>.Success(migrated);
-        }
-    }
-
     /// <summary>Sets a character's level (1 to 100), found by name.</summary>
     public Result<Character> SetLevel(string characterName, int level)
     {

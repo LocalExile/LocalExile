@@ -8,6 +8,22 @@ public static partial class Game
     public const uint TinctureDamageVsLowLife = Stat.TincturedWeaponDamagePlusPctVsEnemiesThatAreOnLowLife;
     public static bool EnemyOnLowLife(SpawnedMonster target) => target.Hostile && MonsterOnLowLife(target);
 
+    // Use the target's life before this contact for both damage and the shared critical roll.
+    readonly record struct DualStrikeBonuses(int DamagePct, int CriticalPct)
+    {
+        internal static DualStrikeBonuses From(IReadOnlyDictionary<uint, int> skill) =>
+            new(skill.GetValueOrDefault(Stat.DualStrikeDamagePlusPctFinalAgainstEnemiesOnFullLife),
+                skill.GetValueOrDefault(Stat.DualStrikeCriticalStrikeChancePlusPctFinalAgainstEnemiesOnFullLife));
+
+        internal DualStrikeBonuses Against(SpawnedMonster target) =>
+            target.MaxLife > 0 && target.Life >= target.MaxLife ? this : default;
+
+        internal double DamageMore => DamageFactor(DamagePct);
+
+        internal int CriticalChance(int chance) => CriticalPct == 0 ? chance
+            : (int)Math.Clamp(chance * (100L + CriticalPct) / 100, 0, 10_000);
+    }
+
     const uint FireVsBleeding = Stat.FireDamagePlusPctVsBleedingEnemies;
 
     static bool HasTypedTargetDamage(Func<uint, int> get) => get(PhysicalVsIgnited) != 0 || get(FireVsBleeding) != 0
@@ -43,7 +59,16 @@ public static partial class Game
     static bool InCloseRange(Player player, SpawnedMonster target, double at) =>
         TargetAccuracy.InCloseRange(Dist(player.Walk.Position(at), target.Walk.Position(at)));
 
+    static bool HasLocalTargetDamage(IReadOnlyDictionary<uint, int>? local) => local is not null
+        && (local.GetValueOrDefault(Stat.LocalHitDamagePlusPctVsIgnitedEnemies) != 0
+            || local.GetValueOrDefault(Stat.LocalHitDamagePlusPctVsFrozenEnemies) != 0
+            || local.GetValueOrDefault(Stat.LocalHitDamagePlusPctVsShockedEnemies) != 0);
+
     static bool HasContactDamage(Func<uint, int> get) => get(Stat.DamagePlusPctToRareAndUniqueEnemies) != 0
+        || get(Stat.DamagePlusPctVsRareMonsters) != 0 || get(Stat.DamagePlusPctVsMagicMonsters) != 0
+        || get(Stat.DamagePlusPctVsIgnitedEnemies) != 0 || get(Stat.DamagePlusPctVsFrozenEnemies) != 0
+        || get(Stat.DamageVsShockedEnemiesPlusPct) != 0 || get(Stat.DamagePlusPctVsHinderedEnemies) != 0
+        || get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies) != 0 || get(Stat.HitAndAilmentDamagePlusPctVsCursedEnemies) != 0
         || get(Stat.DamagePlusPctFinalIfThereIsAtMost1RareOrUniqueEnemyNearby) != 0
         || get(Stat.DamagePlusPctVsChilledEnemies) != 0 || get(Stat.HitDamagePlusPctVsIgnitedEnemies) != 0
         || get(Stat.HitAndAilmentDamagePlusPctVsEnemiesAffectedByAilments) != 0
@@ -61,21 +86,46 @@ public static partial class Game
 
     // A release keeps the source stats. Each contact reads the target before the hit can inflict anything.
     internal static TargetContact ContactDamage(Player player, SpawnedMonster target, double at,
-        IReadOnlyDictionary<uint, int> stats)
+        IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int>? local = null)
     {
         int Get(uint name) => GolemStat(stats, name);
-        long hit = target.Rarity is MonsterRarity.Rare or MonsterRarity.Unique ? Get(Stat.DamagePlusPctToRareAndUniqueEnemies) : 0;
+        int Local(uint name) => local?.GetValueOrDefault(name) ?? 0;
+        long hit = target.Rarity switch
+        {
+            MonsterRarity.Rare => (long)Get(Stat.DamagePlusPctToRareAndUniqueEnemies) + Get(Stat.DamagePlusPctVsRareMonsters),
+            MonsterRarity.Unique => Get(Stat.DamagePlusPctToRareAndUniqueEnemies),
+            MonsterRarity.Magic => Get(Stat.DamagePlusPctVsMagicMonsters),
+            _ => 0,
+        };
         int chillHit = Get(Stat.DamagePlusPctVsChilledEnemies);
         int lightningHit = Get(Stat.LightningHitDamagePlusPctVsChilledEnemies);
         bool chilled = (chillHit != 0 || lightningHit != 0) && AilmentOn(target, AilmentType.Chill, at);
         if (chilled) hit += chillHit;
         else lightningHit = 0;
         int coldHit = Get(Stat.ColdHitDamagePlusPctVsShockedEnemies);
-        if (coldHit != 0 && !AilmentOn(target, AilmentType.Shock, at)) coldHit = 0;
-        int igniteHit = Get(Stat.HitDamagePlusPctVsIgnitedEnemies);
-        if (igniteHit != 0 && AilmentOn(target, AilmentType.Ignite, at)) hit += igniteHit;
+        long shockHit = (long)Get(Stat.DamageVsShockedEnemiesPlusPct) + Local(Stat.LocalHitDamagePlusPctVsShockedEnemies);
+        bool shocked = (coldHit != 0 || shockHit != 0) && AilmentOn(target, AilmentType.Shock, at);
+        if (shocked) hit += shockHit;
+        else coldHit = 0;
+        long frozenHit = (long)Get(Stat.DamagePlusPctVsFrozenEnemies) + Local(Stat.LocalHitDamagePlusPctVsFrozenEnemies);
+        if (frozenHit != 0 && AilmentOn(target, AilmentType.Freeze, at)) hit += frozenHit;
+
+        long igniteHit = (long)Get(Stat.HitDamagePlusPctVsIgnitedEnemies) + Local(Stat.LocalHitDamagePlusPctVsIgnitedEnemies);
+        int ignited = Get(Stat.DamagePlusPctVsIgnitedEnemies);
+        bool isIgnited = (igniteHit != 0 || ignited != 0) && AilmentOn(target, AilmentType.Ignite, at);
+        if (isIgnited) hit += igniteHit;
+
         long ailment = Get(Stat.HitAndAilmentDamagePlusPctVsEnemiesAffectedByAilments);
         if (ailment != 0 && !chilled && !HasDamageAilment(target, at)) ailment = 0;
+        if (isIgnited) ailment += ignited;
+        int hindered = Get(Stat.DamagePlusPctVsHinderedEnemies);
+        if (hindered != 0 && (target.HinderedUntil > at || target.TotemHinderedUntil > at
+            || target.Effects[Stat.IsHindered] != 0 || SpiderHinder(target, at) > 0))
+            ailment += hindered;
+        int bleeding = Get(Stat.HitAndAilmentDamagePlusPctVsBleedingEnemies);
+        if (bleeding != 0 && AilmentOn(target, AilmentType.Bleed, at)) ailment += bleeding;
+        int cursed = Get(Stat.HitAndAilmentDamagePlusPctVsCursedEnemies);
+        if (cursed != 0 && target.HasCurses && target.Curses.HasActive(at)) ailment += cursed;
         int marked = Get(Stat.DamagePlusPctAgainstEnemiesMarkedByYou);
         if (marked != 0 && target.Curses.HasMark(player.Id, at)) ailment += marked;
         int opportunistic = Get(Stat.DamagePlusPctFinalIfThereIsAtMost1RareOrUniqueEnemyNearby);

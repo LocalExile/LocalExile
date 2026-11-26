@@ -20,17 +20,21 @@ public static class SkillArea
         get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        effect == "LightningWarp" ? 16 : effect == "VaalGroundSlam" ? 40 : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
+        effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
+            : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
             : effect is "Earthquake" or "Earthshatter" ? 18
             : effect == "Cleave" ? 20
             : effect == "TectonicSlam" ? 15
+            : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
             : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
-            : effect is "StormCall" or "Frostblink" or "FrostblinkHardMode" ? 20
+            : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
                 or "PenanceBrand" or "PenanceBrandAltX" or "PenanceBrandAltY"
                 or "WintertideBrand" or "WintertideBrandAltX" or "WintertideBrandAltY" ? 22
             : effect == "Brandsurge" ? 26
+            : effect == "EarthquakeAltX" ? 18
+            : effect == "TectonicSlamAltX" ? 15
             : GatewayProjectileSkillProfiles.IsMoltenStrike(effect) ? 9 : 12;
 
     static readonly uint[] MoreArea =
@@ -113,10 +117,12 @@ public static class SkillArea
     public const uint Increase = Stat.SkillAreaOfEffectPlusPct;
 
     /// <summary>The radius in cells for <paramref name="baseRadius"/> (the skill's base when it has none of its own).</summary>
-    public static int Radius(int baseRadius, Func<uint, int> get, bool spell)
+    public static int Radius(int baseRadius, Func<uint, int> get, bool spell) => Radius(baseRadius, get, spell, 1);
+
+    internal static int Radius(int baseRadius, Func<uint, int> get, bool spell, double areaMore)
     {
         int radius = baseRadius + get(Stat.ActiveSkillBaseRadiusPlus);
-        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell))) / 100;
+        double scaled = radius * Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore)) / 100;
         scaled *= Math.Max(0, 1 + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal) / 100.0);
         return Math.Max(0, (int)Math.Floor(scaled));
     }
@@ -141,9 +147,15 @@ public static class GroundSlamWave
 {
     /// <summary>ActionTypes "DistanceScaledGroundSlam" HASH16 (row 3): the action of the player's Ground Slam and its
     /// alternate-quality and Royale forms (GrantedEffects GroundSlam, GroundSlamAltX, GroundSlamAltY, GroundSlamRoyale
-    /// and PlaytestSlam). Vaal Ground Slam's own skill is "VaalDistanceScaledGroundSlam" (row 4), so the Vaal blast keeps
-    /// its radial hit.</summary>
+    /// and PlaytestSlam). Vaal Ground Slam uses "VaalDistanceScaledGroundSlam" (row 4) for its own radial wave.</summary>
     public const ushort Action = 0x2390;
+
+    // The Vaal action reaches its scaled radius in a fixed time (the 3.29.3c action update).
+    public const int VaalBaseRadius = 39;
+    public const double VaalTravelSeconds = 0.375;
+
+    public static double VaalAdvanceSeconds(double distance, int radius) =>
+        VaalTravelSeconds * Math.Max(0, distance) / Math.Max(1, radius);
 
     /// <summary>The wave's reach in cells at the generic area radius (12 cells). The exported tables carry no length;
     /// the community describes Ground Slam's wave as about 60 units and the client draws it well past melee reach, so

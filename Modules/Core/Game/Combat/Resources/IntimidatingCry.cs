@@ -109,7 +109,11 @@ public static partial class Game
     }
 
     public static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
-        IReadOnlyDictionary<uint, int> playerStats, double now)
+        IReadOnlyDictionary<uint, int> playerStats, double now) =>
+        ApplyIntimidatingCryLocked(player, own, playerStats, now, applyMovementBuff: true);
+
+    static void ApplyIntimidatingCryLocked(Player player, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, double now, bool applyMovementBuff)
     {
         int Own(uint n) => GolemStat(own, n);
         int Player(uint n) => GolemStat(playerStats, n);
@@ -129,9 +133,9 @@ public static partial class Game
         double effect = Math.Max(0, 1 + ((long)Player(Stat.WarcryBuffEffectPlusPct) + Own(Stat.SkillBuffEffectPlusPct)) / 100d);
         int movement = (int)Math.Clamp(Math.Floor(Math.Min(30, power) / 5d)
             * Own(Stat.IntimidatingCryMovementSpeedPlusPctPer5PowerUpToCap) * effect, 0, int.MaxValue);
-        var gift = new CryGift(player.Instance.Presence, now + duration, movement);
-        if (duration > 0)
+        if (applyMovementBuff && duration > 0)
         {
+            var gift = new CryGift(player.Instance.Presence, now + duration, movement);
             // Call to Arms: "Your Warcries do not grant Buffs or Charges to You"; the allies still get theirs.
             if (Player(Stat.KeystoneCallToArms) == 0)
             {
@@ -207,7 +211,7 @@ public static partial class Game
         && SupportedSkill(player, skill).Stats.GetValueOrDefault(Stat.SkillCannotBeExerted) == 0
         && (!SkillsFor(player).IsTravel(effect) || CharacterPlayerStats(player).GetValueOrDefault(Stat.TravelSkillsCannotBeExerted) == 0);
 
-    public static GamblerModifiers WithIntimidatingCryExert(GamblerModifiers modifiers, bool exerted) =>
+    public static HitRollModifiers WithIntimidatingCryExert(HitRollModifiers modifiers, bool exerted) =>
         exerted ? modifiers with { DoubleDamageChance = Math.Max(100, modifiers.DoubleDamageChance) } : modifiers;
 
     static double OverexertionMore(IReadOnlyDictionary<uint, int> skill, bool exerted)

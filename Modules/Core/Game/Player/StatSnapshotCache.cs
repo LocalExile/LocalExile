@@ -207,11 +207,6 @@ public static partial class Game
             if (Get(Stat.DamagePlusPctWhileWieldingTwoDifferentWeaponTypes) is int differentDamage and not 0
                 && WeaponIdentity.WieldingDifferentTypes(Get))
                 stats[Stat.DamagePlusPct] = Get(Stat.DamagePlusPct) + differentDamage;
-            // Whaletooth Bangle uses complete groups of final Strength. Derive from this fresh snapshot once; never
-            // write back into raw sources. An explicit final-duration /set_stat keeps its usual replacement semantics.
-            if (SkillDurationModifiers.IncreasedDuration is var durationKey)
-                stats[durationKey] = SkillDurationModifiers.Total(Get(SkillDurationModifiers.IncreasedDuration),
-                    Get(Stat.Strength), Get(SkillDurationModifiers.PerTenStrength));
             // Dreadful Attitude: increased damage per complete 5 of the lowest final attribute, from this snapshot only.
             if (Get(LowestAttributeDamage) is int perFive and not 0 && Stat.DamagePlusPct is var damageKey)
                 stats[damageKey] = (int)Math.Clamp(Get(Stat.DamagePlusPct) + (long)perFive
@@ -239,7 +234,8 @@ public static partial class Game
                 if (stat is var key) stats[key] = value;
             // The default attack's damaging-ailment rows per hand (AilmentPanelStats), from the same raw packet and
             // conversion as its hit; an off hand that is not swung keeps no stale rows.
-            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack());
+            var ailmentContext = new AilmentPanelStats.Context("main_hand", Spell: false, Melee: MeleeAttack())
+            { WeaponStats = mainWeapon.LocalSources };
             var ailmentRows = AilmentPanelStats.Compute(ailmentContext,
                 SupportedAttackDamage.Raw(mainWeapon, Get, new(mainAccuracy), melee: ailmentContext.Melee), attackConversion, Get);
             if (OffhandWeaponFor() is { } offWeapon)
@@ -249,7 +245,7 @@ public static partial class Game
                     Get(PlayerAccuracyModifiers.BootsMore), localDifference, inputs.BlindLess);
                 var offConversion = SupportedAttackDamage.WithWeaponGains(
                     DamageStats.Conversion(stats, Stats, attack: true), offWeapon, Get);
-                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand" },
+                ailmentRows.AddRange(AilmentPanelStats.Compute(ailmentContext with { Hand = "off_hand", WeaponStats = offWeapon.LocalSources },
                     SupportedAttackDamage.Raw(offWeapon, Get, new(offAccuracy)), offConversion, Get));
             }
             foreach (var (stat, value) in ailmentRows)

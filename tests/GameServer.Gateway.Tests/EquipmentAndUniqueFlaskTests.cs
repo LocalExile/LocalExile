@@ -195,7 +195,7 @@ public sealed class EquipmentAndUniqueFlaskTests
 
             var burningStats = Game.CharacterPlayerStats(player);
             Assert.Equal(1, burningStats.GetValueOrDefault(Stat.AffectedByTouchOfFire));
-            Assert.True(player.Antiquarian.SustainedAdrenaline);
+            Assert.True(player.WardBreak.SustainedAdrenaline);
             Assert.True(burningStats.GetValueOrDefault(Stat.DamagePlusPct) >= 100);
             Assert.True(Game.ItemConditionFlags(player, clock.At)[Game.BurningItemCondition]);
 
@@ -207,7 +207,7 @@ public sealed class EquipmentAndUniqueFlaskTests
 
             var afterDouse = Game.CharacterPlayerStats(player);
             Assert.Equal(0, afterDouse.GetValueOrDefault(Stat.AffectedByTouchOfFire));
-            Assert.False(player.Antiquarian.SustainedAdrenaline);
+            Assert.False(player.WardBreak.SustainedAdrenaline);
             Assert.False(Game.ItemConditionFlags(player, clock.At)[Game.BurningItemCondition]);
 
             // 3. Lightpoacher grants a Spirit Charge on kill and triggers Spirit Burst on cast, consuming the charge.

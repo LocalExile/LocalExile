@@ -343,6 +343,7 @@ public static partial class Game
                 SupportEffectPct = support.EffectPct, AffectsSelf = support.AffectsSelf, Stance = stance,
                 ReservesLife = context.Life, ReservationEfficiencyPct = context.Efficiency,
             };
+            repriced = WithCasterAuraStamps(player, repriced, input.Raw);
             if (repriced == aura) continue;
             player.Auras[aura.SkillId] = repriced;
             changedAuras.Add(repriced);
@@ -404,18 +405,11 @@ public static partial class Game
         // Commander of Darkness: the caster's current values, stamped onto each running aura so the allies
         // and minions it reaches learn them (AuraCatalog.Aura's Commander* fields). The reconcile cache
         // compares Sources, so allocating or removing the node re-runs this loop.
-        var commander = CommanderOfDarkness(inputs.Sources);
         List<AuraCatalog.Aura>? restamped = null;
         foreach (var aura in player.Auras.Values)
         {
-            int perAura = AuraCatalog.PerAuraEffectPctFor(aura, inputs.Sources);
-            if (perAura != aura.PerAuraEffectPct
-                || commander.Speed != aura.CommanderAttackCastSpeedPct
-                || commander.Resistance != aura.CommanderElementalResistancePct
-                || commander.Damage != aura.CommanderDamagePct)
-                (restamped ??= []).Add(aura with { PerAuraEffectPct = perAura,
-                    CommanderAttackCastSpeedPct = commander.Speed, CommanderElementalResistancePct = commander.Resistance,
-                    CommanderDamagePct = commander.Damage });
+            var next = WithCasterAuraStamps(player, aura, inputs.Sources);
+            if (!ReferenceEquals(next, aura)) (restamped ??= []).Add(next);
         }
         if (restamped is not null)
         {
@@ -486,7 +480,7 @@ public static partial class Game
         ClampReservedResources(player);
         // The player's own aura buffs are its auras now (both buffs of each, Generosity's too: its received one only has
         // its icon suppressed); the Buffs component writes what changed.
-        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag is 0 or (ushort)BuffTag.BloodAndSand
+        player.Area.Buffs.Replace(player.Id, b => b.Source == player.Id && b.Tag is 0 or (ushort)BuffTag.BloodAndSand or (ushort)BuffTag.VaalAura
                 && (AuraCatalog.IsAuraRow(b.Row) || TimedVaalAuraBuffRows.ContainsValue(b.Row)),
             player.Auras.Values.SelectMany(aura => AuraBuffs(player.Id, aura, TemporaryAuraSecondsLeft(player, aura))));
         PresentAvianPhaseLocked(player);
@@ -500,7 +494,7 @@ public static partial class Game
         {
             player.AuraStatsDirty = false;
             packets.Add(PlayerStatsOffFrames(player));
-            packets.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
+            packets.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
             player.Frames.Area?.Life.Changed(player);
         }
         var petrified = player.PetrifiedBlood;

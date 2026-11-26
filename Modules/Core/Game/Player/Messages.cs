@@ -186,6 +186,7 @@ public static partial class Game
                 {
                     double duration = DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player));
                     if (!TryBeginRangedAttack(player, at, duration, use.SkillId, use.Slot, out var shot)) continue;
+                    NotePlayerAttack(player);
                     int projectileEpoch;
                     projectileEpoch = player.ProjectileEpoch;
                     // Release work must not block serial input dispatch: resume/move can invalidate a queued echo.
@@ -310,6 +311,7 @@ public static partial class Game
                 (uint Id, (int X, int Y) At, (int X, int Y) Landing)? flickerTo = null;
                 LeapSlam.Use? leap = null;
                 bool movedByCast = false;
+                (int X, int Y) moveLanding = default;
                 void StartAction()
                 {
                     bool lockstep = player.Connection.LockstepClient;
@@ -335,6 +337,7 @@ public static partial class Game
                     {
                         var landing = MovementLanding(player, gem.Effect, (px, py), (use.X, use.Y), use.SkillId, use.Flags);
                         player.Walk.Teleport(landing.X, landing.Y, at);
+                        moveLanding = landing;
                         movedByCast = landing != (px, py);
                     }
                     player.ChannelSkill = cast ? use.SkillId : (ushort)0;
@@ -375,8 +378,11 @@ public static partial class Game
                         // A lockstep client's default attack at the ground is a swing where it stands (inPlace), which takes
                         // the attack time: the next use waits for it, as after a swing at a monster (Attack).
                         if (inPlace && !cast && use.SkillId == SkillCatalog.FirstSkillId)
+                        {
+                            NotePlayerAttack(player);
                             player.NextAttackAt = AttackTiming.After(LockstepScheduledAt(player, at), player.NextAttackAt,
                                 Math.Max(TickSeconds, DefaultAttackSeconds(player, use.Slot, CharacterPlayerStats(player)) / PlayerActionFactor(player)));
+                        }
                     }
                 }
                 Mark("begin");
@@ -431,6 +437,10 @@ public static partial class Game
                         + $"at ({flickerDestination.At.X}, {flickerDestination.At.Y}) (t={at:0.000})");
                 }
                 if (flicker) await GrantFlickerSpeed(player, use.SkillId);
+                if (cast && gem.Name is not null && movedByCast && IsFlameDashEffect(SkillsFor(player).EffectId(gem.Effect)))
+                    await SendWorldRecord(player, player.Id,
+                        FlameDashGroundSegment(player, use.SkillId, gem.Effect, use.Slot, (px, py), moveLanding),
+                        $"0x02c8 Flame Dash burning ground ({px}, {py}) -> ({moveLanding.X}, {moveLanding.Y})");
                 // Flicker Strike strikes from where it lands, at the monster it went to.
                 var (strikeFrom, strikeAt) = flickerTo is { } struck ? (struck.Landing, struck.At) : ((px, py), (use.X, use.Y));
                 if (cast && !projectileRuntime) _ = CastGemSkill(player, use.SkillId, strikeFrom, strikeAt, targetId: flickerTo?.Id ?? 0, sequence: use.Slot,
@@ -512,10 +522,20 @@ public static partial class Game
             else if (id is InstanceProtocol.AttackInPlaceId or InstanceProtocol.SlotMask52Id)
             {
                 // A slot option the client already applied (its bit of instance +0xcfd0 / +0xcfd2); saved so the next
-                // 0x53 sends it back instead of clearing it.
+                // 0x53 sends it back instead of clearing it. The first box this character touches starts from the
+                // slots' own defaults, so ticking one slot does not untick the attack-in-place skill in another one;
+                // from then on the saved mask is the whole truth, as the player left it.
                 var (slot, on) = InstanceProtocol.ReadSlotOption(bytes);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} {(id == InstanceProtocol.AttackInPlaceId ? "always attack without moving" : "slot option 0x52")} slot {slot} {(on ? "on" : "off")}");
-                if (slot < 16) CharacterSaves.SetSkillBarOption(CharacterName(player), id == InstanceProtocol.AttackInPlaceId, slot, on);
+                if (slot < 16)
+                {
+                    bool attackInPlace = id == InstanceProtocol.AttackInPlaceId;
+                    string character = CharacterName(player);
+                    ushort? seed = attackInPlace
+                        ? AttackInPlaceDefaults(player, SkillBarIds(player, CharacterSaves.Load(character)?.SkillBar))
+                        : null;
+                    CharacterSaves.SetSkillBarOption(character, attackInPlace, slot, on, seed);
+                }
             }
             else if (id == InstanceEntities.AllocatePassiveId)
             {
@@ -659,7 +679,7 @@ public static partial class Game
             else if (id == InstanceItems.SplitStackId)
                 await SplitStack(player, InstanceItems.ReadSplitStack(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseItemClickId)
-                await UseItem(player, InstanceItems.ReadUseItemClick(bytes), Convert.ToHexString(bytes));
+                await UseItem(player, InstanceItems.ReadUseItemClick(bytes), Convert.ToHexString(bytes), sendResult: true);
             else if (id == InstanceItems.UseItemId)
                 await UseItem(player, InstanceItems.ReadUseItem(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceItems.UseFlaskId)
@@ -687,7 +707,9 @@ public static partial class Game
                     again.TargetInventoryId, again.TargetId), Convert.ToHexString(bytes));
             }
             else if (id == InstanceItems.InventoryRequestId)
-                Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x{id:x4} (inventory request, not handled yet): {Convert.ToHexString(bytes)}");
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryRequest(bytes));
+            else if (id == InstanceItems.InventoryQuickMoveId)
+                await QuickMoveHeistNpcEquipment(player, InstanceItems.ReadInventoryQuickMove(bytes));
             else if (id == InstanceSkinTransfers.BindId)
                 await NativeSkinTransfer(player, InstanceSkinTransfers.ReadBind(bytes));
             else if (id == InstanceSkinTransfers.ReclaimId)
@@ -743,12 +765,24 @@ public static partial class Game
             }
             else if (id == InstanceStash.ReorderTabsId)
             {
-                // The tab buttons' order, kept with the stash (personal or guild by kind) and sent back in the tab lists.
+                // The tab buttons' order, kept with the stash (personal, guild or trade by kind) and sent back in the tab lists.
                 var (kind, order) = InstanceStash.ReadReorderTabs(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                var target = kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
                 int moved = target.SetPositions(order);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cc stash {kind} tab order: {string.Join(", ", order.Select(o => $"{o.Index}->{o.Position}"))} ({moved} moved, saved)");
+                if (kind == InstanceStash.Guild && moved > 0)
+                {
+                    foreach (var peer in GameEvents.ResolveGuildPeers(player))
+                    {
+                        if (peer is not { HasClient: true, Closed: false, LeavingArea: false, Connection.Outbox: { } outbox }) continue;
+                        try
+                        {
+                            await outbox(InstanceStash.EncodeReorderTabs(InstanceStash.Guild, order),
+                                $"0x00cc broadcast guild stash tab order ({order.Count} tab(s))");
+                        }
+                        catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
+                    }
+                }
             }
             else if (InstanceProtocol.IsChannelUpdate(id))
             {
@@ -766,7 +800,14 @@ public static partial class Game
                 }
             }
             else if (id == InstanceProtocol.ChannelEndId)
+            {
+                bool hadChannel = player.ChannelSkill != 0;
+                int channelGen = player.ChannelGeneration;
+                ushort endedSequence = player.ChannelSkillSequence;
                 ChannelReleased(player, player.ClockAt(readAt));
+                if (hadChannel && !player.Connection.LockstepClient)
+                    await EmitPredictiveChannelFinished(player, channelGen, endedSequence);
+            }
             else if (id == InstanceProtocol.RetargetActionId)
                 await RetargetAction(player, InstanceProtocol.ReadRetargetAction(bytes), readAt);
             else if (id == InstanceProtocol.SwapWeaponsId)
@@ -816,35 +857,51 @@ public static partial class Game
             }
             else if (id == InstanceStash.RenameTabId)
             {
-                // A premium tab renamed in the tab settings; kept with the stash (personal or guild), account-wide.
+                // A premium tab renamed in the tab settings; kept with the stash (personal, guild or trade), account-wide.
                 var (kind, tab, name) = InstanceStash.ReadRenameTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).Rename(tab, name);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.Rename(tab, name);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cd stash {kind} tab {tab} renamed \"{name}\": {(done ? "saved" : "refused")}");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceStash.ColourTabId)
             {
                 var (kind, tab, colour) = InstanceStash.ReadColourTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).SetColour(tab, colour);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.SetColour(tab, colour);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00ce stash {kind} tab {tab} colour 0x{colour:x8}: {(done ? "saved" : "refused")} ({Convert.ToHexString(bytes)})");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceStash.PublicTabId)
             {
                 var (kind, tab, isPublic) = InstanceStash.ReadPublicTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).SetPublic(tab, isPublic);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.SetPublic(tab, isPublic);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00cf stash {kind} tab {tab} public={(isPublic ? "on" : "off")}: {(done ? "saved" : "refused")}");
                 await SendTabListAgain(player, kind);
             }
             else if (id == InstanceItems.SetItemNoteId)
             {
-                if (!player.StashOpen && !player.GuildStashOpen) continue;
+                if (!player.StashOpen && !player.GuildStashOpen && !player.TradeStashOpen) continue;
                 var req = InstanceItems.ReadSetItemNote(bytes);
+                // C→S 0x01a1 with Flag == true (bit 31 set, sender 0x1402fbbf0): pricing an unpriced held cursor item
+                // before C→S 0x002a places it into an async-trade merchant tab (non-SSF, trade stash open only).
+                if (req.Flag && player.TradeStashOpen && !player.Character.Ssf)
+                {
+                    var inv = ItemsOf(player);
+                    if (inv.SetItemNote(PlayerInventories.Cursor, req.ItemId, req.Note) is { } updatedCursor)
+                    {
+                        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01a1 cursor item {req.ItemId} note \"{req.Note}\": saved");
+                        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(PlayerInventories.Cursor),
+                            inv.NextRevision(PlayerInventories.Cursor), [updatedCursor.Id], [updatedCursor]),
+                            $"0x00bf cursor: item {updatedCursor.Id} note updated");
+                        continue;
+                    }
+                }
                 AccountStash? targetStash = null;
-                if (player.StashOpen && PersonalStashOf(player) is var personal && personal.TabOf(req.InventoryId) is int)
+                if (player.TradeStashOpen && !player.Character.Ssf && TradeStashOf(player) is var trade && trade.TabOf(req.InventoryId) is int)
+                    targetStash = trade;
+                else if (player.StashOpen && PersonalStashOf(player) is var personal && personal.TabOf(req.InventoryId) is int)
                     targetStash = personal;
                 else if (player.GuildStashOpen && !player.Character.Ssf && GuildStashOf(player) is var guild && guild.TabOf(req.InventoryId) is int)
                     targetStash = guild;
@@ -857,8 +914,16 @@ public static partial class Game
                             $"0x00bf stash tab {noteTab}: item {updated.Id} note updated");
                 }
             }
+            else if (id == InstanceAsyncTrade.RequestHistoryId)
+                await SendAsyncTradeHistory(player);
+            else if (id == InstanceAsyncTrade.TakeEarningsId)
+                await TakeAsyncTradeEarnings(player, InstanceAsyncTrade.ReadTakeEarnings(bytes));
             else if (id == InstanceStash.MoveToTabId)
                 await MoveToStash(player, InstanceStash.ReadMoveToTab(bytes));
+            else if (id == InstanceStash.QuickPlaceInTabId)
+                await QuickPlaceInStash(player, InstanceStash.ReadQuickPlaceInTab(bytes));
+            else if (id == InstanceStash.SubTabClickId)
+                await SubTabClickInStash(player, InstanceStash.ReadSubTabClick(bytes));
             else if (id == InstanceStash.MoveToAffinityTabId)
                 await MoveToAffinityTab(player, InstanceStash.ReadMoveToAffinityTab(bytes), Convert.ToHexString(bytes));
             else if (id == InstanceStash.SetAffinitiesId)
@@ -868,7 +933,7 @@ public static partial class Game
                 var move = InstanceStash.ReadTakeFromTab(bytes);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e3 take item {move.ItemId} from stash tab {move.Tab} " +
                     $"({move.Kind:x2} {move.TokenLo:x2} {move.TokenHi:x2} {move.Bulk:x2}, {(move.Bulk != 0 ? "bulk" : "one stack")})");
-                await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0);
+                await TakeFromStash(player, move.Tab, move.ItemId, all: move.Bulk != 0, kind: move.Kind);
             }
             else if (id == InstanceStash.TakeBlightOilId)
             {
@@ -878,7 +943,7 @@ public static partial class Game
                 if (move.Kind == InstanceStash.Personal && !player.StashOpen) continue;
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00f5 take blight oil {move.ItemId} from stash kind {move.Kind} tab {move.Tab} (panelState {move.UiPanelState})");
                 if (move.Tab <= int.MaxValue)
-                    await TakeFromStash(player, (int)move.Tab, move.ItemId, all: false, kind: move.Kind);
+                    await TakeBlightOil(player, (int)move.Tab, move.ItemId, move.Kind);
             }
             else if (id == InstanceHarvest.MoveItemId)
             {
@@ -891,17 +956,19 @@ public static partial class Game
             {
                 // A tab into a folder, out of one, or (its own index as the folder) into a new one; the list goes out again.
                 var (kind, tab, folder) = InstanceStash.ReadMoveTab(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                int? done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).MoveToFolder(tab, folder);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                int? done = target.MoveToFolder(tab, folder);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d1 stash {kind} tab {tab} into folder {(folder == ushort.MaxValue ? "none" : folder == tab ? "(new)" : folder)}: " +
                     (done is int f ? f == ushort.MaxValue ? "out of its folder" : $"in folder {f}" : "refused"));
                 await SendTabListAgain(player, kind);
+                if (kind == InstanceStash.Personal && done is int newFolder && folder == tab && newFolder != ushort.MaxValue)
+                    await SendPersonalStashTabId(player, (ushort)newFolder, $"{newFolder + 1:x8}");
             }
             else if (id == InstanceStash.DeleteFolderId && bytes.Length >= InstanceStash.DeleteFolderLength)
             {
                 var (kind, folder) = InstanceStash.ReadDeleteFolder(bytes);
-                if (kind == InstanceStash.Guild && player.Character.Ssf) continue;
-                bool done = (kind == InstanceStash.Guild ? GuildStashOf(player) : PersonalStashOf(player)).DeleteFolder(folder);
+                if (!CanManageStashKind(player, kind) || StashByKind(player, kind) is not { } target) continue;
+                bool done = target.DeleteFolder(folder);
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00d2 stash {kind} folder {folder} deleted: {(done ? "its tabs moved out" : "refused")}");
                 await SendTabListAgain(player, kind);
             }
@@ -1044,26 +1111,22 @@ public static partial class Game
             }
             else if (id == InstanceItems.CurrencyApplicationForesightRequestId)
             {
-                // C→S 0x29d: Hinekora's Lock preview request (20 bytes). The 0x2a0 answer uses the same key.
+                // C→S 0x29d: Hinekora's Lock single-item preview request (20 bytes).
                 var req = InstanceItems.ReadCurrencyApplicationForesightRequest(bytes);
-                // The currency and the target can each be in a stash tab, as for 0x71 (Locate).
-                var items = ItemsOf(player);
-                var stash = StashOf(player);
-                var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);
-                var (targetSpot, target) = Locate(items, stash, req.TargetInventory, req.TargetId);
-                Item? rawPreview = currency is not null && target is not null && target.Item.Foreseeing
-                    && !(usedSpot.Tab is int pubTab && stash.IsPublic(pubTab))
-                    && !RefusedOnWorn(player, currency.Item, targetSpot)
-                    ? CurrencyResult(player, target.Item, currency.Item.TypeHash,
-                        ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash))
-                    : null;
-                Item? preview = rawPreview is null ? null : ItemRolls.ClearForesee(rawPreview);
-                player.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId,
-                    target?.Item.ForeseeSeed ?? 0, preview);
-                await Send(player, InstanceItems.CurrencyApplicationForesightResult(
-                    req.Key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
-                    preview is null ? [] : [preview]),
-                    $"0x02a0 foresight preview key {req.Key} for item {req.TargetId}: {(preview is null ? "refused" : "preview")}");
+                await SendSingleForesightPreview(player, req.Key, req.CurrencyInventory, req.CurrencyId, req.TargetInventory, req.TargetId);
+            }
+            else if (id == InstanceItems.DualCurrencyApplicationForesightRequestId)
+            {
+                // C→S 0x29e: Hinekora's Lock dual-item preview request (28 bytes).
+                var req = InstanceItems.ReadDualCurrencyApplicationForesightRequest(bytes);
+                await SendDualForesightPreview(player, req);
+            }
+            else if (id == InstanceItems.CurrencyTypeApplicationForesightRequestId)
+            {
+                // C→S 0x29f: Hinekora's Lock Shift-repeat/type preview request (25 bytes).
+                var req = InstanceItems.ReadCurrencyTypeApplicationForesightRequest(bytes);
+                var (currencyInv, currencyId) = LocateCurrencyStackByType(player, req.CurrencyTypeHash, req.CurrencyInventory);
+                await SendSingleForesightPreview(player, req.Key, currencyInv, currencyId, req.TargetInventory, req.TargetId);
             }
         }
         if (player.Closed || player.LeavingArea) return;
@@ -1103,6 +1166,93 @@ public static partial class Game
             // Unframed messages have the hooks too.
             if (GameEvents.WantsPacket(uid)) await GameEvents.AnyPacket(player, uid, unknown);
         }
+    }
+
+    static Item? ComputeForesightPreview(Player player, ItemMoves.Spot usedSpot, InventoryItem? currency, ItemMoves.Spot targetSpot, InventoryItem? target, AccountStash stash)
+    {
+        if (currency is null || target is null || !target.Item.Foreseeing) return null;
+        if (usedSpot.Tab is int pubTab && stash.IsPublic(pubTab)) return null;
+        if (RefusedOnWorn(player, currency.Item, targetSpot)) return null;
+        Item? raw = CurrencyResult(player, target.Item, currency.Item.TypeHash,
+            ItemRolls.ForeseeRandom(target.Item, currency.Item.TypeHash));
+        return raw is null ? null : ItemRolls.ClearForesee(raw);
+    }
+
+    public static (uint InventoryId, uint ItemId) LocateCurrencyStackByType(Player player, uint typeHash, uint preferredInventoryId)
+    {
+        if (player.Closed || player.LeavingArea) return (0, 0);
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        bool stashAllowed = player.StashOpen || player.GuildStashOpen;
+        bool expandedAllowed = ExpandedInventoryGranted(player);
+        if (preferredInventoryId != 0)
+        {
+            if (stash.TabOf(preferredInventoryId) is int prefTab)
+            {
+                if (stashAllowed && !stash.IsPublic(prefTab)
+                    && stash.Inventory(prefTab).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefStashHit)
+                    return (preferredInventoryId, prefStashHit.Id);
+            }
+            else if (PlayerInventories.Row(preferredInventoryId) is byte prefRow
+                && (prefRow == PlayerInventories.MainInventory || (expandedAllowed && prefRow == PlayerInventories.ExpandedInventory))
+                && items.Items(prefRow).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } prefInvHit)
+                return (preferredInventoryId, prefInvHit.Id);
+        }
+        byte[] rows = expandedAllowed
+            ? [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory]
+            : [PlayerInventories.MainInventory];
+        foreach (byte row in rows)
+            if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
+                return (PlayerInventories.InventoryId(row), hit.Id);
+        if (stashAllowed)
+            for (int t = 0; t < stash.Count; t++)
+                if (!stash.IsPublic(t) && stash.Inventory(t).Items.FirstOrDefault(i => i.Item.TypeHash == typeHash) is { } hit)
+                    return (stash.InventoryOf(t), hit.Id);
+        return (0, 0);
+    }
+
+    static async Task SendSingleForesightPreview(Player player, ushort key, uint currencyInventory, uint currencyId,
+        uint targetInventory, uint targetId)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var (usedSpot, currency) = currencyId != 0 ? Locate(items, stash, currencyInventory, currencyId) : default;
+        var (targetSpot, target) = Locate(items, stash, targetInventory, targetId);
+        Item? preview = ComputeForesightPreview(player, usedSpot, currency, targetSpot, target, stash);
+        player.ForesightRequest = (key, currencyInventory, currencyId, targetInventory, targetId,
+            target?.Item.ForeseeSeed ?? 0, preview);
+        await Send(player, InstanceItems.CurrencyApplicationForesightResult(
+            key, preview is null ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0,
+            preview is null ? [] : [preview]),
+            $"0x02a0 foresight preview key {key} for item {targetId}: {(preview is null ? "refused" : "preview")}");
+    }
+
+    static async Task SendDualForesightPreview(Player player, InstanceItems.DualCurrencyApplicationForesightRequest req)
+    {
+        if (player.Closed || player.LeavingArea) return;
+        var items = ItemsOf(player);
+        var stash = StashOf(player);
+        var (usedSpot, currency) = Locate(items, stash, req.CurrencyInventory, req.CurrencyId);
+        var (firstSpot, first) = Locate(items, stash, req.FirstTargetInventory, req.FirstTargetId);
+        var (secondSpot, second) = Locate(items, stash, req.SecondTargetInventory, req.SecondTargetId);
+        var previews = new List<Item>(2);
+        Item? firstPreview = ComputeForesightPreview(player, usedSpot, currency, firstSpot, first, stash);
+        if (firstPreview is not null) previews.Add(firstPreview);
+        if (req.SecondTargetId != 0 && (req.SecondTargetId != req.FirstTargetId || req.SecondTargetInventory != req.FirstTargetInventory))
+        {
+            Item? secondPreview = ComputeForesightPreview(player, usedSpot, currency, secondSpot, second, stash);
+            if (secondPreview is not null) previews.Add(secondPreview);
+        }
+        Item? primary = firstPreview ?? previews.FirstOrDefault();
+        InventoryItem? primaryTarget = firstPreview is not null ? first : second;
+        uint primaryInv = firstPreview is not null ? req.FirstTargetInventory : req.SecondTargetInventory;
+        uint primaryId = firstPreview is not null ? req.FirstTargetId : req.SecondTargetId;
+        player.ForesightRequest = (req.Key, req.CurrencyInventory, req.CurrencyId, primaryInv, primaryId,
+            primaryTarget?.Item.ForeseeSeed ?? 0, primary);
+        await Send(player, InstanceItems.CurrencyApplicationForesightResult(
+            req.Key, previews.Count == 0 ? InstanceItems.CurrencyApplicationForesightFailure : (ushort)0, previews),
+            $"0x02a0 dual foresight preview key {req.Key} for items {req.FirstTargetId}/{req.SecondTargetId}: {(previews.Count == 0 ? "refused" : $"{previews.Count} preview(s)")}");
     }
 
     static async Task FinishCharacterSelectExit(Player player)

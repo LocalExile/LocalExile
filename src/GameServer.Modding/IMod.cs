@@ -16,8 +16,9 @@ public interface IMod
 }
 
 /// <summary>
-/// A module's entry point: a game system, from an NPC's dialogue to Delve. Modules live in <c>Modules/Core/</c>, <c>Legacy/</c> and
-/// <c>Custom/</c>, load only when a league lists them, and run only for those leagues' players (<see cref="IModuleContext"/>).
+/// A module's entry point: a game system, from an NPC's dialogue to Delve. Modules live in <c>Modules/Core/</c>, load only when a
+/// league lists them, and run only for those leagues' players (<see cref="IModuleContext"/>).
+/// A mod's entry class may be one too: a module that becomes a mod keeps its sources.
 /// </summary>
 public interface IModule
 {
@@ -43,5 +44,11 @@ public enum ModKind
 /// <param name="Depends">Ids loaded before this mod; it does not load while one is missing or failed.</param>
 /// <param name="Assembly">The file name of the mod's assembly in its folder, <c>&lt;id&gt;.dll</c> by default.</param>
 /// <param name="Enabled">Whether it loads until /mod_enable or /mod_disable says otherwise; true by default.</param>
-public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true);
+public sealed record ModManifest(string Id, string Version, ModKind Kind, IReadOnlyList<string> Depends, string Assembly, bool Enabled = true)
+{
+    /// <summary><c>"leagues": "listed"</c>: it loads only when a league lists it (<c>league.json</c> "mods", or the user's
+    /// <c>data/league-modules.json</c>) and runs only for those leagues' players, before the mods of every league ("all", the
+    /// default).</summary>
+    public bool Listed { get; init; }
+}
 

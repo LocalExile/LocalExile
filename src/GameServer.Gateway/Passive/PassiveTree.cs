@@ -302,7 +302,7 @@ public sealed class PassiveTree
     private static Dictionary<ushort, (double X, double Y)> LoadPositions(string folder)
     {
         var positions = new Dictionary<ushort, (double X, double Y)>();
-        if (PassiveGraphs.Graph(AscendancyFamily.Normal) is not { } normal) return positions;
+        if (PassiveGraphs.Graph(AscendancyCatalog.NormalGraph) is not { } normal) return positions;
         int[] orbits = normal.Ints("orbits");
         var members = ClientTables.TableOrEmpty("passive_graph_group_nodes").By("grp");
         foreach (var group in ClientTables.TableOrEmpty("passive_graph_groups").By("graph")[normal.Index])

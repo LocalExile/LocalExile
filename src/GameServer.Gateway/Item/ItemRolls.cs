@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text.Json;
+using GameServer.Modding;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
 
@@ -29,11 +31,18 @@ public sealed class ItemRolls
             .Where(m => m.GenerationType is Prefix or Suffix && !m.EssenceOnly)
             .GroupBy(m => m.Domain)
             .ToDictionary(g => g.Key, g => g.ToArray());
+        _corruptedImplicitsByDomain = catalog.Mods.All
+            .Where(m => m.GenerationType == CorruptedImplicit)
+            .GroupBy(m => m.Domain)
+            .ToDictionary(g => g.Key, g => g.ToArray());
     }
 
     readonly SystemSettings _settings;
 
     public const int Prefix = 1, Suffix = 2;
+
+    /// <summary>Mods.dat GenerationType for corrupted implicit modifiers.</summary>
+    public const int CorruptedImplicit = 5;
 
     /// <summary>Mods.dat GenerationType for the two Eldritch influences: Searing Exarch and Eater of Worlds.</summary>
     public const int ExarchImplicit = 28, EaterImplicit = 29;
@@ -48,6 +57,26 @@ public sealed class ItemRolls
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(int Row, int Level, ItemInfluence Influences, string? Tag), IReadOnlyList<(ModCatalog.Mod, int)>> _pools = new();
     private readonly Dictionary<(int Class, int Influence), string> _influenceTags;
     private readonly Dictionary<int, ModCatalog.Mod[]> _affixesByDomain;
+    private readonly Dictionary<int, ModCatalog.Mod[]> _corruptedImplicitsByDomain;
+
+    /// <summary>The GenerationType 5 (corrupted implicit) mods that can roll on <paramref name="type"/> at
+    /// <paramref name="itemLevel"/>, filtered by domain, level bounds (<c>Level &lt;= itemLevel &lt;= MaxLevel</c>)
+    /// and positive spawn weight for the base's tags.</summary>
+    public IReadOnlyList<(ModCatalog.Mod Mod, int Weight)> CorruptedImplicitPool(
+        ItemCatalog.BaseType type, int itemLevel, int? domainOverride = null)
+    {
+        int domain = domainOverride ?? type.ModDomain;
+        if (!_corruptedImplicitsByDomain.TryGetValue(domain, out var domainMods)) return [];
+        var result = new List<(ModCatalog.Mod, int)>();
+        for (int i = 0; i < domainMods.Length; i++)
+        {
+            var m = domainMods[i];
+            if (m.Level > itemLevel || itemLevel > m.MaxLevel) continue;
+            int weight = m.WeightFor(type.Tags);
+            if (weight > 0) result.Add((m, weight));
+        }
+        return result;
+    }
 
     /// <summary>The affixes that can roll on this base at this item level. Influence mods are ordinary affixes behind a
     /// tag per item class (InfluenceTags.dat: boots_shaper, ring_eyrie …), so an influence opens them.</summary>
@@ -205,7 +234,7 @@ public sealed class ItemRolls
 
     /// <summary>The rare per-side limit from <c>system_settings</c>, adjusted by the item's own
     /// local_maximum_prefixes_allowed_+ / local_maximum_suffixes_allowed_+ (Simplex and Focused Amulets and the
-    /// Simplex ring bases); jewel classes and Idols have their own, lower defaults. A side never goes below zero.</summary>
+    /// Simplex ring bases); jewel classes have their own, lower defaults. A side never goes below zero.</summary>
     (int Prefix, int Suffix) MaxAffixesPerSide(ItemCatalog.BaseType type, Item item)
     {
         var (prefix, suffix) = SmallAffixClass(type.Class)
@@ -216,9 +245,24 @@ public sealed class ItemRolls
             Math.Max(0, suffix + local.GetValueOrDefault(Stat.LocalMaximumSuffixesAllowedPlus)));
     }
 
-    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and Idols (AtlasRelic),
-    /// which share the jewels' caps.</summary>
-    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" or "AtlasRelic";
+    /// <summary>The item classes with two affixes a side and three or four on a rare: jewels, and the classes a module
+    /// gave the jewels' caps (<see cref="UseJewelAffixCaps"/>).</summary>
+    static bool SmallAffixClass(string itemClass) => itemClass is "Jewel" or "AbyssJewel" || jewelCapClasses.Contains(itemClass);
+
+    // Once per UseJewelAffixCaps: an owner's unload takes away only its own.
+    static ImmutableList<string> jewelCapClasses = [];
+
+    /// <summary>Gives an item class of a module's own the jewels' affix caps until the module unloads.</summary>
+    public static IDisposable UseJewelAffixCaps(IModuleLifetime owner, string itemClass)
+    {
+        ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Add(itemClass));
+        return owner.Own(new Undo(() => ImmutableInterlocked.Update(ref jewelCapClasses, list => list.Remove(itemClass))));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        public void Dispose() => undo();
+    }
 
     /// <summary>The rare per-side limit for this item, or three/three when its base is unknown.</summary>
     public (int Prefix, int Suffix) RareMaxAffixes(Item item) =>

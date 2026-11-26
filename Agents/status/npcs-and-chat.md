@@ -31,9 +31,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   answered with S→C 0x135 and "You have joined global chat channel N.", so they do not time out and the Global and
   Trade tabs work.
   The client joins once per session, so every area entry sends 0x135 for the channels already joined.
-  Guild lines are not sent. A `%` party line reaches every member of the sender's party, in whatever area each one is
-  (S→C 0x17 with the sender prefixed `%`); a player in no party is sent none (tested, not yet checked with the real
-  client).
+  Guild (`&`) lines reach online members of the sender's guild with the tag. A `%` party line reaches every member of
+  the sender's party, in whatever area each one is (S→C 0x17 with the sender prefixed `%`); a player in no party is
+  sent none (tested, not yet checked with the real client).
   A name already on a chat server gets a number there (`Name_1`); nothing proves a name.
   Code: `Modules/Core/Player/Chat`, `Modules/Core/Player/Social`, `src/GameServer.Core/Chat`.
   Docs: [10](../docs/protocol/10-chat-and-commands.md) §6.
@@ -93,15 +93,20 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Public party noticeboard (C→S 0xac/0xa2 → S→C 0xad/0xa9) and noticeboard joins are built (not yet checked live).
-- PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d) and duel/queue triggers (0x155/0x156) are built (not checked live).
+- Public party noticeboard (`0xac`/`0xa2` → `0xad`/`0xa9`) and noticeboard joins (`0x95`) are built (not checked live).
+- PvP queue bar (`0x118`/`0x119`, `0x11a`/`0x18d`) and duel triggers (`0x155`/`0x156`) are built (not checked live).
+- Guilds (`0x0140`–`0x014f`, `0x0146`–`0x014c`, `&` chat, shared stash & `0x00cc` reorder): offline verified.
+- PvP queue bar (S→C 0x118/0x119, C→S 0x11a/0x18d): protocol encoders and queue/challenge leave and withdraw handlers
+  in `Modules/Core/Player/Social` (not yet checked live).
 - Direct vendor equipment purchases validate placement, preserve payment on failure and refresh equipped items; 3.29.3c belt purchase/swap protocol controls pass; rendered UI checks remain open.
 
 - Faustus's Currency Exchange works with built-in baseline chaos ratios when `liveeconomy` rates are absent,
-  distinct `0x2f9` refusal codes for gold/currency/slots/market, and cursor vs Ctrl-click `0x2ed` claim modes.
+  distinct `0x2f9` refusal codes for gold/currency/slots/market, `0x2ef` query results, and `0x2ed` claim modes.
   Spreads by volume, a market of 6 steps, fills limited per hour, orders filling while away and with time are written.
   Moving out of reach closes open NPC dialogue, shops, vendor sales (`0x00b9`/`0x0084` object 0), stashes and benches.
   See [29](../docs/protocol/29-currency-exchange.md).
+- Localized chat (`0x18`), broadcasts (`0x19`), awards (`0x1d5`/`0x1d6`), notices (`0x2cc`) and trackers (`0x15f`).
+  Encoders and emitters are wired (live check pending); docs: [30](../docs/protocol/30-hud-signals-and-timers.md).
 - Ruthless selects its native gem/reward restrictions and purchase costs; equipment uses local generation policy.
   Ordinary vendors offer no gems or jewellery; unlocked Siosa exchanges Uncarved Gemstones for eligible active gems.
   Support gems are excluded from deterministic rewards and the opening support chest.
@@ -130,30 +135,13 @@ Part of [Status](../Status.md); what to build next in this area is in
   Carvings, Sailor's Skin, Damp Diary, Shavronne's Journal and Arteri's Letter) spawn with `.ot`-matched components,
   read/close via `0x84`/`0x85` and fire `CharacterAudioEvents` lore reactions (not checked live).
   Docs: [17](../docs/protocol/17-npcs.md).
-- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the optional
-  `NessaDevelopmentTabs` module: after her progression tabs or replacing them, live-checked; no league lists it.
+- Nessa's development catalogue (awakened/exceptional gems, generic/originator/unique maps) is the mod
+  `nessadevelopmenttabs` in LocalExile-Mods: after her progression tabs or replacing them; no league lists it.
   Standard uses progression stock; full unique modifiers, unique-area routing and the updated development display remain partial.
   See [17](../docs/protocol/17-npcs.md#vendor-evidence-and-local-policy).
-- **Player bots** (PlayerBots module, off by default): bots are created over time and visit the towns between quests.
-  Town bots are not drawn: since the area replicates its own entities, a bot is not yet one of them (party followers,
-  which are controlled players, are).
-  Each campaign town maintains 2–5 residents with native level display (Act 1: 1–3; Act 10: 59–75; intermediate acts interpolate the center with ±5).
-  Invited bots keep their town-selected level across zones and grow through earned experience, without scaling to monster levels.
-  Party followers use ordinary player combat: compatible linked gems, connected passive builds, hostile targeting,
-  damage, resurrection and persisted kill/gem experience, shared for melee, projectile and owned kills.
-  Observers receive earned experience, level stats and the default level-up flash; active-party reload retains earned XP.
-  The native party-menu kick removes any selected bot; `/botinvite <name>` and `/botleave` do the invite and the leave
-  from chat, and an invite also matches a bot standing in the player's town that has not been published to them yet
-  (a module reload clears that flag until the bot's next update).
-  Followers stay within 60 cells with rare idle adjustments, retry rejected steps, and enter ahead on clear cells.
-  Moving followers aim ahead along the leader's ordered route and take reachable attacks without chasing off it or cancelling their own swing/cast.
-  Gaps over 60 cells get a short catch-up grace before relocation; large jumps return followers immediately.
-  Shared deaths hide corpse health bars on each observer, including kills made by controlled party members.
-  Optional [MCP control](../../Modules/Custom/PlayerBots/MCP.md) exposes per-bot leases, observations and native tactical orders with ordinary following/fallback.
-  Human friends and town-invited bots share one six-member roster, including kicks, leader handover and area changes.
-  Party state survives module reload while the leader remains online. Offscreen quests remain simulated;
-  trade, chat, ascendancy builds and advanced tactical AI remain open.
-  See [player bots](../docs/dev/player-bots.md).
+- **Player bots** are the mod `playerbots` in LocalExile-Mods (its README has what they do and what is open). Core
+  keeps what they use and any tool may: players the server drives (`Program.DriveByServer`, `Player.HasClient`), and
+  Social's one six-member roster for human friends and server-driven members (invites, kicks, leader handover).
 
 ## Not working yet
 

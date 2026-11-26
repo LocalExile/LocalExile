@@ -127,6 +127,7 @@ public static partial class Game
         public required bool PenancePulses;
         public required bool PenanceSpreads;
         public required bool PenanceExplodesOnDetach;
+        internal PlacedAreaHit? Placement;
 
         public uint GroundObjectId;
         public uint AttachedMonsterId;
@@ -173,6 +174,7 @@ public static partial class Game
         public required bool FromRecall;
         public required int Radius;
         public required double AreaMore;
+        public PlacedAreaHit? Placement;
     }
 
     internal sealed class WintertideEndDot(SpawnedMonster monster, double now)
@@ -490,57 +492,65 @@ public static partial class Game
         return await ResolveCastBrand(player, skillId, gem, to, recoveryGeneration, current);
     }
 
-    internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
-        (int X, int Y) to, int? recoveryGeneration, Func<bool> current)
+    internal static async Task<bool> ResolveCastBrand(Player player, ushort skillId,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) to,
+        int? recoveryGeneration, Func<bool> current)
     {
         bool spawned = false;
         await SendWorldBatch(player, [], admission =>
         {
-            if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
-                || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return null;
-            var supported = SupportedSkill(player, skillId);
-            if (supported.Effect != gem.Effect || !supported.RequirementsMet) return null;
-            if (BrandFamilyOf(SkillsFor(player).EffectId(gem.Effect)) is not { } family) return null;
-
-            double now = AreaTime(player);
-            var state = BrandStates.GetOrCreateValue(player);
-            state.Epoch = player.ProjectileEpoch;
-            if (recoveryGeneration is not null) state.LastBrandCastAt = now;
-
-            var playerStats = CharacterPlayerStats(player);
-            var own = supported.Stats;
-            int maxTotal = BrandMaxTotal(playerStats, own);
-            int count = Math.Clamp(1 + BrandStat(playerStats, "additional_number_of_brands_to_create")
-                + BrandStat(own, "additional_number_of_brands_to_create"), 1, maxTotal);
-            int extraChance = BrandStat(playerStats, "create_additional_brand_%_chance")
-                + BrandStat(own, "create_additional_brand_%_chance");
-            if (extraChance > 0 && AreaRng(player).Next(100) < extraChance) count++;
-
-            var place = player.Layout.WalkableFor(to.X, to.Y, 0) ? to : player.Walk.Position(now);
             var bytes = new WorldRecordBuilder(player, admission);
-            var session = ProjectilesFor(player);
-            string effectId = SkillsFor(player).EffectId(gem.Effect)!;
-
-            for (int i = 0; i < count; i++)
-            {
-                while (state.Brands.Count >= maxTotal && state.Brands.Count > 0)
-                    ExpireBrandLocked(player, session, state, state.Brands[0], now, bytes, replaced: true);
-
-                var brand = CreateBrandLocked(state, skillId, gem.Effect, effectId, family, supported, playerStats, place, now);
-                state.Brands.Add(brand);
-                Interlocked.Increment(ref _globalActiveBrandCount);
-
-                if (!TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0))
-                    SpawnDetachedVisualLocked(player, brand, bytes);
-                spawned = true;
-            }
-
-            ReconcileBrandPresentationLocked(player, state, now, bytes);
+            spawned = ResolveCastBrandLocked(player, skillId, gem.Effect, to, recoveryGeneration, current, bytes);
             return bytes.Count > 0 ? bytes.Build() : null;
         });
 
         if (spawned) await PublishMinionOutcomes(player);
         return spawned;
+    }
+
+    static bool ResolveCastBrandLocked(Player player, ushort skillId, int effect, (int X, int Y) to,
+        int? recoveryGeneration, Func<bool> current, WorldRecordBuilder bytes, PlacedAreaHit? placement = null)
+    {
+        if (!CurrentGameWork || player.Closed || player.LeavingArea || player.Paused || player.PlayerLife == 0
+            || !current() || recoveryGeneration is int generation && player.ActionInterruptionGeneration != generation) return false;
+        var supported = SupportedSkill(player, skillId);
+        if (supported.Effect != effect || !supported.RequirementsMet) return false;
+        string? effectId = SkillsFor(player).EffectId(effect);
+        if (BrandFamilyOf(effectId) is not { } family) return false;
+
+        double now = AreaTime(player);
+        var state = BrandStates.GetOrCreateValue(player);
+        state.Epoch = player.ProjectileEpoch;
+        if (recoveryGeneration is not null) state.LastBrandCastAt = now;
+
+        var playerStats = CharacterPlayerStats(player);
+        var own = supported.Stats;
+        int maxTotal = BrandMaxTotal(playerStats, own);
+        int count = Math.Clamp(1 + BrandStat(playerStats, "additional_number_of_brands_to_create")
+            + BrandStat(own, "additional_number_of_brands_to_create"), 1, maxTotal);
+        int extraChance = BrandStat(playerStats, "create_additional_brand_%_chance")
+            + BrandStat(own, "create_additional_brand_%_chance");
+        if (extraChance > 0 && AreaRng(player).Next(100) < extraChance) count++;
+
+        var place = player.Layout.WalkableFor(to.X, to.Y, 0) ? to : player.Walk.Position(now);
+        var session = ProjectilesFor(player);
+
+        for (int i = 0; i < count; i++)
+        {
+            while (state.Brands.Count >= maxTotal && state.Brands.Count > 0)
+                ExpireBrandLocked(player, session, state, state.Brands[0], now, bytes, replaced: true);
+
+            var brand = CreateBrandLocked(state, skillId, effect, effectId!, family, supported, playerStats, place, now);
+            brand.Placement = placement;
+            state.Brands.Add(brand);
+            Interlocked.Increment(ref _globalActiveBrandCount);
+
+            if (!TryAttachBrandLocked(player, session, state, brand, playerStats, now, bytes, excludeMonster: 0))
+                SpawnDetachedVisualLocked(player, brand, bytes);
+        }
+
+        ReconcileBrandPresentationLocked(player, state, now, bytes);
+        return true;
     }
 
     public static async Task<bool> CastBrandRecall(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
@@ -1129,7 +1139,7 @@ public static partial class Game
             SpawnTempEffectLocked(player, state, tAt, StormBrandImpactAo, now + 0.25, bytes);
             DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, tid, monster,
                 now, hitMore, ailmentMore: 1.0, extraPenetrationType: isBranded && extraPen > 0 ? (DamageType.Lightning, extraPen) : null,
-                label: brand.EffectId);
+                label: brand.EffectId, placement: brand.Placement);
         }
     }
 
@@ -1158,6 +1168,7 @@ public static partial class Game
             FromRecall = fromRecall,
             Radius = radius,
             AreaMore = 1.0,
+            Placement = brand.Placement,
         });
     }
 
@@ -1187,7 +1198,7 @@ public static partial class Game
             DealBrandSpellHitLocked(player, meteor.SkillId, meteor.Gem, playerStats, id, m,
                 now, hitMore, ailmentMore: 1.0,
                 extraPenetrationType: isBranded && extraFirePen > 0 ? (DamageType.Fire, extraFirePen) : null,
-                label: meteor.EffectId);
+                label: meteor.EffectId, placement: meteor.Placement);
         }
     }
 
@@ -1226,7 +1237,7 @@ public static partial class Game
                     || Dist(m.Walk.Position(now), at) > radius) continue;
                 double brandedMore = id == targetId ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
                 DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, id, m,
-                    now, energyHitMore * brandedMore, energyAilmentMore, label: "PenanceBrandAltX");
+                    now, energyHitMore * brandedMore, energyAilmentMore, label: "PenanceBrandAltX", placement: brand.Placement);
             }
             return;
         }
@@ -1288,7 +1299,7 @@ public static partial class Game
                     || (brand.PenanceSpreads ? id != centreId : Dist(m.Walk.Position(now), centreAt) > radius)) continue;
                 double brandedMore = id == primaryId ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
                 DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, id, m,
-                    now, brandedMore, 1.0, label: brand.EffectId);
+                    now, brandedMore, 1.0, label: brand.EffectId, placement: brand.Placement);
             }
             if (centreMonster is not null && BrandMonsterMarks.TryGetValue(centreMonster, out var cm))
                 cm.PenanceEnergy = 0;
@@ -1315,7 +1326,7 @@ public static partial class Game
 
     // ---- 4. Wintertide Brand (Stacking Cold DoT + Wintertide's End) -----------------------------------------------------
 
-    static double WintertideDpsFor(SupportedGem gem, IReadOnlyDictionary<uint, int> player, int stages)
+    static double WintertideDpsFor(SupportedGem gem, IReadOnlyDictionary<uint, int> player, int stages, PlacedAreaHit? placement = null)
     {
         var merged = MergeSkillStats(player, gem.Stats);
         int Get(uint key) => merged.GetValueOrDefault(key);
@@ -1330,6 +1341,14 @@ public static partial class Game
         double more = WintertideDotSupportMore.Aggregate(
             DamageStats.ElementalMore(Get(Stat.CombinedElementalDamagePlusPctFinal)),
             (m, name) => m * Math.Max(0, 1 + Own(name) / 100.0));
+        if (placement is not null)
+        {
+            increased += (double)Get(placement.Device.Mine ? Stat.MineDamagePlusPct : Stat.TrapDamagePlusPct)
+                + Get(Stat.TrapOrMineDamagePlusPct);
+            more *= placement.DamageMore * Math.Max(0, 1 + Get(Stat.SupportTrapDamagePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Get(Stat.SupportRemoteMine2DamagePlusPctFinal) / 100d)
+                * Math.Max(0, 1 + Get(Stat.SupportTrapAndMineDamagePlusPctFinal) / 100d);
+        }
         if (Get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) is int eo and not 0)
             more *= Math.Max(0, 1 + eo / 100.0);
         int perStage = Math.Max(0, GolemStat(gem.Stats, Stat.ImmolationBrandBurnDamagePlusPctFinalPerStage));
@@ -1346,7 +1365,7 @@ public static partial class Game
             + BrandStat(playerStats, "winter_brand_max_number_of_stages_+"));
         if (brand.Stages < maxStages) brand.Stages++;
 
-        brand.WintertidePrimaryDps = WintertideDpsFor(brand.Gem, playerStats, brand.Stages);
+        brand.WintertidePrimaryDps = WintertideDpsFor(brand.Gem, playerStats, brand.Stages, brand.Placement);
 
         // Inflict Chill on the attached enemy
         int chillEffect = BrandStat(playerStats, "winter_brand_chill_effect_+%") + BrandStat(brand.Gem.Stats, "winter_brand_chill_effect_+%");
@@ -1361,7 +1380,7 @@ public static partial class Game
         int radius = BrandEffectiveRadius(player, brand, playerStats);
         SpawnTempEffectLocked(player, state, at, WintertideNovaAo, now + 0.5, bytes, (float)Math.Clamp(radius / 22.0, 0.6, 3.0));
 
-        double dps = WintertideDpsFor(brand.Gem, playerStats, Math.Max(1, brand.Stages));
+        double dps = WintertideDpsFor(brand.Gem, playerStats, Math.Max(1, brand.Stages), brand.Placement);
         if (!(dps > 0)) return;
         int baseEndMs = BrandStat(brand.Gem.Stats, "base_tertiary_skill_effect_duration");
         if (baseEndMs <= 0) baseEndMs = 2000;
@@ -1490,6 +1509,8 @@ public static partial class Game
                 return;
             }
             int cdMs = catalog.CooldownMs(spellGem.Effect, spellGem.Level);
+            if (spellGem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                cdMs += catalog.CastTimeMs(spellGem.Effect);
             if (cdMs > 0)
             {
                 double rate = Math.Max(0.05, 1 + (BrandStat(playerStats, "virtual_cooldown_speed_+%")
@@ -1523,7 +1544,7 @@ public static partial class Game
                 || m.OwnerId is not null || MonsterAsleep(player, id)
                 || Dist(m.Walk.Position(now), at) > radius) continue;
             DealBrandSpellHitLocked(player, brand.OverchargeSkillId, surgeGem, playerStats, id, m,
-                now, brand.OverchargeDamageMore, brand.OverchargeDamageMore, label: "Brandsurge");
+                now, brand.OverchargeDamageMore, brand.OverchargeDamageMore, label: "Brandsurge", placement: brand.Placement);
         }
     }
 
@@ -1545,10 +1566,16 @@ public static partial class Game
     static void DealBrandSpellHitLocked(
         Player player, ushort skillId, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats,
         uint monsterId, SpawnedMonster m, double now, double hitMore, double ailmentMore,
-        (DamageType Type, int Pct)? extraPenetrationType = null, string label = "Brand")
+        (DamageType Type, int Pct)? extraPenetrationType = null, string label = "Brand", PlacedAreaHit? placement = null)
     {
         if (m.Invulnerable || MonsterBlocks(m, AreaRng(player), spell: true, now, gem.Stats)) return;
         if (SupportedHitInputsFor(player, skillId, capturedGem: gem) is not { } inputs) return;
+        if (placement is not null)
+        {
+            inputs = inputs with { Caster = TotemCasterStats(inputs.Caster) };
+            hitMore *= placement.DamageMore;
+            ailmentMore *= placement.DamageMore;
+        }
 
         long vsBlinded = Blinded(player, monsterId) ? inputs.Get(PlayerHitDamage.VsBlindedDamageStat) : 0;
         long brandSpecific = BrandFamilyOf(SkillsFor(player).EffectId(gem.Effect)) switch
@@ -1563,7 +1590,7 @@ public static partial class Game
         var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
         if (hitMore != 1.0) hit = hit.Scale(hitMore);
 
-        var gambler = GamblerFor(playerStats);
+        var hitRolls = HitRollsFor(playerStats);
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,
             GameEvents.WithOutgoingDamage(player, playerStats, m, hit.Roll(AreaRng(player))), now);
 
@@ -1585,26 +1612,36 @@ public static partial class Game
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
         var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            gambler.InvertsResistance(AreaRng(player)), AreaRng(player));
+            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null);
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 
-        var taken = MonsterTakenComponents(m, mitigated, spell: true, now);
-        var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
-        LeechOnHitLocked(player, m, taken, damage, leech);
+        if (placement is null)
+        {
+            var taken = MonsterTakenComponents(m, mitigated, spell: true, now);
+            var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
+            LeechOnHitLocked(player, m, taken, damage, leech);
+        }
+        else if (placement.Device.Mine)
+            LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, playerStats, monsterId);
 
         var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
-        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage);
-        if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: null,
-                cull: Cull.Of(playerStats, gem.Stats, critical, spell: true), cullPlayer: playerStats,
+        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
+            placement is null ? 0 : BearTrapDamageTaken(m, now));
+        if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placement?.Device.At,
+                cull: placement is null ? Cull.Of(playerStats, gem.Stats, critical, spell: true) : default, cullPlayer: playerStats,
                 chaosDamage: chaosDamage)
             is not { } applied) return;
         if (applied.StageStarts) { CommitBossStage(player, monsterId, m, now); applied = applied with { StageStarts = false }; }
 
-        CrueltyOnHitLocked(player, skillId, damage, m.Life + (uint)damage, m.MaxLife, gem.Stats, now);
-        ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
-        if (ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical) is { } eoPacket)
-            player.Minions.OutputQueue.Add(new(eoPacket, "Elemental Overload from brand crit", WorldId: player.Id));
+        if (placement is null)
+        {
+            CrueltyOnHitLocked(player, skillId, damage, m.Life + (uint)damage, m.MaxLife, gem.Stats, now);
+            ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
+            if (ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical) is { } eoPacket)
+                player.Minions.OutputQueue.Add(new(eoPacket, "Elemental Overload from brand crit", WorldId: player.Id));
+        }
+        else OwnedKillLocked(m, applied.Life);
 
         if (!m.Dead)
         {
@@ -1613,18 +1650,18 @@ public static partial class Game
                 poison = poison with { Min = poison.Min * ailmentMore, Max = poison.Max * ailmentMore,
                     CriticalMin = poison.CriticalMin * ailmentMore, CriticalMax = poison.CriticalMax * ailmentMore };
             AilmentsOnHitLocked(player, monsterId, m, mitigated, spell: true, critical, critMult, playerStats, gem.Stats, now,
-                AreaRng(player), poison: poison, sourceSkill: skillId, blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: true);
+                AreaRng(player), poison: poison, sourceSkill: skillId, blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: placement is null);
             var ignite = SupportedIgnite(player, skillId, spell: true, playerStats, additionalIncreased: vsBlinded, capturedInputs: inputs);
             if (ignite.Max > 0)
             {
                 if (ailmentMore != 1.0)
                     ignite = ignite with { Min = ignite.Min * ailmentMore, Max = ignite.Max * ailmentMore,
                         CriticalMin = ignite.CriticalMin * ailmentMore, CriticalMax = ignite.CriticalMax * ailmentMore };
-                foreach (var packet in IgniteOnHitLocked(player, monsterId, m, ignite, critical, now, playerIgnite: true) ?? [])
+                foreach (var packet in IgniteOnHitLocked(player, monsterId, m, ignite, critical, now, playerIgnite: placement is null) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, $"{label} ignite", monsterId, m));
             }
         }
-        CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: true, stun: stun);
+        CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: placement is null, stun: stun);
     }
 
     // ---- Client Presentation: Effects, Beams, Monster Buffs, HUD Counters -----------------------------------------------

@@ -54,7 +54,8 @@ public sealed partial class ProjectileRuntime
             {
                 if (!projectiles.ContainsKey(p.Id)) return;
                 EmitChildren(p, emission);
-                Schedule(Now + emission.Interval, Emit);
+                if (emission.TravelGroups is not int limit || p.EmissionNumber < limit)
+                    Schedule(Now + emission.Interval, Emit);
             }
             Schedule(Now + emission.Interval, Emit);
         }
@@ -111,11 +112,17 @@ public sealed partial class ProjectileRuntime
 
     /// <summary>Resolve a grounded projectile impact without a horizontal flight or a direct-hit victim.</summary>
     public void Impact(ProjectileUse use, ProjectileVector centre, ProjectileAreaRecipe area)
+        => Area(ImpactEntity(use, centre), area);
+
+    /// <summary>Resolve a staged contact against one selected target without a horizontal flight.</summary>
+    public ProjectileHitResult ImpactTarget(ProjectileUse use, ProjectileActor target, string stage) =>
+        Damage(ImpactEntity(use, target.Position(Now)), target, stage);
+
+    ProjectileEntity ImpactEntity(ProjectileUse use, ProjectileVector centre)
     {
         long id = ++sequence;
-        var impact = new ProjectileEntity(id, id, id, 0, use, centre, centre - use.Origin, Now)
+        return new ProjectileEntity(id, id, id, 0, use, centre, centre - use.Origin, Now)
             { Distance = (centre - use.Origin).Length };
-        Area(impact, area);
     }
 
     void Area(ProjectileEntity p, ProjectileAreaRecipe recipe, ProjectileActorKey? victim = null)

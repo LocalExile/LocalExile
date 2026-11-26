@@ -393,9 +393,15 @@ public static class UtilityFlasks
         IReadOnlyList<Source> Stats, double Started, double Ends)
     {
         public long Activation { get; set; }
-        public int SelfChaosDamageLifePctPerMinute { get; init; }
+        public int SelfChaosDamageLifePctPerMinute { get; set; }
+        public IReadOnlyDictionary<uint, int>? LocalStats { get; init; }
+        public double PeriodicThrough { get; set; } = Started;
         public double Ends { get; set; } = Ends;
         public double ExpiryRate { get; set; } = 1;
+
+        /// <summary>The stats this effect applies now. They change only through <see cref="Effects.Retune"/>.</summary>
+        public IReadOnlyList<Source> Stats { get; internal set; } = Stats;
+
         /// <summary>The "during effect" suffix buffs this use sends: (buff instance, BuffDefinitions
         /// row), in send order. Allocated with the effect in UseUtilityFlaskCore, so an effect always carries the
         /// buffs it sent and <see cref="EndBuffs"/> removes exactly those.</summary>
@@ -460,10 +466,32 @@ public static class UtilityFlasks
             lock (_lock) return _latest.GetValueOrDefault(item) == activation;
         }
 
+        /// <summary>The effects running now, a copy.</summary>
+        public IReadOnlyList<Active> All()
+        {
+            lock (_lock) return [.. _active];
+        }
+
+        /// <summary>Gives a running effect new stats and self damage rate (its buff, cell and deadline stay).</summary>
+        public void Retune(Active effect, IReadOnlyList<Source> stats, int selfChaosDamageLifePctPerMinute)
+        {
+            lock (_lock)
+            {
+                effect.Stats = stats;
+                effect.SelfChaosDamageLifePctPerMinute = selfChaosDamageLifePctPerMinute;
+            }
+        }
+
         /// <summary>The effect of this flask (item id) still running, or null.</summary>
         public Active? Of(uint itemId)
         {
             lock (_lock) return _active.FirstOrDefault(a => a.ItemId == itemId);
+        }
+
+        public Active? FirstWithLocalStat(uint stat, Func<Active, bool> eligible)
+        {
+            lock (_lock)
+                return _active.FirstOrDefault(effect => effect.LocalStats?.GetValueOrDefault(stat) > 0 && eligible(effect));
         }
 
         /// <summary>Starts an effect, next to any other, of the same kind or not: each keeps its own duration

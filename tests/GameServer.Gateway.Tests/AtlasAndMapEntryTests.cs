@@ -11,7 +11,7 @@ public sealed class AtlasAndMapEntryTests
     public void AreaInstance_and_Atlas_protocol_packets_encode_exact_client_wire_layouts()
     {
         byte[] plain = new AreaInstance(1, 0x235c, 7, 2).Encode();
-        byte[] hideout = new AreaInstance(1, 0x235c, 7, 2, HideoutPermissions: true).Encode();
+        byte[] hideout = new AreaInstance(1, 0x235c, 7, 2, GuildHideout: true).Encode();
         Assert.Equal(plain.Length, hideout.Length);
         // Header before flags: 2 id + 4 instance + 2 area + 2 empty WStr + 4 seed + 4 bytes = 18; flags at [18..20].
         Assert.Equal(0x80, hideout[19] ^ plain[19]);
@@ -53,16 +53,6 @@ public sealed class AtlasAndMapEntryTests
         Assert.Equal((byte)59, leagues.Find("Hardcore Allflame")!.Entry().C1);
         Assert.Equal((byte)59, leagues.Find("SSF Allflame")!.Entry().C1);
         Assert.Equal((byte)0, leagues.Find("Standard")!.Entry().C1);
-
-        // HideoutPermissions (0x1d bit 0x80) only grants permissions to the hideout owner, never visitors or towns.
-        var hideoutArea = HideoutCatalog.Default!;
-        var hideoutLayout = new AreaLayout(hideoutArea.AreaHash16, hideoutArea.AreaId, 100, 100, 10, 10, null, []);
-        var owner = new Player(hideoutLayout, 1, 1) { Character = { Name = "HostChar" }, InstanceOwner = "HostChar" };
-        var guest = new Player(hideoutLayout, 1, 1) { Character = { Name = "GuestChar" }, InstanceOwner = "HostChar" };
-        var townPlayer = new Player(new(AreaLayouts.LioneyesWatch, "1_1_town", 100, 100, 10, 10, null, []), 1, 1) { Character = { Name = "HostChar" } };
-        Assert.True(Program.OwnsHideoutInstance(owner));
-        Assert.False(Program.OwnsHideoutInstance(guest));
-        Assert.False(Program.OwnsHideoutInstance(townPlayer));
     }
 
     [Fact]
@@ -104,6 +94,15 @@ public sealed class AtlasAndMapEntryTests
             Assert.False(lowTierEater.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
             Assert.Equal(1, lowTierMaven[Stat.MapAtlasPrimordialBossInfluence]);
             Assert.False(zeroTierBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
+
+            // A family's league block: carried once, for the tree's families and the ones the map names itself.
+            Assert.Contains("harvest", Game.MapLeagueBlockFamilies);
+            var named = new MapMods(new Dictionary<uint, int>()) { AtlasFamilies = new HashSet<string> { "harvest" } };
+            Assert.Equal(named.AtlasFamilies, named.WithFragmentStat(Stat.MapPackSizePlusPct, 5).AtlasFamilies);
+            foreach (var (mods, tree, block) in new[] { (rareMods, new HashSet<string>(), 0), (rareMods, new HashSet<string> { "harvest" }, 1),
+                (named, new HashSet<string>(), 1), (named, new HashSet<string> { "harvest" }, 1) })
+                Assert.Equal(block, Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), tree, 0)
+                    .GetValueOrDefault(Stat.MapHarvestSeedsAreTier1));
 
             player.Character.LeagueQuestFlags.Add(351); // MapDeviceTangleUnlocked
             Assert.Equal((byte)2, Game.EligibleBossOption(player, new MapDevice.Opening(area, rareMods), 2));

@@ -500,6 +500,7 @@ public static partial class Game
                 m.Mods = mods;
                 player.Golems.All.Add(id, probe);
                 player.Minions.Add(new(id, m, definition.Id, definition.Kind) { Until = double.PositiveInfinity });
+                MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
                 if (claimActivation && replacement is null && gemSource?.Parent is { } marker)
                     PlayerInventories.Current(CharacterName(player))?.ClaimGemActivation(
                         GolemSaveKey, source, marker, player.VitalsSessionId);
@@ -527,6 +528,7 @@ public static partial class Game
         ClearMinionFlasksLocked(player, golem, now);
         ReconcileLinkedMinionModifiersLocked(player, golem, now, dead: true);
         player.Golems.All.Remove(golem.Id); player.Minions.Remove(golem.Id);
+        MarkPlayerStats(player, PlayerStatStep.Golems);   // the active-minion counts
         MinionLifeLeeches.Remove(golem);
         MinionShieldLeeches.Remove(golem);
         MinionFortification.Remove(golem);
@@ -774,7 +776,7 @@ public static partial class Game
             using (new PlayerStatScope(player, fresh: true))
             {
                 bytes.Add(PlayerStatsOffFrames(player));
-                bytes.Add(PlayerSkillsIfChanged(player, PlayerSkills(player)));
+                bytes.AddRange(PlayerSkillsBatchesIfChanged(player, PlayerSkills(player)));
             }
             return bytes.Count == 0 ? null : [.. bytes];
         });

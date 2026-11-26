@@ -28,9 +28,12 @@ public static class GatewayProjectileSkillProfiles
 
     public static bool IsKineticBlast(string effect) => effect is "KineticBlast" or "KineticBlastAltX" or "KineticBlastAltY";
     public static bool IsKineticBolt(string effect) => effect is "KineticBolt" or "KineticBoltAltX" or "KineticBoltAltY";
+    internal static bool UnearthEffect(string? effect) => effect is "Unearth" or "UnearthRoyale";
     public static bool IsFireball(string metadata) => metadata.Contains("Fireball", StringComparison.Ordinal);
     public static bool IsLightningArrow(string effect) => effect is "LightningArrow" or "LightningArrowRoyale" or "VaalLightningArrow";
+    internal static bool IsShatteringSteel(string? effect) => effect is "ShatteringSteel" or "ShatteringSteelAltX" or "ShatteringSteelRoyale";
     internal static bool IsHolyFlameTotem(string? effect) => effect is "HolyFlameTotem" or "HolyFlameTotemAltX";
+    internal static bool IsForbiddenRite(string? effect) => effect is "ForbiddenRite" or "ForbiddenRiteAltX";
     public static bool IsMoltenStrike(string? effect) =>
         effect is "MoltenStrike" or "MoltenStrikeAltX" or "MoltenStrikeAltY" or "VaalMoltenStrike";
     public static bool IsCausticArrow(string? effect) =>
@@ -66,6 +69,8 @@ public static class GatewayProjectileSkillProfiles
         }
         else if (IsFireball(metadata))
             p = p with { EndArea = new("fireball-explosion", 0), EndAreaReasons = TerminalStops };
+        else if (Game.IsCreepingFrost(effect))
+            p = p with { EndArea = new("creeping-frost-burst", 0), EndAreaReasons = TerminalStops };
         else if (effect == "BlazingSalvo")
             p = p with
             {
@@ -76,6 +81,14 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("blazing-salvo", 16),
                 EndAreaReasons = new HashSet<ProjectileEndReason>
                     { ProjectileEndReason.Enemy, ProjectileEndReason.Terrain, ProjectileEndReason.Landing },
+            };
+        else if (IsForbiddenRite(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("forbidden-rite", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
         // Wiki Spark: a set of sparks forgets the enemies it hit every 0.66 seconds, so one cast can hit a target again.
         // The transfigured and Vaal versions share the rule.
@@ -116,6 +129,14 @@ public static class GatewayProjectileSkillProfiles
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing, ProjectileEndReason.Terrain }
             };
 
+        else if (Game.IsPyroclastMine(effect))
+            p = p with
+            {
+                Lobbed = true, DirectDamage = false,
+                CannotPierce = true, CannotFork = true, CannotSplit = true, CannotChain = true, CannotReturn = true,
+                EndArea = new("pyroclast-mine", 0),
+                EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing },
+            };
         else if (effect == "VolcanicFissure")
             p = p with
             {
@@ -125,6 +146,8 @@ public static class GatewayProjectileSkillProfiles
                 EndArea = new("volcanic-fissure", 0),
                 EndAreaReasons = new HashSet<ProjectileEndReason> { ProjectileEndReason.Landing }
             };
+        else if (UnearthEffect(effect))
+            p = p with { Lobbed = true, LobbedEnemyContacts = true, CannotReturn = true };
         else if (IsHolyFlameTotem(effect))
             p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)), Pierce = -1, CannotReturn = true };
         else if (IsCausticArrow(effect))
@@ -132,6 +155,25 @@ public static class GatewayProjectileSkillProfiles
             {
                 ContactArea = new("caustic-arrow-explosion", 0) { ExcludeContactTarget = true },
                 EndAreaReasons = NonContactStops,
+            };
+
+        else if (IsShatteringSteel(effect))
+            p = p with
+            {
+                EndArea = new("shattering-steel-cone", 0)
+                {
+                    ConeHalfAngle = Math.PI / 2,
+                    ReplacesDirectContact = false,
+                    ExcludeContactTarget = true,
+                },
+                EndAreaReasons = TerminalStops,
+            };
+        else if (effect is "LancingSteel" or "LancingSteelAltX")
+            p = p with
+            {
+                SequentialDelay = ProjectileRuntime.Time(2d / 30),
+                AimSpreadDistance = 0,
+                SpreadRadians = 0,
             };
 
         // Arrow Nova's payload and circular volley. The child count keeps this stage's base count; the shared modifier
@@ -146,6 +188,7 @@ public static class GatewayProjectileSkillProfiles
             "FrostBolt" or "FrostBoltAltX" or "FrostBoltAltY" or "FrostBoltRoyale"
                 => get(Stat.FrostboltNumberOfAdditionalProjectiles),
             "BlazingSalvo" => get(Stat.BlazingSalvoNumberOfAdditionalProjectiles),
+            "ForbiddenRite" or "ForbiddenRiteAltX" => get(Stat.ForbiddenRiteNumberOfAdditionalProjectiles),
             _ => 0
         };
         int pierce = effect is "IceShot" or "IceShotAltX" or "IceShotAltY" or "IceShotRoyale" or "VaalIceShot"
@@ -160,6 +203,14 @@ public static class GatewayProjectileSkillProfiles
         if (nova && get(Stat.SupportParallelProjectileNumberOfPointsPerSide) == 0)
             p = p with { NativeVolley = new() { Nova = true } };
         p = GatewayProjectileModifiers.Resolve(p, get, attack, arrows, skillExtraProjectiles: extraProjectiles, skillPierce: pierce);
+        if (IsShatteringSteel(effect) && p.ParallelOrigins is null
+            && get(Stat.ActiveSkillAdditionalProjectilesFireParallelXDist) is > 0 and var parallelGap)
+            p = p with
+            {
+                AimSpreadDistance = 0,
+                SpreadRadians = 0,
+                ParallelOrigins = new(p.Count / 2, parallelGap / WorldUnits.PerCell, 0),
+            };
         if (IsMoltenStrike(effect))
         {
             bool groundChains = get(Stat.MoltenStrikeProjectilesChainWhenImpactingGround) != 0;
@@ -175,6 +226,8 @@ public static class GatewayProjectileSkillProfiles
             if (countFinal != 0)
                 p = p with { Count = Math.Max(1, (int)Math.Floor(p.Count * Math.Max(0, 1 + countFinal / 100.0))) };
         }
+        if (Game.IsCreepingFrost(effect) && get(Stat.ModifiersToProjectileCountDoNotApply) != 0)
+            p = p with { Count = Math.Max(1, get(Stat.BaseNumberOfProjectiles)) };
         // Its chains bounce on the ground instead of seeking another monster.
         if (effect == "RollingMagma") p = p with { GroundChains = p.Chain, Chain = 0 };
         if (effect == "HolyFlameTotemAltX")
@@ -362,6 +415,9 @@ public static class GatewayProjectileSkillProfiles
             int baseRadius = Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 9);
             return p with { EndArea = moltenArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) } };
         }
+        if (IsForbiddenRite(effect) && p.EndArea is { } riteArea)
+            return p with { EndArea = riteArea with
+                { Radius = SkillArea.Radius(Value(Stat.ActiveSkillBaseAreaOfEffectRadius, 8), get, spell) } };
         if (IsCausticArrow(effect) && p.ContactArea is { } causticArea)
         {
             int AreaStat(uint name) => name == SkillArea.BaseIncreased
@@ -370,6 +426,8 @@ public static class GatewayProjectileSkillProfiles
             var scaled = causticArea with { Radius = SkillArea.Radius(baseRadius, AreaStat, spell) };
             return p with { ContactArea = scaled, EndArea = scaled };
         }
+        if (Game.IsPyroclastMine(effect) && p.EndArea is { } pyroclast)
+            return p with { EndArea = pyroclast with { Radius = SkillArea.Radius(12, get, spell) } };
         if (p.EndArea is { } terminal)
             return p with { EndArea = terminal with
                 { Radius = SkillArea.Radius(SkillArea.BaseRadius(effect, get), get, spell) } };

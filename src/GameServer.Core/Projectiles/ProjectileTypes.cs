@@ -67,6 +67,8 @@ public sealed record ProjectileEmissionRecipe(ProjectileProfile Child, bool Radi
     /// <summary>Adapts the parent's release data once for each group of child projectiles.</summary>
     public Func<object?, object?>? ChildPayload { get; init; }
     public bool ExcludeImpactTarget { get; init; }
+    /// <summary>Stop a travel recipe after this many emitted groups. Null keeps emitting until the flight ends.</summary>
+    public int? TravelGroups { get; init; }
     /// <summary>Emit children on continuing enemy contacts (chain, fork, split, pierce) as well as terminal stops.</summary>
     public bool EmitOnContinueContact { get; init; }
     public IReadOnlySet<ProjectileEndReason>? EndReasons { get; init; }
@@ -246,6 +248,8 @@ public sealed record ProjectileProfile(string Id)
     public ProjectileEmissionRecipe? EndEmission { get; init; }
     public ProjectileEmissionRecipe? TravelEmission { get; init; }
     public ProjectilePulseRecipe? Pulse { get; init; }
+    /// <summary>Linear increase to the contact multiplier over this flight's lifetime, as a percentage.</summary>
+    public int LifetimeDamageGainPercent { get; init; }
     public bool Lobbed { get; init; }
     /// <summary>A lobbed flight may resolve an enemy impact before its intended landing.</summary>
     public bool LobbedEnemyContacts { get; init; }
@@ -295,6 +299,8 @@ public sealed record ProjectileUse(ProjectileProfile Profile, ProjectileActorKey
     /// <summary>Optional per-projectile destinations. Each initial flight ends at its destination; children retain
     /// their own continuation geometry. Used when the native action scatters target cells instead of directions.</summary>
     public IReadOnlyList<ProjectileVector>? ProjectileTargets { get; init; }
+    /// <summary>Optional aim chosen at each initial emission. The selected direction keeps the projectile's flight range.</summary>
+    public Func<ProjectileVector, ProjectileVector?>? InitialAim { get; init; }
     /// <summary>Optional per-projectile speeds in cells per second. Each initial flight uses its entry instead of
     /// <see cref="ProjectileProfile.Speed"/>.</summary>
     public IReadOnlyList<double>? ProjectileSpeeds { get; init; }

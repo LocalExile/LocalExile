@@ -20,11 +20,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\GameServer.Gateway\GameServer.Gateway.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Game\Game.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\PlayerBots\PlayerBots.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRun\SurvivorsRun.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsRewards\SurvivorsRewards.csproj" />
-    <ProjectReference Include="..\..\Modules\Custom\Survivors\SurvivorsSkills\SurvivorsSkills.csproj" />
-    <ProjectReference Include="..\..\Modules\Legacy\PhreciaAscendancies\PhreciaAscendancies.csproj" />
     <!-- The QuestObjects module's rules and acts (Act6EncounterTests, QuestEncounterRestoreTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
@@ -32,8 +27,14 @@
     <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
     <ProjectReference Include="..\..\Modules\Core\World\Portals\Portals.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Breach\Breach.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Deepwater\Deepwater.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Blight\Blight.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Delirium\Delirium.csproj" />
+    <!-- The Expedition encounter (ExpeditionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Expedition\Expedition.csproj" />
+    <!-- The Abyss encounter's plan, blobs and flow (AbyssEncounterTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Abyss\Abyss.csproj" />
     <!-- The Smuggler's Cache encounter (HeistCacheTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\HeistCache\HeistCache.csproj" />
     <!-- The Atlas's completed maps (AtlasProgressTests). -->
@@ -43,5 +44,15 @@
     <ProjectReference Include="..\..\Modules\Core\NPC\Vendors\Vendors.csproj" />
     <!-- Sacred Grove Crop Rotation (HarvestCropRotationTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
+    <!-- The Bestiary mission's effect bytes and tables (BestiaryTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
+    <!-- Alva's incursions and the temple plan (IncursionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
+    <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Mercenary\Mercenary.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
+    <!-- The Legion timer and army plan (LegionTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Legion\Legion.csproj" />
   </ItemGroup>
 </Project>

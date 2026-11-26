@@ -141,11 +141,12 @@ public static partial class Game
     {
         if (amount == 0 || player.LeavingArea || player.PlayerLife == 0 || !CurrentGameRules) return;
         player.RecentEvents.RecordAmount(StatConditions.SpentMana, ResourceEffectsTime(player), amount);
+        SigilManaSpent(player, amount, AreaTime(player));
         var state = ResourceEffectsOf(player);
         if (!ResourceEffectsCurrent(player, state)) return;
         int Get(uint key) => playerStats.GetValueOrDefault(key);
         long gain = state.Mana.Spent(amount, Get(ManaRecoveryRules.RagePer200));
-        if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(Get), Get(Stat.HasSoulGainPrevention) != 0);
+        if (gain > 0) player.Rage.Gain(gain, ResourceEffectsTime(player), RageStats.Inputs(player, Get), Get(Stat.HasSoulGainPrevention) != 0);
     }
     public static void SettleFullManaLocked(Player player, double at)
     {
@@ -155,7 +156,21 @@ public static partial class Game
     }
     static void RecordUsedSkillLocked(Player player, double now)
     {
-        player.RecentEvents.Record(StatConditions.UsedSkill, now);
+        if (MapSkillActionSpeedPerUse(player) != 0)
+        {
+            player.RecentEvents.RecordAmount(StatConditions.UsedSkill, now);
+            if (!player.Connection.LockstepClient || !player.Frames.Running)
+            {
+                player.ApplyMovementSpeedAt(now);
+                if (player.Frames is { Running: true, Area: { } area })
+                    AfterSeconds(player, RecentEvents.WindowSeconds, () =>
+                    {
+                        if (!player.LeavingArea && ReferenceEquals(player.Frames.Area, area))
+                            player.ApplyMovementSpeedAt(AreaTime(player));
+                    });
+            }
+        }
+        else player.RecentEvents.Record(StatConditions.UsedSkill, now);
         var raw = StatSourceValues(player);
         ApplySiphoningSkillUseLocked(player, now, raw);
         int chance = raw.GetValueOrDefault(Stat.Recover10PctOfMaximumManaOnSkillUsePct);
@@ -191,7 +206,7 @@ public static partial class Game
         if (player.PlayerLife == 0)
         {
             manaCarry = 0; LeechOf(player).Clear(now); FortificationOf(player).Clear();
-            player.EnergyShield.Empty(); ClearAntiquarianOnDeath(player); return false;
+            player.EnergyShield.Empty(); ClearWardBreakOnDeath(player); return false;
         }
         var state = ResourceEffectsOf(player);
         double recoup = ResourceEffectsCurrent(player, state) ? state.Mana.Take(now) : 0;

@@ -48,6 +48,40 @@ public class SpecialStashStackTests : IDisposable
     }
 
     [Fact]
+    public void A_dropped_divine_vessel_uses_one_cell_and_deposits_into_its_fragment_slot()
+    {
+        TestEnvironment.OpenOwnSaves("vessel");
+        var catalog = new ItemCatalog("data");
+        var drop = Assert.IsType<ItemDrops.Drop>(new ItemDrops(catalog)
+            .DivineVessel(68, MonsterRarity.Unique, 1_000_000, new Random(1)));
+        Assert.Equal((1, 1), (drop.Type.Width, drop.Type.Height));
+        Assert.Equal(PantheonCatalog.CurrencyDivineVesselId, drop.Type.Id);
+
+        string account = "DivineVessel" + Guid.NewGuid().ToString("N");
+        var stash = AccountStash.For(account, catalog);
+        var items = PlayerInventories.For(account, catalog);
+        int tab = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Fragment);
+        try
+        {
+            PlayerInventories.Shape? ShapeOf(Item item) => Shape(catalog, item);
+            var inventory = items.AddStacked(PlayerInventories.MainInventory, drop.Item, ShapeOf).Added.Single();
+            Assert.NotNull(ItemMoves.InventoryToStash(stash, items, tab, inventory.Id, ShapeOf, out _));
+            Assert.DoesNotContain(items.Items(PlayerInventories.MainInventory), item => item.Id == inventory.Id);
+            AccountStash.Forget(account);
+            stash = AccountStash.For(account, catalog);
+            var stored = Assert.Single(stash.Inventory(tab).Items);
+            Assert.Equal(drop.Item.TypeHash, stored.Item.TypeHash);
+            Assert.Equal(drop.Item.ItemLevel, stored.Item.ItemLevel);
+            Assert.Equal((ushort)1, stored.Item.StackSize);
+        }
+        finally
+        {
+            PlayerInventories.Forget(account);
+            AccountStash.Forget(account);
+        }
+    }
+
+    [Fact]
     public void One_per_inventory_item_merges_in_its_stash_slot_and_withdraws_without_overstacking_or_loss()
     {
         TestEnvironment.OpenOwnSaves("specialmoves");

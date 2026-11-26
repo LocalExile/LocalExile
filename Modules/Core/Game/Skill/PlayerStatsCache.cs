@@ -283,6 +283,7 @@ public static partial class Game
         frame.Clock = clock;
         var graph = frame.Graph ??= PlayerStatGraph(player, frame);
         CheckMomentumPresentation(player, clock);
+        RefreshDoubleStrikeMomentum(player, clock);
         if (!ReferenceEquals(frame.Area, player.Frames.Area))
         {
             if (frame.Area is not null) PlayerStatBuffsChanged(player);
@@ -371,12 +372,20 @@ public static partial class Game
         // The connection's timed states report their changes; the steps that read them report when they change by
         // themselves (StatsChangeIn, StatsChangeAt).
         void On(PlayerStatStep[] steps, Action<Action> wire) => wire(() => { foreach (var s in steps) MarkPlayerStats(player, s); });
+        On([PlayerStatStep.Sources], a => player.RecentEvents.Changed = a);
+        player.RecentEvents.AmountChanged = key =>
+        {
+            if (key == StatConditions.UsedSkill && MapSkillActionSpeedPerUse(player) != 0)
+                MarkPlayerStats(player, PlayerStatStep.TailCritical);
+            if (player.StatSourcesCache?.Key.Amounts?.WasRead(key) == true)
+                MarkPlayerStats(player, PlayerStatStep.Sources);
+        };
         On([PlayerStatStep.Rage], a => player.Rage.Changed = a);
         // A soul eaten at the cap changes no stat, but its beam is shown.
         On([PlayerStatStep.SoulEater, PlayerStatStep.AttackSpeed], a => player.SoulEater.Changed = () => { a(); PresentStats(player); });
         On([PlayerStatStep.SpiritLeadership], a => player.SpiritChieftains.Changed = a);
         On([PlayerStatStep.Ward], a => player.Ward.Changed = a);
-        On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.Antiquarian.Changed = a);
+        On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.WardBreak.Changed = a);
         On([PlayerStatStep.TimedRecovery], a => player.EnduringCryRecovery.Changed = a);
         On([PlayerStatStep.TotemAura], a => player.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => player.Rampage.Changed = a);
@@ -458,29 +467,51 @@ public static partial class Game
     // The last full skill list (0x2bc, no removals) this client was sent: the Rage, charge, aura, Fortification, Onslaught,
     // Rampage and Antiquarian refreshes resend it whole, about 32 KB, at every change of theirs, also when not one skill
     // changed. An unchanged list is left out. The full refresh (SendCharacterStats) always sends and records it.
-    sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; }
+    // Skills is what the client holds, by reference (the lists the stat graph built): the 0x1b4 gate (SkillStatDeltas)
+    // compares against it. Bytes is null after a 0x1b4 update: the client then holds Skills, not the last whole list.
+    sealed class SentSkillList { public byte[]? Bytes; public IReadOnlyList<GrantedSkill>? Skills; public bool Detonate; }
     static readonly Store<Player, SentSkillList> SentSkillLists = new();
 
-    public static byte[] PlayerSkillsIfChanged(Player player, IReadOnlyList<GrantedSkill> skills)
+    public static byte[] PlayerSkillsIfChanged(Player player, IReadOnlyList<GrantedSkill> skills) =>
+        [.. PlayerSkillsBatchesIfChanged(player, skills).SelectMany(p => p)];
+
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills) =>
+        PlayerSkillsBatchesIfChanged(player, skills, out _);
+
+    /// <summary>The skill records to send for a refresh: the changed stats as 0x1b4 records when nothing but stat values
+    /// changed (SkillStatDeltas), otherwise the whole list. <paramref name="wholeList"/> is true when the whole list is
+    /// what goes out, which replaces the client's skill records.</summary>
+    public static byte[][] PlayerSkillsBatchesIfChanged(Player player, IReadOnlyList<GrantedSkill> skills, out bool wholeList)
     {
-        var bytes = InstanceEntities.PlayerSkillsChange(player.Id, skills, [], canDetonateMines: CanDetonateMines(player));
+        wholeList = false;
+        if (SkillStatDeltasAtGate(player, skills, out bool detonate) is { } deltas)
+        {
+            RecordSkillDeltas(player, skills, detonate);
+            return deltas;
+        }
+        var batches = InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, [], canDetonateMines: detonate = CanDetonateMines(player));
+        byte[] flat = batches.Length == 1 ? batches[0] : [.. batches.SelectMany(p => p)];
         var sent = SentSkillLists.GetOrCreateValue(player);
         lock (sent)
         {
-            if (sent.Bytes is { } last && last.AsSpan().SequenceEqual(bytes)) return [];
+            if (sent.Bytes is { } last ? last.AsSpan().SequenceEqual(flat)
+                : ReferenceEquals(sent.Skills, skills) && sent.Detonate == detonate) return [];
             if (DeferMomentumChannelSkills(player) && player.ClientSkillIds.SetEquals(skills.Select(s => s.Id))) return [];
-            (sent.Bytes, sent.Skills) = (bytes, skills);
+            (sent.Bytes, sent.Skills, sent.Detonate) = (flat, skills, detonate);
         }
+        wholeList = true;
         // Any 0x02bc Actor skill-list update can reset client-side skill bar bindings; schedule a coalesced 0x0053 restore.
         _ = RestoreSkillBarAfterActorUpdate(player);
-        return bytes;
+        return batches;
     }
 
     // What the full refresh sent: the base the next partial refresh compares with.
     public static void RecordPlayerSkills(Player player, IReadOnlyList<GrantedSkill> skills)
     {
+        var batches = InstanceEntities.PlayerSkillsChangeBatches(player.Id, skills, [], canDetonateMines: CanDetonateMines(player));
+        byte[] flat = batches.Length == 1 ? batches[0] : [.. batches.SelectMany(p => p)];
         var sent = SentSkillLists.GetOrCreateValue(player);
-        lock (sent) (sent.Bytes, sent.Skills) = (InstanceEntities.PlayerSkillsChange(player.Id, skills, [], canDetonateMines: CanDetonateMines(player)), skills);
+        lock (sent) (sent.Bytes, sent.Skills, sent.Detonate) = (flat, skills, CanDetonateMines(player));
     }
 
     /// <summary>A stat of the skill as the client last received it in the skill list (0 when the skill went without it),

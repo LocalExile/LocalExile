@@ -41,6 +41,7 @@ public static class CharacterSaves
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public byte Intangibility { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? RequiredLevel { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public byte? RelicStyle { get; init; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ushort? ScryingAreaHash { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ChartData? Chart { get; init; }
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Note { get; init; }
     }
@@ -284,11 +285,16 @@ public static class CharacterSaves
         return save with { SkillBar = bar };
     });
 
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) =>
+        SetSkillBarOption(character, attackInPlace, slot, on, null);
+
     /// <summary>Sets or clears a skill bar slot's bit in one of the two option masks (C→S 0x4f "Always Attack Without
-    /// Moving", or 0x52).</summary>
-    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on) => Update(character, save =>
+    /// Moving", or 0x52). <paramref name="seed"/> is the mask the character counts as having had until now, for a save
+    /// that holds none: the first box the player touches then keeps the other slots' own defaults instead of clearing
+    /// them. What those defaults are belongs to the caller (Game.AttackInPlaceDefaults).</summary>
+    public static void SetSkillBarOption(string character, bool attackInPlace, byte slot, bool on, ushort? seed) => Update(character, save =>
     {
-        ushort mask = (attackInPlace ? save.AttackInPlaceSlots : save.SkillBarMask52) ?? 0;
+        ushort mask = (attackInPlace ? save.AttackInPlaceSlots : save.SkillBarMask52) ?? seed ?? 0;
         mask = on ? (ushort)(mask | 1 << slot) : (ushort)(mask & ~(1 << slot));
         return attackInPlace ? save with { AttackInPlaceSlots = mask } : save with { SkillBarMask52 = mask };
     });
@@ -691,7 +697,7 @@ public static class CharacterSaves
         i.DefenceBaseRoll, i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed, i.AlternateQualityType,
         i.OriginalItem is null ? null : ToSaved(i.OriginalItem, mods), i.Vestigial, i.HeistBlueprint)
         { SkinTransferSource = i.SkinTransferSource is null ? null : ToSaved(i.SkinTransferSource, mods), MemoryStrands = i.MemoryStrands, Intangibility = i.Intangibility, RequiredLevel = i.RequiredLevel,
-            RelicStyle = i.RelicStyle, Chart = i.Chart, Note = i.Note };
+            RelicStyle = i.RelicStyle, ScryingAreaHash = i.ScryingAreaHash, Chart = i.Chart, Note = i.Note };
 
     /// <summary>The item again, with its socketed gems and mods. A type, gem or mod the game data doesn't know throws
     /// <see cref="UnknownSavedItemException"/>: dropping it would lose it at the next save.</summary>
@@ -716,7 +722,7 @@ public static class CharacterSaves
             HeistBlueprint = s.HeistBlueprint, Chart = s.Chart,
             Foreseeing = s.Foreseeing, ForeseeSeed = s.ForeseeSeed, AlternateQualityType = s.AlternateQualityType,
             MemoryStrands = s.MemoryStrands, Intangibility = s.Intangibility,
-            RelicStyle = s.RelicStyle, Note = s.Note,
+            RelicStyle = s.RelicStyle, ScryingAreaHash = s.ScryingAreaHash, Note = s.Note,
         };
         if (s.Mods is not null) item = item with { Mods = [.. s.Mods.Select(m => FromSaved(m, catalog.Mods))] };
         // Repair the missing base socket on old ordinary items only if the saved implicit still grants it.

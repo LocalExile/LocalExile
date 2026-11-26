@@ -41,12 +41,21 @@ bench.
 
 ### Idols: what the side panel leaves out
 
-- **Known:** the `Idols` module works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
+- **Known:** the `idols` mod works with the map device's storage grid as the Idol inventory ([Idols](../docs/game/idols.md)).
   The client's own Idol inventories (three loadouts of up to 32 cells) have no panel in the 3.29.3 clients.
 - **Start:** the slots unlocked by Atlas objectives (`MapRelicInventoryLayout`, league quest flags `AtlasIdolSlotsUnlocked1` to `6`);
   the Ruthless versions of two unique Idols;
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
+
+### Legion: rewards, the Domain and the Atlas
+
+- **Known:** the monolith, timer, frozen armies, break-out, release and the rewards (symbols, drops, splinters,
+  chests) work ([Legion](../docs/game/legion.md); #1391).
+- **Start:** phase 3: the Domain of Timeless Conflict, generals and timeless jewel drops; phase 4: the Legion scarabs
+  (the #505 route) and the Atlas `map_legion_*` stats. The count, chest, rank and reward numbers are guesses to settle
+  against the real game.
+- **Done when:** a Legion encounter pays what the real one does and the Atlas passives and scarabs change it.
 
 ### Hideouts: decorations, editing and the map device
 

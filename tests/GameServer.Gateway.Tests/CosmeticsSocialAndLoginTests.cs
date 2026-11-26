@@ -1,5 +1,4 @@
 using System.Buffers.Binary;
-using System.Text.Json;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
@@ -64,7 +63,11 @@ public sealed class CosmeticsSocialAndLoginTests
         Assert.Equal(InstanceMicrotransactions.WornSlotUpdateId, PacketId(InstanceMicrotransactions.WornSlotUpdate(worn)));
         Assert.Equal(InstanceMicrotransactions.ExtraSlotUpdateId, PacketId(InstanceMicrotransactions.ExtraSlotUpdate(extra)));
         Assert.Equal(InstanceMicrotransactions.ExtraSlotRemoveId, PacketId(InstanceMicrotransactions.ExtraSlotRemove(7)));
-        Assert.Equal(InstanceMicrotransactions.RecordUpsertId, PacketId(InstanceMicrotransactions.RecordUpsert(new InstanceMicrotransactions.Record(0x10u, 1))));
+        byte[] upsertDefault = InstanceMicrotransactions.RecordUpsert(new InstanceMicrotransactions.Record(0x10u, 1));
+        Assert.Equal(InstanceMicrotransactions.RecordUpsertId, PacketId(upsertDefault));
+        Assert.Equal((byte)1, upsertDefault[^1]); // Default justReceived = true preserved for local shop grants.
+        byte[] upsertSilent = InstanceMicrotransactions.RecordUpsert(new InstanceMicrotransactions.Record(0x10u, 1), justReceived: false);
+        Assert.Equal((byte)0, upsertSilent[^1]);
         Assert.Equal(InstanceMicrotransactions.RecordRemoveId, PacketId(InstanceMicrotransactions.RecordRemove(1)));
         Assert.Equal(InstanceMicrotransactions.ReclaimQueryResultId, PacketId(InstanceMicrotransactions.ReclaimQueryEmpty()));
         Assert.Equal(InstanceMicrotransactions.RecordStatUpdateId, PacketId(InstanceMicrotransactions.RecordStatUpdate(42, 7)));
@@ -125,7 +128,7 @@ public sealed class CosmeticsSocialAndLoginTests
         var (viewerMsgs, viewerOut) = Capture();
         leader.Connection.Outbox = leaderOut;
         viewer.Connection.Outbox = viewerOut;
-        leader.Controlled = viewer.Controlled = false;
+        leader.Connection.Driven = viewer.Connection.Driven = null;
         try
         {
             await PartyRoster.SetPublicParty(leader, "Act 1 Mapping", 0);
@@ -154,12 +157,17 @@ public sealed class CosmeticsSocialAndLoginTests
             await PartyRoster.AcceptHuman(viewer, partyId);
             Assert.True(PartyRoster.SameParty(leader, viewer));
 
-            // PvP queue trigger (JoinQueue -> S->C 0x118, Leave -> S->C 0x119).
+            // PvP duel trigger (0x155 -> S->C 0x118 + 0x157, 0x156 accept -> S->C 0x119).
             leaderMsgs.Clear();
-            await PvpQueue.JoinQueue(leader, "1v1");
+            viewerMsgs.Clear();
+            await FriendsFeature.ChallengeDuel(leader, "NoticeViewer");
             Assert.Single(WithId(leaderMsgs, InstancePvp.QueueStatusId));
-            await PvpQueue.Leave(leader, withdraw: false);
+            Assert.Single(WithId(viewerMsgs, InstanceSocial.DuelChallengeNotifyId));
+            leaderMsgs.Clear();
+            viewerMsgs.Clear();
+            await PvpQueue.RespondToChallenge(viewer, accepted: true);
             Assert.Single(WithId(leaderMsgs, InstancePvp.QueueHideId));
+            Assert.Single(WithId(viewerMsgs, InstancePvp.QueueHideId));
         }
         finally
         {
@@ -168,7 +176,7 @@ public sealed class CosmeticsSocialAndLoginTests
             TestEnvironment.ReleaseOwnSaves();
         }
 
-        // 2. Login private/past leagues, 0x1c pagination, 0x3f/0x40 migration -> 0x15 + 0x44, and local MOTD JSON.
+        // 2. Login private/past leagues, 0x1c pagination (including limit=0), 0x3f single-character migration, and 0x40 disabled reply.
         var store = new JsonAccountStore();
         var accounts = new AccountService(store);
         var acc = accounts.Register("migrator", "pw1234").Value!;
@@ -184,7 +192,7 @@ public sealed class CosmeticsSocialAndLoginTests
         accounts.CreateCharacter(acc.Id, "PastOne", CharacterClass.Ranger, "LegacyEvent");
         accounts.CreateCharacter(acc.Id, "PastTwo", CharacterClass.Shadow, "LegacyEvent");
 
-        var session = new LoginServerSession(accounts) { Leagues = catalog, Motd = "Welcome local" };
+        var session = new LoginServerSession(accounts) { Leagues = catalog };
         var loginReplies = session.Handle(new AccountLogin(2, "migrator", new byte[32], AccountService.ClientPasswordDigest("pw1234"), new byte[32], false, false, 0x40, 0));
         var leagueList = Assert.IsType<LeagueList>(loginReplies[1]);
         var privEntry = Assert.Single(leagueList.Leagues, l => l.Name == "SecretLeague");
@@ -197,7 +205,10 @@ public sealed class CosmeticsSocialAndLoginTests
         var okPw = session.Handle(new CreateCharacter("PrivOk", "SecretLeague", 0, 0, "IntDefault", AccountService.ClientPasswordDigest("open")));
         Assert.Equal(LoginServerSession.ResultOk, Assert.IsType<CreateCharacterResult>(okPw[1]).Result);
 
-        // C->S 0x1c private league pagination -> S->C 0x1b with Append = true.
+        // C->S 0x1c private league pagination -> S->C 0x1b with Append = true (limit=0 returns empty).
+        var emptyPage = Assert.IsType<LeagueList>(Assert.Single(session.Handle(new TwoU16(0, 0))));
+        Assert.True(emptyPage.Append);
+        Assert.Empty(emptyPage.Leagues);
         var page = Assert.IsType<LeagueList>(Assert.Single(session.Handle(new TwoU16(1, 0))));
         Assert.True(page.Append);
         Assert.Equal("SecretLeague", Assert.Single(page.Leagues).Name);
@@ -208,16 +219,10 @@ public sealed class CosmeticsSocialAndLoginTests
         Assert.Equal(LoginServerSession.ResultOk, Assert.IsType<U16Message>(migOne[1]).Value);
         Assert.Equal("Standard", accounts.FindCharacter("SsfOne")!.League);
 
-        // C->S 0x40 Migrate All -> 0x15 + 0x44 result 0.
+        // C->S 0x40 Migrate All -> 0x44 ActionTemporarilyDisabled (569) without mutating any characters.
         var migAll = session.Handle(new WStringMessage(LoginServerSession.MigrateLeagueAllId, "LegacyEvent"));
-        Assert.Equal(2, migAll.Count);
-        Assert.Equal(LoginServerSession.ResultOk, Assert.IsType<U16Message>(migAll[1]).Value);
-        Assert.Equal("Standard", accounts.FindCharacter("PastOne")!.League);
-        Assert.Equal("Standard", accounts.FindCharacter("PastTwo")!.League);
-
-        // Local MOTD JSON payload.
-        Assert.Equal("{}", LoginServerSession.BuildSettingsJson(null));
-        using var motdDoc = JsonDocument.Parse(LoginServerSession.BuildSettingsJson(session.Motd));
-        Assert.Equal("Welcome local", motdDoc.RootElement.GetProperty("motd").GetProperty("primary").GetProperty("text").GetString());
+        Assert.Equal(LoginServerSession.ResultActionTemporarilyDisabled, Assert.IsType<U16Message>(Assert.Single(migAll)).Value);
+        Assert.Equal("LegacyEvent", accounts.FindCharacter("PastOne")!.League);
+        Assert.Equal("LegacyEvent", accounts.FindCharacter("PastTwo")!.League);
     }
 }

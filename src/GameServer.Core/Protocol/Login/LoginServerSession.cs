@@ -196,27 +196,8 @@ public sealed class LoginServerSession(AccountService accounts)
     /// <summary>BackendErrors row 15 + 1 ("CharacterDoesNotExist"); the delete screen shows any non-zero code's text.</summary>
     public const ushort ResultCharacterDoesNotExist = 16;
 
-    /// <summary>Optional local MOTD text exposed to local login settings consumers (no external network requests).</summary>
-    public string Motd { get; init; } = "";
-
-    /// <summary>Builds the local <c>/api/settings</c> JSON payload consumed by the client's login-screen MOTD parser (<c>0x140cedd27</c>, <c>0x140ceebc5</c>).</summary>
-    public static string BuildSettingsJson(string? motdText, string? primaryImage = null, string? primaryLink = null)
-    {
-        bool hasMotd = !string.IsNullOrWhiteSpace(motdText) || !string.IsNullOrWhiteSpace(primaryImage) || !string.IsNullOrWhiteSpace(primaryLink);
-        if (!hasMotd) return "{}";
-        return System.Text.Json.JsonSerializer.Serialize(new
-        {
-            motd = new
-            {
-                primary = new
-                {
-                    text = motdText ?? "",
-                    image = primaryImage ?? "",
-                    link = primaryLink ?? "",
-                },
-            },
-        });
-    }
+    /// <summary>BackendErrors row 568 + 1 ("ActionTemporarilyDisabled": "This action has been temporarily disabled.").</summary>
+    public const ushort ResultActionTemporarilyDisabled = 569;
 
     /// <summary>Called with the deleted character's name (GameServer.Auth: sets its save aside).</summary>
     public Action<string>? CharacterDeleted { get; init; }
@@ -372,27 +353,10 @@ public sealed class LoginServerSession(AccountService accounts)
         return [CharacterList(), new U16Message(MigrateResultId, ResultOk)];
     }
 
-    private ILoginMessage[] MigrateAll(string rawLeague)
-    {
-        if (Session is null) return [];
-        string leagueName = rawLeague.Trim();
-        if (Leagues.FindLoaded(leagueName) is not { Parent: { Length: > 0 } parentName } source
-            || string.Equals(parentName, HardcoreDeathRules.VoidLeague, StringComparison.OrdinalIgnoreCase)
-            || Leagues.FindLoaded(parentName) is not { } parent
-            || !SupportsManualProgressMigration(source, parent))
-            return [new U16Message(MigrateResultId, ResultLeagueDoesNotExist)];
-        var affected = accounts.Characters(Session.AccountId)
-            .Where(ch => ch.HardcoreDeath?.PermanentlyDead != true
-                && string.Equals(ch.League, source.Name, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-        if (affected.Count == 0 || affected.Any(ch =>
-            string.Equals(CharacterName, ch.Name, StringComparison.OrdinalIgnoreCase) || IsCharacterActive?.Invoke(ch.Name) == true))
-            return [new U16Message(MigrateResultId, ResultLeagueDoesNotExist)];
-        var r = accounts.MigrateAllCharactersLeague(Session.AccountId, source.Name, parent.Name);
-        if (!r.Ok || r.Value is null) return [new U16Message(MigrateResultId, ResultLeagueDoesNotExist)];
-        foreach (var c in r.Value) CharacterMigrated?.Invoke(c.Name, source.Name, parent.Name);
-        return [CharacterList(), new U16Message(MigrateResultId, ResultOk)];
-    }
+    // Bulk Migrate All (C→S 0x40) requires atomic league-stash, gold, Delve, quest-flag, and module-data transfer
+    // across Auth and Gateway caches; refuse cleanly with ActionTemporarilyDisabled without moving any characters.
+    private ILoginMessage[] MigrateAll(string rawLeague) =>
+        Session is null ? [] : [new U16Message(MigrateResultId, ResultActionTemporarilyDisabled)];
 
     /// <summary>
     /// Builds the S→C 0x1a (<see cref="LeaguesWithProgress"/>) vector for C→S 0x19. The client migration panel

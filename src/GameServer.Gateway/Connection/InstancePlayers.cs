@@ -105,8 +105,10 @@ public static class InstanceEvents
     public static readonly GameEvent<Func<AreaStatsRequest, IReadOnlyList<(ushort Plugin, byte[] State)>?>> TerrainPluginStates = new();
 
     /// <summary>The league's answers to <see cref="TerrainPluginStates"/>, the last per plugin, a failing answer counting as
-    /// none. Only a state for the area's own plugin, of a plugin the server's generator ports, is kept: the client would
-    /// build any other plugin's part of the level and the server could not.</summary>
+    /// none. Only a state the server's generator supports is kept: the area's own plugin when its generation is ported
+    /// and the ordinary Mirror's default state (LevelGenerator.SupportsPluginState), or another plugin whose extra
+    /// terrain feature row is ported (LevelGenerator.LeaguePluginFeature). The client would build any other plugin's
+    /// part of the level and the server could not.</summary>
     public static IReadOnlyList<(ushort Plugin, byte[] State)> ComposeTerrainPluginStates(LeagueRuntime league, AreaStatsRequest request)
     {
         var states = new Dictionary<ushort, byte[]>();
@@ -127,11 +129,13 @@ public static class InstanceEvents
         }
         var own = AreaTerrainPlugins.Of(request.Area);
         foreach (var plugin in states.Keys.ToList())
-            if (own is not { } o || o.Id != plugin || !GameServer.Data.Terrain.Generation.LevelGenerator.PortsPlugin(o.Name))
-            {
-                Console.WriteLine($"[gateway] terrain plugin {plugin} state of 0x{request.Area:x4} dropped: not the area's own plugin, or not ported");
-                states.Remove(plugin);
-            }
+        {
+            if (GameServer.Data.Terrain.Generation.LevelGenerator.SupportsPluginState(plugin, states[plugin], own?.Id, own?.Name)) continue;
+            if ((own is not { } o || o.Id != plugin)
+                && GameServer.Data.Terrain.Generation.LevelGenerator.LeaguePluginFeature(AreaTerrainPlugins.NameOf(plugin), states[plugin]) is not null) continue;
+            Console.WriteLine($"[gateway] unsupported terrain plugin {plugin} state of 0x{request.Area:x4} dropped");
+            states.Remove(plugin);
+        }
         return [.. states.Select(p => (p.Key, p.Value))];
     }
 
@@ -148,7 +152,12 @@ public static class InstanceEvents
 
 /// <summary>What an instance's area stats are composed from: the character whose connection opens it, its league, the
 /// area (WorldAreas HASH16) and the map it was opened with (<see cref="InstanceState.Map"/>), null outside a map.</summary>
-public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map);
+public sealed record AreaStatsRequest(string Character, string? League, ushort Area, MapDevice.Run? Map)
+{
+    public uint Seed { get; init; }
+    public bool HardMode { get; init; }
+    public IReadOnlyDictionary<uint, int>? AreaStats { get; init; }
+}
 
 public sealed record MonsterView((int X, int Y) At, (int X, int Y) To, uint Life)
 {
@@ -162,7 +171,7 @@ public sealed record SharedMonster(uint Id, SharedMonsterOrigin Origin, SpawnedM
 public partial class Program
 {
     /// <summary>The connections in game now (entered an area, not yet gone), for what plays beside them without one of its
-    /// own: server-driven players (the PlayerBots module) look up the towns players are in.</summary>
+    /// own: whoever drives a player with no client looks up the towns players are in.</summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<Player, byte> InGame = new();
 
     /// <summary>Sets the player's party size; a change tells the client the players in the area (S→C 0x231: the party
@@ -225,7 +234,7 @@ public sealed partial class Player
     }
     /// <summary>This player's shares of the instance host's kills, for its own loop to apply (SharedKills.cs).</summary>
     public readonly System.Collections.Concurrent.ConcurrentQueue<Func<Player, Task>> KillShares = new();
-    /// <summary>The party this player is in, counting the player (1: none): Social's parties and PlayerBots' (SetPartySize).
+    /// <summary>The party this player is in, counting the player (1: none): Social's parties, and what else sets it (SetPartySize).
     /// Each member beyond the first gives Game.PartyBonus.</summary>
     public int PartySize = 1;
     public readonly Dictionary<(uint Peer, ushort Skill), AuraCatalog.Aura> ReceivedAuras = [];

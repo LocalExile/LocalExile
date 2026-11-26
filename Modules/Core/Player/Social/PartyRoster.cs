@@ -37,7 +37,7 @@ public static class PartyRoster
     static bool Same(Player a, Player b) => ReferenceEquals(a, b)
         || a.Character.Account is not null && string.Equals(a.Character.Account, b.Character.Account, StringComparison.OrdinalIgnoreCase)
             && string.Equals(CharacterName(a), CharacterName(b), StringComparison.Ordinal);
-    static bool Available(Player c) => !c.Controlled && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
+    static bool Available(Player c) => c.Listed && !c.Closed && !c.LeavingArea && !c.Character.Ssf;
     static bool SameLeague(Player a, Player b) => a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
         && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
     static bool Compatible(Player a, Player b) => Available(a) && Available(b) && SameLeague(a, b);
@@ -159,20 +159,17 @@ public static class PartyRoster
     static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Character.Account ?? CharacterName(c), CharacterName(c),
         c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Character.Account), LevelOf(c));
 
-    static bool IgnoresViewer(Player leader, Player viewer) =>
-        FriendsFeature.IsIgnoring(leader.Character.Account, viewer.Character.Account ?? CharacterName(viewer));
-
     /// <summary>Builds the noticeboard listing (S→C 0x00ad) of public parties in the same league as <paramref name="viewer"/>.</summary>
     public static List<InstanceSocial.PublicPartyEntry> PublicParties(Player viewer)
     {
-        var entries = new List<InstanceSocial.PublicPartyEntry>();
+        var candidates = new List<(string? LeaderAccount, InstanceSocial.PublicPartyEntry Entry)>();
         lock (Gate)
         {
-            if (!Available(viewer)) return entries;
+            if (!Available(viewer)) return [];
             foreach (var (partyId, description) in PublicDescriptions)
             {
                 if (!Humans.TryGetValue(partyId, out var members) || members.Count == 0) continue;
-                if (!Available(members[0]) || !Compatible(members[0], viewer) || IgnoresViewer(members[0], viewer)) continue;
+                if (!Available(members[0]) || !Compatible(members[0], viewer)) continue;
                 byte minLevel = byte.MaxValue, maxLevel = 0;
                 foreach (var member in members)
                 {
@@ -181,9 +178,16 @@ public static class PartyRoster
                     if (lv > maxLevel) maxLevel = lv;
                 }
                 if (minLevel == byte.MaxValue) { minLevel = 1; maxLevel = 1; }
-                entries.Add(new InstanceSocial.PublicPartyEntry(partyId, description, (byte)Math.Clamp(Count(partyId), 1, Capacity), minLevel, maxLevel));
+                candidates.Add((members[0].Character.Account,
+                    new InstanceSocial.PublicPartyEntry(partyId, description, (byte)Math.Clamp(Count(partyId), 1, Capacity), minLevel, maxLevel)));
             }
         }
+        // Check ignore lists outside Gate: cache misses read AccountStash/SQLite.
+        string viewerKey = viewer.Character.Account ?? CharacterName(viewer);
+        var entries = new List<InstanceSocial.PublicPartyEntry>(candidates.Count);
+        foreach (var (leaderAccount, entry) in candidates)
+            if (!FriendsFeature.IsIgnoring(leaderAccount, viewerKey))
+                entries.Add(entry);
         entries.Sort((a, b) => a.PartyId.CompareTo(b.PartyId));
         return entries;
     }
@@ -200,29 +204,47 @@ public static class PartyRoster
     public static async Task InspectPublicParty(Player viewer, uint partyId)
     {
         if (partyId == 0 || !Available(viewer)) return;
-        Player[] humans;
-        (string Account, string Character, byte[] Known)[] guests;
-        string? description;
+        string? leaderAccount;
         lock (Gate)
         {
-            if (!PublicDescriptions.TryGetValue(partyId, out description)
+            if (!PublicDescriptions.ContainsKey(partyId)
                 || !Humans.TryGetValue(partyId, out var list) || list.Count == 0
-                || !Available(list[0]) || !Compatible(list[0], viewer) || IgnoresViewer(list[0], viewer))
+                || !Available(list[0]) || !Compatible(list[0], viewer))
                 return;
-            humans = [.. list];
-            guests = Companions.TryGetValue(partyId, out var extra) ? [.. extra] : [];
+            leaderAccount = list[0].Character.Account;
         }
-        var leader = humans[0];
-        (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
-            .. guests.Select(m => (m.Account, (byte)1))];
-        int own = Array.FindIndex(humans, c => Same(c, viewer));
-        await Deliver(viewer, async () =>
+        string viewerKey = viewer.Character.Account ?? CharacterName(viewer);
+        if (FriendsFeature.IsIgnoring(leaderAccount, viewerKey)) return;
+
+        await Output.WaitAsync();
+        try
         {
-            foreach (var human in humans) await Send(viewer, Known(human));
-            foreach (var guest in guests) await Send(viewer, [.. guest.Known]);
-            await Send(viewer, InstanceSocial.PartyInfo(partyId, description!, leader.Character.Account ?? CharacterName(leader),
-                own >= 0 ? (byte)own : byte.MaxValue, 0, 0, 0, entries));
-        });
+            Player[] humans;
+            (string Account, string Character, byte[] Known)[] guests;
+            string? description;
+            lock (Gate)
+            {
+                if (!PublicDescriptions.TryGetValue(partyId, out description)
+                    || !Humans.TryGetValue(partyId, out var list) || list.Count == 0
+                    || !Available(list[0]) || !Compatible(list[0], viewer)
+                    || !string.Equals(list[0].Character.Account, leaderAccount, StringComparison.OrdinalIgnoreCase))
+                    return;
+                humans = [.. list];
+                guests = Companions.TryGetValue(partyId, out var extra) ? [.. extra] : [];
+            }
+            var leader = humans[0];
+            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+                .. guests.Select(m => (m.Account, (byte)1))];
+            int own = Array.FindIndex(humans, c => Same(c, viewer));
+            await Deliver(viewer, async () =>
+            {
+                foreach (var human in humans) await Send(viewer, Known(human));
+                foreach (var guest in guests) await Send(viewer, [.. guest.Known]);
+                await Send(viewer, InstanceSocial.PartyInfo(partyId, description!, leader.Character.Account ?? CharacterName(leader),
+                    own >= 0 ? (byte)own : byte.MaxValue, 0, 0, 0, entries));
+            });
+        }
+        finally { Output.Release(); }
     }
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
@@ -273,7 +295,7 @@ public static class PartyRoster
 
     public static async Task<bool> InviteHuman(Player from, string name)
     {
-        var to = InGame.Keys.FirstOrDefault(c => !c.Controlled && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
+        var to = InGame.Keys.FirstOrDefault(c => c.Listed && !ReferenceEquals(c, from) && !c.Closed && !c.LeavingArea
             && (string.Equals(CharacterName(c), name, StringComparison.OrdinalIgnoreCase)
                 || string.Equals(c.Character.Account, name, StringComparison.OrdinalIgnoreCase)));
         if (to is null) return false; // Another module may own this character's name.
@@ -323,6 +345,8 @@ public static class PartyRoster
     public static async Task AcceptHuman(Player to, uint party)
     {
         bool changed = false;
+        string? publicLeaderAccount = null;
+        bool tryPublicJoin = false;
         lock (Gate)
         {
             var key = (party, CharacterName(to));
@@ -347,12 +371,27 @@ public static class PartyRoster
             }
             else if (Available(to) && PublicDescriptions.ContainsKey(party)
                 && Humans.TryGetValue(party, out var members) && members.Count > 0
-                && Available(members[0]) && Compatible(members[0], to) && !IgnoresViewer(members[0], to)
+                && Available(members[0]) && Compatible(members[0], to)
                 && Find(to) == 0 && Count(party) < Capacity)
             {
-                // Noticeboard "Join" sends C→S 0x0095 with the public party's id directly (no prior invite).
-                members.Add(to);
-                changed = true;
+                publicLeaderAccount = members[0].Character.Account;
+                tryPublicJoin = true;
+            }
+        }
+        if (tryPublicJoin && !FriendsFeature.IsIgnoring(publicLeaderAccount, to.Character.Account ?? CharacterName(to)))
+        {
+            lock (Gate)
+            {
+                if (Available(to) && PublicDescriptions.ContainsKey(party)
+                    && Humans.TryGetValue(party, out var members) && members.Count > 0
+                    && Available(members[0]) && Compatible(members[0], to)
+                    && string.Equals(members[0].Character.Account, publicLeaderAccount, StringComparison.OrdinalIgnoreCase)
+                    && Find(to) == 0 && Count(party) < Capacity)
+                {
+                    // Noticeboard "Join" sends C→S 0x0095 with the public party's id directly (no prior invite).
+                    members.Add(to);
+                    changed = true;
+                }
             }
         }
         if (changed) await Publish(party);

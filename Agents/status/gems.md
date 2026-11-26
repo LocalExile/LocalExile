@@ -9,6 +9,13 @@ Nothing yet.
 
 ## Partly working
 
+- Socketed gem kills emit incremental `0x00c3` XP when exact client math matches, falling back to `0x00bf` otherwise.
+- Icicle Mine variants release their radial or aimed volleys and scale with the detonation chain. Pyroclast
+  variants apply armed mine Fire Exposure, then release a nova and mortars. The Icicle critical aura is open.
+- Trap and mine payloads support Arc chains, Contagion, corpse Offerings, Hexes and Marks, damage brands,
+  Storm Call, Firestorm, Frost Bomb and Vortex. Offline checks exercise the paid placement and timed effects.
+- Eye of Winter variants emit their travel and final shards. Creeping Frost and its Floes variant release
+  chilling ground that follows enemies. The timings and ground motion were checked offline.
 - Ruthless gems use native primary/companion effect alternatives, requirements and skill rows.
   Deterministic support rewards are disabled; eligible active gems use Siosa's Uncarved Gemstone exchange.
   Gem XP receives the configured Ruthless multiplier.
@@ -88,7 +95,9 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
+  Crystalfall accepts a compatible Slam with an unarmed main hand, including while holding a shield.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
+  Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
   Hypothermia, Behead and Damage on Full Life scale the hits they apply to ([25](../docs/protocol/25-gem-supports.md)).
   Vile Toxins scales a hit per poison on the enemy; Lethal Dose adds two poisons to an unpoisoned one; Hypothermia's
@@ -103,11 +112,13 @@ Nothing yet.
   Arrogance reserves its aura on life, Cruelty's hits grant its more damage over time buff, and Overheat consumes
   Fortification on use for more ailment damage ([25](../docs/protocol/25-gem-supports.md)).
   Multistrike repeats full swings within one paid use, cancels remaining repeats with the action, and keeps
-  the native panel's per-hit damage convention; Melee Splash hits the enemies around each struck one
-  ([25](../docs/protocol/25-gem-supports.md)).
+  the native panel's per-hit damage convention.
+  Melee Splash checks the radius of each strike before counting its targets ([25](../docs/protocol/25-gem-supports.md)).
   Maim, Bloodlust for melee physical-origin damage, Pulverise, Rage, Power Charge on Critical, Volatility, Combustion, Item Quantity, Item Rarity,
   Iron Grip and Iron Will apply their stats as well ([25](../docs/protocol/25-gem-supports.md)).
   Manaforged Arrows triggers off paid bow uses and channelled bow ticks and scales supported hit and ailment damage.
+  Cast on Critical Strike continues its linked spell rotation in socket order across qualifying attacks in the same
+  group.
   Cast when Stunned releases eligible linked spells from committed player stuns through the incoming-hit trigger queue
   ([25](../docs/protocol/25-gem-supports.md)).
   Intensify and Pinpoint gain Intensity on supported casts, lose it while moving or teleporting, and project their area
@@ -160,7 +171,8 @@ Nothing yet.
   Effective levels include the gem's native tags, its host item's socketed bonuses and active equipment conditions.
   Vaal soul collection/native budget payloads are implemented, pending native acceptance. Vaal Clarity spends souls
   to grant a timed aura that removes mana costs for the caster and nearby allies while preserving other skill costs.
-  Vaal Rejuvenation Totem regenerates life and redirects part of nearby allies' hit damage into the totem's life.
+  Rejuvenation Totem regenerates life for nearby players and minions; the Vaal version also redirects part of allies'
+  hit damage into the totem's life.
   Offline regressions cover Vaal Heavy Strike contact and knockback, Vaal Arctic Armour mitigation, Blazing Salvo
   impacts and the three Spectral Shield Throw variants.
   Unsupported Vaal casts remain refused even with souls; see [27](../docs/protocol/27-vaal-souls.md).
@@ -170,7 +182,7 @@ Nothing yet.
   `/gem <name> [level] [quality]` (`ItemCatalog.cs`, `SkillCatalog.cs`; [19](../docs/protocol/19-gems.md) §1, §3).
   Not yet: corruption.
 - **Gem requirements (tested, checked with the real client).** A gem's level requirement is the character level of its
-  level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 . 70 at 20, the client's tooltips),
+  level (GrantedEffectStatSetsPerLevel `PlayerLevelReq`; Haste 24 at gem level 1 … 70 at 20, the client's tooltips),
   and its attribute requirements follow the client's own formula (`0x142476710`: `trunc((3 * level_req + 11) *
   (percent/100)^0.9 * k + 0.5)`, `k` 0.7 for a skill and 0.5 for a support, none below 14;
   fitted against 570 poedb tooltip cells with no mismatch: Haste 20 is 155 Dex, Clarity 20 119 Int, Fireball 20 155).

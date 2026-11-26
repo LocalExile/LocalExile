@@ -73,55 +73,6 @@ public static class PvpQueue
             $"0x0118 pvp queue status \"{queueName}\" (challenge={isChallenge}, withdraw={showWithdraw})");
     }
 
-    static bool CompatibleForPvp(Player a, Player b) =>
-        !ReferenceEquals(a, b) && !a.Closed && !b.Closed && !a.LeavingArea && !b.LeavingArea
-        && !a.Character.Ssf && !b.Character.Ssf
-        && a.Character.Hardcore == b.Character.Hardcore && a.Character.LeagueForm == b.Character.LeagueForm
-        && string.Equals(a.Character.League, b.Character.League, StringComparison.OrdinalIgnoreCase);
-
-    /// <summary>Joins a named PvP matchmaking queue, matching immediately if another compatible player is already
-    /// queued in the same queue and league; otherwise shows S→C 0x118 with waiting count.</summary>
-    public static async Task<bool> JoinQueue(Player player, string queueName)
-    {
-        if (player.Closed || player.LeavingArea || player.Character.Ssf) return false;
-        queueName = string.IsNullOrWhiteSpace(queueName) ? "1v1 Arena" : queueName.Trim();
-
-        Player? matched = null;
-        lock (Gate)
-        {
-            foreach (var (other, entry) in Entries)
-            {
-                if (!entry.IsChallenge && entry.Opponent is null
-                    && string.Equals(entry.QueueName, queueName, StringComparison.OrdinalIgnoreCase)
-                    && CompatibleForPvp(player, other))
-                {
-                    matched = other;
-                    break;
-                }
-            }
-            if (matched is not null)
-            {
-                Entries.Remove(matched);
-                Entries.Remove(player);
-            }
-        }
-
-        if (matched is not null)
-        {
-            string a = CharacterName(player), b = CharacterName(matched);
-            await SendTo(player, InstancePvp.QueueHide(), $"0x0119 pvp match found ({queueName}: {a} vs {b})");
-            await SendTo(matched, InstancePvp.QueueHide(), $"0x0119 pvp match found ({queueName}: {a} vs {b})");
-            await SendTo(player, InstanceChat.ChatLine($"PvP match found for {queueName} against {b}."),
-                $"0x0017 pvp match found for {a}");
-            await SendTo(matched, InstanceChat.ChatLine($"PvP match found for {queueName} against {a}."),
-                $"0x0017 pvp match found for {b}");
-            return true;
-        }
-
-        await Enqueue(player, queueName, otherPlayers: 0, isChallenge: false, showWithdraw: true);
-        return false;
-    }
-
     /// <summary>Handles C→S 0x156 (accept or decline a pending duel challenge).</summary>
     public static async Task RespondToChallenge(Player player, bool accepted)
     {

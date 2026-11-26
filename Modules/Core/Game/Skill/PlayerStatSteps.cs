@@ -90,9 +90,17 @@ public static partial class Game
                 AddTo(stats, Stat.MapPlayersSkillAreaOfEffectPlusPctFinal, map.Get(Stat.MapPlayersSkillAreaOfEffectPlusPctFinal));
                 AddTo(stats, Stat.MapPlayerMaximumLeechRatePlusPct, map.Get(Stat.MapPlayerMaximumLeechRatePlusPct));
                 AddTo(stats, Stat.BuffTimePassedPlusPctOnlyBuffCategory, map.Get(Stat.MapPlayerBuffTimePassedPlusPctOnlyBuffCategory));
+                if (map.Get(Stat.MapPlayerActionSpeedPlusPctPerRecentSkillUse) != 0)
+                    MarkLaterStep(player, PlayerStatStep.TailCritical);
             }
             // Their "recently" conditions change by themselves when an event ages out of its window.
             double now = AreaTime(player);
+            int totemSpeed = GetIn(stats, Stat.AttackAndCastSpeedPlusPctOnPlacingTotem);
+            if (totemSpeed != 0 && player.RecentEvents.Happened(StatConditions.SummonedTotem, now))
+            {
+                AddTo(stats, Stat.AttackSpeedPlusPct, totemSpeed);
+                AddTo(stats, Stat.CastSpeedPlusPct, totemSpeed);
+            }
             if (player.RecentEvents.NextExpiry(now) is double expiry) StatsChangeIn(expiry - now);
             if (player.ElementalAilments.NextChangeAt(now) is double ailment) StatsChangeIn(ailment - now);
             if (player.IncomingAilments.NextChangeAt(now) is double incoming) StatsChangeIn(incoming - now);
@@ -132,8 +140,13 @@ public static partial class Game
             if (OwnEternalBlessingActive(player)) stats[Stat.NonBlessingSkillsWithManaReservationAreDisabled] = 1;
             // "X% increased Effect of Herald Buffs on you" (passives, gear and tattoos) scales the heralds' buff stats.
             int heraldEffectPct = GetIn(stats, Stat.HeraldEffectOnSelfPlusPct);
+            int damagePerHerald = GetIn(stats, Stat.DamagePlusPctForEachHeraldAffectingYou);
+            int auraPerHerald = GetIn(stats, Stat.AuraEffectOnSelfFromSkillsPlusPctPerHeraldEffectingYou);
+            int heralds = damagePerHerald == 0 && auraPerHerald == 0 ? 0 : ActiveHeraldCount(auras);
+            if (damagePerHerald != 0 && heralds != 0) AddTo(stats, Stat.DamagePlusPct, (long)damagePerHerald * heralds);
             var minionAuras = SelectMinionAuras(player, player.Id, auras, player.Pools.AuraEffectPct);
-            foreach (var (k, v) in AuraCatalog.RawStats(auras.Where(a => a.AffectsSelf), player.Pools.AuraEffectPct, SkillsFor(player), Stats,
+            var personalAuras = WithHeraldScaledOwnAuras(auras.Where(a => a.AffectsSelf), SkillsFor(player), auraPerHerald, heralds);
+            foreach (var (k, v) in AuraCatalog.RawStats(personalAuras, player.Pools.AuraEffectPct, SkillsFor(player), Stats,
                          heraldEffectPct).Concat(minionAuras.SelectMany(a => a.Stats)).ToList())
                 AddTo(stats, k, v);
             // Commander of Darkness ("You and nearby Allies deal 30% increased Damage"): applies to the caster even
@@ -240,11 +253,7 @@ public static partial class Game
             if (Stat.CurrentlyHasOnslaught is var onslaughtFlag) stats[onslaughtFlag] = HasOnslaught(player) ? 1 : 0;
         });
         Step(PlayerStatStep.VaalPrevention, (player, stats, _) => WithVaalPrevention(player, stats));
-        Step(PlayerStatStep.VaalAura, (player, stats, _) =>
-        {
-            WithVaalAura(player, stats);
-            WithTemporaryAuraStats(player, stats);
-        });
+        Step(PlayerStatStep.VaalAura, (player, stats, _) => WithTemporaryAuraStats(player, stats));
         Step(PlayerStatStep.SpiritLeadership, (player, stats, _) => AddSpiritLeadershipStats(player, stats));
         Step(PlayerStatStep.TotemAura, (player, stats, _) => AddTotemAuraStats(player, stats));
         Step(PlayerStatStep.Rage, (player, stats, _) => WithRage(player, stats));
@@ -283,12 +292,12 @@ public static partial class Game
         Step(PlayerStatStep.TimedRecovery, (player, stats, _) =>
         {
             double now = AreaTime(player);
-            if (player.Antiquarian.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
+            if (player.WardBreak.RecoveryUntil(now) is var stun && stun > now) StatsChangeIn(stun - now);
             if (player.EnduringCryRecovery.Rate(now) > 0) StatsChangeIn(player.EnduringCryRecovery.Until - now);
             // Turtle Shell's exact one-second integral is consumed separately by the resource writer.
             if (Stat.BaseLifeRegenerationRatePerMinute is var turtle)
                 stats[turtle] = (int)Math.Clamp(stats.GetValueOrDefault(turtle)
-                    + (player.Antiquarian.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
+                    + (player.WardBreak.RecoveryPerSecond(now) + player.EnduringCryRecovery.Rate(now)) * 60, 0, int.MaxValue);
             var session = FortificationOf(player);
             var value = EvaluateFortificationLocked(player, now, stats).Value;
             if (value.NextExpiry is double expires) StatsChangeIn(expires - now);
@@ -299,7 +308,13 @@ public static partial class Game
         });
         Step(PlayerStatStep.TailPanels, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Panels));
         Step(PlayerStatStep.Rampage, (player, stats, _) => WithRampage(player, stats));
-        Step(PlayerStatStep.TailOffence, (player, stats, _) => ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence));
+        Step(PlayerStatStep.TailOffence, (player, stats, _) =>
+        {
+            // A module's own derived stats (GameEvents.DerivedStats), from this fresh snapshot: never written to the raw sources.
+            if (GameEvents.DerivedStats.Any)
+                foreach (var run in GameEvents.DerivedStats.For(player)) run(player, stats);
+            ComputeStatSnapshotTail(PlayerTailInputs(player, stats), StatSnapshotStage.Offence);
+        });
         Step(PlayerStatStep.TailCritical, (player, stats, _) =>
         {
             int Get(uint name) => GetIn(stats, name);

@@ -138,7 +138,7 @@ public static class SaveRows
         if (s.MainAscendancy is { } a)
             Run(db, "INSERT INTO character_ascendancies (save, family, ascendancy, revision, selection_unknown, nodes, awards, unknown) " +
                     "VALUES ($s, $f, $a, $r, $su, $n, $w, $u)", ("$s", id),
-                ("$f", Value(a.Selection is { } f ? JsonSerializer.SerializeToElement(f.Family, Json).ToString() : null)),
+                ("$f", Value(a.Selection is { } f ? f.Family.Name() : null)),
                 ("$a", Value(a.Selection?.Id)), ("$r", Value(a.Selection?.Revision)), ("$su", Value(JsonOf(a.Selection?.Unknown))),
                 ("$n", Value(JsonOf(a.Nodes))), ("$w", Value(JsonOf(a.Awards))), ("$u", Value(JsonOf(a.Unknown))));
 
@@ -167,7 +167,7 @@ public static class SaveRows
             t.Bool("chest_opened")!.Value, t.Bool("skill_claimed")!.Value, t.Bool("support_claimed")!.Value, t.Text("tutorial_id"),
             t.Bool("weapon_prompt_heard")!.Value, t.Bool("wake_up_shown")!.Value)).FirstOrDefault();
         var ascendancy = Rows(db, "SELECT * FROM character_ascendancies WHERE save = $s", id).Select(a => new AscendancyProgress(
-            a.Text("family") is { } family ? new AscendancyIdentity(JsonSerializer.Deserialize<AscendancyFamily>(JsonSerializer.Serialize(family), Json),
+            a.Text("family") is { } family ? new AscendancyIdentity(AscendancyFamilies.Named(family),
                 a.Text("ascendancy")!, a.Text("revision")!) { Unknown = a.Json<Dictionary<string, JsonElement>>("selection_unknown") } : null,
             a.Json<List<ushort>>("nodes"), a.Json<List<string>>("awards")) { Unknown = a.Json<Dictionary<string, JsonElement>>("unknown") }).FirstOrDefault();
         var hideouts = Rows(db, "SELECT * FROM character_hideout_placements WHERE save = $s ORDER BY area, key", id)
@@ -569,7 +569,7 @@ public static class SaveRows
         "has_mods", "name", "gem_variant", "corrupted", "fractured", "mirrored", "gem_flags", "visual", "defence_base_roll",
         "influences", "split", "synthesised", "foreseeing", "foresee_seed", "alternate_quality_type", "vestigial",
         "heist_blueprint", "deepwater_chart",
-        "memory_strands", "intangibility", "required_level", "relic_style",
+        "memory_strands", "intangibility", "required_level", "relic_style", "scrying_area_hash",
     ];
 
     static object?[] ItemValues(SavedItem i) =>
@@ -578,7 +578,7 @@ public static class SaveRows
         i.GemExperience, (long)i.Rarity, i.Identified, i.Mods is not null, JsonOf(i.Name), i.GemVariant, i.Corrupted, i.Fractured,
         i.Mirrored, i.GemFlags, i.Visual, i.DefenceBaseRoll, (long)i.Influences, i.Split, i.Synthesised, i.Foreseeing, i.ForeseeSeed,
         i.AlternateQualityType, i.Vestigial, JsonOf(i.HeistBlueprint), JsonOf(i.Chart),
-        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle,
+        i.MemoryStrands, i.Intangibility, i.RequiredLevel, i.RelicStyle, i.ScryingAreaHash,
     ];
 
     static List<ItemRow> ReadItems(SaveDatabase db, Owner owner, long id, long? inventory)
@@ -637,7 +637,7 @@ public static class SaveRows
                 { SkinTransferSource = donors.GetValueOrDefault(r.Id),
                     MemoryStrands = (byte)v.Long("memory_strands")!.Value, Intangibility = (byte)v.Long("intangibility")!.Value,
                     RequiredLevel = (int?)v.Long("required_level"), RelicStyle = (byte?)v.Long("relic_style"),
-                    Chart = v.Json<ChartData?>("deepwater_chart") };
+                    ScryingAreaHash = (ushort?)v.Long("scrying_area_hash"), Chart = v.Json<ChartData?>("deepwater_chart") };
         }
         return [.. rows.Where(r => r.Parent is null).OrderBy(r => r.Inventory).ThenBy(r => r.Ord)
             .Select(r => new ItemRow(r.Id, r.Role, null, r.Ord, r.Inventory, r.Placement, r.X, r.Y, Build(r)))];

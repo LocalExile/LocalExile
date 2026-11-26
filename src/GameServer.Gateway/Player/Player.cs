@@ -266,6 +266,8 @@ public sealed record MonsterAttack(ushort SkillId, double Seconds, double Range,
 
 public sealed record SpawnedNpc(NpcCatalog.Npc Npc, int X, int Y)
 {
+    /// <summary>Interaction footprint when this NPC is registered on an existing monster body.</summary>
+    public int? MonsterBodySize { get; init; }
     /// <summary>Its Transitionable state as the client has it (NPCTalk scripts step it: Game.StepNpcTransition).</summary>
     public byte State { get; set; } = Npc.TransitionState;
 }
@@ -363,8 +365,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
 
     /// <summary>A controller drives every action (a Survivors gate boss): the ordinary AI neither chases nor swings.</summary>
     public bool Scripted { get; init; }
-    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it.</summary>
-    public bool NonBlocking { get; init; }
+    /// <summary>Non-blocking actor (e.g. Mirage Warrior): excluded from living collision so walkers pass through it. Read
+    /// each frame, so a caller may give a monster its body later (false), in the area's frame.</summary>
+    public bool NonBlocking { get; set; }
     public uint? OwnerId { get; init; }
     // The monster whose summoning skill brought it (MonsterAttack.Summon), whether its death gives no experience or items
     // (summoned_monsters_no_drops_or_experience), and when its own summoning skill is off cooldown.
@@ -400,6 +403,9 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// <summary>An encounter's own entrance: hits do nothing and no chill, freeze or shock lands until its script clears it
     /// (Izaro rising on his elevator; live, the ailments landed while hits did nothing).</summary>
     public bool EntranceGrace { get => Ailments.Grace; set => Ailments.Grace = value; }
+    /// <summary>Optional non-lethal life floor owned by an encounter controller: when damage would reduce life to 0,
+    /// life stops at 1 and this callback runs synchronously in the area's frame instead of killing the monster.</summary>
+    public Action<SpawnedMonster>? OnNonLethalZero;
     // No damage, ailments, impale or hit reaction while a scripted grace runs.
     public bool DamageImmune;
     public bool Invulnerable => DamageImmune || KingGrace || RitualGrace || FetishGrace || EntranceGrace || LifePhases?.Active == true;
@@ -585,6 +591,8 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Maimed by his hits until when (the sole movement owner) and the physical damage increase its support gave, whose
     // independent time plain Maim does not refresh; shown with its own maimed buff.
     public double MaimedUntil = double.NegativeInfinity, MaimShownUntil;
+    public double DebilitatedUntil = double.NegativeInfinity;
+    public uint DebilitateSource;
     public double MaimedPhysicalTakenUntil = double.NegativeInfinity;
     public ushort MaimBuff;
     public int MaimedPhysicalTakenPct;
@@ -594,6 +602,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     // Hindered by a spell hit until when, shown with the client's hinder buff (ReminderTextHinder: 4 seconds);
     // hindered enemies have 30% reduced movement speed (Game.HinderSeconds and the walk factor).
     public double HinderedUntil = double.NegativeInfinity, HinderShownUntil;
+    public double TotemHinderedUntil = double.NegativeInfinity;
     public ushort HinderBuff;
     // Knocked back by a hit (Game.KnockbackOnHitLocked): the cell the AI tick presents with a Teleport, null when none.
     public (int X, int Y)? KnockbackPending;
@@ -675,6 +684,7 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     public int AggroRange => aggroRange;
     public int StopRange => stopRange;
     public uint MaxLife { get; set; } = maxLife;
+    public uint? MaxLifeWithoutParty { get; init; }
     /// <summary>Its life; a change goes to every client at the frame's end (AreaLife).</summary>
     public uint Life { get; set { if (field == value) return; field = value; LifeChanged?.Invoke(); } } = maxLife;
     internal Action? LifeChanged;
@@ -816,6 +826,9 @@ public sealed record RighteousFireState(ushort Buff, ushort SelfAura, ushort Ski
     public string? RingArt { get; init; }
     /// <summary>The current gem's neutral righteous_fire_spell_damage_+%_final value, refreshed from its own stats.</summary>
     public int SpellDamageMore { get; set; }
+    public int CastSpeedMore { get; set; }
+    public int ManaBurnPctPerMinute { get; init; }
+    public int ManaDamagePctPerMinute { get; init; }
     /// <summary>The retained skill's two conditional support values and its pending changes in added damage factor.</summary>
     public (int Lifetap, int PerInspiration) ConditionalSupportMore { get; set; }
     public List<(double At, double Extra)>? SupportDamageChanges { get; set; }
@@ -869,8 +882,13 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
 
     public readonly CharacterBuildImports.Session BuildImport = new();
     public bool BuildFinalized;
-    public bool Controlled, ControlledPrepared;
-    public double ControlledNextAction, ControlledDeadSince = double.NaN;
+    /// <summary>False for a player the server drives (Program.DriveByServer): nothing reaches a client, and it answers no
+    /// window, vote or prompt.</summary>
+    public bool HasClient => Connection.Driven is null;
+    /// <summary>Whether its account's progress counts (achievements, play time, kill and death counts): a client's does.</summary>
+    public bool EarnsProgress => Connection.Driven?.EarnsProgress ?? true;
+    /// <summary>Whether it is found by name or account (whispers, /who, friends, the guild, invites): a client's is.</summary>
+    public bool Listed => Connection.Driven?.Listed ?? true;
     public AreaLayout Layout { get; private set; } = layout;
     public uint Ticket => ticket;
     public uint Seed => seed;
@@ -968,6 +986,29 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public int ProjectileEpoch;
     public IProjectileRuntime? ProjectileRuntimeState;
     public readonly HashSet<uint> ProjectileObjects = [];
+    readonly Lock projectileObjectsGate = new();
+
+    // Runtime publication and the asynchronous world-output queue both update this ownership set.
+    public void TrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate)
+            if (!LeavingArea && !Closed) ProjectileObjects.Add(id);
+    }
+
+    public bool UntrackProjectileObject(uint id)
+    {
+        lock (projectileObjectsGate) return ProjectileObjects.Remove(id);
+    }
+
+    uint[] TakeProjectileObjects()
+    {
+        lock (projectileObjectsGate)
+        {
+            uint[] snapshot = [.. ProjectileObjects];
+            ProjectileObjects.Clear();
+            return snapshot;
+        }
+    }
 
     public bool ProjectileActive(int epoch)
     {
@@ -990,9 +1031,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
             RetireOwnedCombat();
             InvalidateIncomingHits(clear: false);
             ProjectileEpoch++;
-            projectiles = [.. ProjectileObjects];
+            projectiles = TakeProjectileObjects();
             ProjectileRuntimeState?.Invalidate();
-            ProjectileObjects.Clear();
             return true;
         }
     }
@@ -1237,7 +1277,7 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public InstanceProtocol.UseSkillAtLocation? HeldMove;
     public readonly PlayerHitRecovery HitRecovery = new();
     public readonly WardState Ward = new();
-    public readonly AntiquarianCombatState Antiquarian = new();
+    public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
     public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
@@ -1486,6 +1526,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (int X, int Y) CraftingBenchAt;
     public bool StashOpen;
     public bool GuildStashOpen;
+    public bool TradeStashOpen;
+    public (int X, int Y) TradeStashAt;
     public int InteractionClosing;
     // Whether this connection opened the stash already (only the first open selects the account's last tab), and while
     // that first open runs (until StashForcedUntil, Clock seconds) the tab it selects: the panel's own request for the
@@ -1559,6 +1601,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public (uint Id, int X, int Y)? ReturnPortal;
     /// <summary>The portal back to the character's open town portal, in its town or hideout (SpawnBackPortal).</summary>
     public (uint Id, int X, int Y)? BackPortal;
+    /// <summary>Another player's standing town/map portal shown to this client (object id -> opener, position, returnTown).</summary>
+    public readonly Dictionary<uint, (string Owner, int X, int Y, ushort ReturnToTown)> PeerPortals = [];
     /// <summary>The gem skill being channelled (Cyclone: C→S 0x197 until 0x199), 0 for none, and when it next hits.
     /// Leaving a moving channel (<see cref="ChannelMovement"/>) gives the walk its usual speed back.</summary>
     public ushort ChannelSkill
@@ -1655,6 +1699,8 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public double LockstepActionScheduledAt;
     public double LockstepActionBackswingUntil;
     public GameServer.Core.World.LockstepCastWindow? LockstepCastWindow;
+    /// <summary>Where a totem placement's hold ends, 0 for any other hold: until then the client's own Move is not refused.</summary>
+    public double LockstepTotemHoldUntil;
     // A skill on a monster whose walk-up or swing is still to come on a lockstep client, null for none
     // (Game.LockstepAttackStart): the next use of a held skill waits for it, and the step pass runs its walk-up.
     public LockstepAttack? LockstepAttack;

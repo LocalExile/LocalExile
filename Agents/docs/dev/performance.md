@@ -247,7 +247,7 @@ Now the Gateway keeps its data the way a game server does (TrinityCore loads its
   coalesces flask bar updates in `ProjectileSession`; `CommitGemExperience` scans socketed gems in a single pass;
   `StepCursesLocked` skips uncursed/unmodified monsters without allocating `MonsterCurses` or `StatGraph`;
   `SetQuestFlags`/`CommitQuestFlags` fast-return on empty flag sets; `LesserShrines` caches the equipped Gull grant per
-  active equipment snapshot; `AntiquarianPresentation` skips the first-tick empty baseline; `PassiveBuffAuras.For` uses
+  active equipment snapshot; `WardBreakPresentation` skips the first-tick empty baseline; `PassiveBuffAuras.For` uses
   a zero-allocation loop; `BossMods.Parse` reads only the `Mods` rows referenced by `MonsterVarieties`; `ItemRolls`
   indexes affixes by `ModDomain` at construction; `VendorRecipes` precomputes `ModType` tables and indexes essences and
   base types once.

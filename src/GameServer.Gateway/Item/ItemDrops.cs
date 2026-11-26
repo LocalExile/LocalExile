@@ -48,12 +48,10 @@ public sealed class ItemDrops
         _scarabs = LoadScarabs(catalog, folder);
         _scarabTypeStats = LoadScarabTypeStats();
         _uniqueWeightsFile = LoadUniqueWeights(folder, hardMode);
-        _goldRespecCosts = LoadGoldRespecCosts();
         _mapWorldAreaNames = LoadMapWorldAreaNames();
     }
 
     readonly UniqueWeightProvider _uniqueWeightProvider;
-    readonly int[] _goldRespecCosts;
     readonly Dictionary<string, string> _mapWorldAreaNames;
 
     /// <summary>A dropped piece of equipment's chances by the monster's rarity, each of what the earlier ones left: first
@@ -516,7 +514,7 @@ public sealed class ItemDrops
         return drops;
     }
 
-    public const string DivineVesselId = "Metadata/Items/MapFragments/FragmentPantheonFlask";
+    public const string DivineVesselId = PantheonCatalog.CurrencyDivineVesselId;
     public const int DivineVesselDropLevel = 68;
 
     /// <summary>Retail Divine Vessel drop roll at monster level 68+ (or inside Atlas maps), scaled by monster rarity
@@ -764,56 +762,66 @@ public sealed class ItemDrops
     /// adds to the stash's gold instead of the inventory.</summary>
     public const string GoldId = "Metadata/Items/Currency/GoldCoin", GoldClass = "Gold";
 
-    static int[] LoadGoldRespecCosts()
+    static readonly double[] GoldBaseTable = BuildGoldBaseTable();
+
+    static double[] BuildGoldBaseTable()
     {
-        if (!ClientTables.Has("VillageBalancePerLevelShared")) return [];
-        var table = ClientTables.Table("VillageBalancePerLevelShared");
-        var costs = new int[table.Count];
-        for (int i = 0; i < table.Count; i++)
-            costs[i] = Math.Max(1, table[i].Int("GoldRespecCost"));
-        return costs;
+        var table = new double[100];
+        const double base68 = 2.1 + 0.103 * 68;
+        double base84 = base68 * Math.Pow(1.041, 16);
+        for (int level = 1; level <= 100; level++)
+            table[level - 1] = level <= 68 ? 2.1 + 0.103 * level
+                : level <= 84 ? base68 * Math.Pow(1.041, level - 68)
+                : base84 + 0.5 * (level - 84);
+        return table;
     }
 
-    // Gentle gold base curve tracking VillageBalancePerLevelShared.GoldRespecCost across levels 1-100:
-    // ~5 at L1, ~12 at L20, ~37 at L45, ~98 at L68, ~230 at L80, ~926 at L100.
-    static double GoldBaseForLevel(int monsterLevel, int[]? respecCosts = null)
-    {
-        int clamped = Math.Clamp(monsterLevel, 1, 100);
-        double respecCost = respecCosts is { Length: > 0 }
-            ? respecCosts[Math.Min(clamped - 1, respecCosts.Length - 1)]
-            : 4.0 * Math.Exp(0.088 * (clamped - 1));
-        return 3.0 + 1.15 * Math.Pow(Math.Max(1.0, respecCost), 0.65);
-    }
+    /// <summary>Retail-aligned base gold per normal-monster pile across monster levels 1–100:
+    /// ~2.2 at L1, ~4.2 at L20, ~6.8 at L45, ~9.1 at L68 (T1), ~10.7 at L72 (T5), ~16.7 at L83 (T16),
+    /// ~17.3 at L84 (T17), and ~25.3 at L100 (gentle linear tail above T17, avoiding exponential blowup).</summary>
+    public static double GoldBaseForLevel(int monsterLevel) => GoldBaseTable[Math.Clamp(monsterLevel, 1, 100) - 1];
 
-    /// <summary>The gold a dying monster drops, 0 for none: normal monsters 40% of the time, magic 75%, rare and unique
-    /// always; base curve tracking <c>VillageBalancePerLevelShared.GoldRespecCost</c> × 1 / 2 / 5 / 15 by rarity, ±25%.</summary>
+    /// <summary>Concave IIR multiplier for gold drops mirroring PoE's equipment-rarity conversion:
+    /// +50% → 1.25×, +100% → 1.43×, +200% → 1.67×, +300% → 1.82×, +500% → 2.00× (asymptote 2.50×).</summary>
+    public static double GoldRarityScale(int increasedRarity) =>
+        increasedRarity <= 0
+            ? Math.Max(0.0, 1.0 + increasedRarity / 100.0)
+            : 1.0 + 1.5 * increasedRarity / (increasedRarity + 250.0);
+
+    /// <summary>The gold a dying monster drops, 0 for none: normal monsters 25% of the time, magic 60%, rare and unique
+    /// always; <see cref="GoldBaseForLevel"/> × 1 / 2.5 / 6 / 15 by rarity, ±25%.</summary>
     public static int GoldAmount(int monsterLevel, MonsterRarity rarity, Random rng) =>
-        GoldAmountCore(monsterLevel, rarity, rng, null);
+        GoldRoll(monsterLevel, rarity, rng, 1.0, int.MaxValue);
 
-    static int GoldAmountCore(int monsterLevel, MonsterRarity rarity, Random rng, int[]? respecCosts)
+    static int GoldRoll(int monsterLevel, MonsterRarity rarity, Random rng, double totalMult, int maxAmount)
     {
-        double chance = rarity switch { MonsterRarity.Normal => 0.40, MonsterRarity.Magic => 0.75, _ => 1 };
+        if (!double.IsFinite(totalMult) || totalMult <= 0) return 0;
+        double chance = rarity switch { MonsterRarity.Normal => 0.25, MonsterRarity.Magic => 0.60, _ => 1 };
         chance = Math.Min(1, chance * SystemSettings.Default.GoldChanceMultiplier);
         if (chance <= 0 || rng.NextDouble() >= chance) return 0;
-        double times = rarity switch { MonsterRarity.Magic => 2, MonsterRarity.Rare => 5, MonsterRarity.Unique => 15, _ => 1 };
-        return Math.Max(1, (int)Math.Round(GoldBaseForLevel(monsterLevel, respecCosts) * times * (0.75 + 0.5 * rng.NextDouble())));
+        double times = rarity switch { MonsterRarity.Magic => 2.5, MonsterRarity.Rare => 6, MonsterRarity.Unique => 15, _ => 1 };
+        double scaled = GoldBaseForLevel(monsterLevel) * times * (0.75 + 0.5 * rng.NextDouble()) * totalMult;
+        if (scaled >= maxAmount) return maxAmount;
+        return (int)Math.Round(scaled);
     }
 
     public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier = 1) =>
         Gold(monsterLevel, rarity, rng, multiplier, increasedRarity: 0, quantityFactor: 1);
 
     /// <summary>A pile of gold for a dying monster (<see cref="GoldAmount"/>), scaled by <paramref name="multiplier"/>,
-    /// effective IIR (<paramref name="increasedRarity"/>, already diminished by the caller) and area IIQ
-    /// (<paramref name="quantityFactor"/>), or null for none.</summary>
+    /// effective IIR (<paramref name="increasedRarity"/>, mapped through <see cref="GoldRarityScale"/>) and area/player
+    /// IIQ (<paramref name="quantityFactor"/>), or null for none.</summary>
     public Drop? Gold(int monsterLevel, MonsterRarity rarity, Random rng, double multiplier,
         int increasedRarity, double quantityFactor = 1.0)
     {
-        double iirScale = Math.Max(0.0, 1.0 + increasedRarity / 100.0);
+        if (catalog.Find(GoldId) is not { Supported: true } type) return null;
+        double mult = double.IsFinite(multiplier) ? Math.Max(0, multiplier) : 0;
+        double iirScale = GoldRarityScale(increasedRarity);
         double iiqScale = double.IsFinite(quantityFactor) ? Math.Max(0, quantityFactor) : 1.0;
-        double totalMult = Math.Max(0, multiplier) * iirScale * iiqScale;
-        return (int)Math.Floor(GoldAmountCore(monsterLevel, rarity, rng, _goldRespecCosts) * totalMult) is int amount and > 0
-            && catalog.Find(GoldId) is { Supported: true } type
-            ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)Math.Min(amount, ushort.MaxValue) }, type) : null;
+        double totalMult = mult * iirScale * iiqScale;
+        int maxStack = type.MaxStack > 0 ? Math.Min(type.MaxStack, ushort.MaxValue) : ushort.MaxValue;
+        return GoldRoll(monsterLevel, rarity, rng, totalMult, maxStack) is int amount and > 0
+            ? new Drop(ItemCatalog.Create(type) with { StackSize = (ushort)amount }, type) : null;
     }
 
     /// <summary>The King in the Mists' four guaranteed uniques, by the wiki's crowdsourced 3.26 shares (n=576). They are

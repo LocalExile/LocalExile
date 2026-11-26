@@ -224,6 +224,13 @@ sealed class ChatService : IDisposable
                     Log($"{player.Connection.Remote} <= 0x0015 party line \"{finalText}\" from {name} with no party to take it");
                 break;
             }
+            case TypedChannel.Guild:
+            {
+                var (finalText, finalLinks) = ChatWire.ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
+                if (!await GameEvents.RunGuildChat(player, finalText, OwnLine(finalLinks, linked, finalText, prefix)))
+                    Log($"{player.Connection.Remote} <= 0x0015 guild line \"{finalText}\" from {name} with no guild to take it");
+                break;
+            }
             case TypedChannel.Global or TypedChannel.Trade:
             {
                 var (finalText, finalLinks) = ChatWire.ExpandNamedLinks(text, chat.Links, prefix, namedLinks);
@@ -255,7 +262,7 @@ sealed class ChatService : IDisposable
         string clean = ChatWire.Clean(message).Trim();
         if (clean.Length == 0) return;
         var target = _sessions.TryGetValue(toCharacter, out var session) ? session.Player
-            : InGame.Keys.FirstOrDefault(c => !c.Controlled && !c.Closed
+            : InGame.Keys.FirstOrDefault(c => c.Listed && !c.Closed
                 && string.Equals(CharacterName(c), toCharacter, StringComparison.OrdinalIgnoreCase));
         if (target is not { Closed: false, Connection.Outbox: { } outbox }) return;
         if (IsIgnored(target, responder.Character.Account ?? fromCharacter)) return;
@@ -275,7 +282,7 @@ sealed class ChatService : IDisposable
     static async Task SayLocally(Player player, string text, string name, IReadOnlyList<ChatLineItem> items)
     {
         foreach (var other in InGame.Keys)
-            if (other is { Controlled: false, Closed: false, Connection.Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, player.Instance.Presence)
+            if (other is { HasClient: true, Closed: false, Connection.Outbox: { } outbox } && ReferenceEquals(other.Instance.Presence, player.Instance.Presence)
                 && !GameEvents.GetChatAvailability(other).Dnd
                 && (ReferenceEquals(other, player) || !IsIgnored(other, player.Character.Account ?? name)))
             {
@@ -332,7 +339,7 @@ sealed class ChatService : IDisposable
     {
         foreach (var player in InGame.Keys)
         {
-            if (player is not { Controlled: false, Closed: false, Connection.PlayerSent: true }) continue;
+            if (player is not { HasClient: true, Closed: false, Connection.PlayerSent: true }) continue;
             var session = Session(player);
             foreach (var kind in (ChatChannelKind[])[ChatChannelKind.Global, ChatChannelKind.Trade])
                 JoinOn(session, CharacterName(player), kind, InstanceChat.AnyChannel, 0);

@@ -13,6 +13,7 @@ public sealed class CosmeticsModule : IModule
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        LocalShopFeature.LoadData();
         GameEvents.PlayerEntered.Add(module.Manifest.Id, player =>
         {
             return CosmeticsFeature.SpawnPets(player);
@@ -128,6 +129,36 @@ public sealed class CosmeticsModule : IModule
             await CosmeticsFeature.SwapTargetWithCharacter(player, InstanceMicrotransactions.ReadTargetSwap(bytes));
             return true;
         });
+        GameEvents.Packet(InstanceShop.BuyId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleBuy(player, InstanceShop.ReadBuy(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ReloadId).Add(module.Manifest.Id, async (player, _) =>
+        {
+            await LocalShopFeature.HandleReload(player);
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.ShippingQuoteRequestId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleShippingQuote(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.PlaceOrderId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandlePlaceOrder(player, InstanceShop.ReadFourStrings(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenMysteryBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenMysteryBox(player, InstanceShop.ReadOpenMysteryBox(bytes));
+            return true;
+        });
+        GameEvents.Packet(InstanceShop.OpenSalvageBoxId).Add(module.Manifest.Id, async (player, bytes) =>
+        {
+            await LocalShopFeature.HandleOpenSalvageBox(player, InstanceShop.ReadOpenSalvageBox(bytes));
+            return true;
+        });
     }
 }
 
@@ -138,7 +169,7 @@ public static class CosmeticsFeature
     // personal hideout list includes all exported templates; the guild list stays empty.
     internal static async Task AnswerMtxRequest(Player player, InstanceMicrotransactions.Lists asked)
     {
-        var owned = Mtx.Owned;
+        var owned = LocalShopFeature.CombinedOwned(player);
         if (asked.HasFlag(InstanceMicrotransactions.Lists.Records))
             await Send(player, InstanceMicrotransactions.Added(owned, InstanceMicrotransactions.Records),
                 $"0x01f4 microtransactions: {owned.Count} owned (the panel's records)");
@@ -152,7 +183,13 @@ public static class CosmeticsFeature
             await Send(player, InstanceMicrotransactions.Hideouts(HideoutCatalog.OwnedRows),
                 $"0x01f5 owned hideouts: all {HideoutCatalog.OwnedRows.Length} templates including MTX");
         if (asked.HasFlag(InstanceMicrotransactions.Lists.GuildHideouts))
-            await Send(player, InstanceMicrotransactions.Hideouts([], guild: true), "0x01f5 guild hideouts: none");
+        {
+            byte[] guildRows = GameEvents.ResolveGuildStorageKey(player) is not null ? HideoutCatalog.OwnedRows : [];
+            await Send(player, InstanceMicrotransactions.Hideouts(guildRows, guild: true),
+                guildRows.Length > 0
+                    ? $"0x01f5 guild hideouts: all {guildRows.Length} templates"
+                    : "0x01f5 guild hideouts: none");
+        }
     }
 
     // C→S 0x1fa: a pick in one of the Cosmetics tab's skill slots (record 0 empties it). Saved for the slot's gem type and
@@ -168,7 +205,7 @@ public static class CosmeticsFeature
         {
             if (!CurrentGameWork || player.Closed || player.LeavingArea)
                 return;
-            record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+            record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
             if (!player.Character.SkillSlots.TryGetValue(pick.Key, out var current))
             {
                 Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fa skill cosmetic pick: key {pick.Key}, record {pick.RecordId}: stale target or incompatible record, ignored");
@@ -206,7 +243,7 @@ public static class CosmeticsFeature
     // (the same one /cosmetic portal sets), so the map device's portals show the picked effect.
     internal static async Task PickCosmetic(Player player, (byte Slot, uint RecordId, byte Option) pick)
     {
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+        var record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null))
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01f9 cosmetic pick: slot {pick.Slot}, record {pick.RecordId}: not a slot or not a record, ignored");
@@ -268,7 +305,7 @@ public static class CosmeticsFeature
     internal static async Task EquipExtraCosmetic(Player player, (uint RecordId, byte Option) equip)
     {
         if (player.Closed || player.LeavingArea) return;
-        var record = Mtx.Find(equip.RecordId);
+        var record = LocalShopFeature.FindRecord(player, equip.RecordId);
         if (record is null)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x01fb extra cosmetic equip: record {equip.RecordId} unknown, ignored");
@@ -300,7 +337,7 @@ public static class CosmeticsFeature
         if (player.Closed || player.LeavingArea) return;
         if (change.Slot == 0 || change.Slot >= InstanceMicrotransactions.SlotCount) return;
         var saved = CharacterSaves.Cosmetics(CharacterName(player));
-        if (!saved.TryGetValue(change.Slot, out var current) || Mtx.Resolve(current) is not { } record) return;
+        if (!saved.TryGetValue(change.Slot, out var current) || LocalShopFeature.ResolveSaved(player, current) is not { } record) return;
         byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
             ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
             : change.Tier;
@@ -319,7 +356,7 @@ public static class CosmeticsFeature
             int idx = extras.FindIndex(e => e.Key == change.Key);
             if (idx < 0) return (InstanceMicrotransactions.ExtraSlot?)null;
             var current = extras[idx];
-            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(current.Record, current.Option, current.Hash)) is not { } record)
+            if (LocalShopFeature.ResolveSaved(player, new CharacterSaves.SavedCosmetic(current.Record, current.Option, current.Hash)) is not { } record)
                 return null;
             byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
                 ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
@@ -346,18 +383,18 @@ public static class CosmeticsFeature
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020e reset all MTX stat counters");
         foreach (var worn in WornCosmetics(player))
             if (worn.Id != 0)
-                await Send(player, InstanceMicrotransactions.RecordStatUpdate(worn.Id, 0),
-                    $"0x0210 reset MTX stat counter for record {worn.Id}");
+                await Send(player, InstanceMicrotransactions.RecordStatReset(worn.Id),
+                    $"0x0211 reset MTX stat counter for record {worn.Id}");
     }
 
     internal static async Task ResetRecordStats(Player player, uint recordId)
     {
         if (player.Closed || player.LeavingArea) return;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x020f reset MTX stat counter for record {recordId}");
-        if (Mtx.Find(recordId) is not { } record) return;
-        await Send(player, InstanceMicrotransactions.RecordStatUpdate(record.Id, 0),
-            $"0x0210 reset MTX stat counter for record {record.Id}");
-        await Send(player, InstanceMicrotransactions.RecordUpsert(record with { Qword = 0 }),
+        if (LocalShopFeature.FindRecord(player, recordId) is not { } record) return;
+        await Send(player, InstanceMicrotransactions.RecordStatReset(record.Id),
+            $"0x0211 reset MTX stat counter for record {record.Id}");
+        await Send(player, InstanceMicrotransactions.RecordUpsert(record with { Qword = 0 }, isStore: false, isGuild: false, justReceived: false),
             $"0x0204 upsert MTX record {record.Id} after stat reset");
     }
 
@@ -403,7 +440,7 @@ public static class CosmeticsFeature
     internal static async Task PickTargetCosmetic(Player player, (uint TargetId, byte Slot, uint RecordId, byte Option) pick)
     {
         if (!CanEditMannequin(player, pick.TargetId)) return;
-        var record = pick.RecordId == 0 ? null : Mtx.Find(pick.RecordId);
+        var record = pick.RecordId == 0 ? null : LocalShopFeature.FindRecord(player, pick.RecordId);
         if (pick.Slot == 0 || pick.Slot >= InstanceMicrotransactions.SlotCount || (pick.RecordId != 0 && record is null)) return;
         global::Game.UpdateMannequin(player, pick.TargetId, m =>
         {
@@ -421,7 +458,7 @@ public static class CosmeticsFeature
 
     internal static async Task EquipTargetExtra(Player player, (uint TargetId, uint RecordId, byte Option) equip)
     {
-        if (!CanEditMannequin(player, equip.TargetId) || Mtx.Find(equip.RecordId) is not { } record) return;
+        if (!CanEditMannequin(player, equip.TargetId) || LocalShopFeature.FindRecord(player, equip.RecordId) is not { } record) return;
         uint key = 0;
         global::Game.UpdateMannequin(player, equip.TargetId, m =>
         {
@@ -460,7 +497,7 @@ public static class CosmeticsFeature
         InstanceMicrotransactions.Equipped? updated = null;
         global::Game.UpdateMannequin(player, change.TargetId, m =>
         {
-            if (m.Worn is null || !m.Worn.TryGetValue(change.Slot, out var cur) || Mtx.Resolve(cur) is not { } record) return m;
+            if (m.Worn is null || !m.Worn.TryGetValue(change.Slot, out var cur) || LocalShopFeature.ResolveSaved(player, cur) is not { } record) return m;
             byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
                 ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
                 : change.Tier;
@@ -483,7 +520,7 @@ public static class CosmeticsFeature
             int idx = m.Extras.FindIndex(e => e.Key == change.Key);
             if (idx < 0) return m;
             var cur = m.Extras[idx];
-            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(cur.Record, cur.Option, cur.Hash)) is not { } record) return m;
+            if (LocalShopFeature.ResolveSaved(player, new CharacterSaves.SavedCosmetic(cur.Record, cur.Option, cur.Hash)) is not { } record) return m;
             byte tier = MtxEffects.Of(record.MtxTypeHash) is { TierCount: > 0 } fx
                 ? (byte)Math.Clamp(change.Tier == 0 ? 1 : change.Tier, 1, fx.TierCount)
                 : change.Tier;
@@ -539,7 +576,7 @@ public static class CosmeticsFeature
             }
             if (changedSlots.Contains(InstanceMicrotransactions.PortalSlot))
             {
-                var portalRecord = manWorn.TryGetValue(InstanceMicrotransactions.PortalSlot, out var ps) ? Mtx.Resolve(ps) : null;
+                var portalRecord = manWorn.TryGetValue(InstanceMicrotransactions.PortalSlot, out var ps) ? LocalShopFeature.ResolveSaved(player, ps) : null;
                 newPortalVariation = portalRecord is not null && Cosmetics.Portals.FirstOrDefault(p => p.Hash == portalRecord.MtxTypeHash) is { } portal
                     ? (ushort)portal.Index : (ushort)0;
                 CharacterSaves.SetPortalCosmetic(character, newPortalVariation);
@@ -548,7 +585,8 @@ public static class CosmeticsFeature
         player.Character.CosmeticPortalVariation = newPortalVariation;
         player.Character.WornCosmetics = null;
         var (worn, extras) = global::Game.ResolveMannequinSlots(updated);
-        await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, updated.DisplayFlags),
+        byte flags = (byte)(updated.DisplayFlags | InstanceMicrotransactions.DefaultFlags);
+        await Send(player, InstanceMicrotransactions.TargetSnapshot(targetId, [], worn, extras, flags),
             $"0x006a mannequin 0x{targetId:x} swapped with {character} ({worn.Count} worn)");
         await SendWornCosmetics(player, "mannequin swap");
         await SendEquipment(player, ItemsOf(player), refreshCosmetics: false);

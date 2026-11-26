@@ -38,6 +38,7 @@ public sealed class PlacedSkills
     public double NextSkitter;
     public double NextChain;
     public int Chain;
+    public int TriggeredInChain;
     public bool Dirty;
     public bool DetonationPublished;
     public static int Reserved(CharacterStats.Pools pools, IEnumerable<Placed> all, bool life) =>

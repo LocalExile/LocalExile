@@ -46,7 +46,7 @@ public sealed class CommandsModule : IModule
         GameEvents.ChatActivity.Add(module.Manifest.Id, ChatPresence.ClearAfkOnActivity);
         GameEvents.MessagesHandled.Add(module.Manifest.Id, async (player, ids) =>
         {
-            if (player.Controlled || player.Closed || player.LeavingArea) return;
+            if (!player.HasClient || player.Closed || player.LeavingArea) return;
             for (int i = 0; i < ids.Count; i++)
                 if (ChatPresence.IsActionPacket(ids[i]))
                 {

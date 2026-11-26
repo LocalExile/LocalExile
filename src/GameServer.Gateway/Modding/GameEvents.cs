@@ -6,15 +6,16 @@ using GameServer.Core.World;
 
 /// <summary>A point where the framework hands over to the league's code, the modules and the mods, in the Gateway's own types: the one
 /// hook system. The owner is the subscriber's id. A league's code runs for its own league's connections, a module's for the connections
-/// whose league lists it, a mod's in every league while it is loaded. They run in that order: the league's code, then the modules', then the
-/// mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
+/// whose league lists it, a mod's in every league, or only in the leagues that list it when its mod.json says so. They run in
+/// that order: the league's code, the modules', the listed mods', then the other mods'. When an owner unloads, its host removes every subscription it made (<see cref="GameEventOwners.Release"/>), so nobody has to keep
 /// the handles.</summary>
 public sealed class GameEvent<T> : GameEventOwners.IOwned where T : Delegate
 {
     internal readonly record struct Subscriber(string Owner, int Rank, T Run, long Id)
     {
-        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner)
-            || (Rank == GameEventOwners.LeagueRank && league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase));
+        // A league's code by the league alone: its list may hold a mod of its name in another case (the mod that brings it).
+        public bool AppliesTo(LeagueRuntime league) => Rank == GameEventOwners.LeagueRank ? league.Id.Equals(Owner, StringComparison.OrdinalIgnoreCase)
+            : Rank == GameEventOwners.ModRank || league.Modules.Contains(Owner);
     }
 
     ImmutableArray<Subscriber> _subscribers = [];
@@ -98,9 +99,9 @@ public static class GameEventOwners
     static ImmutableArray<IOwned> _events = [];
     static ImmutableDictionary<(int Rank, string Owner), ImmutableList<IDisposable>> _held = ImmutableDictionary<(int, string), ImmutableList<IDisposable>>.Empty;
 
-    /// <summary>The ranks: a league's code, a module, a mod. A host releases only its own rank, so a league and a module of the same
-    /// name (Ruthless) do not release each other's.</summary>
-    public const int LeagueRank = 0, ModuleRank = 1, ModRank = 2;
+    /// <summary>The ranks: a league's code, a module, a mod of the leagues that list it, a mod of every league. A host releases
+    /// only its own rank, so a league and a module of the same name (Ruthless) do not release each other's.</summary>
+    public const int LeagueRank = 0, ModuleRank = 1, LeagueModRank = 2, ModRank = 3;
 
     public static void Register(IOwned gameEvent) => ImmutableInterlocked.Update(ref _events, e => e.Add(gameEvent));
 
@@ -124,7 +125,7 @@ public static class GameEventOwners
     /// <summary>How many subscriptions the owner has (its "hooks" in /mod and /module).</summary>
     public static int Count(string owner) => _events.Sum(e => e.Count(owner));
 
-    // A league's code first, then the modules, then the mods, by the kind of host that runs the owner. An owner no host runs (a test, a
+    // A league's code first, then the modules, then the mods (the listed ones first), by what runs the owner. An owner no host runs (a test, a
     // helper) counts as a module, and so does a name that is both a module's and a league's.
     internal static int RankOf(string owner) => ModHost.RankOf(owner) ?? ModuleRank;
 
@@ -151,7 +152,7 @@ public static class GameEventOwners
 
     const double SlowMilliseconds = 30;
 
-    static void Failed(string owner, string name, Exception ex) =>
+    internal static void Failed(string owner, string name, Exception ex) =>
         Console.WriteLine($"[events] {owner} {name} failed (skipped): {ex}");
 }
 
@@ -216,6 +217,49 @@ public static class GameEvents
     /// things and their quest view (the NPCs and quest blockers their quest state shows them).</summary>
     public static readonly GameEvent<Func<Player, Task>> PlayerEntered = new();
 
+    /// <summary>Quest flags the client holds in the player's current area besides the character's own (their ids): a grant
+    /// that belongs to the area, so it is neither saved nor cleared by another module's clean-up of the character's flags. The
+    /// client's flag set (the player's create and every quest flag update) and the server's checks
+    /// (<c>Game.ClientHasQuestFlag</c>, a combat hot path) both read it, so the two agree; it is read at every check, so answer
+    /// from state that is already known, and return an array that is kept (nothing is allocated per call).
+    /// <see cref="RunAreaQuestFlags"/> sums the answers.</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<string>>> AreaQuestFlags = new();
+
+    /// <summary>The flags the subscribers grant the player in this area; null when none does.</summary>
+    public static IReadOnlySet<string>? RunAreaQuestFlags(Player player)
+    {
+        if (!AreaQuestFlags.Any) return null;
+        HashSet<string>? flags = null;
+        foreach (var (owner, run) in AreaQuestFlags.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaQuestFlags), () =>
+            {
+                foreach (string flag in run(player)) (flags ??= []).Add(flag);
+            });
+        return flags;
+    }
+
+    /// <summary>Whether a subscriber grants the player this flag in this area. It allocates nothing (no iterator, closure or
+    /// set), because the combat code asks it for every flag it reads.</summary>
+    public static bool HasAreaQuestFlag(Player player, string flag)
+    {
+        var subscribers = AreaQuestFlags.Snapshot;
+        if (subscribers.IsEmpty) return false;
+        var league = Program.LeagueFor(player);
+        for (int i = 0; i < subscribers.Length; i++)
+        {
+            var subscriber = subscribers[i];
+            if (!subscriber.AppliesTo(league)) continue;
+            try
+            {
+                var granted = subscriber.Run(player);
+                for (int k = 0; k < granted.Count; k++)
+                    if (granted[k] == flag) return true;
+            }
+            catch (Exception ex) { GameEventOwners.Failed(subscriber.Owner, nameof(AreaQuestFlags), ex); }
+        }
+        return false;
+    }
+
     /// <summary>A new instance's monsters are placed (not a kept instance's, whose monsters come back as they were): place
     /// a league encounter's monsters and objects here (<see cref="LeagueChances"/> rolls how many).</summary>
     public static readonly GameEvent<Func<AreaPopulated, Task>> AreaPopulated = new();
@@ -242,8 +286,28 @@ public static class GameEvents
     /// it attaches to the area (a ruleset some of its windows look up then). A log line and the message.</summary>
     public static readonly GameEvent<Func<Player, IEnumerable<(string Log, byte[] Message)>>> BeforeEnterMessages = new();
 
+    /// <summary>Static objects created for each joining player before the world activates, alongside area transitions.</summary>
+    public static readonly GameEvent<Func<Player, (uint Id, string Type, QuestObject Object)?>> BeforeEnterObject = new();
+
     /// <summary>What the area's first message says beyond the server's own; null for no opinion. The first answer wins.</summary>
     public static readonly GameEvent<Func<Player, AreaHeader?>> AreaHeader = new();
+
+    /// <summary>Rulesets needed when this map's terrain and world are created. Evaluated after terrain overrides.</summary>
+    public static readonly GameEvent<Func<Player, (byte Row, byte? PreloadGroup)?>> AreaRuleset = new();
+
+    public static (List<byte> Rows, List<byte> PreloadGroups) AreaRulesets(Player player)
+    {
+        var rows = new List<byte>();
+        var groups = new List<byte>();
+        foreach (var (owner, run) in AreaRuleset.Subscribers(player))
+            GameEventOwners.Guard(owner, nameof(AreaRuleset), () =>
+            {
+                if (run(player) is not { } entry) return;
+                if (!rows.Contains(entry.Row)) rows.Add(entry.Row);
+                if (entry.PreloadGroup is { } group && !groups.Contains(group)) groups.Add(group);
+            });
+        return (rows, groups);
+    }
 
     /// <summary>A map device's checked input before any item is consumed.</summary>
     public static readonly GameEvent<Action<MapOpening>> MapOpening = new();
@@ -569,12 +633,34 @@ public static class GameEvents
     }
     /// <summary>Talking to an NPC starts; true when a module has its own dialogue for it.</summary>
     public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool>>> NpcTalk = new();
+    /// <summary>The automatic quest conversation on a click or Continue. Null defers to the normal lookup,
+    /// true starts a conversation, and false skips the lookup so the caller can handle shortcuts or show options.</summary>
+    public static readonly GameEvent<Func<Player, uint, SpawnedNpc, Task<bool?>>> NpcQuestConversation = new();
     /// <summary>A connection's chat commands are made: a module adds to them.</summary>
     public static readonly GameEvent<Func<ChatCommands, Player, ChatCommands>> CommandsBuilding = new();
     /// <summary>The campaign driver's /state is made (Agents/docs/dev/campaign-automation.md): a module adds the fields of
     /// what it runs (the Pantheon's "pantheon").</summary>
     public static readonly GameEvent<Action<Player, System.Text.Json.Nodes.JsonObject>> StateBuilding = new();
     public static readonly GameEvent<Func<Player, Dictionary<uint, int>, Dictionary<uint, int>>> PlayerStatSources = new();
+    /// <summary>The stat sources the player's pools (life, mana, energy shield) are about to be built from, with the final
+    /// attributes: a module turns its own per-attribute stats into the ordinary pool stats they are, on the sources. Only the
+    /// pools take the change.</summary>
+    public static readonly GameEvent<Action<Player, Dictionary<uint, int>, (int Strength, int Dexterity, int Intelligence)>> PoolSources = new();
+    /// <summary>The player's stats once the final attributes and the pools are in them, before the offence rows: a module derives
+    /// its own stats on the map, from the map alone (a stat rule's view: the rule runs again when what was read changes).</summary>
+    public static readonly GameEvent<Action<Player, StatMap>> DerivedStats = new();
+    /// <summary>An attack's hit by damage type, after conversion and the increases and before the roll, with the stats it was
+    /// built from: a module returns it changed. A hit is built without a connection, so this runs for every player's attacks:
+    /// a subscriber acts only on a stat of its own.</summary>
+    public static readonly GameEvent<Func<DamagePacket, Func<uint, int>, DamagePacket>> AttackHit = new();
+    /// <summary>More cast speed for this cast in percent, from the stats the cast reads; 0 for none. Each answer multiplies.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> CastSpeedMore = new();
+    /// <summary>A module's own final percent on the radius within which Beyond portals merge, from the stats the area
+    /// reads; the answers add to the Endless Tide keystone's.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, int>> BeyondMergeRadiusFinal = new();
+    /// <summary>A module's own additional Rogue Exiles for the area, from the stats the area reads and with the
+    /// encounter's own draws (the same instance gets the same exiles); the answers add.</summary>
+    public static readonly GameEvent<Func<Player, Func<uint, int>, Random, int>> AdditionalRogueExiles = new();
     public static readonly GameEvent<Func<Player, IReadOnlyDictionary<uint, int>, SpawnedMonster, DamagePacket, DamagePacket>> OutgoingDamage = new();
     /// <summary>A click on an object; true when it was this module's.</summary>
     public static readonly GameEvent<Func<Player, InstanceTransfer.UseSkillOnObject, double, Task<bool>>> ObjectUse = new();
@@ -610,6 +696,20 @@ public static class GameEvents
     /// <summary>A party line ("%…"), cleaned: the party is a module's to know, the text is the Chat module's; true when
     /// the module delivered it to the party.</summary>
     public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> PartyChat = new();
+    /// <summary>A guild line ("&amp;…"), cleaned: true when a subscriber delivered it to the sender's guild.</summary>
+    public static readonly GameEvent<Func<Player, string, IReadOnlyList<ChatLineItem>?, Task<bool>>> GuildChat = new();
+    /// <summary>Shared guild storage key for the player's guild, or null when the player is not in a guild.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildStorageKey = new();
+    /// <summary>Online peers in the player's guild (excluding the player or including them as decided by the provider).</summary>
+    public static readonly GameEvent<Func<Player, IReadOnlyList<Player>>> GuildPeers = new();
+    /// <summary>The player selected a guild hideout template row via C→S 0x254 (bit 15 set); true when handled.</summary>
+    public static readonly GameEvent<Func<Player, int, Task<bool>>> GuildHideoutSelected = new();
+    /// <summary>The Hideouts.dat HASH16 of the player's guild hideout, or null when none is selected.</summary>
+    public static readonly GameEvent<Func<Player, ushort?>> GuildHideoutHash = new();
+    /// <summary>The player's guild tag (for chat display), or null when none.</summary>
+    public static readonly GameEvent<Func<Player, string?>> GuildTagQuery = new();
+    /// <summary>Whether the player is permitted to manage shared guild stash tabs (Officer/Leader, or solo fallback).</summary>
+    public static readonly GameEvent<Func<Player, bool>> GuildCanManageStash = new();
     /// <summary>A party invitation requested by target character or account name (such as <c>/invite</c>); true when a
     /// subscriber handled the request.</summary>
     public static readonly GameEvent<Func<Player, string, Task<bool>>> PartyInvite = new();
@@ -627,6 +727,13 @@ public static class GameEvents
     {
         foreach (var run in NpcTalk.For(player)) if (await run(player, id, npc)) return true;
         return false;
+    }
+
+    public static async Task<bool?> ResolveNpcQuestConversation(Player player, uint id, SpawnedNpc npc)
+    {
+        foreach (var run in NpcQuestConversation.For(player))
+            if (await run(player, id, npc) is bool handled) return handled;
+        return null;
     }
 
     public static ChatCommands RunCommandsBuilding(Player player, ChatCommands commands)
@@ -651,6 +758,12 @@ public static class GameEvents
     {
         foreach (var run in PlayerStatSources.For(player)) sources = run(player, sources);
         return sources;
+    }
+
+    public static DamagePacket WithAttackHit(DamagePacket hit, Func<uint, int> get)
+    {
+        foreach (var subscriber in AttackHit.Snapshot) hit = subscriber.Run(hit, get);
+        return hit;
     }
 
     public static DamagePacket WithOutgoingDamage(Player player, IReadOnlyDictionary<uint, int> playerStats, SpawnedMonster monster, DamagePacket rolled)
@@ -764,6 +877,84 @@ public static class GameEvents
     {
         foreach (var run in PartyChat.For(player)) if (await run(player, text, items)) return true;
         return false;
+    }
+
+    public static async Task<bool> RunGuildChat(Player player, string text, IReadOnlyList<ChatLineItem>? items)
+    {
+        foreach (var (owner, run) in GuildChat.Subscribers(player))
+        {
+            bool delivered = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildChat), async () => delivered = await run(player, text, items)) && delivered)
+                return true;
+        }
+        return false;
+    }
+
+    public static string? ResolveGuildStorageKey(Player player)
+    {
+        foreach (var (owner, run) in GuildStorageKey.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildStorageKey), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return null;
+    }
+
+    public static IReadOnlyList<Player> ResolveGuildPeers(Player player)
+    {
+        foreach (var (owner, run) in GuildPeers.Subscribers(player))
+        {
+            IReadOnlyList<Player>? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildPeers), () => answer = run(player)) && answer is { Count: > 0 })
+                return answer;
+        }
+        return [];
+    }
+
+    public static async Task<bool> RunGuildHideoutSelected(Player player, int row)
+    {
+        foreach (var (owner, run) in GuildHideoutSelected.Subscribers(player))
+        {
+            bool handled = false;
+            if (await GameEventOwners.Guard(owner, nameof(GuildHideoutSelected), async () => handled = await run(player, row)) && handled)
+                return true;
+        }
+        return false;
+    }
+
+    public static ushort? ResolveGuildHideoutHash(Player player)
+    {
+        foreach (var (owner, run) in GuildHideoutHash.Subscribers(player))
+        {
+            ushort? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildHideoutHash), () => answer = run(player)) && answer is { } value)
+                return value;
+        }
+        return null;
+    }
+
+    public static string ResolveGuildTag(Player player)
+    {
+        foreach (var (owner, run) in GuildTagQuery.Subscribers(player))
+        {
+            string? answer = null;
+            if (GameEventOwners.Guard(owner, nameof(GuildTagQuery), () => answer = run(player)) && !string.IsNullOrEmpty(answer))
+                return answer;
+        }
+        return "";
+    }
+
+    public static bool CanManageGuildStash(Player player)
+    {
+        foreach (var (owner, run) in GuildCanManageStash.Subscribers(player))
+        {
+            bool allowed = false;
+            if (GameEventOwners.Guard(owner, nameof(GuildCanManageStash), () => allowed = run(player)))
+                return allowed;
+            return false;
+        }
+        return true;
     }
 
     public static async Task<bool> RunPartyInvite(Player player, string target)

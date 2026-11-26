@@ -11,7 +11,7 @@ public static partial class Game
         public readonly object? Rules = rules;
         public readonly Dictionary<int, double> ReadyAt = [];
         public Dictionary<ushort, ManaforgedProgress>? Manaforged;
-        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedTriggerSource Source, int Next)> Rotation = [];
+        public readonly Dictionary<(uint Host, int Group, string Family), (LinkedSpell[]? Spells, int Next)> Rotation = [];
     }
     static readonly Store<Player, LinkedTriggerState> LinkedTriggers = new();
     static LinkedTriggerState LinkedTriggersOf(Player player)
@@ -97,6 +97,16 @@ public static partial class Game
         return ReleaseLinkedSpell(player, session, source, "CoMK", aim, at, Stat.CastSpellOnLinkedMeleeKill);
     }
 
+    static bool SameLinkedSpells(LinkedSpell[] previous, LinkedSpell[] current)
+    {
+        if (ReferenceEquals(previous, current)) return true;
+        if (previous.Length != current.Length) return false;
+        for (int i = 0; i < previous.Length; i++)
+            if (previous[i].Skill != current[i].Skill || !SameTriggerSource(previous[i].Gem, current[i].Gem))
+                return false;
+        return true;
+    }
+
     // rotation: the host and group the cycle over the spells belongs to, when it is not the driving gem's own socket
     // group (an item's trigger cycles for the item: ReleaseItemCriticalTrigger).
     static bool ReleaseLinkedSpell(Player player, ProjectileSession session, LinkedTriggerSource source,
@@ -105,10 +115,10 @@ public static partial class Game
     {
         var state = LinkedTriggersOf(player);
         var key = (rotation?.Host ?? source.Gem.Host, rotation?.Group ?? source.Gem.Group, family);
-        bool Same(LinkedTriggerSource a, LinkedTriggerSource b) => SameTriggerSource(a.Gem, b.Gem)
-            && a.Spells.Length == b.Spells.Length && a.Spells.Zip(b.Spells)
-                .All(p => p.First.Skill == p.Second.Skill && SameTriggerSource(p.First.Gem, p.Second.Gem));
-        int next = state.Rotation.TryGetValue(key, out var previous) && Same(previous.Source, source) ? previous.Next : 0;
+        // Any qualifying driver in this group can continue the cycle over the same ordered spell sources.
+        int next = state.Rotation.TryGetValue(key, out var previous) && previous.Spells is { } spells
+            && SameLinkedSpells(spells, source.Spells)
+            ? previous.Next : 0;
         double now = Math.Max(at, AreaTime(player));
         for (int i = 0; i < source.Spells.Length; i++)
         {
@@ -124,18 +134,20 @@ public static partial class Game
             if (gem.Supports.FirstOrDefault(s => SupportHas(s, spellFlag)) is not { } trigger) continue;
             if (!PayMana(player, spell.Skill, out uint mana, out uint life))
             {
-                state.Rotation[key] = (source, (index + 1) % source.Spells.Length);
+                state.Rotation[key] = (source.Spells, (index + 1) % source.Spells.Length);
                 return false;
             }
             int milliseconds = Math.Max(SkillsFor(player).CooldownMs(gem.Effect, gem.Level),
                 SkillsFor(player).CooldownMs(trigger.Gem.Effect, trigger.Gem.Level));
+            if (gem.Stats.GetValueOrDefault(Stat.SpellCastTimeAddedToCooldownIfTriggered) != 0)
+                milliseconds += SkillsFor(player).CastTimeMs(gem.Effect);
             var playerStats = CharacterPlayerStats(player);
             double rate = Math.Max(0, 1 + (GolemStat(playerStats, Stat.VirtualCooldownSpeedPlusPct)
                 + GolemStat(playerStats, Stat.BaseSpellCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.BaseSpellCooldownSpeedPlusPct)
                 + GolemStat(gem.Stats, Stat.BaseCooldownSpeedPlusPct) + GolemStat(gem.Stats, Stat.VirtualCooldownSpeedPlusPct)) / 100d);
             state.ReadyAt[gem.Effect] = milliseconds == 0 ? now
                 : rate > 0 ? now + milliseconds / 1000d / rate : double.PositiveInfinity;
-            state.Rotation[key] = (source, (index + 1) % source.Spells.Length);
+            state.Rotation[key] = (source.Spells, (index + 1) % source.Spells.Length);
             release();
             if (mana > 0 || life > 0)
                 session.Enqueue(() => SendSkillCost(player, life, family + " cost"));

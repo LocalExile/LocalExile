@@ -57,8 +57,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- Permanent Achievements (S→C 0x124–0x127, C→S 0x123): tracks permanent achievement items (`SetId == 2`), persists
-  progress account-wide, syncs packed bitsets on entry and panel open, and emits completion toasts (not yet checked live).
+- Achievements and League Challenges (S→C 0x124–0x127, C→S 0x123): tracks permanent set 2 and active league sets 79/80.
+  Progress persists account-wide, syncs packed bitsets on entry, and emits completion and milestone notices (offline).
 - Dual Wielding Mastery's different-weapon-types damage. Docs: [20](../docs/protocol/20-damage.md) §2b.
 - Passive mastery effects on defences, attributes and equipment: slot increases (helmet ES, gloves and boots armour,
   body evasion), the all-equipment and socket conditions, per-mastery attributes, six Life masteries, the full-life
@@ -66,14 +66,14 @@ Part of [Status](../Status.md); what to build next in this area is in
   Staff Mastery can recover life from blocked attacks while wielding the staff.
   Not checked live: the socket, ring and amulet conditions, Claw2, Leech2 and Reservation2.
 - Hierophant, except the Brand nodes. Docs: [Hierophant](../docs/game/hierophant.md).
-- Behemoth through the optional Phrecia module. Docs: [Behemoth](../docs/game/behemoth.md).
-- Whisperer through the optional module. Docs: [Whisperer](../docs/game/whisperer.md).
+- Behemoth through the `phreciaascendancies` mod. Docs: [Behemoth](../docs/game/behemoth.md).
+- Whisperer through the same mod. Docs: [Whisperer](../docs/game/whisperer.md).
 - Aristocrat (not checked live). Docs: [Aristocrat](../docs/game/aristocrat.md).
 - Ancestral Commander (not checked live). Docs: [Ancestral Commander](../docs/game/ancestral-commander.md).
 - Paladin (not checked live). Docs: [Paladin](../docs/game/paladin.md).
 - Polytheist (not checked live). Docs: [Polytheist](../docs/game/polytheist.md).
 - Surfcaster (not checked live). Docs: [Surfcaster](../docs/game/surfcaster.md).
-- Phrecia ascendancies: the optional module, Harbinger, Forest Tracking and family gem levels.
+- Phrecia ascendancies: the mod `phreciaascendancies` (LocalExile-Mods), Harbinger, Forest Tracking and family gem levels.
   Docs: [Phrecia modules](../docs/game/phrecia-modules.md), [Harbinger](../docs/game/harbinger.md),
   [ascendancies](../docs/game/ascendancies.md).
 - Ruthless experience and passive alternatives. Docs: [league modes](../docs/game/league-modes.md).

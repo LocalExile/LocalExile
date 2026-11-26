@@ -68,6 +68,9 @@ public static partial class Game
         return !placement.FromRoom && layout.Walkable?.Invoke(at.X, at.Y) == false ? layout.Near(at) : at;
     }
 
+    public static int NpcInteractionSize(SpawnedNpc npc) =>
+        npc.MonsterBodySize ?? Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size);
+
     // A click on an NPC (C→S 0x24 on its object): the client walks to it first; follow it and answer once the player is there.
     public static async Task TalkToNpc(Player player,
         InstanceTransfer.UseSkillOnObject use, SpawnedNpc npc, double requestedAt)
@@ -75,7 +78,7 @@ public static partial class Game
         // Only a fresh click opens/reopens NPC dialogue; held-LMB repeats (~100 ms later, 0x0400 clear) must not wipe
         // an open quest reward offer and send 0x0084 over it.
         if (!use.InitialPress) return;
-        if (!TryBeginObjectWalk(player, requestedAt, npc.X, npc.Y, Math.Max(0, StationaryCollision.Resolve(npc.Npc.Id, npc.Npc.Model).Size), out var objectWalk)) return;
+        if (!TryBeginObjectWalk(player, requestedAt, npc.X, npc.Y, NpcInteractionSize(npc), out var objectWalk)) return;
         var (action, now, here, stop, arrive) = objectWalk;
         Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 npc {npc.Npc} ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
         if (arrive > now) await AreaDelay(player, arrive - now);
@@ -94,6 +97,7 @@ public static partial class Game
         lock (player.Npcs) id = player.Npcs.FirstOrDefault(n => ReferenceEquals(n.Value, npc)).Key;
         player.StashOpen = false;
         player.GuildStashOpen = false;
+        player.TradeStashOpen = false;
         player.BenchOpen = false;
         player.ModuleWindow = null;
         player.ModuleWindowAnchor = null;
@@ -172,6 +176,7 @@ public static partial class Game
         SpawnedNpc? npc;
         lock (player.Npcs) npc = player.Npcs.GetValueOrDefault(id);
         if (npc is null || player.TalkingTo != id) return false;
+        if (await GameEvents.ResolveNpcQuestConversation(player, id, npc) is bool handled) return handled;
         var flags = Quests.Names(PlayerQuestFlags(player));
         NpcCatalog.Talk? next;
         if (GameEvents.UsesNpcLeagueFlags(player, npc.Npc))

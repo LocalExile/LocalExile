@@ -125,7 +125,7 @@ public static partial class Game
                         return (id, obj.At.X, obj.At.Y, true);
         lock (player.HideoutDoodads)
             foreach (var (id, device) in player.HideoutDoodads)
-                return (id, device.X, device.Y, false);
+                if (HideoutCatalog.IsPlaced(device)) return (id, device.X, device.Y, false);
         return null;
     }
     // Lists the portals already standing again, so a portal cosmetic takes effect without reopening the map device or
@@ -144,27 +144,27 @@ public static partial class Game
 
     // The portals that stand without a map device (a Portal Scroll's, a map's own way back, the portal back to an open
     // town portal): object id Ã¢â€ ’ the area it leads to, for the connection that made them.
-    static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, ushort>> SinglePortals = new();
+    static readonly Store<Player, System.Collections.Concurrent.ConcurrentDictionary<uint, (ushort Area, string? Owner, ushort? Variation)>> SinglePortals = new();
 
     /// <summary>
     /// Lists a portal that stands without a map device, <paramref name="afterMs"/> after its create and once more
-    /// MapPortalRelistMs later. 0x8f only reaches a portal object the client has built. The client reads its socket once
-    /// per update and handles 0x8f at once, while the create waits for its world frame, so a list that arrives in the
-    /// same read as the create is lost and the portal is never drawn (seen live 2026-11-12, a background window in the
-    /// lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it). An entry listed again
-    /// unchanged leaves the portal as it is.
+    /// MapPortalRelistMs (or <paramref name="relistMs"/>) later. 0x8f only reaches a portal object the client has built.
+    /// The client reads its socket once per update and handles 0x8f at once, while the create waits for its world frame,
+    /// so a list that arrives in the same read as the create is lost and the portal is never drawn (seen live 2026-11-12,
+    /// a background window in the lockstep mode: 0x8f handled 3 ms before the object was built, sent 100 ms after it).
+    /// An entry listed again unchanged leaves the portal as it is.
     /// </summary>
     public static void ListPortal(Player player, uint id, ushort area,
-        string what, int afterMs)
+        string what, int afterMs, int? relistMs = null, string? owner = null, ushort? variation = null)
     {
-        SinglePortals.GetOrCreateValue(player)[id] = area;
+        SinglePortals.GetOrCreateValue(player)[id] = (area, owner, variation);
         _ = AreaFrames.Start(async () =>
         {
             try
             {
                 await AreaDelay(player, afterMs / 1000.0);
                 if (!await SendSinglePortals(player, what, id)) return;
-                await AreaDelay(player, MapPortalRelistMs / 1000.0);
+                await AreaDelay(player, (relistMs ?? MapPortalRelistMs) / 1000.0);
                 await SendSinglePortals(player, what + ", listed again", id);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException)
@@ -189,16 +189,17 @@ public static partial class Game
         return (ushort)Cosmetics.Portals[(int)((uint)seed % (uint)Cosmetics.Portals.Count)].Index;
     }
 
-    static InstanceMapDevice.Portal SinglePortalEntry(Player player, uint id, ushort area) =>
-        new(id, area, CharacterName(player), Variation: PortalVariation(player, id));
+    static InstanceMapDevice.Portal SinglePortalEntry(Player player, uint id, ushort area, string? owner = null, ushort? variation = null) =>
+        new(id, area, owner ?? CharacterName(player), Variation: variation ?? PortalVariation(player, id));
 
     /// <summary>
     /// For a portal that already stands when the player arrives: its 0x8f entry, sent before its create. The client plays a
     /// portal's opening whenever 0x8f lists it for the first time (or changed), and it keeps an entry whose object does not
     /// exist yet, so the lists after the create (ListPortal, the same entry) show it idle (21-hideouts.md §5).
     /// </summary>
-    public static Task ListStandingPortal(Player player, uint id, ushort area, string what) =>
-        Send(player, InstanceMapDevice.Portals(0, [SinglePortalEntry(player, id, area)]),
+    public static Task ListStandingPortal(Player player, uint id, ushort area, string what,
+        string? owner = null, ushort? variation = null) =>
+        Send(player, InstanceMapDevice.Portals(0, [SinglePortalEntry(player, id, area, owner, variation)]),
             $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
 
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.
@@ -206,10 +207,15 @@ public static partial class Game
     static async Task<bool> SendSinglePortals(Player player, string why, uint only = 0)
     {
         if (player.Closed || !SinglePortals.TryGetValue(player, out var portals)) return false;
-        bool Stands(uint id) => player.ReturnPortal?.Id == id || player.BackPortal?.Id == id;
+        bool Stands(uint id)
+        {
+            if (player.ReturnPortal?.Id == id || player.BackPortal?.Id == id) return true;
+            lock (player.PeerPortals) return player.PeerPortals.ContainsKey(id);
+        }
         foreach (uint gone in portals.Keys.Where(id => !Stands(id)).ToList()) portals.TryRemove(gone, out _);
         if (portals.IsEmpty || (only != 0 && !portals.ContainsKey(only))) return false;
-        var list = portals.OrderBy(p => p.Key).Select(p => SinglePortalEntry(player, p.Key, p.Value)).ToList();
+        var list = portals.OrderBy(p => p.Key)
+            .Select(p => SinglePortalEntry(player, p.Key, p.Value.Area, p.Value.Owner, p.Value.Variation)).ToList();
         await Send(player, InstanceMapDevice.Portals(0, list),
             $"0x008f {string.Join(", ", list.Select(p => $"portal 0x{p.ObjectId:x} leads to 0x{p.Area:x4}"))} (variation {string.Join(", ", list.Select(p => p.Variation))}; {why})");
         return true;

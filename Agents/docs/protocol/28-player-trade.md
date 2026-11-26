@@ -11,6 +11,7 @@ offer messages ([17](17-npcs.md) "Sell"); this file covers what is specific to t
 | **0xb0** | 6 | u32 BE the requester's object id | Accept on the trade request notification |
 | 0xb1 | 7 | u32 BE the other party, u8 | Decline on the notification, Cancel on the waiting box, Cancel in the window |
 | **0x93** | var | wstr the character's name | "Invite to Party" |
+| **0x94** | var | wstr the target's character name, not the account | "Kick" on a member, or "Cancel" on a pending invitation (Social party tab `0x140a68080`, HUD party menu `0x140ab8ed0`); not 0x97, which promotes the leader |
 | **0x95** | 6 | u32 BE the party id (from 0xa9) | Accept on the party invite notice |
 | **0x96** | 6 | u32 BE the party id | "Leave Party" |
 | **0x98** | var | wstr description, u8 flag | Create or rename a public party (empty description clears public state) |
@@ -139,7 +140,7 @@ Invite, accept and leave work. The Social module keeps human and module-owned pa
   already disconnected cleans up the stale invite and sends `0xaa` instead of throwing on a disposed socket; true
   disconnects (`DisconnectHuman`) remove the member from parties and cancel pending invites while preserving area-change
   rebinds.
-- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4. `C→S 0x155` (duel challenge) enqueues the challenge through `PvpQueue.Enqueue` (`S→C 0x118` / `0x157`) and `C→S 0x156` (duel response, u8 accept/decline) settles or withdraws it; `PvpQueue.JoinQueue` registers players in a matchmaker queue.
+- **Party votes and PvP queue.** Party bandit votes (`HUD +0x4e8`, `VoteType.dat` / `VoteState.dat`, S→C `0xbe` / C→S `0xbd`) and the PvP queue bar (`HUD +0x4b0`, S→C `0x118` / `0x119`, C→S `0x11a` / `0x18d`) are documented in [30](30-hud-signals-and-timers.md) §3–§4. `C→S 0x155` (duel challenge) enqueues the challenge through `PvpQueue.Enqueue` (`S→C 0x118` / `0x157`) and `C→S 0x156` (duel response, u8 accept/decline) settles or withdraws it.
 
 ## 6. Friends, ignore list, status, hideout invites and duels
 
@@ -176,6 +177,21 @@ broadcast in `0xa7` `+0x50`) persist in account stash module data (`social.ignor
 Ignored accounts are blocked from local/party/whisper chat, party invites, trade requests, hideout invites and duel
 challenges. `C→S 0x179` notifies an online player and records visit permission for `C→S 0x17a`; `C→S 0x155` forwards
 `S→C 0x157` to the target. Friend notes remain separate follow-up work.
+
+## 7. Guilds (`0x0140`–`0x014f`)
+
+- **Member ranks** (`0x140ab95b9`, `ClientStrings` 724–727, 6329): `0 = Invited`, `1 = Member`, `2 = Officer`,
+  `3 = Leader`, `4 = Initiate`.
+- **`GuildDetails` wire order** (`0x140a46ea0..0x140a470e0`): `WStr Name`, `WStr Tag`, `WStr Status`, `RawU64 CreatedAt`.
+- **C→S**: `0x0140` Create (`WStr`), `0x0141` Invite (`WStr`), `0x0142` Accept (`u16 BE idx`), `0x0143` Decline
+  (`u16 BE idx`), `0x0144` SetMemberRank (`WStr account, u8 rank`), `0x0145` Leave/Kick (`WStr account`), `0x014d`
+  SetStatus (`WStr`), `0x014e` Rename (`WStr`), `0x014f` SetTag (`WStr`).
+- **S→C**: `0x0146` Invite (`u16 BE idx`, `GuildDetails`, `WStr inviter`), `0x0147` InviteExpired (`u16 BE idx`),
+  `0x0148` Info (`GuildDetails`, `u16 BE count`, `count × (WStr account, RawU64 joinedAt, u8 rank)`), `0x0149` Left (2 B),
+  `0x014a` MemberUpsert (`WStr account, RawU64 joinedAt, u8 rank`), `0x014b` MemberRemove (`WStr account`), `0x014c`
+  DetailsChanged (`GuildDetails`).
+- Guild chat (`&` channel) routes to online guild members in `ChatModule.cs`; guild hideouts use `0x7b` `0x22` arg 1,
+  `C→S 0x1f2` bit `0x10` → `S→C 0x1f5` guild bit, `C→S 0x254` bit 15, and `PlayerObject.Hideout2`.
 
 ## Open
 
