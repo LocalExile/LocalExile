@@ -264,11 +264,11 @@ public static class BossKits
                 if (keepsDefault || modifiers is null) return action;
                 return ScaleAttack(action);
             }
-            MonsterAttack ScaleAttack(MonsterAttack action) => action with
+            MonsterAttack ScaleAttack(MonsterAttack action, bool placed = false) => action with
             {
                 Damage = modifiers!.Hit(action.Damage.Scale(mapDamage), level),
                 Seconds = modifiers.AttackSeconds(action.Seconds, action.Spell),
-                AreaRadius = action.AreaRadius * modifiers.AreaScaleFactor,
+                AreaRadius = action.AreaRadius * (action.Strike is not null || placed ? modifiers.AreaScaleFactor : 1),
                 Range = action.AreaAtSelf && action.AreaRadius > 0 ? action.Range * modifiers.AreaScaleFactor : action.Range,
                 Projectile = action.Projectile is { } shot ? shot with
                 {
@@ -276,7 +276,7 @@ public static class BossKits
                     SpreadRadians = shot.Count + modifiers.AdditionalProjectiles > 1 && shot.SpreadRadians == 0 ? .45 : shot.SpreadRadians,
                     AreaRadius = shot.AreaRadius * modifiers.AreaScaleFactor,
                 } : null,
-                Trap = action.Trap is { } trap ? ScaleAttack(trap) : null,
+                Trap = action.Trap is { } trap ? ScaleAttack(trap, placed: true) : null,
             };
         }
         return kit;

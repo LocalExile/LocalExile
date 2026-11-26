@@ -121,7 +121,9 @@ public sealed partial class ShrineTests
                 foreach (var type in DamageTypes.ConversionOrder)
                     Assert.Equal(modifiers.Hit(plain[i].Attack.Damage.Scale(1.15), 70)[type], scaled[i].Attack.Damage[type]);
                 Assert.Equal(plain[i].Attack.Seconds / 1.2, scaled[i].Attack.Seconds, 8);
-                Assert.Equal(plain[i].Attack.AreaRadius * 1.2, scaled[i].Attack.AreaRadius, 8);
+                Assert.Equal(plain[i].Attack.AreaRadius * (plain[i].Attack.Strike is not null ? 1.2 : 1), scaled[i].Attack.AreaRadius, 8);
+                if (plain[i].Attack.Trap is { } trap)
+                    Assert.Equal(trap.AreaRadius * 1.2, scaled[i].Attack.Trap!.AreaRadius, 8);
                 if (plain[i].Attack.Projectile is { } projectile)
                 {
                     Assert.Equal(Math.Max(1, projectile.Count + 2), scaled[i].Attack.Projectile!.Count);
@@ -313,7 +315,9 @@ public sealed partial class ShrineTests
             { [Stat.ElementalDamageTakenPlusPct] = -50, [Stat.DegenEffectPlusPct] = -50,
               [Stat.BaseAvoidProjectilesPctChance] = 100, [Stat.BaseReduceEnemyColdResistancePct] = 10 });
         Assert.Equal(50, Game.MonsterTakesMitigated(monster, DamagePacket.Of(DamageType.Cold, 100, 100), true, 0));
-        Assert.Equal(.5, Game.MonsterDamageTaken(monster, true, 0));
+        Assert.Equal(1, Game.MonsterDamageTaken(monster, true, 0));
+        Assert.Equal(.5, Game.MonsterDamageTaken(monster, true, 0, elemental: false, hit: false, chaos: false, overTime: true));
+        Assert.Equal(.5, Game.MonsterDamageTaken(monster, false, 0, elemental: true, hit: false));
         Assert.True(Game.MonsterAvoidsProjectile(monster, new Random(1)));
         Assert.Equal(10, Game.MonsterPenetration(monster.Effects, DamageType.Cold));
         monster.SetTemporaryStats("hexproof", new Dictionary<uint, int> { [Stat.Hexproof] = 1 });

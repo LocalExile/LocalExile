@@ -424,7 +424,7 @@ public static partial class Game
         };
         double factor = (100 - DamageModel.Capped(resistance.Value, resistance.Maximum)) / 100.0
             * MonsterDamageTaken(m, spell: false, now, DamageTypes.IsElemental(type), hit: false,
-                chaos: type == DamageType.Chaos, increasedPct: increasedTaken);
+                chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
             factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
