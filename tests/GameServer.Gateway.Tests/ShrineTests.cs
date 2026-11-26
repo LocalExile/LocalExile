@@ -484,7 +484,7 @@ public sealed partial class ShrineTests
         public GameServer.Modding.IModuleLifetime Lifetime => lifetime;
         public string Folder => "";
         public void Log(string message) { }
-        public T Settings<T>() => throw new NotSupportedException();
+        public T Settings<T>() => System.Text.Json.JsonSerializer.Deserialize<T>("{}")!;
         public void SaveSettings<T>(T settings) => throw new NotSupportedException();
         public void ProvideLeagueRules(Func<GameServer.Modding.LeagueRules> rules) { }
     }
