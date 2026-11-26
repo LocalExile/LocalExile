@@ -6,7 +6,7 @@ namespace GameServer.Modules.Bestiary;
 /// The client tables a Bestiary mission reads, loaded once with the module (<see cref="LoadGameData"/>) and looked up by Id,
 /// never by a row number.
 /// </summary>
-public static class BestiaryTables
+public static partial class BestiaryTables
 {
     /// <summary>One EinharMissions row. The table names none of its columns, so the meaning of each is read from its values
     /// over all 12 rows: <c>__col1</c>/<c>__col2</c> are the area levels the row holds (the rows tile 10 to 100 with no gap or
@@ -18,7 +18,12 @@ public static class BestiaryTables
 
     /// <summary>A red beast kind: its variety and the minions of its pack (BestiaryEncounters.MonsterPacksKey →
     /// MonsterPackEntries rows whose Flag is 1; the Flag 0 row is the beast itself).</summary>
-    public sealed record RedKind(string Id, ushort Row, IReadOnlyList<(ushort Row, int Weight)> Minions);
+    public sealed record RedKind(string Id, ushort Row, IReadOnlyList<(ushort Row, int Weight)> Minions)
+    {
+        public string Family { get; init; } = "";
+        public int CapturableRow { get; init; } = -1;
+        public bool Unique { get; init; }
+    }
 
     /// <summary>What an area's mission holds: the EinharMissions row, the red beast kinds drawn, and the yellow beasts' count
     /// with the varieties they are drawn from.</summary>
@@ -75,6 +80,7 @@ public static class BestiaryTables
             .SelectMany(pack => entries.GetValueOrDefault(pack) ?? [])
             .Where(m => m.Flag == 1 && m.Weight > 0 && capturable.Contains(m.Row))
             .GroupBy(m => m.Row).Select(g => (g.Key, g.Sum(m => m.Weight)))];
+        LoadScarabData();
     }
 
     /// <summary>The EinharMissions row whose level range holds the area level, or null.</summary>
