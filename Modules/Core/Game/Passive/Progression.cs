@@ -1352,7 +1352,6 @@ public static partial class Game
             };
             mapTemporalChains = Get(Stat.TemporalChainsActionSpeedPlusPctFinal) - actionBefore;
         }
-        int resistancePenalty = ResistancePenalty(player);
         if (EquipmentInput(Stat.ModifiersToMaximumFireResistanceApplyToMaximumColdAndLightningResistance) != 0)
         {
             long fireMaximum = (long)EquipmentInput(Stat.BaseMaximumFireDamageResistancePct) + aura.FireMaxResistance;
@@ -1376,20 +1375,7 @@ public static partial class Game
                 LightningResistance = ActorScale.Saturate(bonus.LightningResistance + shared),
             };
         }
-        if (EquipmentInput(Stat.AllDamageResistancePlusPct) is int increasedResistances and not 0)
-        {
-            int Scale(int value) => ActorScale.Saturate((long)value * Math.Max(0L, 100L + increasedResistances) / 100);
-            bonus = bonus with
-            {
-                FireResistance = Scale(bonus.FireResistance),
-                ColdResistance = Scale(bonus.ColdResistance),
-                LightningResistance = Scale(bonus.LightningResistance),
-                ChaosResistance = Scale(bonus.ChaosResistance),
-            };
-        }
-        if (EquipmentInput(Stat.ChaosDamageResistanceIsDoubled) != 0)
-            bonus = bonus with { ChaosResistance = ActorScale.Saturate(2L * bonus.ChaosResistance + resistancePenalty) };
-        bonus = ResistanceOvercap.Applied(bonus, resistanceSources, resistancePenalty, Stats);
+        bonus = ResistanceOvercap.Applied(bonus, resistanceSources, ResistancePenalty(player), Stats);
         var classInfo = SkillsFor(player).ClassFor(player.Character.ClassRow);
         int areaAccuracy = map?.Get(Stat.MapPlayerAccuracyRatingPlusPctFinal) ?? 0;
         int weaponAccuracy = (int)RawAccuracy(Stat.GladiatorAccuracyRatingPlusPctFinalWhileWieldingSword);

@@ -26,7 +26,6 @@ public static class AttributeOffenceSources
         (Stat.BleedDurationPer12IntelligencePlusPct, Stat.BleedDurationPlusPct, 2, 12),
         (Stat.PhysicalDamageOverTimePer10DexterityPlusPct, Stat.PhysicalDamageOverTimePlusPct, 1, 10),
         (Stat.ProjectileDamagePlusPctPer16Dexterity, Stat.ProjectileDamagePlusPct, 1, 16),
-        (Stat.CriticalStrikeMultiplierPlusPer25Dexterity, Stat.BaseCriticalStrikeMultiplierPlus, 1, 25),
     ];
 
     // Apply once to a fresh qualified source sum, before pools, skill snapshots and panels consume it.

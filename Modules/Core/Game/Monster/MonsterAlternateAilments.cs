@@ -254,7 +254,6 @@ public static partial class Game
         Random random)
     {
         if (!a.OnPlayer || magnitude <= 0 || AlternateImmune(a, get)
-            || get(Stat.ImmuneToElementalAilmentsWhileBleeding) != 0 && player.IncomingAilments.Bleeding(now)
             || RandomRolls.Chance(get(a.Avoid) + get(a.BaseAvoid) + get(Stat.AvoidAllElementalStatusPct), 100, random))
             return;
         double seconds = AlternateAilmentSeconds
