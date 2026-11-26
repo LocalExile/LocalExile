@@ -4,7 +4,6 @@ using GameServer.Core.World;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
-using GameServer.Modules.Survivors;
 
 namespace GameServer.Gateway.Tests;
 
@@ -543,8 +542,9 @@ public sealed class BeyondTests
             Assert.Equal(90u, TakeIgnite(30));
             Assert.Equal(0.9, CurrentFinalTakenFactor(), 6);
 
-            // SurvivorsRun compatibility: GameEvents.IncomingDamage (60%) composes cleanly with Ghorr (0.9) -> 54.
-            using (GameEvents.IncomingDamage.Add("Game", (_, dmg) => SurvivorsRules.IncomingDamage(dmg, SurvivorsRules.IncomingDamagePercent)))
+            // A subscriber's GameEvents.IncomingDamage (60%, as the survivors mod's run takes) composes cleanly with Ghorr
+            // (0.9) -> 54.
+            using (GameEvents.IncomingDamage.Add("Game", (_, dmg) => dmg * 60 / 100))
             {
                 Assert.Equal(60, GameEvents.AdjustIncomingDamage(player, 100));
                 Assert.Equal(54u, TakeCommit(melee));

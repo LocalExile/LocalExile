@@ -26,6 +26,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool IntimidatingCryExerted { get; init; }
     public double HitProfileMore { get; init; } = 1;
     public double AilmentProfileMore { get; init; } = 1;
+    public double DotProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
     internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
@@ -43,6 +44,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterPoisons.Settings Poison { get; init; }
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+    internal MonsterContagion.Cast? Soulrend { get; init; }
+    internal Game.FleshrendCast? Fleshrend { get; init; }
+    internal double GhorrDotMore { get; init; } = 1;
     /// <summary>Caustic Arrow's non-stacking caustic ground cloud, spawned at every arrow impact and end (CausticClouds.cs).</summary>
     public sealed record CausticCloudSpec(int Radius, double Duration, double Dps, int ArtVariation);
     public CausticCloudSpec? CausticCloud { get; init; }
@@ -63,8 +67,11 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal bool FreezingPulseFalloff { get; init; }
     internal int RemainingChainDamagePercent { get; init; }
     internal int CompletedChainDamagePercent { get; init; }
+    internal int DamageIncreasePerChain { get; init; }
+    internal int DamageIncreasePerPierce { get; init; }
     /// <summary>The local stats of the weapon an attack was made with (HitRollModifiers.ForWeapon); null for a spell.</summary>
     public IReadOnlyDictionary<uint, int>? WeaponLocal { get; init; }
+    internal bool OffHandWeapon { get; init; }
     public string? WeaponClass { get; init; }
     public LeechSources Leech { get; init; } = new(DamagePacket.Empty, DamagePacket.Empty, DamagePacket.Empty);
     public int Effect { get; init; } = -1;
@@ -101,6 +108,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpiderDamageSource? Spider { get; init; }
     public SpiderDamageSource? SpiderArea { get; init; }
     public int? SecondFormCriticalChance { get; init; }
+    internal sealed record FormCriticalOptions(int? VsBlinded, Game.GroundCritical? VsGround, int MultiplierPlus);
+    internal FormCriticalOptions? SecondFormOptions { get; init; }
     /// <summary>The chance against a target the player has Blinded (Program.CriticalChanceOn), or null.</summary>
     public int? VsBlindedCriticalChance { get; init; }
     /// <summary>The chances against a target on the player's profane or consecrated ground (Game.GroundCritical), or null.</summary>
@@ -163,14 +172,19 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     {
         Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
         HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
+        DotProfileMore = DotProfileMore * more,
+        Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
+        Soulrend = Soulrend is { } cast ? cast with { DamagePerSecond = cast.DamagePerSecond * more } : null,
+    };
+
+    public ProjectileOffense ScaleHitAndAilmentDamage(double more) => more == 1 ? this : this with
+    {
+        Hit = Hit.Scale(more), AreaHit = AreaHit?.Scale(more),
+        HitProfileMore = HitProfileMore * more, AilmentProfileMore = AilmentProfileMore * more,
         Ignite = Scale(Ignite, more), Bleed = Scale(Bleed, more), Poison = Scale(Poison, more),
     };
 
-    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value with
-    {
-        Min = value.Min * more, Max = value.Max * more,
-        CriticalMin = value.CriticalMin * more, CriticalMax = value.CriticalMax * more,
-    };
+    static MonsterIgnites.Settings Scale(MonsterIgnites.Settings value, double more) => value.ScaleDamage(more);
 
     static MonsterPoisons.Settings Scale(MonsterPoisons.Settings value, double more) => value with
     {

@@ -63,8 +63,8 @@ public static partial class Game
                     secondary: true, additionalIncreased: increased + target.HitIncrease);
                 var rows = AilmentPanelStats.Compute(new("secondary", false), woven, conversion, TargetStat,
                     increased + target.AilmentIncrease);
-                var ignite = MonsterIgnites.Settings.From(rows, "secondary", TargetStat);
-                var poison = MonsterPoisons.Settings.From(rows, "secondary", TargetStat);
+                var ignite = IgniteSettingsFrom(rows, "secondary", TargetStat);
+                var poison = PoisonSettingsFrom(rows, "secondary", TargetStat);
                 if (target.HitMore != 1) hit = hit.Scale(target.HitMore);
                 return target.AilmentMore == 1 ? new(hit, ignite, MonsterIgnites.Settings.None, poison)
                     : new(hit, RepeatAilment(ignite, target.AilmentMore), MonsterIgnites.Settings.None,
@@ -97,17 +97,25 @@ public static partial class Game
                         : CriticalChanceFinal.Project(Get(AddedBaseCriticalStrike.Generic), Get(Stat.CriticalStrikeChancePlusPct), Get, _ => 0);
                     bool critical = RandomRolls.Chance(critChance, 10000, player.Madness.Random);
                     var rolled = GameEvents.WithOutgoingDamage(player, playerStats, target,
-                        hitRolls.RollOutgoingHit(profile.Hit, player.Madness.Random));
+                        hitRolls.ForCriticalStrike(critical, playerStats, null).RollOutgoingHit(profile.Hit, player.Madness.Random));
                     var strike = new HitResistances.Strike(Critical: critical, Attack: false);
                     bool invert = hitRolls.InvertsResistance(player.Madness.Random);
                     var defenses = ImpurityHitMods(target, now, resistanceMods);
-                    var mitigated = rolled.Select((type, range) => range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(
-                        type, MonsterHitResistance(target, type, penetration, now), strike, defenses, invert) / 100)));
-                    int damage = MonsterTakesMitigated(target, mitigated, spell: false, now);
+                    var elemental = ReadElementalHitResistances(target, rolled, now, penetration, strike, defenses);
+                    var mitigated = rolled.Select((type, range) =>
+                    {
+                        if (range.IsZero) return range;
+                        var (resistanceType, value) = ElementalHitResistance(target, type, penetration, now, strike, defenses, elemental);
+                        return range.Scale(Math.Max(0, 1 - HitResistances.FinalValue(resistanceType, value, strike, defenses, invert) / 100));
+                    });
+                    int witheredElemental = WitheredElementalHitTaken(target, player.Id, now, playerStats);
+                    int damage = MonsterTakesMitigated(target, mitigated, spell: false, now, additionalElementalTakenPct: witheredElemental);
                     if (critical) damage = DamageModel.CriticalDamage(damage,
                         CriticalMultiplierOn(target, CriticalHitMultiplier(150L + Get(Stat.BaseCriticalStrikeMultiplierPlus),
                             playerStats), playerStats));
-                    if (ApplyTypedMonsterHitLocked(player, target, damage, MonsterHitChaosDamage(target, mitigated, false, now, damage), playerStats: playerStats) is not { } hit) continue;
+                    int chaosDamage = MonsterHitChaosDamage(target, mitigated, false, now, damage,
+                        new HitTakenRules(0, witheredElemental, false));
+                    if (ApplyTypedMonsterHitLocked(player, target, damage, chaosDamage, playerStats: playerStats) is not { } hit) continue;
                     if (hit.StageStarts)
                     {
                         CommitBossStage(player, id, target, now);

@@ -1,5 +1,6 @@
 using GameServer.Core.Chat;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
 using static Program;
 
 namespace GameServer.Modules.Social;
@@ -150,11 +151,101 @@ public static class PartyRoster
     // sent again as it was, it reached the client as noise and ended its stream ("Unable to deserialise packet").
     static Task Send(Player c, byte[] packet) => !c.Closed && c.Connection.Outbox is { } send
         ? send(packet, null) : Task.CompletedTask;
+    static byte LevelOf(Player c) => (byte)Math.Clamp(Progression.LevelFor(c.Character.Experience, CharacterStats.LevelStarts), 1, 100);
+
     // The third field is the player's own area as a WorldAreas HASH16 (0xa7 +0xa8), not their level: the party panel's row
     // resolves it for the member's area name and offers the travel button only for an area, so a level shows
     // "Travelling..." with the button disabled (#715).
     static byte[] Known(Player c) => InstanceSocial.KnownPlayer(c.Character.Account ?? CharacterName(c), CharacterName(c),
-        c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Character.Account));
+        c.Layout.Hash, PackedClass(c), c.Character.PortraitFrame, WornPortrait(c), FriendsFeature.StatusOf(c.Character.Account), LevelOf(c));
+
+    /// <summary>Builds the noticeboard listing (S→C 0x00ad) of public parties in the same league as <paramref name="viewer"/>.</summary>
+    public static List<InstanceSocial.PublicPartyEntry> PublicParties(Player viewer)
+    {
+        var candidates = new List<(string? LeaderAccount, InstanceSocial.PublicPartyEntry Entry)>();
+        lock (Gate)
+        {
+            if (!Available(viewer)) return [];
+            foreach (var (partyId, description) in PublicDescriptions)
+            {
+                if (!Humans.TryGetValue(partyId, out var members) || members.Count == 0) continue;
+                if (!Available(members[0]) || !Compatible(members[0], viewer)) continue;
+                byte minLevel = byte.MaxValue, maxLevel = 0;
+                foreach (var member in members)
+                {
+                    byte lv = LevelOf(member);
+                    if (lv < minLevel) minLevel = lv;
+                    if (lv > maxLevel) maxLevel = lv;
+                }
+                if (minLevel == byte.MaxValue) { minLevel = 1; maxLevel = 1; }
+                candidates.Add((members[0].Character.Account,
+                    new InstanceSocial.PublicPartyEntry(partyId, description, (byte)Math.Clamp(Count(partyId), 1, Capacity), minLevel, maxLevel)));
+            }
+        }
+        // Check ignore lists outside Gate: cache misses read AccountStash/SQLite.
+        string viewerKey = viewer.Character.Account ?? CharacterName(viewer);
+        var entries = new List<InstanceSocial.PublicPartyEntry>(candidates.Count);
+        foreach (var (leaderAccount, entry) in candidates)
+            if (!FriendsFeature.IsIgnoring(leaderAccount, viewerKey))
+                entries.Add(entry);
+        entries.Sort((a, b) => a.PartyId.CompareTo(b.PartyId));
+        return entries;
+    }
+
+    /// <summary>C→S 0x00ac: send the public party noticeboard (S→C 0x00ad) to <paramref name="viewer"/>.</summary>
+    public static async Task SendPublicParties(Player viewer, byte filter)
+    {
+        var list = PublicParties(viewer);
+        await Deliver(viewer, () => Send(viewer, InstanceSocial.PublicParties(list)));
+        Console.WriteLine($"[gateway] <= 0x00ac public parties refresh (filter {filter}) for {CharacterName(viewer)}: {list.Count} party(ies)");
+    }
+
+    /// <summary>C→S 0x00a2: inspect a public party on the noticeboard (0 unsubscribes). Sends member 0x00a7 rows and 0x00a9 details.</summary>
+    public static async Task InspectPublicParty(Player viewer, uint partyId)
+    {
+        if (partyId == 0 || !Available(viewer)) return;
+        string? leaderAccount;
+        lock (Gate)
+        {
+            if (!PublicDescriptions.ContainsKey(partyId)
+                || !Humans.TryGetValue(partyId, out var list) || list.Count == 0
+                || !Available(list[0]) || !Compatible(list[0], viewer))
+                return;
+            leaderAccount = list[0].Character.Account;
+        }
+        string viewerKey = viewer.Character.Account ?? CharacterName(viewer);
+        if (FriendsFeature.IsIgnoring(leaderAccount, viewerKey)) return;
+
+        await Output.WaitAsync();
+        try
+        {
+            Player[] humans;
+            (string Account, string Character, byte[] Known)[] guests;
+            string? description;
+            lock (Gate)
+            {
+                if (!PublicDescriptions.TryGetValue(partyId, out description)
+                    || !Humans.TryGetValue(partyId, out var list) || list.Count == 0
+                    || !Available(list[0]) || !Compatible(list[0], viewer)
+                    || !string.Equals(list[0].Character.Account, leaderAccount, StringComparison.OrdinalIgnoreCase))
+                    return;
+                humans = [.. list];
+                guests = Companions.TryGetValue(partyId, out var extra) ? [.. extra] : [];
+            }
+            var leader = humans[0];
+            (string, byte)[] entries = [.. humans.Select((c, i) => (c.Character.Account ?? CharacterName(c), i == 0 ? (byte)2 : (byte)1)),
+                .. guests.Select(m => (m.Account, (byte)1))];
+            int own = Array.FindIndex(humans, c => Same(c, viewer));
+            await Deliver(viewer, async () =>
+            {
+                foreach (var human in humans) await Send(viewer, Known(human));
+                foreach (var guest in guests) await Send(viewer, [.. guest.Known]);
+                await Send(viewer, InstanceSocial.PartyInfo(partyId, description!, leader.Character.Account ?? CharacterName(leader),
+                    own >= 0 ? (byte)own : byte.MaxValue, 0, 0, 0, entries));
+            });
+        }
+        finally { Output.Release(); }
+    }
 
     /// <summary>Serialize roster output: a leave/kick cannot be followed by an older in-flight roster.</summary>
     public static async Task Publish(uint party)
@@ -253,27 +344,57 @@ public static class PartyRoster
 
     public static async Task AcceptHuman(Player to, uint party)
     {
+        bool changed = false;
+        string? publicLeaderAccount = null;
+        bool tryPublicJoin = false;
         lock (Gate)
         {
             var key = (party, CharacterName(to));
-            if (!Invites.TryGetValue(key, out var invite) || !Same(invite.To, to)) return;
-            Invites.Remove(key);
-            var liveFrom = InGame.Keys.FirstOrDefault(c => Same(c, invite.From) && Available(c));
-            if (liveFrom is not null && Compatible(liveFrom, to) && Find(to) == 0 && Find(liveFrom) == party && Count(party) < Capacity)
+            if (Invites.TryGetValue(key, out var invite) && Same(invite.To, to))
             {
-                var members = Humans[party];
-                int idx = members.FindIndex(m => Same(m, liveFrom));
-                if (idx >= 0) members[idx] = liveFrom;
-                members.Add(to);
+                Invites.Remove(key);
+                var liveFrom = InGame.Keys.FirstOrDefault(c => Same(c, invite.From) && Available(c));
+                if (liveFrom is not null && Compatible(liveFrom, to) && Find(to) == 0 && Find(liveFrom) == party && Count(party) < Capacity)
+                {
+                    var members = Humans[party];
+                    int idx = members.FindIndex(m => Same(m, liveFrom));
+                    if (idx >= 0) members[idx] = liveFrom;
+                    members.Add(to);
+                }
+                else
+                {
+                    // The inviter disconnected or became unavailable before acceptance: clean up an orphaned party.
+                    Forget(party, to);
+                    Normalize(party);
+                }
+                changed = true;
             }
-            else
+            else if (Available(to) && PublicDescriptions.ContainsKey(party)
+                && Humans.TryGetValue(party, out var members) && members.Count > 0
+                && Available(members[0]) && Compatible(members[0], to)
+                && Find(to) == 0 && Count(party) < Capacity)
             {
-                // The inviter disconnected or became unavailable before acceptance: clean up an orphaned party.
-                Forget(party, to);
-                Normalize(party);
+                publicLeaderAccount = members[0].Character.Account;
+                tryPublicJoin = true;
             }
         }
-        await Publish(party);
+        if (tryPublicJoin && !FriendsFeature.IsIgnoring(publicLeaderAccount, to.Character.Account ?? CharacterName(to)))
+        {
+            lock (Gate)
+            {
+                if (Available(to) && PublicDescriptions.ContainsKey(party)
+                    && Humans.TryGetValue(party, out var members) && members.Count > 0
+                    && Available(members[0]) && Compatible(members[0], to)
+                    && string.Equals(members[0].Character.Account, publicLeaderAccount, StringComparison.OrdinalIgnoreCase)
+                    && Find(to) == 0 && Count(party) < Capacity)
+                {
+                    // Noticeboard "Join" sends C→S 0x0095 with the public party's id directly (no prior invite).
+                    members.Add(to);
+                    changed = true;
+                }
+            }
+        }
+        if (changed) await Publish(party);
     }
 
     /// <summary>C→S 0x0098: create or rename a public party (empty description makes the party private).</summary>

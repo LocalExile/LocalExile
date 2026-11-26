@@ -259,10 +259,10 @@ public sealed partial class BestiaryEncounter
         if (run.Received && live.Einhar == 0 && !live.EinharArriving)
             await ArriveEinhar(player, live, player.Walk.Position(now));
         // A real death whose kill output has not run yet can still be captured; despawns never award beasts.
-        foreach (var beast in run.Beasts.Where(b => !b.Captured))
-            if (player.Area.Monsters.GetValueOrDefault(beast.Id) is { } body)
+        foreach (var beast in run.Beasts)
+            if (!beast.Captured && player.Area.Monsters.GetValueOrDefault(beast.Id) is { } body)
             {
-                run.Bind(beast.Id, body);
+                if (!ReferenceEquals(beast.Body, body)) run.Bind(beast.Id, body);
                 if ((body.Dead || body.Life == 0) && !body.NoRewards)
                 {
                     BestiaryRun.Capture? capture;

@@ -1,4 +1,3 @@
-using GameServer.Modules.Survivors;
 namespace GameServer.Gateway.Tests;
 
 // The survivors run's clock scale goes on top of a monster's rolled rarity mods (extraMods in SpawnMonster), so a magic

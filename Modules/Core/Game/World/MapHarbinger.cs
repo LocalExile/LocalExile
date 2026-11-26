@@ -206,7 +206,7 @@ public static partial class MapHarbinger
     public static async Task Enter(Player player)
     {
         if (HarbingerCatalog.All.Count == 0 || player.Layout.Walkable is null
-            || Packs.For(player.Layout.Id)?.Scattered.Count is not > 0) return;
+            || InstancePacks(player)?.Scattered.Count is not > 0) return;
 
         var area = Areas.GetValue(player.Instance, _ => new());
         await area.Gate.WaitAsync();
@@ -611,7 +611,7 @@ public static partial class MapHarbinger
         var standing = new List<MonsterCatalog.Variety>();
         var any = new List<MonsterCatalog.Variety>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        if (Packs.For(player.Layout.Id)?.Scattered is { Count: > 0 } scattered)
+        if (InstancePacks(player)?.Scattered is { Count: > 0 } scattered)
         {
             foreach (var p in scattered)
                 foreach (var e in p.Pack.Entries)

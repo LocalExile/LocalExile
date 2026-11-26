@@ -49,6 +49,31 @@ public sealed class BestiarySulphiteScarabTests
         instance.World.Runner = owner.Player;
         try
         {
+            var tables = ClientTables.Names.Select(ClientTables.Table).ToArray();
+            try
+            {
+                foreach (var encounters in new[]
+                {
+                    ClientTable.FromRows("BestiaryEncounters", []),
+                    ClientTable.FromRows("BestiaryEncounters", [new Dictionary<string, object?> { ["Id"] = "unrelated" }]),
+                })
+                    using (ClientTables.Use([.. tables.Where(t => t.Name != "BestiaryEncounters"), encounters]))
+                    {
+                        BestiaryModule.LoadData();
+                        Assert.Null(BestiaryTables.BlackMorrigan);
+                    }
+            }
+            finally { BestiaryModule.LoadData(); }
+            foreach (string bossArea in new[] { "MapWorldsShapersRealm", "MapAtziri1" })
+            {
+                var input = Slot("ScarabBeastsNew1");
+                var request = new MapOpening(owner.Player, [input], false,
+                    new(Map with { Id = bossArea }, catalog.Of([input], Program.Items.Mods)), "");
+                MapScarabContent.Describe(request);
+                BestiaryTables.Opening(request);
+                Assert.DoesNotContain("Bestiary", request.HandledContent);
+                Assert.Contains(request.UnhandledContent, message => message.Contains("content=Bestiary"));
+            }
             string[] names = ["ScarabBeasts1", "ScarabBeasts2", "ScarabBeasts3", "ScarabBeasts4", "ScarabBeasts4a",
                 "ScarabBeasts4b", "ScarabBeasts4c", "ScarabBeasts4d", "ScarabBeastsNew1", "ScarabBeastsNew2",
                 "ScarabBeastsNew3", "ScarabBeastsNew4"];

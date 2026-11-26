@@ -1,9 +1,133 @@
 using System.Net.Sockets;
+using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    const string CosmeticDisplayFlagsKey = "cosmetics.displayFlags";
+    const string ExtraCosmeticsKey = "cosmetics.extraSlots";
+    const string MannequinsKey = "cosmetics.mannequins.v1";
+
+    public sealed record SavedExtraCosmetic(uint Key, uint Record, byte Option = 0, uint? Hash = null);
+
+    public sealed record SavedMannequin(Dictionary<byte, CharacterSaves.SavedCosmetic>? Worn = null,
+        List<SavedExtraCosmetic>? Extras = null, byte DisplayFlags = InstanceMicrotransactions.DefaultFlags,
+        uint MainWeaponClass = 0, uint OffWeaponClass = 0);
+
+    static string MannequinStorageKey(Player player, uint targetId) =>
+        player.HideoutEditor.TryGet(targetId, out var entry)
+            ? $"{player.Layout.Id}:{entry.Key}"
+            : $"{player.Layout.Id}:obj:{targetId}";
+
+    static Dictionary<string, SavedMannequin> ParseMannequinMap(string? json)
+    {
+        if (json is not { Length: > 0 }) return [];
+        try { return JsonSerializer.Deserialize<Dictionary<string, SavedMannequin>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    static Dictionary<string, SavedMannequin> ReadMannequinMap(Player player)
+    {
+        string? account = player.Character.Account;
+        string? json = account is not null
+            ? AccountStash.For(account, ItemsFor(player)).ModuleData(MannequinsKey)
+            : CharacterSaves.ModuleData(CharacterName(player), MannequinsKey);
+        return ParseMannequinMap(json);
+    }
+
+    public static SavedMannequin LoadMannequin(Player player, uint targetId) =>
+        ReadMannequinMap(player).GetValueOrDefault(MannequinStorageKey(player, targetId)) ?? new SavedMannequin();
+
+    public static SavedMannequin UpdateMannequin(Player player, uint targetId, Func<SavedMannequin, SavedMannequin> change)
+    {
+        string key = MannequinStorageKey(player, targetId);
+        SavedMannequin updated = new();
+        string? account = player.Character.Account;
+        string Transform(string? text)
+        {
+            var map = ParseMannequinMap(text);
+            updated = change(map.GetValueOrDefault(key) ?? new SavedMannequin());
+            map[key] = updated;
+            return JsonSerializer.Serialize(map);
+        }
+        if (account is not null) AccountStash.For(account, ItemsFor(player)).ChangeModuleData(MannequinsKey, Transform);
+        else CharacterSaves.ChangeModuleData(CharacterName(player), MannequinsKey, Transform);
+        return updated;
+    }
+
+    public static (List<InstanceMicrotransactions.Equipped> Worn, List<InstanceMicrotransactions.ExtraSlot> Extras)
+        ResolveMannequinSlots(SavedMannequin mannequin, Func<CharacterSaves.SavedCosmetic, InstanceMicrotransactions.Record?>? resolve = null)
+    {
+        resolve ??= Mtx.Resolve;
+        var worn = new List<InstanceMicrotransactions.Equipped>();
+        if (mannequin.Worn is { Count: > 0 })
+        {
+            foreach (var (slot, saved) in mannequin.Worn.Where(w => w.Key < InstanceMicrotransactions.SlotCount).OrderBy(w => w.Key))
+            {
+                var record = resolve(saved);
+                if (record is not null)
+                    worn.Add(new InstanceMicrotransactions.Equipped(slot, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
+                else if (slot == InstanceMicrotransactions.PortalSlot && saved is { Record: 0, Option: 1 or 2 })
+                    worn.Add(new InstanceMicrotransactions.Equipped(slot, 0, 0, 0, saved.Option));
+            }
+        }
+        var extras = new List<InstanceMicrotransactions.ExtraSlot>();
+        foreach (var saved in mannequin.Extras ?? [])
+            if (resolve(new CharacterSaves.SavedCosmetic(saved.Record, saved.Option, saved.Hash)) is { } record)
+                extras.Add(new InstanceMicrotransactions.ExtraSlot(saved.Key, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
+        return (worn, extras);
+    }
+
+    public static byte CosmeticDisplayFlags(Player player) =>
+        byte.TryParse(CharacterSaves.ModuleData(CharacterName(player), CosmeticDisplayFlagsKey), out byte flags)
+            ? (byte)(flags | InstanceMicrotransactions.DefaultFlags)
+            : InstanceMicrotransactions.DefaultFlags;
+
+    public static byte SetCosmeticDisplayFlag(Player player, byte bitMask, bool enabled)
+    {
+        byte updated = InstanceMicrotransactions.DefaultFlags;
+        CharacterSaves.ChangeModuleData(CharacterName(player), CosmeticDisplayFlagsKey, text =>
+        {
+            byte current = byte.TryParse(text, out byte f) ? f : InstanceMicrotransactions.DefaultFlags;
+            updated = enabled ? (byte)(current | bitMask) : (byte)(current & ~bitMask);
+            updated |= InstanceMicrotransactions.DefaultFlags;
+            return updated.ToString();
+        });
+        return updated;
+    }
+
+    static List<SavedExtraCosmetic> ParseExtraCosmetics(string? json)
+    {
+        if (json is not { Length: > 0 }) return [];
+        try { return JsonSerializer.Deserialize<List<SavedExtraCosmetic>>(json) ?? []; }
+        catch (JsonException) { return []; }
+    }
+
+    public static List<SavedExtraCosmetic> SavedExtraCosmetics(Player player) =>
+        ParseExtraCosmetics(CharacterSaves.ModuleData(CharacterName(player), ExtraCosmeticsKey));
+
+    public static List<InstanceMicrotransactions.ExtraSlot> ExtraCosmetics(Player player)
+    {
+        var list = new List<InstanceMicrotransactions.ExtraSlot>();
+        foreach (var saved in SavedExtraCosmetics(player))
+            if (Mtx.Resolve(new CharacterSaves.SavedCosmetic(saved.Record, saved.Option, saved.Hash)) is { } record)
+                list.Add(new InstanceMicrotransactions.ExtraSlot(saved.Key, record.Id, record.MtxTypeHash, record.Qword, saved.Option));
+        return list;
+    }
+
+    public static T UpdateExtraCosmetics<T>(Player player, Func<List<SavedExtraCosmetic>, T> change)
+    {
+        T result = default!;
+        CharacterSaves.ChangeModuleData(CharacterName(player), ExtraCosmeticsKey, text =>
+        {
+            var list = ParseExtraCosmetics(text);
+            result = change(list);
+            return JsonSerializer.Serialize(list);
+        });
+        return result;
+    }
+
     // The Cosmetics tab (K) wears what S→C 0x1f3 lists, all slots at once (23-microtransactions.md). Saved picks first; a
     // portal effect set with /cosmetic and no Portal slot saved shows in that slot too.
     // Read from the save once per connection (the stats ask for it on every hit); a pick clears it.
@@ -24,10 +148,13 @@ public static partial class Game
         {
             var worn = WornCosmetics(player);
             var skills = SkillSlots(player);
+            var extras = ExtraCosmetics(player);
+            byte flags = CosmeticDisplayFlags(player);
             Console.WriteLine($"[gateway] {player.Connection.Remote} => 0x01f3 worn cosmetics ({why}): " +
                 $"{string.Join(", ", worn.Select(w => $"slot {w.Slot} = record {w.Id}"))}; " +
-                $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}");
-            return InstanceMicrotransactions.Purchased([], worn, skills);
+                $"skills: {string.Join(", ", skills.Select(s => $"key {s.Key} gem 0x{s.GemHash:x8} inventory {s.Inventory} socket {s.Socket} type {s.SlotType} record {s.RecordId}"))}; " +
+                $"extras: {extras.Count}, flags: 0x{flags:x2}");
+            return InstanceMicrotransactions.Purchased([], worn, skills, extras, flags);
         });
     }
 

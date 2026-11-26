@@ -124,6 +124,7 @@ public static partial class Game
         int iir = IncreasedItemRarity(player, m);
         double iiq = ItemQuantityFactor(player, m);
         int areaLevel = ServerLevels.AreaLevel(player.Layout.Id) is > 0 and var al ? al : m.Level;
+        var mapMods = MapModsOf(player);
         List<ItemDrops.Drop> drops = [];
 
         // The King in the Mists always drops one of four uniques, plus its support gems and card.
@@ -148,7 +149,6 @@ public static partial class Game
 
             var map = MapRunOf(player);
             int mapTier = map?.Area.Tier ?? 0;
-            var mapMods = MapModsOf(player);
             drops.AddRange(DropsFor(player).Roll(
                 m.Level, m.Rarity, rng, iir,
                 balance.ItemDropMultiplier * (modded?.Quantity ?? 1) * iiq,
@@ -176,6 +176,16 @@ public static partial class Game
         drops.AddRange(MadeDrops(player, modded));
         modded?.ApplyTransforms(drops);
         if (MapBeyond.CorruptsDrops(player, m.Variety?.Id)) CorruptDrops(drops);
+        else if (mapMods is not null)
+        {
+            int corruptionChance = m.Rarity switch
+            {
+                MonsterRarity.Rare => mapMods.Get(Stat.MapRareMonsterItemsDropCorruptedPct),
+                MonsterRarity.Unique => mapMods.Get(Stat.MapUniqueMonsterItemsDropCorruptedPct),
+                _ => 0,
+            };
+            if (corruptionChance > 0) CorruptDrops(drops, corruptionChance, rng);
+        }
         return ItemDrops.Stacked(drops);
     }
 

@@ -6,7 +6,6 @@ public static partial class Game
     {
         const string StaticBallLightningArt = "Metadata/Effects/Spells/lightning_orb/lightning_orb_orb.ao";
         const double BallLightningLifetime = 2.0;
-        const double BallLightningBaseInterval = .15;
 
         internal void SchedulePlacedStaticBall(PlacedAreaHit placement, Func<bool> current)
         {
@@ -23,11 +22,9 @@ public static partial class Game
             Action<(int X, int Y), int, double> hit)
         {
             var owner = CharacterPlayerStats(Player);
-            double frequency = (double)own.GetValueOrDefault(Stat.BallLightningProjectileSpeedAndHitFrequencyPlusPctFinal)
-                + owner.GetValueOrDefault(Stat.BallLightningProjectileSpeedAndHitFrequencyPlusPctFinal);
-            int interval = own.GetValueOrDefault(Stat.BallLightningTimeBetweenHitsMs);
-            double baseInterval = interval > 0 ? interval / 1000d : BallLightningBaseInterval;
-            long gap = Math.Max(1, ProjectileRuntime.Time(baseInterval / Math.Max(.01, 1 + frequency / 100)));
+            int Get(uint key) => ActorScale.Saturate((long)own.GetValueOrDefault(key) + owner.GetValueOrDefault(key));
+            long gap = BallLightningHitGap(Get(Stat.BallLightningTimeBetweenHitsMs),
+                Get(Stat.BallLightningProjectileSpeedAndHitFrequencyPlusPctFinal));
             long life = ProjectileRuntime.Time(BallLightningLifetime);
             int radius = SkillRadius(Player, own, spell: true, effect);
             Effect(at.X, at.Y, StaticBallLightningArt, life);

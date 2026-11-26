@@ -122,9 +122,6 @@ public static partial class Game
                 };
             }
             if (key == Stat.MinionAreaOfEffectPlusPct) id = Stat.BaseSkillAreaOfEffectPlusPct;
-            // SupportedSkill already projects its global added damage into the attack and spell forms.
-            if (name.StartsWith("global_", StringComparison.Ordinal) && name.Contains("_added_", StringComparison.Ordinal)
-                && name.EndsWith("_damage", StringComparison.Ordinal)) continue;
             values[id] = values.GetValueOrDefault(id) + value;
         }
         double now = double.IsNegativeInfinity(at) ? AreaTime(player) : at;
@@ -250,6 +247,10 @@ public static partial class Game
                 + 4 * endurance;
             values[Stat.AdditionalElementalDamageReductionPct] = values.GetValueOrDefault(Stat.AdditionalElementalDamageReductionPct)
                 + 4 * endurance;
+            if (golem.Own.Count > 0 && ChargeEffects.HasAny(golem.Own, ChargeScaling.RuleStats))
+                foreach (var (stat, value) in ChargeEffects.Expand(key => GolemStat(golem.Own, key),
+                    t => charges.Held(t), _ => false, ChargeScaling.Rules, includePhysicalReduction: false))
+                    AddStat(stat, value);
         }
         // Unnatural Strength: "Your Minions have Unholy Might". The buff row (BuffDefinitions unholy_might)
         // grants full physical-to-chaos conversion and a 25% chance to Wither on hit for 2 seconds; the minion's
@@ -281,9 +282,7 @@ public static partial class Game
             foreach (var (stat, value) in ChargeMaxima.Compute(Get)) values[stat] = value;
         if (Get(Stat.NecromancerMinionDamagePlusPctFinal) is int damageMore and not 0)
             values[Stat.NecromancerMinionDamagePlusPctFinal] = damageMore;
-        // Ancient Skull's real MinionCriticalStrikeChanceMaximumPowerChargeUnique__1 row uses the owner's maximum Power
-        // Charges, not the charges held and not a minion's ability scheduling count. Charges.LimitsOf is the same
-        // maximum kernel as the owner's charge session; its maximum already includes Character.ot's base three.
+        // Ancient Skull scales from the owner's resolved Power Charge maximum, including the base and conditional sources.
         int maximumPowerChargeCrit = ActorScale.Saturate((long)Get(Stat.MinionCriticalStrikeChancePlusPctPerMaximumPowerCharge)
             * OwnerMaximumPowerCharges(playerStats));
         if (maximumPowerChargeCrit != 0)
@@ -362,7 +361,7 @@ public static partial class Game
     }
 
     static int OwnerMaximumPowerCharges(IReadOnlyDictionary<uint, int> player) =>
-        Charges.LimitsOf(ChargeType.Power, name => GolemStat(player, name)).Maximum;
+        ChargeMaxima.Of(ChargeType.Power, name => GolemStat(player, name));
 
     public static uint NativeEnergyShield(double value) => value <= 0 ? 0
         : value >= int.MaxValue ? int.MaxValue : (uint)Math.Floor(value);
@@ -625,12 +624,12 @@ public static partial class Game
             int AilmentStat(uint name) => DamageStat(name) + (name == Stat.CriticalAilmentDotMultiplierPlus ? 50 : 0);
             string hand = spell ? "spell" : "main_hand";
             var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null), rawDamage.Scale(more), conversion, AilmentStat);
-            var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+            var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
                 mods.Stats, raw, spell, hand, includeActorBaseArea: true);
             var bleed = spell ? MonsterIgnites.Settings.None : BleedSettings(rows, hand, AilmentStat, golem.Weapon?.LocalSources, projectile is null, projectile is not null);
             double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d) * zombiePhysicalMore;
             bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore, CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-            var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
+            var poison = PoisonSettingsFrom(rows, hand, AilmentStat, golem.Weapon?.LocalSources);
             int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct) + poison.WeaponChance;
             var weaponLocal = spell ? null : golem.Weapon?.LocalSources;
             var penetration = damage.MaxTotal > 0 ? Penetration.Of(mods.Stats, Stats, !spell, raw, weaponLocal) : default;
@@ -662,14 +661,14 @@ public static partial class Game
                     + (name == Stat.DamagePlusPct ? extraDamage : 0);
                 var rows = AilmentPanelStats.Compute(new(hand, spell, !spell && projectile is null),
                     rawDamage.Scale(more), conversion, AilmentStat);
-                var ignite = WithIgniteSpread(MonsterIgnites.Settings.From(rows, hand, AilmentStat),
+                var ignite = WithIgniteSpread(IgniteSettingsFrom(rows, hand, AilmentStat),
                     mods.Stats, raw, spell, hand, includeActorBaseArea: true);
                 var bleed = spell ? MonsterIgnites.Settings.None
                     : BleedSettings(rows, hand, AilmentStat, weaponLocal, projectile is null, projectile is not null);
                 double bleedMore = Math.Max(0, 1 + Own(Stat.ActiveSkillMinionBleedingDamagePlusPctFinal) / 100d);
                 bleed = bleed with { Min = bleed.Min * bleedMore, Max = bleed.Max * bleedMore,
                     CriticalMin = bleed.CriticalMin * bleedMore, CriticalMax = bleed.CriticalMax * bleedMore };
-                var poison = MonsterPoisons.Settings.From(rows, hand, AilmentStat, weaponLocal);
+                var poison = PoisonSettingsFrom(rows, hand, AilmentStat, weaponLocal);
                 int chance = AilmentStat(Stat.BaseChanceToPoisonOnHitPct) + poison.WeaponChance
                     + AilmentStat(spell ? Stat.SpellsChanceToPoisonOnHitPct : Stat.ChanceToPoisonOnHitWithAttacksPct);
                 return new(ignite, bleed, poison, chance, AilmentStat(Stat.AdditionalPoisonsPlusToApplyVsNonPoisonedEnemies),

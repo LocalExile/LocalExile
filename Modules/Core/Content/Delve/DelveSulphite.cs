@@ -76,13 +76,11 @@ public sealed partial class DelveModule
                     await MoveNiko(module, p, encounter, deposit);
                 }
             // Shared monsters keep their encounter stats across a Delve module reload and a new observer joining.
-            List<(uint Id, ushort Buff)> shown = [];
-            foreach (uint id in player.Area.Monsters.Where(e => !e.Value.Dead && !e.Value.Asleep).Select(e => e.Key))
-                if (player.Area.Monsters.TryGetValue(id, out var m) && m.Life > 0
-                    && MapSulphite.Enraged(player.Instance, id)
-                    && encounter.Enraged.Add(id)) shown.Add((id, 1));
-            foreach (var (id, buff) in shown)
-                player.Area.Buffs.Set(id, new(2420));
+            if (!MapSulphite.Fumes(encounter.Mods) || encounter.Depleted.Count == 0) return;
+            foreach (var (id, m) in player.Area.Monsters)
+                if (!m.Dead && !m.Asleep && m.Life > 0 && !encounter.Enraged.Contains(id)
+                    && MapSulphite.Enraged(player.Instance, id) && encounter.Enraged.Add(id))
+                    player.Area.Buffs.Set(id, new(2420));
         }));
         GameEvents.ObjectUse.Add(module.Manifest.Id, (player, use, at) => MineSulphite(module, player, use.TargetId, at));
         module.Lifetime.Own(GameEvents.StateBuilding.Add(module.Manifest.Id, (player, json) =>

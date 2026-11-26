@@ -277,6 +277,7 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
                 CharacterDeleted = SetSaveAside,
                 IsCharacterActive = directory.IsCharacterActive,
                 CharacterRenamed = RenameLegacySave,
+                CharacterMigrated = (name, from, to) => Console.WriteLine($"[auth] {name} migrated from {from} to {to}"),
                 Assign = s => directory.AssignStart(s, link!),
             };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());

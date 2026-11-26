@@ -52,7 +52,7 @@ and may update itself.
 | `GameServer.Storage` | account and save storage | |
 | `GameServer.Modding` | the loader contract mods and modules build on: `IMod`, `IModule`, `League`, the context | |
 | `LocalExile` | the player launcher (command line) shipped in releases | |
-| `Modules/` | game systems, loaded for the leagues that list them: `Core/` (the current game), `Legacy/` (GGG's past leagues), `Custom/` (custom leagues) | |
+| `Modules/` | game systems of the current game (`Core/`), loaded for the leagues that list them; a past league or custom content is a mod | |
 | `Leagues/` | leagues, each a set of modules | |
 | `Mods/` | the user's opt-in mods ([LocalExile-Mods](https://github.com/LocalExile/LocalExile-Mods)), reloaded while the Gateway runs | |
 

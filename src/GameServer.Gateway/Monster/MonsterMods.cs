@@ -306,10 +306,13 @@ public sealed class MonsterModEffects
 
     /// <summary>The chance its hit is a critical strike, permyriad, given a base critical strike chance (e.g. 500 = 5% for
     /// monster attacks, or GrantedEffectStatSetsPerLevel.SpellCritChance for spells), scaled by critical_strike_chance_+%.</summary>
-    public int CriticalChanceWith(int basePermyriad) =>
+    public int CriticalChanceWith(int basePermyriad) => CriticalChanceWith(basePermyriad, 0);
+
+    /// <summary>Also applies the target's increased critical chance to the attacker's other increases.</summary>
+    public int CriticalChanceWith(int basePermyriad, int increasedAgainstTarget) =>
         this[Stat.AlwaysCrit] > 0 ? 10_000
         : basePermyriad <= 0 ? 0
-        : (int)Math.Clamp((long)basePermyriad * Math.Max(0, 100 + this[Stat.CriticalStrikeChancePlusPct]) / 100, 0, 10_000);
+        : (int)Math.Clamp(basePermyriad * Math.Max(0L, 100L + this[Stat.CriticalStrikeChancePlusPct] + increasedAgainstTarget) / 100, 0, 10_000);
 
     /// <summary>A monster's critical multiplier on the player: Monster.ot's 130%, less the player's
     /// base_self_critical_strike_multiplier_-% (the panel's extra_damage_taken_from_crit_+%), at least 100%.</summary>

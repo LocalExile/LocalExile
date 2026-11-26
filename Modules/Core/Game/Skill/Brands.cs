@@ -1128,6 +1128,7 @@ public static partial class Game
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
         int extraPen = BrandStat(playerStats, "storm_brand_attached_target_lightning_penetration_%")
             + BrandStat(playerStats, "sigil_attached_target_lightning_penetration_%");
+        var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
 
         foreach (var (tid, monster) in targets)
         {
@@ -1137,7 +1138,7 @@ public static partial class Game
             SpawnBeamLocked(player, state, origin, brand.Attached ? brand.AttachedMonsterId : 0, tAt, tid,
                 StormBrandDamageBeamRow, now + 0.25, bytes);
             SpawnTempEffectLocked(player, state, tAt, StormBrandImpactAo, now + 0.25, bytes);
-            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, tid, monster,
+            DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, tid, monster,
                 now, hitMore, ailmentMore: 1.0, extraPenetrationType: isBranded && extraPen > 0 ? (DamageType.Lightning, extraPen) : null,
                 label: brand.EffectId, placement: brand.Placement);
         }
@@ -1185,6 +1186,7 @@ public static partial class Game
         bool bypassPenalty = meteor.FromRecall && meteor.EffectId == "ArmageddonBrandAltY";
         int extraFirePen = BrandStat(playerStats, "armageddon_brand_attached_target_fire_penetration_%")
             + BrandStat(playerStats, "sigil_attached_target_fire_penetration_%");
+        var multipliers = BrandHitMultipliers(playerStats, meteor.Gem);
 
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
@@ -1195,7 +1197,7 @@ public static partial class Game
             double hitMore = bypassPenalty ? 1.0
                 : isBranded ? Math.Max(0, 1 + attachedMorePct / 100.0)
                 : meteor.EffectId == "ArmageddonBrandAltY" ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
-            DealBrandSpellHitLocked(player, meteor.SkillId, meteor.Gem, playerStats, id, m,
+            DealBrandSpellHitLocked(player, meteor.SkillId, meteor.Gem, playerStats, multipliers, id, m,
                 now, hitMore, ailmentMore: 1.0,
                 extraPenetrationType: isBranded && extraFirePen > 0 ? (DamageType.Fire, extraFirePen) : null,
                 label: meteor.EffectId, placement: meteor.Placement);
@@ -1229,6 +1231,7 @@ public static partial class Game
             bool atMax = brand.Energy >= PenanceMaxEnergy;
             SpawnTempEffectLocked(player, state, at, atMax ? PenanceExplosionBigAo : PenanceExplosionSmallAo,
                 now + 0.45, bytes, (float)Math.Clamp(radius / 22.0, 0.5, 3.0));
+            var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
 
             foreach (var (id, m) in player.Area.Monsters.ToArray())
             {
@@ -1236,7 +1239,7 @@ public static partial class Game
                     || m.OwnerId is not null || MonsterAsleep(player, id)
                     || Dist(m.Walk.Position(now), at) > radius) continue;
                 double brandedMore = id == targetId ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
-                DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, id, m,
+                DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, m,
                     now, energyHitMore * brandedMore, energyAilmentMore, label: "PenanceBrandAltX", placement: brand.Placement);
             }
             return;
@@ -1283,6 +1286,7 @@ public static partial class Game
         (int X, int Y) primaryAt, IReadOnlyDictionary<uint, int> playerStats, double now, WorldRecordBuilder bytes)
     {
         int attachedMorePct = BrandStat(brand.Gem.Stats, "sigil_attached_target_hit_damage_+%_final");
+        var multipliers = BrandHitMultipliers(playerStats, brand.Gem);
 
         void ExplodeAt(uint centreId, SpawnedMonster? centreMonster, (int X, int Y) centreAt, int energy)
         {
@@ -1298,7 +1302,7 @@ public static partial class Game
                     || m.OwnerId is not null || MonsterAsleep(player, id)
                     || (brand.PenanceSpreads ? id != centreId : Dist(m.Walk.Position(now), centreAt) > radius)) continue;
                 double brandedMore = id == primaryId ? Math.Max(0, 1 + attachedMorePct / 100.0) : 1.0;
-                DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, id, m,
+                DealBrandSpellHitLocked(player, brand.SkillId, brand.Gem, playerStats, multipliers, id, m,
                     now, brandedMore, 1.0, label: brand.EffectId, placement: brand.Placement);
             }
             if (centreMonster is not null && BrandMonsterMarks.TryGetValue(centreMonster, out var cm))
@@ -1475,7 +1479,7 @@ public static partial class Game
         ActiveBrand brand, IReadOnlyDictionary<uint, int> playerStats, double now)
     {
         var liveBrand = SupportedSkill(player, brand.SkillId);
-        if (liveBrand.Effect != brand.Effect || !liveBrand.RequirementsMet) return;
+        if (!liveBrand.RequirementsMet || !SameTriggerSource(brand.Gem, liveBrand)) return;
         var linked = ArcanistBrandLinkedSpellsLocked(player, liveBrand);
         if (linked.Count == 0) return;
 
@@ -1499,7 +1503,9 @@ public static partial class Game
             if (now < triggerState.ReadyAt.GetValueOrDefault(spellGem.Effect)) continue;
             if (GemSkillInstanceDisabled(player, spellGem.Effect, spellSkillId, triggered: true) is not null) continue;
             bool Current() => session.Active && CurrentGameRules && ReferenceEquals(CombatLifetime, rules)
-                && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0;
+                && !player.Closed && !player.LeavingArea && !player.Paused && player.PlayerLife > 0
+                && SameTriggerSource(liveBrand, SupportedSkill(player, brand.SkillId))
+                && SameTriggerSource(spellGem, SupportedSkill(player, spellSkillId));
 
             var release = PrepareTriggeredPayload(player, session, spellSkillId, aim, Current, origin, brand.AttachedMonster);
             if (release is null) continue;
@@ -1537,13 +1543,14 @@ public static partial class Game
         int radius = (int)Math.Round(SkillRadius(player, surgeGem.Stats, spell: true, surgeGem.Effect) * brand.OverchargeAreaMore);
         SpawnTempEffectLocked(player, state, at, PresentationOf(brand.Family).ExplosionAo, now + 0.55, bytes,
             (float)Math.Clamp(radius / 24.0, 0.7, 3.0));
+        var multipliers = BrandHitMultipliers(playerStats, surgeGem);
 
         foreach (var (id, m) in player.Area.Monsters.ToArray())
         {
             if (m is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false, Asleep: false }
                 || m.OwnerId is not null || MonsterAsleep(player, id)
                 || Dist(m.Walk.Position(now), at) > radius) continue;
-            DealBrandSpellHitLocked(player, brand.OverchargeSkillId, surgeGem, playerStats, id, m,
+            DealBrandSpellHitLocked(player, brand.OverchargeSkillId, surgeGem, playerStats, multipliers, id, m,
                 now, brand.OverchargeDamageMore, brand.OverchargeDamageMore, label: "Brandsurge", placement: brand.Placement);
         }
     }
@@ -1563,8 +1570,16 @@ public static partial class Game
         return Math.Max(4, radius + extraBaseRadius);
     }
 
+    static (HitRollModifiers Ordinary, HitRollModifiers Critical) BrandHitMultipliers(
+        IReadOnlyDictionary<uint, int> stats, SupportedGem gem)
+    {
+        var ordinary = HitRollsFor(stats).ForSkill(gem.Stats.GetValueOrDefault, spell: true);
+        return (ordinary, ordinary.ForCriticalStrike(true, stats, gem.Stats));
+    }
+
     static void DealBrandSpellHitLocked(
         Player player, ushort skillId, SupportedGem gem, IReadOnlyDictionary<uint, int> playerStats,
+        in (HitRollModifiers Ordinary, HitRollModifiers Critical) multipliers,
         uint monsterId, SpawnedMonster m, double now, double hitMore, double ailmentMore,
         (DamageType Type, int Pct)? extraPenetrationType = null, string label = "Brand", PlacedAreaHit? placement = null)
     {
@@ -1590,7 +1605,6 @@ public static partial class Game
         var hit = SupportedHitFrom(inputs, suppress: true, additionalIncreased: vsBlinded + brandSpecific);
         if (hitMore != 1.0) hit = hit.Scale(hitMore);
 
-        var hitRolls = HitRollsFor(playerStats);
         var rolled = WithConditionalSupportDamageLocked(player, gem.Stats, attack: false, m,
             GameEvents.WithOutgoingDamage(player, playerStats, m, hit.Roll(AreaRng(player))), now);
 
@@ -1598,6 +1612,8 @@ public static partial class Game
             SupportedCriticalChanceVsBlinded(player, skillId, release: false),
             SupportedCriticalChanceVsGround(player, skillId, release: false));
         bool critical = RollCriticalStrike(player, critChance, gem.Stats, attack: false, playerStats: playerStats);
+        var hitRolls = critical ? multipliers.Critical : multipliers.Ordinary;
+        rolled = hitRolls.ApplyDamageMultiplier(rolled, AreaRng(player));
         int critMult = CriticalMultiplierOn(m, SupportedCriticalMultiplier(player, skillId), now, playerStats, gem.Stats);
 
         var pen = Penetration.Of(playerStats, Stats, attack: false, gem.Stats);
@@ -1611,23 +1627,24 @@ public static partial class Game
             };
         var resistMods = HitResistMods(playerStats, gem.Stats);
 
-        var (damage, _, mitigated) = MonsterHitDamage(m, rolled, critical, attack: false, now, resistMods, pen,
-            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null);
+        int witheredElemental = placement is null ? WitheredElementalHitTaken(m, player.Id, now, playerStats) : 0;
+        var (damage, _, mitigated, takenRules) = ResolveMonsterHit(m, rolled, critical, attack: false, now, resistMods, pen,
+            hitRolls.InvertsResistance(AreaRng(player)), AreaRng(player), trapOrMine: placement is not null,
+            additionalElementalTakenPct: witheredElemental);
         if (critical) damage = DamageModel.CriticalDamage(damage, critMult);
         if (damage <= 0) return;
 
         if (placement is null)
         {
-            var taken = MonsterTakenComponents(m, mitigated, spell: true, now);
+            var taken = MonsterTakenComponents(m, mitigated, spell: true, now, takenRules);
             var leech = HitLeechSources(playerStats, attack: false, gem.Stats, null, melee: false);
             LeechOnHitLocked(player, m, taken, damage, leech);
         }
         else if (placement.Device.Mine)
-            LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, playerStats, monsterId);
+            LeechPlacedMineHitLocked(player, m, mitigated, spell: true, damage, now, playerStats, monsterId, takenRules);
 
         var stun = OwnerStun(player, gem.Effect, m, damage, mitigated, melee: false, spell: true, critical, playerStats, gem.Stats);
-        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage,
-            placement is null ? 0 : BearTrapDamageTaken(m, now));
+        int chaosDamage = MonsterHitChaosDamage(m, mitigated, spell: true, now, damage, takenRules);
         if (ApplyMonsterHitLocked(player, m, damage, null, null, allyAt: placement?.Device.At,
                 cull: placement is null ? Cull.Of(playerStats, gem.Stats, critical, spell: true) : default, cullPlayer: playerStats,
                 chaosDamage: chaosDamage)
@@ -1636,6 +1653,7 @@ public static partial class Game
 
         if (placement is null)
         {
+            ChargesOnHit(player, m, critical, spell: true, gem.Effect, gem.Level, gem.Quality, melee: false, primary: true, skillStats: gem.Stats);
             CrueltyOnHitLocked(player, skillId, damage, m.Life + (uint)damage, m.MaxLife, gem.Stats, now);
             ArcaneSurgeOnSpellHitLocked(player, playerStats, m);
             if (ElementalOverloadCritLocked(player, skillId, SkillsFor(player).EffectId(gem.Effect), playerStats, critical) is { } eoPacket)
@@ -1650,18 +1668,23 @@ public static partial class Game
                 poison = poison with { Min = poison.Min * ailmentMore, Max = poison.Max * ailmentMore,
                     CriticalMin = poison.CriticalMin * ailmentMore, CriticalMax = poison.CriticalMax * ailmentMore };
             AilmentsOnHitLocked(player, monsterId, m, mitigated, spell: true, critical, critMult, playerStats, gem.Stats, now,
-                AreaRng(player), poison: poison, sourceSkill: skillId, blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: placement is null);
+                AreaRng(player), sourceEffect: gem.Effect, poison: poison, sourceSkill: skillId,
+                blind: BlindHitInput.Capture(playerStats, gem.Stats), playerHit: placement is null);
             var ignite = SupportedIgnite(player, skillId, spell: true, playerStats, additionalIncreased: vsBlinded, capturedInputs: inputs);
             if (ignite.Max > 0)
             {
                 if (ailmentMore != 1.0)
-                    ignite = ignite with { Min = ignite.Min * ailmentMore, Max = ignite.Max * ailmentMore,
-                        CriticalMin = ignite.CriticalMin * ailmentMore, CriticalMax = ignite.CriticalMax * ailmentMore };
+                    ignite = ignite.ScaleDamage(ailmentMore);
                 foreach (var packet in IgniteOnHitLocked(player, monsterId, m, ignite, critical, now, playerIgnite: placement is null) ?? [])
                     player.Minions.OutputQueue.Add(new(packet, $"{label} ignite", monsterId, m));
             }
         }
-        CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: placement is null, stun: stun);
+        if (placement is null && applied.Life == 0) SetAcceptedKillSkill(player, gem.Stats);
+        try
+        {
+            CommitAcceptedHitLocked(player, monsterId, m, applied, damage, now, label, playerKill: placement is null, stun: stun);
+        }
+        finally { if (placement is null && applied.Life == 0) ClearAcceptedKillSkill(player); }
     }
 
     // ---- Client Presentation: Effects, Beams, Monster Buffs, HUD Counters -----------------------------------------------

@@ -37,7 +37,7 @@ public static partial class BestiaryTables
         redPool = [.. redPool.Select(WithCapture)];
         lurePools = Lures.ToDictionary(l => l.Family, l => redPool.Where(k => k.Family == l.Family).ToArray());
         var special = ClientTables.TableOrEmpty("BestiaryEncounters").FirstOrDefault(r => r.TextOrNull("Id") == "AtlasMorriganBeast");
-        BlackMorrigan = special.IntOrNull("MonsterVarietiesKey") is int key && key >= 0 && key < Monsters.All.Count
+        BlackMorrigan = special.Table is not null && special.IntOrNull("MonsterVarietiesKey") is int key && key >= 0 && key < Monsters.All.Count
             && Monsters.All[key] is { Supported: true } varietyRow
             ? WithCapture(new(varietyRow.Id, (ushort)key, []) { Unique = true }) : null;
 
@@ -72,7 +72,9 @@ public static partial class BestiaryTables
 
     public static void Opening(MapOpening request)
     {
-        if (request.Campaign || request.Opening is not { } opening || MissionFor(opening.Area.Level) is null
+        if (request.Campaign || request.Opening is not { } opening || LeagueRow < 0
+            || LeagueChances.Current.ChanceOf(opening.Area.Id, LeagueRow, alternate: false).Chance <= 0
+            || MissionFor(opening.Area.Level) is null
             || redPool.Count == 0) return;
         foreach (var lure in Lures)
             if (opening.Mods.Get(lure.Stat) > 0 && LurePool(lure.Family).Count == 0) return;
