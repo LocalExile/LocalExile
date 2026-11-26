@@ -1654,8 +1654,15 @@ public static partial class Game
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player player)
-        => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
+    {
+        double now = AreaTime(player);
+        var stats = SelfCurseConditionInputs(player, conditionTime: now);
+        int fullShield = player.PlayerLife > 0 && player.EnergyShield.Full
+            ? stats.GetValueOrDefault(Stat.SpellDamagePctSuppressedWhileOnFullEnergyShield) : 0;
+        return (SpellDefences(player, stats, now).Suppression,
+            (int)Math.Clamp((long)player.Pools.SpellSuppressionEffect + fullShield, 0, 100),
             player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+    }
 
     public static (int Suppression, int Dodge) SpellDefences(Player player) =>
         SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player));
