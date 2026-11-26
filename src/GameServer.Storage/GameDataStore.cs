@@ -49,14 +49,14 @@ public sealed class GameDataStore : IDisposable
     }
 
     /// <summary>Opens the database and brings it up to date from <c>sql/base/world</c>, its updates and the updates of
-    /// the packages that are on.</summary>
+    /// the mods that are on.</summary>
     public GameDataStore(string path)
     {
         Path = path;
         if (System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path)) is { Length: > 0 } folder)
             Directory.CreateDirectory(folder);
         _db = SqlUpdater.Open(path);
-        try { SqlUpdater.Update(_db, "world", packages: GameServer.Core.Accounts.Packages.Roots("sql")); }
+        try { SqlUpdater.Update(_db, "world", mods: GameServer.Core.Accounts.ModFolders.Roots("sql")); }
         catch
         {
             _db.Dispose();
