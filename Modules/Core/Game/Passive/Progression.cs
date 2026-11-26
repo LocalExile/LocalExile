@@ -1413,11 +1413,14 @@ public static partial class Game
         int reservationEnergyShield = LifeReservation.EnergyShield(reservedLife.Reserved, perHundred);
         int lifeArmourPct = EquipmentInput(Stat.MaximumLifePctToAddAsMaximumArmour);
         if (reservationEnergyShield != 0 || lifeArmourPct != 0)
-            pools = CharacterStats.For(classInfo, level, bonus with
+        {
+            bonus = bonus with
             {
                 Armour = bonus.Armour + pools.Life * (decimal)lifeArmourPct / 100m,
-                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield)
-            }, ResolveAccuracy);
+                EnergyShield = (int)Math.Min(int.MaxValue, (long)bonus.EnergyShield + reservationEnergyShield),
+            };
+            pools = CharacterStats.For(classInfo, level, bonus, ResolveAccuracy);
+        }
         pools = pools with { MapTemporalChainsActionSpeedPct = mapTemporalChains };
         if (true)
             pools = pools with { SpellCriticalStrikeChancePct = pools.SpellCriticalStrikeChancePct
@@ -1491,6 +1494,22 @@ public static partial class Game
         // The source's condition has already been evaluated from the captured blocked history. The Replica's
         // retained value 75 is an unscalable flag, not a chance to add or a replacement for the current maximum.
         if (pools.SpellBlockAtMaximum) pools = pools with { SpellBlockChance = pools.SpellBlockChanceMax };
+        if (EquipmentInput(Stat.ArmourAndEvasionRatingPlusPer1PctAttackBlockChance) is int defencePerBlock and not 0
+            && pools.BlockChance > 0)
+        {
+            long flat = (long)defencePerBlock * pools.BlockChance;
+            var defences = CharacterStats.For(classInfo, level, bonus with
+            {
+                Armour = bonus.Armour + flat,
+                Evasion = bonus.Evasion + flat,
+            }, ResolveAccuracy);
+            pools = pools with
+            {
+                Armour = defences.Armour,
+                Evasion = defences.Evasion,
+                EvasionWhileMoving = defences.EvasionWhileMoving,
+            };
+        }
         if (!bonus.NoEnergyShield && pools.SpellBlockChance > 0
             && EquipmentInput(Stat.MaximumEnergyShieldIncreasedBySpellBlockChance) != 0)
         {
@@ -1498,7 +1517,6 @@ public static partial class Game
             // Reuse the ordinary shield calculation so the increase joins each local and global source once.
             var shieldPools = CharacterStats.For(classInfo, level, bonus with
             {
-                EnergyShield = ActorScale.Saturate((long)bonus.EnergyShield + reservationEnergyShield),
                 EnergyShieldPct = ActorScale.Saturate((long)bonus.EnergyShieldPct + pools.SpellBlockChance),
             }, ResolveAccuracy);
             pools = pools with { EnergyShield = shieldPools.EnergyShield, EnergyShieldPct = shieldPools.EnergyShieldPct };
