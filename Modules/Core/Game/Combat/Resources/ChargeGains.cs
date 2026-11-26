@@ -70,13 +70,16 @@ public static class ChargeGains
     static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
     static bool RareOrUnique(MonsterRarity r) => r is MonsterRarity.Rare or MonsterRarity.Unique;
 
-    /// <summary>The gain stats the server rolls, by event.</summary>
-    public static readonly IReadOnlyList<Rule> Rules =
+    static readonly Rule[] LegacyKillChances =
     [
         // On kill
         new(Stat.EnduranceChargeOnKillPct, ChargeType.Endurance, (e, _) => e is ChargeEvent.Kill),
         new(Stat.AddFrenzyChargeOnKillPctChance, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill),
         new(Stat.AddPowerChargeOnKillPctChance, ChargeType.Power, (e, _) => e is ChargeEvent.Kill),
+    ];
+
+    internal static readonly IReadOnlyList<Rule> OtherRules =
+    [
         new(Stat.AddEnduranceChargeOnKill, ChargeType.Endurance, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.AddFrenzyChargeOnKill, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.PowerFrenzyOrEnduranceChargeOnKillPct, null, (e, _) => e is ChargeEvent.Kill),
@@ -163,6 +166,8 @@ public static class ChargeGains
         new(Stat.GainPowerChargeWhenThrowingTrapPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];
 
+    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. OtherRules];
+
     /// <summary>One gain: a charge type, how many (negative: a loss; <see cref="All"/>: every charge above the
     /// minimum), and the stat or rule that granted it (for the log). <paramref name="ToMaximum"/>: up to the maximum.</summary>
     public readonly record struct Gain(ChargeType Type, int Count, string Source, bool ToMaximum = false)
@@ -194,7 +199,10 @@ public static class ChargeGains
                 return gains;
         }
         var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Kill k => k.Skill, ChargeEvent.Stun s => s.Skill, _ => null };
-        foreach (var rule in Rules)
+        var rules = e is ChargeEvent.Kill
+            ? (ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules)
+            : OtherRules;
+        foreach (var rule in rules)
         {
             if (!rule.When(e, weapon)) continue;
             int value = get(rule.Stat) + (skill?.Invoke(rule.Stat) ?? 0);

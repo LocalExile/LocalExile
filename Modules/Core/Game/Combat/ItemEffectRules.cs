@@ -10,6 +10,7 @@ sealed partial class ItemEffectRules
     readonly List<MarkRule> onHit = [];
     readonly HashSet<uint> blockSupportStats = [];
     readonly ConcurrentDictionary<(SkillCatalog Skills, int Effect, int Level), MarkRule[]> grantedMarks = new();
+    internal readonly IReadOnlyList<ChargeGains.Rule> ChargeRules;
     internal readonly bool NeedsRareHit;
 
     static readonly RuleTable<GameData.Snapshot, ItemEffectRules> Tables = new();
@@ -19,7 +20,9 @@ sealed partial class ItemEffectRules
 
     ItemEffectRules(GameData.Snapshot snapshot)
     {
-        foreach (var row in snapshot.FxRules) Compile(row);
+        List<ChargeGains.Rule> charges = [];
+        foreach (var row in snapshot.FxRules) Compile(row, charges);
+        ChargeRules = [.. charges, .. ChargeGains.OtherRules];
         NeedsRareHit = onHit.All(rule => rule.RareOrUnique);
     }
 
