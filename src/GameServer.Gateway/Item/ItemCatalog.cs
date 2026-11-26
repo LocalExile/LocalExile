@@ -135,6 +135,10 @@ public sealed class ItemCatalog
         /// <summary>Referenced by DelveCraftingModifiers with a display name: socketable in Delve resonators.</summary>
         public bool IsFossil { get; init; }
 
+        /// <summary>BaseItemTypes.FragmentBaseItemTypesKey: the modern stackable Fragment Stash base row replacing a
+        /// legacy unstackable fragment base, or null.</summary>
+        public int? FragmentBaseItemTypesRow { get; init; }
+
         public bool Supported => Components.Count > 0 && Item.CanSerialize(Components);
         /// <summary>Several of the type share one cell (a Stack component and a CurrencyItems StackSize above 1).</summary>
         public bool Stackable => MaxStack > 1;
@@ -247,6 +251,10 @@ public sealed class ItemCatalog
         ResonatorSockets(type) > 0 && !type.Components.Contains("Stack")
             ? _rows.Rows.FirstOrDefault(t => t.Id == type.Id.Replace("/DelveSocketable", "/DelveStackableSocketable")) ?? type
             : type;
+
+    /// <summary>Modern stackable Fragment Stash base type for legacy unstackable fragments (<c>FragmentBaseItemTypesKey</c>).</summary>
+    public BaseType? NormalizedFragment(BaseType type) =>
+        type.FragmentBaseItemTypesRow is int row && Row(row) is { Supported: true } modern ? modern : null;
 
     public static int ResonatorSockets(BaseType type) =>
         type.Id.StartsWith("Metadata/Items/Delve/Delve", StringComparison.Ordinal)
@@ -894,6 +902,7 @@ public sealed class ItemCatalog
                     CanBeCorrupted = r.IntOrNull("ItemClassesKey") is int cc &&
                         cc >= 0 && cc < corruptibleClasses.Count && corruptibleClasses[cc],
                     IsFossil = name.Length > 0 && fossilRows.Contains(rows.Count),
+                    FragmentBaseItemTypesRow = r.IntOrNull("FragmentBaseItemTypesKey"),
                 });
             }
         }

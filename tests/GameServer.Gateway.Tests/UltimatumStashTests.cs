@@ -110,4 +110,43 @@ public class UltimatumStashTests : IDisposable
             AccountStash.Forget(account);
         }
     }
+
+    [Fact]
+    public void Corrupted_eight_mod_map_drops_and_legacy_fragment_normalization()
+    {
+        TestEnvironment.OpenOwnSaves("frag8mod");
+        var catalog = new ItemCatalog("data");
+        var drops = new ItemDrops(catalog, new ItemRolls(catalog), maps: new AtlasCatalog(catalog));
+        var mapDrop = drops.Map(83, MonsterRarity.Unique, 16, new Random(7), 0, 1000, 0, 0, corruptEightMods: true);
+        Assert.NotNull(mapDrop);
+        Assert.True(mapDrop!.Item.Corrupted);
+        Assert.True(mapDrop.Item.Identified);
+        Assert.Equal(ItemRarity.Rare, mapDrop.Item.Rarity);
+        Assert.Equal(8, mapDrop.Item.Mods.Count(m => m.Section == ModSection.Explicit));
+        Assert.Equal(4, mapDrop.Item.Mods.Count(m => catalog.Mods.ByHash(m.Hash)!.GenerationType == 1));
+        Assert.Equal(4, mapDrop.Item.Mods.Count(m => catalog.Mods.ByHash(m.Hash)!.GenerationType == 2));
+
+        string account = "FragNorm" + Guid.NewGuid().ToString("N");
+        var stash = AccountStash.For(account, catalog);
+        var items = PlayerInventories.For(account, catalog);
+        PlayerInventories.Shape? ShapeOf(Item item) => Shape(catalog, item);
+        try
+        {
+            int tab = Enumerable.Range(0, stash.Count).Single(i => stash.TabType(i) == StashRules.Fragment);
+            foreach (string legacyId in new[] { "Metadata/Items/MapFragments/VaalFragment2_1", "Metadata/Items/MapFragments/FragmentPantheonFlask" })
+            {
+                var legacyType = catalog.Find(legacyId)!;
+                var reloaded = CharacterSaves.FromSaved(CharacterSaves.ToSaved(ItemCatalog.Create(legacyType), catalog.Mods), catalog);
+                Assert.True(catalog.Stash.Holds(StashRules.Fragment, reloaded.TypeHash));
+                Assert.NotEqual(legacyType.Hash, reloaded.TypeHash);
+                var inv = items.Add(PlayerInventories.MainInventory, 0, 0, reloaded);
+                Assert.NotNull(ItemMoves.InventoryToStash(stash, items, tab, inv.Id, ShapeOf, out _));
+            }
+        }
+        finally
+        {
+            PlayerInventories.Forget(account);
+            AccountStash.Forget(account);
+        }
+    }
 }

@@ -21,7 +21,19 @@ public sealed partial class DeliriumModule
             [.. ItemsFor(player).All.Where(t => t.Supported && t.DropLevel <= level
                 && !t.Components.Contains("Quest"))];
         public readonly IReadOnlySet<int> Gems = GemSources.DropPool(ItemsFor(player));
+        public readonly IReadOnlySet<int> FragmentStashRows = FragmentStashRowsOf();
+        public readonly bool CorruptEightModMaps = (global::Game.MapModsOf(player)?.Get(Stat.MapDroppedMapsAreCorruptedWith8Mods) ?? 0) > 0;
         UniqueCatalog.Definition[]? _uniquePool;
+
+        static IReadOnlySet<int> FragmentStashRowsOf()
+        {
+            var rows = new HashSet<int>();
+            if (ClientTables.Has("FragmentStashTabLayout"))
+                foreach (var row in ClientTables.Table("FragmentStashTabLayout"))
+                    foreach (int baseRow in row.Ints("StoredItems"))
+                        rows.Add(baseRow);
+            return rows;
+        }
 
         UniqueCatalog.Definition[] GetUniquePool()
         {
@@ -38,11 +50,11 @@ public sealed partial class DeliriumModule
             if (kind == 0) item = Currency();
             else if (kind == 14) item = Drops.Scarab(Random, Level)?.Item;
             else if (kind == 17) item = Drops.Card(Random, Level)?.Item;
-            else if (kind == 3) item = Drops.Map(Level, MonsterRarity.Rare, Math.Clamp(Level - 67, 1, 16), Random)?.Item;
+            else if (kind == 3) item = Drops.Map(Level, MonsterRarity.Rare, Math.Clamp(Level - 67, 1, 16), Random, 0, 1, 0, 0, CorruptEightModMaps)?.Item;
             else if (kind == 1) item = Drops.PickUnique(GetUniquePool(), Random) is { } unique ? Uniques.Create(unique, Random) : null;
             else
             {
-                var pool = All.Where(t => Eligible(kind, t, Gems)).ToArray();
+                var pool = All.Where(t => Eligible(kind, t, Gems, FragmentStashRows)).ToArray();
                 var type = pool.Length == 0 ? null : pool[Random.Next(pool.Length)];
                 item = type is null ? null : ItemCatalog.Create(type);
                 if (item is not null && type is not null && (ItemDrops.EquipmentClasses.Contains(type.Class) || type.Class.Contains("Jewel", StringComparison.Ordinal)))
@@ -97,7 +109,7 @@ public sealed partial class DeliriumModule
         return result;
     }
 
-    internal static List<Item> RollMirrorRewards(Player player, byte level, IReadOnlyList<int> rewards, IReadOnlyList<int> counts, int splinters)
+    public static List<Item> RollMirrorRewards(Player player, byte level, IReadOnlyList<int> rewards, IReadOnlyList<int> counts, int splinters)
     {
         if (Environment.GetEnvironmentVariable("Game_DROPS") == "0" || !GameEvents.AllowsLoot(player)) return [];
         var rolls = new RewardRolls(player, level);
@@ -121,7 +133,7 @@ public sealed partial class DeliriumModule
         return result;
     }
 
-    static bool Eligible(int kind, ItemCatalog.BaseType t, IReadOnlySet<int> gems) => kind switch
+    static bool Eligible(int kind, ItemCatalog.BaseType t, IReadOnlySet<int> gems, IReadOnlySet<int> fragmentRows) => kind switch
     {
         2 => gems.Contains(t.Row),
         4 => ItemDrops.Droppable(t) && t.Class is "Ring" or "Amulet" or "Belt",
@@ -131,7 +143,10 @@ public sealed partial class DeliriumModule
         8 => t.Class is "ExpeditionCurrency" or "ExpeditionLogbook" || t.Id.Contains("/CurrencyRefresh", StringComparison.Ordinal),
         10 => t.Id.Contains("/CurrencyBreach", StringComparison.Ordinal) || t.Id.Contains("/Breach", StringComparison.Ordinal) && t.Class == "MapFragment",
         11 => t.Class == "StackableCurrency" && t.Id.Contains("Essence", StringComparison.Ordinal) && !t.Id.Contains("Corrupt", StringComparison.Ordinal),
-        13 => t.Class == "MapFragment" && !t.Id.Contains("CurrencyAffliction", StringComparison.Ordinal) && !t.Id.Contains("/Scarabs/", StringComparison.Ordinal),
+        13 => t.Class == "MapFragment" && !t.Id.Contains("CurrencyAffliction", StringComparison.Ordinal)
+            && !t.Id.Contains("/Scarabs/", StringComparison.Ordinal)
+            && !t.Name.StartsWith("[", StringComparison.Ordinal)
+            && (fragmentRows.Count == 0 || fragmentRows.Contains(t.Row)),
         15 => t.Id.Contains("/CurrencyDelveCrafting", StringComparison.Ordinal),
         19 => t.Class == "Amulet" && t.Id.Contains("Talisman", StringComparison.Ordinal),
         20 => t.Id.Contains("/CurrencyOfferingToTheGoddess", StringComparison.Ordinal),
