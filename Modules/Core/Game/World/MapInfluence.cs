@@ -107,8 +107,16 @@ public static class MapInfluence
         if (species) roll.Quantity *= Math.Max(0, 1 + source.Quantity / 100d);
         roll.Changes.Add((drop, rng) =>
         {
-            if (!drop.Type.CanBeMirrored || drop.Item.Rarity == ItemRarity.Unique || drop.Item.FracturedCount > 0 || drop.Item.Synthesised) return [drop];
-            Item Roll(ItemInfluence influence) => Program.Rolls.Roll(ItemCatalog.Create(drop.Type) with { ItemLevel = drop.Item.ItemLevel, Influences = influence }, drop.Item.Rarity, rng);
+            if (!drop.Type.CanBeMirrored || drop.Item.Rarity == ItemRarity.Unique || drop.Item.FracturedCount > 0 || drop.Item.Synthesised
+                || drop.Item.Corrupted || drop.Item.Mirrored) return [drop];
+            Item Roll(ItemInfluence influence)
+            {
+                var (sockets, links) = Program.Items.DropSockets(drop.Type, drop.Item.ItemLevel, rng);
+                return Program.Rolls.Roll(ItemCatalog.Create(drop.Type, sockets, links, random: rng) with
+                {
+                    ItemLevel = drop.Item.ItemLevel, Influences = influence, Identified = drop.Item.Identified,
+                }, drop.Item.Rarity, rng);
+            }
             var item = species ? Program.Rolls.Roll(drop.Item with { Influences = source.Influence }, drop.Item.Rarity, rng) : drop.Item;
             var result = new List<ItemDrops.Drop> { drop with { Item = item } };
             int more = item.Rarity != ItemRarity.Rare ? 0 : item.Influences.HasFlag(ItemInfluence.Shaper) ? shaper : item.Influences.HasFlag(ItemInfluence.Elder) ? elder : 0;

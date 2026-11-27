@@ -107,6 +107,14 @@ public sealed class FourFamilyScarabTests
             Assert.InRange(drops.Length, 2, 3);
             Assert.All(drops, d => { Assert.Equal(ItemInfluence.Shaper, d.Item.Influences); Assert.Equal(ItemRarity.Rare, d.Item.Rarity); Assert.NotEmpty(d.Item.Payload()); });
             Assert.NotSame(drops[0].Item, drops[1].Item);
+            var armourType = Program.Items.Find("Plate Vest")!;
+            var (armourSockets, armourLinks) = Program.Items.DropSockets(armourType, 83, new Random(505));
+            var armourItem = Program.Rolls.Roll(ItemCatalog.Create(armourType, armourSockets, armourLinks, random: new Random(505)) with { ItemLevel = 83 }, ItemRarity.Rare, new Random(505)) with { Identified = false };
+            var armourDrops = roll.Changed([new(armourItem, armourType)], new Random(505)).ToArray();
+            Assert.InRange(armourDrops.Length, 2, 3);
+            Assert.All(armourDrops, d => { Assert.NotEmpty(d.Item.Sockets); Assert.False(d.Item.Identified); Assert.Equal(ItemInfluence.Shaper, d.Item.Influences); });
+            var corruptedArmour = armourItem with { Corrupted = true };
+            Assert.Same(corruptedArmour, Assert.Single(roll.Changed([new(corruptedArmour, armourType)], new Random(505))).Item);
             var influence = Input("ScarabInfluenceNew1"); MapInfluence.Opening(influence);
             var hordes = Input("ScarabInfluenceNew3");
             var values = hordes.Opening!.Mods.Stats;
