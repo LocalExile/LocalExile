@@ -49,14 +49,13 @@ bench.
   refusing Atlas passive allocations on the server while the tree is hidden; drop rates from recorded play.
 - **Done when:** a later client build with an Idol panel shows the three loadouts, or the items above work in the side panel.
 
-### Legion: rewards, the Domain and the Atlas
+### Legion: live-client tuning and Enshrouding Crystals
 
-- **Known:** the monolith, timer, frozen armies, break-out, release and the rewards (symbols, drops, splinters,
-  chests) work ([Legion](../docs/game/legion.md); #1391).
-- **Start:** phase 3: the Domain of Timeless Conflict and timeless jewel drops; phase 4: the Atlas `map_legion_*`
-  stats beyond the supported scarab inputs. The count, chest, rank and reward numbers are guesses to settle
-  against the real game.
-- **Done when:** a Legion encounter pays what the real one does and the Atlas passives and scarabs change it.
+- **Known:** the monolith, rewards, scarabs, Atlas passives and the Domain of Timeless Conflict are built
+  ([Legion](../docs/game/legion.md)); only scarab inputs, breakouts and reward drops have native verification.
+- **Start:** the Crystals of Permutation (Enshrouded items, the `LegionCocoonCrystal` window); faction-vs-faction fighting;
+  tuning of the GUESS numbers (count, chest, rank, reward, Domain); live checks in the client.
+- **Done when:** the monoliths, scarabs, Domain and crystals match the real client.
 
 ### Hideouts: decorations, editing and the map device
 
