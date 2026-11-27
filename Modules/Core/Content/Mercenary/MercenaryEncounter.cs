@@ -631,7 +631,10 @@ public sealed partial class MercenaryModule
             run.Stage = Stage.Hired;
         }
         Save(kill.Player, run);
-        kill.Later(() => CompleteDuelWin(kill.Player, run, kill.At));
+        // The reward is the owner's who paid the wager, not the party member who landed the kill.
+        var owner = Members(kill.Player).FirstOrDefault(m =>
+            string.Equals(CharacterName(m), run.DuelInitiator, StringComparison.OrdinalIgnoreCase)) ?? kill.Player;
+        kill.Later(() => CompleteDuelWin(owner, run, kill.At));
     }
 
     async Task CompleteDuelWin(Player player, Run run, (int X, int Y) at)
