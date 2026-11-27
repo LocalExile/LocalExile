@@ -746,6 +746,7 @@ public static partial class Game
                 (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, lifeDamage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
                 ApplyPunishmentOnHitLocked(player, m, contactAt);
+                AlchemistChargeOnHitLocked(player, m, contactAt);
                 if (m.Life == 0 && weapon.Melee)
                     FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
                         playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct), AreaRng(player));
@@ -4972,6 +4973,8 @@ public static partial class Game
         uint before = m.Life;
         if (allyAt is null) SpiderHitRewardsLocked(player, m, hitNow, playerStats);
         (m.Life, bool starts) = TakeOwnerHitLocked(player, m, lifeDamage, cull, rampageSource, playerStats, cullPlayer);
+        if (hitContact && damage >= 0 && (ownHit ?? (allyAt is null)))
+            AlchemistChargeOnHitLocked(player, m, hitNow);
         if (m.Life == 0) m.Overkill = (int)Math.Clamp((long)lifeDamage - before, 0, int.MaxValue);
         if (m.Kit.Count > 0) BossKits.TakeDamage(m, (long)before - m.Life);
         CaptureHitCorpseDestructionLocked(player, m, directPlayerHit: allyAt is null, playerStats);

@@ -488,7 +488,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Skewers impales with its secondary hit and shares the killing-blow reflection.
 - Blade Trap and its variants sweep with two blades, with their own rotation count or duration and a shared
   per-target hit interval.
-- Hexes and marks. A surviving enemy with Punishment is Debilitated when hit. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Hexes and marks. Punishment applies Debilitate on hit. Alchemist's Mark grants flask charges and creates ground from hit ailments. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 - Totems: Rejuvenation, Arc, projectile spells, supported summons, ballistas, Shockwave, Devouring and Decoy Totem
   (ordinary monster AI), with totem limit, range, duration and Lockstep placement timing. Eligible placements can summon
   two totems. Skill bars without a saved attack-in-place mask use each bound skill's default.

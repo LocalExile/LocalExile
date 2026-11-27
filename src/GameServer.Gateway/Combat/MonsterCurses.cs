@@ -13,6 +13,7 @@ public sealed class MonsterCurses(Action? changed = null)
         public double AmplifiesAt { get; init; } = double.PositiveInfinity;
         public IReadOnlyDictionary<uint, int>? AmplifiedStats { get; init; }
         public int ExpandedCapacity { get; init; }
+        public (int Radius, double Seconds, int FireArt, int CausticArt)? AlchemistGround { get; init; }
     }
     public readonly Dictionary<(uint Caster, string Effect), Curse> All = [];
     public readonly Dictionary<(uint Caster, string Effect), Curse> Presented = [];

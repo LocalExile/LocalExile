@@ -539,6 +539,7 @@ public static partial class Game
                 out double poisonDps, out double poisonSeconds))
         {
             player.Area.ActivePoisonMonsters.Add(targetId);
+            if (owned) AlchemistGroundOnAilmentLocked(player, m, DamageType.Chaos, now);
             if (m.Poisons.Stacks(now) > poisonStacksBefore || m.Poisons.Until > poisonUntilBefore)
                 ShowPoisonBuff(player, targetId, m, PoisonBuffToShow(player, m, now));
             if (playerHit && Player(Stat.PoisonReflectedToSelf) != 0 && Player(Stat.CannotBePoisoned) == 0

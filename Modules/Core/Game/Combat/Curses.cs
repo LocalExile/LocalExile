@@ -140,6 +140,7 @@ public static partial class Game
             UsesBaseExpiryRate = temporalChains,
             AmplifiesAt = amplify == 0 ? double.PositiveInfinity : now + (until - now) / 2,
             AmplifiedStats = amplify == 0 ? null : RecipientStats(amplify),
+            AlchemistGround = effect == "AlchemistsMark" ? AlchemistGroundFor(player, curseStats, playerStats) : null,
         };
         monster.Curses.Put(curse, limit);
         if (!ReferenceEquals(monster.Curses.All.GetValueOrDefault((curse.Caster, curse.Effect)), curse)) return false;
