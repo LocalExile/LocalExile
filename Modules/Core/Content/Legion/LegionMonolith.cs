@@ -247,11 +247,14 @@ static partial class LegionMonolith
         return false;
     }
 
-    static async Task BroadcastEnvironments(Player player, string what, params (ushort Row, double Seconds)[] entries)
+    static Task BroadcastEnvironments(Player player, string what,
+        IReadOnlyList<(ushort Row, float Seconds)> active,
+        IReadOnlyList<(ushort Row, float Seconds)>? fadeOut = null)
     {
-        if (LegionRules.Environments(entries) is not { } packet) return;
-        foreach (var member in Members(player))
-            await PlayerOf(member).Send(packet, $"0x00df Legion environment ({what})");
+        var validActive = active.Where(e => e.Row != 0).ToArray();
+        var validFade = fadeOut?.Where(e => e.Row != 0).ToArray();
+        if (validActive.Length == 0 && (validFade is null || validFade.Length == 0)) return Task.CompletedTask;
+        return AreaEnvironments.Update(player, "legion", validActive, validFade, $"0x00df Legion environment ({what})");
     }
 
     /// <summary>GameEvents.EnterMessages: registers the LegionRules ruleset (0x001f) before area objects arrive for a late joiner.</summary>
@@ -593,7 +596,7 @@ static partial class LegionMonolith
             if (step == 1)
             {
                 if (LegionData.Current.EnvWorld != 0)
-                    await BroadcastEnvironments(player, "world", (LegionData.Current.EnvWorld, 0.5));
+                    await BroadcastEnvironments(player, "world", [(LegionData.Current.EnvWorld, 0.5f)]);
                 foreach (var member in Members(player))
                 {
                     await SendRules(member, LegionRules.State(e.Id, 1, 1), "0x02c9 LegionRules state (1,1)");
@@ -624,14 +627,14 @@ static partial class LegionMonolith
                     await SendRules(member, LegionRules.State(e.Id, 2, 5), "0x02c9 LegionRules state (2,5 ending)");
                 await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
                 if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
-                    await BroadcastEnvironments(player, "post-battle", (LegionData.Current.EnvBattle, 0.0), (LegionData.Current.EnvPostBattle, 0.2));
+                    await BroadcastEnvironments(player, "post-battle", [(LegionData.Current.EnvBattle, 0.0f), (LegionData.Current.EnvPostBattle, 0.2f)]);
             }
             else if (step == 5)
             {
                 if (battleOut && !OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
-                    await BroadcastEnvironments(player, "battle out", (LegionData.Current.EnvBattle, -2.0), (LegionData.Current.EnvPostBattle, 0.2));
+                    await BroadcastEnvironments(player, "battle out", [(LegionData.Current.EnvPostBattle, 0.2f)], [(LegionData.Current.EnvBattle, -2.0f)]);
                 if (postOut && !OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle or Phase.Ending))
-                    await BroadcastEnvironments(player, "post-battle out", (LegionData.Current.EnvPostBattle, -2.0));
+                    await BroadcastEnvironments(player, "post-battle out", [], [(LegionData.Current.EnvPostBattle, -2.0f)]);
             }
         }
     }
@@ -676,8 +679,9 @@ static partial class LegionMonolith
                 }
                 if (!OtherInPhases(module, player, e, p => p == Phase.Running))
                 {
-                    if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
-                    if (data.EnvBattle != 0) await BroadcastEnvironments(player, "battle", (data.EnvBattle, 0.0));
+                    await BroadcastEnvironments(player, "battle",
+                        data.EnvBattle != 0 ? [(data.EnvBattle, 0.0f)] : [],
+                        data.EnvWorld != 0 ? [(data.EnvWorld, -2.0f)] : []);
                 }
             }
             else
@@ -698,8 +702,9 @@ static partial class LegionMonolith
                 await ToAll(player, e, StatesOf(Phase.Ending, e), "obelisk=5, active=0");
                 if (!OtherInPhases(module, player, e, p => p is Phase.Running or Phase.Frozen or Phase.Battle))
                 {
-                    if (data.EnvWorld != 0) await BroadcastEnvironments(player, "world out", (data.EnvWorld, -2.0));
-                    if (data.EnvPostBattle != 0) await BroadcastEnvironments(player, "post-battle", (data.EnvPostBattle, 0.2));
+                    await BroadcastEnvironments(player, "post-battle",
+                        data.EnvPostBattle != 0 ? [(data.EnvPostBattle, 0.2f)] : [],
+                        data.EnvWorld != 0 ? [(data.EnvWorld, -2.0f)] : []);
                 }
             }
         }

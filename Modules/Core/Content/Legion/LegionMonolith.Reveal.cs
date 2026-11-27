@@ -151,7 +151,14 @@ static partial class LegionMonolith
         await SendRules(player, RulesBegin(player, e, stage: 0, step: 0), "0x02c9 LegionRules mode 0 (joiner)");
         if (activated) await SendRules(player, LegionRules.Activated(e.Id), "0x02c9 LegionRules mode 1 (joiner)");
         if (ruleStage > 0) await SendRules(player, LegionRules.State(e.Id, ruleStage, ruleStep), $"0x02c9 LegionRules state ({ruleStage},{ruleStep}) (joiner)");
-        if (envs is { Length: > 0 } && LegionRules.Environments([.. envs.Select(r => (r, 0.0))]) is { } envPacket)
-            await PlayerOf(player).Send(envPacket, "0x00df Legion environment (joiner)");
+        if (envs is { Length: > 0 })
+        {
+            var valid = envs.Where(r => r != 0).Select(r => (r, 0f)).ToArray();
+            if (valid.Length > 0)
+            {
+                AreaEnvironments.EnsureState(player, "legion", valid);
+                await AreaEnvironments.Sync(player, "0x00df Legion environment (joiner)");
+            }
+        }
     }
 }

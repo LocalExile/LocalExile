@@ -438,7 +438,10 @@ public sealed class RitualEncounter
                 var runningAltar = state.Altars[run.Altar];
                 player.SetRingBlocker(run.Blocker, runningAltar.Cell.X, runningAltar.Cell.Y, RitualTables.RadiusCells);
                 if (runningAltar.Rune.Environment is int env)
-                    await Send(player, InstanceEnvironments.Data(((ushort)env, 0)), $"0xdf Ritual environment {env} on");
+                {
+                    AreaEnvironments.EnsureState(player, "ritual", ((ushort)env, 0f));
+                    await AreaEnvironments.Sync(player, $"0xdf Ritual environment {env} on");
+                }
             }
         }
         finally { state.Gate.Release(); }
@@ -949,7 +952,7 @@ public sealed class RitualEncounter
 
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Running), $"0x165 Ritual altar 0x{altar.Interactable:x} starts");
         if (altar.Rune.Environment is int env)
-            await Broadcast(player, InstanceEnvironments.Data(((ushort)env, 0)), $"0xdf Ritual environment {env} on");
+            await AreaEnvironments.Set(player, "ritual", (ushort)env, 0f, $"0xdf Ritual environment {env} on");
         await States(player, altar, 0, [2, 0], 2);
         await Create(player, run.Blocker, BlockerType, RitualWire.Blocker(altar.Cell, RitualTables.RadiusCells), $"0x2bb Ritual blocker 0x{run.Blocker:x}");
     }
@@ -1129,7 +1132,7 @@ public sealed class RitualEncounter
 
         await Broadcast(player, RitualWire.AltarState(altar.Interactable, altar.Cell, Done), $"0x165 Ritual altar 0x{altar.Interactable:x} done");
         if (altar.Rune.Environment is int env)
-            await Broadcast(player, InstanceEnvironments.Data(((ushort)env, RitualTables.EndEnvironmentSeconds)), $"0xdf Ritual environment {env} off");
+            await AreaEnvironments.Clear(player, "ritual", (float)RitualTables.EndEnvironmentSeconds, $"0xdf Ritual environment {env} off");
         await Broadcast(player, RitualWire.Favours(state.Tribute, state.RerollsUsed, RitualFavours.BuildRows(state), state.Altars.Count, state.Completed),
             $"0x166 Ritual favours ({state.Completed}/{state.Altars.Count} done)");
         await Broadcast(player, RitualWire.Tribute(state.Tribute), $"0x167 Ritual tribute {state.Tribute}");
