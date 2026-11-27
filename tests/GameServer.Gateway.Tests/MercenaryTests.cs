@@ -112,9 +112,32 @@ public sealed class MercenaryTests
                 origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));
             kept = JsonSerializer.Deserialize<SavedMonster>(JsonSerializer.Serialize(kept))!;
             Assert.Equal(opponent.Kit.Select(k => k.Effect), kept.OwnedSkillEffects);
+            // Force a same-class wild to also need rebinding alongside the duel opponent; the wild must not steal the duel id.
+            var sameClassWild = duel.Wilds[0];
+            var sameClassWildBody = owner.Player.Area.Monsters[sameClassWild.Body];
+            var keptWild = Assert.Single(SavedMonster.Save([sameClassWildBody], Game.AreaTime(owner.Player),
+                origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));
+            uint oldWildBody = sameClassWild.Body;
+            if (sameClassWild.Class != duel.Class)
+            {
+                // Rewrite persisted wild class to duel.Class (keeping a different build if available) to test class-collision rebind.
+                sameClassWild.Class = duel.Class;
+                var altBuild = MercenaryTables.BuildsOf(duel.Class, true).FirstOrDefault(b => b.Row != duel.Build)
+                    ?? MercenaryTables.BuildsOf(duel.Class, false).FirstOrDefault(b => b.Row != duel.Build);
+                if (altBuild is not null) sameClassWild.Build = altBuild.Row;
+                keptWild = keptWild with { Variety = opponent.Variety!.Row, ActorBuild = altBuild?.Hash16 ?? keptWild.ActorBuild };
+                instance.ContentState["Mercenary.Encounter"] = JsonSerializer.Serialize(duel);
+                module.Stop(ex => throw ex);
+                GameEventOwners.Release("Mercenary", GameEventOwners.ModuleRank);
+                module = new ModuleLifetime("Mercenary");
+                new MercenaryModule().Load(Context(module));
+            }
             owner.Player.Area.Monsters.Remove(duel.Body);
             instance.World.MonsterOrigins.TryRemove(duel.Body, out _);
+            owner.Player.Area.Monsters.Remove(oldWildBody);
+            instance.World.MonsterOrigins.TryRemove(oldWildBody, out _);
             uint restoredDuel = await Game.RestoreMonster(owner.Player, opponent.Variety!, kept);
+            uint restoredWild = await Game.RestoreMonster(owner.Player, opponent.Variety!, keptWild);
             Assert.NotEqual(duel.Body, restoredDuel);
             var restoredKit = owner.Player.Area.Monsters[restoredDuel].Kit;
             Assert.Equal(opponent.Kit.Select(k => k.Effect), restoredKit.Select(k => k.Effect));
@@ -122,6 +145,7 @@ public sealed class MercenaryTests
             await GameEvents.RunPlayerEntered(peer.Player);
             duel = Read();
             Assert.Equal(restoredDuel, duel.Body);
+            Assert.Equal(restoredWild, duel.Wilds[0].Body);
             opponent = owner.Player.Area.Monsters[restoredDuel];
 
             var wild = Read().Wilds[0];

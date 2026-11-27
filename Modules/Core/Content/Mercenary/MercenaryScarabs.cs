@@ -62,14 +62,7 @@ public sealed partial class MercenaryModule
     void RebindWilds(Player player, Run run)
     {
         var used = run.Wilds.Where(w => player.Area.Monsters.ContainsKey(w.Body)).Select(w => w.Body).ToHashSet();
-        foreach (var wild in run.Wilds.Where(w => !w.Paid && !player.Area.Monsters.ContainsKey(w.Body)))
-        {
-            if (MercenaryTables.ClassOf(wild.Class) is not { } kind) continue;
-            var found = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Id == kind.Path
-                && p.Value.Hostile && p.Key != run.Body);
-            if (found.Value is null) continue;
-            wild.Body = found.Key; used.Add(found.Key);
-        }
+        // Rebind the duel opponent first so a wild mercenary of the same class cannot claim its restored id.
         if (run.Stage == Stage.Duel && !player.Area.Monsters.ContainsKey(run.Body)
             && MercenaryTables.ClassOf(run.Class) is { } duelClass && MercenaryTables.BuildOf(run.Build) is { } duelBuild)
         {
@@ -77,6 +70,19 @@ public sealed partial class MercenaryModule
                 && p.Value.Variety?.Id == duelClass.Path
                 && player.Instance.World.MonsterOrigins.TryGetValue(p.Key, out var origin) && origin.Object.MercenaryBuild == duelBuild.Hash16);
             if (restored.Value is not null) run.Body = restored.Key;
+        }
+        if (run.Stage == Stage.Duel && player.Area.Monsters.ContainsKey(run.Body)) used.Add(run.Body);
+        foreach (var wild in run.Wilds.Where(w => !w.Paid && !player.Area.Monsters.ContainsKey(w.Body)))
+        {
+            if (MercenaryTables.ClassOf(wild.Class) is not { } kind) continue;
+            ushort buildHash = MercenaryTables.BuildOf(wild.Build)?.Hash16 ?? 0;
+            bool Matches(KeyValuePair<uint, SpawnedMonster> p, bool matchBuild) =>
+                !used.Contains(p.Key) && !p.Value.Dead && p.Value.Variety?.Id == kind.Path && p.Value.Hostile && p.Key != run.Body
+                && (!matchBuild || buildHash != 0 && player.Instance.World.MonsterOrigins.TryGetValue(p.Key, out var origin) && origin.Object.MercenaryBuild == buildHash);
+            var found = player.Area.Monsters.FirstOrDefault(p => Matches(p, true));
+            if (found.Value is null) found = player.Area.Monsters.FirstOrDefault(p => Matches(p, false));
+            if (found.Value is null) continue;
+            wild.Body = found.Key; used.Add(found.Key);
         }
         Save(player, run);
     }
