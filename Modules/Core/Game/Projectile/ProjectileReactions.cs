@@ -139,7 +139,8 @@ public static partial class Game
         tinctureKill = playerKill ? TakeTinctureKill(player, monster) : null;
         destroyCorpse = playerKill && TakeUnhingedHitKillLocked(player, monster);
         if (playerKill) QueueMadnessExplosionLocked(player, id, monster);
-        StopCorpseBlocking(player, id, monster);
+        if (!destroyCorpse || HardcoreProgressBlocked(player) || monster.Variety is null || !monster.Hostile)
+            StopCorpseBlocking(player, id, monster);
         DetonateExplosiveFusesOnDeath(monster, session);
         QueueInfernalBlowDeath(monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);
         QueueInfernalCryDeath(id, monster, at / (double)ProjectileRuntime.QuantaPerSecond, session);

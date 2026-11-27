@@ -5441,7 +5441,8 @@ public static partial class Game
         destroyCorpse = playerKill && byHit && TakeUnhingedHitKillLocked(player, m);
         QueueEssenceDeathSpawnLocked(player, id, m);
         if (playerKill) QueueMadnessExplosionLocked(player, id, m);
-        StopCorpseBlocking(player, id, m);
+        if (!destroyCorpse || HardcoreProgressBlocked(player) || m.Variety is null || !m.Hostile)
+            StopCorpseBlocking(player, id, m);
         DetonateExplosiveFusesOnDeath(m);
         QueueInfernalBlowDeath(m, ProjectileWorldTime(player));
         QueueInfernalCryDeath(id, m, ProjectileWorldTime(player));

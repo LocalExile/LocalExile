@@ -571,6 +571,16 @@ public sealed class CombatBugFixesTests
             Assert.Equal(0, statsDecayed.GetValueOrDefault(Stat.EffectiveRageForPerRageEffects));
             Assert.Equal(0, statsDecayed.GetValueOrDefault(Stat.AttackSpeedPlusPctFromRage));
             Assert.Equal(baseSpeedPct, statsDecayed.GetValueOrDefault(Stat.MainHandAttackSpeedPlusPct));
+
+            // 6. DestroyHitKillCorpseLocked immediately releases any retained lockstep corpse body.
+            const uint corpseId = 995u;
+            var corpse = new SpawnedMonster("destroyed corpse", new(105, 100, 0), 0, 0, 100) { ObjectId = corpseId, Hostile = true, Dead = true, Life = 0 };
+            player.Area.Monsters[corpseId] = corpse;
+            player.Connection.LockstepClient = true;
+            Assert.True(player.RetainCorpseBody(corpseId, corpse, 5));
+            Assert.True(player.CorpseWalks(corpseId, corpse));
+            Assert.True(Game.DestroyHitKillCorpseLocked(player, corpseId, corpse));
+            Assert.False(player.CorpseWalks(corpseId, corpse));
         }
         finally
         {

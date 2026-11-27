@@ -144,6 +144,8 @@ public static partial class Game
         if (m.CorpseConsumed) return false;
         m.CorpseConsumed = true;
         player.Area.Monsters.Remove(id);
+        player.ReleaseCorpseBody(id, m);
+        foreach (var peer in player.Frames.Players()) peer.ReleaseCorpseBody(id, m);
         return !m.Ailments.Shattered;
     }
 
