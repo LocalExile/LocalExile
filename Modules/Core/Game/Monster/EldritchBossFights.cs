@@ -476,6 +476,7 @@ sealed class EaterOfWorldsFight(uint id, SpawnedMonster boss, Player player) : A
     protected override (int X, int Y) Stage(Player player) => stage ??= ArenaCentre(player, boss);
 
     double nextMelee, nextBeam, nextTentacles, nextDashSlam, nextDrownOrb, nextChase;
+    double nextDrownTick;
     readonly List<(double At, (int X, int Y) Where, double Radius, MonsterAttack Attack, string ImpactArt)> pending = [];
     // Chasing drown orbs.
     readonly List<DrownOrb> drownOrbs = [];
@@ -524,6 +525,8 @@ sealed class EaterOfWorldsFight(uint id, SpawnedMonster boss, Player player) : A
             }
         }
         MonsterAttack? drownTick = null;
+        // The drown hit ticks like the other ground degens (0.6 s), not every frame.
+        bool drownTickDue = now >= nextDrownTick;
         foreach (var peer in Present())
         {
             var st = AtlasBosses.EffectsOf(peer);
@@ -538,8 +541,11 @@ sealed class EaterOfWorldsFight(uint id, SpawnedMonster boss, Player player) : A
                     peer.Area.Buffs.Set(peer.Id, new(AtlasBosses.EaterDrowningRow, id, U68: Buff.Seconds(3)));
                     await RefreshPlayerStats(peer);
                 }
-                drownTick ??= Attack(player, AtlasBosses.EaterSlamEffect) with { Damage = Attack(player, AtlasBosses.EaterSlamEffect).Damage.Scale(0.25) };
-                await Hit(peer, drownTick, touching.At);
+                if (drownTickDue)
+                {
+                    drownTick ??= Attack(player, AtlasBosses.EaterSlamEffect) with { Damage = Attack(player, AtlasBosses.EaterSlamEffect).Damage.Scale(0.25) };
+                    await Hit(peer, drownTick, touching.At);
+                }
             }
             else if (st.EaterDrowning)
             {
@@ -548,6 +554,7 @@ sealed class EaterOfWorldsFight(uint id, SpawnedMonster boss, Player player) : A
                 await RefreshPlayerStats(peer);
             }
         }
+        if (drownTick is not null) nextDrownTick = now + 0.6;
     }
 
     protected override async Task Act(Player player, double now)
