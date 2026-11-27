@@ -180,10 +180,11 @@ static class PortalsFeature
             {
                 AlternateQualityType = i.Item.AlternateQualityType, Components = t.Components,
                 Rarity = i.Item.Rarity, Corrupted = i.Item.Corrupted, BaseId = t.Id, NameWords = i.Item.NameWords,
+                SourceItem = i.Item,
             }
-            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0))];
+            : new MapDevice.Slot(i.Item.TypeHash, "", $"Item 0x{i.Item.TypeHash:x8}", -1, [], 0) { SourceItem = i.Item })];
         byte bossOption = !campaign && bossOptionInput is >= 1 and <= 3 ? bossOptionInput : (byte)0;
-        var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: campaign);
+        var opening = MapDevices.Check(checkedSlots, CharacterName(player), Items.Mods, out string why, campaign: campaign, player: player);
         if (opening is not null && bossOption != 0)
             opening = opening with { BossOption = global::Game.EligibleBossOption(player, opening, bossOption) };
         var request = new MapOpening(player, checkedSlots, campaign, opening, why) { Target = target };
@@ -243,7 +244,8 @@ static class PortalsFeature
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
             campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
-            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount);
+            pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount,
+            contentData: opening.ContentData);
         if (campaign)
             await SetQuestFlags(player, ["a7q2-DeliveredItem"]);
         else if (!ClientHasQuestFlag(player, "MapDeviceActive"))
@@ -313,7 +315,7 @@ static class PortalsFeature
         InstanceMapDevice.Move request)
     {
         var items = ItemsOf(player);
-        if (ItemMoves.MoveToMapDevice(items, request.ItemId, ShapeOf) is not { } move)
+        if (ItemMoves.MoveToMapDevice(items, request.ItemId, ShapeOf, player) is not { } move)
         {
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e8 Ctrl + click item {request.ItemId} on the map device: refused (not there, wrong class or no room) ({request})");
             return;

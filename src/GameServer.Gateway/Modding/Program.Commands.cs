@@ -85,7 +85,7 @@ public partial class Program
                     $"override(s); {GameDataCatalog.Summary}");
             }
             catch (Exception e) when (e is IOException or Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
-                or System.Text.Json.JsonException)
+                or System.Text.Json.JsonException or InvalidDataException)
             {
                 await player.Commands!.Reply($"Reload failed, the previous data stays: {e.Message}");
             }

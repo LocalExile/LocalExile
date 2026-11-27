@@ -23,7 +23,7 @@ public sealed class BreachModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(_encounter.Clear));
-        module.Lifetime.Own(RegisterDeliriumPauseSource(p => p.Instance is { } inst && _encounter.Of(inst)?.Breaches.Any(b => b.Open) == true));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
         // Placed with the instance's population (the Anarchy pattern), once per instance: a kept instance keeps its own.
         GameEvents.AreaPopulated.Add(id, async area =>
         {

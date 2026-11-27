@@ -288,7 +288,8 @@ public static partial class Game
         await SendVaalSouls(player);
         await SendRage(player);
         await EndAurasOnDeath(player);
-        var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player);
+        decimal xpPenalty = await GameEvents.ResolveDeathPenaltyPct(player, DeathExperiencePenaltyPercent(player));
+        var (xpPenaltyPct, xpBefore, xpAfter) = ApplyDeathExperiencePenalty(player, xpPenalty);
         if (xpAfter != xpBefore)
             await Send(player, InstanceEntities.PlayerExperienceUpdate(player.Id, xpAfter),
                 $"0x02bc death XP penalty -{xpPenaltyPct}% ({xpBefore} -> {xpAfter})");
@@ -297,6 +298,8 @@ public static partial class Game
                 $"0x0017 death XP penalty chat ({xpPenaltyPct}%)");
         int deaths = player.PlayerDeaths;
         await SendPlayerDeathPresentation(player, label, deathEpoch, deaths, deathKind);
+        await GameEvents.RunPlayerDied(player, xpBefore - xpAfter);
+        await GameEvents.RunPlayerDeath(new PlayerDiedContext(player, deathKind, deaths, player.Character.Hardcore, xpBefore - xpAfter));
     }
 
     public static Task SendPlayerDeathPresentation(Player player, string label, int deathEpoch, int deaths, byte deathKind = InstanceProtocol.DeathKindNormal) => SendWorldBatch(player, [], admission =>
@@ -1295,27 +1298,28 @@ public static partial class Game
                         IncomingStat(IncomingResourceDefences.BypassStat), now, ref player.NonChaosDotBypassCarry);
                     RecordRechargeLifeDamage(player, Math.Max(lifeBurn, lifeTrap), now, recoveryStats);
                     double lifeRecharge = AdvanceKeystoneRecovery(player, recoveryFrom, now, lifeBefore < lifeCap, RecoveryStat);
+                    int recoveryCeilingPct = PetrifiedBlood.RecoveryCeilingPct(RecoveryStat);
+                    uint esCeiling = recoveryCeilingPct < 100
+                        ? (uint)((long)player.EnergyShield.Maximum * recoveryCeilingPct / 100) : player.EnergyShield.Maximum;
                     player.EnergyShield.Advance(recoveryFrom, now, RecoveryStat, true);
                     double periodicLife = periodicRegenStart is double start ? periodicRegenPerSecond
                         * (PeriodicRegenSeconds(now - start) - PeriodicRegenSeconds(recoveryFrom - start)) : 0;
-                    player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0));
+                    player.EnergyShield.Gain(leeched.EnergyShield + (convertLifeRegen ? lifeRate * seconds + periodicLife : 0), esCeiling);
                     double fortificationLife = FortificationOf(player).TakeRecovery(AreaTime(player));
-                    if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife);
+                    if (convertLifeRegen) player.EnergyShield.Gain(fortificationLife, esCeiling);
                     double wardBreakLife = player.WardBreak.TakeRecovery(now) * (noRegeneration ? 0 : mapRecovery);
-                    if (convertLifeRegen) player.EnergyShield.Gain(wardBreakLife);
-                    double enduringCryLife = player.EnduringCryRecovery.Take(now) * (noRegeneration ? 0 : mapRecovery);
+                    if (convertLifeRegen) player.EnergyShield.Gain(wardBreakLife, esCeiling);
                     double unhingedHitLife = player.Unhinged.HitRecovery.Take(now);
                     if (noRegeneration) unhingedHitLife = 0;
-                    if (convertLifeRegen) player.EnergyShield.Gain(enduringCryLife);
                     double preventedLife = PreventedDamageOf(player).Take(recoveryFrom, now, preventedPerSecond);
-                    if (convertLifeRegen) player.EnergyShield.Gain(preventedLife);
-                    if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife);
+                    if (convertLifeRegen) player.EnergyShield.Gain(preventedLife, esCeiling);
+                    if (convertLifeRegen) player.EnergyShield.Gain(unhingedHitLife, esCeiling);
                     double recoupLife = player.LifeRecoup.Take(now) * mapRecovery;
-                    AdvanceShieldRecoupLocked(player, now, RecoveryStat, mapRecovery);
+                    AdvanceShieldRecoupLocked(player, now, RecoveryStat, mapRecovery, esCeiling);
                     // Flask recovery alone may pass Low Life under Petrified Blood. Every other source, leech included,
                     // stops at the boundary; leech instances stay alive, but their recovery above Low Life is ignored.
                     double nonFlaskLife = (zealotsOath ? 0 : lifeRate * seconds + periodicLife
-                        + (fortificationLife + wardBreakLife + enduringCryLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
+                        + (fortificationLife + wardBreakLife + preventedLife + unhingedHitLife) * lifeRegenFactor)
                         + leeched.Life + recoupLife + lifeRecharge;
                     // Vaal Pact: "Cannot Recover Life other than from Leech" — only leech recovers life here; the
                     // regeneration, flask, recoup and other non-leech shares are blocked. Their Energy Shield
@@ -1323,15 +1327,18 @@ public static partial class Game
                     if (vaalPact) { nonFlaskLife = leeched.Life; life = 0; }
                     // Only the base regeneration rate is known to the client; every other source reaches it by the update.
                     lifeUnpredicted = instantLifeChanged || life > 0 || leeched.Life > 0 || recoupLife > 0 || lifeRecharge > 0
-                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0 || enduringCryLife > 0
+                        || periodicLife > 0 || fortificationLife > 0 || wardBreakLife > 0
                         || unhingedHitLife > 0 || preventedLife > 0;
                     AdvanceTincturesLocked(player, now, seconds, recoveryStats, out double tinctureManaDrain,
                         out double tinctureLifeDrain, ref deactivatedTinctures);
-                    uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1);
+                    uint afterNonFlask = PetrifiedBlood.RecoverLife(player, lifeBefore, nonFlaskLife, ref lifeCarry, minimum: 1, ceilingPct: recoveryCeilingPct);
                     uint afterBurn = (uint)Math.Max(1, (long)afterNonFlask - lifeBurn);
                     if (tinctureLifeDrain > 0)
                         afterBurn = RecoveryPool.Advance(afterBurn, lifeCap, -tinctureLifeDrain, ref player.TinctureEffects.LifeBurnCarry, minimum: 1);
-                    player.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, lifeCap, life, ref flaskCarry);
+                    uint flaskCap = recoveryCeilingPct < 100
+                        ? Math.Min(lifeCap, Math.Max(afterBurn, (uint)((long)player.PlayerMaxLife * recoveryCeilingPct / 100)))
+                        : lifeCap;
+                    player.PlayerLife = lifeAfter = RecoveryPool.Advance(afterBurn, flaskCap, life, ref flaskCarry);
                     if (player.BladefallTrarthus is { PaysLife: true, Ended: false, OutOfLife: false } blades)
                     {
                         uint payment = Lifetap.PayOngoingLife(lifeAfter, blades.CostPerMinute * seconds / 60,
@@ -1448,7 +1455,6 @@ public static partial class Game
         LeechOf(player).TakeRecovery(now);
         FortificationOf(player).TakeRecovery(now);
         player.WardBreak.TakeRecovery(now);
-        player.EnduringCryRecovery.Take(now);
         player.Unhinged.HitRecovery.Take(now);
         player.LifeRecoup.Take(now);
         if (ShieldRecoup.TryGetValue(player, out var recoup)) recoup.Take(now);
@@ -1591,9 +1597,17 @@ public static partial class Game
 
     /// <summary>Applies the Standard death XP penalty, clamped to the current level's starting XP so a character never
     /// de-levels, and persists the updated experience. Lock order matches <see cref="RecordExperienceGain"/>.</summary>
-    public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player)
+    public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player) =>
+        ApplyDeathExperiencePenalty(player, DeathExperiencePenaltyPercent(player));
+
+    public static (int Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player, int percent)
     {
-        int percent = DeathExperiencePenaltyPercent(player);
+        var result = ApplyDeathExperiencePenalty(player, (decimal)percent);
+        return ((int)result.Percent, result.Before, result.After);
+    }
+
+    static (decimal Percent, uint Before, uint After) ApplyDeathExperiencePenalty(Player player, decimal percent)
+    {
         if (percent <= 0) return (0, player.Character.Experience, player.Character.Experience);
         var updates = LevelUpdatesFor(player);
         uint before, after;
@@ -1609,7 +1623,7 @@ public static partial class Game
                 if (level < 1 || level >= CharacterStats.LevelStarts.Count) return xp;
                 uint floor = CharacterStats.LevelStarts[level - 1];
                 uint next = CharacterStats.LevelStarts[level];
-                ulong loss = (ulong)(next - floor) * (ulong)percent / 100UL;
+                ulong loss = (ulong)((next - floor) * percent / 100);
                 return xp > floor + loss ? (uint)(xp - loss) : floor;
             });
             if (after != before)
@@ -2012,6 +2026,7 @@ public static partial class Game
                             player.SentVaalSouls.Add(budget.ActiveSkillsRow, budget);
                         // A new player object has no buffs: every system's are written again.
                         player.Area.Buffs.Removed(player.Id);
+                        PresentCarriedEnduringCry(player);
                         player.LeechDisplay.Clear();
                         player.PetrifiedBlood.PresentedLossBuff = 0;
                         player.PetrifiedBlood.SentLossPerMinute = 0;

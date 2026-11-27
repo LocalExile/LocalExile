@@ -64,6 +64,61 @@ public sealed class GameDataStore : IDisposable
         }
     }
 
+    public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,
+        IReadOnlyList<(string Kind, string Key)> Sources, IReadOnlyList<(string Trigger, string Args, long? RollOrder)> When,
+        IReadOnlyList<(int Group, string Condition, bool Negate, string Args)> If,
+        IReadOnlyList<(string Action, string Args, string Target, string TargetArgs, string Value, string Timers)> Do)
+    {
+        public long? KillChargeOrder { get; init; }
+    }
+
+    public IReadOnlyList<FxRuleRow> LoadFxRules()
+    {
+        lock (_gate)
+        {
+            using var transaction = _db.BeginTransaction(deferred: true);
+            SqliteCommand Read(string sql)
+            {
+                var command = Command(sql);
+                command.Transaction = transaction;
+                return command;
+            }
+            var sources = new Dictionary<string, List<(string, string)>>(StringComparer.Ordinal);
+            var when = new Dictionary<string, List<(string, string, long?)>>(StringComparer.Ordinal);
+            var conditions = new Dictionary<string, List<(int, string, bool, string)>>(StringComparer.Ordinal);
+            var actions = new Dictionary<string, List<(string, string, string, string, string, string)>>(StringComparer.Ordinal);
+            static List<T> Of<T>(Dictionary<string, List<T>> map, string rule) =>
+                map.TryGetValue(rule, out var list) ? list : map[rule] = [];
+            using (var command = Read("SELECT rule, kind, key FROM fx_rule_sources ORDER BY rule, ord"))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read()) Of(sources, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2)));
+            using (var command = Read("SELECT rule, trigger, args, roll_order FROM fx_rule_when ORDER BY rule, ord"))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read()) Of(when, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetInt64(3)));
+            using (var command = Read("SELECT rule, grp, condition, negate, args FROM fx_rule_if ORDER BY rule, grp, ord"))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read())
+                    Of(conditions, reader.GetString(0)).Add((reader.GetInt32(1), reader.GetString(2), reader.GetInt32(3) != 0, reader.GetString(4)));
+            using (var command = Read("SELECT rule, action, args, target, target_args, value, timers FROM fx_rule_do ORDER BY rule, ord"))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read())
+                    Of(actions, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                        reader.GetString(4), reader.GetString(5), reader.GetString(6)));
+            var result = new List<FxRuleRow>();
+            using (var command = Read("SELECT id, book, title, replaces, status, kill_charge_order FROM fx_rules WHERE enabled = 1 ORDER BY kill_charge_order, id"))
+            using (var reader = command.ExecuteReader())
+                while (reader.Read())
+                {
+                    string id = reader.GetString(0);
+                    result.Add(new(id, reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
+                        reader.GetString(4), Of(sources, id), Of(when, id), Of(conditions, id), Of(actions, id))
+                    { KillChargeOrder = reader.IsDBNull(5) ? null : reader.GetInt64(5) });
+                }
+            transaction.Commit();
+            return result;
+        }
+    }
+
     public IReadOnlyList<ModStatOverride> LoadModRanges()
     {
         lock (_gate)

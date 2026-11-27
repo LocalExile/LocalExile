@@ -235,6 +235,7 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainEarthshatterDetonations();
                         DrainInfernalBlowDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
@@ -258,6 +259,7 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainEarthshatterDetonations();
                     DrainInfernalBlowDeaths();
                     Runtime.AdvanceTo(at);
                 }
@@ -333,13 +335,16 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearEarthshatterSpikes();
             ClearProjectileBladeSources();
+            ClearBladeVortices();
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
+            ClearConvictionWaves();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -781,7 +786,7 @@ public static partial class Game
         bool Wall(int x, int y, int clearance) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
             || Player.Layout.GridH > 0 && y >= Player.Layout.GridH
             || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y, clearance) == true
-            || Player.ProjectileWalls.Contains((x, y));
+            || Player.ProjectileWalls.Contains((x, y)) || Player.SightBarrier.Contains((x, y));
 
         int? Height(int x, int y)
         {
@@ -936,7 +941,7 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -965,7 +970,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
+            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;
             int chance = secondForm && shot.SecondFormCriticalChance is int second
@@ -1218,6 +1223,7 @@ public static partial class Game
                     var at = visual.SpawnedAt;
                     float angle = (float)Math.Atan2(p.Direction.X, -p.Direction.Y);
                     visual.Orientation = angle;
+                    visual.PendingOrientation = angle;
                     var obj = new ProjectileObject(p.Profile.Id, (int)Math.Round(at.X), (int)Math.Round(at.Y),
                         angle,
                         Team: p.Use.Team == 1 ? (ushort)0 : (ushort)1,
@@ -1306,7 +1312,8 @@ public static partial class Game
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
-            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null)
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
+            Action<Action<int, int, float>>? captureMovement = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1341,6 +1348,8 @@ public static partial class Game
                     ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
             Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), Remove);
             captureRemoval?.Invoke(Remove);
+            captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
+                ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
             void Remove()
             {
                 if (visual.Ended) return;
@@ -1498,7 +1507,9 @@ public static partial class Game
             if (p.Direction.Length <= 0) return [stop, move];
             float angle = (float)Math.Atan2(p.Direction.X, -p.Direction.Y);
             visual.PendingOrientation = angle;
-            if (MathF.Abs(angle - visual.Orientation) <= 1e-4f) return [stop, move];
+            float delta = MathF.Abs(angle - visual.Orientation);
+            if (delta > MathF.PI) delta = MathF.Tau - delta;
+            if (delta <= 1e-4f) return [stop, move];
             var orient = InstanceProtocol.Orientation(visual.Id, angle);
             return [stop, orient, move];
         }

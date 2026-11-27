@@ -12,7 +12,7 @@ public sealed class AbyssModule : IModule
 {
     readonly AbyssEncounter _encounter = new();
 
-    public static void LoadData() => AbyssTables.LoadGameData();
+    public static void LoadData() { AbyssTables.LoadGameData(); AbyssScarabs.Load(); }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
@@ -20,14 +20,15 @@ public sealed class AbyssModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(_encounter.Clear));
-        module.Lifetime.Own(RegisterDeliriumPauseSource(p => _encounter.Of(p) is { } s
-            && (s.Stage == AbyssEncounter.Stage.Wave || (s.Stage == AbyssEncounter.Stage.Arms && s.Arms.Any(a => a.StartedAt is not null)))));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
+        GameEvents.MapOpening.Add(id, AbyssScarabs.Opening);
         GameEvents.AreaPopulated.Add(id, area =>
         {
             if (_encounter.Place(area) is { } why) module.Log(why);
             return Task.CompletedTask;
         });
         GameEvents.PlayerEntered.Add(id, _encounter.Entered);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => _encounter.KeepBodies(player));
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, seconds) =>
             _encounter.Of(player) is null ? Task.CompletedTask : _encounter.Advance(player, seconds)));
         GameEvents.Kill.Add(id, _encounter.Killed);

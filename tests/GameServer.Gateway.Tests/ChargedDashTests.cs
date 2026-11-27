@@ -115,6 +115,50 @@ public sealed class ChargedDashTests
         }
     }
 
+    [Fact]
+    public async Task Aborting_a_paid_channel_preserves_its_replacement_and_retires_the_matching_dash_without_a_release()
+    {
+        var clock = new HeldClock();
+        using var fixture = new TriggeredSummonTests.Fixture(clock);
+        var player = fixture.Player;
+        var start = (X: 100, Y: 100);
+        var aim = (X: 180, Y: 100);
+        player.Use(new(1, "dash-test", 400, 400, start.X, start.Y, (_, _) => true, []) { Sight = (_, _) => 2 });
+        player.Walk.Teleport(start.X, start.Y, clock.At);
+        var items = Game.ItemsOf(player);
+        uint weapon = items.Items(PlayerInventories.Weapon1).Single().Id;
+        items.Change(PlayerInventories.Weapon1, weapon, _ => ItemCatalog.Create(Program.Items.Find("Rusted Sword")!));
+        ushort skill = Assert.Single(fixture.Equip(("Charged Dash", 1)));
+        player.ProjectileRuntimeState = fixture.Session;
+        fixture.Session.AdvanceTo(ProjectileRuntime.Time(clock.At));
+        var saved = Game.AreaUpdateContext.Value;
+        Game.AreaUpdateContext.Value = new(fixture.Lifetime, clock);
+        try
+        {
+            int effect = Game.SupportedSkill(player, skill).Effect;
+            int stale = Game.BeginPaidChannel(player, skill, effect, player.ActionCount, 0x8001);
+            Assert.True(await Game.CastGemSkill(player, skill, start, aim, sequence: 0x8002));
+            var replacement = player.PaidChannel;
+            int active = player.ChannelGeneration;
+            Assert.NotEqual(stale, active);
+            Assert.NotNull(replacement);
+
+            clock.At += 1.1;
+            Game.AbortStartedChannel(player, stale);
+            Assert.Same(replacement, player.PaidChannel);
+            Assert.Equal(skill, player.ChannelSkill);
+            Assert.Equal(active, player.ChannelGeneration);
+
+            Game.AbortStartedChannel(player, active);
+            Assert.Null(player.PaidChannel);
+            Assert.Equal(0, player.ChannelSkill);
+            Assert.Equal(active + 1, player.ChannelGeneration);
+            clock.Advance(1);
+            Assert.Equal(start, player.Walk.Position(clock.At));
+        }
+        finally { Game.AreaUpdateContext.Value = saved; }
+    }
+
     sealed class HeldClock : IPlayerUpdateSchedule
     {
         readonly List<(double When, TaskCompletionSource Tcs)> waits = [];

@@ -206,6 +206,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Mercenaries: a map area may hold one to talk to, duel and hire.
   The duel opponent fights with the skills its build lists (MercenaryBuilds, MercenarySkills), filtered by its level.
   Docs: [league encounters](../docs/game/league-encounters.md).
+- Ritual: maps and Act 2 campaign altars, waves, Tribute, Favour window, Vessels, Scarabs, Atlas, and Omens.
+  Docs: [league encounters](../docs/game/league-encounters.md).
 - Population follows local gates and waits for walkability; isolated pockets stay empty and cleared saves stay cleared.
 
 - Native variety weapons, helmets, back attachments, `MonsterArmours` slots, and deterministic non-zero `Actor`

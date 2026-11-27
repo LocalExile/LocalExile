@@ -19,6 +19,7 @@ public sealed record GroundBladeObject(int GridX, int GridY, float Rotation, uin
 
     /// <summary>The Animated component's index in the type's component order, for its 0x2bc update.</summary>
     public const byte AnimatedIndex = 2;
+    public const byte TransitionableIndex = 3;
 
     public byte[] Blob()
     {

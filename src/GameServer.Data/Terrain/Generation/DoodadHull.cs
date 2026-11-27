@@ -109,14 +109,24 @@ public sealed partial class Walkability
     /// <summary>The cells <see cref="Stamp"/> closes to walking (the walk and projectile shapes), for an object the client
     /// stamps when it is created (a static one: 0x141d8bd20 calls <c>0x141d8ad70</c>), which the server's walk map must
     /// close too.</summary>
-    public static HashSet<(int X, int Y)> WalkCells(DoodadHull hull, PlacedDoodad d)
+    public static HashSet<(int X, int Y)> WalkCells(DoodadHull hull, PlacedDoodad d) =>
+        HullShapeCells(hull, d, includeWalk: true, includeProjectile: true);
+
+    /// <summary>The cells <see cref="Stamp"/> closes to sight/projectiles (layer 1: projectile shapes only, matching
+    /// <c>0x141d8ad70</c>'s <c>(1, 1)</c> stamp). Walk-only doors such as prison grates return an empty set.</summary>
+    public static HashSet<(int X, int Y)> SightCells(DoodadHull hull, PlacedDoodad d) =>
+        HullShapeCells(hull, d, includeWalk: false, includeProjectile: true);
+
+    static HashSet<(int X, int Y)> HullShapeCells(DoodadHull hull, PlacedDoodad d, bool includeWalk, bool includeProjectile)
     {
         var cells = new HashSet<(int X, int Y)>();
         float c = MathF.Cos(d.Angle) * d.Scale, s = MathF.Sin(d.Angle) * d.Scale;
         float xx = d.Mirrored ? -c : c, yx = -s, xy = d.Mirrored ? -s : s, yy = c;
         (float, float) Turn(float x, float y) => (x * xx + y * yx, x * xy + y * yy);
         int swap = d.Mirrored ? 1 : 0;
-        foreach (int shapes in new[] { 0, 1 })
+        for (int shapes = 0; shapes <= 1; shapes++)
+        {
+            if (shapes == 0 && !includeWalk || shapes == 1 && !includeProjectile) continue;
             foreach (var section in hull.Sections)
             {
                 foreach (var t in section.Triangles[shapes])
@@ -133,6 +143,7 @@ public sealed partial class Walkability
                             if (dx * dx + dy * dy < squared) cells.Add((d.X + ox + dx, d.Y + oy + dy));
                 }
             }
+        }
         return cells;
     }
 

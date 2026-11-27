@@ -156,6 +156,12 @@ public sealed class StashRules
     /// <summary>Whether this item type is a quest item (QuestItem class or Quest component) that cannot be stashed.</summary>
     public bool IsQuestItem(uint itemType) => _questItems.Contains(itemType);
 
+    static readonly int[] NoAffinities = [];
+
+    /// <summary>The <c>StashTabAffinityId</c> rows that apply to <paramref name="itemType"/>, or empty when none.</summary>
+    public IReadOnlyCollection<int> AffinitiesOf(uint itemType) =>
+        _affinities.TryGetValue(itemType, out var affinities) ? affinities : NoAffinities;
+
     public bool Holds(byte tabType, uint itemType) =>
         !_questItems.Contains(itemType) && !NotShown(tabType) && (IsGrid(tabType) || !Loaded
             || (_affinities.TryGetValue(itemType, out var a) && a.Any(x => _heldBy.TryGetValue(x, out var t) && t.Contains(tabType))));

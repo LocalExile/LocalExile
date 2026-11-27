@@ -1972,6 +1972,7 @@ public static partial class Game
     public static async Task<int> AwardAscendancyPoints(Player player,
         IEnumerable<string> awards)
     {
+        if (HardcoreProgressBlocked(player)) return player.Character.MainAscendancy.EarnedPoints;
         byte baseClass = (byte)Skills.ClassFor(player.Character.ClassRow).IntegerId;
         AscendancyProgress next;
         {
@@ -1986,9 +1987,21 @@ public static partial class Game
             AscendancyPolicies.SelectionChanged(player);
             player.Character.SavedPassiveProgress = new(next, player.Character.Passives, player.Character.MasteryEffects, player.Character.RefundPoints);
         }
-        await SendPassives(player);
+        if (!player.Closed && player.Connection.PlayerSent) await SendPassives(player);
         await CheckAscendancyAwardAchievements(player, awards);
         return next.EarnedPoints;
+    }
+
+    /// <summary>Sets the character's passive refund points, persists them, refreshes <c>SavedPassiveProgress</c>,
+    /// and sends 0x0033 when connected.</summary>
+    public static async Task<ushort> SetRefundPoints(Player player, ushort points)
+    {
+        if (HardcoreProgressBlocked(player)) return player.Character.RefundPoints;
+        CharacterSaves.SetRefundPoints(CharacterName(player), points);
+        player.Character.RefundPoints = points;
+        player.Character.SavedPassiveProgress = new(player.Character.MainAscendancy, player.Character.Passives, player.Character.MasteryEffects, points);
+        if (!player.Closed && player.Connection.PlayerSent) await SendPassives(player);
+        return points;
     }
 
     // The second ascendancy layer (Descendancy.dat): Affliction's Wildwood specialisations and the 3.29 Bloodline
@@ -2509,6 +2522,21 @@ public static partial class Game
         if (gain == 0 || HardcoreProgressBlocked(player)) return ([], false);
         double gemShare = LeagueFor(player).Rules.GemExperienceMultiplier ?? 1.0;
         int share = LeagueGameplay.GemExperience(gain, gemShare, ref player.Character.GemExperienceCarry);
+        return CommitGemShare(player, share, projectRows);
+    }
+
+    // A direct gem XP award is already the amount for each eligible gem.
+    public static async Task GrantGemExperience(Player player, int share)
+    {
+        if (HardcoreProgressBlocked(player)) return;
+        var (packets, leveled) = CommitGemShare(player, share, null);
+        foreach (var packet in packets) await Send(player, packet, "gem experience");
+        if (leveled) await SendSkills(player);
+    }
+
+    static (List<byte[]> Packets, bool Leveled) CommitGemShare(Player player, int share,
+        List<(byte Row, uint[] Items)>? projectRows)
+    {
         if (share <= 0) return ([], false);
         var items = ItemsOf(player);
         var catalog = ItemsFor(player);
