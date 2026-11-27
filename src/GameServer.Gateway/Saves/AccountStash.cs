@@ -349,6 +349,11 @@ public sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _tabs.Any(tab => tab.Items.Any(item => match(item.Item)));
+    }
+
     /// <summary>The tabs the player sees, in folders or not. A map tab's 191 hidden pages are children with a unique
     /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
     public int VisibleCount

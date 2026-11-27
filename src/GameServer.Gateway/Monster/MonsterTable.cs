@@ -9,13 +9,15 @@ public sealed class MonsterTable(GameArea area) : SortedDictionary<uint, Spawned
 {
     readonly ConcurrentDictionary<SpawnedMonster, byte> marked = new(ReferenceEqualityComparer.Instance);
 
+    // Adding, replacing or removing a body changes which monsters are alive, so the living-monster cache
+    // (GameArea.SyncLivingMonsters) must rebuild even when the table's count comes back to the same value.
     public new SpawnedMonster this[uint id]
     {
         get => base[id];
-        set { area.AssertOwner(); base[id] = value; Join(id, value); }
+        set { area.AssertOwner(); base[id] = value; Join(id, value); area.MonstersVersion++; }
     }
 
-    public new void Add(uint id, SpawnedMonster monster) { area.AssertOwner(); base.Add(id, monster); Join(id, monster); }
+    public new void Add(uint id, SpawnedMonster monster) { area.AssertOwner(); base.Add(id, monster); Join(id, monster); area.MonstersVersion++; }
 
     public bool TryAdd(uint id, SpawnedMonster monster)
     {
@@ -32,6 +34,7 @@ public sealed class MonsterTable(GameArea area) : SortedDictionary<uint, Spawned
         if (!TryGetValue(id, out monster!) || !base.Remove(id)) return false;
         marked.TryRemove(monster, out _);
         area.Grid.Remove(new(id));
+        area.MonstersVersion++;
         return true;
     }
 
@@ -41,6 +44,7 @@ public sealed class MonsterTable(GameArea area) : SortedDictionary<uint, Spawned
         foreach (var id in Keys) area.Grid.Remove(new(id));
         base.Clear();
         marked.Clear();
+        area.MonstersVersion++;
     }
 
     // Its marks come here from now on, a monster new to the table is stepped once (its first build), and it is in the

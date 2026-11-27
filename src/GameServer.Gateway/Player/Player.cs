@@ -1169,6 +1169,18 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public void SetBlocker(uint id, int x, int y, int size, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, null);
 
+    public void SetRingBlocker(uint id, int x, int y, double ringRadius)
+    {
+        lock (_blockers)
+        {
+            actorOrChestBlockers.Remove(id);
+            _blockers[id] = new(x, y, 0) { RingRadius = ringRadius };
+            _blockerList = new GameServer.Core.World.BlockerSet(_blockers.Values);
+            sceneryBlockers = null;
+        }
+        BlockersChanged?.Invoke();
+    }
+
     public void SetObjectBlocker(uint id, int x, int y, int size, bool actorOrChest, double? collisionRadius = null) =>
         UpdateBlocker(id, x, y, size, collisionRadius, actorOrChest);
 
@@ -1261,6 +1273,9 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // spike traps close, by id.
     public readonly Dictionary<uint, AreaPopulation.RoomObject> TrialObjects = [];
     public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> DoorBarriers = [];
+    // Optional per-door sight/projectile layer overrides (layer 1: proj_tri/proj_circle only). Doors absent from this
+    // map default to blocking both walking and sight; walk-only grates register an empty set so blink/dash can cross.
+    public readonly Dictionary<uint, IReadOnlySet<(int X, int Y)>> SightDoorBarriers = [];
     // Cells server objects' Hull projectile shapes close to the server's projectiles, as the client stamps them into its
     // own projectile map (a trial's dart turrets). Changed and read in the area's frame.
     public readonly HashSet<(int X, int Y)> ProjectileWalls = [];
@@ -1268,10 +1283,28 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     // QuestRoomObjects' and DoorBarriers' cells.
     public volatile IReadOnlySet<(int X, int Y)> Barrier = new HashSet<(int X, int Y)>();
 
-    /// <summary>Recomputes <see cref="Barrier"/> from the standing quest walls and closed doors; the player's walk estimate
-    /// reads it on its next order (call in the area's frame).</summary>
-    public void UpdateBarrier() =>
-        Barrier = new HashSet<(int X, int Y)>(QuestRoomObjects.Values.SelectMany(o => o.Cells).Concat(DoorBarriers.Values.SelectMany(c => c)));
+    sealed class DoorLayers(IEnumerable<(int X, int Y)> walk, IReadOnlySet<(int X, int Y)> sight)
+        : HashSet<(int X, int Y)>(walk)
+    {
+        public IReadOnlySet<(int X, int Y)> Sight { get; } = sight;
+    }
+
+    public IReadOnlySet<(int X, int Y)> SightBarrier => Barrier switch { DoorLayers layers => layers.Sight, var walk => walk };
+
+    public void UpdateBarrier()
+    {
+        var quest = QuestRoomObjects.Values.SelectMany(o => o.Cells);
+        var walk = quest.Concat(DoorBarriers.Values.SelectMany(c => c));
+        if (SightDoorBarriers.Count == 0)
+        {
+            Barrier = walk.ToHashSet();
+            return;
+        }
+        var sight = quest.ToHashSet();
+        foreach (var (id, cells) in DoorBarriers)
+            sight.UnionWith(SightDoorBarriers.TryGetValue(id, out var custom) ? custom : cells);
+        Barrier = new DoorLayers(walk, sight);
+    }
     // The player's attacks: the next time one may start (Clock seconds). The client repeats 0x24 while the button is held.
     public double NextAttackAt;
     // Counts the player's actions; an attack's hit lands only if no other action started since (moving cancels it).
@@ -1282,7 +1315,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly WardState Ward = new();
     public readonly WardBreakState WardBreak = new();
     public double WitchbaneImmunityUntil;
-    public readonly TimedLifeRecovery EnduringCryRecovery = new();
     /// <summary>Petrified Blood's buff, reservation, deferred hit loss and life-cost rules (Combat/PetrifiedBlood.cs).</summary>
     public readonly PetrifiedBloodState PetrifiedBlood = new();
     /// <summary>Lifetap Support's life-paid costs, spent-Life counter and buff (Combat/Lifetap.cs).</summary>
@@ -1293,8 +1325,6 @@ public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : 
     public readonly LeechDisplayState LeechDisplay = new();
     // Life Recoup of the hits the player took (Game.RecoupHitLocked), paid by the resource recovery loop.
     public readonly RecoupRecovery LifeRecoup = new();
-    public double SentEnduringCryUntil = double.NaN;
-    public ushort EnduringCryBuff;
     public bool AppliedAdrenaline;
     public (uint Maximum, bool Broken)? SentWard;
     public double SentAdrenalineUntil = double.NaN;

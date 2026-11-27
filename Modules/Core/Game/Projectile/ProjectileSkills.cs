@@ -34,6 +34,8 @@ public static partial class Game
         foreach (string effect in new[] { "ForbiddenRite", "ForbiddenRiteAltX" })
             definitions[effect] = SkillProjectileDefinition(effect, ForbiddenRitePrimary,
                 SkillProjectileParameters(effect, ForbiddenRitePrimary));
+        definitions[AvengingFlameEffect] = SkillProjectileDefinition(AvengingFlameEffect, InfernalBoltProjectile,
+            SkillProjectileParameters(AvengingFlameEffect, InfernalBoltProjectile));
         RegisterSpectralShieldThrows(definitions);
         RegisterEyeOfWinter(definitions);
         const string boneLance = "Metadata/Projectiles/BoneLance";

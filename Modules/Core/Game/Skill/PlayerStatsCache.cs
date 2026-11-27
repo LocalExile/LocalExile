@@ -83,6 +83,7 @@ public static partial class Game
         // The items the steps last saw, and their change count (StatInput.Items).
         public PlayerInventories? Items;
         public long ItemChanges;
+        public int WorldRevision;
     }
 
     // The pools from what they are built of now (a new Pools marks the steps that read them). Smaller pools hold no more
@@ -294,10 +295,12 @@ public static partial class Game
                 if (times.Any(t => (t.Now?.Invoke() ?? clock) >= t.At)) { frame.Timed.Remove(step); graph.MarkRule((int)step); }
         if (clock >= frame.MovingCheckAt) PlayerStatInputChanged(player, StatInput.Walk);
         var items = ItemsOfUnread(player);
-        if (!ReferenceEquals(items, frame.Items) || items.Changes != frame.ItemChanges)
+        // A world reload can change granted skills and kill rolls on otherwise identical equipment.
+        int worldRevision = GameData.Current.Revision;
+        if (!ReferenceEquals(items, frame.Items) || items.Changes != frame.ItemChanges || frame.WorldRevision != worldRevision)
         {
             if (frame.Items is not null) graph.MarkInput((int)StatInput.Items);
-            (frame.Items, frame.ItemChanges) = (items, items.Changes);
+            (frame.Items, frame.ItemChanges, frame.WorldRevision) = (items, items.Changes, worldRevision);
         }
         runningFrame = frame;
         bool built;
@@ -386,7 +389,6 @@ public static partial class Game
         On([PlayerStatStep.SpiritLeadership], a => player.SpiritChieftains.Changed = a);
         On([PlayerStatStep.Ward], a => player.Ward.Changed = a);
         On([PlayerStatStep.Sources, PlayerStatStep.TimedRecovery], a => player.WardBreak.Changed = a);
-        On([PlayerStatStep.TimedRecovery], a => player.EnduringCryRecovery.Changed = a);
         On([PlayerStatStep.TotemAura], a => player.Totems.Changed = a);
         On([PlayerStatStep.Rampage], a => player.Rampage.Changed = a);
         On(PlayerStatChangeReaders[(int)PlayerStatChange.Leech], a => LeechOf(player).Changed = a);
