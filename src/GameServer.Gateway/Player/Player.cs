@@ -442,6 +442,10 @@ public sealed class SpawnedMonster(string label, PlayerWalk walk, int aggroRange
     /// them": your modifiers do not apply), so it carries no <c>is_player_minion</c> stat, takes no minion modifier, is
     /// not in <see cref="PlayerMinions"/> and counts towards no minion limit.</summary>
     public bool AlliedFighter;
+    /// <summary>An allied companion bound to a player (distinct from summoned minions and shrine allies).</summary>
+    public bool IsAlliedCompanion;
+    /// <summary>True when this allied companion is a permanent follower (eligible for permanent-companion passives and links).</summary>
+    public bool IsPermanentCompanion;
     public int Overkill;
     public readonly MonsterIgnites HeraldBurns = new();
     public double SummonReadyAt;
@@ -931,8 +935,32 @@ public sealed record ChooserList(ushort Area, IReadOnlyList<ulong> Ids, bool AtW
 /// steps that read them.</summary>
 public enum StatInput : byte { Pools, Life, Mana, EnergyShield, Walk, VaalPrevention, RecentEvents, Items, Passives, RecentEnemyHits, FlaskEffects, EnemyHit }
 
+/// <summary>An active allied companion accompanying a player in the current area (for example, an invited mercenary
+/// follower). Owned by the module that spawned it and cleared when the companion leaves or dies.</summary>
+public sealed class ActiveCompanion(uint entityId, SpawnedMonster monster, bool isPermanent)
+{
+    public uint EntityId { get; } = entityId;
+    public SpawnedMonster Monster { get; } = monster;
+    public bool IsPermanent { get; } = isPermanent;
+
+    /// <summary>Number of unique items currently equipped on this companion (for per-unique scaling stats).</summary>
+    public int EquippedUniqueCount { get; set; }
+
+    /// <summary>Synchronous hit/diversion damage handler invoked inside a locked combat frame; returns actual life
+    /// damage taken by the companion.</summary>
+    public Func<Player, int, double, int>? ApplyDamageLocked { get; init; }
+
+    /// <summary>Asynchronous damage handler for out-of-frame callers; returns actual life damage taken.</summary>
+    public Func<Player, int, double, Task<int>>? ApplyDamageAsync { get; init; }
+
+    /// <summary>Optional callback invoked synchronously when this companion hits a hostile monster.</summary>
+    public Action<Player, SpawnedMonster>? OnHitEnemy { get; init; }
+}
+
 public sealed partial class Player(AreaLayout layout, uint ticket, uint seed) : IHasComponents
 {
+    /// <summary>The player's currently spawned allied companion in this area, if any.</summary>
+    public ActiveCompanion? Companion { get; set; }
     /// <summary>The character this player entity is (its save data).</summary>
     public Character Character => character ??= new() { StatsChanged = MarkStatsDirty };
     Character? character;

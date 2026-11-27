@@ -866,6 +866,8 @@ public static partial class Game
             bool paysLife = Lifetap.ConvertsCostToLife(own, stats);
             if (Get(Stat.BaseManaCostPctPerMinute) is int costPct and > 0)
                 Publish(Stat.ManaCostPerMinute, BladefallVolleys.ManaPerMinute(costPct, paysLife ? player.Pools.Life : player.Pools.Mana));
+            else if ((skills.HasType(effect, "Link") || IsLinkSkill(player, effect)) && Get(Stat.ManaCostPerMinute) is int linkCost and > 0)
+                Publish(Stat.ManaCostPerMinute, EffectiveLinkCostPerMinute(linkCost, playerStats.GetValueOrDefault, own.GetValueOrDefault));
             // Network skill stats skip the client's cost-conversion calculators (0x141eedb80 reads mana_cost and
             // life_cost directly). Publish the final admitted Mana and Life costs on the wire so the client matches
             // server admission (Lifetap/Blood Magic, Deathmarked, Cannibalistic Rite), while leaving
