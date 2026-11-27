@@ -11,7 +11,7 @@ static partial class Game
         Stat.SupportControlledDestructionSpellDamagePlusPctFinal, Stat.SupportVoidManipulationChaosDamagePlusPctFinal,
         Stat.SupportRapidDecayDamageOverTimePlusPctFinal, Stat.SupportEfficacySpellDamagePlusPctFinal,
         Stat.SupportEfficacyDamageOverTimePlusPctFinal, Stat.SupportPhysChaosProjectileChaosDamageOverTimePlusPctFinal,
-        Stat.CrueltyDamageOverTimePlusPctFinal,
+        Stat.CrueltyDamageOverTimePlusPctFinal, Stat.SupportDivineCryDamagePlusPctFinal,
     ];
 
     /// <summary>Essence Drain (GrantedEffects <c>EssenceDrain</c>) and its transfigured versions: the debuff one projectile

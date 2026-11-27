@@ -405,7 +405,11 @@ public static class AuraCatalog
     /// effect. Heralds' buff stats are scaled by <paramref name="heraldEffectPct"/> instead ("X% increased Effect of
     /// Herald Buffs on you"); the character's own stat value is passed by the caller.</summary>
     public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
-        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0)
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct = 0) =>
+        RawStats(auras, auraEffectPct, skills, stats, heraldEffectPct, extraEffect: null);
+
+    public static IEnumerable<(uint Key, int Value)> RawStats(IEnumerable<Aura> auras, int auraEffectPct,
+        SkillCatalog skills, StatCatalog stats, int heraldEffectPct, Func<Aura, int>? extraEffect)
     {
         var result = new Dictionary<uint, int>();
         int commanderCastSpeed = 0, commanderDamage = 0;
@@ -415,6 +419,7 @@ public static class AuraCatalog
             int groupCommanderSpeed = 0;
             foreach (var aura in group)
             {
+                int addedEffect = ActorScale.Saturate((long)(aura.IsHerald ? heraldEffectPct : 0) + (extraEffect?.Invoke(aura) ?? 0));
                 if (CommanderEligible(aura, skills))
                 {
                     groupCommanderSpeed = Math.Max(groupCommanderSpeed, CommanderSpeed(aura, auraEffectPct));
@@ -525,8 +530,7 @@ public static class AuraCatalog
                 void Add(uint name, uint? source = null)
                 {
                     if (!(name is var key)) return;
-                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct,
-                        aura.IsHerald ? heraldEffectPct : 0);
+                    int value = Value(skills, stats, aura, source ?? name, auraEffectPct + aura.SupportEffectPct, addedEffect);
                     family[key] = family.TryGetValue(key, out int previous) ? Math.Max(previous, value) : value;
                 }
             }

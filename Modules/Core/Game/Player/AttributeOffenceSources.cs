@@ -25,6 +25,7 @@ public static class AttributeOffenceSources
         (Stat.XAccuracyPer2Intelligence, Stat.AccuracyRating, 2, 2),
         (Stat.BleedDurationPer12IntelligencePlusPct, Stat.BleedDurationPlusPct, 2, 12),
         (Stat.PhysicalDamageOverTimePer10DexterityPlusPct, Stat.PhysicalDamageOverTimePlusPct, 1, 10),
+        (Stat.ProjectileDamagePlusPctPer16Dexterity, Stat.ProjectileDamagePlusPct, 1, 16),
     ];
 
     static readonly (uint Input, uint Output, int Attribute, int Needed)[] Thresholds =

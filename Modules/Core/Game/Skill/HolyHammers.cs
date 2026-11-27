@@ -28,7 +28,7 @@ public static partial class Game
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem admitted,
         (int X, int Y) from, (int X, int Y) aim, ushort sequence, int repeat, AttackHand hand,
         SkillCatalog.Unarmed weapon, int? offCritical, SkillCriticalRoll critical, int radius,
-        double damageMore, double ruthless, bool exerted, double now)
+        double damageMore, double ruthless, bool exerted, double now, int? rallyingDamage)
     {
         var session = ProjectilesFor(player);
         int Get(uint key) => admitted.Stats.GetValueOrDefault(key);
@@ -86,7 +86,7 @@ public static partial class Game
                 channelGeneration: null, targetId: 0, repeat, radiusOverride: radius, once: null, repeatDelay: 0,
                 radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: Active, discharge: null, strikeIndex: 0,
                 firstContactAt: null, ruthless, priorTargets: null, scaledBlastChaos: 0, singleStrikeTarget: null,
-                onHit: _ => landed = true, scheduledSession: session, cryExerted: exerted, prepaidRawExtra: 0,
+                onHit: _ => landed = true, scheduledSession: session, cryExerted: exerted, rallyingDamage: rallyingDamage, prepaidRawExtra: 0,
                 baseChaos: 0, hammer: null, retainedAttack: attack, allowMeleeSplash: false, contactTargets: candidates);
             if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Holy Hammers contact must not yield.");
             hit.GetAwaiter().GetResult();

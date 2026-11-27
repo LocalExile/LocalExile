@@ -76,9 +76,8 @@ public static partial class Game
         if (!player.FlaskChargeCarry.CritReady(at)) return;
         var bar = CritFlaskBar(player);
         if (bar.All(f => f.Full)) return;
-        int Get(uint key) => playerStats.GetValueOrDefault(key);
         bool precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), player.FlaskChargeCarry, at, AreaRng(player).Next);
+        var gains = FlaskCharges.OnCrit(bar, PlayerFlaskCritSources(player, playerStats, precision), player.FlaskChargeCarry, at, AreaRng(player).Next);
         if (gains.Count > 0) player.Minions.FlaskRewards.Add(new(MonsterRarity.Normal, gains));
     }
 

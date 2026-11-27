@@ -13,6 +13,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     int CriticalMultiplier, string Label)
 {
     public bool WeaponAttack { get; init; }
+    internal bool DirectAttackContact { get; init; }
     public GameServer.Core.Protocol.Instance.Item? SkeletonWeaponContactSource { get; init; }
     /// <summary>Whether an attack hit counts as a projectile attack (false for non-projectile rains and secondary explosions).</summary>
     public bool? ProjectileAttack { get; init; }
@@ -24,11 +25,16 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public SpawnedMonster? BrandedTarget { get; init; }
     public object? Owner { get; init; }
     public bool IntimidatingCryExerted { get; init; }
+    internal int OtherWarcryExertions { get; init; }
+    internal int? RallyingDamage { get; init; }
     public double HitProfileMore { get; init; } = 1;
     public double AilmentProfileMore { get; init; } = 1;
     public double DotProfileMore { get; init; } = 1;
     public Func<bool>? Valid { get; init; }
     public DamagePacket? AreaHit { get; init; }
+    internal sealed record AreaAilments(MonsterIgnites.Settings Ignite, MonsterIgnites.Settings Bleed, MonsterPoisons.Settings Poison);
+    internal AreaAilments? ConeAilments { get; init; }
+    internal AreaAilments? BlindedConeAilments { get; init; }
     internal Game.ForbiddenRiteCast? ForbiddenRite { get; init; }
     public Penetration.PerType Penetration { get; init; }
     public HitResistances.Mods ResistanceMods { get; init; }
@@ -44,6 +50,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public MonsterPoisons.Settings Poison { get; init; }
     /// <summary>Essence Drain's debuff, put on every monster a projectile hit leaves alive (MonsterEssenceDrains.cs).</summary>
     public MonsterEssenceDrain.Cast? EssenceDrain { get; init; }
+
+    public DamageOverTime? TrarthusBurn { get; init; }
+    internal DamageOverTime? ConflagrationBurn { get; init; }
     internal MonsterContagion.Cast? Soulrend { get; init; }
     internal Game.FleshrendCast? Fleshrend { get; init; }
     internal double GhorrDotMore { get; init; } = 1;
@@ -55,6 +64,9 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal Game.UnearthCorpse? Unearth { get; init; }
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
+    internal Game.ElectrocutionSpec? Electrocution { get; init; }
+    internal Game.VenomGyreCapture? VenomGyre { get; init; }
+    internal Game.FusilladeCast? Fusillade { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -93,6 +105,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
     public int DamageMorePerGroundBounce { get; init; }
+    public int DamageMoreAfterPierce { get; init; }
+    public int DamageMorePerElementalAilment { get; init; }
     internal sealed class LancingSteelHitSeries(double repeatMultiplier)
     {
         public readonly HashSet<ProjectileActorKey> Targets = [];
@@ -132,7 +146,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal int ScourgePods { get; init; }
     internal bool ScourgePodsPerProjectile { get; init; }
     internal Game.SomaticShellApplications? SomaticApplications { get; init; }
-    internal bool PreventsSomaticShellBreak { get; init; }
+    internal bool BypassesSomaticShell { get; init; }
     internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>
@@ -146,16 +160,31 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal ProjectileOffense Against(bool targetWasBlinded, int webs, bool ignited, bool bleeding, bool lowLife, bool maimed,
         Game.TargetContact contact = default, bool? areaContact = null)
     {
-        if (Spider is { } spider
+        var cone = areaContact is true ? ConeAilments : null;
+        if ((cone is null ? Spider : SpiderArea) is { } spider
             && Game.ProjectileTargetChangesDamage(spider, targetWasBlinded, webs, ignited, bleeding, lowLife, maimed, contact))
         {
             var profile = Game.SpiderDamageProfile(spider, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed, contact: contact);
+            if (cone is not null)
+                return this with { AreaHit = profile.Hit.Scale(HitProfileMore),
+                    Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
+                    Poison = Scale(profile.Poison, AilmentProfileMore) };
             var areaHit = areaContact is not false && SpiderArea is { } area
                 ? Game.SpiderDamageProfile(area, webs, targetWasBlinded, ignited, bleeding, lowLife, maimed,
                     contact: contact, hitOnly: true).Hit.Scale(HitProfileMore) : AreaHit;
             return this with { Hit = profile.Hit.Scale(HitProfileMore), AreaHit = areaHit,
                 Ignite = Scale(profile.Ignite, AilmentProfileMore), Bleed = Scale(profile.Bleed, AilmentProfileMore),
                 Poison = Scale(profile.Poison, AilmentProfileMore) };
+        }
+        if (cone is not null)
+        {
+            if (targetWasBlinded && BlindedConeAilments is { } blinded) cone = blinded;
+            return this with
+            {
+                AreaHit = targetWasBlinded && VsBlinded?.AreaHit is { } hit ? hit.Scale(HitProfileMore) : AreaHit,
+                Ignite = Scale(cone.Ignite, AilmentProfileMore), Bleed = Scale(cone.Bleed, AilmentProfileMore),
+                Poison = Scale(cone.Poison, AilmentProfileMore),
+            };
         }
         return targetWasBlinded && VsBlinded is { } alternate ? this with
         {

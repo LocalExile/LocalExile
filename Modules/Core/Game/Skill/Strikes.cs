@@ -15,7 +15,7 @@ public static partial class Game
     static (List<uint> Spirit, ((int X, int Y) Player, (int X, int Y) Centre)? Echo, byte[]? MemoryBuff)
         StrikeExtrasLocked(Player player, ushort skillId,
         int effect, IReadOnlyDictionary<uint, int> ownStats, (int X, int Y) playerAt, (int X, int Y) centre, ushort sequence,
-        uint mainTarget, double now, Func<uint>? groundTarget = null)
+        uint mainTarget, double now, Func<uint>? groundTarget = null, int exertedTargets = 0)
     {
         var skills = SkillsFor(player);
         if (effect < 0 || !skills.IsStrike(effect)) return ([], null, null);
@@ -23,9 +23,17 @@ public static partial class Game
         // These strike selectors read only additive inputs, so a swing need not merge the rest of the stat map.
         int Get(uint key) => stats.GetValueOrDefault(key) + ownStats.GetValueOrDefault(key);
         int count = StrikeTargets.SpiritStrikes(Get, strike: true, skills.IsVaal(effect), MeleeAttack(player, effect));
-        if (count > 0 && mainTarget == 0 && groundTarget is not null) mainTarget = groundTarget();
+        if (exertedTargets > 0 && Get(Stat.NoSpiritStrikes) == 0)
+            count = ActorScale.Saturate((long)count + exertedTargets);
+        if (count > 0 && mainTarget == 0)
+        {
+            if (groundTarget is not null) mainTarget = groundTarget();
+            else if (exertedTargets > 0)
+                mainTarget = LightningStrikeTarget(player, playerAt, centre, 0, now,
+                    MeleeSkillReach(player, WeaponFor(player), effect, ownStats) - WeaponFor(player).Range);
+        }
         List<uint> spirit = count == 0 ? [] : StrikeTargets.Pick(
-            player.Area.Monsters.Where(e => e.Value.Hostile && !e.Value.Dead && e.Value.Life > 0)
+            player.Area.Monsters.Where(e => e.Value is { Hostile: true, Dead: false, Life: > 0, OwnerId: null, WorldHidden: false })
                 .Select(e => new StrikeTargets.Candidate(e.Key, e.Value.Walk.Position(now), LivingCollision.Size(e.Value))),
             playerAt, StrikeTargets.Range(Get(Stat.ExtraTargetTargetingDistancePlusPct)), count, sequence, player.Id,
             mainTarget == 0 ? new HashSet<uint>() : [mainTarget]);

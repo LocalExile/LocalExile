@@ -5,6 +5,7 @@ using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core;
 using GameServer.Core.Projectiles;
+using GameServer.Core.World;
 using DamageModel = GameServer.Core.World.DamageModel;
 
 public static partial class Game
@@ -193,6 +194,15 @@ public static partial class Game
                 await AreaWait(PlayerUpdateRole.Minions, waitMs);
             }
         }
+        int ringCount = GolemStat(source.Stats, Stat.ActiveSkillSummonXTotemsInRingOverride);
+        if (ringCount > 0 && GolemStat(source.Stats, Stat.TotemFireInFormation) != 0)
+        {
+            int radiusPerTotem = GolemStat(source.Stats, Stat.TotemFormationRadiusOverride);
+            if (await WaitUntil(placedAt))
+                await CreateTotems(player, skillId, effect, level, variety, at, Valid, finishPlacement: null,
+                    count: ringCount, formationRadius: radiusPerTotem > 0 ? radiusPerTotem : 8);
+            return;
+        }
         if (count == 2)
         {
             if (await WaitUntil(placedAt))
@@ -256,7 +266,7 @@ public static partial class Game
 
     static async Task<uint?> CreateTotems(Player player,
         ushort skillId, int effect, int gemLevel, MonsterCatalog.Variety variety, (int X, int Y) at, Func<bool>? current,
-        Func<Task<bool>>? finishPlacement, int count)
+        Func<Task<bool>>? finishPlacement, int count, int? formationRadius = null)
     {
         if (!CurrentGameWork || player.Closed || player.LeavingArea) return null;
         var stats = SupportedStats(player, skillId);
@@ -306,8 +316,8 @@ public static partial class Game
             (ballista || searingBond) && !singleTotem ? Math.Max(0, limit - ordinary) : 0;
         // A totem that places its own skill (everything except an adopted projectile spell) carries the granted proxy
         // its object names for the action, with the skill's stats and area radius and no pathing, so the client can play
-        // what it does. A nova (Shockwave Totem) hits around the totem at the end of each cast (TotemNovaLocked); a
-        // spell totem flies instead and has no Strike: SpellTotems.cs ticks it (Effect >= 0).
+        // what it does. A dedicated nova hits at the end of each cast (TotemNovaLocked).
+        // A spell totem runs through SpellTotems.cs (Effect >= 0).
         int radius = SkillRadius(player, own, spell: true, effect);
         GrantedSkill? action = proxy;
         TotemState.Strike? strike = null;
@@ -322,12 +332,20 @@ public static partial class Game
             if (TotemNova(player, effect)) strike = new(TotemActionSkill, radius);
         }
         ushort grantedId = action is null ? (ushort)0 : TotemActionSkill;
+        var flamewood = TotemFlamewood(player, skillId);
+        GrantedSkill[] totemSkills = (action, flamewood) switch
+        {
+            ({ } primary, { } flame) => [primary, flame.Grant],
+            ({ } primary, null) => [primary],
+            (null, { } flame) => [flame.Grant],
+            _ => [],
+        };
         // Devouring Totem's effect is not a hit: it eats the corpses near it (TotemDevourLocked).
         int Perk(uint name) => Get(name) is var value && value != 0 ? value : GolemStat(own, name);
         TotemState.Devour? devour = SkillsFor(player).EffectId(effect) == "DevouringTotem"
             ? new(Perk(Stat.CorpseConsumptionLifeToGain), Perk(Stat.CorpseConsumptionManaToGain)) : null;
         bool Valid() => CurrentGameWork && !player.Closed && !player.LeavingArea && player.PlayerLife > 0 && current?.Invoke() != false;
-        (int X, int Y) ClearPosition(uint objectId)
+        (int X, int Y)? ClearPosition(uint objectId)
         {
             if (bodySize < 0) return place;
             int width = player.Layout.GridW, height = player.Layout.GridH;
@@ -338,6 +356,28 @@ public static partial class Game
             bool singleTotem = SingleTotem();
             var blockers = TotemPlacementBlockers(player, objectId, ballista, placementGroup,
                 BonusSlots(ordinary, singleTotem), limit, singleTotem ? null : ordinary, now);
+            if (formationRadius is int radius)
+            {
+                int slots = Math.Min(count, limit);
+                // The native formation samples the circumference at (actual count + 1) times the radius stat.
+                // If a cell is blocked, search inward toward the requested centre before trying another angle.
+                double distance = (slots + 1d) * radius;
+                var rng = AreaRng(player);
+                bool InFormation((int X, int Y) cell) => Floor(cell.X, cell.Y)
+                    && (player.Layout.Sight is not { } sight || !ClientPathfinder.LineBelow(requested, cell, sight, 1))
+                    && (player.Barrier.Count == 0 || ClientPathfinder.Line(requested, cell).All(p => !player.Barrier.Contains(p)));
+                for (int attempt = 0; attempt < slots; attempt++)
+                {
+                    var (y, x) = Math.SinCos(rng.Next(1024) * (Math.Tau / 1024));
+                    var edge = (X: Math.Clamp(requested.X + (int)(distance * x), 0, width - 1),
+                        Y: Math.Clamp(requested.Y - (int)(distance * y), 0, height - 1));
+                    foreach (var cell in ClientPathfinder.Line(edge, requested))
+                        if (InFormation(cell) && CollisionEscape.Clear(cell, width, height, Floor, blockers, moverSize: bodySize))
+                            return cell;
+                }
+                return CollisionEscape.Find(requested, width, height, (x, y) => InFormation((x, y)), blockers,
+                    maxRadius: TotemPlacementSearchRadius, moverSize: bodySize);
+            }
             if (CollisionEscape.Clear(place, width, height, Floor, blockers, moverSize: bodySize)) return place;
             if (CollisionEscape.Find(place, width, height, Floor, blockers,
                 maxRadius: TotemPlacementSearchRadius, moverSize: bodySize) is { } nearAim) return nearAim;
@@ -365,7 +405,9 @@ public static partial class Game
             placed.Ballista = ballista;
             placed.BonusSlots = BonusSlots(ordinaryLimit, singleTotem);
             if (spellTotem) BindTotemSource(player, placed);
+            if (formationRadius is not null) FormationTargets.Add(placed, new(requested));
             BindFocusedBallista(player, placed);
+            if (flamewood is not null) FlamewoodTotems.Add(placed, flamewood with { });
             var replaced = player.Totems.Place(placed, limit, now, singleTotem ? null : ordinaryLimit);
             // The owner's minion roster lists a placed totem, as the official servers do; the client's totem counter counts
             // these. Written where the totem enters its state, so a cancelled placement never lists one, and in the same
@@ -431,9 +473,10 @@ public static partial class Game
             {
                 uint objectId = player.TakeObjectId();
                 place = requested;
-                place = ClearPosition(objectId);
+                if (ClearPosition(objectId) is not { } point) continue;
+                place = point;
                 var blob = new MonsterObject(place.X, place.Y, life, variety.ComponentsOrBase, StateMachine: variety.StateMachine,
-                    TransitionState: variety.TransitionStates, Team: 0, Skills: action is null ? null : [action],
+                    TransitionState: variety.TransitionStates, Team: 0, Skills: totemSkills.Length == 0 ? null : totemSkills,
                     Stats: objectStats) { LifeData = variety.LifeData, Chain = variety.Chain };
                 bytes.Create(objectId, InstanceEntities.CreateObject(objectId,
                     InstanceEntities.ObjectTypeHash(MonsterObject.TypePath(variety.Id, level)), blob.Blob()));
@@ -469,7 +512,7 @@ public static partial class Game
                     if (limit < 1) return null;
                     playerStats = CharacterPlayerStats(player);
                     var bytes = new WorldRecordBuilder(player, admission);
-                    var clear = ClearPosition(pendingId);
+                    var clear = ClearPosition(pendingId) ?? place;
                     if (clear != place)
                     {
                         place = clear;
@@ -678,7 +721,8 @@ public static partial class Game
         var retired = new List<uint>();
         MinionOwnershipChange[] rosterChanges;
         bool canDetonateMines = false;
-        using (ProjectileMutation(player, advance: false))
+        // Area exit can retire owner-local objects off-frame; shared delta changes are deferred below.
+        using (LevelUpdatesFor(player).Gate.EnterScope())
         {
             var totems = player.Totems;
             if (totems.All.Count == 0 && totems.PendingPlacements.Count == 0) return;
@@ -763,10 +807,8 @@ public static partial class Game
         bytes.World(player.Id, PlayerStatsOffFrames(player));
     }
 
-    // A totem with a skill of its own uses it. Shockwave Totem (a nova) casts while a targetable hostile is within its
-    // totem range (base_totem_range, as the other totems read it: TotemTargetRange) and hits around itself at the end of
-    // each cast; Devouring Totem eats a corpse. An aura totem (Rejuvenation) has neither, and an adopted projectile spell
-    // totem is ticked by SpellTotems.cs instead.
+    // A dedicated nova starts while a hostile is within the totem's base_totem_range.
+    // Devouring Totem eats a corpse. An adopted projectile spell totem is ticked by SpellTotems.cs.
     // The nova's contact is scheduled on the projectile runtime, as the Arc totem's release is: a hit can kill, and a kill
     // takes the XP gate, which goes before the area's frame (ProjectileMutationScope). This tick holds only the Monsters
     // lock, so a kill committed here deadlocked against any scope waiting on it (live 2026-11-17).
@@ -786,16 +828,21 @@ public static partial class Game
         if (!player.Area.Monsters.Values.Any(m => TotemTargetable(m) && Dist(m.Walk.Position(now), totem.At) <= range)) return;
         if (TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
         var session = ProjectilesFor(player);
+        bool ownerCentred = SkillsFor(player).EffectId(totem.EffectRow) == "ShockwaveTotemAltX";
+        var aim = ownerCentred ? player.Walk.Position(now) : totem.At;
         ushort sequence = ++totem.Sequence;
         strike.NextCast = now + seconds;
-        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, totem.At.X, totem.At.Y,
-            strike.GrantedId, sequence, player.MonsterOrderFlags));
+        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
+            strike.GrantedId, sequence, player.MonsterOrderFlags, targetObjectId: ownerCentred ? player.Id : null));
         var lifetime = CombatLifetime;
         session.Runtime.Schedule(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(strike.NextCast)), () =>
         {
-            if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed
-                && totem.Alive(session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond))
-                TotemNovaLocked(player, session, totem, totem.At, strike.Radius, sequence);
+            double at = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+            if (session.Active && ReferenceEquals(lifetime, CombatLifetime) && !player.Closed && totem.Alive(at))
+            {
+                var centre = ownerCentred ? player.Walk.Position(at) : totem.At;
+                TotemNovaLocked(player, session, totem, centre, strike.Radius, sequence);
+            }
         });
     }
 
@@ -844,7 +891,7 @@ public static partial class Game
     }
 
     // A nova's contact, on the projectile runtime (under the XP gate and the area's frame): every targetable hostile
-    // within its radius of the totem takes the spell's hit, worked out now from the owner's stats as a totem's
+    // within its radius of the release centre takes the spell's hit, worked out now from the owner's stats as a totem's
     // (TotemCasterStats: Ancestral Bond's "no damage yourself" is the owner's, not the totem's), in the Arc totem's steps
     // (ArcTotems.cs): block, crit, penetration, the 0x1af, ailments. The totem's kills give the player their experience
     // but are not his for his on-kill effects.
@@ -855,7 +902,8 @@ public static partial class Game
     static void TotemNovaLocked(Player player, ProjectileSession session, TotemState.Totem totem,
         (int X, int Y) centre, double radius, ushort sequence, bool hitSummon = false, int? ringArt = null,
         Func<(int X, int Y), bool>? covers = null, double damageMore = 1, bool spellImpale = false, int extraCriticalIncrease = 0,
-        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0)
+        int extraShockChance = 0, CascadePulse? cascade = null, long baseChaos = 0,
+        Func<uint, (int X, int Y), bool>? targetFilter = null, Action<uint>? onHit = null, SkillCriticalRoll? sharedCritical = null)
     {
         var skill = SupportedSkill(player, totem.SkillId);
         if (SupportedHitInputsFor(player, totem.SkillId, area: true, totem: true) is not { } inputs) return;
@@ -869,7 +917,7 @@ public static partial class Game
         if (damageMore != 1) hit = hit.Scale(damageMore);
         if (hit.IsZero) return;
         var accuracy = attack ? SupportedAccuracy(player, totem.SkillId) : default;
-        var criticalRoll = CaptureSkillCriticalRoll(player, totem.SkillId);
+        var criticalRoll = sharedCritical ?? CaptureSkillCriticalRoll(player, totem.SkillId);
         var penetration = Penetration.Of(caster, Stats, attack, skill.Stats);
         var resistance = HitResistMods(caster, skill.Stats);
         var weaponLocal = attack && !SkillsFor(player).RequiresShield(skill.Effect)
@@ -882,7 +930,7 @@ public static partial class Game
             double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
             var targetAt = m.Walk.Position(now);
             if (!TotemTargetable(m) || cascade is not null && m.WorldHidden || MonsterAsleep(player, id) || Dist(targetAt, centre) > radius
-                || covers?.Invoke(targetAt) == false) return;
+                || covers?.Invoke(targetAt) == false || targetFilter?.Invoke(id, targetAt) == false) return;
             if (attack && !accuracy.CannotBeEvaded && !m.AttackEvasion.Hits(
                 AttackHitChanceAt(player, id, m, now, accuracy, caster), now, player.AttackAccuracyRandom)) return;
             if (MonsterBlocks(m, AreaRng(player), spell: !attack)) return;
@@ -906,6 +954,7 @@ public static partial class Game
                     sourceMultiplier + FullLifeCriticalMultiplier(m, caster, skill.Stats), settings).Damage;
             }
             if (ApplyTypedMonsterHitLocked(player, m, damage, chaosDamage, allyAt: totem.At) is not { } accepted) return;
+            onHit?.Invoke(id);
             if (!attack) ArcaneSurgeOnSpellHitLocked(player, ownerStats, m);
             LeechFromTotemHitLocked(player, m, directDamage, now, ownerStats);
             if (accepted.StageStarts) { CommitProjectileBossStage(session, id, m, session.Runtime.Now); accepted = accepted with { StageStarts = false }; }

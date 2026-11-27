@@ -131,6 +131,18 @@ public sealed partial class AccountStash
     /// data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
     public static AccountStash For(string account, ItemCatalog catalog) => Create(account, catalog, FirstInventoryId, FirstItemId, StarterTabs);
 
+    /// <summary>Shared league-wide storage key for <see cref="IPlayerWorld.LeagueData"/> (across all accounts in the league).</summary>
+    public static string LeagueKey(string? league)
+    {
+        string normalized = string.IsNullOrWhiteSpace(league) ? GameServer.Core.Accounts.LeagueCatalog.Standard : league.Trim();
+        return "league:" + normalized;
+    }
+
+    /// <summary>Shared league-wide module data container persisted in <c>characters.db</c>, shared across all accounts
+    /// and characters playing in <paramref name="league"/>.</summary>
+    public static AccountStash ForLeague(string? league, ItemCatalog catalog) =>
+        Create(LeagueKey(league), catalog, FirstInventoryId, FirstItemId, []);
+
     /// <summary>The guild stash of the account (no guilds yet: each account is its own guild), scoped to the full league.
     /// Standard retains the legacy "guild:&lt;account&gt;" key. SSF never opens or creates a guild stash.</summary>
     public static AccountStash ForGuild(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
@@ -349,6 +361,11 @@ public sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _tabs.Any(tab => tab.Items.Any(item => match(item.Item)));
+    }
+
     /// <summary>The tabs the player sees, in folders or not. A map tab's 191 hidden pages are children with a unique
     /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
     public int VisibleCount
@@ -396,20 +413,46 @@ public sealed partial class AccountStash
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
-    /// <summary>A module's saved text (IPlayerWorld.AccountData).</summary>
-    public string? ModuleData(string key) { lock (_lock) return _moduleData.GetValueOrDefault(key); }
+    static bool IsInternalModuleKey(string key) =>
+        key is PublicTabsModuleKey or ItemNotesModuleKey or TradeEarningsModuleKey or TradeHistoryModuleKey;
+
+    /// <summary>A module's saved text (IPlayerWorld.AccountData / IPlayerWorld.LeagueData).</summary>
+    public string? ModuleData(string key) { lock (_lock) return IsInternalModuleKey(key) ? null : _moduleData.GetValueOrDefault(key); }
 
     /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
-    public bool ChangeModuleData(string key, Func<string?, string?> change) => Saves.Atomically(() =>
+    public bool ChangeModuleData(string key, Func<string?, string?> change) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
+        {
+            lock (_lock)
+            {
+                if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
+                _moduleData[key] = next;
+            }
+            Persist();
+            return true;
+        });
+
+    /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
+    public bool RemoveModuleData(string key) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
+        {
+            lock (_lock)
+                if (!_moduleData.Remove(key)) return false;
+            Persist();
+            return true;
+        });
+
+    /// <summary>Lists saved module data keys (optionally filtered by ordinal <paramref name="prefix"/>), sorted ordinally.</summary>
+    public IReadOnlyList<string> ModuleDataKeys(string? prefix = null)
     {
         lock (_lock)
         {
-            if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
-            _moduleData[key] = next;
+            IEnumerable<string> keys = _moduleData.Keys.Where(k => !IsInternalModuleKey(k));
+            if (!string.IsNullOrEmpty(prefix))
+                keys = keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal));
+            return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];
         }
-        Persist();
-        return true;
-    });
+    }
 
     /// <summary>The league quest flags saved for the account's characters in this stash's league.</summary>
     public IReadOnlyList<int> LeagueQuestFlags { get { lock (_lock) return [.. _leagueQuestFlags]; } }
@@ -462,6 +505,61 @@ public sealed partial class AccountStash
             _lastTab = tab;
         }
         Persist();
+    }
+
+    /// <summary>The <c>StashTabAffinityId</c> bitmask configured on <paramref name="tab"/>, or 0 if out of range.</summary>
+    public uint AffinitiesOfTab(int tab)
+    {
+        lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Affinities : 0u;
+    }
+
+    /// <summary>Finds the first visible non-public tab in panel order whose configured affinities match <paramref name="item"/>
+    /// (including Unique/Map parent tabs), or null when no affinity tab matches.</summary>
+    public int? FindAffinityTab(Item item, Func<Item, PlayerInventories.Shape?>? shapeOf = null)
+    {
+        lock (_lock)
+        {
+            if (_rules.IsQuestItem(item.TypeHash)) return null;
+            uint itemMask = 0;
+            foreach (int affinity in _rules.AffinitiesOf(item.TypeHash))
+                if (affinity is > 0 and < 32) itemMask |= 1u << affinity;
+            if (itemMask == 0) return null;
+
+            int best = -1;
+            int bestPosition = int.MaxValue;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var saved = _tabs[i].Saved;
+                if (saved.Hidden || saved.Public || saved.UniqueCategory != 0 || saved.Type == StashRules.Folder) continue;
+                if ((saved.Affinities & itemMask) == 0) continue;
+
+                // Validate that the tab (or its Unique/Map destination child) can actually hold this item.
+                int dest = i;
+                if (saved.Type == StashRules.Unique)
+                {
+                    dest = UniqueDestination(i, item);
+                    if (dest < 0) continue;
+                }
+                else if (saved.Type == StashRules.Map)
+                {
+                    if (shapeOf is not null)
+                    {
+                        dest = MapDestination(i, item, shapeOf);
+                        if (dest == i || !Holds(dest, item)) continue;
+                    }
+                    else if (MapIdentity(item).Group < 0) continue;
+                }
+                else if (!Holds(i, item)) continue;
+
+                int pos = saved.Position ?? i;
+                if (pos < bestPosition || (pos == bestPosition && i < best))
+                {
+                    best = i;
+                    bestPosition = pos;
+                }
+            }
+            return best >= 0 ? best : null;
+        }
     }
 
     /// <summary>Turns tab affinities on or off (the tab settings' check mark, C→S 0xd3; rows of StashTabAffinityId, up to
@@ -1013,30 +1111,35 @@ public sealed partial class AccountStash
             if (tab < 0 || tab >= _tabs.Count) { why = "no such tab"; return null; }
             var t = _tabs[tab];
             if (shapeOf(item) is not { } shape) { why = "unknown item type"; return null; }
-            if (CellIn(t, item, 0, 0, out why) is not var (slotX, slotY)) return null;
-            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
             bool slotted = _rules.Slotted(t.Saved.Type);
-            int max = Math.Max(1, MaxStack(t, item, shape, -1, -1));   // stacks into the item's own slot, never the crafting slot
+            List<(int X, int Y)> spots;
+            if (CellIn(t, item, 0, 0, out why) is var (slotX, slotY))
+                spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
+            else if (slotted && _rules.Holds(t.Saved.Type, item.TypeHash) && _rules.OverflowFallbackSlots(t.Saved.Type) is { Count: > 0 } overflow)
+            {
+                why = "";
+                spots = [.. overflow.Select(s => (s, 0))];
+            }
+            else return null;
+            if (!t.Saved.Public && item.Note is not null) item = item with { Note = null };   // as in Place
+            int SlotMax(int sx, int sy) => Math.Max(1, MaxStack(t, item, shape, sx, sy));
             left = item.StackSize;
-            // A slotted tab's cells for it, in order: its own slot, then the spare slots (left to right, top to bottom).
-            List<(int X, int Y)> spots = slotted ? [(slotX, slotY), .. _rules.OverflowSlots(t.Saved.Type).Select(s => (s, 0))] : [];
-            if (max > 1)
-                foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && i.Item.StackSize < max && (!slotted || spots.Contains((i.X, i.Y))))
-                             .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
-                {
-                    if (left == 0) break;
-                    int take = Math.Min(left, max - s.Item.StackSize);
-                    left -= take;
-                    var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
-                    var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
-                    t.Items[t.Items.IndexOf(s)] = grown;
-                    changed.Add(grown);
-                }
+            foreach (var s in t.Items.Where(i => i.Item.TypeHash == item.TypeHash && SlotMax(i.X, i.Y) is int max && max > 1 && i.Item.StackSize < max && (!slotted || spots.Contains((i.X, i.Y))))
+                         .OrderBy(i => slotted ? spots.IndexOf((i.X, i.Y)) : 0).ThenByDescending(i => i.Item.StackSize).ToList())
+            {
+                if (left == 0) break;
+                int take = Math.Min(left, SlotMax(s.X, s.Y) - s.Item.StackSize);
+                left -= take;
+                var bigger = s with { Item = s.Item with { StackSize = (ushort)(s.Item.StackSize + take) } };
+                var grown = slotted ? bigger : PlayerInventories.Completed(bigger, shape);
+                t.Items[t.Items.IndexOf(s)] = grown;
+                changed.Add(grown);
+            }
             while (left > 0 && (slotted
                        ? spots.Where(p => !t.Items.Any(i => i.X == p.X && i.Y == p.Y)).Select(p => ((byte, byte)?)((byte)p.X, (byte)p.Y)).FirstOrDefault()
                        : FreeCellIn(t, shape.Width, shape.Height, shapeOf)) is { } cell)
             {
-                int take = Math.Min(left, max);
+                int take = Math.Min(left, SlotMax(cell.Item1, cell.Item2));
                 left -= take;
                 var placed = new InventoryItem(_nextItemId++, cell.Item1, cell.Item2, item with { StackSize = (ushort)take });
                 if (!slotted) placed = PlayerInventories.Completed(placed, shape);
@@ -1241,12 +1344,17 @@ public sealed partial class AccountStash
     public sealed record Payment(IReadOnlyDictionary<int, (List<uint> Removed, List<InventoryItem> Changed)> Tabs);
 
     /// <summary>Spends one unit from the named stack, using its current size when multiple players share a stash.</summary>
-    public Payment? PayOne(int tab, InventoryItem selected)
+    public Payment? PayOne(int tab, InventoryItem selected) => PayOne(tab, selected, allowPublic: false);
+
+    /// <summary>Spends one unit from the named stack, optionally allowing an explicitly clicked public stash tab.</summary>
+    public Payment? PayOne(int tab, InventoryItem selected, bool allowPublic)
     {
         Payment payment;
         lock (_lock)
         {
-            if (tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Public) return null;
+            if (IsTrade || tab < 0 || tab >= _tabs.Count || _tabs[tab].Saved.Hidden
+                || _tabs[tab].Saved.Type == StashRules.Trade
+                || (!allowPublic && _tabs[tab].Saved.Public)) return null;
             var items = _tabs[tab].Items;
             int at = items.FindIndex(i => i.Id == selected.Id && i.Item.TypeHash == selected.Item.TypeHash);
             if (at < 0) return null;

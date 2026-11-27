@@ -32,12 +32,14 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
     /// so it still expires after <c>lifetime</c> if the client never connects.</summary>
     public InstanceState Prepare(ulong id, long created, string? soloOwner = null)
     {
+        InstanceState state;
+        List<InstanceState>? evicted;
         lock (_instances)
         {
             var now = clock.GetUtcNow();
-            PruneLocked(now);
+            evicted = PruneLocked(now);
             var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
-            if (!_instances.TryGetValue(instanceKey, out var state))
+            if (!_instances.TryGetValue(instanceKey, out state!))
             {
                 var presence = _instances.Where(e => e.Key.Id == id && e.Key.Created == created)
                     .Select(e => e.Value.Presence).FirstOrDefault();
@@ -48,8 +50,9 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
                 // Refresh expiry so an empty instance near its lifetime is not pruned between Prepare and Enter.
                 state.EmptySince = now;
             }
-            return state;
         }
+        NotifyClosing(evicted);
+        return state;
     }
 
     /// <summary>Releases any cached pre-generated layout on an empty instance (e.g. a transfer abandoned before 0x27).</summary>
@@ -62,19 +65,36 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
 
     internal bool Remove(ulong id, long created, string? soloOwner = null)
     {
-        lock (_instances) return _instances.Remove((id, created, soloOwner?.ToUpperInvariant()));
+        InstanceState? removed;
+        lock (_instances)
+            _instances.Remove((id, created, soloOwner?.ToUpperInvariant()), out removed);
+        if (removed is null) return false;
+        InstanceEvents.RunInstanceClosing(removed);
+        return true;
+    }
+
+    /// <summary>Prunes expired empty instances immediately and returns how many were evicted, invoking
+    /// <see cref="InstanceEvents.InstanceClosing"/> outside the store lock.</summary>
+    public int Prune()
+    {
+        List<InstanceState>? evicted;
+        lock (_instances) evicted = PruneLocked(clock.GetUtcNow());
+        NotifyClosing(evicted);
+        return evicted?.Count ?? 0;
     }
 
     /// <summary>A connection enters the instance: its state, a fresh one for a new or expired instance.</summary>
     public InstanceState Enter(ulong id, long created, string? soloOwner = null)
     {
+        InstanceState state;
+        List<InstanceState>? evicted;
         lock (_instances)
         {
             var now = clock.GetUtcNow();
-            PruneLocked(now);
+            evicted = PruneLocked(now);
             // SSF towns may share their social instance, but never their dropped items or other mutable world state.
             var instanceKey = (id, created, soloOwner?.ToUpperInvariant());
-            if (!_instances.TryGetValue(instanceKey, out var state))
+            if (!_instances.TryGetValue(instanceKey, out state!))
             {
                 // Auth assigns distinct instance IDs to private non-town areas. A shared ID/creation pair is the
                 // social boundary; only player presence crosses the per-character world-state boundary in towns.
@@ -84,19 +104,32 @@ public sealed class InstanceStore(TimeProvider clock, TimeSpan lifetime)
             }
             state.Connections++;
             state.EmptySince = null;
-            return state;
         }
+        NotifyClosing(evicted);
+        return state;
     }
 
-    void PruneLocked(DateTimeOffset now)
+    List<InstanceState>? PruneLocked(DateTimeOffset now)
     {
+        List<InstanceState>? evicted = null;
         foreach (var (key, state) in _instances.ToList())
         {
             if (state.EmptySince is { } t && now - t >= lifetime)
-                _instances.Remove(key);
+            {
+                if (_instances.Remove(key)) (evicted ??= []).Add(state);
+            }
             else if (state.Connections == 0)
+            {
                 state.ExpirePreparedLayout(now, PreparedLayoutLifetime);
+            }
         }
+        return evicted;
+    }
+
+    static void NotifyClosing(List<InstanceState>? evicted)
+    {
+        if (evicted is null) return;
+        foreach (var state in evicted) InstanceEvents.RunInstanceClosing(state);
     }
 
     /// <summary>A connection left the instance; the lifetime starts when the last one leaves.</summary>
@@ -392,6 +425,7 @@ public sealed class InstanceGround
     // Where they lie, by grid cell: a pickup looks at the cells its radius covers, not at every item.
     readonly AreaGrid _cells = new();
     uint _nextId = FirstItemId;
+    readonly System.Runtime.CompilerServices.ConditionalWeakTable<Item, Item> preparedItems = new();
     long birthVersion;
     readonly Dictionary<uint, long> births = [];
     sealed record Observer(long Since);
@@ -431,6 +465,8 @@ public sealed class InstanceGround
 
     public uint Add(WorldItemObject item, object? by, bool shared, bool justDropped)
     {
+        if (justDropped && !item.PlayerDropped && by is Player player)
+            item.Prepare(contents => preparedItems.GetValue(contents, original => GameEvents.PrepareGroundItem(player, original)));
         lock (_items)
         {
             uint id = _nextId++;
@@ -531,10 +567,32 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
 
     /// <summary>Instance-local pack identifier from AreaPopulation.Spawn (0 when standalone).</summary>
     public int PackId { get; init; }
+    public bool Scripted { get; init; }
+    public bool NoRewards { get; init; }
+    [System.Text.Json.Serialization.JsonConverter(typeof(StateMachineSnapshotConverter))]
+    public StateMachineData? States { get; init; }
+    public ActorAction? CurrentAction { get; init; }
+    public IReadOnlyList<VisibleItem>? Equipped { get; init; }
+    public ushort ActorBuild { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int[]? OwnedSkillEffects { get; init; }
+
+    public sealed class StateMachineSnapshotConverter : System.Text.Json.Serialization.JsonConverter<StateMachineData>
+    {
+        sealed record Machine(IReadOnlyList<int> SharedStates, int SharedTimers, IReadOnlyList<string>? Names, int[]? Overridden);
+        public override StateMachineData? Read(ref System.Text.Json.Utf8JsonReader reader, Type type, System.Text.Json.JsonSerializerOptions options)
+        {
+            var machine = System.Text.Json.JsonSerializer.Deserialize<Machine>(ref reader, options);
+            return machine is null ? null : new(machine.SharedStates, machine.SharedTimers, machine.Names) { Overridden = machine.Overridden?.ToHashSet() ?? [] };
+        }
+        public override void Write(System.Text.Json.Utf8JsonWriter writer, StateMachineData value, System.Text.Json.JsonSerializerOptions options) =>
+            System.Text.Json.JsonSerializer.Serialize(writer, new Machine(value.SharedStates, value.SharedTimers, value.Names, value.Overridden?.ToArray()), options);
+    }
 
     /// <summary>The living monsters: <paramref name="monsters"/> (the connection's) and the ones waiting to rise
     /// (<paramref name="unrisen"/>: the buried ones and the lurking ones, which are among the connection's too).</summary>
-    public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null)
+    public static List<SavedMonster> Save(IEnumerable<SpawnedMonster> monsters, double now, IEnumerable<SpawnedMonster>? unrisen = null,
+        Func<SpawnedMonster, MonsterObject?>? origin = null)
     {
         var waiting = new HashSet<SpawnedMonster>(unrisen ?? [], ReferenceEqualityComparer.Instance);
         var all = monsters.ToList();
@@ -542,7 +600,13 @@ public sealed record SavedMonster(int Variety, byte Level, MonsterRarity Rarity,
         return [.. all.Concat(waiting.Where(m => !all.Contains(m))).Where(m => !m.Dead && m.OwnerId is null && m.SummonerId is null && m.Variety is not null).Select(m =>
         {
             var (x, y) = m.Walk.Position(now);
-            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m)) { Mods = m.Mods, PackId = m.PackId };
+            var shown = origin?.Invoke(m);
+            return new SavedMonster(m.Variety!.Row, m.Level, m.Rarity, m.OriginallyHostile, x, y, m.Life, waiting.Contains(m))
+            {
+                Mods = m.Mods, PackId = m.PackId, Scripted = m.Scripted, NoRewards = m.NoRewards, States = m.States,
+                CurrentAction = m.Scripted ? shown?.CurrentAction : null, Equipped = shown?.Equipped, ActorBuild = shown?.MercenaryBuild ?? 0,
+                OwnedSkillEffects = m.OwnedSkillEffects?.ToArray(),
+            };
         })];
     }
 }

@@ -230,19 +230,24 @@ public static class BossKits
     /// same attack under the kit's own id, so a boss fights with the reach, speed and damage it had before.</param>
     /// <param name="unique">A hostile unique monster (a Rogue Exile): it plays its kit like a boss, bar or not.</param>
     public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
-        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false)
+        int defaultEffect = -1, MonsterAttack? defaultAttack = null, bool unique = false) =>
+        Kit(player, variety, level, defaultEffect, defaultAttack, unique, null, 1);
+
+    public static IReadOnlyList<MonsterKitSkill> Kit(Player player, MonsterCatalog.Variety variety, byte level,
+        int defaultEffect, MonsterAttack? defaultAttack, bool unique, MonsterModEffects? modifiers, double mapDamage)
     {
         var catalog = SkillsFor(player);
         if (!IsKitBoss(catalog, variety) && !(unique && UniqueEffects(catalog, variety).Count > 1)) return [];
         IReadOnlyList<int> effects = unique ? UniqueEffects(catalog, variety) : Effects(catalog, variety);
         if (defaultEffect >= 0 && effects.Contains(defaultEffect) && !IsDamageTakenTrigger(catalog, defaultEffect)) effects = [defaultEffect, .. effects.Where(e => e != defaultEffect)];
-        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true);
+        return BuildKit(player, variety, level, effects, defaultAttack, unique, keepFirst: true, modifiers, mapDamage);
     }
 
     /// <summary>The entries of a kit for these effects, in order. <paramref name="keepFirst"/>: the first entry is kept whatever
     /// it does (it is the monster's own default attack); without it every entry must do something.</summary>
     static IReadOnlyList<MonsterKitSkill> BuildKit(Player player, MonsterCatalog.Variety variety, byte level,
-        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst)
+        IReadOnlyList<int> effects, MonsterAttack? defaultAttack, bool unique, bool keepFirst,
+        MonsterModEffects? modifiers = null, double mapDamage = 1)
     {
         var catalog = SkillsFor(player);
         List<MonsterKitSkill> kit = [];
@@ -259,8 +264,9 @@ public static class BossKits
             var built = AttackFor(player, variety, level, effect, id);
             // A unique's default skill that places a totem or a minion is that summon, not the plain hit its default
             // attack makes of it (Vickas Giantbone's Ethereal Knives totem).
-            var attack = (kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null)
-                ? defaultAttack with { SkillId = id } : built) with { Effect = effect };
+            bool keepsDefault = kit.Count == 0 && defaultAttack is not null && !(unique && built.Summon is not null);
+            var attack = (keepsDefault
+                ? defaultAttack! with { SkillId = id } : built) with { Effect = effect };
             if (unique && MonsterSkills.UseOf(catalog, effect, level) is { } use)
             {
                 // A travel reaches as far as it carries the monster; a buff on itself is used from where it sees the
@@ -276,7 +282,7 @@ public static class BossKits
                     : BossMoves.IsMove(catalog, effect) ? (cooldown > 0 ? Math.Max(cooldown, 3) : BossMoves.MoveCooldown)
                     : use.Shape == MonsterSkillShape.Travel ? Math.Max(cooldown, 3)
                     : use.Shape == MonsterSkillShape.Corpse ? Math.Max(cooldown, 2) : Math.Max(cooldown, use.Seconds + 2);
-                kit.Add(new(effect, attack, cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+                kit.Add(new(effect, Scaled(attack), cooldown) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
                 continue;
             }
             // An effect that hits for nothing, summons nothing and fires nothing is no action: a flame breath's own
@@ -311,7 +317,29 @@ public static class BossKits
                 }
             }
             if (!Acts(attack) && !kept) continue;
-            kit.Add(new(effect, attack, Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+            kit.Add(new(effect, Scaled(attack), Math.Max(0, cooldown)) { TriggerThreshold = trigger, IsTeleport = isTeleport, IsBarrage = isBarrage });
+
+            MonsterAttack Scaled(MonsterAttack action)
+            {
+                // Spawn's default attack already carries the map, rarity and species modifiers. Every other kit
+                // entry is built from native skill data and needs the same scaling before its actor record is sent.
+                if (keepsDefault || modifiers is null) return action;
+                return ScaleAttack(action);
+            }
+            MonsterAttack ScaleAttack(MonsterAttack action, bool placed = false) => action with
+            {
+                Damage = modifiers!.Hit(action.Damage.Scale(mapDamage), level),
+                Seconds = modifiers.AttackSeconds(action.Seconds, action.Spell),
+                AreaRadius = action.AreaRadius * (action.Strike is not null || placed ? modifiers.AreaScaleFactor : 1),
+                Range = action.AreaAtSelf && action.AreaRadius > 0 ? action.Range * modifiers.AreaScaleFactor : action.Range,
+                Projectile = action.Projectile is { } shot ? shot with
+                {
+                    Count = Math.Max(1, shot.Count + modifiers.AdditionalProjectiles),
+                    SpreadRadians = shot.Count + modifiers.AdditionalProjectiles > 1 && shot.SpreadRadians == 0 ? .45 : shot.SpreadRadians,
+                    AreaRadius = shot.AreaRadius * modifiers.AreaScaleFactor,
+                } : null,
+                Trap = action.Trap is { } trap ? ScaleAttack(trap, placed: true) : null,
+            };
         }
         return kit;
     }

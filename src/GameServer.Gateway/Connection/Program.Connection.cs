@@ -260,7 +260,7 @@ public partial class Program
                 var rules = GameEvents.AreaRulesets(player);
                 var area = new AreaInstance(InstanceId: (uint)instanceId, AreaHash: areaHash, Seed: seed, Level: areaLevel,
                     Text: resolved.League ?? "", LeagueStats: InstanceEvents.Merge(areaStats, Logic.AreaLeagueStats(player)),
-                    TerrainData: terrainData,
+                    TerrainData: terrainData, B20: UnownedHideout(player, areaHash) ? AreaInstance.UnownedHideoutKind : (byte)0,
                     AchievementSets: moduleHeader?.AchievementSets, B28: (byte)leagueCategory,
                     ReturnAreaHash: player.ReturnAreaHash,
                     DisplayStats: preparedArea.AreaDisplayStats, Rulesets: rules.Rows, PreloadGroups: rules.PreloadGroups);
@@ -419,6 +419,7 @@ public partial class Program
                 if (saved && prepared && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);
+                Client.Release(left);
                 Instances.Leave(left.Instance);
                 CharacterBuildImports.Release(left);
             }
@@ -841,6 +842,28 @@ public partial class Program
     public static Task SendPong(NetworkStream stream, ConnectionCiphers ciphers, byte[] bytes) => Write(stream, ciphers, bytes);
     /// <summary>A reply written at once, outside the send gate's order (the lockstep probe's AFK request).</summary>
     public static Task SendPong(Player player, byte[] bytes) => Write(player.Connection.Session.Stream, player.Connection.Session.Ciphers, bytes);
+
+    /// <summary>A hideout instance that belongs to someone else (a visit: <see cref="Player.InstanceOwner"/>): its 0x1d carries
+    /// <see cref="AreaInstance.UnownedHideoutKind"/>, so the client shows its own "Leave Hideout" button.</summary>
+    static bool UnownedHideout(Player player, ushort areaHash)
+    {
+        if (HideoutCatalog.ByArea(areaHash) is null || player.InstanceOwner is not { Length: > 0 } owner) return false;
+        if (string.Equals(owner, CharacterName(player), StringComparison.OrdinalIgnoreCase)) return false;
+        if (player.Character.Account is { Length: > 0 } account)
+        {
+            if (string.Equals(owner, account, StringComparison.OrdinalIgnoreCase)) return false;
+            // InstanceOwner is a character name (InstanceDirectory), so another character on the same account owns
+            // the same account hideout (matching HideoutEditing.OwnHideout / AccountHideout.HideoutAccount).
+            if (Saves.IsOpen)
+            {
+                var store = new SqliteAccountStore(Saves.Db);
+                if (store.FindCharacter(owner) is { } ownerChar
+                    && string.Equals(store.GetAccount(ownerChar.AccountId)?.Name, account, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+        }
+        return true;
+    }
 
     // Composes every AreaHeader subscriber so an AchievementSets-only contributor cannot shadow a later module's
     // Terrain or Level override (e.g. Delve mine terrain or Simulacrum wave level).

@@ -71,6 +71,8 @@ public static partial class Game
         long Bonus(uint key) => (long)playerStats.GetValueOrDefault(key) + own.GetValueOrDefault(key);
         bool retaliation = skills.IsRetaliation(effect);
         long scoped = 0;
+        bool frozenLegion = IsFrozenLegionEffect(skills.EffectId(effect));
+        if (frozenLegion) scoped += Bonus(Stat.FrozenLegionCooldownSpeedPlusPct);
         long trapRecovery = Bonus(Stat.PlacingTrapsCooldownRecoveryPlusPct);
         int perMine = ActorScale.Saturate(Bonus(Stat.TrapCooldownSpeedPlusPctPerRecentMineDetonation));
         long trapUses = Bonus(Stat.TrapSkillAddedCooldownCount);
@@ -81,7 +83,7 @@ public static partial class Game
                 scoped += (long)perMine * Math.Max(0, playerStats.GetValueOrDefault(Stat.NumberOfMinesDetonatedRecently));
         }
         else trapUses = 0;
-        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY"
+        if (skills.EffectId(effect) is "BlinkArrow" or "BlinkArrowAltX" or "BlinkArrowAltY" or "BlinkArrowRoyale"
                 or "MirrorArrow" or "MirrorArrowAltX" or "MirrorArrowAltY")
             scoped += Bonus(Stat.BlinkAndMirrorArrowCooldownSpeedPlusPct);
         if (Bonus(Stat.PactCooldownSpeedPlusPct) is long pact and not 0 && skills.HasType(effect, "Pact"))
@@ -110,9 +112,10 @@ public static partial class Game
         if (skills.EffectId(effect) == MadnessEffect && MadnessActiveLocked(player))
             plan = plan with { BaseMilliseconds = plan.BaseMilliseconds
                 + MadnessSkillValue(player, Stat.EmbraceMadnessAmountOfCooldownToGainMs) };
-        if (trapUses != 0)
+        long extraUses = trapUses + (frozenLegion ? Bonus(Stat.FrozenLegionAddedCooldownCount) : 0);
+        if (extraUses != 0)
         {
-            long capacity = plan.Uses + trapUses;
+            long capacity = plan.Uses + extraUses;
             if (capacity is < 1 or > 255) return null;
             plan = plan with { Uses = (int)capacity };
         }
@@ -125,6 +128,7 @@ public static partial class Game
         };
         var mapped = WithMapCooldown(player, plan with { SharedGroup = shared });
         long more = retaliation ? Bonus(Stat.SupportExpertRetaliationCooldownSpeedPlusPctFinal) : 0;
+        if (frozenLegion) more += Bonus(Stat.FrozenLegionAndGeneralsCryActiveSkillCooldownSpeedPlusPctFinalFromSkillSpecificStat);
         if (more == 0 || mapped is not { } current) return mapped;
         double rate = current.RecoveryRate * Math.Max(0, 1 + more / 100.0);
         int finalRecovery = (int)Math.Clamp(Math.Round((rate - 1) * 100), -100, int.MaxValue - 100);
@@ -278,6 +282,13 @@ public static partial class Game
                 if (reserve && !TryVaalAttackDeadline(player, vaal, out vaalAttackDeadline)) return false;
                 if (reserve)
                 {
+                    if (effectId == VaalBladeVortexEffect && IsTotemSkill(player, requested))
+                    {
+                        vaal.TotemPlacements = 1;
+                        if (TotemLimit(player, requested) >= 2 && WantsTwoTotems(player, requested)
+                            && vaal.Souls <= uint.MaxValue / 2 && CanPayVaalUse(player, vaal with { Souls = vaal.Souls * 2 }))
+                            vaal = vaal with { Souls = vaal.Souls * 2, TotemPlacements = 2 };
+                    }
                     var world = player.RampageWorld;
                     if (!player.OwnedCombatWorker.Bind(player, CombatLifetime!, world.SourceOwner, world, out long generation))
                         return false;
@@ -298,11 +309,13 @@ public static partial class Game
             }
             if (skillId is ushort banner && BannerAuraRow(SkillsFor(player).EffectId(effect)) != 0
                 && !CanUseBanner(player, banner)) return false;
-            bool vengeful = effectId == VengefulCryEffect;
-            if (vengeful && (triggered || skillId is not ushort vengeanceSkill || !VengefulCryReady(player, vengeanceSkill, AreaTime(player))))
+            var opportunity = RetaliationOpportunity(effectId);
+            if (opportunity is { } retaliation && (triggered || skillId is not ushort retaliationSkill
+                || !RetaliationReady(player, retaliationSkill, retaliation.Event, AreaTime(player))))
                 return false;
             if (admit is not null && !admit()) return false;
             int? totemPlacements = null;
+            int frozenLegionUses = 0;
             ChargeType? bypass = null;
             bool cooldownReset = false, retainRetaliationUse = false;
             int resetBaseMilliseconds = 0;
@@ -317,6 +330,8 @@ public static partial class Game
                 var peers = SharedCooldownPeers(player, effect, key, cooldown, now);
                 state.Refresh(now, cooldown.RecoveryRate);
                 state.Capacity(cooldown.Uses);
+                if (reserve && IsFrozenLegionEffect(effectId))
+                    frozenLegionUses = Math.Max(0, state.Uses - state.SpentUses);
                 if (reserve && state.Ready && CooldownResetTriggered(player, effect, skillId, AreaRng(player), out retainRetaliationUse))
                 {
                     cooldownReset = true;
@@ -351,7 +366,7 @@ public static partial class Game
                 paid = (mana, life);
             }
             else if (reserve && bypass is { } unpaidBypass && !ChargesOf(player).Spend(unpaidBypass)) return false;
-            if (reserve && vengeful && !retainRetaliationUse) player.RecentEvents.Forget(VengefulCryOpportunity);
+            if (reserve && opportunity is { } spent && !retainRetaliationUse) SpendRetaliationWindow(player, spent);
             // Snapshot the charges still held after paying any cooldown bypass. A later charge gain or expiry
             // must not change the attack already admitted by this ticket.
             int? enduranceCharges = null;
@@ -371,6 +386,7 @@ public static partial class Game
                 instant, reserve, bypass is null ? state : null, bypass is null ? state?.UseVersion ?? 0 : 0, stance)
             {
                 SharedUses = sharedUses, Paid = paid, Attack = attack, TotemPlacements = totemPlacements,
+                FrozenLegionUses = frozenLegionUses,
                 CooldownReset = cooldownReset, ResetBaseMilliseconds = resetBaseMilliseconds
             };
             if (ticket is not null) ticket.EnduranceChargesAfterCost = enduranceCharges;

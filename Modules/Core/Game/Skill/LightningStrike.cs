@@ -14,7 +14,8 @@ static partial class Game
     // and extra contacts together, then releases a volley from each branch of the attack.
     internal static Task ScheduleProjectileStrike(Player player, ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, int recoveryGeneration,
-        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false)
+        CooldownUseTicket? ticket, SkillCriticalRoll criticalRoll, ushort sequence, double? swingAt, bool cryExerted = false, int ancestralTargets = 0,
+        int? rallyingDamage = null)
     {
         var session = ProjectilesFor(player);
         session.Advance();
@@ -35,7 +36,7 @@ static partial class Game
             {
                 (var spirits, var echo, memoryBuff) = StrikeExtrasLocked(player, skillId, gem.Effect, skill.Stats, from, aim, sequence, targetId, now,
                     groundTarget: () => LightningStrikeTarget(player, from, aim, 0, now,
-                        frostBlades ? FrostBladesReach(player, skill.Stats) : 0));
+                        frostBlades ? FrostBladesReach(player, skill.Stats) : 0), exertedTargets: ancestralTargets);
                 if (spirits.Count > 0 || echo is not null)
                 {
                     extras = new(spirits.Count + 1);
@@ -65,11 +66,11 @@ static partial class Game
             if (wildStrike)
                 session.Schedule(contactAt, RepeatValid, () =>
                     ReleaseWildStrike(player, session, skillId, gem, from, aim, targetId,
-                        criticalRoll, sequence, index, cryExerted, ruthless));
+                        criticalRoll, sequence, index, cryExerted, ruthless, ancestralTargets, rallyingDamage));
             else
                 session.ScheduleContact(contactAt, RepeatValid, () =>
                     ReleaseProjectileStrike(player, session, skillId, gem, from, aim, targetId, criticalRoll, sequence,
-                        index, cryExerted, ruthless, frostBlades, extras));
+                        index, cryExerted, ruthless, frostBlades, extras, ancestralTargets, rallyingDamage));
         }
         return Task.CompletedTask;
     }
@@ -77,7 +78,7 @@ static partial class Game
     static void ReleaseProjectileStrike(Player player, ProjectileSession session, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem,
         (int X, int Y) from, (int X, int Y) aim, uint targetId, SkillCriticalRoll criticalRoll, ushort sequence,
-        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras)
+        int repeat, bool cryExerted, double ruthlessMore, bool frostBlades, List<ExtraProjectileStrike>? extras, int ancestralTargets, int? rallyingDamage)
     {
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
         var stats = SupportedSkill(player, skillId).Stats;
@@ -117,13 +118,15 @@ static partial class Game
                 {
                     if (target == primary.Target) primaryHit = true;
                     else extraHits?.Add(target);
-                }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets);
+                }, scheduledSession: session, cryExerted: cryExerted, repeat: repeat, additionalStrikeTargets: additionalTargets,
+                ancestralTargets: ancestralTargets, rallyingDamage: rallyingDamage);
             if (!melee.IsCompleted) throw new InvalidOperationException("Scheduled projectile strike contact must not yield.");
             melee.GetAwaiter().GetResult();
         }
 
         if (frostBlades && !primaryHit && extraHits is not { Count: > 0 }) return;
-        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted);
+        var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence, cryExerted: cryExerted,
+            otherWarcryExertions: ancestralTargets > 0 ? 1 : 0, rallyingDamage: rallyingDamage);
         if (frostBlades)
         {
             if (primaryHit) session.ReleaseNow(FrostBladesVolley(player, use, stats, now, from, aim, primary, more));
@@ -202,7 +205,8 @@ static partial class Game
     // not postpone gameplay, and the ordinary area-hit path must not recursively advance this runtime.
     public static void CommitScheduledMeleeHit(ProjectileSession session, uint id, SpawnedMonster monster,
         MonsterHit hit, int damage, bool critical, StunHit stun, ushort sequence, string label, bool settleKill = true,
-        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null, bool actionHit = true)
+        byte hitCode = 0, SpawnedMonster.NativeKnockback? knockback = null, bool actionHit = true,
+        (uint Id, (int X, int Y) At)? proxyActor = null)
     {
         var player = session.Player;
         double now = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
@@ -215,14 +219,14 @@ static partial class Game
         var target = monster.Walk.Position(now);
         if (actionHit)
         {
-            var playerAt = player.Walk.Position(now);
-            var order = HitOrder(player, player.Id);
+            var actor = proxyActor ?? (player.Id, player.Walk.Position(now));
+            var order = HitOrder(player, actor.Id);
             ushort flags = (ushort)(0x4201 | (critical ? 0x20 : 0));
-            byte kind = 3, angle = HitAngle(target.X - playerAt.X, target.Y - playerAt.Y);
+            byte kind = 3, angle = HitAngle(target.X - actor.At.X, target.Y - actor.At.Y);
             ApplyNativeKnockback(knockback ?? TakeNativeKnockbackLocked(monster), ref flags, ref kind, ref angle,
                 out ushort u3c, out ushort u3e);
             // World records, as a projectile's hit: the copy for a party member gets its key renamed only on a declared record.
-            session.World(player.Id, InstanceProtocol.ActionHit(player.Id, sequence, id, flags: flags,
+            session.World(actor.Id, InstanceProtocol.ActionHit(actor.Id, sequence, id, flags: flags,
                 kind: kind, code: hitCode, angle: angle, u3c: u3c, u3e: u3e,
                 orderKey: order.Key, checkpoint: order.Hit));
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life, orderKey: order.Key, checkpoint: order.Life),
@@ -231,7 +235,7 @@ static partial class Game
         else
             session.World(id, InstanceProtocol.LifeUpdate(id, hit.Life),
                 $"{label} t={now:0.000000} target=0x{id:x} damage={damage} life={hit.Life}/{monster.MaxLife}");
-        if (critical)
+        if (critical && proxyActor is null)
         {
             CommitProjectileCritFlasks(session, now, AreaRng(player));
             session.Enqueue(() => MaybeCreateProfaneGround(player, target));

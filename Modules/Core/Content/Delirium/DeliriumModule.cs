@@ -103,7 +103,11 @@ public sealed partial class DeliriumModule : IModule
     sealed class View { public uint Entity, Stash; public (int X, int Y) At; public bool Native, Repairing; }
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
-    public static void LoadData() => AfflictionRuleset.LoadGameData();
+    public static void LoadData()
+    {
+        AfflictionRuleset.LoadGameData();
+        DeliriumScarabs.Load();
+    }
 
     public void Load(IModuleContext module)
     {
@@ -112,6 +116,9 @@ public sealed partial class DeliriumModule : IModule
         mirror.Attach(module);
         module.Lifetime.Own(new Cleanup(() => { runs.Clear(); views.Clear(); mirror.Clear(); }));
         GameEvents.MapOpening.Add(module.Manifest.Id, request => SimulacrumRules.Resolve(request, global::Game.AreaRng(request.Player)));
+        GameEvents.MapOpening.Add(module.Manifest.Id, DeliriumScarabs.Opening);
+        GameEvents.GroundItemPreparing.Add(module.Manifest.Id, DeliriumScarabs.Prepare);
+        GameEvents.AreaQuestFlags.Add(module.Manifest.Id, mirror.QuestFlags);
         InstanceEvents.TerrainPluginStates.Add(module.Manifest.Id, DeliriumMirrorEncounter.PlanTerrain);
         GameEvents.AreaRuleset.Add(module.Manifest.Id, player =>
             DeliriumMirrorEncounter.IsEligibleMap(player) && AfflictionRuleset.EncounterRow is { } row
@@ -173,7 +180,11 @@ public sealed partial class DeliriumModule : IModule
         });
         GameEvents.Packet(AfflictionRuleset.EndEncounterPacketId).Add(module.Manifest.Id, async (player, _) =>
             await mirror.OnEndRequested(player));
-        GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(drop => { if (SimulacrumRules.IsArena((string)drop.Player.Layout.Id)) { drop.Cancel = true; drop.Gold = 0; } }));
+        GameEvents.Drops.Add(module.Manifest.Id, (Action<DropRoll>)(drop =>
+        {
+            if (SimulacrumRules.IsArena((string)drop.Player.Layout.Id)) { drop.Cancel = true; drop.Gold = 0; }
+            else mirror.OnDrop(drop);
+        }));
         GameEvents.Experience.Add(module.Manifest.Id, (Action<ExperienceGain>)(gain =>
         {
             if (SimulacrumRules.IsArena((string)gain.Player.Layout.Id))

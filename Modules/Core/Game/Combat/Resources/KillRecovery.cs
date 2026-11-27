@@ -8,7 +8,14 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
 {
     // "Gain X Life per Ignited Enemy Killed", "Recover X% of Life on Killing a Chilled Enemy", "+X Energy Shield gained on
     // Killing a Shocked Enemy", "+X Mana gained on Killing a Frozen Enemy".
-    public readonly record struct Ailing(int IgnitedLife, int ChilledLifePct, int ShockedEnergyShield, int FrozenMana);
+    public readonly record struct Ailing(int IgnitedLife, int ChilledLifePct, int ShockedEnergyShield, int FrozenMana)
+    {
+        public int PoisonedLifePct { get; init; }
+        public int LifePermyriadPerPoison { get; init; }
+        public int CursedLifePct { get; init; }
+        public int CursedEnergyShieldPct { get; init; }
+        public int LifePctPerWither { get; init; }
+    }
     public Ailing When { get; init; }
 
     public static KillRecovery From(Func<uint, int> get, int level)
@@ -25,7 +32,14 @@ public readonly record struct KillRecovery(int Life, int LifePct, int Mana, int 
         {
             When = new(life ? get(Stat.LifeGainedOnKillingIgnitedEnemies) : 0,
                 life ? get(Stat.RecoverPctMaximumLifeOnKillingChilledEnemy) : 0,
-                shield ? get(Stat.GainXEnergyShieldOnKillingShockedEnemy) : 0, get(Stat.RecoverXManaOnKillingFrozenEnemy)),
+                shield ? get(Stat.GainXEnergyShieldOnKillingShockedEnemy) : 0, get(Stat.RecoverXManaOnKillingFrozenEnemy))
+            {
+                PoisonedLifePct = life ? get(Stat.RecoverPctMaximumLifeOnKillingPoisonedEnemy) : 0,
+                LifePermyriadPerPoison = life ? get(Stat.RecoverPermyriadMaximumLifePerPoisonOnEnemyOnKill) : 0,
+                CursedLifePct = life ? get(Stat.RecoverPctMaximumLifeOnKillingCursedEnemy) : 0,
+                CursedEnergyShieldPct = shield ? get(Stat.RecoverPctMaximumEnergyShieldOnKillingCursedEnemy) : 0,
+                LifePctPerWither = life ? get(Stat.LifeGainedOnKillPerWitherStackOnSlainEnemyPct) : 0,
+            },
         };
     }
 
@@ -57,11 +71,27 @@ public static partial class Game
         double now = ProjectileWorldTime(player);
         var k = session.OnKill.For(m.Ignites.Burning || m.Ignites.DiedBurning, m.Ailments.Magnitude(MonsterElementalAilments.Kind.Chill, now) > 0,
             m.Ailments.ShockedAtDeath(now), m.Ailments.FrozenAtDeath(now));
+        var conditions = session.OnKill.When;
+        if (m.CursedAtDeath)
+            k = k with
+            {
+                LifePct = ActorScale.Saturate((long)k.LifePct + conditions.CursedLifePct),
+                EnergyShieldPct = ActorScale.Saturate((long)k.EnergyShieldPct + conditions.CursedEnergyShieldPct),
+            };
+        int poisonStacks = conditions.PoisonedLifePct != 0 || conditions.LifePermyriadPerPoison != 0
+            ? m.Poisons.StacksAtDeath(now) : 0;
+        if (poisonStacks > 0)
+            k = k with { LifePct = ActorScale.Saturate((long)k.LifePct + conditions.PoisonedLifePct) };
+        if (conditions.LifePctPerWither != 0 && m.WitherStacksAtDeath > 0)
+            k = k with { LifePct = ActorScale.Saturate((long)k.LifePct + (long)m.WitherStacksAtDeath * conditions.LifePctPerWither) };
         k = k with { Life = k.Life + (session.RecoversLife ? m.Curses[Stat.LifeGrantedWhenKilled] + (tincture?.Life ?? 0) : 0),
             Mana = k.Mana + m.Curses[Stat.ManaGrantedWhenKilled] + (tincture?.Mana ?? 0) };
         static double Amount(int flat, int pct, uint maximum) => Math.Floor(flat + maximum * (double)pct / 100);
         uint life = player.PlayerLife, mana = player.PlayerMana;
-        double lifeChange = Amount(k.Life, k.LifePct, player.PlayerMaxLife);
+        double lifeChange = conditions.LifePermyriadPerPoison == 0 || poisonStacks == 0
+            ? Amount(k.Life, k.LifePct, player.PlayerMaxLife)
+            : (double)decimal.Floor(k.Life + player.PlayerMaxLife
+                * (k.LifePct * 100m + poisonStacks * (decimal)conditions.LifePermyriadPerPoison) / 10_000m);
         player.PlayerLife = lifeChange < 0 ? VaalImmortalCallLife(player, (uint)Math.Max(0, life + lifeChange), now)
             : PetrifiedBlood.RecoverLife(player, life, lifeChange, ref session.LifeInstantCarry, minimum: 1);
         // Sent with the next vitals update, as instant leech is.

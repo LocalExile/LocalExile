@@ -235,7 +235,11 @@ public static partial class Game
             : WasItemisedCorpse(saved) ? PlaceItemisedCorpse(player, variety, (saved.X, saved.Y), saved.Level, saved.Mods)
             : SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
-                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
+                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk,
+                scripted: saved.Scripted, ownedLooks: saved.Equipped,
+                owned: saved.NoRewards ? (_, m) => m.NoRewards = true : null,
+                shape: o => o with { StateMachine = saved.States ?? o.StateMachine, CurrentAction = saved.CurrentAction, MercenaryBuild = saved.ActorBuild },
+                ownedKit: saved.OwnedSkillEffects is { Length: > 0 } effects ? BossKits.KitFromEffects(player, variety, saved.Level, effects) : null);
 
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
@@ -523,6 +527,7 @@ public static partial class Game
             }
             mods = mods with { Effects = nextEffects, SpeciesApplied = true };
         }
+        if (!friendly) mods = MapInfluence.MonsterMods(variety, mods, MapModsOf(player));
         // A hostile unique keeps its auras up (a Rogue Exile's Hatred, Haste): their stats are its own from the spawn, and
         // a kept one keeps them in its mods.
         var auras = !friendly && rarity == MonsterRarity.Unique ? MonsterSkills.Auras(SkillsFor(player), variety, level) : default;
@@ -706,7 +711,8 @@ public static partial class Game
         bool ownKit = ownedKit is { Count: > 0 } && !scripted && kingSkills is null;
         var kit = ownKit ? ownedKit!
             : scripted || kingSkills is not null ? (IReadOnlyList<MonsterKitSkill>)[]
-            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique);
+            : BossKits.Kit(player, variety, level, effect, attack, unique: !friendly && rarity == MonsterRarity.Unique,
+                modifiers: mods.Effects, mapDamage: mapBossScaling.Damage);
         if (kit.Count == 0 && !friendly && !scripted && kingSkills is null && extraKit is not { Count: > 0 })
         {
             var (ordinaryKit, ordinaryAuraStats, ordinaryAuraRows) = MonsterKits.ForOrdinary(player, variety, level, effect,
@@ -863,7 +869,8 @@ public static partial class Game
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
-                Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
+                Kit = kit, OwnedSkillEffects = ownKit ? kit.Select(k => k.Effect).ToArray() : null,
+                SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
@@ -3055,9 +3062,8 @@ public static partial class Game
         // with this hit's one armour decision.
         var hitRolls = HitRollsFor(stats);
         // The King's Mystic Fetishes leave Portent Vapors: 10% increased damage taken per stack from his hits only.
-        var hitDamage = a.Damage;
-        if (m.EncounterStats is { } encounter) hitDamage = MonsterModEffects.AddedTo(hitDamage, encounter);
-        foreach (var temporary in m.TemporaryStats.Values) hitDamage = MonsterModEffects.AddedTo(hitDamage, temporary);
+        var baseDamage = MonsterTemporaryHit(m, a.Damage, player.IncomingHitRandom);
+        var hitDamage = baseDamage;
         if (KingInMists.IsBoss(m.Variety) && player.KingPortentStacks > 0 && now < player.KingPortentUntil)
             hitDamage = hitDamage.Scale(1 + 0.1 * player.KingPortentStacks);
         var map = MapModsOf(player);
@@ -3083,7 +3089,7 @@ public static partial class Game
             increasedCriticalAgainstTarget: StatOf(Stat.BaseEnemyCriticalStrikeChancePlusPctAgainstSelf));
         // The player's passive enemy auras with a conversion: the hit and its ailment base convert alike, so ignite
         // sees the converted damage. Converting does not remove stun, so the hit recovery below reads a.Damage.
-        var baseHit = a.Damage.Scale(SpiderOutgoingFactor(m, now));
+        var baseHit = baseDamage.Scale(SpiderOutgoingFactor(m, now));
         if (EnemyAuraConversionLocked(player, m, here, now, StatOf) is { } auraConversion)
             (rolled, baseHit) = (rolled.Convert(auraConversion), baseHit.Convert(auraConversion));
         // Glacial Wave and Sap: less damage dealt is all of it (PoB Damage MORE), so the ignite its crit puts on you too.
@@ -3101,10 +3107,9 @@ public static partial class Game
         var taken = PlayerDamageTaken.Avoid(shifted, StatOf, player.IncomingHitRandom, out var avoided, ElusiveAvoidPct(player),
             projectile, projectile && player.RecentEvents.Happened(TakenProjectileDamage, now));
         baseHit = PlayerDamageTaken.Landed(baseHit, StatOf, avoided);
-        int elemPen = Math.Max(0, m.Effects[Stat.ReduceEnemyElementalResistancePct]);
         var mitigated = hitRolls.MitigateIncomingHit(taken, type =>
             new DamageModel.ResistanceValue(Resistance(player, type), MaxResistance(player, type),
-                Penetration: type is DamageType.Fire or DamageType.Cold or DamageType.Lightning ? elemPen : 0), player.IncomingHitRandom);
+                Penetration: Math.Max(0, MonsterPenetration(m.Effects, type))), player.IncomingHitRandom);
         var immune = PlayerImmunities(player, stats);
         // This remains the original next RNG draw when the feature is absent. Blocking never
         // consumes an armour draw; one lazy decision is shared by the whole rolled packet.
@@ -3125,6 +3130,12 @@ public static partial class Game
         var ailmentTaken = DamagePacket.Empty;
         int sourceTakenPct = ActorScale.Saturate((long)DamageTakenFromBlindedPct(player, id, stats)
             + DamageTakenFromMonster(m, stats) + NearbyAllyDamageTaken(player, here, now));
+        if (spellHit && StatOf(Stat.SpellDamageTakenPlusPctFromBlindedEnemies) is int blindedSpell and not 0
+            && Blinded(player, id, now))
+            sourceTakenPct = ActorScale.Saturate((long)sourceTakenPct + blindedSpell);
+        int opportunistic = StatOf(Stat.DamageTakenPlusPctIfThereAreAtLeast2RareOrUniqueEnemiesNearby);
+        double opportunisticFactor = opportunistic != 0 && !AtMostOneRareEnemy(player, now)
+            ? DamageFactor(opportunistic) : 1;
         bool hitRecently = player.RecentEvents.Happened(StatConditions.BeenHit, now);
         int pantheonElemTakenPct = hitRecently
             ? StatOf(Stat.ElementalDamageTakenPlusPctIfBeenHitRecently)
@@ -3150,7 +3161,7 @@ public static partial class Game
             int extraTakenPct = sourceTakenPct + (DamageTypes.IsElemental(type) ? pantheonElemTakenPct : 0);
             value = (int)Math.Round(value * player.ElementalAilments.DamageTakenFactor(now,
                     extraTakenPct + PlayerDamageTaken.IncreasedPct(type, melee: !a.Ranged && attackHit, StatOf, spell: spellHit, projectile: projectile))
-                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer
+                * reservationFactor * ReservationTypedHitTakenFactor(player, type, now) * windDancer * opportunisticFactor
                 * (halfAreaDamage ? 0.5 : 1.0)
                 * (blocked ? PlayerDamageTaken.BlockedPct(type, StatOf) / 100.0 : 1));
             // Suppression prevents calculated damage. Armour must see the unsuppressed hit, and flat taken damage
@@ -3223,11 +3234,14 @@ public static partial class Game
             long leeched = Math.Min((long)damage * leechPermyriad / 10_000, Math.Max(1L, m.MaxLife / 10));
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
-        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical, projectile: projectile, by: m,
-            stats: stats, byId: id, attack: attackHit, physicalTaken: physicalDamage);
+        RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
+            projectile: projectile, attack: attackHit, attacker: m, stats: stats, byId: id, physicalTaken: physicalDamage);
         // "Recover # Life when you Suppress Spell Damage" (Elevore).
         if (suppressed && stats.GetValueOrDefault(Stat.RecoverXLifeOnSuppressingSpell) is int onSuppress and > 0)
             RecoverByRuleLocked(player, "life", false, onSuppress, 0);
+        if (suppressed && player.PlayerLife > 0 && StatOf(Stat.EnergyShieldRechargesOnSuppressPct) is int rechargeChance and > 0
+            && GameServer.Core.World.RandomRolls.Chance(rechargeChance, 100, player.IncomingHitRandom))
+            player.EnergyShield.StartRecharge(now, StatOf);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
@@ -3314,10 +3328,15 @@ public static partial class Game
         int fireExp = e[Stat.FireExposureOnHitMagnitude];
         int coldExp = e[Stat.ColdExposureOnHitMagnitude];
         int lightExp = e[Stat.LightningExposureOnHitMagnitude];
-        if (!crush && fireExp >= 0 && coldExp >= 0 && lightExp >= 0)
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictFireExposureOnHitPctChance], 100, random)) fireExp = Math.Min(fireExp, -10);
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictColdExposureOnHitPctChance], 100, random)) coldExp = Math.Min(coldExp, -10);
+        if (GameServer.Core.World.RandomRolls.Chance(e[Stat.BaseInflictLightningExposureOnHitPctChance], 100, random)) lightExp = Math.Min(lightExp, -10);
+        bool wither = GameServer.Core.World.RandomRolls.Chance(e[Stat.WitheredOnHitFor2SecondsPctChance], 100, random);
+        if (!crush && !wither && fireExp >= 0 && coldExp >= 0 && lightExp >= 0)
             return baseDebuffs.Count > 0 ? baseDebuffs : null;
         var list = baseDebuffs.Count > 0 ? new List<MonsterDebuffSpec>(baseDebuffs) : new List<MonsterDebuffSpec>(2);
         if (crush) list.Add(new(CrushedBuffRow, PlayerCrushedDebuffStats, CrushSeconds));
+        if (wither) list.Add(new(WitheredBuffRow, new Dictionary<uint, int> { [Stat.ChaosDamageTakenPlusPct] = 6 }, 2));
         if (fireExp < 0) list.Add(new(ExposureBuffRows[0], new Dictionary<uint, int> { [Stat.BaseFireDamageResistancePct] = fireExp }, ExposureSeconds));
         if (coldExp < 0) list.Add(new(ExposureBuffRows[1], new Dictionary<uint, int> { [Stat.BaseColdDamageResistancePct] = coldExp }, ExposureSeconds));
         if (lightExp < 0) list.Add(new(ExposureBuffRows[2], new Dictionary<uint, int> { [Stat.BaseLightningDamageResistancePct] = lightExp }, ExposureSeconds));

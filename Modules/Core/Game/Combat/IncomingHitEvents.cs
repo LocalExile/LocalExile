@@ -10,8 +10,8 @@ public static partial class Game
     // Every accepted enemy hit records the same events, whether it came from a monster action or a testing tool.
     // Call in the area's frame after applying damage. Presentation must not create gameplay events a second time.
     static void RecordIncomingHitLocked(Player player, double now, bool spell, bool blocked, bool suppressed,
-        long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, SpawnedMonster? by = null,
-        IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0, bool attack = false, int physicalTaken = 0)
+        long lifeDamage, bool damaged, bool critical = false, bool enemy = true, bool projectile = false, bool attack = false,
+        SpawnedMonster? attacker = null, IReadOnlyDictionary<uint, int>? stats = null, uint byId = 0, int physicalTaken = 0)
     {
         if (enemy)
         {
@@ -28,16 +28,18 @@ public static partial class Game
         if (blocked)
         {
             player.RecentEvents.Record(StatConditions.Blocked, now);
+            OpenRetaliationWindows(player, blocked: true, now);
             player.RecentEvents.Record(spell ? StatConditions.BlockedSpell : StatConditions.BlockedAttack, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.Block);
+            if (ItemEffectRules.Enabled) CastSocketedSpellOnBlock(player, now, attacker);
         }
         if (suppressed) player.RecentEvents.Record(StatConditions.SuppressedSpell, now);
         if (lifeDamage > 0 && lifeDamage * 100 >= (long)player.PlayerMaxLife * 15)
         {
             player.RecentEvents.Record(StatConditions.TakenSavageHit, now);
-            player.RecentEvents.Record(VengefulCryOpportunity, now);
+            OpenRetaliationWindows(player, blocked: false, now);
             QueueFlaskTrigger(player, FlaskEnchantments.Trigger.SavageHit);
         }
-        ChargesWhenHit(player, blocked, spell, critical, by, stats, now, byId, melee: attack && !projectile, physicalTaken: physicalTaken);
+        ChargesWhenHit(player, blocked, spell, critical, attacker, stats, now, byId, melee: attack && !projectile, physicalTaken: physicalTaken);
     }
 }

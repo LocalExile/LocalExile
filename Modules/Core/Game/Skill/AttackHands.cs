@@ -95,6 +95,13 @@ public static class AttackHands
 
 public static partial class Game
 {
+    static int InherentAttackSpeedMore(WeaponProfile weapons, Func<uint, int> get)
+    {
+        if (!weapons.DualWield && !weapons.Unarmed) return 0;
+        bool doubled = (weapons.DualWield && get(Stat.DualWieldInherentBonusesAreDoubled) != 0)
+            || (weapons.DualClaws && get(Stat.DualWieldInherentAttackSpeedIsDoubledWhileDualWieldingClaws) != 0);
+        return doubled ? 20 : 10;
+    }
     /// <summary>The hand an attack gem's use swings (<see cref="AttackHands"/>), recorded at its first question.</summary>
     public static AttackHand AttackHandFor(Player player, ushort skillId, ushort sequence) =>
         skillId == SkillCatalog.FirstSkillId ? DefaultAttackHand(player, sequence)
@@ -119,7 +126,11 @@ public static partial class Game
         int Own(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) : 0;
         // A channel's stages (Cyclone) share one use; which stage swings which hand is not traced, so a channel keeps the
         // main hand when both fit, as its interval does (SupportedChannelSeconds).
-        return AttackHands.Choose(mainFits, offFits, LacerateEffect(SkillsFor(player).EffectId(gem.Effect))
+        string? effect = SkillsFor(player).EffectId(gem.Effect);
+        // Spectral Helix's attack clip overrides the sequence selector at 0x141b720e0. The native player action kept
+        // the main hand with mixed weapons, dual swords and dual daggers. Trarthus chooses a hand at trap placement.
+        if (effect == SpectralHelixEffect && mainFits) return AttackHand.Main;
+        return AttackHands.Choose(mainFits, offFits, IsSwordstorm(effect) || LacerateEffect(effect)
             || Own("skill_double_hits_when_dual_wielding") != 0,
             SkillsFor(player).IsChannelled(gem.Effect) ? (ushort)0 : sequence);
     }
@@ -149,20 +160,29 @@ public static partial class Game
 
     /// <summary>The swinging hand's weapon base critical chance with its local modifiers (WeaponProfile.Critical for
     /// the main hand).</summary>
-    public static int HandWeaponCritical(Player player, AttackHand hand)
+    public static int HandWeaponCritical(Player player, AttackHand hand) => HandWeaponCritical(player, hand, null);
+
+    static int HandWeaponCritical(Player player, AttackHand hand, IReadOnlyDictionary<uint, int>? playerStats)
     {
         if (hand != AttackHand.Off || OffhandWeaponFor(player) is not { } off || ActiveOffHand(player)?.Type is not { } type)
             return WeaponProfileFor(player, activeSet: true).Critical;
         // The off-hand weapon's sources are already its qualified local stats (WeaponIn), as HandLocalStats gives them.
         var local = off.LocalSources;
-        return AddedBaseCriticalStrike.LocalWeaponChance(ItemsFor(player).WeaponCritical(type),
-            local?.GetValueOrDefault(Stat.LocalCriticalStrikeChance) ?? 0, local?.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct) ?? 0);
+        return OffHandWeaponCriticalBase(ItemsFor(player).WeaponCritical(type), local, playerStats ?? CharacterPlayerStats(player));
     }
+
+    static int OffHandWeaponCriticalBase(int weaponBase, IReadOnlyDictionary<uint, int>? local, IReadOnlyDictionary<uint, int> playerStats) =>
+        ActorScale.Saturate((long)AddedBaseCriticalStrike.LocalWeaponChance(weaponBase,
+                local?.GetValueOrDefault(Stat.LocalCriticalStrikeChance) ?? 0,
+                local?.GetValueOrDefault(Stat.LocalCriticalStrikeChancePlusPct) ?? 0)
+            + playerStats.GetValueOrDefault(Stat.AdditionalOffHandCriticalStrikeChanceWhileDualWielding));
 
     /// <summary>The off-hand swing's weapon base critical chance for the target-conditional chances (null: the main
     /// hand's, also for both hands at once).</summary>
-    public static int? SwingWeaponCritical(Player player, AttackHand hand) =>
-        hand == AttackHand.Off && OffhandWeaponFor(player) is not null ? HandWeaponCritical(player, hand) : null;
+    public static int? SwingWeaponCritical(Player player, AttackHand hand) => SwingWeaponCritical(player, hand, null);
+
+    static int? SwingWeaponCritical(Player player, AttackHand hand, IReadOnlyDictionary<uint, int>? playerStats) =>
+        hand == AttackHand.Off && OffhandWeaponFor(player) is not null ? HandWeaponCritical(player, hand, playerStats) : null;
 
     /// <summary>The default attack's accuracy for the swinging hand, Blind included (PlayerAccuracy for the main hand);
     /// the off hand swaps in its local accuracy (WeaponAccuracyFor), as its panel row does.</summary>
@@ -177,7 +197,7 @@ public static partial class Game
         if (hand != AttackHand.Off || OffhandWeaponFor(player) is null) return player.Pools.AttackCriticalStrikeChance;
         int PlayerStat(uint key) => playerStats.GetValueOrDefault(key);
         int RawCritical(uint key) => IsCriticalProhibition(key) ? 0 : PlayerStat(key);
-        return DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(true, HandWeaponCritical(player, hand),
+        return DisplayedCriticalChance(player, AttackBaseCriticalStrike.Chance(true, HandWeaponCritical(player, hand, playerStats),
             player.Pools.CriticalStrikeChancePct, RawCritical), RawCritical);
     }
 
@@ -265,6 +285,7 @@ public static partial class Game
     {
         var gem = SupportedSkill(player, skillId);
         var (mainFits, offFits) = HandsFit(player, gem.Effect, gem.Stats);
+        if (mainFits && SkillsFor(player).EffectId(gem.Effect) == SpectralHelixEffect) return AttackHand.Main;
         int Own(string name) => Stats.Key(name) is uint key ? gem.Stats.GetValueOrDefault(key) : 0;
         return !offFits ? AttackHand.Main : !mainFits ? AttackHand.Off
             : Own("skill_double_hits_when_dual_wielding") != 0 ? AttackHand.Both : AttackHand.Off;

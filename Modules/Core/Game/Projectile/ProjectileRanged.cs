@@ -63,7 +63,8 @@ public static partial class Game
         var sourceWeapon = HandWeapon(player, hand);
         int handAccuracy = HandAccuracy(player, hand, character);
         int criticalChance = CriticalProhibited(player, attack: true)
-            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(player, hand), player.Pools.CriticalStrikeChancePct, RawCritical)
+            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(player, hand, character),
+                player.Pools.CriticalStrikeChancePct, RawCritical)
             : HandAttackCriticalChance(player, hand, character);
         var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
             handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier);
@@ -93,6 +94,7 @@ public static partial class Game
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
             WeaponAttack = true,
+            DirectAttackContact = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),
@@ -152,6 +154,9 @@ public static partial class Game
         var profile = OrdinaryRangedProfile(player, projectileId, weapon.Bow, Get);
         profile = clientDrawn ? ClientDrawnProfile(player, profile, Get, sequence, target - origin)
             : NativeVolley(profile, Get, sequence, target - origin, player.Id);
+        SpendProjectileSteelShards(player, session, skillCost: 0,
+            Get(Stat.SteelAmmoConsumedPerUseWithAttacksThatFireProjectiles),
+            Get(Stat.SkillsFireXAdditionalProjectilesFor4SecondsAfterConsuming8SteelAmmo));
         return new(profile, new(player.Id, session.Player.ProjectileEpoch), new(player.Id, session.Player.ProjectileEpoch), 1,
             origin, target)
             { Payload = shot, ReturnAnchor = new(player.Id, session.Player.ProjectileEpoch) };

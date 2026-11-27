@@ -77,13 +77,14 @@ public sealed class RuthlessRulesSource(string settingsPath, Action<string>? log
         UnavailableGemBases =
         [
             "SkillGemDash", "SkillGemFrostblink", "SkillGemFlameDash", "SkillGemLightningWarp", "SkillGemLeapSlam",
-            "SkillGemShieldCharge", "SkillGemWhirlingBlades", "SkillGemBlinkArrow", "SkillGemSmokeMine", "SkillGemCorpseWarp",
+            "SkillGemShieldCharge", "SkillGemWhirlingBlades", "SkillGemBlinkArrow", "SkillGemBlinkArrowRoyale",
+            "SkillGemSmokeMine", "SkillGemCorpseWarp",
             "SkillGemChargedDash", "SkillGemNewPhaseRun", "SkillGemPhaseRun", "SkillGemWitheringStep", "SkillGemVenomGyre",
             "SupportGemItemRarity",
         ],
         UnavailableGemEffects =
         [
-            "Dash", "Frostblink", "FlameDash", "LightningWarp", "LeapSlam", "ShieldCharge", "WhirlingBlades", "BlinkArrow",
+            "Dash", "Frostblink", "FlameDash", "LightningWarp", "LeapSlam", "ShieldCharge", "WhirlingBlades", "BlinkArrow", "BlinkArrowRoyale",
             "SmokeMine", "Bodyswap", "ChargedDash", "PhaseRun", "WitheringStep", "VenomGyre", "SupportItemRarity",
         ],
     };

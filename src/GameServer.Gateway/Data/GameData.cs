@@ -9,7 +9,12 @@ public static class GameData
 {
     public sealed record Snapshot(int Revision,
         IReadOnlyDictionary<(string ModId, int Index), (int Min, int Max)> ModRanges,
-        IReadOnlyDictionary<string, int> Limits);
+        IReadOnlyDictionary<string, int> Limits)
+    {
+        public IReadOnlyList<GameDataStore.FxRuleRow> FxRules { get; init; } = [];
+    }
+
+    public static readonly GameEvent<Action<Snapshot>> Validating = new();
 
     static readonly Snapshot Empty = new(0,
         new Dictionary<(string, int), (int, int)>(),
@@ -106,17 +111,24 @@ public static class GameData
             .ToDictionary(row => (row.ModId, row.StatIndex), row => (row.Minimum, row.Maximum));
         var limits = store.LoadLimits()
             .ToDictionary(row => row.Key, row => row.Value, StringComparer.OrdinalIgnoreCase);
-        var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits);
+        // One read of the fx rules, two engines: main's world rules (ItemEffectRules, validated per snapshot) take the
+        // rows with no engine, the effect-rules engine those marked "effects" (fx_rules.engine).
+        var fxAll = store.LoadFxRules();
+        var snapshot = new Snapshot(Interlocked.Increment(ref _revision), ranges, limits)
+        {
+            FxRules = [.. fxAll.Where(r => r.Engine is null)]
+        };
         var effectRules = store.LoadEffectRules();
         var effectSkills = store.LoadEffectSkills();
         var effectBuffs = store.LoadEffectBuffs();
-        var fxRules = store.LoadFxRules();
+        IReadOnlyList<GameDataStore.FxRuleRow> fxRules = [.. fxAll.Where(r => r.Engine == "effects")];
         var fxModifiers = store.LoadFxModifiers();
         var fxPerRows = store.LoadFxPerRows();
         var fxAreaMonsterStats = store.LoadFxAreaMonsterRows();
         var fxUnscalable = store.LoadFxUnscalable();
 
         // Build the catalogues and settings first: a bad payload leaves the previous ranges/limits and catalogues intact.
+        foreach (var validate in Validating.All) validate(snapshot);
         GameDataCatalog.Reload(store);
         SystemSettings.Reload(store);
         GameDataWeights.Reload(store);

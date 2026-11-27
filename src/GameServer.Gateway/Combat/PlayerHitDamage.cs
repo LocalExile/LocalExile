@@ -111,6 +111,9 @@ public static class PlayerHitDamage
             // its history, as the other elemental buckets are.
             if ((path.History & DamageTypeHistory.Elemental) != 0)
                 range = range.Scale(elementalMore * Math.Max(0, 1 + get(Stat.KeystoneElementalOverloadDamagePlusPctFinal) / 100.0));
+            if ((path.History & additional.MaximumMore.History) != 0 && additional.MaximumMore.Percent != 0)
+                range = range with { Max = Math.Max(range.Min,
+                    range.Max * Math.Max(0, 100d + additional.MaximumMore.Percent) / 100d) };
             result = result.Add(path.Type, range, trackPhysicalOrigin && (path.History & DamageTypeHistory.Physical) != 0);
         }
         // WithCharges expands increases and additions, but leaves more multipliers separate. Spell portions retain
@@ -125,6 +128,8 @@ public static class PlayerHitDamage
         // Quill Rain: "#% more Damage" (a less), on everything the character deals with hits.
         if (get(Stat.UniqueQuillRainDamagePlusPctFinal) is var quillRain and not 0)
             result = result.Scale(Math.Max(0, 1 + quillRain / 100.0));
+        if (attack && additional.AttackMorePct is int attackMore and not 0)
+            result = result.Scale(Math.Max(0, 1 + attackMore / 100d));
         return spell || charges == 1 ? result : result.Scale(charges);
     }
 
@@ -154,4 +159,6 @@ public readonly record struct HitIncreases(int Physical = 0, int Elemental = 0,
     IReadOnlyList<(DamageTypeHistory History, int Increased)>? Typed = null)
 {
     public int MeleePhysicalMorePct { get; init; }
+    public (DamageTypeHistory History, int Percent) MaximumMore { get; init; }
+    public int AttackMorePct { get; init; }
 }

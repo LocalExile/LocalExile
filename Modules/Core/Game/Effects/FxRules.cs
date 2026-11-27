@@ -186,7 +186,7 @@ public static class FxRules
     static JsonObject Engine(GameDataStore.FxRuleRow row)
     {
         if (row.When.Count != 1) throw new FormatException(row.When.Count == 0 ? "no trigger" : "several triggers have no code yet");
-        var (trigger, whenArgs) = row.When[0];
+        var (trigger, whenArgs, _) = row.When[0];
         if (!Triggers.TryGetValue(trigger, out string? when)) throw new FormatException($"the trigger \"{trigger}\" has no code yet");
         var rule = new JsonObject { ["when"] = when };
         var args = Object(whenArgs);

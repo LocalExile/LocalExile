@@ -95,24 +95,41 @@ public static class ChargeGains
     static bool Melee(ChargeEvent.Hit h, WeaponProfile w) => h.Melee ?? (!h.Spell && !w.Bow && !w.Wand);
     static bool RareOrUnique(MonsterRarity r) => r is MonsterRarity.Rare or MonsterRarity.Unique;
 
-    /// <summary>The gain stats the server rolls, by event.</summary>
-    public static readonly IReadOnlyList<Rule> Rules =
+    static readonly Rule[] LegacyKillChances =
     [
         // On kill
         new(Stat.EnduranceChargeOnKillPct, ChargeType.Endurance, (e, _) => e is ChargeEvent.Kill),
         new(Stat.AddFrenzyChargeOnKillPctChance, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill),
         new(Stat.AddPowerChargeOnKillPctChance, ChargeType.Power, (e, _) => e is ChargeEvent.Kill),
+    ];
+
+    internal static readonly Rule[] AdditionalKillRules =
+    [
         new(Stat.AddEnduranceChargeOnKill, ChargeType.Endurance, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.AddFrenzyChargeOnKill, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill, Flag: true),
         new(Stat.PowerFrenzyOrEnduranceChargeOnKillPct, null, (e, _) => e is ChargeEvent.Kill),
+    ];
+
+    static readonly Rule[] LegacyConditionalKillChances =
+    [
         new(Stat.EnduranceChargeOnKillPercentChanceWhileHoldingShield, ChargeType.Endurance, (e, w) => e is ChargeEvent.Kill && w.Shield),
         new(Stat.AddFrenzyChargeOnKillPctChanceWhileDualWielding, ChargeType.Frenzy, (e, w) => e is ChargeEvent.Kill && w.DualWield),
         new(Stat.ChanceToGainPowerChargeOnKillingFrozenEnemyPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
         new(Stat.ChanceToGainFrenzyChargeOnKillingFrozenEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Frozen: true }),
-        // On hit
+        // On kill, by the poisons on the enemy (Maligaro's Cruelty)
+        new(Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Poisons: >= 5 }),
+        new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
+    ];
+
+    static readonly Rule[] LegacyHitChances =
+    [
         new(Stat.AddFrenzyChargeOnSkillHitPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit),
         new(Stat.AddPowerChargeOnHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
         new(Stat.AddPowerChargeOnSkillHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit),
+    ];
+
+    internal static readonly IReadOnlyList<Rule> OtherRules =
+    [
         new(Stat.GainFrenzyChargeOnHitWhileBleeding, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit, Flag: true),
         new(Stat.GainFrenzyChargeOnHittingRareOrUniqueEnemyPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
         new(Stat.ChanceToGainPowerChargeOnRareOrUniqueEnemyHitPct, ChargeType.Power, (e, _) => e is ChargeEvent.Hit h && RareOrUnique(h.Rarity)),
@@ -162,9 +179,6 @@ public static class ChargeGains
         // "Lose all Power Charges on Critical Strike" (Romira's Banquet)
         new(Stat.UniqueLoseAllPowerChargesOnCrit, ChargeType.Power, (e, _) => e is ChargeEvent.Hit { Critical: true }, Flag: true,
             Does: Outcome.LoseAll),
-        // On kill, by the poisons on the enemy (Maligaro's Cruelty)
-        new(Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Kill { Poisons: >= 5 }),
-        new(Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct, ChargeType.Power, (e, _) => e is ChargeEvent.Kill { Poisons: < 5 }),
         // On stun: any hit, or a melee one; Endurance Charge on Melee Stun's flag is the support's own (Stun.Skill)
         new(Stat.ChanceToGainPowerChargeOnStunPct, ChargeType.Power, (e, _) => e is ChargeEvent.Stun),
         new(Stat.ChanceToGainFrenzyChargeOnStunPct, ChargeType.Frenzy, (e, _) => e is ChargeEvent.Stun),
@@ -188,6 +202,9 @@ public static class ChargeGains
         new(Stat.GainPowerChargeWhenThrowingTrapPct, ChargeType.Power, (e, _) => e is ChargeEvent.SkillUse { Trap: true }),
     ];
 
+    static readonly IReadOnlyList<Rule> LegacyHitRules = [.. LegacyHitChances, .. OtherRules];
+    public static readonly IReadOnlyList<Rule> Rules = [.. LegacyKillChances, .. AdditionalKillRules, .. LegacyConditionalKillChances, .. LegacyHitRules];
+
     /// <summary>One gain: a charge type, how many (negative: a loss; <see cref="All"/>: every charge above the
     /// minimum), and the stat or rule that granted it (for the log). <paramref name="ToMaximum"/>: up to the maximum.</summary>
     public readonly record struct Gain(ChargeType Type, int Count, string Source, bool ToMaximum = false)
@@ -208,6 +225,18 @@ public static class ChargeGains
     /// rolls those, the skill's own part included, so they are left out here.
     public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, Func<uint, bool>? ruled = null)
     {
+        var rules = e switch
+        {
+            ChargeEvent.Kill => ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules,
+            ChargeEvent.Hit => ItemEffectRules.Enabled ? ItemEffectRules.Current.HitChargeRules : LegacyHitRules,
+            _ => OtherRules
+        };
+        return Roll(e, get, weapon, rng, rules, ruled);
+    }
+
+    internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules,
+        Func<uint, bool>? ruled = null)
+    {
         var gains = new List<Gain>();
         switch (e)
         {
@@ -224,7 +253,7 @@ public static class ChargeGains
                 return gains;
         }
         var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Stun s => s.Skill, ChargeEvent.Kill k => k.Skill, _ => null };
-        foreach (var rule in Rules)
+        foreach (var rule in rules)
         {
             if (!rule.When(e, weapon)) continue;
             if (ruled is not null && ruled(rule.Stat)) continue;

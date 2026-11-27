@@ -13,7 +13,7 @@ public static partial class Game
     static void ScheduleSnakingFissureLocked(Player player, ushort skillId,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, RetainedAreaAttack source,
         (int X, int Y) from, (int X, int Y) aim, double now, ushort actionHash, ushort sequence, int repeat,
-        double radiusMore, SkillCriticalRoll criticalRoll, double ruthlessMore, bool cryExerted)
+        double radiusMore, SkillCriticalRoll criticalRoll, double ruthlessMore, bool cryExerted, bool seismicExerted, int? rallyingDamage)
     {
         var session = ProjectilesFor(player);
         var stats = SkillAreaStats(player, source.Gem.Stats, gem.Effect);
@@ -55,7 +55,8 @@ public static partial class Game
                 radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: Current, discharge: null,
                 strikeIndex: 0, firstContactAt: null, ruthlessMore, priorTargets: null, scaledBlastChaos: 0,
                 singleStrikeTarget: null, onHit, scheduledSession: session, cryExerted, prepaidRawExtra: 0, baseChaos: 0,
-                hammer: null, retainedAttack: source with { Phase = phase }, allowMeleeSplash: false, contactTargets: targets);
+                hammer: null, retainedAttack: source with { Phase = phase }, allowMeleeSplash: false, contactTargets: targets,
+                seismicExerted: seismicExerted, rallyingDamage: rallyingDamage);
             if (!hit.IsCompleted) throw new InvalidOperationException("A scheduled fissure contact must not yield.");
             hit.GetAwaiter().GetResult();
         }

@@ -67,6 +67,7 @@ public sealed class GuardSkillTests
     public async Task Casting_immortal_call_applies_its_buff_and_holds_the_shared_guard_cooldown()
     {
         using var f = new MinionUtilityTests.Fixture();
+        using var clock = new GuardClock(f);
         f.Equip(("Immortal Call", 1));
         var gem = Game.GemSkillEffects(f.Player).Single(g => Game.SkillsFor(f.Player).EffectId(g.Effect) == "ImmortalCall");
         var charges = Game.ChargesOf(f.Player);
@@ -116,6 +117,10 @@ public sealed class GuardSkillTests
         Assert.InRange(stored.RemainingBaseMilliseconds, 1490, 1510);
         Assert.False(Game.TriggerGuardReady(f.Player, ended + 2.9));
         // A second cast is refused by the shared guard cooldown before any cost, so nothing is spent.
+        // The guard-end stat refresh can clamp the fixture's oversized mana pool before that comparison.
+        var drained = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Game.ProjectilesFor(f.Player).Enqueue(() => { drained.TrySetResult(); return Task.CompletedTask; });
+        await drained.Task;
         mana = f.Player.PlayerMana;
         await Game.UseInstantSkill(f.Player, gem.Id, 0, f.Player.Walk.Position(now));
         Assert.Equal(mana, f.Player.PlayerMana);
@@ -133,6 +138,16 @@ public sealed class GuardSkillTests
         await Game.CastGemSkill(cloak.Player, arcane.Id, (100, 100), (100, 100),
             cooldownUse: ticket);
         Assert.True(Game.TriggerGuardReady(cloak.Player, Game.AreaTime(cloak.Player)));
+    }
+
+    sealed class GuardClock : IPlayerUpdateSchedule, IDisposable
+    {
+        readonly PlayerUpdatesState? previous = Game.AreaUpdateContext.Value;
+        public GuardClock(MinionUtilityTests.Fixture fixture) =>
+            Game.AreaUpdateContext.Value = new(fixture.Lifetime, this);
+        public double Now(Player player) => 1;
+        public Task Wait(int milliseconds, CancellationToken stopping) => Task.CompletedTask;
+        public void Dispose() => Game.AreaUpdateContext.Value = previous;
     }
 
     // Issue #1127: a guard's stat-only start rebuilt the skill bar (0x53), which re-creates every slot and resets its

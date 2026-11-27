@@ -267,7 +267,8 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
             // Anything the client sent after its 0x0002 is already ciphertext.
             var incoming = new LoginMessageStream(LoginDirection.ClientToServer);
             InstanceDirectory.LoginLink? link = null;
-            var session = new LoginServerSession(accounts)
+            LoginServerSession? session = null;
+            session = new LoginServerSession(accounts)
             {
                 CharacterListClass = characterListClass.For,
                 InstanceHost = GatewayEndpoint.Host,
@@ -278,6 +279,9 @@ static async Task HandleConnection(TcpClient tcp, LoginServerKeys keys, AccountS
                 IsCharacterActive = directory.IsCharacterActive,
                 CharacterRenamed = RenameLegacySave,
                 CharacterMigrated = (name, from, to) => Console.WriteLine($"[auth] {name} migrated from {from} to {to}"),
+                IsValidStartingArea = directory.IsKnownTown,
+                CharacterCreatedAsync = (character, league, options) =>
+                    directory.NotifyCharacterCreatedAsync(session?.Account?.Name ?? "", character, league, options),
                 Assign = s => directory.AssignStart(s, link!),
             };
             link = new InstanceDirectory.LoginLink(stream, ciphers, session, peer, () => tcp.Close());
@@ -382,7 +386,7 @@ static void RenameLegacySave(string oldName, string newName)
 static async Task Reply(InstanceDirectory.LoginLink link, List<ILoginMessage> received)
 {
     foreach (var m in received)
-        foreach (var reply in link.Session.Handle(m))
+        foreach (var reply in await link.Session.HandleAsync(m))
             await link.SendAsync(reply);
 }
 

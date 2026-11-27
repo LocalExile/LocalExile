@@ -11,7 +11,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - `/played` saves online character time across area changes, relog and module reload: [10](../docs/protocol/10-chat-and-commands.md).
   Retail commands `/remaining`, `/deaths`, `/kills`, `/age`, `/itemlevel`, `/whois`, `/ladder`, `/invite`, `/afk`,
   `/dnd`, `/autoreply`, `/atlaspassives` and `/oosme`, plus area-wide level-up announcements, are implemented.
-  Their live client check is pending.
+  Area-entry latency probes stay out of chat presence in Predictive and Lockstep.
+  The remaining commands still need live checks.
 
 - Chat commands `/commands` (`/com`; paged, `/com <name>` for one; replies as chat lines). The development commands
   `/raw <hex>`, `/set_stat`, `/set_speed`, `/set_level <1 to 100>` (saved to the account, sent in place),

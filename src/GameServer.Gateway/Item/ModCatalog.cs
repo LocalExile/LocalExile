@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core;
@@ -12,6 +13,7 @@ public sealed class ModCatalog
     readonly string folder;
     readonly bool hardMode;
     readonly ModRangeProvider? ranges;
+    readonly Lock _snapshotLock = new();
 
     public ModCatalog(string folder = "data", bool hardMode = false, ModRangeProvider? ranges = null)
     {
@@ -19,10 +21,79 @@ public sealed class ModCatalog
         this.hardMode = hardMode;
         this.ranges = ranges;
         Ranges = ranges ?? ModRangeProvider.Default;
-        _mods = Load(folder, hardMode, ranges ?? ModRangeProvider.Default);
+        var (rows, byHash, byId) = Load(folder, hardMode, Ranges);
+        var byRow = new Dictionary<int, Mod>(rows.Count);
+        foreach (var m in rows) byRow[m.Row] = m;
+        _stockSnapshot = new ModSnapshot(rows, byRow, byHash, byId, 0, 0);
+        _snapshot = _stockSnapshot;
     }
 
     public ModRangeProvider Ranges { get; }
+
+    sealed record RegisteredOverlay(long Id, string Owner, Mod Mod);
+    sealed record ModSnapshot(List<Mod> Rows, Dictionary<int, Mod> ByRow, Dictionary<ushort, Mod> ByHash,
+        Dictionary<string, Mod> ById, long LocalRevision, long SharedRevision);
+
+    static ImmutableArray<RegisteredOverlay> _sharedOverlays = [];
+    static long _sharedNextId;
+    static long _sharedRevision;
+
+    ImmutableArray<RegisteredOverlay> _localOverlays = [];
+    long _localNextId;
+    long _localRevision;
+    readonly ModSnapshot _stockSnapshot;
+    ModSnapshot _snapshot;
+
+    /// <summary>Advances whenever shared runtime mod overlays change.</summary>
+    public static long OverlayRevision => Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Advances whenever this catalog's instance or shared runtime mod overlays change.</summary>
+    public long Revision => Volatile.Read(ref _localRevision) + Volatile.Read(ref _sharedRevision);
+
+    /// <summary>Registers a runtime mod overlay visible to every <see cref="ModCatalog"/> instance, owned by <paramref name="owner"/>
+    /// and automatically removed when that owner unloads.</summary>
+    public static IDisposable RegisterOverlay(string owner, Mod mod)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(mod);
+        long id = Interlocked.Increment(ref _sharedNextId);
+        ImmutableInterlocked.Update(ref _sharedOverlays, list => list.Add(new(id, owner, mod)));
+        Interlocked.Increment(ref _sharedRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _sharedOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _sharedRevision);
+        }));
+    }
+
+    /// <summary>Registers a runtime mod overlay on this <see cref="ModCatalog"/> instance, owned by <paramref name="owner"/>
+    /// and automatically removed when that owner unloads.</summary>
+    public IDisposable Register(string owner, Mod mod)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ValidateOverlay(mod);
+        long id = Interlocked.Increment(ref _localNextId);
+        ImmutableInterlocked.Update(ref _localOverlays, list => list.Add(new(id, owner, mod)));
+        Interlocked.Increment(ref _localRevision);
+        return GameEventOwners.Own(owner, new Undo(() =>
+        {
+            if (ImmutableInterlocked.Update(ref _localOverlays, list => list.RemoveAll(e => e.Id == id)))
+                Interlocked.Increment(ref _localRevision);
+        }));
+    }
+
+    static void ValidateOverlay(Mod mod)
+    {
+        ArgumentNullException.ThrowIfNull(mod);
+        if (string.IsNullOrWhiteSpace(mod.Id))
+            throw new ArgumentException("Mod.Id must be non-empty.", nameof(mod));
+    }
+
+    sealed class Undo(Action undo) : IDisposable
+    {
+        Action? _undo = undo;
+        public void Dispose() => Interlocked.Exchange(ref _undo, null)?.Invoke();
+    }
 
     /// <summary>A stat of a mod: its Stats.dat Id, the Stat{n}Min / Stat{n}Max roll range, and Stats.dat IsLocal (the
     /// stat changes the item it is on, not the character).</summary>
@@ -115,23 +186,115 @@ public sealed class ModCatalog
         public override string ToString() => $"{Id} (row {Row})";
     }
 
-    private readonly (List<Mod> Rows, Dictionary<ushort, Mod> ByHash, Dictionary<string, Mod> ById) _mods;
+    ModSnapshot CurrentSnapshot()
+    {
+        long localRev = Volatile.Read(ref _localRevision);
+        long sharedRev = Volatile.Read(ref _sharedRevision);
+        var current = Volatile.Read(ref _snapshot);
+        if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+            return current;
+        lock (_snapshotLock)
+        {
+            localRev = Volatile.Read(ref _localRevision);
+            sharedRev = Volatile.Read(ref _sharedRevision);
+            current = _snapshot;
+            if (current.LocalRevision == localRev && current.SharedRevision == sharedRev)
+                return current;
+            var shared = _sharedOverlays;
+            var local = _localOverlays;
+            if (shared.IsEmpty && local.IsEmpty)
+            {
+                var stock = _stockSnapshot with { LocalRevision = localRev, SharedRevision = sharedRev };
+                Volatile.Write(ref _snapshot, stock);
+                return stock;
+            }
+            var rows = new List<Mod>(_stockSnapshot.Rows.Count + shared.Length + local.Length);
+            rows.AddRange(_stockSnapshot.Rows);
+            var byRow = new Dictionary<int, Mod>(_stockSnapshot.ByRow);
+            var byHash = new Dictionary<ushort, Mod>(_stockSnapshot.ByHash);
+            var byId = new Dictionary<string, Mod>(_stockSnapshot.ById, StringComparer.OrdinalIgnoreCase);
+            var rowIndexInList = new Dictionary<int, int>(rows.Count);
+            for (int i = 0; i < rows.Count; i++) rowIndexInList[rows[i].Row] = i;
+            int nextSyntheticRow = _stockSnapshot.Rows.Count;
 
-    public bool Loaded => _mods.Rows.Count > 0;
+            void Apply(ImmutableArray<RegisteredOverlay> overlays)
+            {
+                for (int i = 0; i < overlays.Length; i++)
+                {
+                    var raw = overlays[i].Mod;
+                    int assignedRow = raw.Row;
+                    if (assignedRow < 0)
+                    {
+                        if (byId.TryGetValue(raw.Id, out var existing)) assignedRow = existing.Row;
+                        else
+                        {
+                            while (byRow.ContainsKey(nextSyntheticRow)) nextSyntheticRow++;
+                            assignedRow = nextSyntheticRow++;
+                        }
+                    }
+                    var mod = raw with { Row = assignedRow, Ranges = raw.Ranges ?? Ranges };
+                    if (byRow.TryGetValue(mod.Row, out var replacedByRow))
+                    {
+                        if (byHash.TryGetValue(replacedByRow.Hash, out var curHash) && ReferenceEquals(curHash, replacedByRow))
+                            byHash.Remove(replacedByRow.Hash);
+                        if (byId.TryGetValue(replacedByRow.Id, out var curId) && ReferenceEquals(curId, replacedByRow))
+                            byId.Remove(replacedByRow.Id);
+                    }
+                    if (byId.TryGetValue(mod.Id, out var replacedById) && replacedById.Row != mod.Row)
+                    {
+                        if (byHash.TryGetValue(replacedById.Hash, out var curHash) && ReferenceEquals(curHash, replacedById))
+                            byHash.Remove(replacedById.Hash);
+                        byRow.Remove(replacedById.Row);
+                        if (rowIndexInList.Remove(replacedById.Row, out int oldPos))
+                        {
+                            int lastIdx = rows.Count - 1;
+                            if (oldPos < lastIdx)
+                            {
+                                var moved = rows[lastIdx];
+                                rows[oldPos] = moved;
+                                rowIndexInList[moved.Row] = oldPos;
+                            }
+                            rows.RemoveAt(lastIdx);
+                        }
+                    }
+                    if (rowIndexInList.TryGetValue(mod.Row, out int pos))
+                        rows[pos] = mod;
+                    else
+                    {
+                        rowIndexInList[mod.Row] = rows.Count;
+                        rows.Add(mod);
+                    }
+                    byRow[mod.Row] = mod;
+                    byHash[mod.Hash] = mod;
+                    byId[mod.Id] = mod;
+                }
+            }
 
-    public Mod? Row(int row) => row >= 0 && row < _mods.Rows.Count ? _mods.Rows[row] : null;
+            Apply(shared);
+            Apply(local);
+            var built = new ModSnapshot(rows, byRow, byHash, byId, localRev, sharedRev);
+            Volatile.Write(ref _snapshot, built);
+            return built;
+        }
+    }
 
-    public Mod? ByHash(ushort hash) => _mods.ByHash.GetValueOrDefault(hash);
+    public bool Loaded => CurrentSnapshot().Rows.Count > 0;
 
-    public Mod? ById(string id) => _mods.ById.GetValueOrDefault(id);
+    public Mod? Row(int row) => CurrentSnapshot().ByRow.GetValueOrDefault(row);
 
-    public IReadOnlyList<Mod> All => _mods.Rows;
+    public Mod? ByHash(ushort hash) => CurrentSnapshot().ByHash.GetValueOrDefault(hash);
+
+    public Mod? ById(string id) => CurrentSnapshot().ById.GetValueOrDefault(id);
+
+    public IReadOnlyList<Mod> All => CurrentSnapshot().Rows;
 
     /// <summary>A mod by row number, exact Id (any case), then the first Id that contains the text.</summary>
     public Mod? Find(string query)
     {
         if (int.TryParse(query, out int row)) return Row(row);
-        return ById(query) ?? _mods.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
+        var snap = CurrentSnapshot();
+        return snap.ById.GetValueOrDefault(query)
+            ?? snap.Rows.FirstOrDefault(m => m.Id.Contains(query, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>"SpellDamageOnWeaponImplicitWand1 implicit: spell_damage_+% 10" for logs and /item_mods.</summary>

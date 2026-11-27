@@ -1,10 +1,33 @@
 using System.Numerics;
+using GameServer.Core.Projectiles;
 using GameServer.Core.World;
 using Ailment = MonsterElementalAilments.Kind;
 
 static partial class Game
 {
     const ushort ElementalHitMemoryBuff = 1143;
+    internal const string SpectrumHitEffect = "ElementalHitAltX";
+    const int ElementalHitCloneShot = 306;
+
+    internal static ProjectileAreaRecipe ElementalHitBurst(double radius) => new("elemental-hit-burst", radius)
+    {
+        CentreOnContactTarget = true,
+        ExcludeContactTarget = true,
+        ReplacesDirectContact = false,
+        RequiresEnemyHit = true,
+    };
+
+    static SkillCatalog.MonsterProjectileInfo? ElementalHitCloneArrow(SkillCatalog skills, DamageType element)
+    {
+        string metadata = element switch
+        {
+            DamageType.Cold => "Metadata/Projectiles/ElementalHitArrowCold",
+            DamageType.Lightning => "Metadata/Projectiles/ElementalHitArrowLightning",
+            _ => "Metadata/Projectiles/ElementalHitArrowFire",
+        };
+        return skills.Projectile(metadata) is { } projectile
+            ? new(projectile.Id, projectile.Speed, false, skills.ProjectileContactCells(projectile.Id) ?? 1) : null;
+    }
 
     sealed class ElementalHitMemory
     {

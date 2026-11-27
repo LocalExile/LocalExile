@@ -36,23 +36,34 @@ public sealed class MapMods
     /// second part of a node's id): what a module's own sources of those families' stats name. A family's league block is
     /// carried once, whoever holds it.</summary>
     public IReadOnlySet<string> AtlasFamilies { get; init; } = System.Collections.Frozen.FrozenSet<string>.Empty;
+    /// <summary>Named, non-numeric map content selected by modules before device payment.</summary>
+    public IReadOnlySet<string> ContentFlags { get; init; } = System.Collections.Frozen.FrozenSet<string>.Empty;
 
     public int Get(uint id) => Stats.GetValueOrDefault(id);
 
     /// <summary>Replaces one fragment contribution while preserving every other map source.</summary>
-    public MapMods WithFragmentStat(uint id, int value)
+    public MapMods WithFragmentStat(uint id, int value) => WithFragmentStats(new Dictionary<uint, int> { [id] = value });
+
+    public MapMods WithContentFlags(IEnumerable<string> flags) => Copy(Stats, Fragments, ContentFlags.Concat(flags).ToHashSet(StringComparer.Ordinal));
+
+    public MapMods WithFragmentStats(IReadOnlyDictionary<uint, int> values)
     {
         var fragments = Fragments.ToDictionary();
         var stats = Stats.ToDictionary();
-        stats[id] = checked(stats.GetValueOrDefault(id) - fragments.GetValueOrDefault(id) + value);
-        fragments[id] = value;
-        return new(stats, Quality)
+        foreach (var (id, value) in values)
         {
-            ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
-            FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
-            MapRarity = MapRarity, Corrupted = Corrupted, AtlasFamilies = AtlasFamilies,
-        };
+            stats[id] = checked(stats.GetValueOrDefault(id) - fragments.GetValueOrDefault(id) + value);
+            fragments[id] = value;
+        }
+        return Copy(stats, fragments, ContentFlags);
     }
+
+    MapMods Copy(IReadOnlyDictionary<uint, int> stats, IReadOnlyDictionary<uint, int> fragments, IReadOnlySet<string> flags) => new(stats, Quality)
+    {
+        ExplicitMods = ExplicitMods, Implicit = Implicit, Fragments = fragments,
+        FragmentCount = FragmentCount, ScarabCount = ScarabCount, ScarabKinds = ScarabKinds,
+        MapRarity = MapRarity, Corrupted = Corrupted, AtlasFamilies = AtlasFamilies, ContentFlags = flags,
+    };
 
     public int Quantity => Get(Stat.MapItemDropQuantityPlusPct) + Get(Stat.MapImplicitItemDropQuantityPlusPct)
         + Get(Stat.MapUnscaledItemDropQuantityPlusPct);
@@ -286,7 +297,9 @@ public sealed class MapRunCatalog
                 why = $"{slot.Name} needs an area level of {fragment.MinAreaLevel}.";
                 return false;
             }
-            int n = count[fragment.Family] = count.GetValueOrDefault(fragment.Family) + 1;
+            // MapFragmentMods stores 149 (or null) for ungrouped fragments/oils/vessels without a family; count each BaseRow separately.
+            int familyKey = fragment.Family is < 0 or 149 ? -slot.BaseRow - 1 : fragment.Family;
+            int n = count[familyKey] = count.GetValueOrDefault(familyKey) + 1;
             if (n > fragment.Limit)
             {
                 why = $"Only {fragment.Limit} of that kind of map fragment can be used at once.";

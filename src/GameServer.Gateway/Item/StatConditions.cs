@@ -97,6 +97,7 @@ public static class StatConditions
         "critical_strike_chance_while_wielding_shield_+%",
         "critical_strike_multiplier_while_dual_wielding_+",
         "spell_block_while_dual_wielding_%",
+        FullShieldSuppression,
         // The "_while_holding_shield" spelling (the shield/jewel mods) has its own consumers too: the two block stats in
         // Progression's shield block, the shield attack speed in its attack-speed block, and the endurance charge on
         // kill in ChargeGains. Left on their own id so those readers still find them and do not double count.
@@ -124,6 +125,7 @@ public static class StatConditions
         "gain_phasing_while_at_maximum_frenzy_charges", "gain_phasing_while_affected_by_haste",
     };
 
+    const string FullShieldSuppression = "spell_damage_%_suppressed_while_on_full_energy_shield";
     public const string DuringAnyFlaskEffect = "_during_any_flask_effect";
 
     static readonly string[] StateSuffixes =
@@ -756,6 +758,8 @@ public static class StatConditions
                 ? active ? State.Holds : State.Fails : State.NotModelled;
         // Evil Eye tests the recipient of the curse; the caster need not be cursed.
         if (statId == "enemies_damage_taken_+%_while_cursed") return static _ => State.None;
+        // Suppression reads this coefficient at hit time because an earlier hit can empty the shield in the same frame.
+        if (statId == FullShieldSuppression) return static _ => State.None;
         var property = EquipmentPropertyThresholdId.Match(statId);
         if (property.Success)
         {

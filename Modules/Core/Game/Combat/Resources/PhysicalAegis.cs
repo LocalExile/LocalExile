@@ -43,7 +43,8 @@ public static partial class Game
         state.CheckedOwner = owner;
         state.CheckedStatSources = statSources;
         state.CheckedInventoryMutations = invMutations;
-        if (grant.Host == 0 || grant.EffectId != PhysicalAegisEffect || PhysicalAegisGeometry(player, grant) is not { } geometry)
+        if (statSources?.Sources.GetValueOrDefault(Stat.YourAegisSkillsExceptPrimalAreDisabled) is int and not 0
+            || grant.Host == 0 || grant.EffectId != PhysicalAegisEffect || PhysicalAegisGeometry(player, grant) is not { } geometry)
         {
             state.CheckedHasGrant = false;
             RetirePhysicalAegis(player);

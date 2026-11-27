@@ -4,6 +4,13 @@ using GameServer.Core.Protocol.Login;
 
 public static partial class Game
 {
+    static int SpendCharacterChargesOnFlaskUse(Player player, ChargeType type, int count, double now)
+    {
+        var charges = ChargesOf(player);
+        return !charges.Converted(type) && now < charges.State.ExpiresAt(type)
+            ? charges.Spend(type, count, now) : 0;
+    }
+
     // C→S 0x70 on a utility flask (13-items.md §8a): it spends its charges (S→C 0xbf), puts its buff on the player with
     // its duration (S→C 0x1c1) and its stats count in the pools until the duration ends (UtilityFlasks), with the stats
     // and movement speed sent again at the start and the end. Refused while dead or with too few charges.
@@ -44,7 +51,7 @@ public static partial class Game
             return false;
         }
         var (stats, seconds, effectPower, selfChaosRate) = UtilityFlaskUseFor(player, (byte)slot, flask.Item, utility, local, Get, playerLevel);
-        bool gainedSouls = false;
+        bool gainedSouls = false, gainedOnslaught = false;
         if (FlaskGrounds.OnUse(local).Any(g => g.Kind != FlaskGrounds.Kind.Taunt)) _ = FlaskGroundArt;
         // Payment and installation are one admitted transaction. A reload after the inventory send cannot
         // strand paid charges without their accepted snapshot, deadline, Adjacent edge and presentation.
@@ -83,7 +90,14 @@ public static partial class Game
             // lines hold from the next stat phase.
             RaiseCombatEvent(player, new ChargeEvent.FlaskUse(flask.Id, "utility"));
             if (EffectRules.HasCarrierRules(ItemCarrier)) TellStatsUpdated(player);
-            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower);
+            gainedSouls = ApplyUtilityResourceEffectsLocked(player, local, charges.ChargesPerUse, now, effectPower, Get);
+            if (local.GetValueOrDefault(Stat.LocalFlaskConsumesXFrenzyChargesOnUse) is > 0 and var frenzyCost)
+            {
+                int spentFrenzy = SpendCharacterChargesOnFlaskUse(player, ChargeType.Frenzy, frenzyCost, now);
+                double onslaughtSeconds = (double)spentFrenzy
+                    * local.GetValueOrDefault(Stat.LocalFlaskGainXSecondsOfOnslaughtPerFrenzyChargeConsumed);
+                gainedOnslaught = KillOnslaughtOf(player).Gain(now, onslaughtSeconds) && Marked(player, PlayerStatStep.Onslaught);
+            }
             ApplyConditionalFlaskAilmentProtectionLocked(player, local, now);
             if (UtilityFlasks.RestoreWardAfterPaidUse(player.Ward, name => local.GetValueOrDefault(name), now))
                 Console.WriteLine($"[gateway] Ward restored on paid {type.Name}: {player.Ward.Current}/{player.Ward.Maximum}");
@@ -101,6 +115,7 @@ public static partial class Game
         if (CurrentGameWork && !player.Closed && !player.LeavingArea)
         {
             if (gainedSouls) await SendVaalSouls(player);
+            if (gainedOnslaught) await SendKillOnslaught(player);
             await EnemyDebuffsTick(player, AreaTime(player));
         }
         return true;
