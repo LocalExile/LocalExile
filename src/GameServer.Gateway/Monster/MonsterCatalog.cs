@@ -79,6 +79,11 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int>? Part2Mods { get; init; }
         public IReadOnlyList<int>? EndgameMods { get; init; }
         public IReadOnlyList<string> ComponentsOrBase => Components ?? MonsterObject.BaseComponents;
+        /// <summary>Index of the <c>StateMachine</c> component in <see cref="ComponentsOrBase"/>, or −1 when absent.</summary>
+        public int StateMachineComponentIndex { get; init; } = IndexOfComponent(Components ?? MonsterObject.BaseComponents, "StateMachine");
+        /// <summary>Per-shared-state metadata from <c>object_type_state_meta</c> (client listeners, client GEAL writers,
+        /// and default-hidden rendering flags), merged with <c>AddonMonsterTypeIndex</c>.</summary>
+        public IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta> StateMeta { get; init; } = EmptyStateMeta;
         /// <summary>The type's .ot chain from object-types.json, for lineage-gated extras
         /// (<see cref="MonsterObject.CanSerialize"/>): empty when object-types.json is absent.</summary>
         public IReadOnlyList<string> Chain { get; init; } = [];
@@ -90,6 +95,16 @@ public sealed class MonsterCatalog
         public IReadOnlyList<int> EndgameModsOrEmpty => EndgameMods ?? [];
         public bool Supported => MonsterObject.CanSerialize(ComponentsOrBase, StateMachine is not null, Chain);
         public override string ToString() => $"{Name} ({Id}, row {Row})";
+    }
+
+    static readonly IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta> EmptyStateMeta =
+        new Dictionary<string, ObjectTypes.StateFlagMeta>();
+
+    static int IndexOfComponent(IReadOnlyList<string> components, string name)
+    {
+        for (int i = 0; i < components.Count; i++)
+            if (components[i] == name) return i;
+        return -1;
     }
 
     private readonly (List<Variety> Rows, string? Error) _rows;
@@ -672,6 +687,7 @@ public sealed class MonsterCatalog
         if (!ClientTables.Has("MonsterVarieties")) return ([], $"the MonsterVarieties client table is missing from {ClientTables.DefaultPath}");
         var components = new Dictionary<string, IReadOnlyList<string>>();
         var stateMachines = new Dictionary<string, StateMachineData>();
+        var stateMetas = new Dictionary<string, IReadOnlyDictionary<string, ObjectTypes.StateFlagMeta>>();
         var transitionStates = new Dictionary<string, byte>();
         var chains = new Dictionary<string, string[]>();
         var lifeData = new Dictionary<string, MonsterLifeData>();
@@ -682,6 +698,7 @@ public sealed class MonsterCatalog
         if (ClientTables.TableOrNull("object_types") is { } objectTypes)
         {
             var sharedStates = ObjectTypes.SharedStates();
+            var stateMetaLookup = ObjectTypes.StateMeta();
             foreach (var t in objectTypes)
             {
                 string type = t.Text("type")!;
@@ -693,6 +710,7 @@ public sealed class MonsterCatalog
                 idleSlowAnimations[type] = t.BoolOrNull("actor_slow_animations_go_to_idle");
                 // Data generated before the StateMachine data has no shared timers: those types stay unsupported.
                 if (ObjectTypes.StateMachine(t, sharedStates) is { } machine) stateMachines[type] = machine;
+                if (ObjectTypes.StateMetaFor(t, stateMetaLookup) is { } meta) stateMetas[type] = meta;
                 if (t.IntOrNull("transitionable_num_states") is int numStates)
                     transitionStates[type] = (byte)Math.Clamp(numStates, 1, 127);
                 // A type with Life has its three flags; one without has none.
@@ -792,11 +810,22 @@ public sealed class MonsterCatalog
                 // read wave_monster, size and one timer). Add-on components are not merged (not traced). An add-on the type
                 // already inherits adds nothing (Abberath2Gauntlet lists itself).
                 var machine = stateMachines.GetValueOrDefault(type);
+                var meta = stateMetas.GetValueOrDefault(type);
+                Dictionary<string, ObjectTypes.StateFlagMeta>? mergedMeta = null;
                 var chain = chains.GetValueOrDefault(type) ?? [];
                 foreach (string addon in r.Texts("AddonMonsterTypeIndex"))
                     if (machine is not null && addon != type && !chain.Contains(addon) && stateMachines.GetValueOrDefault(addon) is { } extra)
+                    {
                         machine = new StateMachineData([.. machine.SharedStates, .. extra.SharedStates], machine.SharedTimers + extra.SharedTimers,
                             [.. machine.Names ?? machine.SharedStates.Select(_ => ""), .. extra.Names ?? extra.SharedStates.Select(_ => "")]);
+                        if (stateMetas.GetValueOrDefault(addon) is { } extraMeta)
+                        {
+                            if (mergedMeta is null)
+                                mergedMeta = meta is null ? new Dictionary<string, ObjectTypes.StateFlagMeta>() : new Dictionary<string, ObjectTypes.StateFlagMeta>(meta);
+                            foreach (var (k, v) in extraMeta)
+                                mergedMeta.TryAdd(k, v);
+                        }
+                    }
                 int[] speciesMods = new[] { "ModsKeys", "ModsKeys2", "Special_ModsKeys" }
                     .SelectMany(r.Ints)
                     .Distinct().ToArray();
@@ -822,6 +851,7 @@ public sealed class MonsterCatalog
                         LifeData = lifeData.GetValueOrDefault(type) ?? new(null, null, null), RangedWeapon = RangedWeapon(r), Weapons = Weapons(r),
                         PositionedBlocking = blocking.GetValueOrDefault(type, true), Phases = phasing.Contains(type), Immobile = immobile.Contains(type),
                         Chain = chain,
+                        StateMeta = mergedMeta ?? meta ?? EmptyStateMeta,
                         SlowAnimationsGoToIdle = r.Texts("AddonMonsterTypeIndex").Length == 0 ? idleSlowAnimations.GetValueOrDefault(type) : null,
                         Hash16 = (ushort)r.Int("HASH16"),
                         SpeedRollMin = Column(r, "__col75"), SpeedRollMax = Column(r, "__col76"),

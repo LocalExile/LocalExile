@@ -216,6 +216,18 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Native ranged actions receive final projectile counts, including `MonsterProjectileSpell` and `rolling_magma`
   server-published projectiles; other than simulated mortars and spell projectiles, flight damage remains incomplete.
+- Weapon projectile attacks with a `monster_projectile_variation` fly their `MonsterProjectileAttack` projectile through
+  kit shaping (`BossKits.ArtShot`, including `ScavengerThrow` variation 0, sibling `ActionType`s, `SkillArtProjectile`
+  variant-0 fallback, and generic-skill no-borrow guards); the default attack (`MavenNucleus.Shot`) still has none.
+- Monster skill data, combos, kits & `.ot` state flags (PR #1618 S0–S6; automated coverage only, not yet verified live
+  with the real client): `monster-contacts` v9 extracts profile-normalized `Animation.dat` pools, ACT modifiers, `.ao`
+  views, named clip events, and `GE.Animation` priority (missing projectile clips 811 → 185/2,342; `EmptyAction*` parent
+  clip coverage 896 → 1,993/2,050); `MonsterCombos` drives `EmptyAction*` child actions on `AreaTime` clip events;
+  ordinary monster kits scale up to 16 skills with `MinRange`, `CooldownGroup`, cached `GrantedSkill` reuse, and
+  module-agnostic `MonsterKitHooks`; `object-types` v14 adds `object_type_state_meta` for data-driven default visibility
+  (`MonsterStates.DefaultVisibleStates`) and `MonsterStateMachine` runtime `0x2bc` state updates.
+  Code: `MonsterCombos.cs`, `MonsterKits.cs`, `MonsterKitHooks.cs`, `MonsterStates.cs`, `MonsterStateMachine.cs`,
+  `scripts/re/monster_contacts.py`, `scripts/re/ot_components.py`. Docs: [11](../docs/protocol/11-skills.md) §6.
 - Normal Sirus: entry, four phases and rewards; AI/drop tuning provisional ([14](../docs/protocol/14-monster-packs.md)).
 
 - Monsters using the ordinary AI can acquire an in-range fighting golem even while its owner is outside aggro range.
@@ -245,7 +257,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Solaris/Lunaris hand off corporeal/celestial forms; celestial fire sweeps/flares and lunar darkness/ice cascades
   have typed contacts. Official cadence, heading distribution and some hazard radii remain calibrated.
   Effects that hit for nothing, summon nothing and fire nothing (a breath's own segments, geometry triggers,
-  `EmptyAction`s), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
+  unbound `EmptyAction` shells), ungrounded `CastGroundEffect` rows (such as The Faun's `TheFaunCastGroundEffectLavaTemporary`),
   and secondary `GA*` `GeometryAttack` leap payloads (`GANavaliGoatmanLeapDamage`) stay out of boss kits and default
   attacks (verified live on The Faun), and the attack a boss had before is still its first, unchanged. Checked against
   the tables and in `BossKitsTests`; **not yet played against the real client**: which of the remaining list a client
