@@ -1625,6 +1625,8 @@ public static partial class Game
                         channelGeneration = BeginPaidChannel(player, skillId, gem.Effect, action, sequence);
                         if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
                             WitherChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
+                        if (IsLightningTendrils(SkillsFor(player).EffectId(gem.Effect)))
+                            TendrilsChannels.AddOrUpdate(player, new(skillId, channelGeneration.Value, to));
                         if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect)))
                             BeginFlameblast(player, paymentGem, skillId, action, channelGeneration.Value, sequence, to);
                         if (IsBladeFlurry(player, gem.Effect))
@@ -1717,7 +1719,8 @@ public static partial class Game
             { AbortStartedChannel(player, channelGeneration); return false; }
             player.NextChannelHitAt = AreaTime(player) + (IsSnipe(gem.Effect) ? interval / 2 : interval);
             _ = RunChannel(player, skillId, gem, action, to, initialCostPaid: true);
-            if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
+            if (IsFlameblast(SkillsFor(player).EffectId(gem.Effect))
+                || IsLightningTendrils(SkillsFor(player).EffectId(gem.Effect))) return CompleteSupportedUse(true);
             if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
             {
                 using (ProjectileMutation(player))
@@ -2602,6 +2605,7 @@ public static partial class Game
         bool scourge = IsChannelledScourgeArrow(gem.Effect);
         var flameblast = FlameblastChannels.TryGetValue(player, out var flame)
             && flame.Skill == skillId && flame.Generation == generation && flame.Action == action ? flame : null;
+        var tendrils = ActiveTendrilsChannel(player);
         bool firstStagePaid = snipe || flameblast is not null && initialCostPaid;
         ChargedDashChannel? dash;
         lock (LevelUpdatesFor(player).Gate) dash = CurrentChargedDash(player);
@@ -2625,6 +2629,8 @@ public static partial class Game
         int divineIreStages = 0;
         try
         {
+            if (initialCostPaid && tendrils is not null)
+                await PulseLightningTendrils(player, tendrils, gem, action, 0, lycia?.Pact.DamageMore ?? 1);
             if (dash is not null) StartChargedDashWave(player, dash, channelStarted);
             if (IsWinterOrb(gem.Effect))
                 orbEffect = await WinterOrbStart(player, skillId, gem, action);
@@ -2773,6 +2779,11 @@ public static partial class Game
                         if (Running()) WitherPulseLocked(player, SupportedSkill(player, skillId), wither.Aim, AreaTime(player));
                     continue;
                 }
+                if (tendrils is not null)
+                {
+                    await PulseLightningTendrils(player, tendrils, gem, action, now - channelStarted, lycia?.Pact.DamageMore ?? 1);
+                    continue;
+                }
                 double focusedMore = FocusedChannelMore(now - channelStarted,
                     GolemStat(SupportedSkill(player, skillId).Stats, Stat.SupportFocusChannelDamagePlusPctFinalPerSecondChannellingUpTo60Pct));
                 if (dash is not null)
@@ -2807,6 +2818,8 @@ public static partial class Game
                     && WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
                     WitherChannels.Remove(player);
                 if (flameblast is not null) RetireFlameblastLocked(player, generation);
+                if (tendrils is not null && TendrilsChannels.TryGetValue(player, out var currentTendrils)
+                    && ReferenceEquals(tendrils, currentTendrils)) TendrilsChannels.Remove(player);
             }
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
@@ -2853,7 +2866,7 @@ public static partial class Game
             wither.Aim = (x, y);
             return true;
         }
-        return AimBladeFlurry(player, (x, y)) || dashAimed;
+        return AimLightningTendrils(player, (x, y)) || AimBladeFlurry(player, (x, y)) || dashAimed;
     }
 
     // C→S 0x193 (class 0x1431767e8, writer 0x140911210, sender 0x14011ecb0): retarget an active held or channelled
@@ -2976,7 +2989,7 @@ public static partial class Game
                 || IsBladeFlurryChannelling(player, skill, generation, action)
                 || CurrentChargedDash(player) is not null
                 || player.PaidChannel is { } paid && paid.Skill == skill
-                    && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
+                    && (IsLightningTendrils(SkillsFor(player).EffectId(paid.Effect))
                         || IsDivineIre(player, paid.Effect) || IsFlameblast(SkillsFor(player).EffectId(paid.Effect)))
                 || now - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
@@ -3090,7 +3103,7 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false, bool seismicExerted = false, int ancestralTargets = 0,
         int? rallyingDamage = null, RetainedAreaAttack? retainedAttack = null, IReadOnlyList<uint>? contactTargets = null,
-        double spellMore = 1, double ailmentMore = 1) =>
+        double spellMore = 1, double ailmentMore = 1, bool forceCritical = false) =>
         AreaSkillHitStrike(player, skillId, gem, from, to, immediate, sequence, actionToken, cooldownUse,
             melee, damageMore, excludeMonster, criticalRoll, channelGeneration, targetId, repeat, radiusOverride, once,
             repeatDelay, radiusMore, sacrifice, swingAt, triggeredCurrent, discharge, 0, null, ruthlessMore, null, scaledBlastChaos,
@@ -3101,7 +3114,8 @@ public static partial class Game
             boneshatter: boneshatter, infernalBlast: infernalBlast, strikeSeconds: strikeSeconds,
             extraShockChance: extraShockChance, cascadeBurst: cascadeBurst,
             flurryRelease: flurryRelease, nearbyOnly: nearbyOnly, seismicExerted: seismicExerted, ancestralTargets: ancestralTargets,
-            rallyingDamage: rallyingDamage, contactTargets: contactTargets, spellMore: spellMore, ailmentMore: ailmentMore);
+            rallyingDamage: rallyingDamage, contactTargets: contactTargets, spellMore: spellMore, ailmentMore: ailmentMore,
+            forceCritical: forceCritical);
 
     private static async Task AreaSkillHitStrike(Player player,
         ushort skillId, (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) from, (int X, int Y) to,
@@ -3121,7 +3135,8 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null, double spellMore = 1, double ailmentMore = 1)
+        int ancestralTargets = 0, int? rallyingDamage = null, double spellMore = 1, double ailmentMore = 1,
+        bool forceCritical = false)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
@@ -4295,7 +4310,7 @@ public static partial class Game
                         }
                         if (flurryBonus.CriticalMore != 0)
                             criticalChance = Math.Min(10_000, (int)(criticalChance * flurryBonus.CriticalMore));
-                        int targetChance = shatteringCritical ? 10_000 : fullLifeStrike.CriticalChance(criticalChance);
+                        int targetChance = forceCritical || shatteringCritical ? 10_000 : fullLifeStrike.CriticalChance(criticalChance);
                         critical = RollCriticalStrike(player, targetChance, skillStats,
                                 attack: !spell, skillRoll: criticalRoll, playerStats: playerStats)
                             && (spell || GameServer.Core.World.EvasionEntropy.ConfirmsCritical(hitChance, player.AttackAccuracyRandom));
