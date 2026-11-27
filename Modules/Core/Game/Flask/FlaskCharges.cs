@@ -113,6 +113,21 @@ public static partial class Game
                     player.Area.Buffs.Clear(player.Id, GracePeriod.BuffRow, player.Id);
                 accepted(done);
                 ApplyEquipmentFlaskUseEffectsLocked(player, now);
+                if (player.PlayerLife > 0 && player.PlayerLife < player.PlayerMaxLife)
+                {
+                    var stats = CharacterPlayerStats(player);
+                    int Recover(uint key) => stats.GetValueOrDefault(key);
+                    int percent = Recover(Stat.RecoverPctMaximumLifeOnFlaskUse);
+                    if (percent > 0 && !LifeRecovery.NonLeechBlocked(Recover))
+                    {
+                        double carry = 0;
+                        uint before = player.PlayerLife;
+                        player.PlayerLife = PetrifiedBlood.RecoverLife(player, before,
+                            player.PlayerMaxLife * (percent / 100d), ref carry);
+                        if (player.PlayerLife != before)
+                            Automation(player).Packets.Add(new([], $"0x01b1 player life {player.PlayerLife} (on flask use)", FlaskOutputPool.Life));
+                    }
+                }
             }
             return ([done.Id], [done]);
         }, changed => $"0x00c6 flask {slot}: {changed[0].Item.Charges}/{charges.MaxCharges} charges", retainOutput: accepted is not null);
@@ -232,12 +247,27 @@ public static partial class Game
         var bar = CritFlaskBar(player);
         if (bar.All(f => f.Full)) return;
         var character = CharacterPlayerStats(player);
-        int Get(uint key) => character.GetValueOrDefault(key);
         bool precision;
         precision = AffectingAuras(player).Any(a => a.EffectId == "Precision");
-        var gains = FlaskCharges.OnCrit(bar, FlaskCharges.CritSources(Get, precision), player.FlaskChargeCarry, now, AreaRng(player).Next);
+        var gains = FlaskCharges.OnCrit(bar, PlayerFlaskCritSources(player, character, precision), player.FlaskChargeCarry, now, AreaRng(player).Next);
         if (gains.Count > 0)
             await GainFlaskCharges(player, (f, _) => gains.GetValueOrDefault(f.Id), "critical strike");
+    }
+
+    static (int Chance, int Sure) PlayerFlaskCritSources(Player player, IReadOnlyDictionary<uint, int> stats, bool precision)
+    {
+        var sources = FlaskCharges.CritSources(stats.GetValueOrDefault, precision);
+        int frenzyChance = stats.GetValueOrDefault(Stat.GainFlaskChargeOnCritChancePctWhileAtMaximumFrenzyCharges);
+        if (frenzyChance <= 0) return sources;
+        const ChargeType type = ChargeType.Frenzy;
+        var charges = ChargesOf(player);
+        int maximum = charges.Limits(type).Maximum;
+        bool converted = stats.GetValueOrDefault(Charges.ConversionFlag(type)) != 0;
+        bool countsAsMaximum = stats.GetValueOrDefault(ChargeScaling.CountAsMaximumStat(type)) != 0
+            || stats.GetValueOrDefault(ChargeScaling.AllCountAsMaximum) != 0;
+        if (maximum > 0 && StandardChargesAtMaximum(charges.Effective(type), maximum, converted, countsAsMaximum))
+            sources.Chance = ActorScale.Saturate((long)sources.Chance + frenzyChance);
+        return sources;
     }
 
     // An accepted enemy hit, including a blocked hit: "Gain # Charges when you are Hit by an Enemy" (local_flask_gain_X_charges_when_hit).

@@ -18,7 +18,47 @@ public sealed class RecentEvents
     readonly Dictionary<string, double> last = new(StringComparer.Ordinal);
     readonly Dictionary<string, double> windows = new(StringComparer.Ordinal);
     readonly Dictionary<string, List<(double At, long Amount)>> amounts = new(StringComparer.Ordinal);
+    Dictionary<string, List<(int Kind, double At)>>? indexed;
     Queue<double>? attackCriticals;
+
+    public void RecordIndexed(string key, int kind, double now, double retention)
+    {
+        lock (gate)
+        {
+            var histories = indexed ??= new(StringComparer.Ordinal);
+            if (!histories.TryGetValue(key, out var events)) histories[key] = events = [];
+            int expired = 0;
+            while (expired < events.Count && !Recent(events[expired].At, now, retention)) expired++;
+            if (expired != 0) events.RemoveRange(0, expired);
+            events.Add((kind, now));
+        }
+    }
+
+    /// <summary>Count distinct kinds and total occurrences in the caller's windows, with the next relevant expiry.</summary>
+    public (int Distinct, int Total, double? Expiry) CountIndexed(string key, double now,
+        double distinctWindow, double totalWindow)
+    {
+        lock (gate)
+        {
+            if (indexed is null || !indexed.TryGetValue(key, out var events)) return default;
+            HashSet<int>? distinct = distinctWindow > 0 ? [] : null;
+            int total = 0;
+            double expiry = double.PositiveInfinity;
+            for (int index = events.Count - 1; index >= 0; index--)
+            {
+                var (kind, at) = events[index];
+                if (at > now) continue;
+                if (totalWindow > 0 && Recent(at, now, totalWindow))
+                {
+                    total++;
+                    expiry = Math.Min(expiry, at + totalWindow);
+                }
+                if (distinct is not null && Recent(at, now, distinctWindow) && distinct.Add(kind))
+                    expiry = Math.Min(expiry, at + distinctWindow);
+            }
+            return (distinct?.Count ?? 0, total, double.IsFinite(expiry) ? expiry : null);
+        }
+    }
 
     // Amounts are recorded only at one authoritative commit per counted operation. Boolean observations may be
     // repeated by existing consumers without accidentally counting the same kill or payment twice.
@@ -228,6 +268,7 @@ public sealed class RecentEvents
             windows.Clear();
             amounts.Clear();
             attackCriticals?.Clear();
+            indexed?.Clear();
         }
         Changed?.Invoke();
     }

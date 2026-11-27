@@ -151,15 +151,22 @@ public static partial class Game
                 if (m.Poisons.Idle) { (done ??= []).Add(id); continue; }
                 int damage = 0;
                 if (m.Dead || m.Life == 0) m.Poisons.ClearAtDeath(now);
-                else if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(m.Poisons.AccruedThrough, now))
-                    damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
-                        at => MonsterDotTaken(m, DamageType.Chaos, at), m.Life);
-                else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, maimTaken: 0), m.Life);
+                else
+                {
+                    uint damageToKill = m.Life;
+                    if (m.Effects[Stat.ChaosDamageDoesNotBypassEnergyShield] != 0
+                        || m.Effects[Stat.VirtualChaosDamageDoesNotBypassEnergyShield] != 0)
+                        damageToKill = (uint)Math.Min(uint.MaxValue, (long)m.Life + MonsterEnergyShieldOf(m).Current);
+                    if (MaimDotTaken.TryGetValue(m, out var maim) && maim.Overlaps(m.Poisons.AccruedThrough, now))
+                        damage = m.Poisons.Advance(now, maim.Boundaries(m.Poisons.AccruedThrough, now),
+                            at => MonsterDotTaken(m, DamageType.Chaos, at), damageToKill);
+                    else damage = m.Poisons.Advance(now, MonsterDotTaken(m, DamageType.Chaos, now, maimTaken: 0), damageToKill);
+                }
                 if (damage > 0)
                 {
                     int lifeDamage = ApplyMonsterDotEnergyShieldLocked(player.Area, m, damage, chaos: true, AreaTime(player));
                     bool stageStarts = false;
-                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage);
+                    if (lifeDamage > 0) (m.Life, stageStarts) = TakeOwnerDamageLocked(player, m, lifeDamage, poisonDeath: true);
                     m.Aggro = m.Life > 0;
                     if (m.Life == 0)
                     {

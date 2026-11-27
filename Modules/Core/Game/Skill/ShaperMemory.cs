@@ -139,6 +139,8 @@ public static partial class Game
                 {
                     MeleePhysicalMorePct = Get(Stat.WarBannerPhysicalDamagePlusPctFinalWithMeleeSkills),
                     AdditionalMeleePhysicalMorePct = Get(Stat.UniqueLionsRoarMeleePhysicalDamagePlusPctFinal),
+                    MaximumMore = (DamageTypeHistory.Physical, Get(Stat.MaximumPhysicalAttackDamagePlusPctFinal)),
+                    AttackMorePct = Get(NonInstantAttackMore),
                 });
             session.Runtime.Schedule(finish, () =>
             {

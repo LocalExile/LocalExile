@@ -118,6 +118,10 @@ public static partial class Game
                 Frozen: monster.Ailments.FrozenAtDeath(now));
             if (chargeBatch is not null) chargeBatch.Add(charge);
             else CommitAcceptedChargeBatchLocked(player, [charge], CharacterPlayerStats(player));
+            if (OnslaughtOnKill(player, now, monster.TauntedAtDeath))
+                ProjectilesFor(player).EnqueueLater(() => SendKillOnslaught(player));
+            if (RecoverOnKill(player, monster, tincture: null) is int deathEpoch)
+                ProjectilesFor(player).EnqueueLater(() => PlayerDiedAtEpoch(player, "death from life lost on kill", deathEpoch));
             var explosionEquipment = CaptureKillEquipment(player, monster, at, now);
             ProjectilesFor(player).EnqueueLater(async () => await ExplodeOnKill(player, victimId, monster, at, explosionEquipment));
         }
