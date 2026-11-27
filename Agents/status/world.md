@@ -99,6 +99,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
+- The area driver stops when its last member leaves during frame catch-up.
+
 - Variable-length C→S 0x0130, 0x0138, 0x0279, 0x027f, 0x02a5 and the length-prefixed 0xF7E0 mod envelope are framed
   without dropping trailing messages; C→S 0x0E verifies its SipHash-2-4 digest against per-ticket `Data8`, and C→S 0x7d
   compares client tile hashes against server-generated `TileHash` (not yet checked live).
