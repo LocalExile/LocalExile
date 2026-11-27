@@ -127,10 +127,7 @@ public sealed class BetrayalEncounter
         var owner = Owner(player) ?? player;
         var board = BetrayalRanks.Read(WorldOf(owner).CharacterData.Get(BetrayalRanks.SaveKey));
         instance.ContentState["Betrayal.interrogation.pending"] = JsonSerializer.Serialize(board.Where(p => p.Value.Turns > 0).Select(p => p.Key).ToArray());
-        var eligible = Members.Where(m => BetrayalRanks.Of(board, m).Turns == 0)
-            .Select(m => m with { Rank = BetrayalRanks.Of(board, m).Rank }).ToArray();
-        if (eligible.Length == 0) return;
-        var member = eligible[rng.Next(eligible.Length)];
+        if (BetrayalPlan.Pick(board, rng) is not { } member) return;
         bool Floor(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0);
         var taken = area.Taken.ToList();
         var arrival = AreaPopulation.Reachable(layout.GridW, layout.GridH, walkable, (layout.SpawnX, layout.SpawnY));
@@ -264,7 +261,7 @@ public sealed class BetrayalEncounter
             {
                 var owner = Owner(player) ?? player;
                 var board = BetrayalRanks.Read(WorldOf(owner).CharacterData.Get(BetrayalRanks.SaveKey));
-                var pool = Members.Where(m => m.Row != plan.Member.Row && BetrayalRanks.Of(board, m).Turns == 0
+                var pool = Targets.Where(m => m.Row != plan.Member.Row && BetrayalRanks.Of(board, m).Turns == 0
                     && Monsters.Find(m.Variety.ToString()) is { Supported: true })
                     .Select(m => m with { Rank = BetrayalRanks.Of(board, m).Rank }).OrderBy(_ => rng.Next()).Take(rng.Next(1, 3));
                 foreach (var member in pool)

@@ -77,6 +77,10 @@ public sealed class NextFourScarabTests
         board[member.Row] = BetrayalRanks.Interrogate(board[member.Row], 0, new Random(505));
         for (int i = 0; i < 3; i++) BetrayalRanks.Advance(board);
         Assert.Equal(new BetrayalRanks.Target(1), board[member.Row]);
+        var occupied = BetrayalTables.Members.ToDictionary(m => m.Row, m => new BetrayalRanks.Target(m.Rank, 1, true));
+        var recruit = BetrayalPlan.Pick(occupied, new Random(505));
+        Assert.NotNull(recruit); Assert.DoesNotContain(recruit.Row, occupied.Keys);
+        Assert.Contains(recruit.Job, new[] { BetrayalTables.Job.Transportation, BetrayalTables.Job.Intervention });
         var plan = BetrayalPlan.Place(member, (500, 500), (_, _) => true, new Random(505))!;
         var mission = new BetrayalRun(plan, 83);
         mission.Advance(BetrayalRun.Stage.Waiting); mission.After(47, BetrayalRun.Due.Leave);

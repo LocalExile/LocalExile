@@ -10,7 +10,7 @@ public static class BetrayalTables
 {
     /// <summary>A BetrayalJobs row a mission in a map can be: the two a server places with objects and monsters alone.
     /// BaseDefence (1, Fortification) and LabDefence (4, Research) need the level generator's own fort and laboratory.</summary>
-    public enum Job { Transportation = 2, Intervention = 3 }
+    public enum Job { Unassigned = 0, Transportation = 2, Intervention = 3 }
 
     /// <summary>A Syndicate member who leads a mission: the BetrayalTargets row (the board and the MakeChoice name it by
     /// row), its Id, its division (BetrayalJobsKey) and its monster (MonsterVarietiesKey).</summary>
@@ -21,7 +21,7 @@ public static class BetrayalTables
 
     static int leagueRow = -1;
     static byte? assassinationRules;
-    static IReadOnlyList<Member> members = [];
+    static IReadOnlyList<Member> members = [], targets = [], candidates = [];
 
     /// <summary>The CoreLeagues row of Betrayal, looked up by its Id (a bit of MapDisableLeagues).</summary>
     public static int LeagueRow => leagueRow;
@@ -34,16 +34,20 @@ public static class BetrayalTables
     /// (Fortification, Research), in none (Haku, Hillock, Cameria, Riker) or not on the board at all (Catarina and the
     /// rows without a division).</summary>
     public static IReadOnlyList<Member> Members => members;
+    public static IReadOnlyList<Member> Targets => targets;
+    public static IReadOnlyList<Member> Candidates => candidates;
 
     /// <summary>Reads the module's tables; called from the module's <c>Load</c>.</summary>
     public static void LoadGameData()
     {
         leagueRow = RowOf("CoreLeagues", "Betrayal");
         assassinationRules = RowOf("Rulesets", "JobAssassinationRules") is int rules and >= 0 and <= byte.MaxValue ? (byte)rules : null;
-        members = [.. ClientTables.TableOrEmpty("BetrayalTargets")
-            .Where(r => r.IntOrNull("BetrayalJobsKey") is (int)Job.Transportation or (int)Job.Intervention
-                && r.IntOrNull("MonsterVarietiesKey") is >= 0 and <= ushort.MaxValue)
-            .Select(r => new Member(r.Index, r.TextOrNull("Id") ?? "", (Job)r.Int("BetrayalJobsKey"), (ushort)r.Int("MonsterVarietiesKey")) { Rank = r.IntOrNull("BetrayalRanksKey") ?? 0 })];
+        targets = [.. ClientTables.TableOrEmpty("BetrayalTargets")
+            .Where(r => r.Index > 0 && r.IntOrNull("MonsterVarietiesKey") is >= 0 and <= ushort.MaxValue)
+            .Select(r => new Member(r.Index, r.TextOrNull("Id") ?? "", (Job)(r.IntOrNull("BetrayalJobsKey") ?? 0),
+                (ushort)r.Int("MonsterVarietiesKey")) { Rank = r.IntOrNull("BetrayalRanksKey") ?? 0 })];
+        members = [.. targets.Where(m => m.Job is Job.Transportation or Job.Intervention)];
+        candidates = [.. targets.Where(m => m.Job is Job.Unassigned or Job.Transportation or Job.Intervention)];
     }
 
     /// <summary>The row of <paramref name="table"/> whose Id is <paramref name="id"/>, or −1.</summary>
