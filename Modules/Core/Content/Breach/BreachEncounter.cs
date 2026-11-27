@@ -7,57 +7,194 @@ using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Data.Ggpk;
 using GameServer.Data.Terrain.Generation;
+using GameServer.Modding;
 using static GameServer.Modules.Breach.BreachTables;
 
 namespace GameServer.Modules.Breach;
 
 /// <summary>
-/// An area instance's Unstable Breaches: rolled and placed once when the instance's population is placed, kept by the
-/// instance (its ContentState, so a module reload carries on), stepped by the connection that runs the instance's
-/// monsters, and shown to whoever enters: the Initiators are area objects (a later client is given them as they are),
-/// and the ruleset row, its latest message per Breach and the environment override go to each entering client again.
-/// A touch opens the Breach: the arena's radius ramp (BreachRulesets), the wave of the Breach packs at the area's level,
-/// the environment override, the enrage with breach_enrage, then the close and the removal of the Initiator and what is
-/// left of its wave. The Hive is not built: an area whose roll gives a Hive gets no Breach.
+/// Single host entry point registering all Breach world encounter subsystems (<see cref="BreachEncounter"/>,
+/// <see cref="BreachHive"/>, <see cref="BreachFortress"/>, and <see cref="BreachBosses"/>) so <c>BreachModule.cs</c>
+/// stays minimal and merge-safe.
+/// </summary>
+public sealed class BreachWorldHost
+{
+    public BreachEncounter Unstable { get; } = new();
+    public BreachHive Hives { get; } = new();
+    public BreachFortress Fortresses { get; } = new();
+    public BreachBosses Bosses { get; } = new();
+
+    sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
+
+    public void Clear()
+    {
+        Unstable.Clear();
+        Hives.Clear();
+        Fortresses.Clear();
+        Bosses.Clear();
+    }
+
+    public bool IsActivePause(Player player) =>
+        Unstable.IsActivePause(player) || Hives.IsActivePause(player) || Fortresses.IsActivePause(player);
+
+    public async Task<bool> OnActivateEncounterSkill(Player player, uint targetOrIndex) =>
+        await Hives.OnActivateEncounterSkill(player, targetOrIndex)
+        || await Fortresses.OnActivateEncounterSkill(player, targetOrIndex);
+
+    public void Register(IModuleContext module)
+    {
+        string id = module.Manifest.Id;
+        module.Lifetime.Own(new Cleanup(Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(IsActivePause));
+        GameEvents.MapOpening.Add(id, BreachAtlas.OnMapOpening);
+        GameEvents.FeatureFilled.Add(id, (_, row) => row == SkyHiveFeatureRow);
+        GameEvents.AreaPopulated.Add(id, async area =>
+        {
+            if (await Unstable.Populate(area) is { } why)
+                module.Log($"Breach: no unstable breach in {area.Player.Layout.Id} ({why})");
+            await Hives.Populate(area);
+        });
+        GameEvents.AreaGenerated.Add(id, async player =>
+        {
+            await Fortresses.AreaGenerated(player);
+            await Bosses.AreaGenerated(player);
+        });
+        GameEvents.EnterMessages.Add(id, player =>
+            Unstable.EnterMessages(player)
+                .Concat(Hives.EnterMessages(player))
+                .Concat(Fortresses.EnterMessages(player)));
+        GameEvents.PlayerEntered.Add(id, async player =>
+        {
+            await Unstable.Enter(player);
+            await Hives.Enter(player);
+            await Fortresses.Enter(player);
+            await Bosses.Enter(player);
+        });
+        GameEvents.AreaTick.Add(id, start =>
+        {
+            string areaId = start.Layout.Id;
+            if (areaId == BossAreaId) return (player, dt) => Bosses.Step(player, dt);
+            if (areaId == FortressAreaId) return (player, dt) => Fortresses.Step(player, dt);
+            if (!MapDevices.IsMapArea(start.Layout.Hash)) return null;
+            return async (player, dt) =>
+            {
+                await Unstable.Step(player);
+                await Hives.Step(player, dt);
+                await Fortresses.Step(player, dt);
+                await Bosses.StepWild(player, dt);
+            };
+        });
+        GameEvents.MonsterKilled.Add(id, async kill =>
+        {
+            await Unstable.OnMonsterKilled(kill);
+            await Hives.OnMonsterKilled(kill);
+            await Fortresses.OnMonsterKilled(kill);
+            await Bosses.OnMonsterKilled(kill);
+        });
+        GameEvents.ObjectUse.Add(id, async (player, use, at) =>
+            await Unstable.OnUse(player, use, at)
+            || await Hives.OnUse(player, use, at)
+            || await Fortresses.OnUse(player, use, at)
+            || await Bosses.OnUse(player, use, at));
+        GameEvents.Drops.Add(id, drop =>
+        {
+            Unstable.OnDrops(drop);
+            Bosses.OnDrops(drop);
+        });
+        GameEvents.Experience.Add(id, gain =>
+        {
+            Unstable.OnExperience(gain);
+        });
+        // C->S 0x02ca for Rulesets#165 (EstablishedBrequelEncounterRules): BrequelActivateEncounterSkill
+        // (payload: u8 0x00, u32 LE skillObjectEntityId — sent both by clicking the floating widget and hotkey #44).
+        if (EstablishedRulesetRow is { } estRow)
+        {
+            Client.OnRuleset(id, estRow, async (channel, payload) =>
+            {
+                if (!BreachRulesets.TryReadActivateSkillAction(payload.Span, out uint entityId)) return false;
+                return await OnActivateEncounterSkill(channel.Player, entityId);
+            });
+        }
+    }
+}
+
+/// <summary>
+/// An area instance's Unstable Breaches: kill-driven progress, collapse timer extension, BrequelStabiliser &amp;
+/// Grasping Coffer (<c>BrequelChestBase</c>) spawns, Hiveblood + Wombgift rewards, enraged rares, Wild Breach Boss
+/// (Vruun, Marshal of Xesht), and full Atlas + Breach Scarab (<c>ScarabBreachNew2/3/4/6</c>) support.
 /// </summary>
 public sealed class BreachEncounter
 {
     const string StateKey = "Breach.Encounter";
     const uint RollSalt = 0x42726561;
 
-    /// <summary>One Breach of the area.</summary>
+    /// <summary>Kill score required to reach 100% stabilisation (BreachRulesets.Progress(965) ~= 100).</summary>
+    const double StabiliseScore = 965.0;
+
+    /// <summary>One Clasped Hand / Grasping Coffer spawned inside an Unstable Breach.</summary>
+    public sealed class BreachChest
+    {
+        public uint Id { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public float Rotation { get; set; }
+        public string Model { get; set; } = BrequelChestModels[0];
+        public bool IsLarge { get; set; }
+        public bool Opened { get; set; }
+        public bool Created { get; set; }
+    }
+
+    /// <summary>One BrequelStabiliser spawned inside an Unstable Breach that boosts progress when activated.</summary>
+    public sealed class Stabiliser
+    {
+        public uint Id { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public bool Activated { get; set; }
+        public bool Created { get; set; }
+    }
+
+    /// <summary>One Unstable Breach of the area.</summary>
     public sealed class Breach
     {
-        /// <summary>Its place in the area (the ruleset message's index byte), in placement order.</summary>
         public byte Index { get; set; }
         public int X { get; set; }
         public int Y { get; set; }
         public uint Initiator { get; set; }
         public int State { get; set; }
-        /// <summary>When the state was entered (area time).</summary>
         public double Since { get; set; }
         public double? TouchedAt { get; set; }
-        /// <summary>How many of the ramp's lines are due and sent (the latest one goes out).</summary>
         public int Ramp { get; set; }
-        /// <summary>The state of the latest ruleset line sent (-1 before the first); a state-1 or state-2 line is the
-        /// ramp's line <see cref="Ramp"/> - 1.</summary>
         public int Line { get; set; } = -1;
-        /// <summary>How many wave members are accounted for, and how many packs were drawn (the draws' seed).</summary>
         public int Spawned { get; set; }
         public int Packs { get; set; }
         public List<uint> Monsters { get; set; } = [];
+        public HashSet<uint> CreditedDeaths { get; set; } = [];
+        public double KillScore { get; set; }
+        public int Kills { get; set; }
+        public double BonusSeconds { get; set; }
+        public int OpenedOrder { get; set; }
+        public float LastProgress { get; set; }
+        public float LastRadius { get; set; }
+        public float LastValue { get; set; }
+        public bool BossSpawned { get; set; }
+        public bool CompletionAwarded { get; set; }
+        public List<BreachChest> Chests { get; set; } = [];
+        public List<Stabiliser> Stabilisers { get; set; } = [];
         public bool Gone { get; set; }
         [JsonIgnore] public bool Open => State is Expanding or Enraged;
     }
 
-    /// <summary>The instance's Breaches.</summary>
+    /// <summary>The instance's Unstable Breaches.</summary>
     public sealed class Encounter
     {
         public List<Breach> Breaches { get; set; } = [];
+        public int BreachesOpened { get; set; }
         public bool EnvironmentOn { get; set; }
         [JsonIgnore] internal SemaphoreSlim Gate { get; } = new(1, 1);
-        /// <summary>The cells a Breach's wave may stand on: reachable from its cell. Not kept: learnt again after a reload.</summary>
         [JsonIgnore] internal Dictionary<byte, bool[]?> Reach { get; } = [];
+        [JsonIgnore] internal BreachAtlas? Atlas;
+        [JsonIgnore] internal HashSet<uint> AllMonsterIds { get; } = [];
     }
 
     readonly ConditionalWeakTable<InstanceState, Encounter> encounters = new();
@@ -65,7 +202,6 @@ public sealed class BreachEncounter
     readonly JsonSerializerOptions serialization = new() { TypeInfoResolver = new DefaultJsonTypeInfoResolver() };
     static readonly ConditionalWeakTable<MonsterCatalog.Variety, MonsterCatalog.Variety> Transitioned = new();
 
-    /// <summary>The module unloads: the instances keep their Breaches as text, for the next load.</summary>
     public void Clear()
     {
         encounters.Clear();
@@ -74,12 +210,17 @@ public sealed class BreachEncounter
 
     static bool Enrage => SystemSettings.Default.Get("breach_enrage") != 0;
 
-    /// <summary>The instance's Breaches, or null when it placed none.</summary>
     public Encounter? Of(InstanceState instance)
     {
         if (encounters.TryGetValue(instance, out var known)) return known;
         if (!instance.ContentState.TryGetValue(StateKey, out var text)) return null;
-        return encounters.GetValue(instance, _ => JsonSerializer.Deserialize<Encounter>(text, serialization) ?? new());
+        return encounters.GetValue(instance, _ =>
+        {
+            var restored = JsonSerializer.Deserialize<Encounter>(text, serialization) ?? new();
+            foreach (var b in restored.Breaches)
+                foreach (uint id in b.Monsters) restored.AllMonsterIds.Add(id);
+            return restored;
+        });
     }
 
     public bool IsActivePause(Player player)
@@ -96,19 +237,8 @@ public sealed class BreachEncounter
     void Save(InstanceState instance, Encounter encounter) =>
         instance.ContentState[StateKey] = JsonSerializer.Serialize(encounter, serialization);
 
-    static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
+    static BreachAtlas AtlasOf(Player player, Encounter encounter) => encounter.Atlas ??= BreachAtlas.From(player);
 
-    static List<Player> Members(Player player) => [.. player.Instance.PlayersExcept(player.Id).Prepend(player)
-        .Where(c => Current(c) && ReferenceEquals(c.Instance, player.Instance)).Distinct()];
-
-    static byte AreaLevel(Player player) =>
-        (byte)Math.Clamp(MapRunOf(player) is { Area.Level: > 0 } map ? map.Area.Level : ServerLevels.AreaLevel(player.Layout.Id), 1, 100);
-
-    /// <summary>
-    /// The instance's population is placed (GameEvents.AreaPopulated, once per instance): rolls its Breaches and places
-    /// them at <see cref="AreaPopulation.EncounterSpot"/>, then creates their Initiators. Returns why none was placed,
-    /// null when one was.
-    /// </summary>
     public async Task<string?> Populate(AreaPopulated area)
     {
         var player = area.Player;
@@ -118,29 +248,35 @@ public sealed class BreachEncounter
         var (components, states, _) = initiator;
         var layout = player.Layout;
         if (!MapDevices.IsMapArea(layout.Hash)) return "not a map";
-        if (layout.Walkable is not { } walkable) return "no walk map";
+        if (layout.Walkable is null) return "no walk map";
         var (count, roll) = Count(area);
         if (count <= 0) return $"the roll gave none ({roll})";
         var rng = new Random(unchecked(area.Seed ^ (int)RollSalt));
+        var atlas = BreachAtlas.From(player);
         var taken = area.Taken.ToList();
-        var encounter = new Encounter();
+        var encounter = new Encounter { Atlas = atlas };
         double now = AreaTime(player);
         for (int i = 0; i < Math.Min(count, 32); i++)
         {
-            if (AreaPopulation.EncounterSpot(area, taken, rng)
-                is not { } site) break;
+            if (AreaPopulation.EncounterSpot(area, taken, rng) is not { } site) break;
             taken.Add(site);
-            encounter.Breaches.Add(new Breach
+            var breach = new Breach
             {
-                Index = (byte)i, X = site.X, Y = site.Y, Initiator = instance.World.TakeObjectId(), Since = now, Line = Inactive,
-            });
+                Index = (byte)i,
+                X = site.X,
+                Y = site.Y,
+                Initiator = instance.World.TakeObjectId(),
+                Since = now,
+                Line = Inactive,
+            };
+            PlanBreachObjects(layout, instance, breach, atlas, rng);
+            encounter.Breaches.Add(breach);
         }
         if (encounter.Breaches.Count == 0) return "no open ground for a Breach";
         encounters.AddOrUpdate(instance, encounter);
         Save(instance, encounter);
         var members = Members(player);
         if (!members.Contains(player)) members.Insert(0, player);
-        // The ruleset first: the 0x2c9 messages for its row find no ruleset on the client without it.
         await Broadcast(members, InstanceProtocol.AddRuleset(row), $"0x001f ruleset ExpandingBrequelEncounterRules (row {row})");
         uint type = InstanceEntities.ObjectTypeHash(InitiatorType);
         foreach (var breach in encounter.Breaches)
@@ -148,15 +284,51 @@ public sealed class BreachEncounter
             var blob = new QuestObject(breach.X, breach.Y, components) { StateMachine = states.Set("encounter_state", Inactive) }.Blob();
             await SendWorldCreate(player, breach.Initiator, () => InstanceEntities.CreateObject(breach.Initiator, type, blob),
                 $"0x02bb Breach {breach.Index} Initiator 0x{breach.Initiator:x} at ({breach.X}, {breach.Y})", wake: true, awaitBirth: false);
-            await Broadcast(members, LineFor(row, breach, breach.Line), $"0x02c9 Breach {breach.Index} ruleset idle");
+            await Broadcast(members, LineFor(row, breach, breach.Line, atlas), $"0x02c9 Breach {breach.Index} ruleset idle");
         }
         Console.WriteLine($"[breach] {layout.Id}: {roll} gave {count}; placed {encounter.Breaches.Count}: " +
             string.Join(", ", encounter.Breaches.Select(b => $"({b.X}, {b.Y})")));
         return null;
     }
 
-    /// <summary>How many Unstable Breaches the area gets: Game_LEAGUE_CHANCES's test chance when it names Breach, else
-    /// the client's own roll over the area's stats (<see cref="UnstableBreaches"/>).</summary>
+    static void PlanBreachObjects(AreaLayout layout, InstanceState instance, Breach breach, BreachAtlas atlas, Random rng)
+    {
+        // Plan 1-2 BrequelStabiliser objects near the breach perimeter (revealed when the breach opens).
+        int stabCount = rng.Next(1, 3);
+        for (int s = 0; s < stabCount; s++)
+        {
+            double angle = rng.NextDouble() * Math.Tau;
+            double dist = 28 + rng.NextDouble() * 34;
+            var cell = layout.Near(((int)Math.Round(breach.X + Math.Cos(angle) * dist),
+                (int)Math.Round(breach.Y + Math.Sin(angle) * dist)));
+            breach.Stabilisers.Add(new Stabiliser { Id = instance.World.TakeObjectId(), X = cell.X, Y = cell.Y });
+        }
+
+        if (atlas.NoChests) return;
+        // Plan Grasping Coffers / Clasped Hands (2-4 base + Atlas additional chests/large chests).
+        int smallCount = rng.Next(2, 5) + atlas.AdditionalChests;
+        int largeCount = (atlas.HasLargeChest || rng.Next(100) < 25 + atlas.LargeChestChancePct ? 1 : 0) + atlas.AdditionalLargeChests;
+        if (atlas.HandsAreSmall) { smallCount += largeCount; largeCount = 0; }
+        int totalChests = Math.Min(12, smallCount + largeCount);
+        for (int c = 0; c < totalChests; c++)
+        {
+            bool large = c < largeCount;
+            double angle = (c + rng.NextDouble() * 0.6) * Math.Tau / Math.Max(1, totalChests);
+            double dist = 22 + rng.NextDouble() * 52;
+            var cell = layout.Near(((int)Math.Round(breach.X + Math.Cos(angle) * dist),
+                (int)Math.Round(breach.Y + Math.Sin(angle) * dist)));
+            breach.Chests.Add(new BreachChest
+            {
+                Id = instance.World.TakeObjectId(),
+                X = cell.X,
+                Y = cell.Y,
+                Rotation = (float)(rng.NextDouble() * Math.Tau),
+                Model = BrequelChestModels[large ? BrequelChestModels.Length - 1 : rng.Next(BrequelChestModels.Length)],
+                IsLarge = large,
+            });
+        }
+    }
+
     (int Count, string Roll) Count(AreaPopulated area)
     {
         var player = area.Player;
@@ -173,14 +345,6 @@ public sealed class BreachEncounter
         return (UnstableBreaches(info with { Stats = stats }, new LevelRandom(unchecked((uint)area.Seed ^ RollSalt), false)), "the area's roll");
     }
 
-    /// <summary>
-    /// The client's Breach count for an area (the level generator's CoreLeagues 7 step, 0x142050dc0, as
-    /// ExtraTerrainFeatures.Roll mirrors it), on the encounter's own draws: the outer area and league exclusions, the
-    /// league roll over the area's stats (ExtraTerrainFeatures.LeagueCount: map_disable_leagues,
-    /// atlas_keystone_no_extra_content, map_nuke_everything, the row's disable and chance stats …); a rolled one is a
-    /// Hive (none here) by the Hive stats or half the time, else one Unstable Breach; then
-    /// map_contains_additional_unstable_breaches and the scarabs' 1 / 2 / 3 / 10 more.
-    /// </summary>
     public static int UnstableBreaches(AreaInfo area, LevelRandom rng)
     {
         if (area.IsTown || area.RandomnessDisabled || area.AreaType is 0x13 or 0x20 or 0xb || area.Hash16 is 0x8f53 or 0x7757
@@ -212,15 +376,10 @@ public sealed class BreachEncounter
         return count;
     }
 
-    /// <summary>The ruleset row for an entering client before the area's objects (GameEvents.EnterMessages): the
-    /// Initiators it is given as area objects read it.</summary>
     public IEnumerable<(string Log, byte[] Message)> EnterMessages(Player player) =>
         player.Instance is { } instance && RulesetRow is { } row && Of(instance) is { } encounter && encounter.Breaches.Any(b => !b.Gone)
             ? [($"0x001f ruleset ExpandingBrequelEncounterRules (row {row})", InstanceProtocol.AddRuleset(row))] : [];
 
-    /// <summary>A player entered the area (GameEvents.PlayerEntered: a party member, a re-entry through a portal or
-    /// after a death): the ruleset row, each standing Breach's latest ruleset message and the environment override
-    /// while one is open. The Initiators come with the area's objects.</summary>
     public async Task Enter(Player player)
     {
         if (player.Instance is not { } instance || RulesetRow is not { } row || Of(instance) is not { } encounter
@@ -228,16 +387,16 @@ public sealed class BreachEncounter
         await encounter.Gate.WaitAsync();
         try
         {
+            var atlas = AtlasOf(player, encounter);
             await Send(player, InstanceProtocol.AddRuleset(row), $"0x001f ruleset ExpandingBrequelEncounterRules (row {row})");
             foreach (var breach in encounter.Breaches.Where(b => !b.Gone && b.Line >= 0))
-                await Send(player, LineFor(row, breach, breach.Line), $"0x02c9 Breach {breach.Index} ruleset (state {breach.State})");
+                await Send(player, LineFor(row, breach, breach.Line, atlas), $"0x02c9 Breach {breach.Index} ruleset (state {breach.State})");
             if (encounter.EnvironmentOn && Override(true) is { } on)
                 await Send(player, on, "0x00df Breach environment override");
         }
         finally { encounter.Gate.Release(); }
     }
 
-    /// <summary>One frame of the area (GameEvents.AreaTick), on the connection that runs the instance's monsters.</summary>
     public async Task Step(Player runner)
     {
         if (runner.Instance is not { } instance || Of(instance) is not { } encounter || !Current(runner) || runner.Paused
@@ -251,18 +410,172 @@ public sealed class BreachEncounter
         finally { encounter.Gate.Release(); }
     }
 
-    /// <summary>
-    /// Advances every Breach: a living player out of the Grace Period within <see cref="TouchRadius"/> of an idle one
-    /// opens it (at most <see cref="MaxOpen"/> open at once); an open one sends its ramp and its wave, enrages at the end
-    /// of the ramp with breach_enrage (then closes <see cref="EnragedSeconds"/> later) or closes at
-    /// <see cref="OpenSeconds"/> without it; a closed one goes <see cref="RemoveAfter"/> later with what is left of its
-    /// wave. True when a Breach changed phase or the environment changed.
-    /// </summary>
+    /// <summary>Feeds player kills of Breach wave monsters into progress, timer extension, Hiveblood, and Wombgifts.</summary>
+    public async Task OnMonsterKilled(MonsterKill kill)
+    {
+        var player = kill.Player;
+        if (player.Instance is not { } instance || Of(instance) is not { } encounter) return;
+        if (!encounter.AllMonsterIds.Contains(kill.Monster.ObjectId)) return;
+        await encounter.Gate.WaitAsync();
+        try
+        {
+            var breach = encounter.Breaches.FirstOrDefault(b => !b.Gone && b.Monsters.Contains(kill.Monster.ObjectId));
+            if (breach is null || !breach.CreditedDeaths.Add(kill.Monster.ObjectId)) return;
+            var atlas = AtlasOf(player, encounter);
+            await CreditKill(player, breach, kill.Monster.Rarity, (kill.Monster.X, kill.Monster.Y), atlas);
+            Save(instance, encounter);
+        }
+        finally { encounter.Gate.Release(); }
+    }
+
+    async Task CreditKill(Player player, Breach breach, MonsterRarity rarity, (int X, int Y) at, BreachAtlas atlas)
+    {
+        breach.Kills++;
+        // Kill score weight and time extension per rarity (keeps the breach alive while clearing fast).
+        double score = rarity switch
+        {
+            MonsterRarity.Unique => 140.0,
+            MonsterRarity.Rare => 48.0,
+            MonsterRarity.Magic => 18.0,
+            _ => 8.5,
+        };
+        double extend = rarity switch
+        {
+            MonsterRarity.Unique => 4.0,
+            MonsterRarity.Rare => 1.5,
+            MonsterRarity.Magic => 0.45,
+            _ => 0.18,
+        };
+        breach.KillScore += score;
+        breach.BonusSeconds = Math.Min(35.0, breach.BonusSeconds + extend);
+
+        // Award Hiveblood on every Breach monster kill (scaled by rarity + Atlas).
+        int baseBlood = rarity switch
+        {
+            MonsterRarity.Unique => 45,
+            MonsterRarity.Rare => 16,
+            MonsterRarity.Magic => 5,
+            _ => 2,
+        };
+        await GiveHiveblood(player, atlas.ScaleHiveblood(player, baseBlood, enragedBonus: breach.State == Enraged));
+
+        // Wombgift chance on Magic/Rare/Unique kills
+        double giftChance = rarity switch
+        {
+            MonsterRarity.Unique => 0.55,
+            MonsterRarity.Rare => 0.18,
+            MonsterRarity.Magic => 0.03,
+            _ => 0.004,
+        } * atlas.WombgiftChanceFactor(enragedBonus: breach.State == Enraged);
+        var rng = AreaRng(player);
+        if (rng.NextDouble() < Math.Min(0.95, giftChance))
+        {
+            string baseId = atlas.RollWombgiftBaseId(player, rng);
+            if (MakeWombgift(player, baseId, AreaLevel(player), rng) is { } gift)
+                await DropGroundItem(player, at, gift, "Unstable Breach kill Wombgift");
+        }
+    }
+
+    /// <summary>Honors Atlas Breach monster drop quantity/rarity/unique chance on Breach wave monsters.</summary>
+    public void OnDrops(DropRoll drop)
+    {
+        if (drop.Player.Instance is not { } instance || Of(instance) is not { } encounter) return;
+        if (!encounter.AllMonsterIds.Contains(drop.Monster.ObjectId)) return;
+        var atlas = AtlasOf(drop.Player, encounter);
+        if (atlas.MonsterQuantityPct != 0)
+            drop.Quantity *= Math.Max(0.25, 1.0 + atlas.MonsterQuantityPct / 100.0);
+        if (atlas.BrequelMonsterRarityPct != 0)
+            drop.Rarity *= Math.Max(0.25, 1.0 + atlas.BrequelMonsterRarityPct / 100.0);
+        if (atlas.MonsterUniqueItemDropChancePct != 0)
+            drop.Rarity *= Math.Max(0.25, 1.0 + atlas.MonsterUniqueItemDropChancePct / 200.0);
+    }
+
+    /// <summary>Honors <c>map_breach_monster_granted_experience_+%</c> on Breach wave monsters.</summary>
+    public void OnExperience(ExperienceGain gain)
+    {
+        if (gain.Player.Instance is not { } instance || Of(instance) is not { } encounter) return;
+        if (!encounter.AllMonsterIds.Contains(gain.Monster.ObjectId)) return;
+        var atlas = AtlasOf(gain.Player, encounter);
+        if (atlas.MonsterGrantedExperiencePct != 0)
+            gain.Experience = (uint)Math.Max(1, Math.Round(gain.Experience * Math.Max(0.25, 1.0 + atlas.MonsterGrantedExperiencePct / 100.0)));
+    }
+
+    /// <summary>Handles clicking Grasping Coffers (<c>BrequelChestBase</c>) and <c>BrequelStabiliser</c> objects inside Unstable Breaches.</summary>
+    public async Task<bool> OnUse(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
+    {
+        if (player.Instance is not { } instance || Of(instance) is not { } encounter) return false;
+        Breach? ownerBreach = null;
+        BreachChest? chest = null;
+        Stabiliser? stab = null;
+        foreach (var b in encounter.Breaches)
+        {
+            if (b.Gone) continue;
+            if (b.Chests.FirstOrDefault(c => c.Created && c.Id == use.TargetId) is { } foundChest)
+            {
+                ownerBreach = b; chest = foundChest; break;
+            }
+            if (b.Stabilisers.FirstOrDefault(s => s.Created && s.Id == use.TargetId) is { } foundStab)
+            {
+                ownerBreach = b; stab = foundStab; break;
+            }
+        }
+        if (ownerBreach is null) return false;
+        if (player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+        var cell = chest is not null ? (chest.X, chest.Y) : (stab!.X, stab.Y);
+        int reach = chest is not null ? 4 : 15;
+        if (!TryBeginObjectWalk(player, requestedAt, cell.X, cell.Y, reach, out var walk)) return true;
+        var (action, now, here, _, arrive) = walk;
+        if (!use.Started)
+            await SendWorldRecord(player, player.Id,
+                InstanceProtocol.ActionStarted(player.Id, here.X, here.Y, cell.X, cell.Y, use.SkillId, use.Sequence, use.Flags, targetObjectId: use.TargetId), null,
+                still: () => PlayerActionCurrent(player, action));
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        await encounter.Gate.WaitAsync();
+        try
+        {
+            if (!PlayerActionCurrent(player, action) || player.PlayerLife == 0 || player.Closed || player.LeavingArea) return true;
+            var atlas = AtlasOf(player, encounter);
+            var rng = AreaRng(player);
+            if (chest is not null && !chest.Opened)
+            {
+                chest.Opened = true;
+                if (Spec(ChestBaseType) is { ChestIndex: >= 0 } spec)
+                    await SendWorldRecord(player, chest.Id, InstanceEntities.ComponentUpdate(chest.Id, (byte)spec.ChestIndex, [1, 0, 0]), null);
+                await SetObjectStates(player, chest.Id, ChestBaseType, ("open", 1));
+                await DropBreachChestRewards(player, (chest.X, chest.Y), AreaLevel(player), atlas, rng, isLarge: chest.IsLarge);
+                // map_breach_%_chance_to_spawn_breachlord_on_opening_large_chest
+                if (chest.IsLarge && !ownerBreach.BossSpawned && !atlas.NoBosses
+                    && atlas.SpawnBossOnLargeChestPct > 0 && rng.Next(100) < atlas.SpawnBossOnLargeChestPct)
+                {
+                    ownerBreach.BossSpawned = true;
+                    await BreachBosses.SpawnWildBoss(player, (chest.X, chest.Y), AreaLevel(player), atlas, rng);
+                }
+                Save(instance, encounter);
+            }
+            else if (stab is not null && !stab.Activated && ownerBreach.Open)
+            {
+                stab.Activated = true;
+                ownerBreach.KillScore += 180.0;
+                ownerBreach.BonusSeconds = Math.Min(35.0, ownerBreach.BonusSeconds + 5.0);
+                await SetObjectStates(player, stab.Id, StabiliserType, ("interaction_state", 1), ("bomb_defence", 2));
+                await GiveHiveblood(player, atlas.ScaleHiveblood(player, 25));
+                Save(instance, encounter);
+            }
+        }
+        finally
+        {
+            encounter.Gate.Release();
+            await SendWorldRecord(player, player.Id, InstanceProtocol.ActionEnded(player.Id), null, still: () => PlayerActionCurrent(player, action));
+        }
+        return true;
+    }
+
     async Task<bool> Advance(Player runner, Encounter encounter)
     {
         double now = AreaTime(runner);
         var members = Members(runner);
         byte row = RulesetRow!.Value;
+        var atlas = AtlasOf(runner, encounter);
         bool changed = false;
         foreach (var breach in encounter.Breaches)
         {
@@ -272,45 +585,59 @@ public sealed class BreachEncounter
                 case Inactive:
                     if (encounter.Breaches.Count(b => !b.Gone && b.Open) >= MaxOpen || !members.Any(m => Touches(m, breach))) break;
                     breach.TouchedAt = now;
-                    // The environment first, then the state: the order Delirium's start sends them in.
+                    breach.OpenedOrder = ++encounter.BreachesOpened;
                     if (!encounter.EnvironmentOn && Override(true) is { } on)
                     {
                         await Broadcast(members, on, $"0x00df Breach environment override [{EnvRow} slot 0], {EnvSeconds:0.0} s");
                         encounter.EnvironmentOn = true;
                     }
                     await SetState(runner, breach, Expanding, now);
+                    await RevealBreachObjects(runner, breach);
                     changed = true;
                     break;
+
                 case Expanding:
-                    await Ramp(members, row, breach, now);
-                    await SpawnWave(runner, encounter, breach, now);
+                    // Fallback death sync in case any wave monster died outside standard Kill dispatch.
+                    await SyncMissedDeaths(runner, breach, atlas);
+                    // Proximity activation of Stabilisers when player walks onto them
+                    await CheckStabiliserProximity(runner, members, breach, atlas);
+                    await Ramp(members, row, breach, atlas, now);
+                    await SpawnWave(runner, encounter, breach, atlas, now);
                     double age = now - breach.TouchedAt!.Value;
                     if (age < ClipActivate) break;
-                    // The enrage: the ramp has run out (the radius at its 150 cap), as both touched Breaches of the capture
-                    // enrage there.
-                    if (Enrage && breach.Ramp >= BreachRulesets.Steps)
+                    double effectiveCollapse = atlas.EffectiveCollapseSeconds + breach.BonusSeconds;
+                    bool stabilisedByKills = breach.KillScore >= StabiliseScore;
+                    bool rampFinished = breach.Ramp >= BreachRulesets.Steps;
+                    if (Enrage && (stabilisedByKills || rampFinished))
                     {
                         await SetState(runner, breach, Enraged, now);
-                        await SendLine(members, row, breach, Enraged, "enraged");
+                        await SendLine(members, row, breach, Enraged, atlas, "enraged (stabilised)");
+                        await SpawnEnrageReinforcements(runner, encounter, breach, atlas);
+                        await AwardCompletion(runner, members, breach, atlas, stabilised: true);
                         changed = true;
                     }
-                    else if (age >= OpenSeconds)
+                    else if (age >= effectiveCollapse)
                     {
                         await SetState(runner, breach, Closing, now);
-                        await SendLine(members, row, breach, Closing, "collapsed");
+                        await SendLine(members, row, breach, Closing, atlas, "collapsed");
+                        await AwardCompletion(runner, members, breach, atlas, stabilised: false);
                         changed = true;
                     }
                     break;
+
                 case Enraged:
-                    await SpawnWave(runner, encounter, breach, now);
-                    if (now - breach.Since < EnragedSeconds) break;
+                    await SyncMissedDeaths(runner, breach, atlas);
+                    await SpawnWave(runner, encounter, breach, atlas, now);
+                    if (now - breach.Since < EnragedSeconds + 3.0) break;
                     await SetState(runner, breach, ClosingEnraged, now);
-                    await SendLine(members, row, breach, ClosingEnraged, "closing enraged");
+                    await SendLine(members, row, breach, ClosingEnraged, atlas, "closing enraged");
                     changed = true;
                     break;
+
                 default:
                     if (now - breach.Since < RemoveAfter) break;
-                    await RemoveWave(runner, breach);
+                    await RemoveWave(runner, encounter, breach);
+                    await RemoveStabilisers(runner, breach);
                     await SendWorldRemoval(runner, breach.Initiator, $"0x02bd Breach {breach.Index} Initiator 0x{breach.Initiator:x} removed");
                     breach.Gone = true;
                     changed = true;
@@ -324,6 +651,129 @@ public sealed class BreachEncounter
             changed = true;
         }
         return changed;
+    }
+
+    async Task RevealBreachObjects(Player runner, Breach breach)
+    {
+        foreach (var stab in breach.Stabilisers)
+        {
+            if (stab.Created) continue;
+            if (await CreateWorldObject(runner, stab.Id, StabiliserType, stab.X, stab.Y,
+                log: $"0x02bb Breach {breach.Index} Stabiliser 0x{stab.Id:x} at ({stab.X}, {stab.Y})",
+                states: [("interaction_state", 0), ("bomb_defence", 0)]))
+                stab.Created = true;
+        }
+        foreach (var chest in breach.Chests)
+        {
+            if (chest.Created) continue;
+            if (await CreateWorldObject(runner, chest.Id, ChestBaseType, chest.X, chest.Y, chest.Rotation,
+                model: chest.Model, opened: chest.Opened,
+                log: $"0x02bb Breach {breach.Index} Clasped Hand 0x{chest.Id:x} at ({chest.X}, {chest.Y})",
+                states: [("open", chest.Opened ? 1 : 0)]))
+                chest.Created = true;
+        }
+    }
+
+    async Task CheckStabiliserProximity(Player runner, List<Player> members, Breach breach, BreachAtlas atlas)
+    {
+        double now = AreaTime(runner);
+        foreach (var stab in breach.Stabilisers)
+        {
+            if (!stab.Created || stab.Activated) continue;
+            bool near = members.Any(m => m.PlayerLife > 0 && !InGracePeriod(m)
+                && double.Hypot(stab.X - m.Walk.Position(now).X, stab.Y - m.Walk.Position(now).Y) <= 10);
+            if (!near) continue;
+            stab.Activated = true;
+            breach.KillScore += 180.0;
+            breach.BonusSeconds = Math.Min(35.0, breach.BonusSeconds + 5.0);
+            await SetObjectStates(runner, stab.Id, StabiliserType, ("interaction_state", 1), ("bomb_defence", 2));
+            foreach (var m in members)
+                await GiveHiveblood(m, atlas.ScaleHiveblood(m, 25));
+        }
+    }
+
+    async Task SyncMissedDeaths(Player runner, Breach breach, BreachAtlas atlas)
+    {
+        foreach (uint id in breach.Monsters)
+        {
+            if (breach.CreditedDeaths.Contains(id)) continue;
+            if (runner.Area.Monsters.TryGetValue(id, out var m))
+            {
+                if (!m.Dead && m.Life > 0) continue;
+                breach.CreditedDeaths.Add(id);
+                await CreditKill(runner, breach, m.Rarity, m.Walk.Position(AreaTime(runner)), atlas);
+            }
+        }
+    }
+
+    async Task SpawnEnrageReinforcements(Player runner, Encounter encounter, Breach breach, BreachAtlas atlas)
+    {
+        byte level = AreaLevel(runner);
+        var rng = new Random(unchecked((int)(runner.Seed ^ (uint)(breach.Index * 4999) ^ 0x454e5247u)));
+        var extra = atlas.BuildMonsterMods(level, isBoss: false, breachesOpened: breach.OpenedOrder, enraged: true);
+
+        // Spawn enraged rare monsters (1 base + map_unstable_breach_enrage_x_additional_rare_monsters + AdditionalRareMonsters)
+        int rares = 1 + atlas.EnrageAdditionalRareMonsters + atlas.AdditionalRareMonsters;
+        if (BreachTables.Packs.Count > 0)
+        {
+            for (int i = 0; i < rares; i++)
+            {
+                var pack = BreachTables.Packs[rng.Next(BreachTables.Packs.Count)];
+                if (pack.Entries.Count == 0) continue;
+                var entry = pack.Entries[rng.Next(pack.Entries.Count)];
+                if (Monsters.Find(entry.Variety.ToString()) is not { Supported: true } variety) continue;
+                double angle = i * Math.Tau / Math.Max(1, rares) + rng.NextDouble() * 0.4;
+                var at = runner.Layout.Near(((int)Math.Round(breach.X + Math.Cos(angle) * 20),
+                    (int)Math.Round(breach.Y + Math.Sin(angle) * 20)));
+                uint id = await SpawnMonster(runner, Risen(variety), level, MonsterRarity.Rare, at.X, at.Y,
+                    alone: false, extraMods: extra);
+                if (id == 0) continue;
+                breach.Monsters.Add(id);
+                encounter.AllMonsterIds.Add(id);
+            }
+        }
+
+        // Wild Breach Boss: Vruun, Marshal of Xesht (ScarabBreachNew2 Dreamer / ScarabBreachNew4 Marshal / HasBoss / 15% natural)
+        if (!breach.BossSpawned && !atlas.NoBosses
+            && (atlas.UnstableBreachSpawnsBoss || atlas.HasBoss || rng.Next(100) < 15))
+        {
+            breach.BossSpawned = true;
+            var bossAt = runner.Layout.Near((breach.X + 8, breach.Y + 8));
+            await BreachBosses.SpawnWildBoss(runner, bossAt, level, atlas, rng);
+            if (atlas.EffectiveBossDuplicateChancePct > 0 && rng.Next(100) < atlas.EffectiveBossDuplicateChancePct)
+            {
+                var dupAt = runner.Layout.Near((breach.X - 8, breach.Y - 8));
+                await BreachBosses.SpawnWildBoss(runner, dupAt, level, atlas, rng);
+            }
+        }
+    }
+
+    async Task AwardCompletion(Player runner, List<Player> members, Breach breach, BreachAtlas atlas, bool stabilised)
+    {
+        if (breach.CompletionAwarded) return;
+        breach.CompletionAwarded = true;
+        byte level = AreaLevel(runner);
+        var rng = AreaRng(runner);
+        int baseBlood = stabilised ? 75 + Math.Min(100, breach.Kills * 2) : 20 + Math.Min(50, breach.Kills);
+        foreach (var member in members)
+        {
+            await GiveHiveblood(member, atlas.ScaleHiveblood(member, baseBlood, enragedBonus: stabilised));
+            if (stabilised)
+            {
+                // Guaranteed Wombgift on stabilised Unstable Breach, plus chance for a second with Atlas bonuses.
+                double bonusChance = Math.Min(1.5, 0.75 * atlas.WombgiftChanceFactor(enragedBonus: true));
+                int drops = bonusChance >= 1.0 ? 1 + (rng.NextDouble() < bonusChance - 1.0 ? 1 : 0) : (rng.NextDouble() < bonusChance ? 1 : 0);
+                for (int d = 0; d < drops; d++)
+                {
+                    string giftId = atlas.RollWombgiftBaseId(member, rng);
+                    if (MakeWombgift(member, giftId, level, rng) is { } gift)
+                        await DropGroundItem(member, (breach.X, breach.Y), gift, "Stabilised Breach Wombgift");
+                }
+                if (TryRollBodyPart?.Invoke(member, level, rng) is { } bodyPart)
+                    await DropGroundItem(member, (breach.X, breach.Y), bodyPart, "Breach quest body part");
+            }
+        }
+        Console.WriteLine($"[breach] Breach {breach.Index} {(stabilised ? "stabilised" : "collapsed")} (kills={breach.Kills}, score={breach.KillScore:0.0})");
     }
 
     static bool Touches(Player player, Breach breach)
@@ -342,50 +792,46 @@ public sealed class BreachEncounter
             $"0x02bc Breach {breach.Index} Initiator 0x{breach.Initiator:x} encounter_state {state}");
     }
 
-    /// <summary>The ramp's latest due line (one every <see cref="RulesetGap"/> seconds from the touch): each line is the
-    /// arena as it stands, so a late tick sends only the newest.</summary>
-    static async Task Ramp(List<Player> members, byte row, Breach breach, double now)
+    static async Task Ramp(List<Player> members, byte row, Breach breach, BreachAtlas atlas, double now)
     {
         if (breach.TouchedAt is not { } touched) return;
-        int due = Math.Min(BreachRulesets.Steps, (int)Math.Floor((now - touched) / RulesetGap) + 1);
+        double gap = RulesetGap / atlas.TimeSpeedFactor;
+        int due = Math.Min(BreachRulesets.Steps, (int)Math.Floor((now - touched) / gap) + 1);
         if (due <= breach.Ramp) return;
         breach.Ramp = due;
-        await SendLine(members, row, breach, Expanding, $"ramp {due}/{BreachRulesets.Steps}");
+        double growth = (double)(due - 1) / (BreachRulesets.Steps - 1);
+        // Combine player kill score with a floor baseline ramp so the ring visibly responds to kills while still advancing.
+        double effectiveCount = Math.Max(breach.KillScore, BreachRulesets.CountPerStep * (due - 1) * 0.45);
+        var (progress, radius, value) = BreachRulesets.KillDrivenMetrics(growth, effectiveCount, atlas.EffectiveMaxRadius);
+        breach.LastProgress = progress;
+        breach.LastRadius = radius;
+        breach.LastValue = value;
+        await SendLine(members, row, breach, Expanding, atlas, $"ramp {due}/{BreachRulesets.Steps} p={progress:0.0}");
     }
 
-    static Task SendLine(List<Player> members, byte row, Breach breach, int state, string what)
+    static Task SendLine(List<Player> members, byte row, Breach breach, int state, BreachAtlas atlas, string what)
     {
         breach.Line = state;
-        return Broadcast(members, LineFor(row, breach, state), $"0x02c9 Breach {breach.Index} ruleset {what} at ({breach.X}, {breach.Y})");
+        return Broadcast(members, LineFor(row, breach, state, atlas), $"0x02c9 Breach {breach.Index} ruleset {what} at ({breach.X}, {breach.Y})");
     }
 
-    /// <summary>This Breach's ruleset line in <paramref name="state"/>, as 0x2c9.</summary>
-    static byte[] LineFor(byte row, Breach breach, int state) =>
-        InstanceRulesets.Data(row, BreachRulesets.Body(breach.Index, breach.X, breach.Y, state, Math.Max(0, breach.Ramp - 1)));
+    static byte[] LineFor(byte row, Breach breach, int state, BreachAtlas atlas)
+    {
+        byte[] body = state is Expanding or Enraged && breach.LastRadius > 0
+            ? BreachRulesets.Body(breach.Index, breach.X, breach.Y, state, breach.LastProgress, breach.LastRadius, breach.LastValue, atlas.EffectiveMaxRadius)
+            : BreachRulesets.Body(breach.Index, breach.X, breach.Y, state, Math.Max(0, breach.Ramp - 1));
+        return InstanceRulesets.Data(row, body);
+    }
 
-    /// <summary>The environment override (on: the BreachArtVariations row, slot 0) or the empty list that clears it.</summary>
     static byte[]? Override(bool on) => !on ? InstanceEnvironments.Data() : EnvRow is { } env ? InstanceEnvironments.Data((env, EnvSeconds)) : null;
 
-    /// <summary>A message that is about no object goes to every client of the area by itself, each its own copy: the
-    /// writer encrypts the buffer it is given in place.</summary>
-    static async Task Broadcast(List<Player> members, byte[] message, string log)
-    {
-        for (int i = 0; i < members.Count; i++) await Send(members[i], message.ToArray(), i == 0 ? log : null);
-    }
-
-    /// <summary>
-    /// The wave members due by now: the measured per-second curve (<see cref="WaveRates"/>) integrated to the age, at
-    /// most <see cref="MaxWavePerTick"/> a tick. Each draw is a whole pack of the Breach packs (their members, counts and
-    /// bosses as the area's packs place them), at the area's monster level with the Breach life scaling, around a cell
-    /// up to <see cref="WaveMaxDistance"/> from the Breach that its cell walks to. The members are created transitioned:
-    /// every Breach variety inherits BrequelMonster.ot, whose create_untransitioned removes collision and rendering.
-    /// </summary>
-    static async Task SpawnWave(Player runner, Encounter encounter, Breach breach, double now)
+    static async Task SpawnWave(Player runner, Encounter encounter, Breach breach, BreachAtlas atlas, double now)
     {
         if (breach.TouchedAt is not { } touched || BreachTables.Packs.Count == 0) return;
-        double age = now - touched;
+        double age = (now - touched) * atlas.TimeSpeedFactor;
         if (age < 0 || age >= WaveSeconds) return;
-        int due = (int)Math.Floor(ExpectedWaveMembers(age));
+        double cascade = atlas.ResonantCascadeFactor(breach.OpenedOrder);
+        int due = (int)Math.Floor(ExpectedWaveMembers(age) * cascade);
         if (breach.Spawned >= due) return;
         var layout = runner.Layout;
         if (!encounter.Reach.TryGetValue(breach.Index, out var reach) && layout.Walkable is { } walkable)
@@ -393,9 +839,9 @@ public sealed class BreachEncounter
         bool Open(int x, int y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 1)
             && (reach is null || reach[y * layout.GridW + x]);
         byte level = AreaLevel(runner);
-        int scale = LifeScale(level);
-        var extra = scale > 0 ? MonsterModSet.None with { Effects = MonsterModEffects.None.Plus(MonsterModCatalog.EncounterLifeStat, scale) } : null;
+        var extra = atlas.BuildMonsterMods(level, isBoss: false, breachesOpened: breach.OpenedOrder, enraged: breach.State == Enraged);
         int budget = MaxWavePerTick;
+        double maxDist = Math.Min(WaveMaxDistance * (atlas.EffectiveMaxRadius / BreachRulesets.FullRadius), 150.0);
         using (HoldMonstersRemaining(runner))
         {
             while (breach.Spawned < due && budget > 0)
@@ -403,17 +849,17 @@ public sealed class BreachEncounter
                 var rng = new Random(unchecked((int)(runner.Seed * 0x9e3779b1u ^ (uint)(breach.Index * 7919) ^ (uint)(breach.Packs * 104729))));
                 breach.Packs++;
                 var pack = BreachTables.Packs[rng.Next(BreachTables.Packs.Count)];
-                double u = rng.NextDouble();
-                var rarity = u < NormalShare ? MonsterRarity.Normal : u < NormalShare + MagicShare ? MonsterRarity.Magic : MonsterRarity.Rare;
+                var rarity = atlas.RollPackRarity(rng);
                 (int X, int Y) centre = (breach.X, breach.Y);
                 for (int attempt = 0; attempt < 16; attempt++)
                 {
-                    double angle = rng.NextDouble() * Math.Tau, radius = rng.NextDouble() * WaveMaxDistance;
+                    double angle = rng.NextDouble() * Math.Tau, radius = rng.NextDouble() * maxDist;
                     (int X, int Y) at = ((int)Math.Round(breach.X + radius * Math.Cos(angle)), (int)Math.Round(breach.Y + radius * Math.Sin(angle)));
                     if (Open(at.X, at.Y)) { centre = at; break; }
                 }
+                double packFactor = (MapModsOf(runner)?.PackSizeFactor ?? 1.0) * cascade;
                 var spawns = AreaPopulation.AtPacks([(pack, centre.X, centre.Y, rarity)], Open,
-                    v => Monsters.Find(v.ToString()) is { Supported: true }, rng.Next(), MapModsOf(runner)?.PackSizeFactor ?? 1);
+                    v => Monsters.Find(v.ToString()) is { Supported: true }, rng.Next(), packFactor);
                 breach.Spawned += Math.Max(1, spawns.Count);
                 budget -= Math.Max(1, spawns.Count);
                 foreach (var spawn in spawns)
@@ -423,8 +869,7 @@ public sealed class BreachEncounter
                         alone: false, extraMods: extra, bulk: true);
                     if (id == 0) continue;
                     breach.Monsters.Add(id);
-                    // It goes with the Breach that brought it: an instance kept with nobody in it does not keep it
-                    // (SavedMonster.Save), so it is never re-created untransitioned.
+                    encounter.AllMonsterIds.Add(id);
                     if (runner.Area.Monsters.TryGetValue(id, out var monster)) monster.SummonerId = breach.Initiator;
                 }
             }
@@ -432,21 +877,27 @@ public sealed class BreachEncounter
         await SendRemainingMonsters(runner);
     }
 
-    /// <summary>The variety created in its last Transitionable state: the client's Transitionable defaults num_states to 2
-    /// (the ctor 0x141e46340) and runs create_transitioned (EnableRendering, MakeCollidable) only for a create in that
-    /// state, while object_types lists 1 for a .ot that gives none (<see cref="MonsterEmerge.RisenState"/>).</summary>
-    static MonsterCatalog.Variety Risen(MonsterCatalog.Variety variety) =>
+    internal static MonsterCatalog.Variety Risen(MonsterCatalog.Variety variety) =>
         Transitioned.GetValue(variety, v => v with { TransitionStates = MonsterEmerge.RisenState(v) });
 
-    /// <summary>The close takes the wave's living members with it (no death, no drops, no experience); a corpse is left
-    /// to the corpse's own way.</summary>
-    static async Task RemoveWave(Player runner, Breach breach)
+    static async Task RemoveStabilisers(Player runner, Breach breach)
+    {
+        foreach (var stab in breach.Stabilisers)
+        {
+            if (!stab.Created) continue;
+            await SendWorldRemoval(runner, stab.Id, null);
+            stab.Created = false;
+        }
+    }
+
+    static async Task RemoveWave(Player runner, Encounter encounter, Breach breach)
     {
         var area = runner.Area;
         using (HoldMonstersRemaining(runner))
         {
             foreach (uint id in breach.Monsters)
             {
+                encounter.AllMonsterIds.Remove(id);
                 bool dormant = false;
                 if (!area.Monsters.TryGetValue(id, out var monster))
                 {
