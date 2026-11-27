@@ -14,13 +14,16 @@ namespace GameServer.Gateway.Tests;
 public class SessionQuestFlagClearTests
 {
     [Fact]
-    public void Five_of_the_every_character_flags_are_session_rows_so_the_clear_must_exclude_them()
+    public void Four_of_the_every_character_flags_are_session_rows_so_the_clear_must_exclude_them()
     {
         var states = QuestStates.Default;
         string[] session = [.. Quests.EveryCharacter.Where(states.IsSession)];
         Assert.Equal(
-            ["CanEditHideout", "HideoutJukeboxEnabled", "HideoutUnlocked", "MapDeviceActive", "ThisIsMyHideout"],
+            ["CanEditHideout", "HideoutJukeboxEnabled", "HideoutUnlocked", "ThisIsMyHideout"],
             [.. session.Order()]);
+        // MapDeviceActive is now granted transiently in hideouts / on Map Device activation rather than globally.
+        Assert.True(states.IsSession("MapDeviceActive"));
+        Assert.DoesNotContain("MapDeviceActive", Quests.EveryCharacter);
         // The other one is not a session row, so it is saved and must survive an area change either way.
         Assert.Equal(["EndGameAvailable"],
             [.. Quests.EveryCharacter.Where(f => !states.IsSession(f)).Order()]);

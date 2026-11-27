@@ -53,6 +53,7 @@ public static partial class Game
         {
             // A town NPC a quest stages (DiallaTown / DiallaTownWithered, Lilly shipside / sitting …) comes with the quest NPCs (World/Quest/QuestNpcs.cs).
             if (quests.ManagesNpc(player.Layout.Id, p.Id) || p.ShownBy is not null || p.GoneWith is not null) continue;
+            if (p.RequiredLeagueFlag is int reqLqf && !player.Character.LeagueQuestFlags.Contains(reqLqf)) continue;
             if (Npcs.Place(p) is not { Supported: true } npc) { Console.WriteLine($"[gateway] {player.Connection.Remote} npc {p.Id}: unknown or unsupported components"); continue; }
             var at = furniture is null ? TownNpcCell(player.Layout, p) : (p.X, p.Y);
             if (at != (p.X, p.Y))

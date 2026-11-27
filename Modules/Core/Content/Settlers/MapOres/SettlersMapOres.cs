@@ -16,7 +16,6 @@ public static class SettlersMapOres
     public static MapOreEncounter Register(IModuleContext module, IVillageOreSink? sink = null, Func<double>? oreFoundMultiplier = null)
     {
         MapOreTables.LoadGameData();
-        ProspectingAstrolabe.LoadGameData();
 
         var encounter = new MapOreEncounter();
         var astrolabe = new ProspectingAstrolabe();
@@ -62,7 +61,6 @@ public static class SettlersMapOres
         GameEvents.ObjectUse.Add(id, encounter.OnUse);
         GameEvents.ChestsOpened.Add(id, encounter.OnChestsOpened);
         GameEvents.Kill.Add(id, encounter.OnKill);
-        GameEvents.MonsterKilled.Add(id, astrolabe.OnMonsterKilled);
         GameEvents.Drops.Add(id, roll =>
         {
             encounter.OnDrops(roll);
@@ -70,10 +68,6 @@ public static class SettlersMapOres
         });
         GameEvents.Stats.Add(id, encounter.OnStats);
         GameEvents.IncomingDamage.Add(id, encounter.OnIncomingDamage);
-
-        // Prospecting Astrolabe Atlas node application (0x0075 / 0x0076).
-        GameEvents.Packet(InstanceMapDevice.UseItemOnAtlasNodeId).Add(id, astrolabe.OnUseItemOnNode);
-        GameEvents.Packet(InstanceMapDevice.UseItemTypeOnAtlasNodeId).Add(id, astrolabe.OnUseItemTypeOnNode);
 
         return encounter;
     }

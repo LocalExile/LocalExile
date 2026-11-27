@@ -180,7 +180,7 @@ public sealed class MapOreEncounter
                     Program.LeagueFor(area.Player).HardMode, stats.ChancePlusPct, stats.AdditionalChancePct);
         }
 
-        int total = nativeCount + stats.AdditionalOres;
+        int total = nativeCount + stats.AdditionalOres + (stats.ProspectingAstrolabe ? 1 : 0);
         if (stats.ForcedSpawns > 0 && total < stats.ForcedSpawns)
             total = stats.ForcedSpawns;
         if (stats.ProspectingAstrolabe && total < 1)

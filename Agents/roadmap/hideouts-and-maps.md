@@ -33,11 +33,12 @@ bench.
 
 - **Known:** the 3.29 rules and the 20 generic map bases (`MapKeyTier1` … `MapKeyTier16` and four special ones) are in
   [game/maps.md](../docs/game/maps.md).
-  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, the MapKey component, the default Atlas layout and basic map drops
-  are implemented; see Status. The native Atlas panel/progress and the map stash are not.
-- **Start:** Atlas saved progress (completed nodes, adjacent unlocks, point awards);
-  Voidstones; the map stash tab's layout (18 A5); the official drop pools.
-- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress.
+  Generic `MapKeyTierN` items, `MapKeys.dat` tiers, Atlas saved progress (`0x01a3`/`0x01a4`), 4-slot Voidstones, Maven
+  witnessing/Crucible, Eldritch influence/Altars/28-map trackers, Zana/Eagon Memory Tears, Astrolabes/Shaped Regions,
+  Memory Vaults, 3.29 Atlas Anomalies, and all nine Atlas Books of Skill are implemented (offline verified); see Status.
+- **Start:** live client verification of Act 11 Atlas endgame storylines;
+  the map stash tab's layout (18 A5); unique map client acceptance; official drop pools.
+- **Done when:** maps drop, are stored and run the 3.29 way, and the Atlas shows and saves progress live.
 
 ### Idols: what the side panel leaves out
 
@@ -76,7 +77,8 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
   music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
-  maps: remaining scarab engines outside Bestiary/Sulphite, Delirium, Influence, Legion, Abyss and Mercenaries,
+  maps: remaining scarab engines outside Bestiary/Sulphite, Delirium, Influence, Legion, Abyss, Mercenaries,
+  Expedition, Incursion, Betrayal and Pandemonium; retail temple door-bit mapping and the existing temple/board engines,
   and Essence enhancement scaling (#505);
   Bestiary follow-up: native captured-beast book/itemisation and Blood Altar, exact red-beast weights and
   party capture rules;

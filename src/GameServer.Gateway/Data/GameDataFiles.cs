@@ -59,6 +59,7 @@ public static class GameDataFiles
         // rooms' server objects (room points) and the quest tile and room objects (ot_components.py QUEST_TILE_TYPES,
         // QUEST_ROOM_TYPES). item-types v2: the quest items' .it Quest flags.
         ("object_types", "monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, stationary collision footprints"),
+        ("object_type_state_meta", "object StateMachine shared-state metadata (client listeners, client GEAL writers, default-hidden rendering flags; object-types v14)"),
         ("item_types", "items, quest items' Quest flags"),
         ("area_transition_areas", "area transitions of fixed layouts"),
         ("room_point_rooms", "unique bosses (mapboss<n>[WG], force:mapboss, mapbosspack, sub-graph rooms), The Twilight Strand's encounters and support-gem chest, quest room objects and their fixed heights"),
@@ -69,6 +70,7 @@ public static class GameDataFiles
         ("animation_clip_events", "named animation events and the lengths of clips without a contact keyframe"),
         ("monster_takehit", "monster hit reactions (the TakeHit flinch and its sound)"),
         ("monster_contacts", "monster projectile release timing/points, every contact of a clip with several, and boss stage contacts"),
+        ("monster_contact_clip_events", "all named monster clip events (trigger_proj, slam, move, face, hit_ground, etc.) and .ao views (monster-contacts v9)"),
         ("monster_melee_clocks", "ordinary monster melee clocks from the variety AO, including slow spans and ACT budgets (monster-contacts v8)"),
         ("monster_stances", "when a weapon-stanced monster's skill lands (the Rogue Exiles' stance clips)"),
         ("projectile_clips", "monster projectile flight and impact clips (a mortar is invisible without its flight clip) and the flight clip's contact, a spell mortar's landing time, also through .ao views and groups (projectile-clips v4)"),
@@ -96,11 +98,11 @@ public static class GameDataFiles
         ("vendor-stock", 2, "vendor-specific quest/class gem membership and captured layout groups"),
         ("item-types", 2, "quest items' .it Quest flags (held, picked up, handed in, used): without them quest items set no flags"),
         ("animation-contacts", 11, "class rig animation indices, spell cancellation events, every contact frame, all named event times, and single-clip skill actions, including the ShieldBash waves"),
-        ("monster-contacts", 8, "monster clip contact frames, effect-specific animation pools, Throw-stage contacts, variety AO slow spans, ACT budgets, explicit clock metadata availability and weapon-stanced monsters' skill clips (monster-stances.json): without them a Rogue Exile's skills land on its unarmed default attack's contact"),
+        ("monster-contacts", 9, "monster clip contact frames, all Animation.dat pools (including effect_locked, item_animation using, with_main_hand, @alias, and .ao views), all named clip events (profile-normalized), Throw-stage contacts, variety AO slow spans, ACT budgets, and weapon-stanced monsters' skill clips (monster-stances.json)"),
         ("projectile-clips", 4, "flight contact times, including animation views, groups and default animations"),
         ("monster-takehit", 5, "death clips' body-clear times: without them a lockstep client's corpses block paths for 150 ms whatever the monster"),
         ("room-points", 10, "the Labyrinth's rooms, so its arenas keep their doors, elevator and objective marker"),
-        ("object-types", 13, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree, the Allflame encounters' lamp and barrels) and inherited monster Actor slow-animation policy, phasing and immobility"),
+        ("object-types", 14, "quest objects and chests (rooms' server objects, quest tile and room types, the Labyrinth's portals, its arena doors, elevator and objective marker, Oshabi's soul tree, the Allflame encounters' lamp and barrels), inherited monster Actor slow-animation policy, phasing and immobility, and StateMachine shared-state metadata (object_type_state_meta)"),
     ];
 
     /// <summary>The <see cref="Needed"/> entries data/extract-stamps.json (written by extract-data.ps1) records at an older

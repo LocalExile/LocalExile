@@ -219,8 +219,13 @@ public static partial class Game
             additionalPacks: [.. MapScarabPacks.Requests(mapMods), .. MapInfluence.Requests(mapMods)],
             ordinaryPacks: mapMods?.Get(Stat.MapMonstrousTreasureNoMonsters) is not > 0,
             grounds: layout.Level?.Grounds);
+        if (isMapArea) spawns = MapAllflame.ReplacePacks(spawns, mapMods, player.Seed,
+            (x, y) => x >= 0 && y >= 0 && x < layout.GridW && y < layout.GridH && layout.WalkableFor(x, y, 0), notes);
         // Twinned doubles the area's own bosses, not the shrines' Atlas guards.
         spawns = WithTwinBosses(spawns, mapMods).ToList();
+        if (isMapArea)
+            spawns = MapScarabBosses.ReplacePacks(spawns, mapMods, player.Seed,
+                (x, y, clearance) => layout.WalkableFor(x, y, clearance), notes);
         spawns.AddRange(MapInfluence.Accompany(player, layout, spawns));
         if (mapMods?.Get(Stat.MapShrinesHaveStandaloneMapBoss) > 0 && ServerLevels.For(layout.Id, player.Seed) is { } shrineRooms)
             spawns.AddRange(MapScarabBosses.Guards(player,

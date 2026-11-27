@@ -98,6 +98,18 @@ public static class BetrayalPlan
         return null;
     }
 
+    public static Member? Pick(IReadOnlyDictionary<int, BetrayalRanks.Target> board, Random rng)
+    {
+        var eligible = Candidates.Where(m => BetrayalRanks.Of(board, m).Turns == 0
+            && Monsters.Find(m.Variety.ToString()) is { Supported: true }).ToArray();
+        if (eligible.Length == 0) return null;
+        var member = eligible[rng.Next(eligible.Length)];
+        int rank = BetrayalRanks.Of(board, member).Rank;
+        // Unassigned targets can join either supported mission. Board relationships and recruitment choices remain separate.
+        var job = member.Job == Job.Unassigned || rank == 0 ? rng.Next(2) == 0 ? Job.Transportation : Job.Intervention : member.Job;
+        return member with { Rank = rank, Job = job };
+    }
+
     // ---- the formation -------------------------------------------------------------------------------------------
 
     /// <summary>origin + along · u + across · v, with u = (cos a, sin a) and v = u turned a quarter.</summary>

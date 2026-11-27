@@ -79,10 +79,11 @@ public static partial class Game
         lock (player.QuestNpcs) candidates = [.. player.QuestNpcs];
         string area = player.Layout.Id;
         bool Has(string f) => ClientHasQuestFlag(player, f);
+        bool HasLeague(int f) => player.Character.LeagueQuestFlags.Contains(f);
         var quests = QuestsOf(player);
         foreach (var c in candidates)
         {
-            bool want = c.Present(quests, Has) && KitavaActTen.PreFightNpcShown(player, c.Npc.Id);
+            bool want = c.Present(quests, Has, HasLeague) && KitavaActTen.PreFightNpcShown(player, c.Npc.Id);
             bool transitioned;
             byte transitionState;
             lock (player.QuestNpcs)

@@ -10,12 +10,21 @@ using GameServer.Core;
 /// </summary>
 public sealed class MapDevice
 {
+    /// <summary>Optional plumbing hook installed by the Portals module so modules can open a portal ring around the
+    /// player's active Map Device without placing game rules in Gateway.</summary>
+    public static Func<Player, MapArea, MapMods?, IReadOnlyDictionary<string, string>?, int, Task<OpenMap?>>? OpenPortalsFromDevice;
+
     /// <summary>Portals one activation opens; each takes one player into the map once.</summary>
     public const int PortalCount = 6;
 
     public const string CampaignDeviceArea = "2_7_5_1", CampaignMapArea = "2_7_5_map",
         CampaignDeviceType = "Metadata/QuestObjects/Act7/MaligaroOrrery",
         CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
+    /// <summary>Karui Shores (Epilogue War Room) interactive Map Device overlaying camp.arm's FlashBack_MapDevice_01.</summary>
+    public const string EndgameTownArea = "2_11_endgame_town",
+        EndgameTownDeviceType = "Metadata/MiscellaneousObjects/MapDevice";
+    public const int EndgameTownDeviceX = 885, EndgameTownDeviceY = 953;
+    public const float EndgameTownDeviceRotation = 1.39626f;
     public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
 
     public static bool AcceptsItem(uint typeHash, string itemClass, Player? player = null) =>
@@ -281,12 +290,13 @@ public sealed class MapDevice
             why = "Maligaro's Sanctum is not available.";
             return null;
         }
+        var maps = slots.Where(s => s.IsMap).ToList();
         if (slots.Any(s => s.Class == MemoryLineClass))
         {
-            why = "Atlas Memory Lines are not yet implemented.";
+            // Memory Line items are resolved by the Atlas module's GameEvents.MapOpening subscriber.
+            why = "Place a valid Memory Line or select an active Memory Line.";
             return null;
         }
-        var maps = slots.Where(s => s.IsMap).ToList();
         if (maps.Count == 0 && _runs.Match([.. slots.Select(s => s.BaseRow)]) is { } earlyRecipe
             && !string.Equals(earlyRecipe.Id, "MaligaroMap", StringComparison.Ordinal)
             && AreaOfWorld(earlyRecipe) is { } earlyArea)

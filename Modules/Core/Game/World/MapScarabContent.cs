@@ -47,6 +47,8 @@ public static class MapScarabContent
                 : mods.Get(Stat.MapRareMonstersTrappedInEssences) > 0 ? MapEssences.Calcification
                 : mods.Get(Stat.MapEssenceImprisonedMonstersEnhancedForEachEssence) > 0 ? "Essence.Adaptation"
                 : mods.Get(Stat.MapEssencesAre1TierHigherChancePct) > 0 ? MapEssences.Ascent : MapEssences.Content;
+        if (family == "Incursion" && mods.Get(Stat.MapContainsXAdditionalIncursionPacks) > 0) return MapScarabPacks.Incursion;
+        if (family == "Betrayal" && mods.Get(Stat.MapAllflameWeightEffectivenessPct) > 0) return "Betrayal.Allflame";
         if (family == "Delirium" && mods.Get(Stat.MapMapsDropWithAfflictionEnchantmentsChancePct) > 0) return "Delirium.Delusions";
         if (family == "Settlers")
             return mods.Get(Stat.MapAllVillagePacksMagicAndAllowRareChancePct) > 0 ? KalguuranGuardedRiches

@@ -26,7 +26,6 @@ public sealed partial class SettlersModule : IModule
         TownSubsystem.LoadGameData();
         OperationsSubsystem.LoadGameData();
         MapOreTables.LoadGameData();
-        ProspectingAstrolabe.LoadGameData();
         SettlersBosses.LoadGameData();
     }
 

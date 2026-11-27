@@ -130,11 +130,21 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 ## Partly working
 
-- **Settlers of Kalguur / Kingsmarch (`Modules/Core/Content/Settlers`):** Karui Shores Johan/Faustus, native
-  `kingsmarch.arm` `0x02bb` hub, ruleset `0x9b` town/workers/production/shipping/mapping/disenchanting/recombinator,
-  all 6 map ore/dust encounters, Lost Shipments, Scarabs, Refiner's Bargain, Astrolabe, 3 boss arenas, SQLite
-  persistence, and Waypoint tunables (`settings.json`) are implemented (live Xvfb verification pending);
-  see [30](../docs/protocol/30-settlers-kingsmarch.md).
+- **Settlers of Kalguur / Kingsmarch (`Modules/Core/Content/Settlers`, verified live in 3.29.3d):** Karui Shores
+  Johan/Faustus intro & tutorial quests, native `kingsmarch.arm` `0x02bb` hub (349 objects, zero client patches),
+  ruleset `0x9b` town/workers/production/shipping/mapping/disenchanting/dual-mode recombinator, all 6 map ore/dust
+  encounters, Lost Shipments, Kalguuran Scarabs, Refiner's Bargain, Prospecting Astrolabe integration, 3 boss arenas
+  (Black Knight, Admiral Valerius, Sasan), SQLite persistence (`settlers_village.sql`), and Waypoint tunables
+  (`settings.json`, retail `1.0` defaults); see [30](../docs/protocol/30-settlers-kingsmarch.md).
+- Act 11 Atlas endgame progression (verified live in 3.29.3d): unconditional endgame flag bypass removed (kept as
+  `/atlas_unlock`), Karui Shores War Room Map Device works for `a11q1`, and Eagon stands in hideouts once unlocked.
+  `0x01a3` carries Tangle/Cleansing 28-map counts and sections `0x04` (Maven witnessed), `0x08` (Memory Lines), and
+  `0x10` (Astrolabe Shaped Regions); `0x01a4` bit `0x04` marks incremental witnessing.
+  Envoy encounters, Maven witnessing and Crucible (`0x7b` `0x52`, `0x0298`, Ruleset 112), Eldritch influence packs and
+  Altars (`0x028e`, Ruleset 99), Zana/Eagon Memory Tears (`0x7b` `0x42`, `0x0297`), Astrolabes (`0x0075`/`0x0076`),
+  Memory Vaults, 3.29 Atlas Anomalies, all nine Atlas Books of Skill (138-point retail budget), and Merciless/Eternal
+  Labyrinth (`labyrinth_a11`) are implemented.
+  See [21](../docs/protocol/21-hideouts.md).
 - Hideout template export and import (`0x0213`) save and restore doodads and music per account; live check pending.
 - Crafting bench close (`0x02b1`) and Horticrafting quick-move (`0x00f8`) update bench balance and slot state.
 - Guild hideouts (`0x7b` `0x22` arg 1, `0x1f2`/`0x1f5` guild bit, `0x254` bit 15, `Hideout2`): offline verified.
@@ -157,7 +167,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
-  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  Delirium, Shaper/Elder influence, Legion, Abyss, Mercenary, Expedition, Incursion, Betrayal and Pandemonium inputs
+  use their existing encounter paths
   ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
   Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Bestiary captures persist per account and league; mission identities and claims survive module reload.

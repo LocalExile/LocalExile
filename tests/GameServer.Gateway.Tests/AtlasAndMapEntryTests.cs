@@ -81,18 +81,21 @@ public sealed class AtlasAndMapEntryTests
             // BossOption eligibility gating: requires UsesAtlas, non-Unique, tier >= minTier (T1 Maven, T9+ Eater/Exarch), and unlock flag.
             var rareMods = new MapMods(new Dictionary<uint, int>()) { MapRarity = ItemRarity.Rare };
             var uniqueMods = new MapMods(new Dictionary<uint, int>()) { MapRarity = ItemRarity.Unique };
-            var withBoss = Game.ComposeMapAreaStats(rareMods, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, deepwater: true, bossOption: 2);
+            var withEater = Game.ComposeMapAreaStats(rareMods, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, deepwater: true, bossOption: 2);
+            var withExarch = Game.ComposeMapAreaStats(rareMods, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 3);
             var withoutBoss = Game.ComposeMapAreaStats(rareMods, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 0);
             var uniqueBoss = Game.ComposeMapAreaStats(uniqueMods, 16, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 2);
             var lowTierEater = Game.ComposeMapAreaStats(rareMods, 8, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 2);
             var lowTierMaven = Game.ComposeMapAreaStats(rareMods, 1, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 1);
             var zeroTierBoss = Game.ComposeMapAreaStats(rareMods, 0, new Dictionary<uint, int>(), new HashSet<string>(), 0, bossOption: 1);
-            Assert.Equal(1, withBoss[Stat.MapDeepwaterLeague]);
-            Assert.Equal(2, withBoss[Stat.MapAtlasPrimordialBossInfluence]);
+            Assert.Equal(1, withEater[Stat.MapDeepwaterLeague]);
+            // Stat 0x2a03 (10755): 1 = Tangle (Eater, bossOption 2), 2 = Cleansing Fire (Exarch, bossOption 3), unset for Maven.
+            Assert.Equal(1, withEater[Stat.MapAtlasPrimordialBossInfluence]);
+            Assert.Equal(2, withExarch[Stat.MapAtlasPrimordialBossInfluence]);
             Assert.False(withoutBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
             Assert.False(uniqueBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
             Assert.False(lowTierEater.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
-            Assert.Equal(1, lowTierMaven[Stat.MapAtlasPrimordialBossInfluence]);
+            Assert.False(lowTierMaven.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
             Assert.False(zeroTierBoss.ContainsKey(Stat.MapAtlasPrimordialBossInfluence));
 
             // A family's league block: carried once, for the tree's families and the ones the map names itself.

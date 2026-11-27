@@ -122,10 +122,46 @@ public sealed class NpcCatalog
                 ? (m.Groups[1].Value, int.Parse(m.Groups[2].Value), double.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture))
                 : null;
 
-        /// <summary><c>triggerer.SendOpenScreen(&lt;screen&gt;)</c> with no window argument: the screen the row opens
-        /// (<c>PantheonScreen</c> on Sin's god rows). The passive tree and hideout rows have their own categories.</summary>
-        public string? OpensScreen => System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*\)") is { Success: true } m
-            ? m.Groups[1].Value : null;
+        /// <summary><c>triggerer.SendOpenScreen(&lt;screen&gt;[, &lt;arg&gt;])</c>: the screen name and optional argument
+        /// (<c>PantheonScreen</c>, <c>AtlasPassiveTreeScreen, 1</c>, <c>CharacterPassiveTreeScreen, 1</c>, <c>HideoutSelectionWindow, 0/1</c>).</summary>
+        public (string Screen, uint Arg)? OpenScreenRequest =>
+            System.Text.RegularExpressions.Regex.Match(Scripts, @"SendOpenScreen\(\s*(\w+)\s*(?:,\s*(\d+)\s*)?\)") is { Success: true } m
+                ? (m.Groups[1].Value, m.Groups[2].Success ? uint.Parse(m.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture) : 0u)
+                : null;
+
+        /// <summary>The screen name from <see cref="OpenScreenRequest"/>, or null.</summary>
+        public string? OpensScreen => OpenScreenRequest?.Screen;
+
+        /// <summary><c>triggerer.DropQuestItem("&lt;itemId&gt;")</c>: quest items dropped by the dialogue script.</summary>
+        public IReadOnlyList<string> DropQuestItems => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"DropQuestItem\(\s*""([^""]+)""\s*\)")
+            .Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal)];
+
+        /// <summary><c>triggerer.SetMavenRegionFlag()</c>: Envoy's Atlas witness region flag trigger.</summary>
+        public bool SetsMavenRegionFlag => Scripts.Contains("SetMavenRegionFlag(", StringComparison.Ordinal);
+
+        /// <summary><c>SendMavenDialog(&lt;id&gt;)</c>: MavenDialog.dat row ids voiced by the script.</summary>
+        public IReadOnlyList<string> MavenDialogs => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"SendMavenDialog\(\s*[""']?(\w+)[""']?\s*\)")
+            .Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal)];
+
+        /// <summary><c>SendTextAudio(&lt;audioId&gt;, '&lt;npcId&gt;'[, &lt;range&gt;])</c>: direct NPCTextAudio lines played by the script.</summary>
+        public IReadOnlyList<(string AudioId, string NpcId, int Range)> ScriptTextAudios => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"SendTextAudio\(\s*[""']?(\w+)[""']?\s*,\s*[""']([^""']+)[""']\s*(?:,\s*(\d+))?\s*\)")
+            .Select(m => (m.Groups[1].Value, m.Groups[2].Value,
+                m.Groups[3].Success ? int.Parse(m.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture) : 0))];
+
+        /// <summary><c>PlayAnimation(&lt;name&gt;)</c>: scripted animation clips requested on the speaking NPC.</summary>
+        public IReadOnlyList<string> PlayAnimations => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"PlayAnimation\(\s*[""']?(\w+)[""']?\s*\)")
+            .Select(m => m.Groups[1].Value).Distinct(StringComparer.Ordinal)];
+
+        /// <summary><c>DispatchRulesetEvent(&lt;event&gt;)</c>: both quoted (<c>"open_maven_invitation Atlas1"</c>,
+        /// <c>"open_memory_line"</c>) and unquoted (<c>BanditCallVote</c>, <c>wishes</c>) event names.</summary>
+        public IReadOnlyList<string> RulesetEvents => [.. System.Text.RegularExpressions.Regex
+            .Matches(Scripts, @"DispatchRulesetEvent\(\s*(?:""([^""]+)""|'([^']+)'|(\w+))\s*\)")
+            .Select(m => m.Groups[1].Success ? m.Groups[1].Value : m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value)
+            .Where(s => s.Length > 0).Distinct(StringComparer.Ordinal)];
 
         /// <summary><c>triggerer.GoToKingsmarch()</c>: the row transfers the player to the Kingsmarch hub area.</summary>
         public bool GoToKingsmarch => Scripts.Contains("GoToKingsmarch(", StringComparison.Ordinal);
@@ -156,6 +192,8 @@ public sealed class NpcCatalog
     {
         /// <summary>A town room's own line (TownNpcs): it may stand on a cell the walk map blocks (a stall, a pier).</summary>
         public bool FromRoom { get; init; }
+        /// <summary>League quest flag id required for this placement to appear (e.g. EagonHideout requires 1492).</summary>
+        public int? RequiredLeagueFlag { get; init; }
     }
 
     // The campaign towns are TownNpcs (their rooms' NPC lines); other towns here. Facing in radians (Positioned +0x29c).
@@ -495,6 +533,8 @@ public sealed class NpcCatalog
         new("Metadata/NPC/League/Bestiary/EinharHideout", 242, 365, 4.0f),
         // Last, and two steps past Helena on screen: on every hideout's floor this moves nothing placed before or after him.
         new("Metadata/NPC/League/Kalguur/VillageFaustusHideout", 284, 323, 4.0f),
+        // Eagon Caeserius (Secrets of the Atlas): appears once unlocked via EagonWild (LQF 1492 EagonUnlocked).
+        new("Metadata/NPC/Epilogue/EagonHideout", 291, 316, 4.0f) { RequiredLeagueFlag = 1492 },
     ];
 
     public static IReadOnlyList<Placement> HideoutNpcs => Hideout;

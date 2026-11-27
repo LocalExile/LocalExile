@@ -357,7 +357,13 @@ G addresses are the 3.29.3c release's: data moves between builds whose code does
 | `0x142169dd0` case 5 | Fn | S→C 0x7b kind 5 → listeners at instance +0x1778 → `0x140dcb230` |
 | `0x142169dd0` case 0x2b | Fn | S→C 0x7b kind 0x2b (HideoutMapDeviceScreen) → listeners at instance +0x2278; opens the Atlas map device |
 | `0x00e7` | C→S | Atlas map node picked: u16 BE WorldAreas HASH16, u8 0x0d (21-hideouts.md §4) |
-| `0x142157401` (case 0x7f) / `0x1421576ac` (case 0x80) | Fn | S→C 0x1a3 Atlas progress masks / 0x1a4 one completed node → instance +0xd030, +0xd070, +0xcff0 (21-hideouts.md §4) |
+| `0x142157401` (case 0x7f) / `0x1421576ac` (case 0x80) | Fn | S→C 0x1a3 Atlas progress (`+0xc408`/`+0xc409` 28-map counts, `+0xd0f8` voidstones, sections 0x01..0x10) / 0x1a4 one node (21-hideouts.md §4) |
+| `0x141fab1b0` / `0x14215c880` | Fn | S→C 0x1a3 section 0x04: Maven witnessed `WorldAreas.HASH16` (u16 LE) → instance `+0xcff0` (21-hideouts.md §4) |
+| `0x1421b03af` / `0x1421c1b60` | Fn | S→C 0x1a3 sections 0x08 (Memory Lines BE → `+0xd0c8`) and 0x10 (Astrolabe Shaped Regions BE → `+0xd0e0`) (21-hideouts.md §4) |
+| `0x1407b9ee0` | Fn | Map device Primordial boss 28-map tracker UI reading instance `+0xc408`/`+0xc409` and LQFs 205..212 / 321..328 |
+| `0x140c78140` / `0x141f96e50` | Fn | Eldritch Altar UI (`0x02bb` `BaseData` 12 `int32[]` mod choices, `0x2a03` frame art at `0x140c78279`) and C→S `0x028e` writer |
+| `0x141731a60` | Fn | Ruleset 112 `MavenBossFightRules` (`S→C 0x001e` ring strings, `S→C 0x02c9` sub-ids 0/1/2) |
+| `0x140755a00` | Fn | Kirac shop `KiracLevels` lookup from bonus map completions (`+0xd080`); `0x7b` kind `0x1e` is a no-op in 3.29 |
 | `0x14215ca00` | Fn | 0x1a3 row mask (22 bytes, rows below 170) → an AtlasNode set |
 | `0x14077bc30` | Fn | AtlasNode set lookup (instance +0xcff0 / +0xd030 / +0xd070) |
 | `0x14078c0c0` | Fn | Atlas node state updater: completed (+0x9cb/+0x9ce) when the node is in instance +0xd070 |

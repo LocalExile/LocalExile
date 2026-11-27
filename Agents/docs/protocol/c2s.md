@@ -351,13 +351,13 @@ no branch, no call that takes the stream). `≥ N` = N fixed bytes plus variable
 | 0x0284 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14061cd90` |  |
 | 0x0288 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x14092b940` |  |
 | 0x0289 | `0x1431767e8` / `0x140911210` | 6 | generic (19 S→C ids) | `0x1402e4930` |  |
-| 0x028e | `0x1435c9f88` / `0x141f96e50` | 7 | instance 0xaa, instance 0x8d | `0x140c7b000`, `0x140c93340`, `0x140c93470` +1 |  |
+| 0x028e | `0x1435c9f88` / `0x141f96e50` | 7 | instance 0xaa, instance 0x8d | `0x140c7b000`, `0x140c93340`, `0x140c93470` +1 | Select Eldritch Altar option (`u32 BE entityId`, `u8 choice` `1\|2`; [21-hideouts](21-hideouts.md)) |
 | 0x028f | `0x1435ca2a0` / `0x141fa49e0` | ≥ 6 |  | `0x142172ca0` |  |
 | 0x0290 | `0x1435caa18` / `0x141fa4ce0` | ≥ 16 |  | `0x140c23b50` |  |
 | 0x0294 | `0x1435cb190` / `0x141fa4ff0` | 18 | instance 0x1f6, instance 0x294 | `0x142172dc0` |  |
 | 0x0296 | `0x1431768d8` / `0x140911160` | 2 | generic (15 S→C ids) | `0x140deb6e0`, `0x142166040` |  |
-| 0x0297 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` |  |
-| 0x0298 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` |  |
+| 0x0297 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` | Activate Memory Line Map Device (`u8 bossOption`, mode `0x5e`; [21-hideouts](21-hideouts.md)) |
+| 0x0298 | `0x14346cd80` / `0x140e27920` | 3 | generic (9 S→C ids) | `0x140c284f0` | Activate Maven Invitation Map Device (`u8 invitationSlot 0..10`, mode `0x56`; [21-hideouts](21-hideouts.md)) |
 | 0x0299 | `0x1435ca480` / `0x141fa43e0` | 18 |  | `0x1403e2490` |  |
 | 0x029b | `0x1435cb0a8` / `0x141f98f90` | 10 | instance 0x29c | `0x1403d7d70` |  |
 | 0x029d | `0x1435caf18` / `0x141fa52d0` | 20 |  | `0x142173fa0` |  |
