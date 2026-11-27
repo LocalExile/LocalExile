@@ -19,6 +19,9 @@ public static partial class Game
         foreach (string effect in new[] { "HolyFlameTotem", "HolyFlameTotemAltX", "HolyFlameTotemRoyale" })
             definitions[effect] = SkillProjectileDefinition(effect, holyFlameProjectile,
                 SkillProjectileParameters(effect, holyFlameProjectile));
+        const string shrapnelBallista = "Metadata/Projectiles/CrossbowShotgunProjectile";
+        definitions[SteelShrapnelBallistaEffect] = SkillProjectileDefinition(SteelShrapnelBallistaEffect, shrapnelBallista,
+            SkillProjectileParameters(SteelShrapnelBallistaEffect, shrapnelBallista));
         const string frostBlade = "Metadata/Projectiles/IceStrikeProjectileNew";
         definitions["FrostBlades"] = SkillProjectileDefinition("FrostBlades", frostBlade,
             SkillProjectileParameters("FrostBlades", frostBlade));
@@ -154,7 +157,8 @@ public static partial class Game
                 int Get(uint id) => areaStats.GetValueOrDefault(id);
                 use = use with { Profile = GatewayProjectileSkillProfiles.ScaleAreas(use.Profile, effect, Get,
                     !Skills.IsAttack(context.Gem.Effect)) };
-                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX" or "SplittingSteelAltX")
+                if (effect is "LancingSteel" or "LancingSteelAltX" or "ShatteringSteelAltX" or "SplittingSteelAltX"
+                    or SteelShrapnelBallistaEffect)
                     return PrepareSteelRelease(context, use, effect);
                 if (IsGalvanicArrow(effect)) return GalvanicArrowRelease(context, use, effect, areaStats);
                 if (IsIceSpear(effect)) return IceSpearRelease(context, use);

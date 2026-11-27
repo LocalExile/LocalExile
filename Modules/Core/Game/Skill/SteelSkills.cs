@@ -5,6 +5,7 @@ using GameServer.Core.World;
 public static partial class Game
 {
     const string CallOfSteelEffect = "CallOfSteel";
+    const string SteelShrapnelBallistaEffect = "ShrapnelBallistaAltX";
     const ushort SteelShardBuff = 1610, SteelWardBuff = 1635;
     const int BaseSteelShardLimit = 12, SteelWardLimit = 6;
     // The native skill gives separate collection and reflection areas. Their radii are not in the exported stats.
@@ -105,11 +106,12 @@ public static partial class Game
 
     static ProjectileUse PrepareSteelRelease(ProjectileReleaseContext context, ProjectileUse use, string effect)
     {
-
         var player = context.Player;
-        int cost = context.Own(Stat.SteelAmmoConsumedPerUse), spent = 0;
         var shot = (ProjectileOffense)use.Payload!;
-        if (cost > 0 && !shot.FromTrapOrMine && !shot.Mirage && shot.ActualCaster is null
+        bool steelBallista = shot.FromTotem && effect == SteelShrapnelBallistaEffect;
+        int cost = context.Own(steelBallista ? Stat.SteelAmmoConsumedPerUseByTotem : Stat.SteelAmmoConsumedPerUse);
+        int spent = 0;
+        if (cost > 0 && !shot.FromTrapOrMine && !shot.Mirage && (steelBallista || shot.ActualCaster is null)
             && SteelStates.TryGetValue(player, out var state) && state.Shards > 0)
         {
             spent = Math.Min(cost, state.Shards);
@@ -118,6 +120,8 @@ public static partial class Game
             if (effect == "ShatteringSteelAltX" && spent == cost) AddSteelWard(context, state);
         }
         var profile = use.Profile;
+        if (spent == 0 && context.Own(Stat.Fires1ProjectileIfNoSteelAmmo) != 0)
+            profile = profile with { Count = 1, ParallelOrigins = null };
         if (spent == 0 && context.Own(Stat.AlreadySplitIfNoSteelShards) != 0
             && profile.SplitForm is { Metadata: { } shardMetadata } shard)
             profile = profile with
@@ -136,8 +140,6 @@ public static partial class Game
         }
         if (effect == "ShatteringSteelAltX")
         {
-            if (spent == 0 && context.Own(Stat.Fires1ProjectileIfNoSteelAmmo) != 0)
-                profile = profile with { Count = 1, ParallelOrigins = null };
             double bonus = Math.Max(0, context.Own(Stat.ShatteringSteelHitDamagePlusPctFinalScaledByProjectileDistancePerAmmoConsumed))
                 * spent / 100d;
             shot = shot with { ShatteringSteelAmmoHitBonus = bonus };
