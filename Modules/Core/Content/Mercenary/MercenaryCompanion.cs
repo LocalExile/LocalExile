@@ -196,7 +196,9 @@ public sealed partial class MercenaryModule
                 ushort buffRow = AuraCatalog.BuffRow(family);
                 var baseStats = PlayerMinions.AuraStatsAt(skills, Stats, effect, family, comp.Mercenary.Level);
                 var suppStats = MercenaryTables.SupportStatsOf([rolled]);
-                int generosityBonus = suppStats.GetValueOrDefault(Stat.AuraEffectPlusPct);
+                // Generosity's MercenarySupports stats are non_curse_aura_effect_+% and aura_cannot_affect_self.
+                int generosityBonus = suppStats.GetValueOrDefault(Stat.NonCurseAuraEffectPlusPct)
+                    + suppStats.GetValueOrDefault(Stat.AuraEffectPlusPct);
                 bool noSelf = suppStats.GetValueOrDefault(Stat.AuraCannotAffectSelf) > 0;
                 int effectLevel = skills.MaxLevelAt(effect, comp.Mercenary.Level);
                 var own = skills.EffectStats(effect, effectLevel).ToDictionary(s => s.Item1, s => s.Item2);
