@@ -144,10 +144,6 @@ public static partial class BreachGenesisTree
     /// on Foulborn Uniques so the client displays the Breach icon and <c>"Foulborn {0}"</c> prefix.</summary>
     public static Func<Item, Item>? MarkFoulbornItem { get; set; }
 
-    /// <summary>Whether <c>S→C 0x02cf</c> <c>points[0..3]</c> carries available/unspent points (true) or total earned
-    /// points (false).</summary>
-    public static bool WirePointsAreUnspent { get; set; } = true;
-
     // Loaded static tables.
     static Dictionary<ushort, TreeNode> NodesByGraphId = [];
     static Dictionary<int, TreeNode> NodesByRow = [];
@@ -346,23 +342,22 @@ public static partial class BreachGenesisTree
     // ---- Wire packet builders & handlers (S→C 0x02cf, C→S 0x02d0 / 0x02d1 / 0x02d3) ----
 
     /// <summary>Builds the binary-verified <c>S→C 0x02cf</c> Genesis Tree state packet:
-    /// <c>u16 BE 0x02cf</c>, <c>4 × CompactUInt points[0..3]</c>, <c>u8 pointsOnly</c>, and (when 0)
-    /// <c>u16 BE nodeCount</c> + <c>nodeCount × u16 LE allocatedNodeIds</c> sorted ascending.</summary>
+    /// <c>u16 BE 0x02cf</c>, <c>4 × CompactUInt allowedPoints[0..3]</c> (total earned points per sub-tree; client
+    /// <c>0x141ef8440</c> computes <c>available = allowed + free - allocated</c>), <c>u8 pointsOnly</c>, and (when 0)
+    /// <c>u16 BE nodeCount</c> + <c>nodeCount × u16 LE allocatedNodeIds</c> sorted ascending (excluding the 4 implicit
+    /// starting root nodes).</summary>
     public static byte[] BuildTreeStatePacket(SavedTreeState state, int[] earnedBySubTree, bool pointsOnly = false)
     {
         var w = new LoginWriter().U16(TreeStatePacketId);
         for (int sub = 0; sub < SubTreeCount; sub++)
         {
-            int earned = sub < earnedBySubTree.Length ? earnedBySubTree[sub] : 0;
-            int value = WirePointsAreUnspent
-                ? Math.Max(0, earned - SpentPointsInSubTree(state, sub))
-                : Math.Max(0, earned);
-            InstanceProtocol.CompactUInt(w, (uint)value);
+            int allowed = sub < earnedBySubTree.Length ? Math.Max(0, earnedBySubTree[sub]) : 0;
+            InstanceProtocol.CompactUInt(w, (uint)allowed);
         }
         w.U8(pointsOnly ? (byte)1 : (byte)0);
         if (!pointsOnly)
         {
-            var sorted = state.Allocated.Distinct().Order().ToArray();
+            var sorted = state.Allocated.Where(id => !StartNodeBySubTree.Values.Contains(id)).Distinct().Order().ToArray();
             w.U16(checked((ushort)sorted.Length));
             Span<byte> le = stackalloc byte[2];
             foreach (ushort id in sorted)
