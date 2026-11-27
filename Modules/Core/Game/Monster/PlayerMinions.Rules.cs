@@ -31,7 +31,8 @@ public static partial class Game
         {
             var monsters = InstanceMonsters(left);
             double now = AreaTime(left);
-            left.Instance.Monsters = [.. SavedMonster.Save(monsters, now, MonsterEmerge.Unrisen(left)),
+            left.Instance.Monsters = [.. SavedMonster.Save(monsters, now, MonsterEmerge.Unrisen(left),
+                    m => left.Instance.World.MonsterOrigins.TryGetValue(m.ObjectId, out var origin) ? origin.Object : null),
                 .. KeepItemisedCorpses(monsters, now), .. HeldBackLocked(left)];
         }
         RemoveLeavingMinionsLocked(left);

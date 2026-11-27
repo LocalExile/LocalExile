@@ -1,3 +1,4 @@
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 
 namespace GameServer.Gateway.Tests;
@@ -74,5 +75,24 @@ public sealed class QuestMarkerTests
         uint drop = instance.Ground.Add(new WorldItemObject(10, 20, bracelet), first, shared: false);
         Assert.True(Game.QuestDropVisibleTo(reconnect, drop));
         Assert.False(Game.QuestDropVisibleTo(second, drop));
+    }
+
+    [Fact]
+    public void CrematoriumPietyRetreatPortalUsesGloballyRegisteredEffectObject()
+    {
+        const string sinsPortal = "Metadata/QuestObjects/Piety/PietySinsPortal";
+        const string portalArt = "Metadata/Effects/Environment/piety_portal/close.ao";
+
+        Assert.Contains(ClientTables.Table("MiscObjects"), r => r.Text("EffectVirtualPath") == EffectObject.TypePath);
+        Assert.DoesNotContain(ClientTables.Table("MiscObjects"), r => r.Text("EffectVirtualPath") == sinsPortal);
+        Assert.Contains(ClientTables.Table("MiscAnimated"), r => r.Text("Id") == "PietyPortal" && r.Text("AOFile") == portalArt);
+
+        byte[] packet = Game.PietyRetreatPortalCreate(0x0400_0a2d, (326, 501));
+        Assert.Equal(InstanceEntities.CreateObjectId, System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(packet));
+        Assert.Equal(0x0400_0a2du, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(2)));
+        uint typeHash = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(12));
+        Assert.Equal(InstanceEntities.ObjectTypeHash(EffectObject.TypePath), typeHash);
+        Assert.NotEqual(InstanceEntities.ObjectTypeHash(sinsPortal), typeHash);
+        Assert.Equal(new EffectObject(326, 501, portalArt) { AnimatedFlags = 9, AnimationId = 2 }.Blob(), packet[18..]);
     }
 }

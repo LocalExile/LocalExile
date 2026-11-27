@@ -194,7 +194,9 @@ public sealed class MonsterPoisons
         DiedPoisoned = cleared is not null;
     }
 
-    readonly record struct DeathPoison(double At, double Remaining, (double DamagePerSecond, double Until) Strongest);
+    public int StacksAtDeath(double now) => cleared?.Stacks ?? Stacks(now);
+
+    readonly record struct DeathPoison(double At, int Stacks, double Remaining, (double DamagePerSecond, double Until) Strongest);
     DeathPoison? cleared, advancedDeath;
 
     /// <summary>The death's timestamp and remaining poison damage before target mitigation. A deferred death callback
@@ -209,16 +211,18 @@ public sealed class MonsterPoisons
     {
         (double DamagePerSecond, double Until)? strongest = null;
         double remaining = 0;
+        int stacks = 0;
         foreach (var poison in active)
         {
             if (poison.From <= at && at < poison.Until)
                 remaining += poison.DamagePerSecond * (poison.Until - at) * expiryRate;
-            if (poison.From <= sample && sample < poison.Until
-                && (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
-                    || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until))
+            if (poison.From > sample || sample >= poison.Until) continue;
+            stacks++;
+            if (strongest is not { } old || poison.DamagePerSecond > old.DamagePerSecond
+                || poison.DamagePerSecond == old.DamagePerSecond && poison.Until > old.Until)
                 strongest = (poison.DamagePerSecond, poison.Until);
         }
-        return strongest is { } best ? new(at, remaining, best) : null;
+        return strongest is { } best ? new(at, stacks, remaining, best) : null;
     }
 
     /// <summary>The highest damage stack still running at <paramref name="now"/>, or the one the death that cleared the

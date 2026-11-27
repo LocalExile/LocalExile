@@ -1,0 +1,10 @@
+{
+  "id": "Ritual",
+  "version": "1.0.0",
+  "kind": "feature",
+  "depends": [
+    "Game",
+    "Shrines"
+  ],
+  "assembly": "bin/ritual.dll"
+}

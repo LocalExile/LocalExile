@@ -133,7 +133,7 @@ public sealed partial class DeliriumModule
         return result;
     }
 
-    static bool Eligible(int kind, ItemCatalog.BaseType t, IReadOnlySet<int> gems, IReadOnlySet<int> fragmentRows) => kind switch
+    public static bool Eligible(int kind, ItemCatalog.BaseType t, IReadOnlySet<int> gems, IReadOnlySet<int>? fragmentRows = null) => kind switch
     {
         2 => gems.Contains(t.Row),
         4 => ItemDrops.Droppable(t) && t.Class is "Ring" or "Amulet" or "Belt",
@@ -146,7 +146,7 @@ public sealed partial class DeliriumModule
         13 => t.Class == "MapFragment" && !t.Id.Contains("CurrencyAffliction", StringComparison.Ordinal)
             && !t.Id.Contains("/Scarabs/", StringComparison.Ordinal)
             && !t.Name.StartsWith("[", StringComparison.Ordinal)
-            && (fragmentRows.Count == 0 || fragmentRows.Contains(t.Row)),
+            && (fragmentRows is not { Count: > 0 } || fragmentRows.Contains(t.Row)),
         15 => t.Id.Contains("/CurrencyDelveCrafting", StringComparison.Ordinal),
         19 => t.Class == "Amulet" && t.Id.Contains("Talisman", StringComparison.Ordinal),
         20 => t.Id.Contains("/CurrencyOfferingToTheGoddess", StringComparison.Ordinal),

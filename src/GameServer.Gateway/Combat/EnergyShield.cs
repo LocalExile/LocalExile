@@ -72,11 +72,14 @@ public sealed class EnergyShield
         if (Current == Maximum) { fraction = 0; StopRecharge(); }
     }
     // Leech/gain does not start recharge or reset its interruption timer.
-    public void Gain(double amount)
+    public void Gain(double amount) => Gain(amount, Maximum);
+
+    public void Gain(double amount, uint ceiling)
     {
         if (!double.IsFinite(amount) || amount <= 0) return;
-        Current = RecoveryPool.Advance(Current, Maximum, amount, ref fraction);
-        if (Current == Maximum) StopRecharge();
+        uint cap = Math.Min(Maximum, Math.Max(Current, ceiling));
+        Current = RecoveryPool.Advance(Current, cap, amount, ref fraction);
+        if (Current >= cap) StopRecharge();
     }
     /// <summary>Loss of a pool, independent of incoming damage and its recharge interruption.</summary>
     public void Lose(double amount, ref double carry)
@@ -152,7 +155,9 @@ public sealed class EnergyShield
         if (!alive) { Empty(); return; }
         if (NotDelayed(get)) interruptedAt = double.NegativeInfinity;
         if (to <= from) return;
-        if (Current >= Maximum) { StopRecharge(); return; }
+        int ceilingPct = PetrifiedBlood.RecoveryCeilingPct(get);
+        uint ceiling = ceilingPct < 100 ? (uint)((long)Maximum * ceilingPct / 100) : Maximum;
+        if (Current >= Maximum || Current >= ceiling) { StopRecharge(); return; }
         double start = Recharging ? rechargeStartedAt : interruptedAt + Delay(get);
         double recharge = RechargePerMinute(Maximum, get);
         if (to >= start && recharge > 0)
@@ -164,8 +169,8 @@ public sealed class EnergyShield
         double rechargeSeconds = Math.Max(0, to - Math.Max(from, start));
         double change = fraction + RegenPerMinute(Maximum, get) * (to - from) / 60 + recharge * rechargeSeconds / 60;
         uint whole = (uint)Math.Min(uint.MaxValue, Math.Floor(change));
-        Current = (uint)Math.Min(Maximum, (long)Current + whole);
-        fraction = Current == Maximum ? 0 : change - whole;
-        if (Current == Maximum) StopRecharge();
+        Current = (uint)Math.Min(ceiling, (long)Current + whole);
+        fraction = Current >= ceiling ? 0 : change - whole;
+        if (Current >= ceiling) StopRecharge();
     }
 }

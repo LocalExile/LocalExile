@@ -23,6 +23,7 @@
     <!-- The QuestObjects module's rules and acts (Act6EncounterTests, QuestEncounterRestoreTests). -->
     <ProjectReference Include="..\..\Modules\Core\World\QuestObjects\QuestObjects.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Item\Cosmetics\Cosmetics.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Player\Chat\Chat.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Player\Commands\Commands.csproj" />
     <!-- The Social module's party kick and invitation cancel (PartyKickTests). -->
     <ProjectReference Include="..\..\Modules\Core\Player\Social\Social.csproj" />
@@ -46,12 +47,15 @@
     <ProjectReference Include="..\..\Modules\Core\Content\Harvest\Harvest.csproj" />
     <!-- The Bestiary mission's effect bytes and tables (BestiaryTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Bestiary\Bestiary.csproj" />
+    <ProjectReference Include="..\..\Modules\Core\Content\Delve\Delve.csproj" />
     <!-- Alva's incursions and the temple plan (IncursionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Incursion\Incursion.csproj" />
     <!-- Jun's mission: the roll, the plan and the creates (BetrayalTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Betrayal\Betrayal.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Mercenary\Mercenary.csproj" />
     <ProjectReference Include="..\..\Modules\Core\Content\Anarchy\Anarchy.csproj" />
+    <!-- The Ritual altar's bodies and tables (RitualTests). -->
+    <ProjectReference Include="..\..\Modules\Core\Content\Ritual\Ritual.csproj" />
     <!-- The Legion timer and army plan (LegionTests). -->
     <ProjectReference Include="..\..\Modules\Core\Content\Legion\Legion.csproj" />
   </ItemGroup>

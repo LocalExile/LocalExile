@@ -114,6 +114,12 @@ public sealed class PortalsModule : IModule
             await UsePortalScroll(player, use, item, type);
             return true;
         });
+        GameEvents.PortalRequested.Add(module.Manifest.Id, async (player, x, y, why) =>
+        {
+            if (!PortalAllowed(player)) return false;
+            await OpenTownPortal(player, x, y, why);
+            return true;
+        });
         GameEvents.Packet(InstanceMapDevice.ActivateId).Add(module.Manifest.Id, async (player, bytes) =>
         {
             await ActivateMapDevice(player, InstanceMapDevice.ReadActivate(bytes));

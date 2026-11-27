@@ -98,7 +98,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   a3q11–a3q13 and a3q10 (the Epic Door, Dominus' two forms, Lady Dialla on the tower, the exit to The Aqueduct) ran
   unattended in one pass and ended in Highgate with every flag of `Act2CompleteEramir` and `Act3Complete` and every
   Act 2/3 quest log at "Quest Complete".
-  In the Crematorium, Piety retreats through a portal at half life with `AudioEventDrivenOffPiety`.
+  In the Crematorium, Piety retreats at half life through a `PermanentServerEffect` portal (`close.ao`, clip 2, live
+  2026-11-27) with `AudioEventDrivenOffPiety`.
   Once the room guards are gone each character can take Tolman's Bracelet.
   Greust unlocks via `a2b-StartNewQuests` (quest items also read `extra_flag2`), `ClarissaTown` gates on
   `a3q1-RescuedGirl` with legacy save recovery, and Docks Fairgraves runs his `Script2` timer/counter death transition.

@@ -95,6 +95,9 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// check 0x142479880 returns false then). Payload derives bit 5 from GemVariant, as the native copy does.</summary>
     public byte GemFlags { get; init; }
 
+    /// <summary>The server's persistent skill bar identity for a gem the player explicitly bound.</summary>
+    public Guid? SkillBarGemId { get; init; }
+
     public ItemRarity Rarity { get; init; }
 
     /// <summary>Unidentified items carry no <see cref="ModSection.Explicit"/> list (the client does not read it).</summary>
@@ -130,6 +133,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// writes 00 00 00 (row 0).</summary>
     public ChartData? Chart { get; init; }
 
+    /// <summary>The RitualEncounter component (157, Blood-filled Vessel; write 0x1425121e0 → 0x14250eab0, read 0x142512230 → 0x14250ebc0):
+    /// u8 monster count, u32 LE monster level, count × (u16 LE MonsterVarieties HASH16, u16 LE count), u16 LE WorldAreas HASH16.</summary>
+    public RitualEncounterData? RitualEncounter { get; init; }
+
     /// <summary>The u16 after the type hash (reader 0x1421f2d00): bit 0 → item +0x28; bit 1 → +0x29, which keeps the item
     /// out of every inventory but InventoryIdKey 0 and 0x41 and is required for 0x41 (0x141d65f80); bit 2 → +0x2a, with
     /// bit 1 the tooltip's second marker icon (0x140c998a0); bit 3 → +0x2b, refused in every inventory; bit 4 the
@@ -156,6 +163,10 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// identified items.</summary>
     public IReadOnlyList<uint> NameWords { get; init => field = Owned.List(value); } = [];
 
+    /// <summary>A custom display name for an identified item (ObjectMagicProperties bit 7 = 0x80, WStr32); takes
+    /// precedence over <see cref="NameWords"/> when non-null.</summary>
+    public string? CustomName { get; init; }
+
     /// <summary>A vendor price: (item type hash, amount) entries, Base flag bit 7 (17-npcs.md §5). Empty for items not
     /// in a shop.</summary>
     public IReadOnlyList<(uint TypeHash, uint Amount)> Price { get; init => field = Owned.List(value); } = [];
@@ -170,7 +181,7 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     public static readonly HashSet<string> NoData = ["LocalStats", "AttributeRequirements", "Weapon", "Usable", "Flask", "Quest", "Shield", "RenderItem"];
 
     /// <summary>Components <see cref="Payload"/> can write.</summary>
-    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb"];
+    public static readonly HashSet<string> Supported = [.. NoData, "Base", "Mods", "Armour", "Quality", "Sockets", "Charges", "Tincture", "Stack", "SkillGem", "StoredExperience", "Map", "MapKey", "Transformed", "HeistBlueprint", "DeepwaterChart", "ScryingOrb", "RitualEncounter"];
 
     /// <summary>The character level the item requires, sent in the Mods component (+0x2bc). The client keeps the byte
     /// it receives (it only recomputes it, 0x1421e6d40, when an item's mods change on its side) and shows it in the
@@ -272,6 +283,14 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
                     var chart = Chart ?? new ChartData(0, 0, 0);
                     w.U8(chart.AreaLevel).U8(chart.Rotation).U8(chart.Room);
                     break;
+                case "RitualEncounter":
+                    var ritual = RitualEncounter;
+                    int ritualCount = Math.Min(ritual?.Monsters.Count ?? 0, byte.MaxValue);
+                    w.U8((byte)ritualCount).U32((uint)Math.Max(0, ritual?.MonsterLevel ?? 0));
+                    for (int ri = 0; ri < ritualCount; ri++)
+                        w.U16(ritual!.Monsters[ri].VarietyHash).U16(ritual.Monsters[ri].Count);
+                    w.U16(ritual?.AreaHash ?? 0);
+                    break;
                 // 0x1424755d0: i32 experience (-1: one level over the cap), u32 +0x3c the variant (the copy 0x142476520
                 // checks it against the GemVariants count and sets +0x10 bit 5 when it is not 0), u8 +0x10, u16 +0x40 an
                 // IndexableSupportGems index (0: none).
@@ -311,12 +330,22 @@ public sealed record Item(uint TypeHash, IReadOnlyList<string> Components, ushor
     /// signed compact (0x141e4c7e0) per stat of the row.
     /// </summary>
     void MagicProperties(BlobWriter w) =>
-        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, u7a: FracturedCount,
+        global::GameServer.Core.Protocol.Instance.MagicProperties.Write(w, (byte)Rarity, Identified, Mods, nameWords: NameWords, customName: CustomName, u7a: FracturedCount,
             alternateQualityType: AlternateQualityType, alternateQuality: Quality);
 
     /// <summary>The item as inventories and other messages carry it (0x1421f2b40 / 0x1421f2c30): u16 big-endian length,
     /// then <see cref="Payload"/>.</summary>
     public byte[] Wire() => new LoginWriter().Blob(Payload()).ToArray();
+}
+
+/// <summary>A monster variety captured inside a Blood-filled Vessel (RitualEncounter component 157).</summary>
+public sealed record RitualEncounterMonster(ushort VarietyHash, ushort Count);
+
+/// <summary>The RitualEncounter item component (157, Blood-filled Vessel): captured monster level, source area HASH16,
+/// and monster variety counts.</summary>
+public sealed record RitualEncounterData(int MonsterLevel, ushort AreaHash, IReadOnlyList<RitualEncounterMonster> Monsters)
+{
+    public IReadOnlyList<RitualEncounterMonster> Monsters { get; init => field = Owned.List(value); } = Owned.List(Monsters);
 }
 
 /// <summary>
@@ -366,6 +395,26 @@ public sealed record VisibleItem(byte Slot, ushort VisualIdentity, byte Stance =
 /// </summary>
 public sealed record WorldItemObject(int GridX, int GridY, Item Item)
 {
+    Item contents = Item;
+    public Item Item { get => System.Threading.Volatile.Read(ref contents); init => contents = value; }
+    readonly object preparationGate = new();
+    bool prepared;
+
+    public bool Equals(WorldItemObject? other) => ReferenceEquals(this, other)
+        || other is not null && GridX == other.GridX && GridY == other.GridY && Item == other.Item && PlayerDropped == other.PlayerDropped;
+    public override int GetHashCode() => HashCode.Combine(GridX, GridY, Item, PlayerDropped);
+
+    /// <summary>Finalizes a newly generated drop before it is published; recovery and stack remainders keep it.</summary>
+    public void Prepare(Func<Item, Item> transform)
+    {
+        lock (preparationGate)
+        {
+            if (prepared) return;
+            System.Threading.Volatile.Write(ref contents, transform(contents));
+            prepared = true;
+        }
+    }
+
     public const string MetadataPath = "Metadata/MiscellaneousObjects/WorldItem";
 
     /// <summary>The player placed this item on the ground, rather than a monster or script drop.</summary>

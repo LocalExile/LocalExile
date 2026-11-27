@@ -174,6 +174,21 @@ public static class ShrineManager
         finally { state.Area.Gate.Release(); }
     }
 
+    /// <summary>Places one unguarded shrine near its recipient using the ordinary area object and claim path.</summary>
+    public static async Task SpawnReward(Player player, string type)
+    {
+        if (ShrineCatalog.Find(type) is not { } definition || player.Layout.Walkable is not { } walk) return;
+        var state = Of(player);
+        await state.Area.Gate.WaitAsync();
+        try
+        {
+            var (x, y) = player.Walk.Position(AreaTime(player));
+            var cell = Clear(walk, x + ShrinePlacement.ObjectSize + 5, y, ShrinePlacement.ObjectSize + 6);
+            await Create(player, NewInstance(definition, cell.X, cell.Y, 0, ShrinePlacement.DefaultModel), spawnGuards: false);
+        }
+        finally { state.Area.Gate.Release(); }
+    }
+
     /// <summary>Dev (/shrines): the named types, or every basic type, on a ring around the player inside the click
     /// range, so each type's icon, buff and tooltip can be checked in one area instead of hunting a seed that rolls it.</summary>
     public static async Task<int> SpawnAroundPlayer(Player player, IReadOnlyList<string> ids)

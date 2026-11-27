@@ -235,7 +235,11 @@ public static partial class Game
             : WasItemisedCorpse(saved) ? PlaceItemisedCorpse(player, variety, (saved.X, saved.Y), saved.Level, saved.Mods)
             : SpawnPackMonster(saved.PackId, player, variety, saved.Level, saved.Rarity, saved.X, saved.Y,
                 friendly: !saved.Hostile, log: false, damagedLife: saved.Life, mods: saved.Mods,
-                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk);
+                unrisen: saved.Unrisen, placement: MonsterPlacement.Established, bulk: bulk,
+                scripted: saved.Scripted, ownedLooks: saved.Equipped,
+                owned: saved.NoRewards ? (_, m) => m.NoRewards = true : null,
+                shape: o => o with { StateMachine = saved.States ?? o.StateMachine, CurrentAction = saved.CurrentAction, MercenaryBuild = saved.ActorBuild },
+                ownedKit: saved.OwnedSkillEffects is { Length: > 0 } effects ? BossKits.KitFromEffects(player, variety, saved.Level, effects) : null);
 
     // An area's monsters are all placed at its first entry (14-monster-packs.md §2). One placed far from the player is
     // held back (InstanceWorld.HeldBackMonsters): it is the instance's, counted and saved with it, but it is not
@@ -523,6 +527,7 @@ public static partial class Game
             }
             mods = mods with { Effects = nextEffects, SpeciesApplied = true };
         }
+        if (!friendly) mods = MapInfluence.MonsterMods(variety, mods, MapModsOf(player));
         // A hostile unique keeps its auras up (a Rogue Exile's Hatred, Haste): their stats are its own from the spawn, and
         // a kept one keeps them in its mods.
         var auras = !friendly && rarity == MonsterRarity.Unique ? MonsterSkills.Auras(SkillsFor(player), variety, level) : default;
@@ -864,7 +869,8 @@ public static partial class Game
                 PresentationChanged = () => { foreach (var p in player.Frames.Players()) MonsterDebuffsChanged(p, id); },
                 Asleep = asleep,
                 Attack = skill is null && kit.Count == 0 ? null : kit.Count > 0 ? kit[0].Attack : attack,
-                Kit = kit, SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
+                Kit = kit, OwnedSkillEffects = ownKit ? kit.Select(k => k.Effect).ToArray() : null,
+                SkillIds = skillIds, Hostile = !friendly, Variety = variety, Level = level, Rarity = rarity, Movement = movement,
                 Scripted = scripted || !friendly && atlas,
                 NonBlocking = nonBlocking || noBodyUntilReleased,
                 Life = initialLife, Stage = stageSkill is null ? null : stage, States = monster.StateMachine,
@@ -3223,7 +3229,7 @@ public static partial class Game
             if (leeched > 0) m.Life = (uint)Math.Min(m.MaxLife, (long)m.Life + leeched);
         }
         RecordIncomingHitLocked(player, now, spellHit, blocked, suppressed, lifeDamage, damage > 0, monsterCritical,
-            projectile: projectile, attack: attackHit);
+            projectile: projectile, attack: attackHit, attacker: m);
         RecentHitLifeLossOnHitLocked(player, now);
         UnhingedHitRecoveryLocked(player, now, stats);
         // Brine Bound: a hit that lands, blocked too (blocking keeps the defender's when-hit effects, wiki
