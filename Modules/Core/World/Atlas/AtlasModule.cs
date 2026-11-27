@@ -81,14 +81,18 @@ public sealed class AtlasModule : IModule
         if (AtlasProgress.OfArea(PlayerOf(player).AreaId) is not { } node
             || !AtlasProgress.CompletesMap(node, monster, player.Area)) return;
         await AtlasFeature.DropScryingOrbOnCompletion(player, monster, node);
-        foreach (var peer in InstanceClients(player))
+        var peers = InstanceClients(player).ToList();
+        await EldritchInfluence.OnMapBossKilled(player, monster, peers);
+        foreach (var peer in peers)
         {
             try
             {
                 var modPeer = PlayerOf(peer);
                 var data = WorldOf(modPeer).CharacterData;
+                var mapRun = global::Game.MapRunOf(peer);
                 bool completed = AtlasProgress.Complete(data, [node]);
-                bool bonus = global::Game.MapRunOf(peer) is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run, node)
+                EldritchInfluence.SyncKiracProgress(peer, data, mapRun?.Area.Tier);
+                bool bonus = mapRun is { Atlas: true } run && AtlasProgress.MeetsBonusObjective(run, node)
                     && AtlasProgress.CompleteBonus(data, [node]);
                 bool alreadyBonus = bonus || AtlasProgress.BonusCompleted(data).Contains(node.Id);
                 bool witnessed = await MavenWitnessing.OnMapBossKilled(player, peer, monster, node);
@@ -118,6 +122,8 @@ public sealed class AtlasModule : IModule
         AtlasProgress.LoadAtlasProgressData();
         AtlasFeature.LoadAtlasFeatureData();
         MavenWitnessing.LoadData();
+        EldritchInfluence.LoadData();
+        EldritchAltars.LoadData();
     }
 
     sealed class DeferCrucibleScope : IDisposable
@@ -139,6 +145,9 @@ public sealed class AtlasModule : IModule
         }
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
+        GameEvents.AreaPopulated.Add(module.Manifest.Id, EldritchInfluence.OnAreaPopulated);
+        GameEvents.PlayerEntered.Add(module.Manifest.Id, EldritchInfluence.OnPlayerEntered);
+        GameEvents.AreaQuestFlags.Add(module.Manifest.Id, EldritchInfluence.AreaQuestFlags);
         GameEvents.EnterMessages.Add(module.Manifest.Id, player => AtlasFeature.PrimordialEnterMessages(player));
         GameEvents.AreaRuleset.Add(module.Manifest.Id, MavenWitnessing.AreaRulesetFor);
         GameEvents.AreaQuestFlags.Add(module.Manifest.Id, MavenWitnessing.TransientAreaFlags);
@@ -152,8 +161,15 @@ public sealed class AtlasModule : IModule
         GameEvents.NpcTalk.Add(module.Manifest.Id, EnvoyEncounters.OnNpcTalk);
         GameEvents.ObjectUse.Add(module.Manifest.Id, MavenWitnessing.OnObjectUse);
         GameEvents.MessagesHandled.Add(module.Manifest.Id, MavenWitnessing.OnMessagesHandled);
+        GameEvents.Stats.Add(module.Manifest.Id, EldritchAltars.ApplyPlayerStats);
+        GameEvents.IncomingDamage.Add(module.Manifest.Id, EldritchAltars.AdjustIncomingDamage);
+        GameEvents.Drops.Add(module.Manifest.Id, EldritchAltars.ApplyDrops);
         GameEvents.ItemUse.Add(module.Manifest.Id, AtlasFeature.UseAtlasSkillBook);
         GameEvents.MapDeviceOpened.Add(module.Manifest.Id, AtlasFeature.AttachCarriedMapDeviceAlterations);
+        GameEvents.Packet(InstanceMapDevice.SelectEldritchAltarId).Add(module.Manifest.Id, (player, bytes) =>
+            bytes.Length >= InstanceMapDevice.SelectEldritchAltarLength
+                ? EldritchAltars.HandleSelectAltar(player, InstanceMapDevice.ReadSelectEldritchAltar(bytes))
+                : Task.FromResult(false));
         GameEvents.RulesetEvent.Add(module.Manifest.Id, MavenWitnessing.OnRulesetEvent);
         GameEvents.Command(module.Manifest.Id, "atlas_unlock", "/atlas_unlock (dev: grant Atlas beacons, invitations and primordial keys)", async (player, args) =>
         {
@@ -162,6 +178,7 @@ public sealed class AtlasModule : IModule
         });
         GameEvents.MonsterKilled.Add(module.Manifest.Id, async kill =>
         {
+            await EldritchAltars.OnMonsterKilled(kill.Player, kill.Monster);
             await CompleteMapOnBossKill(kill.Player, kill.Monster);
             await EnvoyEncounters.OnBossKilled(kill.Player, kill.Monster);
             await MavenWitnessing.OnMonsterKilled(kill.Player, kill.Monster);
@@ -171,6 +188,14 @@ public sealed class AtlasModule : IModule
         {
             if (kill.PlayerKill) return;
             var monster = global::Game.ModMonster(kill.Monster, kill.At);
+            bool eldritchOrBoss = EldritchInfluence.ContextOf(kill.Player) is { } eCtx
+                && EldritchInfluence.IsEldritchMonster(eCtx, monster.ObjectId, kill.VarietyId)
+                || kill.VarietyId is EldritchInfluence.InfiniteHungerVariety
+                    or EldritchInfluence.BlackStarVariety
+                    or EldritchInfluence.EaterOfWorldsVariety
+                    or EldritchInfluence.SearingExarchVariety;
+            if (eldritchOrBoss)
+                kill.Later(() => EldritchAltars.OnMonsterKilled(kill.Player, monster));
             if (AtlasProgress.OfArea(kill.Player.Layout.Id) is { } node
                 && node.FinalBosses.Contains(kill.VarietyId)
                 && AtlasProgress.CompletesMap(node, monster, kill.Player.Area))
@@ -197,6 +222,7 @@ public sealed class AtlasModule : IModule
                 var data = WorldOf(player).CharacterData;
                 AtlasProgress.Complete(data, nodes);
                 AtlasProgress.CompleteBonus(data, nodes);
+                EldritchInfluence.SyncKiracProgress(player, data);
                 int earned = ApplyBonusPoints(player, data);
                 if (nodes.Count == 1)
                     await PlayerOf(player).Send(AtlasProgress.NodeMessage(nodes[0]),
@@ -412,6 +438,7 @@ public static class AtlasFeature
         ApplyTreeFlags(player);
         var modPlayer = PlayerOf(player);
         var data = WorldOf(modPlayer).CharacterData;
+        EldritchInfluence.SyncKiracProgress(player, data);
         var completed = AtlasProgress.Completed(data);
         var bonusCompleted = AtlasProgress.BonusCompleted(data);
         bool pointsChanged = AtlasModule.ApplyBonusPoints(player, data) > 0;
@@ -682,8 +709,8 @@ public static class AtlasFeature
         [
             ($"0x001f ruleset AtlasPrimordialBossInfluenceRules (row {InstanceRulesets.PrimordialInfluenceRulesetRow})",
                 InstanceProtocol.AddRuleset(InstanceRulesets.PrimordialInfluenceRulesetRow)),
-            ("0x02c9 AtlasPrimordialBossInfluenceRules sub-id 0 (initial empty altar mods)",
-                InstanceRulesets.PrimordialAltarHud([], [], [], [], [], [])),
+            ("0x02c9 AtlasPrimordialBossInfluenceRules sub-id 0 (altar mods)",
+                EldritchAltars.CurrentHudMessage(player)),
         ];
     }
 

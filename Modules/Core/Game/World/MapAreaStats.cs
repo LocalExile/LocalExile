@@ -238,8 +238,10 @@ public static partial class Game
             if (tier > 1) Set(Stat.MapHiddenMonsterDamagePlusPctFinal, tier - 1);
         }
         Set(Stat.MapDeviceType, 1);
-        // AtlasPrimordialBossOptions: 1 Maven, 2 Eater of Worlds, 3 Searing Exarch (C→S 0xd8 / 0x297).
-        if (IsBossOptionEligible(bossOption, tier, mods.MapRarity)) Set(Stat.MapAtlasPrimordialBossInfluence, bossOption);
+        // Stat 0x2a03 (10755, map_atlas_primordial_boss_influence) selects Eldritch Altar UI art (0x140c78279):
+        // 1 = Tangle (Eater of Worlds, bossOption 2), 2 = Cleansing Fire (Searing Exarch, bossOption 3).
+        if (bossOption is 2 or 3 && IsBossOptionEligible(bossOption, tier, mods.MapRarity))
+            Set(Stat.MapAtlasPrimordialBossInfluence, bossOption == 2 ? 1 : 2);
         // map_spawn_envoy (wire 15661): 2 = TangleQuest, 3 = CleansingFireQuest terrain feature room.
         if (spawnEnvoy is 2 or 3) Set(Stat.MapSpawnEnvoy, spawnEnvoy);
         // The league blocks of the tree's families and of the families the map names itself (MapMods.AtlasFamilies);
