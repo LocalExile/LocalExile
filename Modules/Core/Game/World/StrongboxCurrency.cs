@@ -65,8 +65,11 @@ public static partial class MapStrongboxes
             && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
         { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
         AccountStash? stash = null; int stashTab = -1;
-        if (used is null && OpenStash(player) is { } s && s.TabOf(use.InventoryId) is int t
-            && !s.IsPublic(t)
+        // The explicit click names the tab and the item, so any tab of the account stash answers it — public or not, and
+        // whether or not the panel is open: a currency tab is usually listed for trade, and this is the player's own
+        // click on their own orb (live 2026-11-27: every orb clicked from a public currency tab was refused). The
+        // open-private rule belongs to the repeat path (0x79), which spends without naming an item.
+        if (used is null && StashOf(player) is { } s && s.TabOf(use.InventoryId) is int t
             && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
         if (used is null)
         {
