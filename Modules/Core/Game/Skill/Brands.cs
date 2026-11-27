@@ -1448,7 +1448,7 @@ public static partial class Game
             double total = vis.WintertideCarry + totalDps * step * MonsterDotTaken(m, DamageType.Cold, now);
             int damage = (int)Math.Min(int.MaxValue, Math.Floor(total));
             vis.WintertideCarry = total - damage;
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide Brand", playerKill: true);
         }
@@ -1476,7 +1476,7 @@ public static partial class Game
                 bytes.World(id, InstanceEntities.AddBuff(id, end.BuffInstance, WintertideSecondaryBuffRow, player.Id,
                     u68: BitConverter.SingleToUInt32Bits((float)Math.Max(0.1, end.Until - now))));
             }
-            if (damage <= 0 || ApplyMonsterHitLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
+            if (damage <= 0 || ApplyMonsterIndirectDamageLocked(player, m, damage, allyAt: m.Walk.Position(now)) is not { } hit) continue;
             if (hit.StageStarts) { CommitBossStage(player, id, m, now); hit = hit with { StageStarts = false }; }
             CommitAcceptedHitLocked(player, id, m, hit, damage, now, "Wintertide's End", playerKill: true);
         }

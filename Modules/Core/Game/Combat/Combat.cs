@@ -745,6 +745,7 @@ public static partial class Game
                 int lifeDamage = AbsorbMonsterEnergyShieldLocked(player.Area, m, afterShell, chaosDamage, contactAt);
                 (m.Life, stageStarts) = TakeOwnerHitLocked(player, m, lifeDamage,
                     Cull.Of(playerStats, ownPenetration, critical, spell: false).WithWeapon(weapon.LocalSources), rampageSource, playerStats);
+                ApplyPunishmentOnHitLocked(player, m, contactAt);
                 if (m.Life == 0 && weapon.Melee)
                     FearsomeWarriorOnMeleeKillLocked(player, m, contactAt,
                         playerStats.GetValueOrDefault(Stat.ChanceToIntimidateNearbyEnemiesOnMeleeKillPct), AreaRng(player));
@@ -4931,6 +4932,10 @@ public static partial class Game
         (int X, int Y)? allyAt = null, IReadOnlyDictionary<uint, int>? playerStats = null, Cull cull = default) =>
         ApplyMonsterHitLocked(player, m, damage, null, playerStats, allyAt, cull, null, chaosDamage);
 
+    static MonsterHit? ApplyMonsterIndirectDamageLocked(Player player, SpawnedMonster monster, int damage,
+        int chaosDamage = 0, (int X, int Y)? allyAt = null, IReadOnlyDictionary<uint, int>? playerStats = null) =>
+        ApplyMonsterHitCoreLocked(player, monster, damage, null, playerStats, allyAt, default, null, chaosDamage, hitContact: false);
+
     // The area-hit caller passes the attack's cached snapshot as `cullPlayer` for every victim: Rampage's `player` is
     // rebuilt only for the first target, so the two contexts must stay separate. This is an overload rather than an
     // extra optional parameter so the seven-argument entry point keeps its reflection-visible signature.
@@ -4949,7 +4954,7 @@ public static partial class Game
     static MonsterHit? ApplyMonsterHitCoreLocked(Player player, SpawnedMonster m, int damage,
         bool? rampageSource, IReadOnlyDictionary<uint, int>? playerStats, (int X, int Y)? allyAt,
         Cull cull, IReadOnlyDictionary<uint, int>? cullPlayer, int chaosDamage, ImpaleContact? impale = null,
-        bool bypassesShell = false, bool? ownHit = null)
+        bool bypassesShell = false, bool? ownHit = null, bool hitContact = true)
     {
         if (m.Dead || m.Life == 0) return null;
         // The Divine shrine's aura: a monster wearing base_cannot_be_damaged (MonsterAuraEffect puts it in the monster's
@@ -4987,6 +4992,7 @@ public static partial class Game
         }
         else if (m.Hostile)
         {
+            if (hitContact && damage >= 0) ApplyPunishmentOnHitLocked(player, m, hitNow);
             GainMonsterChargeWhenHitLocked(player, m, hitNow);
             var pos = m.Walk.Position(hitNow);
             if (!(m.ReturningHome && m.SpawnAnchor != default && Dist(pos, m.SpawnAnchor) > 2.0 * Math.Max(40, m.AggroRange)))

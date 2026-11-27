@@ -154,6 +154,16 @@ public static partial class Game
         [Stat.DebilitateMovementSpeedPlusPctFinal] = DebilitateMovementPct,
     };
 
+    static void ApplyPunishmentOnHitLocked(Player player, SpawnedMonster monster, double now)
+    {
+        if (!monster.HasCurses || monster.Curses[Stat.DebilitateSelfForXMillisecondsOnHit] <= 0
+            || monster is not { Hostile: true, Dead: false, Life: > 0, Invulnerable: false }) return;
+        monster.Curses.Expire(now);
+        int milliseconds = monster.Curses[Stat.DebilitateSelfForXMillisecondsOnHit];
+        if (milliseconds > 0)
+            ApplyDebilitateLocked(player, monster.ObjectId, monster, now, milliseconds / 1000d);
+    }
+
     static void ApplyDebilitateLocked(Player player, uint id, SpawnedMonster monster, double now, double seconds)
     {
         double until = now + seconds;
