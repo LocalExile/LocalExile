@@ -11,7 +11,7 @@ namespace GameServer.Modules.Breach;
 /// </summary>
 public sealed class BreachModule : IModule
 {
-    readonly BreachEncounter _encounter = new();
+    readonly BreachWorldHost _world = new();
 
     sealed class Cleanup(Action clean) : IDisposable { public void Dispose() => clean(); }
 
@@ -31,39 +31,37 @@ public sealed class BreachModule : IModule
     {
         LoadData();
         string id = module.Manifest.Id;
+
+        // Wire framework item fields & cross-subsystem delegates cleanly for hot-reload.
+        BreachGenesisTree.AttachFruitComponent = static (item, level) => item with { BrequelFruitLevel = level };
+        BreachGenesisTree.ReadFruitLevel = static item => item.BrequelFruitLevel is uint l ? (int)l : null;
+        BreachGenesisTree.MarkFoulbornItem = static item => item with { Foulborn = true };
+        BreachTables.AwardHiveblood = static (player, amount) => BreachHiveblood.AwardAsync(player, amount);
+        BreachTables.CreateWombgift = BreachGenesisTree.CreateWombgift;
+        BreachTables.TryRollBodyPart = BreachHub.TryRollBodyPart;
+
         module.Lifetime.Own(new Cleanup(() =>
         {
-            _encounter.Clear();
             BreachHub.Clear();
+            BreachGenesisTree.AttachFruitComponent = null;
+            BreachGenesisTree.ReadFruitLevel = null;
+            BreachGenesisTree.MarkFoulbornItem = null;
+            BreachTables.AwardHiveblood = null;
+            BreachTables.CreateWombgift = null;
+            BreachTables.TryRollBodyPart = null;
         }));
-        module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
 
-        // Map Unstable Breach encounters.
-        GameEvents.AreaPopulated.Add(id, async area =>
-        {
-            if (await _encounter.Populate(area) is { } why)
-                module.Log($"Breach: none in {area.Player.Layout.Id} ({why})");
-        });
+        // Map Unstable Breaches, Established Hives, Hive Fortresses, Wild/Pinnacle Bosses, Atlas & Scarabs.
+        _world.Register(module);
+
+        // Hiveblood & Genesis Tree state on area entry, Monastery hub/quests, and Hideout Wombgift Locker.
         GameEvents.EnterMessages.Add(id, player =>
         [
-            .. _encounter.EnterMessages(player),
             BreachHiveblood.EnterMessage(player),
             BreachGenesisTree.EnterMessage(player),
         ]);
-        GameEvents.PlayerEntered.Add(id, async player =>
-        {
-            await _encounter.Enter(player);
-            await BreachHub.OnPlayerEnteredAsync(module, player);
-        });
-        GameEvents.AreaTick.Add(id, start =>
-        {
-            bool isMap = MapDevices.IsMapArea(start.Layout.Hash);
-            return async (player, _) =>
-            {
-                if (isMap) await _encounter.Step(player);
-                await BreachHub.TickAsync(player);
-            };
-        });
+        GameEvents.PlayerEntered.Add(id, player => BreachHub.OnPlayerEnteredAsync(module, player));
+        GameEvents.AreaTick.Add(id, _ => (player, _) => BreachHub.TickAsync(player));
 
         // Monastery of the Keepers, Hideout Wombgift Locker, Ailith / Dreamer dialogue & quests.
         GameEvents.AreaQuestFlags.Add(id, BreachHub.AreaQuestFlags);
@@ -79,18 +77,18 @@ public sealed class BreachModule : IModule
 
         // Wombgift Locker (BrequelStorage1, row 101) validation & C→S 0x010d Ctrl+click quick-move.
         GameEvents.InventoryRefusal.Add(id, BreachLocker.Refusal);
-        GameEvents.Packet(BreachLocker.QuickMovePacketId).Add(id, async (player, bytes) =>
+        GameEvents.Packet(InstanceBrequel.LockerMoveId).Add(id, async (player, bytes) =>
         {
-            if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
-            return await BreachLocker.QuickMoveAsync(module, player, InstanceItems.ReadLeagueWindowMove(bytes));
+            if (bytes.Length < InstanceBrequel.LockerMoveLength) return false;
+            return await BreachLocker.QuickMoveAsync(module, player, InstanceBrequel.ReadLockerMove(bytes));
         });
 
         // Genesis Tree C→S packets: allocate (0x02d0), refund (0x02d1), fertilise Wombgift (0x02d3).
-        GameEvents.Packet(BreachGenesisTree.AllocateNodePacketId).Add(id, (player, bytes) =>
+        GameEvents.Packet(InstanceBrequel.AllocateNodeId).Add(id, (player, bytes) =>
             BreachGenesisTree.HandleAllocatePacketAsync(module, player, bytes));
-        GameEvents.Packet(BreachGenesisTree.RefundNodePacketId).Add(id, (player, bytes) =>
+        GameEvents.Packet(InstanceBrequel.RefundNodeId).Add(id, (player, bytes) =>
             BreachGenesisTree.HandleRefundPacketAsync(module, player, bytes));
-        GameEvents.Packet(BreachGenesisTree.FertilisePacketId).Add(id, (player, bytes) =>
+        GameEvents.Packet(InstanceBrequel.FertiliseWombgiftId).Add(id, (player, bytes) =>
             BreachGenesisTree.HandleFertilisePacketAsync(module, player, bytes));
     }
 }

@@ -70,7 +70,7 @@ public static class BreachRulesets
         body[10] = (byte)state;
         if (state != BreachTables.Inactive)
         {
-            float p = state is BreachTables.ClosingEnraged or BreachTables.Closing ? 100f : Math.Clamp(progress, 0f, 100f);
+            float p = state is BreachTables.ClosingEnraged or BreachTables.Closing ? 100f : Math.Max(0f, progress);
             float r = state is BreachTables.ClosingEnraged or BreachTables.Closing ? 0f : Math.Clamp(radius, 0f, maxRadius);
             float v = state is BreachTables.ClosingEnraged or BreachTables.Closing ? 5f : Math.Max(0f, timerValue);
             float second = state is BreachTables.Enraged or BreachTables.Closing ? v : Rate;

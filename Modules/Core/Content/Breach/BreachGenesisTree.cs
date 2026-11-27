@@ -1529,6 +1529,9 @@ public static partial class BreachGenesisTree
     /// back to class-matched mutated mods when a unique has no dedicated prefix match.</summary>
     static Item? TryMutateUniqueFoulborn(Item item, UniqueCatalog.Definition def, ItemCatalog catalog, int count, Random rng)
     {
+        if (MutatedUniqueCatalog.Mutate(item, def.Name, count, catalog.Mods, rng) is { } exactMutated)
+            return MarkFoulbornItem is { } mark ? mark(exactMutated) : exactMutated;
+
         List<ModCatalog.Mod>? pool = null;
         if (_mutatedModsByUniqueName.TryGetValue(def.Name, out var exact) && exact.Count > 0)
             pool = exact;
