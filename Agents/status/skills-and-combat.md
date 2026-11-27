@@ -551,6 +551,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   Docs: [11](../docs/protocol/11-skills.md#blade-flurry).
 - Both Charged Dash gems channel in place, hit along the steered path and release a final wave. Only the base gem teleports.
 - Wither pulses follow the channel aim. Players and spell totems apply Hinder and separately expiring Withered stacks.
+- Channel-dependent item modifiers follow the player's active channel through release, interruption and skill removal.
   The normal gem moves to a legal landing; the Projection variant stays in place.
   Docs: [11](../docs/protocol/11-skills.md#charged-dash-projection-and-release).
 - Self-targeted spells, including Convocation and corpse offerings. Docs: [11](../docs/protocol/11-skills.md) §9a.

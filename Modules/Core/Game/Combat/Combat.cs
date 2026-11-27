@@ -23,10 +23,10 @@ public static partial class Game
         player.ChannelSkill = skill;
         player.ChannelSkillSequence = sequence;
         player.LastChannelUpdateAt = AreaTime(player);
-        ArmChannelCurseRemoval(player, generation, player.LastChannelUpdateAt);
         if (player.Connection.LockstepClient) player.LockstepSkill.Channelling(sequence);
         player.PaidChannel = CombatLifetime is { IsActive: true } rules
             ? new(skill, effect, action, generation, rules) { StartedAt = player.LastChannelUpdateAt } : null;
+        ArmChannelCurseRemoval(player, generation, player.LastChannelUpdateAt);
         return generation;
     }
 
@@ -2782,10 +2782,14 @@ public static partial class Game
             if (orbEffect != 0) WinterOrbRelease(player, generation, action);
             if (snipe) await FinishSnipe(player, generation, action);
             if (scourge) RetireScourgeChannel(player, generation, action);
-            if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect)
-                lock (LevelUpdatesFor(player).Gate)
-                    if (WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
-                        WitherChannels.Remove(player);
+            lock (LevelUpdatesFor(player).Gate)
+            {
+                if (player.PaidChannel is { } payment && payment.Generation == generation && payment.Action == action)
+                    player.PaidChannel = null;
+                if (SkillsFor(player).EffectId(gem.Effect) == WitherEffect
+                    && WitherChannels.TryGetValue(player, out var wither) && wither.Generation == generation)
+                    WitherChannels.Remove(player);
+            }
             EndCycloneStages(player, generation, AreaTime(player));
             RetireBladeFlurry(player, generation);
             (int X, int Y)? dashLanding = null;
@@ -2924,6 +2928,7 @@ public static partial class Game
                 player.Walk.Order(x, y, at);
             }
             player.ChannelSkill = 0;
+            player.PaidChannel = null;
             EndCycloneStages(player, player.ChannelGeneration, at);
             player.ChannelGeneration++;
             SnipeWakeChannel(player);
@@ -2931,7 +2936,10 @@ public static partial class Game
         }
     }
 
-    public static bool ChannelCurrent(Player player, ushort skill, int action, int generation)
+    public static bool ChannelCurrent(Player player, ushort skill, int action, int generation) =>
+        ChannelCurrent(player, skill, action, generation, AreaTime(player));
+
+    static bool ChannelCurrent(Player player, ushort skill, int action, int generation, double now)
     {
         return !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0
             && player.ChannelSkill == skill && player.ActionCount == action && player.ChannelGeneration == generation
@@ -2949,15 +2957,18 @@ public static partial class Game
                 || player.PaidChannel is { } paid && paid.Skill == skill
                     && (SkillsFor(player).EffectId(paid.Effect) is "LightningTendrils" or "LightningTendrilsAltX" or "LightningTendrilsAltY" or "LightningTendrilsRoyale"
                         || IsDivineIre(player, paid.Effect))
-                || AreaTime(player) - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
+                || now - player.LastChannelUpdateAt <= ChannelSilenceSeconds);
     }
+
+    static bool ChannelPaymentActionCurrent(Player player, ChannelPaymentReceipt receipt, double now) =>
+        ReferenceEquals(receipt, player.PaidChannel) && ReferenceEquals(receipt.Rules, CombatLifetime)
+        && receipt.Rules.IsActive && !player.Paused
+        && ChannelCurrent(player, receipt.Skill, receipt.Action, receipt.Generation, now)
+        && !PlayerActionBlocked(player, now, now);
 
     public static bool PaidChannelCurrent(Player player, ChannelPaymentReceipt receipt)
     {
-        if (!CurrentGameWork || !ReferenceEquals(receipt, player.PaidChannel)
-            || !ReferenceEquals(receipt.Rules, CombatLifetime) || !receipt.Rules.IsActive || player.Paused
-            || !ChannelCurrent(player, receipt.Skill, receipt.Action, receipt.Generation)
-            || PlayerActionBlocked(player, AreaTime(player), AreaTime(player))) return false;
+        if (!CurrentGameWork || !ChannelPaymentActionCurrent(player, receipt, AreaTime(player))) return false;
         var gem = GemSkillEffects(player).FirstOrDefault(g => g.Id == receipt.Skill);
         return gem.Name is not null && gem.Effect == receipt.Effect
             && Supports.Of(gem.Effect)?.Types.Contains(47) == true

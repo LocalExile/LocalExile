@@ -1893,6 +1893,9 @@ public static partial class Game
     private static (List<AuraCatalog.Aura> EndedAuras, bool PetrifiedEnded) EndNonRighteousFireSkillEffectsLocked(
         Player player, IReadOnlyCollection<ushort> gone)
     {
+        if (player.PaidChannel is { } payment && payment.Action == player.ActionCount
+            && payment.Skill == player.ChannelSkill && gone.Contains(payment.Skill))
+            AbortStartedChannel(player, payment.Generation);
         List<AuraCatalog.Aura> ended = [.. player.Auras.Values.Where(a => gone.Contains(a.SkillId))];
         foreach (var aura in ended)
         {
