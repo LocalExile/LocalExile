@@ -3,11 +3,20 @@ using GameServer.Core.World;
 public static partial class Game
 {
     static bool ApplyUtilityResourceEffectsLocked(Player player, IReadOnlyDictionary<uint, int> local,
-        int spent, double now, double effectPower)
+        int spent, double now, double effectPower, Func<uint, int> character)
     {
-        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife) is int heal and > 0)
+        double lifeRecovery = 0;
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRecoversPctMaximumLife) is > 0 and var heal)
+            lifeRecovery = Math.Floor(player.PlayerMaxLife * (double)heal * effectPower / 100);
+        if (local.GetValueOrDefault(Stat.LocalFlaskLoseAllEnduranceChargesAndRecoverPctLifeForEachOnUse) is > 0 and var healPerCharge)
         {
-            uint life = (uint)Math.Min(LifeCap(player), player.PlayerLife + Math.Floor(player.PlayerMaxLife * (double)heal * effectPower / 100));
+            int consumed = SpendCharacterChargesOnFlaskUse(player, ChargeType.Endurance, int.MaxValue, now);
+            if (consumed > 0 && player.PlayerLife > 0 && !LifeRecovery.NonLeechBlocked(character))
+                lifeRecovery += Math.Floor(player.PlayerMaxLife * (double)consumed * healPerCharge / 100);
+        }
+        if (lifeRecovery > 0)
+        {
+            uint life = (uint)Math.Min(LifeCap(player), player.PlayerLife + lifeRecovery);
             if (life > player.PlayerLife)
             {
                 player.PlayerLife = life;

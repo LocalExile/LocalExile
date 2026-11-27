@@ -63,7 +63,8 @@ public static partial class Game
         var sourceWeapon = HandWeapon(player, hand);
         int handAccuracy = HandAccuracy(player, hand, character);
         int criticalChance = CriticalProhibited(player, attack: true)
-            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(player, hand), player.Pools.CriticalStrikeChancePct, RawCritical)
+            ? AttackBaseCriticalStrike.Chance(!weapon.Unarmed, HandWeaponCritical(player, hand, character),
+                player.Pools.CriticalStrikeChancePct, RawCritical)
             : HandAttackCriticalChance(player, hand, character);
         var captured = OrdinaryRangedShot.Capture(sourceWeapon, character, SkillsFor(player).EffectStats(effect, 1), Stats,
             handAccuracy, criticalChance, player.Pools.CriticalStrikeMultiplier);
@@ -93,6 +94,7 @@ public static partial class Game
             captured.CriticalMultiplier, wand ? "ordinary wand" : "ordinary bow")
         {
             WeaponAttack = true,
+            DirectAttackContact = true,
             TinctureKill = TinctureKillBonusFor(player, character, hand),
             NoExtraCriticalDamage = CriticalHitsDealNoExtraDamage(character),
             TargetCritical = TargetCriticalBonuses.From(character, null),

@@ -166,7 +166,13 @@ public static partial class Game
     {
         var playerStats = CharacterPlayerStats(player);
         uint additional = mine ? Stat.NumberOfAdditionalMinesToPlace : Stat.NumberOfAdditionalTrapsToThrow;
-        return Math.Clamp(1 + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional), 1, 200);
+        long count = 1L + GolemStat(gem.Stats, additional) + GolemStat(playerStats, additional);
+        if (mine)
+        {
+            if (player.Pools.Intelligence >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Int);
+            if (player.Pools.Dexterity >= 800) count += GolemStat(playerStats, Stat.NumberOfAdditionalMinesToPlaceWithAtLeast500Dex);
+        }
+        return (int)Math.Clamp(count, 1, 200);
     }
 
     // Throwing takes its own time, not the supported spell's cast time: 0.5 s for a trap (3.29.3c ThrowTrap::Start
@@ -313,8 +319,11 @@ public static partial class Game
             SupportedPoison(player, skill, spell, inputs.Caster, additionalIncreased: increased, capturedInputs: inputs));
         var normal = Profile(0);
         return new(normal, additionalIncreased == 0 ? normal : Profile(additionalIncreased), inputs.Caster, spell)
-            { Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
-                local: inputs.Attack ? MainHandLocalSources(player) : null) };
+        {
+            Spider = CaptureSpiderDamage(player, inputs, AddedEffectiveness(player, gem.Effect, gem.Level), context: true,
+                local: inputs.Attack ? MainHandLocalSources(player) : null),
+            WeaponLocal = inputs.Attack ? inputs.WeaponStats : null,
+        };
     }
 
     static async Task<bool> PlaceSkill(Player player,
@@ -989,6 +998,7 @@ public static partial class Game
             && player.RecentEvents.Happened(StatConditions.DetonatedMine, now))
             offenseSnapshot = active;
         var playerStats = offenseSnapshot?.Caster ?? owner;
+        int weaponWither = offenseSnapshot?.WeaponLocal?.GetValueOrDefault(Stat.LocalWitheredOnHitFor2SecondsPctChance) ?? 0;
 
         int skitterPct = playerStats.GetValueOrDefault(Stat.SkitterbotsTrapMineDamagePlusPctFinal);
         if (placed.Offense is null && skitterPct == 0 && ReservationAura(player, "SummonSkitterbots") is { } skitter)
@@ -1090,7 +1100,9 @@ public static partial class Game
             var poison = RepeatAilment(profile.Poison, targetAilmentMore);
             AilmentsOnHitLocked(player, id, m, mitigated, spell, critical, hitMultiplier, playerStats, placed.Own, now,
                 AreaRng(player), attackGains: default, projectileDamage: false, projectileFreezeChance: 0,
-                sourceEffect: placed.Effect, poison: poison, sourceSkill: placed.Skill, blind: BlindHitInput.Capture(playerStats, placed.Own), playerHit: false,
+                sourceEffect: placed.Effect, poison: poison, sourceSkill: placed.Skill,
+                blind: BlindHitInput.Capture(playerStats, placed.Own),
+                playerHit: false, weaponWitherChance: weaponWither,
                 hitOrigin: cascade?.Pulse.HitOrigin(m.Walk.Position(now), placed.At),
                 attackerSize: cascade is null ? LivingCollision.PlayerSize : 0, attackerHasReversedStat: cascade is null,
                 extraShockChance: shockNova?.Pulse.ExtraShockChance ?? 0, cascadeBurst: cascade?.Pulse.Burst ?? CascadeBurst.None);

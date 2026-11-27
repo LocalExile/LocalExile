@@ -40,7 +40,18 @@ public static partial class Game
         // Liveness and the exact source/generation were admitted by 'still' before the charge deduction.
         var (life, mana) = FlaskRecovery.Instant(recovery, lifeBefore, manaBefore, player.PlayerMaxLife,
             LifeCap(player), UnreservedMana(player))!.Value;
+        if (local.GetValueOrDefault(Stat.LocalUniqueFlaskInstantlyRemovesPctMaximumLife) is > 0 and var removeLife)
+        {
+            uint removed = (uint)Math.Min(life, ((long)player.PlayerMaxLife * removeLife + 99) / 100);
+            life = VaalImmortalCallLife(player, life - removed, now);
+        }
         (player.PlayerLife, player.PlayerMana) = (life, mana);
+        if (life == 0)
+        {
+            player.InvalidateIncomingHits();
+            ClearWardBreakOnDeath(player);
+            RecordHardcoreDeath(player);
+        }
         // Paid recovery flask modifiers can remove a pool, deal a separate hit, or grant charges.
         if (local.GetValueOrDefault(Stat.LocalFlaskRemovesPctMaximumEnergyShieldOnUse) is > 0 and var shieldPct)
         {

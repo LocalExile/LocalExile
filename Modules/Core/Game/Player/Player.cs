@@ -442,19 +442,34 @@ public static partial class Game
     static bool SkillCostLocked(Player player, ushort skillId, IReadOnlyDictionary<uint, int> own, out uint cost, out int life,
         out uint es, out uint fromEs, out int rage, out IReadOnlyDictionary<uint, int> playerStats, int costPercent = 100)
     {
+        if (!MayPaySkillCost(player))
+        {
+            cost = es = fromEs = 0;
+            life = rage = 0;
+            playerStats = System.Collections.Frozen.FrozenDictionary<uint, int>.Empty;
+            return false;
+        }
+        playerStats = SupportedStats(player, skillId);
+        return SkillCostLocked(player, SupportedSkill(player, skillId).Effect, own, playerStats, out cost, out life,
+            out es, out fromEs, out rage, costPercent);
+    }
+
+    static bool MayPaySkillCost(Player player) => (CombatLifetime is null || CurrentGameRules)
+        && !player.Closed && !player.LeavingArea && !player.RageRetired && player.PlayerLife > 0;
+
+    static bool SkillCostLocked(Player player, int effect, IReadOnlyDictionary<uint, int> own,
+        IReadOnlyDictionary<uint, int> playerStats, out uint cost, out int life, out uint es, out uint fromEs,
+        out int rage, int costPercent = 100)
+    {
         cost = 0;
         life = 0;
         es = 0;
         fromEs = 0;
         rage = 0;
-        playerStats = new Dictionary<uint, int>();
-        if (CombatLifetime is not null && !CurrentGameRules || player.Closed || player.LeavingArea || player.RageRetired || player.PlayerLife == 0)
+        if (!MayPaySkillCost(player))
             return false;
-        playerStats = SupportedStats(player, skillId);
-        var paying = playerStats;
-        int Read(uint stat) => paying.GetValueOrDefault(stat);
+        int Read(uint stat) => playerStats.GetValueOrDefault(stat);
         var skills = SkillsFor(player);
-        int effect = SupportedSkill(player, skillId).Effect;
         bool channelled = skills.IsChannelled(effect);
         cost = (uint)Math.Max(0, Read(Stat.ManaCost));
         int Own(uint key) => own.GetValueOrDefault(key);
@@ -553,6 +568,19 @@ public static partial class Game
             cost = 0;
             return false;
         }
+        if (!PayResolvedSkillCostLocked(player, playerStats, manaCost, life, es, fromEs, rage,
+                cooldownBypass, out cost, out lifeCost)) return false;
+        ApplyPaidSupportCostsLocked(player, skillId, own, cost, life);
+        if (useSpell) lifeCost += SacrificeItemLifeLocked(player, supported.Effect, playerStats);
+        if (lifeCost > 0) PresentStats(player);
+        ConsumeCombatRush(player, skillId, supported, AreaTime(player));
+        return true;
+    }
+
+    static bool PayResolvedSkillCostLocked(Player player, IReadOnlyDictionary<uint, int> playerStats, uint manaCost,
+        int life, uint es, uint fromEs, int rage, ChargeType? cooldownBypass, out uint cost, out uint lifeCost)
+    {
+        lifeCost = 0;
         double rageAt = 0;
         RageState.Inputs rageInputs = default;
         if (rage > 0)
@@ -589,10 +617,6 @@ public static partial class Game
             lifeCost = (uint)life;
         }
         ManaSpentLocked(player, cost, playerStats);
-        ApplyPaidSupportCostsLocked(player, skillId, own, cost, life);
-        if (useSpell) lifeCost += SacrificeItemLifeLocked(player, supported.Effect, playerStats);
-        if (lifeCost > 0) PresentStats(player);
-        ConsumeCombatRush(player, skillId, supported, AreaTime(player));
         return true;
     }
 
@@ -1691,8 +1715,15 @@ public static partial class Game
     // moving, an enemy hit in the last 4 s: PoB's "recently"), the reduction on a successful suppress (40% by default)
     // and its lucky or unlucky roll (PoB's suppressRolls).
     public static (int Chance, int Effect, bool Lucky, bool Unlucky) Suppression(Player player)
-        => (SpellDefences(player).Suppression, Math.Max(0, player.Pools.SpellSuppressionEffect),
+    {
+        double now = AreaTime(player);
+        var stats = SelfCurseConditionInputs(player, conditionTime: now);
+        int fullShield = player.PlayerLife > 0 && player.EnergyShield.Full
+            ? stats.GetValueOrDefault(Stat.SpellDamagePctSuppressedWhileOnFullEnergyShield) : 0;
+        return (SpellDefences(player, stats, now).Suppression,
+            (int)Math.Clamp((long)player.Pools.SpellSuppressionEffect + fullShield, 0, 100),
             player.Pools.SpellSuppressionLucky, player.Pools.SpellSuppressionUnlucky);
+    }
 
     public static (int Suppression, int Dodge) SpellDefences(Player player) =>
         SpellDefences(player, SelfCurseConditionInputs(player), AreaTime(player));
