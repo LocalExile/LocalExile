@@ -1,9 +1,11 @@
+using System.Buffers.Binary;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Breach;
@@ -12,15 +14,23 @@ namespace GameServer.Modules.Breach;
 /// The Genesis Tree (<c>PassiveSkillTrees#6 BrequelTree</c>, <c>ChayulaTreePassiveSkillGraph</c>):
 /// 4 sub-trees (<c>BrequelPassiveSubTrees</c>: Equipment, Currency, Uniques, Misc), 4 Wombgift womb slots
 /// (<c>BrequelTreeSlots</c>: <c>33919</c>, <c>41240</c>, <c>28988</c>, <c>7411</c>), tree point unlocks
-/// (<c>BrequelFruitQuests</c> + <c>BodyPart1..10</c> + <c>BrequelTreePassiveUnlocks</c>), node allocation &amp;
-/// refund validation against the PSG graph (including the 6 <c>Devoted</c>/<c>Forsaken</c> multiple-choice groups),
-/// Wombgift factory (<see cref="CreateWombgift"/>), planting/growing with Hiveblood, and full reward crafting
-/// evaluating all 88 <c>brequel_*_fruit_*</c> Genesis Tree passive stats and all 365 <c>MutatedUnique*</c> Foulborn
-/// modifiers.
+/// (<c>BrequelFruitQuests</c> + <c>BodyPart1..10</c> + <c>BrequelTreePassiveUnlocks</c>), binary-verified wire
+/// protocol (<c>S→C 0x02cf</c>, <c>C→S 0x02d0</c>/<c>0x02d1</c>/<c>0x02d3</c>), node allocation &amp; refund
+/// validation against the PSG graph (including the 6 <c>Devoted</c>/<c>Forsaken</c> multiple-choice groups),
+/// Wombgift factory (<see cref="CreateWombgift"/>), and full reward crafting evaluating all 88
+/// <c>brequel_*_fruit_*</c> Genesis Tree passive stats and all 365 <c>MutatedUnique*</c> Foulborn modifiers.
 /// </summary>
 public static partial class BreachGenesisTree
 {
     const string StateKey = "breach.genesis_tree";
+
+    /// <summary>Binary-verified Genesis Tree opcodes (3.29.3c/d).</summary>
+    public const ushort TreeStatePacketId = 0x02cf;
+    public const ushort AllocateNodePacketId = 0x02d0;
+    public const ushort RefundNodePacketId = 0x02d1;
+    public const ushort FertilisePacketId = 0x02d3;
+    public const int AllocateRefundPacketLength = 4;
+    public const int FertilisePacketLength = 10;
 
     /// <summary>Sub-tree indices matching <c>BrequelPassiveSubTrees._row</c>.</summary>
     public const int SubTreeEquipment = 0, SubTreeCurrency = 1, SubTreeUniques = 2, SubTreeMisc = 3, SubTreeCount = 4;
@@ -122,17 +132,21 @@ public static partial class BreachGenesisTree
     /// <c>@data-framework</c>'s exact key; checked against <c>"brequel"</c>, <c>"chayula"</c>, <c>"BrequelTree"</c>).</summary>
     public static string[] CandidateGraphNames { get; set; } = ["brequel", "BrequelTree", "chayula", "ChayulaTree"];
 
-    /// <summary>Optional S→C tree sync hook wired once @re-protocol Drop 1 &amp; @data-framework expose the exact
-    /// Genesis Tree packet builder.</summary>
-    public static Func<Player, SavedTreeState, int[], string, Task>? SendTreeStateSync { get; set; }
+    /// <summary>Optional Item decorator attaching Component 170 (<c>BrequelFruit</c> <c>u32 LE fleshgraftLevel</c>) when
+    /// creating a Wombgift, wired once @data-framework adds the component field to <see cref="Item"/>.</summary>
+    public static Func<Item, uint, Item>? AttachFruitComponent { get; set; }
 
-    /// <summary>Optional Item decorator attaching Component 170 (<c>BrequelFruit</c>) payload data when creating a
-    /// Wombgift, wired once @data-framework adds the component to <see cref="Item"/>.</summary>
-    public static Func<Item, int, int, Item>? AttachFruitComponent { get; set; }
+    /// <summary>Optional Item decorator reading <c>BrequelFruit</c> <c>fleshgraftLevel</c> from an existing Wombgift,
+    /// falling back to <see cref="Item.ItemLevel"/>.</summary>
+    public static Func<Item, int?>? ReadFruitLevel { get; set; }
 
-    /// <summary>Optional ItemMod decorator marking a Foulborn mutated mod (DisplayKind 4), wired once @data-framework
-    /// adds the Foulborn flag to <see cref="ItemMod"/>.</summary>
-    public static Func<ItemMod, ItemMod>? MarkFoulbornMod { get; set; }
+    /// <summary>Optional Item decorator setting <c>Mods</c> component flags bit 9 (<c>0x0200</c>, <c>Mods + 0x2e6</c>)
+    /// on Foulborn Uniques so the client displays the Breach icon and <c>"Foulborn {0}"</c> prefix.</summary>
+    public static Func<Item, Item>? MarkFoulbornItem { get; set; }
+
+    /// <summary>Whether <c>S→C 0x02cf</c> <c>points[0..3]</c> carries available/unspent points (true) or total earned
+    /// points (false).</summary>
+    public static bool WirePointsAreUnspent { get; set; } = true;
 
     // Loaded static tables.
     static Dictionary<ushort, TreeNode> NodesByGraphId = [];
@@ -323,9 +337,164 @@ public static partial class BreachGenesisTree
 
     static void EnsureStartNodes(SavedTreeState state)
     {
-        foreach (ushort start in StartNodeBySubTree.Values)
-            if (!state.Allocated.Contains(start))
-                state.Allocated.Add(start);
+        // Keep only non-start allocated nodes (matching Atlas 0x3d convention: root start nodes are implicit roots in
+        // ChayulaTreePassiveSkillGraph and are stripped if any older save recorded them).
+        if (StartNodeBySubTree.Count == 0) return;
+        state.Allocated.RemoveAll(id => StartNodeBySubTree.Values.Contains(id));
+    }
+
+    // ---- Wire packet builders & handlers (S→C 0x02cf, C→S 0x02d0 / 0x02d1 / 0x02d3) ----
+
+    /// <summary>Builds the binary-verified <c>S→C 0x02cf</c> Genesis Tree state packet:
+    /// <c>u16 BE 0x02cf</c>, <c>4 × CompactUInt points[0..3]</c>, <c>u8 pointsOnly</c>, and (when 0)
+    /// <c>u16 BE nodeCount</c> + <c>nodeCount × u16 LE allocatedNodeIds</c> sorted ascending.</summary>
+    public static byte[] BuildTreeStatePacket(SavedTreeState state, int[] earnedBySubTree, bool pointsOnly = false)
+    {
+        var w = new LoginWriter().U16(TreeStatePacketId);
+        for (int sub = 0; sub < SubTreeCount; sub++)
+        {
+            int earned = sub < earnedBySubTree.Length ? earnedBySubTree[sub] : 0;
+            int value = WirePointsAreUnspent
+                ? Math.Max(0, earned - SpentPointsInSubTree(state, sub))
+                : Math.Max(0, earned);
+            InstanceProtocol.CompactUInt(w, (uint)value);
+        }
+        w.U8(pointsOnly ? (byte)1 : (byte)0);
+        if (!pointsOnly)
+        {
+            var sorted = state.Allocated.Distinct().Order().ToArray();
+            w.U16(checked((ushort)sorted.Length));
+            Span<byte> le = stackalloc byte[2];
+            foreach (ushort id in sorted)
+            {
+                BinaryPrimitives.WriteUInt16LittleEndian(le, id);
+                w.Bytes(le);
+            }
+        }
+        return w.ToArray();
+    }
+
+    /// <summary>Enter-area message pair for <c>GameEvents.EnterMessages</c> (<c>S→C 0x02cf</c>).</summary>
+    public static (string Log, byte[] Message) EnterMessage(Player player)
+    {
+        var state = LoadState(player);
+        var earned = EarnedPointsBySubTree(player);
+        return ($"0x02cf Genesis Tree ({state.Allocated.Count} nodes)", BuildTreeStatePacket(state, earned));
+    }
+
+    /// <summary>Handles <c>C→S 0x02d0</c> (4 bytes: <c>u16 BE 0x02d0, u16 BE nodeGraphId</c>) allocate request.</summary>
+    public static async Task<bool> HandleAllocatePacketAsync(IModuleContext module, Player player, byte[] bytes)
+    {
+        if (bytes.Length < AllocateRefundPacketLength) return false;
+        ushort nodeId = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(2, 2));
+        string? err = await AllocateNodeAsync(player, nodeId);
+        if (err is not null)
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d0 allocate Genesis Tree node {nodeId}: refused ({err})");
+            await SyncStateAsync(player, $"refused allocate {nodeId}");
+        }
+        else
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d0 allocated Genesis Tree node {nodeId} ({FindNode(nodeId)?.Name})");
+        }
+        return true;
+    }
+
+    /// <summary>Handles <c>C→S 0x02d1</c> (4 bytes: <c>u16 BE 0x02d1, u16 BE nodeGraphId</c>) refund request.</summary>
+    public static async Task<bool> HandleRefundPacketAsync(IModuleContext module, Player player, byte[] bytes)
+    {
+        if (bytes.Length < AllocateRefundPacketLength) return false;
+        ushort nodeId = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(2, 2));
+        string? err = await RefundNodeAsync(player, nodeId);
+        if (err is not null)
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d1 refund Genesis Tree node {nodeId}: refused ({err})");
+            await SyncStateAsync(player, $"refused refund {nodeId}");
+        }
+        else
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d1 refunded Genesis Tree node {nodeId} ({FindNode(nodeId)?.Name})");
+        }
+        return true;
+    }
+
+    /// <summary>Handles <c>C→S 0x02d3</c> (10 bytes: <c>u16 BE 0x02d3, u32 BE inventoryId, u32 BE itemId</c>):
+    /// fertilises &amp; harvests a Wombgift directly from <c>MainInventory1</c>, <c>ExpandedInventory</c>, or
+    /// <c>BrequelStorage1</c> (matching 3.29.3c client UI flow where womb selection is client-side).</summary>
+    public static async Task<bool> HandleFertilisePacketAsync(IModuleContext module, Player player, byte[] bytes)
+    {
+        if (bytes.Length < FertilisePacketLength) return false;
+        uint inventoryId = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(2, 4));
+        uint itemId = BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(6, 4));
+
+        var (err, rewards) = await FertiliseFromInventoryAsync(player, inventoryId, itemId);
+        if (err is not null)
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d3 fertilise Wombgift inv={inventoryId} item={itemId}: refused ({err})");
+            await BreachHiveblood.SyncAsync(player, "fertilise refused");
+        }
+        else
+        {
+            module.Log($"{PlayerOf(player).Character} <= 0x02d3 fertilised Wombgift inv={inventoryId} item={itemId}: birthed {rewards.Count} reward(s)");
+        }
+        return true;
+    }
+
+    /// <summary>Validates, pays Hiveblood, consumes the Wombgift in <paramref name="inventoryId"/>, evaluates all
+    /// Genesis Tree stats, and spawns the grown reward item(s) at the Genesis Tree.</summary>
+    public static async Task<(string? Error, IReadOnlyList<Item> Rewards)> FertiliseFromInventoryAsync(
+        Player player, uint inventoryId, uint itemId, Random? rng = null)
+    {
+        rng ??= Random.Shared;
+        if (PlayerInventories.Row(inventoryId) is not byte row)
+            return ($"unknown inventory {inventoryId}", []);
+        if (row is not (PlayerInventories.MainInventory or PlayerInventories.ExpandedInventory or BreachLocker.LockerRow))
+            return ($"inventory row {row} cannot feed the Genesis Tree", []);
+
+        var items = ItemsOf(player);
+        var invItem = items.Items(row).FirstOrDefault(i => i.Id == itemId);
+        if (invItem is null)
+            return ($"Wombgift {itemId} not found in row {row}", []);
+        if (FindFruit(invItem.Item.TypeHash) is not { } fruit)
+            return ("item is not a Wombgift", []);
+
+        var state = LoadState(player);
+        if (!WombNodeBySubTree.TryGetValue(fruit.SubTree, out ushort wombGid) || !state.Allocated.Contains(wombGid))
+            return ($"matching womb node ({wombGid}) is not allocated on the Genesis Tree", []);
+
+        int level = ReadFruitLevel?.Invoke(invItem.Item) ?? invItem.Item.ItemLevel;
+        int cost = RequiredHivebloodFor(fruit, level);
+        if (BreachHiveblood.Balance(player) < cost)
+            return ($"insufficient Hiveblood (need {cost}, have {BreachHiveblood.Balance(player)})", []);
+
+        // Remove the Wombgift atomically before deducting Hiveblood.
+        InventoryItem? removed = null;
+        Saves.Atomically(() => removed = items.Remove(row, itemId));
+        if (removed is null)
+            return ("Wombgift moved before fertilising", []);
+
+        if (!await BreachHiveblood.TrySpendAsync(player, cost, countTowardTreeQuests: true, reason: $"fertilise {fruit.BaseItemId}"))
+        {
+            // Roll back item removal if concurrent Hiveblood spend failed.
+            Saves.Atomically(() => items.Put(row, removed));
+            return ("insufficient Hiveblood", []);
+        }
+
+        await PlayerOf(player).Send(
+            InstanceItems.InventoryChange(inventoryId, items.NextRevision(row), [itemId], []),
+            $"0x00bf inventory {inventoryId}: consumed Wombgift {itemId} on Genesis Tree");
+
+        var stats = CollectSubTreeStats(state, fruit.SubTree);
+        var rewards = await RollRewardsAsync(player, fruit.SubTree, Math.Clamp(level, 1, 86), stats, rng);
+
+        MutateState(player, s => { s.TotalHarvested++; return true; }, out _);
+
+        await DeliverRewardsAsync(player, rewards, dropAtTree: PlayerOf(player).AreaId == BreachHub.HubAreaId);
+
+        if (!player.Character.LeagueQuestFlags.Contains(BreachHub.LqfFirstFruitGrown))
+            await SetLeagueQuestFlags(player, [BreachHub.LqfFirstFruitGrown]);
+
+        return (null, rewards);
     }
 
     // ---- Point budget & unlock rules ----
@@ -363,12 +532,14 @@ public static partial class BreachGenesisTree
         module.Log($"{PlayerOf(player).Character}: Genesis Tree milestone ({reason})");
     }
 
-    /// <summary>Syncs the Genesis Tree allocation, point budgets, and planted womb slots to the client.</summary>
-    public static async Task SyncStateAsync(Player player, string reason = "sync")
+    /// <summary>Syncs the Genesis Tree allocation and sub-tree points to the client via <c>S→C 0x02cf</c>.</summary>
+    public static Task SyncStateAsync(Player player, string reason = "sync")
     {
-        if (SendTreeStateSync is not { } sender) return;
         var state = LoadState(player);
-        await sender(player, state, EarnedPointsBySubTree(player), reason);
+        var earned = EarnedPointsBySubTree(player);
+        return PlayerOf(player).Send(
+            BuildTreeStatePacket(state, earned),
+            $"0x02cf Genesis Tree ({state.Allocated.Count} nodes, {reason})");
     }
 
     // ---- Node allocation & refund validation ----
@@ -402,8 +573,10 @@ public static partial class BreachGenesisTree
             }
 
             var allocatedSet = state.Allocated.ToHashSet();
+            if (StartNodeBySubTree.TryGetValue(node.SubTree, out ushort startRoot))
+                allocatedSet.Add(startRoot);
 
-            // Connectivity against ChayulaTreePassiveSkillGraph when extracted.
+            // Connectivity against ChayulaTreePassiveSkillGraph (graph "brequel") when extracted.
             if (Adjacency.Count > 0)
             {
                 if (!Adjacency.TryGetValue(graphId, out var neighbors) || !neighbors.Any(allocatedSet.Contains))
@@ -466,13 +639,13 @@ public static partial class BreachGenesisTree
                 return false;
             }
 
-            // Verify every remaining node in this sub-tree stays reachable from its start node.
+            // Verify every remaining allocated node in this sub-tree stays reachable from its implicit start root.
             if (Adjacency.Count > 0 && StartNodeBySubTree.TryGetValue(node.SubTree, out ushort start))
             {
                 var remaining = state.Allocated
                     .Where(id => id != graphId && NodesByGraphId.TryGetValue(id, out var n) && n.SubTree == node.SubTree)
                     .ToHashSet();
-                var visited = new HashSet<ushort> { start };
+                var visited = new HashSet<ushort>();
                 var queue = new Queue<ushort>();
                 queue.Enqueue(start);
                 while (queue.Count > 0)
@@ -515,15 +688,14 @@ public static partial class BreachGenesisTree
 
     // ---- Wombgift drop factory ----
 
-    /// <summary>Computes the Hiveblood required to grow a Wombgift of <paramref name="fruit"/> at
-    /// <paramref name="areaLevel"/>.</summary>
+    /// <summary>Computes the exact 3.29.3c client Hiveblood cost (<c>0x1424ad630</c>
+    /// <c>BrequelFruit::GetHivebloodCost</c>):
+    /// <c>(uint)((ulong)BrequelItemResourceValues[level].GraftbloodStorage * BrequelFruitTypes[type].__col2 / 100)</c>.</summary>
     public static int RequiredHivebloodFor(FruitDefinition fruit, int areaLevel)
     {
-        int clamped = Math.Clamp(areaLevel, 1, 100);
-        // Scale BrequelFruitTypes.__col2 (80..130) with BrequelItemResourceValues so campaign wombgifts cost ~100-300
-        // and high-tier map wombgifts cost ~1000-2500 Hiveblood matching BrequelFruitQuests thresholds (300..70300).
-        int levelStorage = BreachHiveblood.BaseStorageForLevel(clamped);
-        return Math.Max(fruit.BaseHivebloodCost, (int)Math.Round(levelStorage * (fruit.BaseHivebloodCost / 100.0)));
+        ulong storage = (ulong)Math.Max(1, BreachHiveblood.ResourceValueForLevel(areaLevel));
+        ulong mult = (ulong)Math.Max(1, fruit.BaseHivebloodCost);
+        return (int)(storage * mult / 100UL);
     }
 
     /// <summary>Creates a Wombgift item for <paramref name="fruitTypeId"/> (either full <c>BaseItemTypes</c> Id such as
@@ -539,10 +711,10 @@ public static partial class BreachGenesisTree
         if (catalog.ById(fullId) is not { } baseType) return null;
         if (!baseType.Supported) return null;
 
-        byte ilvl = (byte)Math.Clamp(areaLevel, 1, 86);
+        byte ilvl = (byte)Math.Clamp(areaLevel, 1, 100);
         var item = ItemCatalog.Create(baseType, random: rng) with { ItemLevel = ilvl };
-        if (FindFruit(baseType.Hash) is { } fruit && AttachFruitComponent is { } attach)
-            item = attach(item, ilvl, RequiredHivebloodFor(fruit, ilvl));
+        if (AttachFruitComponent is { } attach)
+            item = attach(item, ilvl);
         return item;
     }
 
@@ -696,15 +868,25 @@ public static partial class BreachGenesisTree
         return (null, rewards);
     }
 
-    static async Task DeliverRewardsAsync(Player player, IReadOnlyList<Item> rewards)
+    static async Task DeliverRewardsAsync(Player player, IReadOnlyList<Item> rewards, bool dropAtTree = false)
     {
         if (rewards.Count == 0) return;
         var items = ItemsOf(player);
         var modPlayer = PlayerOf(player);
-        var pos = player.Walk.Position(AreaTime(player));
+        var world = WorldOf(player);
+        var origin = dropAtTree ? BreachHub.TreeDropOrigin(player) : player.Walk.Position(AreaTime(player));
 
         foreach (var item in rewards)
         {
+            if (dropAtTree && player.Instance is { } treeInstance)
+            {
+                var spot = world.FindOpenSpot(origin, minRadius: 8, maxRadius: 28) ?? player.Walk.Position(AreaTime(player));
+                var worldItem = new WorldItemObject(spot.X, spot.Y, item);
+                uint groundId = treeInstance.Ground.Add(worldItem, player, shared: false);
+                await SendGroundItem(player, groundId, worldItem, $"0x02bb Genesis Tree birthed reward 0x{groundId:x}", justDropped: true);
+                continue;
+            }
+
             var shape = ShapeOf(item) ?? new(1, 1, "");
             if (items.FreeCell(PlayerInventories.MainInventory, shape.Width, shape.Height, ShapeOf) is { } cell)
             {
@@ -716,7 +898,8 @@ public static partial class BreachGenesisTree
             }
             else if (player.Instance is { } instance)
             {
-                var worldItem = new WorldItemObject(pos.X, pos.Y, item);
+                var spot = world.FindOpenSpot(origin, minRadius: 2, maxRadius: 20) ?? origin;
+                var worldItem = new WorldItemObject(spot.X, spot.Y, item);
                 uint groundId = instance.Ground.Add(worldItem, player, shared: false);
                 await SendGroundItem(player, groundId, worldItem, $"0x02bb Genesis Tree reward drop 0x{groundId:x}", justDropped: true);
             }
@@ -1389,13 +1572,16 @@ public static partial class BreachGenesisTree
             explicitIndices.RemoveAt(slotPick);
 
             var rolled = mut.Roll(ModSection.Explicit, rng);
-            if (MarkFoulbornMod is { } mark) rolled = mark(rolled);
             mods[targetIndex] = rolled;
             applied++;
         }
 
         if (applied == 0) return null;
-        return item with { Mods = mods };
+        var mutatedItem = item with { Mods = mods };
+        // Mark item-level Mods bit 9 (0x0200, Mods + 0x2e6) for Breach icon & "Foulborn {0}" prefix; per-mod
+        // DisplayKind 4 triggers automatically in the 3.29.3c client from Tags#1334 (mutatedunique) on MutatedUnique*.
+        if (MarkFoulbornItem is { } markItem) mutatedItem = markItem(mutatedItem);
+        return mutatedItem;
     }
 
     static string? ClassTokenForMutatedMod(string itemClass) => itemClass switch

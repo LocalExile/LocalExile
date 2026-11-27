@@ -1,15 +1,16 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.Protocol.Login;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Breach;
 
 /// <summary>
-/// Per-account/league Hiveblood (Graftblood) balance, storage capacity (<c>BrequelItemResourceValues</c>), cumulative
-/// Genesis Tree spend milestones (<c>BrequelFruitQuests</c>, 300..70300 -> LQF 1594..1600), and HUD counter sync.
+/// Per-account/league Hiveblood (Graftblood) balance, client HUD sync (<c>S→C 0x02d2</c>), storage capacity
+/// (3.29.3c client UI gauge max = <c>100,000</c>), <c>BrequelItemResourceValues</c> level cost table, and cumulative
+/// Genesis Tree spend milestones (<c>BrequelFruitQuests</c>, 300..70300 → LQF 1594..1600).
 /// Persisted atomically in <see cref="IPlayerWorld.AccountData"/> so all characters in a league share Hiveblood as in
 /// PoE 3.29.
 /// </summary>
@@ -17,10 +18,13 @@ public static class BreachHiveblood
 {
     const string DataKey = "breach.hiveblood";
 
-    /// <summary>Default 3.29 storage multiplier applied to <c>BrequelItemResourceValues</c> when Fleshgrafts are not
-    /// equipped (3.29 removed Fleshgraft items while retaining the level-scaled cap table).</summary>
-    const int BaseStorageMultiplier = 10;
-    const int MinimumStorageCap = 500;
+    /// <summary>S→C 0x02d2: syncs current Hiveblood to the client HUD, Genesis Tree gauge, and Wombgift tooltips
+    /// (<c>u16 BE 0x02d2</c> + <c>CompactUInt currentHiveblood</c>).</summary>
+    public const ushort HivebloodPacketId = 0x02d2;
+
+    /// <summary>3.29.3c client UI gauge cap (<c>fill = current * 1e-5f</c> at <c>0x1403bf997</c> &amp;
+    /// <c>0x1403ce4c3</c>).</summary>
+    public const int MaxHiveblood = 100_000;
 
     /// <summary>One row of <c>BrequelFruitQuests</c> (1..7): feeding cumulative Hiveblood into the Genesis Tree sets
     /// <see cref="ReachedLeagueFlag"/> (<c>ChayulaTreeJuiced1..7</c> = 1594..1600), unlocking Ailith's turn-in dialogue
@@ -51,10 +55,8 @@ public static class BreachHiveblood
     /// <summary>All loaded <c>BrequelFruitQuests</c> milestones (ordered by Id 1..7).</summary>
     public static IReadOnlyList<FruitQuestMilestone> FruitQuestMilestones => Milestones;
 
-    /// <summary>Optional HUD sync sender wired once protocol details for the 3.29.3c Hiveblood counter land.</summary>
-    public static Func<Player, int, int, string, Task>? SendHudSync { get; set; }
-
-    /// <summary>Loads <c>BrequelItemResourceValues</c> and <c>BrequelFruitQuests</c> from <c>client.db</c>.</summary>
+    /// <summary>Loads <c>BrequelItemResourceValues</c> (keyed by <c>FleshgraftLevel == 1..100</c>) and
+    /// <c>BrequelFruitQuests</c> from <c>client.db</c>.</summary>
     public static void LoadGameData()
     {
         var storage = new Dictionary<int, int>();
@@ -79,6 +81,21 @@ public static class BreachHiveblood
         }
         milestones.Sort((a, b) => a.Id.CompareTo(b.Id));
         Milestones = [.. milestones];
+    }
+
+    /// <summary>Builds the binary-verified <c>S→C 0x02d2</c> Hiveblood counter packet.</summary>
+    public static byte[] BuildHivebloodPacket(int currentHiveblood)
+    {
+        var w = new LoginWriter().U16(HivebloodPacketId);
+        InstanceProtocol.CompactUInt(w, (uint)Math.Max(0, currentHiveblood));
+        return w.ToArray();
+    }
+
+    /// <summary>Enter-area message pair for <c>GameEvents.EnterMessages</c>.</summary>
+    public static (string Log, byte[] Message) EnterMessage(Player player)
+    {
+        int current = Balance(player);
+        return ($"0x02d2 Hiveblood sync ({current}/{Capacity(player)})", BuildHivebloodPacket(current));
     }
 
     static SavedState Load(Player player)
@@ -115,28 +132,27 @@ public static class BreachHiveblood
     /// <summary>Total cumulative Hiveblood fed into the Genesis Tree for this account/league.</summary>
     public static int LifetimeSpent(Player player) => Math.Max(0, Load(player).LifetimeSpent);
 
-    /// <summary>Base storage value from <c>BrequelItemResourceValues</c> at <paramref name="level"/>.</summary>
-    public static int BaseStorageForLevel(int level)
+    /// <summary><c>BrequelItemResourceValues.GraftbloodStorage</c> keyed by <c>FleshgraftLevel</c> (1..100, NOT
+    /// 0-based row index), used by the client's exact Wombgift cost formula (<c>0x1424ad630</c>).</summary>
+    public static int ResourceValueForLevel(int level)
     {
         int clamped = Math.Clamp(level, 1, 100);
         if (StorageByLevel.TryGetValue(clamped, out int value)) return value;
         return clamped < 68 ? Math.Max(8, clamped * 2) : 210 + (clamped - 68) * 80;
     }
 
-    /// <summary>Maximum Hiveblood this player can currently hold, derived from <c>BrequelItemResourceValues</c> at
-    /// character level (and any <c>local_maximum_brequel_resource_+%</c> stat if present).</summary>
+    /// <summary>Maximum Hiveblood this player can hold (3.29.3c client hardcodes <c>100,000</c>).</summary>
     public static int Capacity(Player player)
     {
-        int level = Math.Clamp(player.Pools.Level, 1, 100);
-        long baseCap = (long)BaseStorageForLevel(level) * BaseStorageMultiplier;
+        long cap = MaxHiveblood;
         int incPct = AreaLeagueStats(player).GetValueOrDefault(Stat.LocalMaximumBrequelResourcePlusPct);
-        if (incPct != 0) baseCap = baseCap * Math.Max(10, 100 + incPct) / 100;
-        return (int)Math.Clamp(baseCap, MinimumStorageCap, 1_000_000);
+        if (incPct != 0) cap = cap * Math.Max(10, 100 + incPct) / 100;
+        return (int)Math.Clamp(cap, 1_000, MaxHiveblood);
     }
 
     /// <summary>Awards Hiveblood from a Breach encounter, scaling by <c>brequel_resource_gained_+%</c>, clamping to
-    /// <see cref="Capacity"/>, persisting to <c>AccountData</c>, and syncing the client HUD. Returns the actual amount
-    /// added.</summary>
+    /// <see cref="Capacity"/>, persisting to <c>AccountData</c>, and syncing <c>S→C 0x02d2</c>. Returns the actual
+    /// amount added.</summary>
     public static async Task<int> AwardAsync(Player player, int rawAmount, string? reason = null)
     {
         if (rawAmount <= 0) return 0;
@@ -207,13 +223,10 @@ public static class BreachHiveblood
             await SetLeagueQuestFlags(player, toSet);
     }
 
-    /// <summary>Syncs the player's current Hiveblood balance &amp; cap to the client HUD.</summary>
-    public static Task SyncAsync(Player player, string reason = "enter") =>
+    /// <summary>Syncs the player's current Hiveblood balance to the client via <c>S→C 0x02d2</c>.</summary>
+    public static Task SyncAsync(Player player, string reason = "sync") =>
         SyncAsync(player, Balance(player), Capacity(player), reason);
 
-    static async Task SyncAsync(Player player, int balance, int cap, string reason)
-    {
-        if (SendHudSync is { } sender)
-            await sender(player, balance, cap, reason);
-    }
+    static Task SyncAsync(Player player, int balance, int cap, string reason) =>
+        PlayerOf(player).Send(BuildHivebloodPacket(balance), $"0x02d2 Hiveblood {balance}/{cap} ({reason})");
 }

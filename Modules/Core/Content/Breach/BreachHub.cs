@@ -22,9 +22,8 @@ public static class BreachHub
     /// <summary>Owner token recorded in <c>Player.ModuleWindow</c> while the Genesis Tree window is open.</summary>
     public const string TreeWindow = "breach-tree";
 
-    /// <summary>S→C 0x7b OpenUi kind for the Genesis Tree (updated once @re-protocol Drop 1 confirms the exact
-    /// 3.29.3c constant in <c>InstanceWaypoints</c>).</summary>
-    public static byte TreeUiKind { get; set; }
+    /// <summary>S→C <c>0x7b</c> OpenUi kind for <c>brequel_skill_tree_window</c> (<c>0x62</c> = 98, args 0,0,0,0).</summary>
+    public const byte TreeUiKind = 0x62;
 
     // NPCs.dat rows for Chayula/Ailith NPCs.
     public const int NpcAilithWildMonster = 771;
@@ -319,34 +318,24 @@ public static class BreachHub
             await BreachHiveblood.SyncAsync(player, "open Genesis Tree");
             await BreachGenesisTree.SyncStateAsync(player, "open Genesis Tree");
             player.ModuleWindow = TreeWindow;
-            if (TreeUiKind != 0)
-            {
-                await modPlayer.Send(InstanceWaypoints.OpenUi(TreeUiKind, state.TreeId),
-                    $"0x007b open Genesis Tree (kind 0x{TreeUiKind:x2}) at TreeTree 0x{state.TreeId:x}");
-            }
-            else
-            {
-                module.Log($"{modPlayer.Character}: clicked Genesis Tree 0x{state.TreeId:x} (OpenUi kind pending protocol wire-up)");
-            }
+            await modPlayer.Send(InstanceWaypoints.OpenUi(TreeUiKind),
+                $"0x007b open Genesis Tree (kind 0x{TreeUiKind:x2}) at TreeTree 0x{state.TreeId:x}");
             return true;
         }
 
         return false;
     }
 
-    static async Task OpenLockerUiAsync(IModuleContext module, Player player, uint lockerId)
-    {
-        var modPlayer = PlayerOf(player);
-        if (BreachLocker.LockerUiKind != 0)
-        {
-            await modPlayer.Send(InstanceWaypoints.OpenUi(BreachLocker.LockerUiKind, lockerId),
-                $"0x007b open Wombgift Locker (kind 0x{BreachLocker.LockerUiKind:x2}, inventory {BreachLocker.LockerRow}) at 0x{lockerId:x}");
-        }
-        else
-        {
-            module.Log($"{modPlayer.Character}: clicked Wombgift Locker 0x{lockerId:x} (OpenUi kind pending protocol wire-up)");
-        }
-    }
+    /// <summary>Where the Monastery's Genesis Tree stands for spawning grown Wombgift rewards, or the player's current
+    /// position outside the Monastery.</summary>
+    public static (int X, int Y) TreeDropOrigin(Player player) =>
+        States.TryGetValue(player, out var state) && state.TreeId != 0
+            ? state.TreeAt
+            : player.Walk.Position(AreaTime(player));
+
+    static Task OpenLockerUiAsync(IModuleContext module, Player player, uint lockerId) =>
+        PlayerOf(player).Send(InstanceWaypoints.OpenUi(BreachLocker.LockerUiKind, lockerId),
+            $"0x007b open Wombgift Locker (kind 0x{BreachLocker.LockerUiKind:x2}, inventory {BreachLocker.LockerRow}) at 0x{lockerId:x}");
 
     /// <summary>Closes the Wombgift Locker lid when the player walks away or opens another window.</summary>
     public static async Task TickAsync(Player player)

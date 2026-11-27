@@ -44,7 +44,12 @@ public sealed class BreachModule : IModule
             if (await _encounter.Populate(area) is { } why)
                 module.Log($"Breach: none in {area.Player.Layout.Id} ({why})");
         });
-        GameEvents.EnterMessages.Add(id, _encounter.EnterMessages);
+        GameEvents.EnterMessages.Add(id, player =>
+        [
+            .. _encounter.EnterMessages(player),
+            BreachHiveblood.EnterMessage(player),
+            BreachGenesisTree.EnterMessage(player),
+        ]);
         GameEvents.PlayerEntered.Add(id, async player =>
         {
             await _encounter.Enter(player);
@@ -72,12 +77,20 @@ public sealed class BreachModule : IModule
                 await BreachHub.SyncBodyPartQuestFlagsAsync(player);
         });
 
-        // Wombgift Locker (BrequelStorage1, row 101) validation & Ctrl+click quick-move.
+        // Wombgift Locker (BrequelStorage1, row 101) validation & C→S 0x010d Ctrl+click quick-move.
         GameEvents.InventoryRefusal.Add(id, BreachLocker.Refusal);
-        GameEvents.Packet(InstanceItems.LockerMoveId).Add(id, async (player, bytes) =>
+        GameEvents.Packet(BreachLocker.QuickMovePacketId).Add(id, async (player, bytes) =>
         {
             if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
             return await BreachLocker.QuickMoveAsync(module, player, InstanceItems.ReadLeagueWindowMove(bytes));
         });
+
+        // Genesis Tree C→S packets: allocate (0x02d0), refund (0x02d1), fertilise Wombgift (0x02d3).
+        GameEvents.Packet(BreachGenesisTree.AllocateNodePacketId).Add(id, (player, bytes) =>
+            BreachGenesisTree.HandleAllocatePacketAsync(module, player, bytes));
+        GameEvents.Packet(BreachGenesisTree.RefundNodePacketId).Add(id, (player, bytes) =>
+            BreachGenesisTree.HandleRefundPacketAsync(module, player, bytes));
+        GameEvents.Packet(BreachGenesisTree.FertilisePacketId).Add(id, (player, bytes) =>
+            BreachGenesisTree.HandleFertilisePacketAsync(module, player, bytes));
     }
 }

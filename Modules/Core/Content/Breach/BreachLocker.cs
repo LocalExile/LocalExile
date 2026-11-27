@@ -6,13 +6,20 @@ namespace GameServer.Modules.Breach;
 
 /// <summary>
 /// The Wombgift Locker (<c>BrequelStorage1</c>, <c>Inventories</c> row 101, <c>InventoryIdKey</c> 63, 24 × 12 grid):
-/// deposit, withdraw, Ctrl+click quick-move, item-class validation (<c>BrequelLockerLayout</c> -> <c>ItemClasses#96
-/// BrequelFruit</c>), and character/account persistence via <see cref="PlayerInventories"/>.
+/// deposit, withdraw, Ctrl+click quick-move (<c>C→S 0x010d</c>), item-class validation (<c>BrequelLockerLayout</c> →
+/// <c>ItemClasses#96 BrequelFruit</c>), and persistence via <see cref="PlayerInventories"/>.
 /// </summary>
 public static class BreachLocker
 {
     /// <summary><c>Inventories</c> row 101 (<c>BrequelStorage1</c>, 24 × 12, wire inventory id 102).</summary>
     public const byte LockerRow = 101;
+
+    /// <summary>S→C <c>0x7b</c> OpenUi kind for <c>BrequelLocker</c> (<c>0x64</c> = 100, arg0 = locker entity id).</summary>
+    public const byte LockerUiKind = 0x64;
+
+    /// <summary>C→S <c>0x010d</c> (8 bytes): Ctrl+click quick-move between Main/Expanded inventory and
+    /// <c>BrequelStorage1</c> (row 101), used from both the Wombgift Locker (<c>0x64</c>) and Genesis Tree (<c>0x62</c>).</summary>
+    public const ushort QuickMovePacketId = 0x010d;
 
     /// <summary>Owner token recorded in <c>Player.ModuleWindow</c> while the Wombgift Locker is open.</summary>
     public const string LockerWindow = "breach-locker";
@@ -23,11 +30,7 @@ public static class BreachLocker
     /// <summary>Hideout Wombgift Locker station object type.</summary>
     public const string HideoutLockerType = "Metadata/MiscellaneousObjects/Brequel/GraftLocker_Hideout";
 
-    /// <summary>S→C 0x7b OpenUi kind for the Wombgift Locker (updated once @re-protocol Drop 1 confirms the exact
-    /// 3.29.3c constant in <c>InstanceWaypoints</c>).</summary>
-    public static byte LockerUiKind { get; set; }
-
-    /// <summary>Item class id accepted by the Wombgift Locker (<c>BrequelLockerLayout</c> -> <c>ItemClasses#96</c>).</summary>
+    /// <summary>Item class id accepted by the Wombgift Locker (<c>BrequelLockerLayout</c> → <c>ItemClasses#96</c>).</summary>
     public const string WombgiftItemClass = "BrequelFruit";
 
     static HashSet<uint> AcceptedTypeHashes = [];
@@ -44,7 +47,6 @@ public static class BreachLocker
             if (row.IntOrNull("ItemClass") is int cls) acceptedClasses.Add(cls);
             if (row.IntOrNull("__col1") is int w and > 0 && row.IntOrNull("__col2") is int h and > 0)
             {
-                // Inventories#101 BrequelStorage1 is 24 x 12 (two 12 x 12 pages or one 24 x 12 grid).
                 GridWidth = Math.Max(w, 24);
                 GridHeight = Math.Max(h, 12);
             }
@@ -88,19 +90,17 @@ public static class BreachLocker
             ? "the Wombgift Locker takes only Wombgifts"
             : null;
 
-    /// <summary>Ctrl+click quick-move between Main/Expanded inventory and <see cref="LockerRow"/>.
-    /// Returns <see langword="false"/> when the Wombgift Locker is not the active window so other lockers (e.g.
-    /// Deepwater's Chart Locker on <c>0x0111</c>) still receive their packets.</summary>
+    /// <summary><c>C→S 0x010d</c>: Ctrl+click quick-move between Main/Expanded inventory and
+    /// <see cref="LockerRow"/> (<c>BrequelStorage1</c>). Works from both the Wombgift Locker (<c>0x64</c>) and the
+    /// Genesis Tree side storage (<c>0x62</c>).</summary>
     public static async Task<bool> QuickMoveAsync(IModuleContext module, Player player, InstanceItems.LeagueWindowMove move)
     {
-        if (player.ModuleWindow != LockerWindow) return false;
-
         var modPlayer = PlayerOf(player);
         var items = ItemsOf(player);
         byte from = move.Into
             ? (move.FromExpanded ? PlayerInventories.ExpandedInventory : PlayerInventories.MainInventory)
             : LockerRow;
-        string what = $"Ctrl+click item {move.ItemId} {(move.Into ? "into" : "out of")} the Wombgift Locker";
+        string what = $"0x010d Ctrl+click item {move.ItemId} {(move.Into ? "into" : "out of")} BrequelStorage1";
         var it = items.Items(from).FirstOrDefault(i => i.Id == move.ItemId);
         if (it is null)
         {
