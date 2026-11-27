@@ -348,6 +348,7 @@ public static partial class Game
             ClearCremationGeysers();
             ClearEnsnares();
             ClearElectrocutionArrows();
+            ClearVenomGyre();
             ClearStormRain();
             ClearConflagration();
             ClearExplosiveFuses();
@@ -1168,6 +1169,8 @@ public static partial class Game
                 ExplosiveArrowAtEnd(value);
                 EnsnaringArrowAtEnd(value);
                 ElectrocutionAtEnd(value);
+                if (value.Reason == ProjectileEndReason.Returned && p.Use.Payload is ProjectileOffense { VenomGyre: { } caught })
+                    CatchVenomGyre(p.Use, caught);
                 if (value.Reason == ProjectileEndReason.Landing && p.Use.Payload is ProjectileOffense { Unearth: { } corpse })
                     LandUnearth(corpse, (x, y));
             }

@@ -18,7 +18,7 @@ public static class GatewayProjectileSkillProfiles
 
     static readonly HashSet<string> CannotReturn = new(StringComparer.Ordinal)
     {
-        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel", "VenomGyre",
+        "Spark", "SparkAltX", "SparkAltY", "Twister", "RainOfArrows", "BlastRain", "SplittingSteel",
         "WinterOrb", "ForbiddenRite", "Cremation", "RollingMagma", "ToxicRain", "PoisonousConcoction"
     };
     static readonly IReadOnlySet<ProjectileEndReason> TerminalStops = new HashSet<ProjectileEndReason>
@@ -62,6 +62,7 @@ public static class GatewayProjectileSkillProfiles
             CannotReturn = CannotReturn.Contains(effect), ReturnOnDistance = effect != "FreezingPulse"
         };
         if (effect == Game.SpectrumHitEffect) p = p with { ContactArea = Game.ElementalHitBurst(0) };
+        if (Game.VenomGyreEffect(effect)) p = p with { ReturnOvershoot = 0 };
         if (IsKineticBlast(effect))
         {
             bool clustering = effect == "KineticBlastAltX";

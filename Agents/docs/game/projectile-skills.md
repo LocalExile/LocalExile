@@ -56,9 +56,15 @@ remains unmeasured. Return preserves remaining continuations and lifetime, exclu
 the common fixed 150-cell overshoot. Only `returning_projectiles_always_pierce` grants return pierce-all. Terrain is
 still active on return, and ordinary return does not receive a support-only damage penalty.
 
-Named cannot-return inventory: Spark/AltX/AltY, RainOfArrows, BlastRain, SplittingSteel, VenomGyre, WinterOrb,
+Named cannot-return inventory: Spark/AltX/AltY, RainOfArrows, BlastRain, SplittingSteel, WinterOrb,
 ForbiddenRite, Cremation, RollingMagma, ToxicRain and PoisonousConcoction. FreezingPulse returns only from collision.
 These policies do not claim complete behavior for each catalog skill.
+
+Venom Gyre ends its return at the return anchor. Each arriving player shot stores its attack snapshot with its
+own expiry. Whirling Blades emits up to the exported release cap along the slide, rolling retention per emitted
+blade. These new flights cannot return. The Vaal cast fills the pool without a flight and replenishes it over
+the exported secondary duration. The server uses the native buff rows for the counts and the native normal and
+released projectile rows. Exact spiral spacing and the dedicated client orbit updates still need verification.
 
 ## Radius, damage and presentation
 

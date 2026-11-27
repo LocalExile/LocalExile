@@ -205,6 +205,19 @@ public static partial class Game
             }
             return Task.CompletedTask;
         }
+        if (effect == VaalVenomGyreEffect)
+        {
+            if (player.VaalUse is not { Executed: true } paid || paid.Skill != skillId || paid.Effect != gem.Effect)
+                return Task.CompletedTask;
+            session.ScheduleContact(ProjectileRuntime.Time(acceptedAt + delay),
+                () => Valid() && VaalAdmissionCurrent(player, paid), () =>
+                {
+                    var use = CaptureGemProjectile(player, session, skillId, gem, aim, criticalRoll, sequence,
+                        sacrifice: sacrifice, reoccurrenceMore: paid.PactDamageMore);
+                    session.StartVaalVenomGyre(use);
+                });
+            return Task.CompletedTask;
+        }
         int repeats = attack ? 0 : SpellRepeats(player, skillId, gem.Effect);
         var intensity = CastingIntensity(player, skillId);
         var ghorr = CastingGhorrSpell(player, skillId);
@@ -659,6 +672,11 @@ public static partial class Game
             };
         }
         if (hitAndAilmentMore != 1) shot = shot.ScaleHitAndAilmentDamage(hitAndAilmentMore);
+        if (VenomGyreEffect(effect) && totem is null && from is null && !fromMirage
+            && sacrifice is { Triggered: false })
+        {
+            shot = shot with { VenomGyre = CaptureVenomGyre(player, gem.Effect, Get, Player, Own, variation, sacrifice) };
+        }
         uint emitter = totem?.Id ?? player.Id;
         int epoch = player.ProjectileEpoch;
         var use = new ProjectileUse(profile, new(emitter, epoch), new(emitter, epoch), 1, origin, target)

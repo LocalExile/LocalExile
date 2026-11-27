@@ -65,6 +65,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     internal Game.ElectrocutionSpec? Electrocution { get; init; }
+    internal Game.VenomGyreCapture? VenomGyre { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }

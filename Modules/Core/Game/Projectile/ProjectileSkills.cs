@@ -40,6 +40,10 @@ public static partial class Game
         definitions[AvengingFlameEffect] = SkillProjectileDefinition(AvengingFlameEffect, InfernalBoltProjectile,
             SkillProjectileParameters(AvengingFlameEffect, InfernalBoltProjectile));
         RegisterSpectralShieldThrows(definitions);
+        foreach (string effect in new[] { "VenomGyre", "VenomGyreAltX", "VenomGyreAltY", "VenomGyreRoyale",
+                     "VenomGyreMercenary", VaalVenomGyreEffect })
+            definitions[effect] = SkillProjectileDefinition(effect, VenomGyreProjectile,
+                SkillProjectileParameters(effect, VenomGyreProjectile));
         const string spectralWeaponProjectile = "Metadata/Projectiles/ThrownWeapon";
         foreach (string effect in new[] { SpectralHelixEffect, SpectralHelixTrapEffect })
             definitions[effect] = SkillProjectileDefinition(effect, spectralWeaponProjectile,
