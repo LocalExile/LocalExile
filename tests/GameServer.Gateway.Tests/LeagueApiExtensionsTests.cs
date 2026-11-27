@@ -240,9 +240,11 @@ public sealed class LeagueApiExtensionsTests
             // 1 leftover Scroll of Wisdom falls through to normal Scroll Fragment pricing.
             Assert.True(quote.Rewards.Count >= 2);
 
-            // 4. GameEvents.MapDeviceAcceptsItem extends MapDevice.AcceptsItem and PlayerInventories.AcceptsItem.
+            // 4. GameEvents.MapDeviceAcceptsItem extends MapDevice.AcceptsItem and PlayerInventories.AcceptsItem with league isolation.
             Assert.True(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, player1));
-            Assert.True(PlayerInventories.AcceptsItem(PlayerInventories.MapDevice, customKeyType.Hash, customKeyType.Class));
+            Assert.True(PlayerInventories.AcceptsItem(PlayerInventories.MapDevice, customKeyType.Hash, customKeyType.Class, player1));
+            Assert.False(MapDevice.AcceptsItem(customKeyType.Hash, customKeyType.Class, playerOtherLeague));
+            Assert.False(PlayerInventories.AcceptsItem(PlayerInventories.MapDevice, customKeyType.Hash, customKeyType.Class));
 
             // 5. IPlayerWorld.LeagueData is shared across accounts in the same league, isolated across leagues,
             //    and ISavedData.Keys / Remove work on LeagueData, AccountData, and CharacterData.

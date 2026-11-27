@@ -1196,6 +1196,7 @@ public static class GameEvents
         }
         foreach (var subscriber in MapDeviceAcceptsItem.Snapshot)
         {
+            if (subscriber.Rank != GameEventOwners.ModRank) continue;
             bool allowed = false;
             if (GameEventOwners.Guard(subscriber.Owner, nameof(MapDeviceAcceptsItem), () => allowed = subscriber.Run(null, typeHash, itemClass)) && allowed)
                 return true;

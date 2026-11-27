@@ -351,7 +351,7 @@ public static class ItemMoves
     /// no room. The item's current inventory wins if the packet's direction flag disagrees.
     /// </summary>
     public static BenchMove? MoveToMapDevice(PlayerInventories items, uint itemId,
-        Func<Item, PlayerInventories.Shape?> shapeOf) => Saves.Atomically<BenchMove?>(() =>
+        Func<Item, PlayerInventories.Shape?> shapeOf, Player? player = null) => Saves.Atomically<BenchMove?>(() =>
     {
         byte main = Main, device = PlayerInventories.MapDevice;
         byte from;
@@ -361,7 +361,7 @@ public static class ItemMoves
         else return null;
         byte to = from == main ? device : main;
         if (shapeOf(item.Item) is not { } shape) return null;
-        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class)) return null;
+        if (to == device && !MapDevice.AcceptsItem(item.Item.TypeHash, shape.Class, player)) return null;
         if (items.FreeCell(to, shape.Width, shape.Height, shapeOf) is not { } cell
             || items.Remove(from, itemId) is not { } taken) return null;
         return new(from, to, items.Put(to, taken with { X = cell.X, Y = cell.Y }));

@@ -266,7 +266,7 @@ public sealed class MapDevice
     /// </summary>
     public Opening? Check(IReadOnlyList<Slot> slots, out string why) => Check(slots, null, null, out why);
 
-    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false)
+    public Opening? Check(IReadOnlyList<Slot> slots, string? character, ModCatalog? mods, out string why, bool campaign = false, Player? player = null)
     {
         why = "";
         if (campaign)
@@ -292,7 +292,7 @@ public sealed class MapDevice
             && AreaOfWorld(earlyRecipe) is { } earlyArea)
             return new Opening(earlyArea, mods is null ? MapMods.None : _runs.OfRecipe(earlyRecipe, mods),
                 slots.Count > 0 ? slots[0].BaseRow : 0);
-        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0 && !AcceptsItem(s.TypeHash, s.Class)) is { Class: not null } wrong)
+        if (slots.FirstOrDefault(s => !AcceptsClass(s.Class) && !s.IsMap && s.Class.Length > 0 && !AcceptsItem(s.TypeHash, s.Class, player)) is { Class: not null } wrong)
         {
             why = $"{wrong.Name} cannot be used in the Map Device: only maps and map fragments can.";
             return null;

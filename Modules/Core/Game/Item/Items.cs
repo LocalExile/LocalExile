@@ -2178,7 +2178,7 @@ public static partial class Game
         else if (LevelTooLow(player, row, held) is { } low) why = low;
         else if (held is not null && GameEvents.FirstInventoryRefusal(player, row, held, items.DisplacedByMerge(row, a.ItemId, ShapeOf, OneOf(a))) is { } objection) why = objection;
         else done = items.MergeOnto(row, a.ItemId, ShapeOf, out why, OneOf(a),
-            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
+            expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         if (done is null && PlayerInventories.Row(a.InventoryId) is byte lr && LevelTooLow(player, lr, held) is { } tooLow) why = tooLow;
         if (done is null)
         {
@@ -2299,7 +2299,7 @@ public static partial class Game
             else if (placement is not null && GameEvents.FirstInventoryRefusal(player, row, placement, items.DisplacedByPlace(row, (int)place.X, (int)place.Y, ShapeOf, place.A != 0)) is { } objection) why = objection;
             else
             done = items.Place(row, (int)place.X, (int)place.Y, ShapeOf, out why, one: place.A != 0,
-                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player));
+                expandedAllowed: row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player), player: player);
         }
         if (done is null)
         {
