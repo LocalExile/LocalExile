@@ -401,6 +401,7 @@ public static partial class Game
                     weaponClass: (swingWeapon ?? WeaponFor(player)).ItemClass ?? "");
                 var mAt = m.Walk.Position(now);
                 var rampageSource = RampageOnMeleeHitLocked(player, m, melee: true, playerStats);
+                bool pyreTarget = skillStats.GetValueOrDefault(PyreTriggerChance) > 0 && m.Ignites.IgnitedAt(now);
                 uint lifeBefore = m.Life;
                 var applied = ApplyMonsterHitLocked(player, m, damage, rampageSource, playerStats, allyAt: null,
                     cull: Cull.Of(playerStats, skillStats, critical, spell: false).WithWeapon(local), cullPlayer: null,
@@ -467,6 +468,8 @@ public static partial class Game
                 if (skillStats.GetValueOrDefault(global::Stat.SupportBluntChanceToTriggerShockwaveOnHitPct) > 0)
                     TriggerShockwaveLocked(player, skillId, supported, hand, weapon,
                         SwingWeaponCritical(player, hand), m.Walk.Position(now), now);
+                if (pyreTarget)
+                    TriggerPyreLocked(player, skillId, supported, hand, weapon, SwingWeaponCritical(player, hand), mAt, now);
                 if (goreShockwave is { } gore)
                     TriggerGoreShockwaveLocked(player, gore, m.Walk.Position(now), now);
                 results.Add((id, m, hit, damage, critical, resistance, ignited, igniteLog, bled, bleedLog, stun));

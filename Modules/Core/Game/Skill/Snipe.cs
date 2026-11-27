@@ -33,6 +33,7 @@ public static partial class Game
         public object? Rules;
         public int Stages;
         public bool Channelling;
+        public bool ReleasedByInput;
         public (int X, int Y) Aim;
         public ushort PresentedBuff;
         public int PresentedStages = -1;
@@ -212,30 +213,40 @@ public static partial class Game
         return result;
     }
 
-    /// <summary>
-    /// Called when Snipe's channel ends. Removes the stage buff and, if released normally while alive with a bow
-    /// equipped, fires linked bow skills (up to one per stage) or Snipe's own default arrow with per-stage damage
-    /// and ailment multipliers.
-    /// </summary>
-    internal static async Task SnipeRelease(Player player, int generation, int action)
+    // Called under the area gate while the input's channel still owns the action.
+    static void SnipeReleasedByInput(Player player, double at)
     {
-        if (!SnipeRuntimes.TryGetValue(player, out var current)
-            || current.ChannelGeneration != generation || current.Action != action) return;
-        ushort buff = current.PresentedBuff;
-        current.PresentedBuff = 0;
-        current.PresentedStages = -1;
-        current.Channelling = false;
-        var cts = current.WaitCancel;
-        current.WaitCancel = null;
-        SnipeRuntimes.Remove(player);
-        bool shouldFire = CurrentGameRules && ReferenceEquals(current.Rules, CombatLifetime)
-            && current.Epoch == player.ProjectileEpoch && !player.Closed && !player.LeavingArea
-            && !player.RageRetired && player.PlayerLife > 0 && !InTown(player) && current.Stages > 0;
-        try { cts?.Dispose(); } catch (ObjectDisposedException) { }
-        if (buff != 0 && !player.Closed && !player.LeavingArea)
-            player.Area.Buffs.Clear(player.Id, SnipeStagesBuffRow, player.Id);
-        if (!shouldFire) return;
-        await ReleaseSnipeStages(player, current.SkillId, current.Gem, current.Stages, current.Aim);
+        if (SnipeRuntimes.TryGetValue(player, out var current)
+            && ChannelCurrent(player, current.SkillId, current.Action, current.ChannelGeneration)
+            && !PlayerActionBlocked(player, at, AreaTime(player)))
+            current.ReleasedByInput = true;
+    }
+
+    /// <summary>Clears the ended channel's stages and fires the payload only for an accepted input release.</summary>
+    internal static async Task FinishSnipe(Player player, int generation, int action)
+    {
+        SnipeRuntime current;
+        bool shouldFire;
+        lock (LevelUpdatesFor(player).Gate)
+        {
+            if (!SnipeRuntimes.TryGetValue(player, out var found)
+                || found.ChannelGeneration != generation || found.Action != action) return;
+            current = found;
+            ushort buff = current.PresentedBuff;
+            current.PresentedBuff = 0;
+            current.PresentedStages = -1;
+            current.Channelling = false;
+            var cts = current.WaitCancel;
+            current.WaitCancel = null;
+            SnipeRuntimes.Remove(player);
+            shouldFire = current.ReleasedByInput && CurrentGameRules && ReferenceEquals(current.Rules, CombatLifetime)
+                && current.Epoch == player.ProjectileEpoch && !player.Closed && !player.LeavingArea
+                && !player.RageRetired && player.PlayerLife > 0 && !InTown(player) && current.Stages > 0;
+            try { cts?.Dispose(); } catch (ObjectDisposedException) { }
+            if (buff != 0 && !player.Closed && !player.LeavingArea)
+                player.Area.Buffs.Clear(player.Id, SnipeStagesBuffRow, player.Id);
+        }
+        if (shouldFire) await ReleaseSnipeStages(player, current.SkillId, current.Gem, current.Stages, current.Aim);
     }
 
     /// <summary>

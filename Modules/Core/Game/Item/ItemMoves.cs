@@ -116,6 +116,46 @@ public static class ItemMoves
     }
 
     /// <summary>
+    /// Lists an item from <paramref name="sourceRow"/> into a shown merchant <paramref name="tab"/> with
+    /// <paramref name="note"/> in one transaction (C→S 0x01a2): the source inventory item is never mutated on refusal,
+    /// and any unmoved stack remainder keeps its original note.
+    /// </summary>
+    public static Transfer? ListInMerchantTab(AccountStash stash, PlayerInventories items, int tab, byte sourceRow,
+        uint itemId, string? note, Func<Item, PlayerInventories.Shape?> shapeOf, out string why)
+    {
+        string? normalized = string.IsNullOrWhiteSpace(note) ? null : note.Trim();
+        if (normalized is { Length: > 250 }) normalized = normalized[..250];
+        string reason = "";
+        var result = Saves.Atomically(() =>
+        {
+            if (!stash.IsShownTab(tab) || stash.TabType(tab) != StashRules.Trade)
+            { reason = "no merchant tab"; return null; }
+            if (items.RowOf(itemId) != sourceRow || items.Items(sourceRow).FirstOrDefault(i => i.Id == itemId) is not { } item)
+            { reason = "not in the inventory"; return null; }
+            if (shapeOf(item.Item) is not { } shape) { reason = "unknown item type"; return null; }
+            if (!stash.Holds(tab, item.Item)) { reason = $"the {stash.TypeOf(tab)} tab doesn't hold that item"; return null; }
+            var listed = item.Item with { Note = normalized };
+            if (shape.MaxStack > 1 || listed.Components.Contains("Stack"))
+            {
+                if (stash.AddStacked(tab, listed, shapeOf, out reason) is not { } stacked) return null;
+                if (stacked.Left == listed.StackSize) { reason = "the tab is full"; return null; }
+                var left = stacked.Left == 0 ? null : items.SetStackSize(sourceRow, itemId, stacked.Left);
+                if (stacked.Left == 0) items.Remove(sourceRow, itemId);
+                stash.SetLastTab(tab);
+                return new Transfer(sourceRow, itemId, left, tab, stacked.Changed, stacked.Added, [], []);
+            }
+            if (stash.CellFor(tab, listed, shapeOf) is not { } cell) { reason = "the tab is full"; return null; }
+            var removed = items.Remove(sourceRow, itemId)!;
+            if (stash.Place(tab, cell.X, cell.Y, removed with { Item = listed }, shapeOf, out reason) is not var (placed, _))
+                throw new InvalidOperationException($"stash tab {tab} refused item {itemId} at its free cell: {reason}");
+            stash.SetLastTab(tab);
+            return new Transfer(sourceRow, itemId, null, tab, [], [placed], [], []);
+        });
+        why = result is null && reason == "" ? "refused" : reason;
+        return result;
+    }
+
+    /// <summary>
     /// Quick-places the cursor item into a specialty/Unique/Map stash tab (C→S 0x00e2): routes Unique and Map tabs to
     /// their destination child page, merges stackable items onto existing stacks first, or places non-stackables in the
     /// first matching free cell. Null with reason when refused (nothing changes).

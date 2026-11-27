@@ -75,7 +75,8 @@ public sealed class SummonCatalog
         foreach (var row in effects)
         {
             string id = row.Text("Id")!;
-            var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY");
+            var template = definitions.FirstOrDefault(d => id == d.Id || id == d.Id + "AltX" || id == d.Id + "AltY"
+                || id == "BlinkArrowRoyale" && d.Id == "BlinkArrow");
             if (id.StartsWith("SummonHarbingerOf", StringComparison.Ordinal))
             {
                 bool greater = id.EndsWith("Uber", StringComparison.Ordinal);
