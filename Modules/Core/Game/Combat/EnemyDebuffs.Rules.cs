@@ -102,6 +102,7 @@ public static partial class Game
         void Forget(SpawnedMonster m)
         {
             m.ForgetSource(player.Id);
+            RemovePhysicalEnemyAuras(m, player);
             if (m.TauntingPlayerId == player.Id)
             {
                 ClearPlayerTauntLocked(player.Area, m.ObjectId, m, player.Id);
@@ -269,7 +270,7 @@ public static partial class Game
     const string LightningResistEqualsYours = "nearby_enemies_lightning_resist_equal_to_yours";
 
     // The player's own side of the step: what every monster's step reads. Its Hash changes when any of it does.
-    sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, bool Pride, (int Min, int Max) PrideValues,
+    sealed record EnemyDebuffScope(bool Alive, IReadOnlyList<PassiveBuffAuras.Aura> Auras, ushort? PrideBuff, (int Min, int Max) PrideValues,
         int FleshRadius, int FleshPhysical, int? LightningEquals, int PerAilmentType, CurseAura[] Curses,
         IReadOnlyDictionary<uint, int>? CurseStats, uint[] CursedCorpses, bool MarkBlind,
         IReadOnlyDictionary<ushort, double>? Impurities, IReadOnlyDictionary<uint, int>? ChillStats, int FireExposure, int Hash);
@@ -294,8 +295,7 @@ public static partial class Game
         int nearbyFireExposure = alive && (masterOfFire || heraldry)
             ? InflictedExposure(playerStats.GetValueOrDefault, DamageType.Fire, DefaultExposure) : 0;
         var here = player.Walk.Position(now);
-        // Pride is a skill aura whose effect is on enemies: a synthetic enemy aura carries its buff, and its ramp is kept
-        // per monster.
+        // A synthetic enemy aura carries Pride's buff. Each affected monster keeps an independent ramp per source.
         AuraCatalog.Aura? pride = player.Auras.Values.FirstOrDefault(a => AuraCatalog.Family(a.EffectId) == "Pride");
         (int Min, int Max) prideValues = default;
         if (pride is not null)
@@ -360,13 +360,13 @@ public static partial class Game
             hash.Add(playerStats.GetValueOrDefault(Stat.VirtualChillEffectPlusPct));
             hash.Add(playerStats.GetValueOrDefault(Stat.ElementalistChillMaximumMagnitudeOverride));
         }
-        hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
+        hash.Add(pride?.Buff); hash.Add(prideValues); hash.Add(fleshRadius); hash.Add(fleshPhysical); hash.Add(lightningEquals);
         if (impurities is not null)
             foreach (var (row, until) in impurities) { hash.Add(row); hash.Add(until); }
         // A curse aura's application reads the player's stats.
         foreach (var c in curses) { hash.Add(c.Aura.SkillId); hash.Add(c.Radius); }
         if (curseStats is not null) hash.Add(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(curseStats));
-        return new(alive, auras, pride is not null, prideValues, fleshRadius, fleshPhysical, lightningEquals,
+        return new(alive, auras, pride?.Buff, prideValues, fleshRadius, fleshPhysical, lightningEquals,
             perAilmentType, curses, curseStats, [.. cursedCorpses.Select(c => c.Id)],
             alive && StatOf(playerStats, Stat.EnemiesNearMarkedEnemyAreBlinded) > 0, impurities,
             nearbyChill ? playerStats : null, nearbyFireExposure, hash.ToHashCode());
@@ -531,29 +531,17 @@ public static partial class Game
                 m.MarkSource(player.Id, ImpurityMark(aura.Definition)!, until);
             elemental += aura.Stats.Where(s => s.Key == elementalKey).Sum(s => s.Value);
         }
+        ushort? prideBuff = living && scope.PrideBuff.HasValue && In(AuraCatalog.PrideBuffRow) ? scope.PrideBuff : null;
+        int flesh = living && scope.FleshPhysical > 0 && In(FleshZone) ? scope.FleshPhysical : 0;
+        StepPhysicalEnemyAuras(m, player, now, prideBuff, scope.PrideValues, flesh, scope.FleshRadius);
         double wake = double.PositiveInfinity;
-        if (scope.Pride && living && In(AuraCatalog.PrideBuffRow))
-        {
-            if (double.IsNaN(m.PrideSince)) m.PrideSince = now;
-            m.PridePhysicalMore = AuraCatalog.PridePhysicalMore(scope.PrideValues.Min, scope.PrideValues.Max, now - m.PrideSince);
-            // Its 4-second ramp steps each frame until it is full.
-            if (now - m.PrideSince < 4) wake = now + FrameSeconds;
-        }
-        else
-        {
-            m.PrideSince = double.NaN;
-            m.PridePhysicalMore = 0;
-        }
-        // Blood Stance: its full value here; a hit works out the falloff with the distance (FleshTaken).
-        bool flesh = living && scope.FleshPhysical > 0 && In(FleshZone);
-        (m.FleshFrom, m.FleshRadius) = flesh ? (player, scope.FleshRadius) : (null, 0);
         // Doryani's Prototype: the monsters in its zone keep his lightning resistance until they leave it, he dies or
         // takes the chest off (a hash change re-steps everyone). Offset keeps 0% distinct from SetSourceValue's removal.
         m.SetSourceValue(player.Id, LightningResistEqualsYours,
             living && scope.LightningEquals is int ownResist && In(DoryaniZone) ? ownResist + DoryaniResistOffset : 0);
         // Bottled Faith: consecrated ground created during its effect makes the enemies on it take more damage.
         int consecrated = living ? ConsecratedEnemyDamageTaken(player, id) : 0;
-        m.TakenFromPlayer = (tauntedTaken + consecrated, elemental, flesh ? scope.FleshPhysical : 0);
+        m.TakenFromPlayer = (tauntedTaken + consecrated, elemental, m.TakenFromPlayer.Physical);
         KeepPerAilmentTypeTakenLocked(player, m, living ? scope.PerAilmentType : 0);
         // Its next timed change: a debuff or curse ending.
         void Next(double until) { if (until > now && until < wake) wake = until; }
@@ -598,11 +586,67 @@ public static partial class Game
         counts[0]++;
     }
 
-    // Flesh and Stone's Blood Stance on a hit: its value falls off with the monster's distance from the player, full at 0
-    // and nothing at the aura's edge (the data's ..._from_player_distance).
-    static int FleshTaken(SpawnedMonster m, double now) => m.FleshFrom is not { } from ? m.TakenFromPlayer.Physical
-        : (int)Math.Round(m.TakenFromPlayer.Physical * AuraCatalog.DistanceEffect(Dist(m.Walk.Position(now), from.Walk.Position(now)),
-            m.FleshRadius), MidpointRounding.AwayFromZero);
+    readonly record struct PhysicalEnemyAura(ushort? PrideBuff, double EnteredPride, (int Min, int Max) Pride,
+        int Flesh, int FleshRadius);
+
+    static readonly RuleTable<SpawnedMonster, Dictionary<Player, PhysicalEnemyAura>> PhysicalEnemyAuras = new();
+
+    static void StepPhysicalEnemyAuras(SpawnedMonster monster, Player source, double now,
+        ushort? prideBuff, (int Min, int Max) pride, int flesh, int fleshRadius)
+    {
+        // An active area can still hold a scalar snapshot from the pre-reload rules.
+        if (!double.IsNaN(monster.PrideSince))
+        {
+            monster.PrideSince = double.NaN;
+            monster.PridePhysicalMore = 0;
+        }
+        if (monster.FleshFrom is not null)
+        {
+            monster.FleshFrom = null;
+            monster.FleshRadius = 0;
+            monster.TakenFromPlayer.Physical = 0;
+        }
+        if (!prideBuff.HasValue && flesh == 0)
+        {
+            RemovePhysicalEnemyAuras(monster, source);
+            return;
+        }
+        var sources = PhysicalEnemyAuras.GetOrCreateValue(monster);
+        double entered = sources.TryGetValue(source, out var previous) && previous.PrideBuff == prideBuff
+            ? previous.EnteredPride : now;
+        sources[source] = new(prideBuff, entered, pride, flesh, fleshRadius);
+    }
+
+    static void RemovePhysicalEnemyAuras(SpawnedMonster monster, Player source)
+    {
+        if (PhysicalEnemyAuras.TryGetValue(monster, out var sources) && sources.Remove(source) && sources.Count == 0)
+            PhysicalEnemyAuras.Remove(monster);
+    }
+
+    static (double Pride, int Flesh) PhysicalEnemyAuraTaken(SpawnedMonster monster, double now, bool hit)
+    {
+        // Keep fixed scalar modifiers that a caller set independently of a player aura.
+        double pride = double.IsNaN(monster.PrideSince) ? monster.PridePhysicalMore : 0;
+        int flesh = hit && monster.FleshFrom is null ? monster.TakenFromPlayer.Physical : 0;
+        if (!PhysicalEnemyAuras.TryGetValue(monster, out var sources)) return (pride, flesh);
+
+        foreach (var (source, aura) in sources)
+        {
+            if (source.PlayerLife == 0 || source.Closed || source.LeavingArea) continue;
+            double at = double.IsNaN(now) ? AreaTime(source) : now;
+            if (aura.PrideBuff.HasValue)
+                pride = Math.Max(pride, AuraCatalog.PridePhysicalMore(aura.Pride.Min, aura.Pride.Max, at - aura.EnteredPride));
+            // Blood Stance applies to hits only. Compare the actual values after each source's distance falloff.
+            if (hit && aura.Flesh > flesh)
+            {
+                double distance = Dist(monster.Walk.Position(at), source.Walk.Position(at));
+                int taken = (int)Math.Round(aura.Flesh * AuraCatalog.DistanceEffect(distance, aura.FleshRadius),
+                    MidpointRounding.AwayFromZero);
+                flesh = Math.Max(flesh, taken);
+            }
+        }
+        return (pride, flesh);
+    }
 
     // The blind auras: the hostile monsters in their zones that can be blinded.
     static void ReconcileBlinds(Player player, double now, IReadOnlyList<uint> cursedCorpses, bool markBlind, int[] counts)

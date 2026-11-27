@@ -286,7 +286,7 @@ public static partial class Game
             additionalElementalTakenPct, chaosDamage > 0);
         double withered = chaosDamage * (chaosFactor - factor);
         double elementalDamage = mitigated[DamageType.Fire].Min + mitigated[DamageType.Cold].Min + mitigated[DamageType.Lightning].Min;
-        // Pride's more Physical Damage and Flesh and Stone's Blood Stance (TakenFromPlayer.Physical) apply to the
+        // Pride's more Physical Damage and Flesh and Stone's Blood Stance apply to the
         // physical part only, never to the elemental share's fallback factor.
         double physicalFactor = PhysicalHitTakenFactor(m, e, now);
         // Its fire, cold and lightning damage taken (Izaro's statues' buffs, Covered in Ash) on those parts.
@@ -355,9 +355,12 @@ public static partial class Game
         return (common, elemental, chaos);
     }
 
-    static double PhysicalHitTakenFactor(SpawnedMonster m, MonsterModEffects effects, double now) =>
-        (1 + Math.Max(0, m.PridePhysicalMore) / 100.0) * (1 + Math.Max(0, FleshTaken(m, now)) / 100.0)
-        * (1 + effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+    static double PhysicalHitTakenFactor(SpawnedMonster m, MonsterModEffects effects, double now)
+    {
+        var (pride, flesh) = PhysicalEnemyAuraTaken(m, now, hit: true);
+        return (1 + Math.Max(0, pride) / 100.0) * (1 + Math.Max(0, flesh) / 100.0)
+            * (1 + effects[Stat.PhysicalDamageTakenPlusPct] / 100.0);
+    }
 
     static double ElementalHitTakenPercent(MonsterModEffects effects, SpawnedMonster m, DamageType type, double now) => type switch
     {
@@ -519,7 +522,7 @@ public static partial class Game
                 chaos: type == DamageType.Chaos, increasedPct: increasedTaken, overTime: true);
         // Pride is a separate more multiplier; Flesh and Stone's Blood Stance affects hits only.
         if (type == DamageType.Physical)
-            factor *= 1 + Math.Max(0, m.PridePhysicalMore) / 100.0;
+            factor *= 1 + Math.Max(0, PhysicalEnemyAuraTaken(m, now, hit: false).Pride) / 100.0;
         return factor;
     }
 

@@ -71,7 +71,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Own-aura restriction (#304). Docs: [11](../docs/protocol/11-skills.md) Â§10c.
 - Spell skills deal no damage (#293). Docs: [20](../docs/protocol/20-damage.md) Â§2g.
 - Spells are released at the cast animation's contact keyframe. Docs: [11](../docs/protocol/11-skills.md) Â§9.
-- Pride on enemies. Docs: [11](../docs/protocol/11-skills.md) Â§12.
+- Pride and Flesh and Stone track enemy effects from each player independently in shared areas. Docs: [11](../docs/protocol/11-skills.md) Â§12.
 
 - Bladestorm swings around the player and creates timed Blood or Sand storms with their respective buffs.
 - Chain Hook pulls and hits at beam contact at range, and uses the weapon stance's swing at close range.
