@@ -3096,11 +3096,12 @@ public static partial class Game
         double? strikeSeconds = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None,
         IReadOnlyList<uint>? contactTargets = null, BladeFlurryChannel? flurryRelease = null, bool nearbyOnly = false,
         LacerateUse? lacerate = null, SupportedGem? triggeredSpellSource = null, bool seismicExerted = false,
-        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null)
+        int ancestralTargets = 0, int? rallyingDamage = null, TraumaUse? traumaUse = null, int extraOtherWarcries = 0)
     {
         var paidVaal = SkillsFor(player).VaalBudget(gem.Effect, gem.Level) is null ? null : player.VaalUse;
         var hitPlan = SkillHitPlan.ForSkill(SkillsFor(player), gem.Effect, gem.Level, gem.Quality);
         bool spell = hitPlan.Kind == SkillHitKind.Spell;
+        bool attack = hitPlan.Kind == SkillHitKind.Attack;
         // A gem melee swing keeps its hit when the player only walks on: the client queues a Move until its clip's
         // cut-in instead of running it (Lockstep.cs, measured live 2026-11-03), so the Move the server hears first is a
         // queued order, not a replacement of the swing. Everything else keeps the action-token rule (a Move cancels the
@@ -3184,8 +3185,8 @@ public static partial class Game
             rallyingDamage = rallying;
             if (seismicArea is int area) radiusMore *= SkillArea.RadiusMultiplier(area);
         }
-        var warcryTriggers = spell ? null : MeleeWarcryTriggersFor(criticalRoll);
-        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0);
+        var warcryTriggers = !attack ? null : MeleeWarcryTriggersFor(criticalRoll);
+        int otherWarcries = (seismicExerted ? 1 : 0) + (ancestralTargets > 0 ? 1 : 0) + (warcryTriggers?.Count ?? 0) + extraOtherWarcries;
         // Discharge: the charges it spends are counted as the use starts; with none it deals nothing.
         if (hitPlan.SpendsCharges) discharge ??= new(RemovableCharges(player));
         if (discharge is not null && discharge.Total == 0)
@@ -3482,7 +3483,7 @@ public static partial class Game
             if (stormPeriod is double interval && strikeIndex == 0)
                 CreateBladestormLocked(player, gem, admittedGem, hand, weapon, offCritical, from, to, interval,
                     sequence, now, radiusMore * chargeRadius, damageMore * hitAndAilmentMore, ruthless, cryExerted,
-                    rallyingDamage);
+                    rallyingDamage, otherWarcries);
             if (swordstorm && retainedAttack is null)
             {
                 ScheduleSwordstormLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
@@ -3538,8 +3539,8 @@ public static partial class Game
             }
             if (retainedAttack is null && strikeIndex == 0 && effectId == "VolcanicFissureAltX" && areaAction is { } fissureAction)
             {
-                var source = CaptureAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
-                    damageMore, damageMore, "fissure");
+                var source = CaptureExertedAreaAttack(player, skillId, admittedGem, hand, weapon, offCritical,
+                    damageMore, damageMore, "fissure", cryExerted == true, otherWarcries, rallyingDamage);
                 ScheduleSnakingFissureLocked(player, skillId, gem, source, from, to, now, fissureAction,
                     sequence, repeat, radiusMore * chargeRadius, criticalRoll, ruthless, cryExerted == true, seismicExerted, rallyingDamage);
                 return;
@@ -4019,8 +4020,8 @@ public static partial class Game
                                 Raw = offInputs.Raw.Add(DamageType.Chaos, new(added, added)),
                             };
                         }
-                        int totalExertWarcries = spell ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
-                        long exertedIncreased = spell ? 0 : ExertedAttackIncreasedDamage(playerStats, skillStats,
+                        int totalExertWarcries = !attack ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                        long exertedIncreased = !attack ? 0 : ExertedAttackIncreasedDamage(playerStats, skillStats,
                             totalExertWarcries, seismicExerted, ancestralTargets > 0);
                         long additionalIncreased = PlayerHitDamage.VsBlindedDamageStat is var key
                             ? (long)playerStats.GetValueOrDefault(key) + admittedGem.Stats.GetValueOrDefault(key) : 0;
@@ -4040,7 +4041,8 @@ public static partial class Game
                         sweepProfile = Profile(exertedIncreased);
                         double targetEffectiveness = AddedEffectiveness(player, admittedGem.Effect, admittedGem.Level);
                         sweepSpider = CaptureSpiderDamage(player, capturedInputs, targetEffectiveness, context: true, local: local,
-                            bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources));
+                            bow: false, offHand: hand == AttackHand.Off, required: HasLocalTargetDamage(bothOff?.LocalSources),
+                            extraIncreased: exertedIncreased);
                         if (sweepSpider is not null && !spell && shield is null)
                         {
                             if (hand != AttackHand.Off)
@@ -4049,7 +4051,8 @@ public static partial class Game
                                 (_, dualWieldMore) = HandDamageMore(player, admittedGem.Stats);
                             if (offInputs is not null)
                                 sweepOffSpider = CaptureSpiderDamage(player, offInputs, targetEffectiveness, context: true,
-                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true);
+                                    local: OffhandWeaponFor(player)?.LocalSources, bow: false, offHand: true, required: true,
+                                    extraIncreased: exertedIncreased);
                         }
                         if (additionalIncreased != 0) blindedProfile = Profile(exertedIncreased + additionalIncreased);
                         pen = Penetration.Of(playerStats, Stats, attack: !spell, skillStats, local);
@@ -4058,8 +4061,8 @@ public static partial class Game
                             + flurryBonus.CriticalMultiplier;
                         if (!spell)
                         {
-                            long exertedAcc = ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats);
-                            accuracy = retainedAttack is not null && exertedAcc == 0
+                            long exertedAcc = !attack ? 0 : ExertedAttackAccuracyIncrease(totalExertWarcries, playerStats, skillStats);
+                            accuracy = retainedAttack is not null
                                 ? retainedAttack.Accuracy
                                 : SupportedAccuracy(player, skillId, hand, exertedAcc);
                         }
@@ -4148,7 +4151,7 @@ public static partial class Game
                             Poison = RepeatAilment(profile.Poison, repeatMore),
                         };
                     }
-                    double overexertionMore = spell ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
+                    double overexertionMore = !attack ? 1 : ExertedAttackMore(skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
                     if (overexertionMore != 1)
                         profile = profile with
                         {
@@ -4225,7 +4228,7 @@ public static partial class Game
                     {
                         DamageExtraRolls = hitRolls.DamageExtraRolls < 0 ? 0 : Math.Max(hitRolls.DamageExtraRolls, extraArcRolls)
                     };
-                    int hitExertWarcries = spell ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
+                    int hitExertWarcries = !attack ? 0 : (cryExerted == true ? 1 : 0) + otherWarcries + (rallyingDamage.HasValue ? 1 : 0);
                     var damageRoll = WithExertedAttackRollModifiers((hitRolls with { DamageMorePct = 0 })
                         .ForSkill(Stat, spell, finalRepeat: repeat == SpellRepeats(player, skillId, gem.Effect),
                             intelligence: player.Pools.Intelligence), cryExerted == true, hitExertWarcries, playerStats, skillStats).ForWeapon(weaponLocal);
@@ -4245,11 +4248,11 @@ public static partial class Game
                         rolled = rolled.Add(DamageType.Fire, new(flameFire, flameFire));
                         m.HallowingFlameUntil = 0;
                     }
-                    if (!spell)
+                    if (attack)
                         rolled = WithExertedAttackDamage(rolled, skillStats, cryExerted == true, otherWarcries, rallyingDamage, playerStats);
-                    int exertedCritBonus = spell ? 0 : ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats);
+                    int exertedCritBonus = !attack ? 0 : ExertedAttackBonusCritPermyriad(hitExertWarcries, playerStats, skillStats);
                     // The shared roll meets each target's current chance: a source can change between targets.
-                    if (!linkedSource && retainedAttack is { } source && exertedCritBonus == 0)
+                    if (!linkedSource && retainedAttack is { } source)
                     {
                         int capturedChance = CriticalChanceOn(player, id, source.CriticalChance, source.CriticalVsBlind, source.CriticalVsGround);
                         critical = RollCriticalStrike(player, capturedChance, skillStats, attack: true, skillRoll: criticalRoll, playerStats: playerStats)

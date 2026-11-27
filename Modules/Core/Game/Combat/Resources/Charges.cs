@@ -403,7 +403,8 @@ public static partial class Game
             // A triggered warcry has no cast windup. Ordinary casts still release on the area clock.
             while (!triggered && !player.Closed && AreaTime(player) < until) await AreaDelay(player, 0.016);
             if (!player.ProjectileActive(epoch) || player.PlayerLife == 0) return;
-            double taunt = TauntSeconds(Player);
+            int Combined(uint key) => ActorScale.Saturate((long)Player(key) + Own(key));
+            double taunt = TauntSeconds(Combined);
             int radius = SkillRadius(player, WarcryRadius, own, spell: false, effect);
             double now = AreaTime(player);
             var here = player.Walk.Position(now);

@@ -39,7 +39,8 @@ public static partial class Game
         double chargeBonus = spirals ? Get(Stat.HolyHammersDamagePlusPctFinalPerPowerChargeConsumed) * (double)spent
             : spent > 0 ? Get(Stat.HolyHammersDamagePlusPctFinalIfConsumingPowerCharge) : 0;
         double more = damageMore * Math.Max(0, 1 + chargeBonus / 100);
-        var source = CaptureAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "hammer");
+        var source = CaptureExertedAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "hammer",
+            exerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
         double firstFactor = spirals ? 1 : Math.Max(0, 1 + Get(Stat.HolyHammersDamagePlusPctFinalForInitialHammerInCascade) / 100d);
         var first = source with { HitMore = more * firstFactor, AilmentMore = more * firstFactor };
         int cascades = Math.Max(0, Get(Stat.HolyHammersMaximumNumberOfHammerslamCascades));

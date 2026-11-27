@@ -67,7 +67,8 @@ public static partial class Game
         if (steps.Length == 0) return;
 
         double more = damageMore * (sand ? 1 : PerforateBloodDamageMore(StatValue));
-        var source = CaptureAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "spike");
+        var source = CaptureExertedAreaAttack(player, gem.Id, admitted, hand, weapon, offCritical, more, more, "spike",
+            exerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
         HashSet<uint>? struck = sand ? [] : null;
         bool Active() => session.Active && player.PlayerLife > 0;
         long start = Math.Max(session.Runtime.Now, ProjectileRuntime.Time(now));

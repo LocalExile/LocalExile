@@ -264,7 +264,7 @@ public static partial class Game
         int nearbyTotems = rallying ? NearbyRallyingTotems(player, at, radius) : 0;
         int affectedAllies = rallying ? nearbyPlayers.Length + nearbyTotems + player.Area.Monsters.Values.Count(ally =>
             !ally.Hostile && !ally.Dead && ally.Life > 0 && RallyingCryAlly(ally) && Dist(ally.Walk.Position(now), at) <= radius) : 0;
-        int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length, nearbyTotems);
+        int power = WarcryPowerAt(player, at, radius, now, effectId, playerStats, nearbyPlayers.Length, nearbyTotems, own);
         bool givesSelf = playerStats.GetValueOrDefault(Stat.KeystoneCallToArms) == 0;
         if (row == EnduringCryBuffRow)
         {
@@ -355,21 +355,24 @@ public static partial class Game
     }
 
     static int WarcryPowerAt(Player player, (int X, int Y) at, int radius, double now, string effectId,
-        IReadOnlyDictionary<uint, int> stats, int nearbyAllies, int nearbyTotems = 0)
+        IReadOnlyDictionary<uint, int> stats, int nearbyAllies, int nearbyTotems = 0,
+        IReadOnlyDictionary<uint, int>? own = null)
     {
-        if (stats.GetValueOrDefault(Stat.WarcriesHaveInfinitePower) != 0) return InfiniteWarcryPower;
-        int minimum = stats.GetValueOrDefault(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
+        int Get(uint key) => own is null ? stats.GetValueOrDefault(key)
+            : ActorScale.Saturate((long)stats.GetValueOrDefault(key) + own.GetValueOrDefault(key));
+        if (Get(Stat.WarcriesHaveInfinitePower) != 0) return InfiniteWarcryPower;
+        int minimum = Get(Stat.WarcriesHaveMinimum10Power) != 0 ? 10 : 0;
         minimum = Math.Max(minimum, effectId switch
         {
-            "AncestralCry" => stats.GetValueOrDefault(Stat.AncestralCryMinimumPower),
-            "SeismicCry" => stats.GetValueOrDefault(Stat.SeismicCryMinimumPower),
+            "AncestralCry" => Get(Stat.AncestralCryMinimumPower),
+            "SeismicCry" => Get(Stat.SeismicCryMinimumPower),
             _ => 0
         });
         bool rallying = effectId == "RallyingCry";
         long nearby = player.Area.Monsters.Values.Where(m => !m.Dead && m.Life > 0
             && (m.Hostile || rallying && RallyingCryAlly(m)) && Dist(m.Walk.Position(now), at) <= radius).Sum(m => (long)WarcryPower(m.Rarity));
         if (rallying) nearby += 5L * nearbyAllies + nearbyTotems;
-        return Math.Max(minimum, ActorScale.Saturate(nearby * (100L + stats.GetValueOrDefault(Stat.WarcryMonsterPowerPlusPct)) / 100));
+        return Math.Max(minimum, ActorScale.Saturate(nearby * (100L + Get(Stat.WarcryMonsterPowerPlusPct)) / 100));
     }
 
     public static Task WarcryReleased(Player player, (int X, int Y) at, int radius, int epoch) =>

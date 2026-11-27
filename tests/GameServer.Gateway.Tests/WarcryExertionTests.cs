@@ -638,6 +638,7 @@ public sealed class WarcryExertionTests
         var cryOwn = Game.SupportedSkill(player, cry.Id).Stats;
         Assert.Equal(6, cryOwn[Stat.SkillEmpowersNextXMeleeAttacks]);
 
+        bool spiderConditional = false;
         using var stats = GameEvents.PlayerStatSources.Add("Game", (owner, values) =>
         {
             if (ReferenceEquals(owner, player))
@@ -649,6 +650,7 @@ public sealed class WarcryExertionTests
                 values[Stat.WarcryEmpowersNextXMeleeAttacks] = 1; // Measured Fury (+1 exerted attack)
                 values[Stat.EmpoweredAttackDamagePlusPct] = 100; // +100% increased exerted attack damage
                 values[Stat.EmpoweredAttackDamagePlusPctFinal] = 50; // +50% more exerted attack damage
+                if (spiderConditional) values[Stat.HitAndAilmentDamagePlusPctVsEnemiesAffectedByAtLeast3SpidersWebs] = 25;
             }
             return values;
         });
@@ -684,8 +686,13 @@ public sealed class WarcryExertionTests
             Assert.True(exerted > unexerted * 2.5, $"Expected exerted damage ({exerted}) to reflect +100% increased and +50% more over {unexerted}.");
             Assert.Equal((ushort)6, player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2)!.Stacks);
 
-            // Spend the remaining 6 exerts and confirm the HUD buff clears at 0.
-            for (int i = 0; i < 6; i++) Assert.True(await SlamDamage() > unexerted * 2.5);
+            // Spend the remaining 6 exerts (including with conditional SpiderDamage active) and confirm HUD buff clears at 0.
+            spiderConditional = true;
+            uint exertedWithSpider = await SlamDamage();
+            Assert.True(exertedWithSpider > unexerted * 2.5,
+                $"Expected exerted damage with conditional SpiderDamage ({exertedWithSpider}) to keep +100% increased and +50% more over {unexerted}.");
+            spiderConditional = false;
+            for (int i = 0; i < 5; i++) Assert.True(await SlamDamage() > unexerted * 2.5);
             Assert.Null(player.Area.Buffs.Get(player.Id, Game.EmpoweredAttacksBuffRow, player.Id, tag: 2));
             Assert.Equal(unexerted, await SlamDamage());
 

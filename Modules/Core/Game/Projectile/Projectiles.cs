@@ -967,11 +967,12 @@ public static partial class Game
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             // One stat build per contact: every input below reads the same owner state (about 120 µs per build).
             var player = shot.ActualCaster ?? CharacterPlayerStats(Player);
-            int shotExertWarcries = shot.Spell ? 0 : (shot.IntimidatingCryExerted ? 1 : 0) + shot.OtherWarcryExertions + (shot.RallyingDamage.HasValue ? 1 : 0);
+            bool exertedAttack = shot.DirectAttackContact && !shot.Mirage;
+            int shotExertWarcries = !exertedAttack ? 0 : (shot.IntimidatingCryExerted ? 1 : 0) + shot.OtherWarcryExertions + (shot.RallyingDamage.HasValue ? 1 : 0);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
             double elementalMore = shot.DamageMorePerElementalAilment == 0 ? 1
                 : ElementalHitDamageMore(shot.DamageMorePerElementalAilment, ElementalHitAilmentsOn(target, at));
-            double ailmentMore = chainsMore * returnMore * elementalMore * (shot.Spell ? 1
+            double ailmentMore = chainsMore * returnMore * elementalMore * (!exertedAttack ? 1
                 : ExertedAttackMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player));
             if (ailmentMore != 1)
                 shot = shot with
@@ -1002,7 +1003,7 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            if (!shot.Spell)
+            if (exertedAttack)
                 rolled = WithExertedAttackDamage(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions, shot.RallyingDamage, player);
             bool secondForm = contact.Projectile.Form > 0;
             var formCrit = secondForm ? shot.SecondFormOptions : null;

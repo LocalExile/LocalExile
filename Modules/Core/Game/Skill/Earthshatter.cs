@@ -161,7 +161,8 @@ public static partial class Game
         double More(uint key) => Math.Max(0, 1 + AreaStat(key) / 100d);
         double fissureMore = More(Stat.SpikeSlamFissureDamagePlusPctFinal) * damageMore;
         double spikeMore = More(Stat.SpikeSlamExplosionDamagePlusPctFinal) * More(Stat.SpikeSlamSpikeDamagePlusPctFinal) * damageMore;
-        var fissureSource = CaptureAreaAttack(player, skillId, admitted, hand, weapon, offCritical, fissureMore, fissureMore, "fissure");
+        var fissureSource = CaptureExertedAreaAttack(player, skillId, admitted, hand, weapon, offCritical, fissureMore, fissureMore, "fissure",
+            exerted, (seismicExerted ? 1 : 0) + (MeleeWarcryTriggersFor(critical)?.Count ?? 0), rallyingDamage);
         var attack = new EarthshatterAttack(session, gem, sequence, critical, ruthless, exerted, seismicExerted, rallyingDamage, fissureSource,
             fissureSource with { HitMore = spikeMore, AilmentMore = spikeMore, Phase = "spike" });
         int capacity = AreaStat(Stat.SpikeSlamMaxSpikes);

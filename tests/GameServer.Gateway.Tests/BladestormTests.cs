@@ -157,18 +157,21 @@ public sealed class BladestormTests
         using var fixture = new TriggeredSummonTests.Fixture(clock);
         var player = fixture.Player;
         EquipWeapon(fixture, clock.At);
+        bool nonExertedZero = false;
         using var sources = GameEvents.PlayerStatSources.Add("Game", (owner, stats) =>
         {
             if (!ReferenceEquals(owner, player)) return stats;
             stats[Stat.GlobalAlwaysHit] = 1;
             stats[Stat.GlobalCannotCrit] = 1;
             stats[Stat.AttackMinimumAddedPhysicalDamage] = stats[Stat.AttackMaximumAddedPhysicalDamage] = 200;
+            if (nonExertedZero) stats[Stat.NonExertedAttacksDealNoDamage] = 1;
             return stats;
         });
-        fixture.Equip(("Bladestorm", 1), ("Overexertion Support", 1), ("Rallying Cry", 1));
+        fixture.Equip(("Bladestorm", 1), ("Overexertion Support", 1), ("Rallying Cry", 1), ("Infernal Cry", 1));
         var effects = Game.GemSkillEffects(player);
         ushort skill = effects.Single(g => g.Name == "Bladestorm").Id;
         ushort cry = effects.Single(g => g.Name == "Rallying Cry").Id;
+        ushort infernalCry = effects.Single(g => Program.Skills.EffectId(g.Effect) == "InfernalCry").Id;
 
         // Bladestorm projects in_sand_stance onto its skill stats for the native action (0x141b5ea30).
         player.Stance = StanceCatalog.BloodSelection;
@@ -213,6 +216,17 @@ public sealed class BladestormTests
             uint exertedPulse = exertedStormTarget.MaxLife - exertedStormTarget.Life;
             Assert.InRange(exertedSpin / (double)plainSpin, 1.28, 1.32);
             Assert.InRange(exertedPulse / (double)plainPulse, 1.28, 1.32);
+
+            // Infernal Cry exertion count must also survive into storm pulses (even under NonExertedAttacksDealNoDamage).
+            Step(4.0);
+            nonExertedZero = true;
+            Game.GrantInfernalCryExertsLocked(player, infernalCry, Game.SupportedSkill(player, infernalCry).Stats,
+                new Dictionary<uint, int>());
+            Assert.True(await Game.CastGemSkill(player, skill, (100, 100), (112, 100)));
+            var infernalStormTarget = AddTarget(914, (108, 100));
+            Step(period + 0.05);
+            Assert.True(infernalStormTarget.MaxLife - infernalStormTarget.Life > 0,
+                "Expected Infernal Cry-exerted Bladestorm storm pulse to deal damage under NonExertedAttacksDealNoDamage.");
         }
         finally { Game.AreaUpdateContext.Value = previous; }
 
