@@ -3299,6 +3299,14 @@ public static partial class Game
                 ScheduleGlacialShieldSwipeLocked(player, gem, admittedGem, criticalRoll, to, sequence, now, radius, damageMore, ruthless);
                 return;
             }
+            if (areaAction == EviscerateAction && retainedAttack is null)
+            {
+                int width = (int)Math.Round(SkillSecondaryRadius(player, areaStats, spell: false, gem.Effect)
+                    * radiusMore * chargeRadius);
+                ScheduleEviscerateLocked(player, gem, admittedGem, weapon, criticalRoll, to, sequence, now,
+                    radius, width, damageMore, ruthless);
+                return;
+            }
             if (retainedAttack is null && strikeIndex == 0 && areaAction == HolyHammersAction)
             {
                 ScheduleHolyHammersLocked(player, gem, admittedGem, from, to, sequence, repeat, hand, weapon, offCritical,

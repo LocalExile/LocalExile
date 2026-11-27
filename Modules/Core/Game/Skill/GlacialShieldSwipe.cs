@@ -49,19 +49,7 @@ public static partial class Game
                 if (forward * SwipeSin < Math.Abs(across) * SwipeCos || !MeleeArcSight(player, origin, at)) continue;
                 (targets ??= []).Add(id);
             }
-            if (targets is not null)
-            {
-                var hit = AreaSkillHitStrike(player, gem.Id, gem, origin, origin, immediate: true, sequence,
-                    actionToken: null, cooldownUse: null, melee: true, damageMore: 1, excludeMonster: 0,
-                    criticalRoll: critical, channelGeneration: null, targetId: 0, repeat: 0, radiusOverride: radius,
-                    once: seen, repeatDelay: 0, radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: Current,
-                    discharge: null, strikeIndex: 0, firstContactAt: null, ruthlessMore: ruthless, priorTargets: null,
-                    scaledBlastChaos: 0, singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted: false,
-                    prepaidRawExtra: 0, baseChaos: 0, hammer: null, retainedAttack: attack, allowMeleeSplash: false,
-                    contactTargets: targets);
-                if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled Glacial Shield Swipe contact must not yield.");
-                hit.GetAwaiter().GetResult();
-            }
+            HitRetaliationWaveLocked(player, gem, origin, sequence, radius, critical, ruthless, session, Current, attack, seen, targets);
             if (step < GlacialShieldSwipeSteps) Schedule(step + 1);
         });
     }

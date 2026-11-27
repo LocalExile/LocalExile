@@ -5,7 +5,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class RetaliationTests
 {
-    sealed class LowRolls : Random
+    internal sealed class LowRolls : Random
     {
         public override double NextDouble() => 0;
     }
@@ -100,6 +100,7 @@ public sealed class RetaliationTests
         try
         {
             Game.CharacterPlayerStats(player);
+            player.IncomingHitRandom = new LowRolls();
             player.Pools = player.Pools with { SpellBlockChance = 100 };
             Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 1,
                 block: true, spell: true, suppress: false, out var block));

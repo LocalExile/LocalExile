@@ -70,6 +70,24 @@ public static partial class Game
 
     static bool IsSwordstorm(string? effect) => effect == "Swordstorm";
 
+    static void HitRetaliationWaveLocked(Player player,
+        (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, (int X, int Y) origin,
+        ushort sequence, int radius, SkillCriticalRoll critical, double ruthless, ProjectileSession session, Func<bool> current,
+        RetainedAreaAttack attack, HashSet<uint> seen, List<uint>? targets)
+    {
+        if (targets is null) return;
+        var hit = AreaSkillHitStrike(player, gem.Id, gem, origin, origin, immediate: true, sequence,
+            actionToken: null, cooldownUse: null, melee: true, damageMore: 1, excludeMonster: 0,
+            criticalRoll: critical, channelGeneration: null, targetId: 0, repeat: 0, radiusOverride: radius,
+            once: seen, repeatDelay: 0, radiusMore: 1, sacrifice: null, swingAt: null, triggeredCurrent: current,
+            discharge: null, strikeIndex: 0, firstContactAt: null, ruthlessMore: ruthless, priorTargets: null,
+            scaledBlastChaos: 0, singleStrikeTarget: null, onHit: null, scheduledSession: session, cryExerted: false,
+            prepaidRawExtra: 0, baseChaos: 0, hammer: null, retainedAttack: attack, allowMeleeSplash: false,
+            contactTargets: targets);
+        if (!hit.IsCompleted) throw new InvalidOperationException("Scheduled retaliation contact must not yield.");
+        hit.GetAwaiter().GetResult();
+    }
+
     static void ScheduleSwordstormLocked(Player player,
         (ushort Id, int Effect, string Name, int Level, int Quality, uint Gem) gem, SupportedGem source,
         SkillCatalog.Unarmed weapon, SkillCriticalRoll critical, (int X, int Y) aim, ushort sequence,

@@ -31,6 +31,7 @@ public sealed class GlacialShieldSwipeTests
         try
         {
             Game.CharacterPlayerStats(player);
+            player.IncomingHitRandom = new RetaliationTests.LowRolls();
             player.Pools = player.Pools with { SpellBlockChance = 100 };
             Assert.True(Game.TrySyntheticEnemyHit(player, DamageType.Physical, 1,
                 block: true, spell: true, suppress: false, out var block));
