@@ -27,6 +27,7 @@ public sealed class AbyssModule : IModule
             return Task.CompletedTask;
         });
         GameEvents.PlayerEntered.Add(id, _encounter.Entered);
+        GameEvents.PlayerLeaving.Add(id, (player, _) => _encounter.KeepBodies(player));
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, seconds) =>
             _encounter.Of(player) is null ? Task.CompletedTask : _encounter.Advance(player, seconds)));
         GameEvents.Kill.Add(id, _encounter.Killed);

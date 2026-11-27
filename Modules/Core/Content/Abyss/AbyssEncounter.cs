@@ -137,15 +137,36 @@ public sealed partial class AbyssEncounter
     static long Version(State s) => HashCode.Combine(s.Stage, s.Pit, s.Chest, s.ChestOpened,
         s.Bodies.Count, s.WaveSpawned, s.Souls, s.Arms.Sum(a => a.Pieces.Sum(p => (long)p.Id + p.State)));
 
+    public Task KeepBodies(Player player)
+    {
+        double now = AreaTime(player);
+        foreach (var state in AllOf(player))
+        {
+            bool changed = false;
+            for (int i = 0; i < state.Bodies.Count; i++)
+            {
+                var body = state.Bodies[i];
+                if (!player.Area.Monsters.TryGetValue(body.Id, out var monster) || monster.Dead) continue;
+                var at = monster.Walk.Position(now);
+                if (at != (body.X, body.Y)) { state.Bodies[i] = body with { X = at.X, Y = at.Y }; changed = true; }
+            }
+            if (changed) Save(player, state);
+        }
+        return Task.CompletedTask;
+    }
+
     static void Rebind(Player player, State state)
     {
+        var used = state.Bodies.Where(b => player.Area.Monsters.ContainsKey(b.Id) || player.Area.DormantMonsters.ContainsKey(b.Id))
+            .Select(b => b.Id).ToHashSet();
         for (int i = 0; i < state.Bodies.Count; i++)
         {
             var body = state.Bodies[i];
             if (player.Area.Monsters.ContainsKey(body.Id) || player.Area.DormantMonsters.ContainsKey(body.Id)) continue;
-            var restored = player.Area.Monsters.FirstOrDefault(p => p.Value.Variety?.Id == body.Path && !p.Value.Dead
+            var restored = player.Area.Monsters.FirstOrDefault(p => !used.Contains(p.Key) && p.Value.Variety?.Id == body.Path && !p.Value.Dead
                 && Distance(p.Value.Walk.Position(AreaTime(player)), (body.X, body.Y)) <= 3);
             if (restored.Value is null) continue;
+            used.Add(restored.Key);
             var ids = body.Wave ? state.WaveMonsters : state.ArmMonsters;
             int at = ids.IndexOf(body.Id); if (at >= 0) ids[at] = restored.Key;
             state.Bodies[i] = body with { Id = restored.Key };
@@ -158,7 +179,9 @@ public sealed partial class AbyssEncounter
             || (stats.GetValueOrDefault(Stat.MapDisableLeagues) & (1 << AbyssTables.LeagueRow)) != 0) return 0;
         int extra = Math.Max(0, stats.GetValueOrDefault(Stat.MapNumExtraAbysses));
         natural |= stats.GetValueOrDefault(Stat.MapContainsAbyssDepths) > 0;
-        return Math.Min(21, natural ? 1 + 2 * extra : extra > 0 ? 2 * extra - 1 : 0);
+        int count = natural ? 1 + 2 * extra : extra > 0 ? 2 * extra - 1 : 0;
+        if (count == 1 && stats.GetValueOrDefault(Stat.MapAbyssesCanSpawnCrystals) > 0) count = 2;
+        return Math.Min(21, count);
     }
 
     static bool Current(Player player) => player.Connection.PlayerSent && !player.LeavingArea && !player.Closed;
@@ -305,7 +328,7 @@ public sealed partial class AbyssEncounter
         {
             await Sync(player, state);
             if (state.DepthEntrance != 0) await ShowDepthEntrance(player, state);
-            if (state.Crystal != 0) await AbyssScarabs.ShowCrystal(player, state.Crystal, state.PitCell);
+            if (state.Crystal != 0 && !player.Area.Objects.Has(state.Crystal)) await AbyssScarabs.ShowCrystal(player, state.Crystal, state.PitCell);
         }
         finally { state.Gate.Release(); }
         }

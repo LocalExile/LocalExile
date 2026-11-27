@@ -14,7 +14,8 @@ public sealed partial class AbyssEncounter
         foreach (var member in player.Instance.PlayersExcept(player.Id).Prepend(player).Distinct())
             if (!member.Layout.AreaTransitions.Any(t => t.Id == state.DepthEntrance))
                 member.AddAreaTransition(state.DepthEntrance, gate);
-        await Create(player, state.DepthEntrance, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths entrance");
+        if (!player.Area.Objects.Has(state.DepthEntrance))
+            await Create(player, state.DepthEntrance, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths entrance");
     }
 
     static async Task EnterDepthReturn(Player player)
@@ -27,7 +28,8 @@ public sealed partial class AbyssEncounter
         var cell = player.Layout.Near((player.Layout.SpawnX + 6, player.Layout.SpawnY));
         var gate = new AreaTransitionObject(cell.X, cell.Y, parent.Area) { Kind = 3 };
         player.AddAreaTransition(id, gate);
-        await Create(player, id, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths return");
+        if (!player.Area.Objects.Has(id))
+            await Create(player, id, AreaTransitionObject.MetadataPath, gate.Blob(), "Abyssal Depths return");
     }
 
     async Task<bool> UseDepth(Player player, InstanceTransfer.UseSkillOnObject use, double requestedAt)
