@@ -111,6 +111,22 @@ public sealed class ItemCatalogueTests
         Assert.Contains("\"CustomName\":\"Mirrored Edge\"", customNamedJson);
         Assert.DoesNotContain("CustomName", JsonSerializer.Serialize(CharacterSaves.ToSaved(state, items.Mods)));
         Assert.Equal("Mirrored Edge", CharacterSaves.FromSaved(JsonSerializer.Deserialize<CharacterSaves.SavedItem>(customNamedJson)!, items).CustomName);
+        TestEnvironment.OpenOwnSaves("custom-name-roundtrip");
+        try
+        {
+            var savedCustom = CharacterSaves.ToSaved(customNamed, items.Mods);
+            CharacterSaves.Write("CustomNameTester", new CharacterSaves.Save(new Dictionary<byte, List<CharacterSaves.SavedPlacement>>
+            {
+                [1] = [new CharacterSaves.SavedPlacement(1, 0, 0, savedCustom)],
+            }));
+            var reloaded = CharacterSaves.Load("CustomNameTester");
+            Assert.NotNull(reloaded);
+            Assert.Equal("Mirrored Edge", CharacterSaves.FromSaved(reloaded!.Inventories[1][0].Item, items).CustomName);
+        }
+        finally
+        {
+            TestEnvironment.ReleaseOwnSaves();
+        }
         Assert.Contains("boots_shaper", rolls.TagsWith(boots, ItemInfluence.Shaper));
         Assert.Equal(rolls.Pool(boots, 86, ItemInfluence.Shaper), rolls.Pool(boots, state));
         Assert.True(rolls.Pool(boots, state).Count > rolls.Pool(boots, 86).Count);
