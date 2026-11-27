@@ -162,7 +162,8 @@ public static partial class Game
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
+                state.PendingLevelBefore ??= before;
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player); TrimLeechLocked(player);
                 state.StatRevision++; state.AccountRevision++;
@@ -390,7 +391,15 @@ public static partial class Game
         }
         await SendSentinelOwnership(player, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
-        if (!HardcoreProgressBlocked(player)) await BroadcastLevelChange(player, player.Pools.Level);
+        if (!HardcoreProgressBlocked(player))
+        {
+            await BroadcastLevelChange(player, player.Pools.Level);
+            if (state.PendingLevelBefore is int prev)
+            {
+                state.PendingLevelBefore = null;
+                await GameEvents.RunLevelUp(player, prev, player.Pools.Level);
+            }
+        }
         if (!Current()) return;
         await SynchronizeAccountLevel(player);
         if (Current() && !player.Closed && !player.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);

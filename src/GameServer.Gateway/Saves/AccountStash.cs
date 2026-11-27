@@ -131,6 +131,18 @@ public sealed partial class AccountStash
     /// data doesn't know stops the load (<see cref="UnknownSavedItemException"/>) and the save stays as it is.</summary>
     public static AccountStash For(string account, ItemCatalog catalog) => Create(account, catalog, FirstInventoryId, FirstItemId, StarterTabs);
 
+    /// <summary>Shared league-wide storage key for <see cref="IPlayerWorld.LeagueData"/> (across all accounts in the league).</summary>
+    public static string LeagueKey(string? league)
+    {
+        string normalized = string.IsNullOrWhiteSpace(league) ? GameServer.Core.Accounts.LeagueCatalog.Standard : league.Trim();
+        return "league:" + normalized;
+    }
+
+    /// <summary>Shared league-wide module data container persisted in <c>characters.db</c>, shared across all accounts
+    /// and characters playing in <paramref name="league"/>.</summary>
+    public static AccountStash ForLeague(string? league, ItemCatalog catalog) =>
+        Create(LeagueKey(league), catalog, FirstInventoryId, FirstItemId, []);
+
     /// <summary>The guild stash of the account (no guilds yet: each account is its own guild), scoped to the full league.
     /// Standard retains the legacy "guild:&lt;account&gt;" key. SSF never opens or creates a guild stash.</summary>
     public static AccountStash ForGuild(string account, ItemCatalog catalog, string? league = null, bool solo = false) =>
@@ -349,6 +361,11 @@ public sealed partial class AccountStash
 
     public int Count { get { lock (_lock) return _tabs.Count; } }
 
+    public bool AnyOwnedItem(Func<Item, bool> match)
+    {
+        lock (_lock) return _tabs.Any(tab => tab.Items.Any(item => match(item.Item)));
+    }
+
     /// <summary>The tabs the player sees, in folders or not. A map tab's 191 hidden pages are children with a unique
     /// category, so counting <see cref="Count"/> would inflate a 20-tab stash to 211 and refuse every new tab.</summary>
     public int VisibleCount
@@ -396,20 +413,46 @@ public sealed partial class AccountStash
     public uint Gold { get { lock (_lock) return _gold; } }
 
 
-    /// <summary>A module's saved text (IPlayerWorld.AccountData).</summary>
-    public string? ModuleData(string key) { lock (_lock) return _moduleData.GetValueOrDefault(key); }
+    static bool IsInternalModuleKey(string key) =>
+        key is PublicTabsModuleKey or ItemNotesModuleKey or TradeEarningsModuleKey or TradeHistoryModuleKey;
+
+    /// <summary>A module's saved text (IPlayerWorld.AccountData / IPlayerWorld.LeagueData).</summary>
+    public string? ModuleData(string key) { lock (_lock) return IsInternalModuleKey(key) ? null : _moduleData.GetValueOrDefault(key); }
 
     /// <summary>Changes a module's saved text; a null result changes nothing.</summary>
-    public bool ChangeModuleData(string key, Func<string?, string?> change) => Saves.Atomically(() =>
+    public bool ChangeModuleData(string key, Func<string?, string?> change) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
+        {
+            lock (_lock)
+            {
+                if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
+                _moduleData[key] = next;
+            }
+            Persist();
+            return true;
+        });
+
+    /// <summary>Removes a module's saved key atomically; true when the key existed and was removed.</summary>
+    public bool RemoveModuleData(string key) =>
+        !IsInternalModuleKey(key) && Saves.Atomically(() =>
+        {
+            lock (_lock)
+                if (!_moduleData.Remove(key)) return false;
+            Persist();
+            return true;
+        });
+
+    /// <summary>Lists saved module data keys (optionally filtered by ordinal <paramref name="prefix"/>), sorted ordinally.</summary>
+    public IReadOnlyList<string> ModuleDataKeys(string? prefix = null)
     {
         lock (_lock)
         {
-            if (change(_moduleData.GetValueOrDefault(key)) is not { } next) return false;
-            _moduleData[key] = next;
+            IEnumerable<string> keys = _moduleData.Keys.Where(k => !IsInternalModuleKey(k));
+            if (!string.IsNullOrEmpty(prefix))
+                keys = keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal));
+            return [.. keys.OrderBy(k => k, StringComparer.Ordinal)];
         }
-        Persist();
-        return true;
-    });
+    }
 
     /// <summary>The league quest flags saved for the account's characters in this stash's league.</summary>
     public IReadOnlyList<int> LeagueQuestFlags { get { lock (_lock) return [.. _leagueQuestFlags]; } }
@@ -462,6 +505,61 @@ public sealed partial class AccountStash
             _lastTab = tab;
         }
         Persist();
+    }
+
+    /// <summary>The <c>StashTabAffinityId</c> bitmask configured on <paramref name="tab"/>, or 0 if out of range.</summary>
+    public uint AffinitiesOfTab(int tab)
+    {
+        lock (_lock) return tab >= 0 && tab < _tabs.Count ? _tabs[tab].Saved.Affinities : 0u;
+    }
+
+    /// <summary>Finds the first visible non-public tab in panel order whose configured affinities match <paramref name="item"/>
+    /// (including Unique/Map parent tabs), or null when no affinity tab matches.</summary>
+    public int? FindAffinityTab(Item item, Func<Item, PlayerInventories.Shape?>? shapeOf = null)
+    {
+        lock (_lock)
+        {
+            if (_rules.IsQuestItem(item.TypeHash)) return null;
+            uint itemMask = 0;
+            foreach (int affinity in _rules.AffinitiesOf(item.TypeHash))
+                if (affinity is > 0 and < 32) itemMask |= 1u << affinity;
+            if (itemMask == 0) return null;
+
+            int best = -1;
+            int bestPosition = int.MaxValue;
+            for (int i = 0; i < _tabs.Count; i++)
+            {
+                var saved = _tabs[i].Saved;
+                if (saved.Hidden || saved.Public || saved.UniqueCategory != 0 || saved.Type == StashRules.Folder) continue;
+                if ((saved.Affinities & itemMask) == 0) continue;
+
+                // Validate that the tab (or its Unique/Map destination child) can actually hold this item.
+                int dest = i;
+                if (saved.Type == StashRules.Unique)
+                {
+                    dest = UniqueDestination(i, item);
+                    if (dest < 0) continue;
+                }
+                else if (saved.Type == StashRules.Map)
+                {
+                    if (shapeOf is not null)
+                    {
+                        dest = MapDestination(i, item, shapeOf);
+                        if (dest == i || !Holds(dest, item)) continue;
+                    }
+                    else if (MapIdentity(item).Group < 0) continue;
+                }
+                else if (!Holds(i, item)) continue;
+
+                int pos = saved.Position ?? i;
+                if (pos < bestPosition || (pos == bestPosition && i < best))
+                {
+                    best = i;
+                    bestPosition = pos;
+                }
+            }
+            return best >= 0 ? best : null;
+        }
     }
 
     /// <summary>Turns tab affinities on or off (the tab settings' check mark, C→S 0xd3; rows of StashTabAffinityId, up to

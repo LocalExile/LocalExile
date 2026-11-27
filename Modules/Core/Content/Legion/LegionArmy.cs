@@ -90,7 +90,11 @@ static class LegionArmy
         int sergeantChance = Math.Clamp(SergeantRewardChance(data, level) + stats.GetValueOrDefault(Stat.MapLegionSergeantsRewardAdditionalChancePct), 0, 100);
         int general = RollGeneral(data, chosen, level, stats, rng);
         var plans = new FactionPlan[chosen.Count];
-        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level, i == general, rng, sergeantChance);
+        int additional = Math.Max(0, stats.GetValueOrDefault(Stat.MapLegionAdditionalNumberOfSergeants));
+        for (int i = 0; i < plans.Length; i++) plans[i] = Compose(data, chosen[i], level,
+            i == general || stats.GetValueOrDefault(Stat.MapLegionLeagueForceGeneral) > 0,
+            rng, sergeantChance, additional / plans.Length + (i < additional % plans.Length ? 1 : 0),
+            stats.GetValueOrDefault(Stat.MapLegionLeagueForceWarChest) > 0);
         if (Campaign.ContainsKey(areaId)) for (int i = 0; i < plans.Length; i++) plans[i] = plans[i] with { Squads = [.. plans[i].Squads.Select(ScaleCampaign)] };
         return new ArmyPlan(level, plans);
     }
@@ -107,6 +111,9 @@ static class LegionArmy
         if (Campaign.TryGetValue(areaId, out var fixedIds))
             foreach (string id in fixedIds)
                 if (data.Factions.FirstOrDefault(f => f.Id == id) is { } f && chosen.Count < 2) { chosen.Add(f); pool.Remove(f); }
+        if (stats.GetValueOrDefault(Stat.MapLegionContainsMarakethFaction) > 0
+            && pool.FirstOrDefault(f => f.Id == "Maraketh") is { } maraketh && chosen.Count < 2)
+        { chosen.Add(maraketh); pool.Remove(maraketh); }
         while (chosen.Count < 2 && pool.Count > 0)
         {
             // The stat's id is its Stats row + 1 (the Stat.g.cs ids); LegionFactions.StatsKey is the row.
@@ -161,7 +168,8 @@ static class LegionArmy
     ///   that one of its chests (or one extra if it has none) is a War Hoard (the faction's second LegionChestTypes row). The other reading, a roll per chest,
     ///   gives more hoards; the chest's type is one of the faction's two LegionChestTypes.
     /// </summary>
-    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng, int sergeantChance)
+    static FactionPlan Compose(LegionData data, LegionData.Faction faction, int level, bool general, Random rng, int sergeantChance,
+        int additionalSergeants = 0, bool forceHoard = false)
     {
         var squads = new List<Squad>();
         if (FindGroup(data, faction, level) is { } rows)
@@ -170,6 +178,7 @@ static class LegionArmy
                 int tier = rows[count.RankKey].Col0;
                 if (tier == 3 && !general) continue;
                 int n = rng.Next(count.Col2, Math.Max(count.Col2, count.Col3) + 1);
+                if (tier == 2) { n += additionalSergeants; additionalSergeants = 0; }
                 var varieties = data.MonsterVarieties.Where(v => v.Faction == faction.Row && v.RankKey >= 0 && v.RankKey < data.Ranks.Count
                     && data.Ranks[v.RankKey].Col0 == tier && MinLevelOf(data, data.Ranks[v.RankKey].BalanceKey) <= MaxLevel).ToList();
                 if (n <= 0 || varieties.Count == 0) continue;
@@ -188,7 +197,7 @@ static class LegionArmy
         for (int i = 0; i < squads.Count; i++)
             if (squads[i].Tier == 2 && pool.Length > 0)   // the general has none: its drops come from its own rolls
                 squads[i] = squads[i] with { Rewards = [.. Enumerable.Range(0, squads[i].Count).Select(_ => rng.Next(100) < sergeantChance ? RollRewards(pool, 1, rng) : [])] };
-        var chests = PlanChests(data, faction, level, rng);
+        var chests = PlanChests(data, faction, level, rng, forceHoard);
         if (pool.Length > 0)
             for (int i = 0; i < chests.Count; i++)
                 chests[i] = chests[i] with { Rewards = RollRewards(pool, chests[i].WarHoard ? rng.Next(HoardRewardsMin, HoardRewardsMax + 1) : ChestRewards, rng) };
@@ -215,7 +224,7 @@ static class LegionArmy
     /// <summary>The fixed rarity of a tier (the old mapping, kept for a rank row without weights and for a saved plan without rarities): a MonsterRarity value.</summary>
     public static int TierRarity(int tier) => tier switch { 1 => 1, 2 => 2, 3 => 3, _ => 0 };
 
-    static List<ChestPlan> PlanChests(LegionData data, LegionData.Faction faction, int level, Random rng)
+    static List<ChestPlan> PlanChests(LegionData data, LegionData.Faction faction, int level, Random rng, bool forceHoard = false)
     {
         var chests = new List<ChestPlan>();
         var rows = data.ChestCounts.Where(c => c.Faction == faction.Row && c.MinLevel <= level).ToList();
@@ -230,7 +239,7 @@ static class LegionArmy
         if (types.Count == 0) return chests;
         // GUESS: the real game shows chests in nearly every army; the table's col2 is 0, so a roll of 0 would leave an army without one.
         int n = Math.Max(MinChestsPerArmy, rng.Next(main.Col2, Math.Max(main.Col2, main.Col3) + 1));
-        bool hoard = rng.Next(100) < hoardPct;
+        bool hoard = forceHoard || rng.Next(100) < hoardPct;
         int hoardAt = hoard ? rng.Next(n) : -1;
         // A faction has two chest monsters (LegionChestTypes, in row order): the plain chest (MonsterChestKarui1) and the
         // War Hoard (MonsterChestKarui2, the "Epic" one, 3x the life). The War Hoard roll picks the second and uses Tier 1's depth band (35..100%).
