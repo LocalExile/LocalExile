@@ -2,8 +2,10 @@ using GameServer.Core.Protocol.Instance;
 
 static partial class Game
 {
+    const string BloodOfferingEffect = "BloodOffering";
+
     internal static bool MinionUtility(string? effect) => effect is "ConvocationOld" or "Convocation"
-        or "FleshOffering" or "BoneOffering" or "SpiritOffering" or "BloodOffering" or "SignalPrey";
+        or "FleshOffering" or "BoneOffering" or "SpiritOffering" or BloodOfferingEffect or "SignalPrey";
 
     static IEnumerable<GolemState.Golem> UtilityFighters(Player player) =>
         player.Golems.All.Values.Concat(player.Summons.Fighters.Values).Concat(player.Reservations.Fighters.Values)
@@ -81,23 +83,36 @@ static partial class Game
         }
     }
 
+    static GolemState.Golem? LivingOfferingZombie(Player player, SpawnedMonster corpse, bool livingZombies) =>
+        livingZombies && !corpse.Dead && corpse.Life > 0
+        && player.Summons.Fighters.GetValueOrDefault(corpse.ObjectId) is { Definition.Kind: "Zombie" } zombie
+        && ReferenceEquals(zombie.Monster, corpse) && GolemCurrent(player, zombie) ? zombie : null;
+
+    static bool OfferingCorpseUsable(Player player, SpawnedMonster corpse, bool livingZombies, bool minionSkill,
+        bool cannotUseSpectreCorpses) => !corpse.CorpseConsumed && !corpse.Ailments.Shattered
+        && (LivingOfferingZombie(player, corpse, livingZombies) is not null || corpse.Hostile && corpse.Dead
+            && CorpseTypeAllowsUse(corpse, minionSkill, cannotUseSpectreCorpses));
+
+    static SpawnedMonster? FindOfferingCorpse(Player player, (int X, int Y) aim, double now,
+        double radius, bool livingZombies, bool minionSkill, bool cannotUseSpectreCorpses) =>
+        player.Area.Monsters.Values.Where(m => OfferingCorpseUsable(player, m, livingZombies, minionSkill, cannotUseSpectreCorpses)
+            && Dist(m.Walk.Position(now), aim) <= radius)
+            .MinBy(m => Dist(m.Walk.Position(now), aim));
+
     internal static bool StartOfferingLocked(Player player, ushort source, SupportedGem gem, string effect,
-        (int X, int Y) aim, uint target, double now, bool selfCast = false)
+        (int X, int Y) aim, uint target, double now, bool selfCast = false, bool fromPlacement = false,
+        TotemState.Totem? totem = null)
     {
         var playerStats = CharacterPlayerStats(player);
         bool livingZombies = GolemStat(playerStats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0;
-        GolemState.Golem? LivingZombie(SpawnedMonster corpse) => livingZombies && !corpse.Dead && corpse.Life > 0
-            && player.Summons.Fighters.GetValueOrDefault(corpse.ObjectId) is { Definition.Kind: "Zombie" } zombie
-            && ReferenceEquals(zombie.Monster, corpse) && GolemCurrent(player, zombie) ? zombie : null;
-        bool Usable(SpawnedMonster m) => !m.CorpseConsumed && !m.Ailments.Shattered
-            && (LivingZombie(m) is not null || m.Hostile && m.Dead
-                && CorpseTypeAllowsUse(m, minionSkill: SkillsFor(player).HasType(gem.Effect, "Minion"),
-                    cannotUseSpectreCorpses: GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0));
+        bool minionSkill = SkillsFor(player).HasType(gem.Effect, "Minion");
+        bool cannotUseSpectreCorpses = GolemStat(gem.Stats, Stat.CannotUseSpectreCorpses) != 0;
+        bool Usable(SpawnedMonster corpse) => OfferingCorpseUsable(player, corpse, livingZombies, minionSkill, cannotUseSpectreCorpses);
         var first = player.Area.Monsters.GetValueOrDefault(target);
-        if (first is null || !Usable(first)) first = player.Area.Monsters.Values.Where(Usable)
-            .Where(m => Dist(m.Walk.Position(now), aim) <= 15).MinBy(m => Dist(m.Walk.Position(now), aim));
+        if (first is null || !Usable(first)) first = FindOfferingCorpse(player, aim, now, 15, livingZombies,
+            minionSkill, cannotUseSpectreCorpses);
         if (first is null && GolemStat(playerStats, Stat.OfferingSkillsDoNotRequireCorpses) == 0) return false;
-        bool blood = effect == "BloodOffering";
+        bool blood = effect == BloodOfferingEffect;
         var centre = first?.Walk.Position(now) ?? aim;
         var corpses = player.Area.Monsters.Where(p => Usable(p.Value) && Dist(p.Value.Walk.Position(now), centre) <= 15)
             .OrderBy(p => ReferenceEquals(p.Value, first) ? 0 : 1).ThenBy(p => Dist(p.Value.Walk.Position(now), centre))
@@ -106,7 +121,7 @@ static partial class Game
         {
             "FleshOffering" => "flesh",
             "BoneOffering" => "bone",
-            "BloodOffering" => "blood",
+            BloodOfferingEffect => "blood",
             _ => "spirit",
         };
         string dir = kind switch
@@ -124,9 +139,12 @@ static partial class Game
         {
             var corpseAt = corpse.Walk.Position(now);
             corpse.CorpseConsumed = true;
-            NoteCorpseConsumedLocked(player, corpse);
-            player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
-            if (LivingZombie(corpse) is { } zombie)
+            if (totem is null)
+            {
+                NoteCorpseConsumedLocked(player, corpse);
+                player.RecentEvents.Record(StatConditions.ConsumedCorpse, now);
+            }
+            if (LivingOfferingZombie(player, corpse, livingZombies) is { } zombie)
             {
                 GolemDieLocked(player, zombie, now, emitLife: false);
                 RemoveSummonLocked(player, zombie, now);
@@ -169,8 +187,15 @@ static partial class Game
         {
             buff = 850;
             int percent = GolemStat(gem.Stats, Stat.BloodOfferingPctOfLifeToLose);
-            long sacrificed = Math.Min(Math.Max(0L, (long)player.PlayerLife - 1), (long)player.PlayerLife * percent / 100);
-            player.PlayerLife -= (uint)sacrificed;
+            // Traps and mines have one life. A totem sacrifices its own life pool.
+            uint casterLife = totem?.Life ?? (fromPlacement ? 1u : player.PlayerLife);
+            uint sacrificed = (uint)Math.Min(Math.Max(0L, (long)casterLife - 1), (long)casterLife * percent / 100);
+            if (totem is not null && sacrificed > 0)
+            {
+                totem.Life -= sacrificed;
+                player.Area.Life.Set(totem.Id, AreaLife.LifePool, totem.Life);
+            }
+            else if (!fromPlacement && totem is null) player.PlayerLife -= sacrificed;
             double regenPerMinute = sacrificed * GolemStat(gem.Stats, Stat.BloodOfferingPctOfLostLifeToRegenerateAsLifePerSecond)
                 * .6 * (1 + corpses.Length * GolemStat(gem.Stats, Stat.BloodOfferingLifeRegeneratedPlusPctFinalPerCorpse) / 100d);
             Add(Stat.BaseLifeRegenerationRatePerMinute, Stat.BaseLifeRegenerationRatePerMinute,

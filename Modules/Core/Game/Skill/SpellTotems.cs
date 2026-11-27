@@ -18,6 +18,7 @@ public static partial class Game
         && !SkillsFor(player).IsAttack(effect) && !SkillsFor(player).IsTravel(effect)
         && Supports.Of(effect)?.Types.Contains(47) != true
         && (TotemSummon(player, effect) is not null || GolemData.Find(SkillsFor(player).EffectId(effect)) is not null
+            || SkillsFor(player).EffectId(effect) == BloodOfferingEffect
             || CurseCatalog.All.ContainsKey(SkillsFor(player).EffectId(effect) ?? "")
             || (ArcProxyEffect(SkillsFor(player).EffectId(effect)) || IsAbsolutionHitSpell(player, effect) || SpellTotemNova(player, effect)
                 || ShockNovaEffect(SkillsFor(player).EffectId(effect)) || GlacialCascadeEffect(SkillsFor(player).EffectId(effect))
@@ -141,10 +142,11 @@ public static partial class Game
         var source = GemSkillEffects(player).FirstOrDefault(g => g.Id == totem.SkillId);
         return source.Name is not null && source.Effect == totem.Effect && source.Gem == totem.SourceGem
             && SupportedSkill(player, totem.SkillId) is var supported && supported.Host == totem.SourceHost
-            && supported.SourceGem is not null && totem.SourceItem is not null
-            && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem))
-            && (!TotemSources.TryGetValue(totem, out var captured) || SameLinkedSkillSource(captured.Skill, supported)
-                && (captured.Lifetime is null || player.GemSourceLifetimes.IsCurrent(captured.Lifetime)))
+            && (TotemSources.TryGetValue(totem, out var captured)
+                ? SameLinkedSkillSource(captured.Skill, supported)
+                    && (captured.Lifetime is null || player.GemSourceLifetimes.IsCurrent(captured.Lifetime))
+                : supported.SourceGem is not null && totem.SourceItem is not null
+                    && ReferenceEquals(PlayerInventories.GemIdentity(supported.SourceGem), PlayerInventories.GemIdentity(totem.SourceItem)))
             && GemSkillInstanceDisabled(player, totem.Effect, totem.SkillId) is null
             && TotemPathAvailable(player, totem.SkillId, totem.Effect)
             && IsTotemSkill(player, totem.SkillId);
@@ -222,6 +224,38 @@ public static partial class Game
         return (bestId, bestMonster, bestPos);
     }
 
+    static void ScheduleBloodOfferingTotem(Player player, TotemState.Totem totem, double range, double now,
+        WorldRecordBuilder bytes)
+    {
+        var skill = SupportedSkill(player, totem.SkillId);
+        var stats = CharacterPlayerStats(player);
+        var corpse = FindOfferingCorpse(player, totem.At, now, range,
+            GolemStat(stats, Stat.RaisedZombiesAreUsableAsCorpsesWhenAlive) > 0, minionSkill: true,
+            cannotUseSpectreCorpses: GolemStat(skill.Stats, Stat.CannotUseSpectreCorpses) != 0);
+        if (corpse is null && GolemStat(stats, Stat.OfferingSkillsDoNotRequireCorpses) == 0)
+        {
+            totem.NextCast = now + .25;
+            return;
+        }
+        if (TotemCastSeconds(player, totem.SkillId) is not double seconds) return;
+
+        var aim = corpse?.Walk.Position(now) ?? totem.At;
+        uint target = corpse?.ObjectId ?? 0;
+        ushort sequence = ++totem.Sequence;
+        totem.NextCast = now + seconds;
+        bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
+            0x4000, sequence, player.MonsterOrderFlags, targetObjectId: target == 0 ? null : target));
+        var session = ProjectilesFor(player);
+        var lifetime = CombatLifetime;
+        bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+        session.ScheduleContact(Math.Max(session.Runtime.Now, ProjectileRuntime.Time(totem.NextCast)), Current, () =>
+        {
+            double release = ProjectileWorldTime(player);
+            uint currentTarget = player.Area.Monsters.GetValueOrDefault(target) == corpse ? target : 0;
+            StartOfferingLocked(player, totem.SkillId, skill, BloodOfferingEffect, aim, currentTarget, release, totem: totem);
+        });
+    }
+
     static void TickSpellTotemsLocked(Player player, WorldRecordBuilder bytes)
     {
         double now = AreaTime(player);
@@ -245,6 +279,11 @@ public static partial class Game
             double range = TotemTargetRange(player, totem.SkillId);
             var gem = GemSkillEffects(player).First(g => g.Id == totem.SkillId);
             string effect = SkillsFor(player).EffectId(gem.Effect) ?? "";
+            if (effect == BloodOfferingEffect)
+            {
+                ScheduleBloodOfferingTotem(player, totem, range, now, bytes);
+                continue;
+            }
             bool daggerDetonation = effect == BladeBlastDaggerDetonation;
             bool warchief = effect == VaalAncestralWarchiefEffect;
             if (warchief && !VaalWarchiefInRange(player, totem, now)) continue;

@@ -97,7 +97,7 @@ public static partial class Game
     }
 
     static bool PlacedUtilityPayload(string? effect) =>
-        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering"
+        effect is "FleshOffering" or "BoneOffering" or "SpiritOffering" or BloodOfferingEffect
         || IsContagionEffect(effect) || CurseCatalog.All.ContainsKey(effect ?? "");
 
     public static async Task ReleaseTriggeredNonProjectile(Player player, ProjectileSession session, ushort id,
@@ -130,7 +130,7 @@ public static partial class Game
         if (MinionUtility(effect))
         {
             if (effect is "ConvocationOld" or "Convocation") RecallMinionsLocked(player, gem, now);
-            else StartOfferingLocked(player, id, gem, effect, aim, 0, now);
+            else StartOfferingLocked(player, id, gem, effect, aim, 0, now, fromPlacement: fromPlacement);
         }
         else if (CurseCatalog.All.TryGetValue(effect, out var curse))
         {

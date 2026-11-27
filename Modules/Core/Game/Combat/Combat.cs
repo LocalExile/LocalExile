@@ -1739,7 +1739,7 @@ public static partial class Game
         if (gem.Name is not null && IsVaalMinion(SkillsFor(player).EffectId(gem.Effect)))
             return await RepeatSummonCast(player, skillId, recoveryGeneration, Current, false,
                 () => ReleaseVaalMinions(player, skillId, to, Current, targetId));
-        if (gem.Name is not null && MinionUtility(SkillsFor(player).EffectId(gem.Effect)))
+        if (gem.Name is not null && MinionUtility(SkillsFor(player).EffectId(gem.Effect)) && !IsTotemSkill(player, skillId))
             return await CastMinionUtility(player, skillId, to, targetId, recoveryGeneration, Current);
         if (gem.Name is not null && !IsTotemSkill(player, skillId) && GolemData.Find(SkillsFor(player).EffectId(gem.Effect)) is { } golem)
             return await CastGolem(player, skillId, golem, to, recoveryGeneration, Current);
