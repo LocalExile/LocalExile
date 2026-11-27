@@ -897,6 +897,12 @@ public static partial class Game
         AbyssJewels.Count(active, catalog, Stats, sources);
         ApplySocketedGhastlyEyeBonuses(active, catalog, sources);
         ItemStatAliases.Apply(sources);
+        // The Cloak of Tawm'r Isley's identification flag is local in the item data.
+        // Its drops use the same character sources as other equipment loot rules.
+        if (equipment.FirstOrDefault(entry => entry.Row == PlayerInventories.BodyArmour).Item is { } lootArmour
+            && !inactive.Contains(lootArmour.Id) && active.Contains(lootArmour.Item)
+            && ItemModStats.LocalValue(lootArmour.Item, catalog.Mods, Stat.MagicItemsDropIdentified) != 0)
+            sources[Stat.MagicItemsDropIdentified] = 1;
         foreach (uint key in ItemStatAliases.RingFinalStats)
         {
             decimal factor = 1;
