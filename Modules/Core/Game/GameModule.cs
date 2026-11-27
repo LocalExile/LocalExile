@@ -259,6 +259,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
+        GameEvents.ObjectUse.Add(id, Rules.TryUseCustomPortal);
+        GameEvents.PlayerEntered.Add(id, Rules.SpawnCustomReturnPortal);
+        InstanceEvents.InstanceClosing.Add(id, Rules.ReleaseCustomReturnOrigin);
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
