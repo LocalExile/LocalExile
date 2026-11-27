@@ -106,6 +106,10 @@ public sealed class ChargeWorldRuleTests
             poisons.Add(1, 1, 2);
             Check(poisons.Stacks(1), ChargeType.Frenzy);
 
+            poisons.RememberDeath(1);
+            poisons.ClearAtDeath(3);
+            Check(poisons.StacksAtDeath(4), ChargeType.Frenzy); // Delayed hit-kill callback.
+
             Check(3, ChargeType.Power);
             edit("""
                 UPDATE fx_rule_if SET args = '{"at_least":3}'
@@ -114,6 +118,27 @@ public sealed class ChargeWorldRuleTests
             Check(2, ChargeType.Power);
             Check(3, ItemEffectRules.Enabled ? ChargeType.Frenzy : ChargeType.Power);
         });
+    }
+
+    [Fact]
+    public void A_lethal_poison_tick_awards_the_charge_for_the_count_at_death()
+    {
+        using var fixture = new TriggeredSummonTests.Fixture();
+        var target = new SpawnedMonster("poisoned", new(105, 100, 0), 0, 0, 25) { Hostile = true };
+        for (int i = 0; i < 5; i++) target.Poisons.Add(0, 10, 1);
+        // The monster dies at 0.5 seconds. By the time the kill callback runs, all five stacks have expired.
+        Assert.Equal(50, target.Poisons.Advance(2, 1, lifeAtStart: 25));
+        target.Poisons.ClearAtDeath(2, poisonDeath: true);
+        Assert.Equal(0, target.Poisons.Stacks(2));
+
+        var player = fixture.Player;
+        Game.ChargesOnKill(player, target);
+        var charges = Game.ChargesOf(player);
+        int Chance(uint stat) => stat is Stat.GainPowerChargeOnKillVsEnemiesWithLessThan5PoisonsPct
+            or Stat.GainFrenzyChargeOnKillVsEnemiesWith5PlusPoisonsPct ? 100 : 0;
+        charges.Step(2, Chance, () => default, alive: true, moving: false, inTown: false, new Random(1));
+        Assert.Equal(1, charges.Effective(ChargeType.Frenzy));
+        Assert.Equal(0, charges.Effective(ChargeType.Power));
     }
 
     static void InTestWorld(Action<Action<string>> test)
