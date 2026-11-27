@@ -22,11 +22,13 @@ public sealed class BestiaryModule : IModule
         LoadData();
         string id = module.Manifest.Id;
         module.Lifetime.Own(new Cleanup(encounter.Clear));
+        GameEvents.MapOpening.Add(id, BestiaryTables.Opening);
         GameEvents.AreaPopulated.Add(id, encounter.Place);
         GameEvents.PlayerEntered.Add(id, encounter.Entered);
         GameEvents.AreaTick.Add(id, GameEvents.Always((player, seconds) => encounter.Has(player) ? encounter.Advance(player, seconds) : Task.CompletedTask));
         GameEvents.PlayerLeaving.Add(id, (player, _) => encounter.Leaving(player));
         GameEvents.Kill.Add(id, encounter.Killed);
+        module.Lifetime.Own(GameEvents.StateBuilding.Add(id, encounter.Describe));
     }
 
     sealed class Cleanup(Action clean) : IDisposable

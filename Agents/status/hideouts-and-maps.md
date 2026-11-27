@@ -148,10 +148,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   The client still refuses them: on their own Atlas node it shows "The device requires a map" and sends no 0x00d8, and an
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
-- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+- Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
+  Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
   Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
   ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
   Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
+  Bestiary captures persist per account and league; mission identities and claims survive module reload.
+  The Bestiary book, itemisation and Blood Altar remain unimplemented; capture storage alone does not expose those UIs.
+  Selection weights, party capture chance, full-store replacement and Fumes placement retain local approximations
+  ([encounter boundaries](../docs/game/league-encounters.md#bestiary-and-sulphite-scarab-boundaries)).
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
   the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
   the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
