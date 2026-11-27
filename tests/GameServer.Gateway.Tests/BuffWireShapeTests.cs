@@ -19,4 +19,25 @@ public sealed class BuffWireShapeTests
         var wire = Convert.ToHexString(new Buff(1, 0x1000, Values: [30], U82: 30).Add(0x1000, 3));
         Assert.Equal("01C1000010000000000000000003000100001000000000001E0000001E00000000", wire);
     }
+
+    [Fact]
+    public void Unchecked_behaviour_rows_emit_required_list_defaults_and_preserve_explicit_entries()
+    {
+        // TempestShield (row 112, TempestShieldBuff): 0x1417a9410 reads two u32 list words unchecked.
+        ushort tempestRow = AuraCatalog.BuffRow("TempestShield");
+        var defaultTempest = new Buff(tempestRow, 0x0400_0001, U68: Buff.Seconds(3.5)).Add(0x0400_0001, 5);
+        Assert.Equal(
+            new Buff(tempestRow, 0x0400_0001, U68: Buff.Seconds(3.5), List: [0u, 0u]).Add(0x0400_0001, 5),
+            defaultTempest);
+        Assert.Equal([0u, 0u], BuffRows.Spec(tempestRow, 0x0400_0001, null, 3.5).List);
+
+        // Explicit caller entries (e.g. Celestial Tempest Shield art variation + hide flag) are preserved,
+        // and short lists are padded from the row's defaults rather than dropped.
+        Assert.Equal([2u, 1u], BuffRows.WireList(BuffRows.Of(tempestRow), [2u, 1u]));
+        Assert.Equal([2u, 0u], BuffRows.WireList(BuffRows.Of(tempestRow), [2u]));
+
+        // Other unchecked-list behaviours (ChronomancerBuff 1915, QuickGuardBuff 1302) also get safe defaults.
+        Assert.Equal([42u, 100u], BuffRows.Spec(AuraCatalog.BuffRow("TemporalRift"), 0x1000, null).List);
+        Assert.Equal([0u], BuffRows.Spec(BuffRows.Find("quick_guard"), 0x1000, null, 4).List);
+    }
 }

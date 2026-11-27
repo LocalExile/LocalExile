@@ -23,15 +23,16 @@ public sealed record Buff(ushort Row, uint Source = 0, ushort SourceSkill = 0, I
     public static uint Seconds(double seconds) => BitConverter.SingleToUInt32Bits((float)Math.Max(0, seconds));
 
     /// <summary>The bytes of this buff for <paramref name="entity"/> on <paramref name="instance"/>. Only an IsRecovery
-    /// row carries GrantedStats values and only a __col44 row carries u82: an extra one makes the client read it as the
-    /// counted list's header and over-read the following messages. Callers can supply either anyway, so write only what
-    /// this row's definition reads, as <see cref="BuffRows.Spec"/> does.</summary>
+    /// row carries GrantedStats values, only a __col44 row carries u82 (an extra one makes the client read it as the
+    /// counted list's header and over-read the following messages), and rows whose native client behaviour dereferences
+    /// <c>Buff+0x80</c> unchecked always receive at least their minimum list words (<see cref="BuffRows.WireList"/>).
+    /// Callers can supply or omit any of these safely, as <see cref="BuffRows.Spec"/> does.</summary>
     public byte[] Add(uint entity, ushort instance)
     {
         var info = BuffRows.Of(Row);
         return InstanceEntities.AddBuff(entity, instance, Row, Source, SourceSkill,
             info is { IsRecovery: true } ? Values : null, U68, F6c, Visual, ActiveSkill, AuraSource, DisplayState, Stacks,
-            info is { HasU82: true } ? U82 : null, List);
+            info is { HasU82: true } ? U82 : null, BuffRows.WireList(info, List));
     }
 }
 

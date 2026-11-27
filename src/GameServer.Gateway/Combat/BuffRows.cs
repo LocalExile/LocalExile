@@ -14,8 +14,68 @@ public static class BuffRows
     public sealed record Row(ushort Index, string Id, bool IsRecovery, bool HasU82, IReadOnlyList<uint> GrantedStats,
         int MergeMode, int Limit, bool Invisible)
     {
+        /// <summary>The client behaviour class name (<c>BuffDefinitions.Id2</c>), or empty when none.</summary>
+        public string Behaviour { get; init; } = "";
+
         /// <summary>Each application is its own instance (MergeMode 1).</summary>
         public bool Stacks => MergeMode == 1;
+    }
+
+    static readonly uint[] OneZero = [0u];
+    static readonly uint[] TwoZeros = [0u, 0u];
+    static readonly uint[] ThreeZeros = [0u, 0u, 0u];
+    static readonly uint[] FiveZeros = [0u, 0u, 0u, 0u, 0u];
+    static readonly uint[] ChronomancerDefaults = [42u, 100u];
+    static readonly uint[] PenanceChargeDefaults = [20u];
+
+    /// <summary>The minimum trailing <c>0x01c1</c> list words (<c>Buff+0x80</c>) that the client's native buff backend
+    /// reads without a length check, or null when the row's backend accepts an empty list. Prevents client access
+    /// violations when a generic buff emitter (monster skills, minions, mods) omits behaviour-specific data.</summary>
+    public static IReadOnlyList<uint>? DefaultList(Row? info)
+    {
+        if (info is null) return null;
+        return info.Behaviour switch
+        {
+            // TempestShieldBuff (0x1417a9410 / 0x1417a945f): [artVariation, hideVisual] read unchecked.
+            "TempestShieldBuff" => TwoZeros,
+            // ChronomancerBuff (0x141f83180 / 0x141f832b0): [sampleCount, intervalMs] read unchecked.
+            "ChronomancerBuff" => ChronomancerDefaults,
+            // Guard / absorption backends (0x141f84000): [remainingCapacity] read unchecked.
+            "QuickGuardBuff" or "DamageAbsorptionBuff" or "BoneArmourBuff" or "ArcaneCloakBuff" => OneZero,
+            // FrostFuryStage (0x1415d17d0 -> 0x1417b6030): entries 1..2 read unchecked.
+            "FrostFuryStage" => ThreeZeros,
+            // MirageArcherVisualBuff (0x1415d4c20 / 0x1417c7cb0): entry 0 read unchecked.
+            "MirageArcherVisualBuff" => OneZero,
+            // MirageArcherDisplayBuff (0x1417c7010): entries 0..2 read unchecked.
+            "MirageArcherDisplayBuff" => ThreeZeros,
+            // RecordSkillUseLocations (0x142060950): [sequence, playerX, playerY, targetX, targetY] read unchecked.
+            "RecordSkillUseLocations" => FiveZeros,
+            // ActiveSigil (0x1415c6860 / 0x1415c6d60): [miscAnimatedRow, phase] read unchecked.
+            "ActiveSigil" => TwoZeros,
+            // PenanceBrandCharge: [maxEnergy] read when updating the effect.
+            "PenanceBrandCharge" => PenanceChargeDefaults,
+            // LegionRewardDisplay (0x1417c5d00): 5 entries read unchecked.
+            "LegionRewardDisplay" => FiveZeros,
+            _ => info.Id switch
+            {
+                // Backends with empty Id2 that still dereference Buff+0x80[0] unchecked.
+                "mortal_call" or "vaal_immortal_call" or "elemental_hit_last_damage_type" or "skill_cost_over_time" => OneZero,
+                _ => null,
+            },
+        };
+    }
+
+    /// <summary>The wire list for <paramref name="info"/>: keeps caller-supplied words and fills any missing words
+    /// required by <see cref="DefaultList"/> so the client never dereferences a null or short <c>Buff+0x80</c> buffer.</summary>
+    public static IReadOnlyList<uint>? WireList(Row? info, IReadOnlyList<uint>? list)
+    {
+        if (DefaultList(info) is not { } defaults) return list;
+        if (list is null || list.Count == 0) return defaults;
+        if (list.Count >= defaults.Count) return list;
+        var padded = new uint[defaults.Count];
+        for (int i = 0; i < list.Count; i++) padded[i] = list[i];
+        for (int i = list.Count; i < defaults.Count; i++) padded[i] = defaults[i];
+        return padded;
     }
 
     sealed record RegisteredOverlay(long Id, string Owner, Row Row);
@@ -71,7 +131,10 @@ public static class BuffRows
             string id = r.Text("Id") ?? "";
             var granted = r.Ints("GrantedStats").Where(s => s >= 0).Select(s => (uint)s + 1).ToList();
             rows.Add(new((ushort)r.Index, id, r.BoolOrNull("IsRecovery") ?? false, r.BoolOrNull("__col44") ?? false, granted,
-                r.IntOrNull("__col7") ?? 0, r.IntOrNull("BuffLimit") ?? 0, r.BoolOrNull("Invisible") ?? false));
+                r.IntOrNull("__col7") ?? 0, r.IntOrNull("BuffLimit") ?? 0, r.BoolOrNull("Invisible") ?? false)
+            {
+                Behaviour = r.Text("Id2") ?? "",
+            });
             byId.TryAdd(id, (ushort)r.Index);
         }
         IReadOnlyList<uint> finalMovementKeys = [.. rows.SelectMany(r => r?.GrantedStats ?? []).Distinct()
@@ -151,7 +214,7 @@ public static class BuffRows
         IReadOnlyList<uint>? values = info is { IsRecovery: true }
             ? [.. info.GrantedStats.Select(name => unchecked((uint)(stats?.GetValueOrDefault(name) ?? 0)))] : null;
         return new(row, source, Values: values, U68: seconds is double s && double.IsFinite(s) ? Buff.Seconds(s) : null,
-            U82: info is { HasU82: true } ? (ushort)0 : null, Tag: tag);
+            U82: info is { HasU82: true } ? (ushort)0 : null, List: DefaultList(info), Tag: tag);
     }
 
     sealed class Undo(Action undo) : IDisposable
