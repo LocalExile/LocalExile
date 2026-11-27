@@ -203,15 +203,17 @@ public static partial class Game
             $"0x008f portal 0x{id:x} leads to 0x{area:x4} before its create ({what} stands already)");
 
     // Custom standalone portals opened by modules/mods via IPlayerWorld.SpawnPortalAsync.
-    public sealed class CustomPortal(uint id, int x, int y, ushort targetArea, PortalOptions options)
+    public sealed class CustomPortal(uint id, int x, int y, ushort targetArea, PortalOptions options, bool isReturnPortal = false)
     {
         public uint Id { get; } = id;
         public int X { get; } = x;
         public int Y { get; } = y;
         public ushort TargetArea { get; } = targetArea;
         public PortalOptions Options { get; } = options;
+        public bool IsReturnPortal { get; } = isReturnPortal;
         public int? UsesLeft = options.UsesLeft;
         public ulong ResolvedInstance = options.TargetInstance;
+        public bool InFlight;
     }
 
     sealed record CustomReturnOrigin(ushort Area, ulong Instance, int X, int Y, string? Owner, ushort? Variation, DateTimeOffset RecordedAt);
@@ -250,17 +252,28 @@ public static partial class Game
     }
 
     /// <summary>Spawns a clickable standalone portal at <c>(x, y)</c> leading to <paramref name="targetArea"/>.</summary>
-    public static async Task<uint?> SpawnCustomPortal(Player player, int x, int y, ushort targetArea, PortalOptions? options = null)
+    public static Task<uint?> SpawnCustomPortal(Player player, int x, int y, ushort targetArea, PortalOptions? options = null) =>
+        SpawnCustomPortalCore(player, x, y, targetArea, options, isReturnPortal: false, standing: false);
+
+    static async Task<uint?> SpawnCustomPortalCore(Player player, int x, int y, ushort targetArea, PortalOptions? options,
+        bool isReturnPortal, bool standing)
     {
         if (player.Closed || player.LeavingArea || targetArea == 0) return null;
         var opts = options ?? new PortalOptions();
         var (px, py) = player.Layout.Walkable?.Invoke(x, y) == false ? player.Layout.Near((x, y)) : (x, y);
         uint id = player.TakeObjectId();
-        var portal = new CustomPortal(id, px, py, targetArea, opts);
+        var portal = new CustomPortal(id, px, py, targetArea, opts, isReturnPortal);
         CustomPortals.GetOrCreateValue(player)[id] = portal;
-        await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
-            new MapPortalObject(px, py, -1, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
-            $"0x02bb create custom portal 0x{id:x} at ({px}, {py}) -> 0x{targetArea:x4}", wake: true, awaitBirth: false);
+        var previousView = Program.ViewOf.Value;
+        Program.ViewOf.Value = player;
+        try
+        {
+            if (standing) await ListStandingPortal(player, id, targetArea, "custom return portal", owner: opts.Owner, variation: opts.Variation);
+            await SendWorldCreate(player, id, () => InstanceEntities.CreateObject(id, InstanceEntities.ObjectTypeHash(MapPortalObject.MetadataPath),
+                new MapPortalObject(px, py, -1, MapPortalType, Open: 1, Rotation: player.PortalRotationRadians).Blob()),
+                $"0x02bb create custom portal 0x{id:x} at ({px}, {py}) -> 0x{targetArea:x4}", wake: true, awaitBirth: false);
+        }
+        finally { Program.ViewOf.Value = previousView; }
         ListPortal(player, id, targetArea, "custom portal", MapPortalEntryMs, owner: opts.Owner, variation: opts.Variation);
         return id;
     }
@@ -271,7 +284,16 @@ public static partial class Game
         if (!CustomPortals.TryGetValue(player, out var portals) || !portals.TryRemove(id, out _)) return false;
         if (SinglePortals.TryGetValue(player, out var singles)) singles.TryRemove(id, out _);
         if (!player.Closed && !player.LeavingArea)
-            await SendWorldRemoval(player, id, $"0x02bd remove custom portal 0x{id:x}");
+        {
+            var previousView = Program.ViewOf.Value;
+            Program.ViewOf.Value = player;
+            try
+            {
+                await Send(player, InstanceMapDevice.Portals(0, [new(id, 0)]), null);
+                await SendWorldRemoval(player, id, $"0x02bd remove custom portal 0x{id:x}");
+            }
+            finally { Program.ViewOf.Value = previousView; }
+        }
         return true;
     }
 
@@ -281,57 +303,79 @@ public static partial class Game
         if (!CustomPortals.TryGetValue(player, out var portals) || !portals.TryGetValue(use.TargetId, out var portal))
             return false;
         if (!TryBeginObjectWalk(player, requestedAt, portal.X, portal.Y, AreaTransitionObjectSize, out var walk)) return true;
-        var (action, now, _, _, arrive) = walk;
+        var (action, now, _, stop, arrive) = walk;
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action) || player.PendingTransfer is not null) return true;
+        if (!PlayerWalk.InWalkUpRange(stop, (portal.X, portal.Y), AreaTransitionObjectSize)) return true;
         if (!portals.TryGetValue(use.TargetId, out var active) || !ReferenceEquals(active, portal)) return true;
 
-        bool spent = false;
+        ulong targetInstance;
         lock (portal)
         {
-            if (portal.UsesLeft is int left)
+            if (portal.InFlight || portal.UsesLeft is <= 0) return true;
+            portal.InFlight = true;
+            targetInstance = portal.ResolvedInstance;
+        }
+
+        bool spent = false;
+        try
+        {
+            ushort destArea = portal.TargetArea;
+            bool newInstance = targetInstance == 0 && portal.Options.NewInstance;
+            (int X, int Y)? arriveAt = portal.Options.ArriveAt;
+            if (targetInstance != 0 && await AreaInstances.Gone(player, destArea, targetInstance))
             {
-                if (left <= 0) return true;
-                portal.UsesLeft = left - 1;
-                spent = portal.UsesLeft == 0;
+                CustomReturnOrigins.TryRemove((destArea, targetInstance), out _);
+                if (AreaInstances.RecreatedOnEntry(destArea))
+                {
+                    targetInstance = 0;
+                    newInstance = false;
+                }
+                else if (portal.IsReturnPortal)
+                {
+                    (destArea, targetInstance) = ResolveReturnWorldArea(player, null, null);
+                    newInstance = false;
+                    arriveAt = null;
+                }
+                else
+                {
+                    await Send(player, InstanceChat.ChatLine("The instance does not exist."), "0x0017 custom portal instance expired");
+                    await RemoveCustomPortal(player, portal.Id);
+                    return true;
+                }
             }
+            if (!PlayerActionCurrent(player, action) || player.PendingTransfer is not null) return true;
+
+            ushort originArea = player.Layout.Hash;
+            ulong originInstance = player.InstanceNumber;
+            int originX = portal.X, originY = portal.Y;
+            var transfer = new PendingTransfer(destArea, targetInstance, newInstance, ArriveAt: arriveAt)
+            {
+                Done = response =>
+                {
+                    if (!response.Ok || response.Instance == 0) return;
+                    lock (portal)
+                    {
+                        if (targetInstance == 0 || portal.ResolvedInstance == 0)
+                            portal.ResolvedInstance = response.Instance;
+                        if (portal.UsesLeft is int left && left > 0)
+                        {
+                            portal.UsesLeft = left - 1;
+                            spent = portal.UsesLeft == 0;
+                        }
+                    }
+                    if (portal.Options.SpawnReturnPortal)
+                        RecordCustomReturnOrigin(destArea, response.Instance,
+                            originArea, originInstance, originX, originY, portal.Options.Owner, portal.Options.Variation);
+                },
+            };
+            await ChangeArea(player, transfer, $"custom portal to 0x{destArea:x4}");
+        }
+        finally
+        {
+            lock (portal) portal.InFlight = false;
         }
         if (spent) await RemoveCustomPortal(player, portal.Id);
-
-        ulong targetInstance = portal.ResolvedInstance;
-        bool newInstance = targetInstance == 0 && portal.Options.NewInstance;
-        if (targetInstance != 0 && await AreaInstances.Gone(player, portal.TargetArea, targetInstance))
-        {
-            CustomReturnOrigins.TryRemove((portal.TargetArea, targetInstance), out _);
-            if (AreaInstances.RecreatedOnEntry(portal.TargetArea))
-            {
-                targetInstance = 0;
-                newInstance = false;
-            }
-            else
-            {
-                await Send(player, InstanceChat.ChatLine("The instance does not exist."), "0x0017 custom portal instance expired");
-                await RemoveCustomPortal(player, portal.Id);
-                return true;
-            }
-        }
-
-        ushort originArea = player.Layout.Hash;
-        ulong originInstance = player.InstanceNumber;
-        int originX = portal.X, originY = portal.Y;
-        var transfer = new PendingTransfer(portal.TargetArea, targetInstance, newInstance, ArriveAt: portal.Options.ArriveAt)
-        {
-            Done = response =>
-            {
-                if (!response.Ok || response.Instance == 0) return;
-                lock (portal)
-                    if (portal.ResolvedInstance == 0) portal.ResolvedInstance = response.Instance;
-                if (portal.Options.SpawnReturnPortal)
-                    RecordCustomReturnOrigin(portal.TargetArea, response.Instance,
-                        originArea, originInstance, originX, originY, portal.Options.Owner, portal.Options.Variation);
-            },
-        };
-        await ChangeArea(player, transfer, $"custom portal to 0x{portal.TargetArea:x4}");
         return true;
     }
 
@@ -352,7 +396,7 @@ public static partial class Game
             SpawnReturnPortal: false,
             Owner: origin.Owner,
             Variation: origin.Variation);
-        await SpawnCustomPortal(player, x, y, origin.Area, opts);
+        await SpawnCustomPortalCore(player, x, y, origin.Area, opts, isReturnPortal: true, standing: true);
     }
 
     // One 0x8f without a device for every portal of SinglePortals that still stands, each with the worn portal effect.

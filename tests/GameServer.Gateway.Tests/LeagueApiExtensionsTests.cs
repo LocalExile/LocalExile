@@ -369,11 +369,18 @@ public sealed class LeagueApiExtensionsTests
             Assert.True(await world.ApplyTimedBuffAsync(monsterId.Value, customBuffRow, buffStats, seconds: 5.0));
             Assert.True(player.Area.Buffs.HasRow(monsterId.Value, customBuffRow));
 
-            // 5. SpawnPortalAsync registers custom portal so SendSinglePortals keeps it alive, and RemovePortalAsync cleans it up.
+            // 5. SpawnPortalAsync registers custom portal so SendSinglePortals keeps it alive, does not burn UsesLeft on
+            //    a refused travel, and RemovePortalAsync cleans it up.
             uint? portalId = await world.SpawnPortalAsync(52, 52, "1_1_town",
                 new PortalOptions(UsesLeft: 1, SpawnReturnPortal: true));
             Assert.NotNull(portalId);
             Assert.True(Game.HasCustomPortal(player, portalId!.Value));
+            using (GameEvents.TravelRefusal.Add(owner, (_, _) => "refused by test"))
+            {
+                player.SetPosition(52, 52);
+                Assert.True(await Game.TryUseCustomPortal(player, new InstanceTransfer.UseSkillOnObject(portalId.Value, 0x0266, 0), player.Area.Time));
+                Assert.True(Game.HasCustomPortal(player, portalId.Value));
+            }
             Assert.True(await Game.ResendMapPortals(player));
             Assert.True(Game.HasCustomPortal(player, portalId.Value));
             Assert.True(await world.RemovePortalAsync(portalId.Value));
