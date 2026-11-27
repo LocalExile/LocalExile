@@ -10,6 +10,87 @@ public static partial class Game
     // players' minions.
     const uint SharedMonsterIds = 0x08000000;
 
+    // A client stops drawing an ordinary monster's corpse a minute after the death was written to it. This is
+    // presentation only: the area keeps the corpse in Monsters/DormantMonsters and the world keeps its origin, so
+    // Raise Zombie/Spectre, offerings, Devour and later arrivals keep the rules they had. The clock is per player: a
+    // client that joins after the kill is shown the corpse later and keeps drawing it for its own minute. A body a
+    // controller or a boss's next form may drive again is left drawn until its own code retires it.
+    public const double CorpsePresentationSeconds = 60;
+    sealed class CorpsePresentation
+    {
+        public GameArea? Area;
+        public readonly Dictionary<uint, double> DeadSince = [];
+        public readonly HashSet<uint> Removed = [];
+        // Area ids are reused: a player who comes back to a different area must not carry an old corpse's clock.
+        public void Enter(GameArea area)
+        {
+            if (ReferenceEquals(Area, area)) return;
+            Area = area;
+            DeadSince.Clear();
+            Removed.Clear();
+        }
+    }
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Player, CorpsePresentation> CorpseViews = new();
+    static bool CorpsePresentationLeaves(SpawnedMonster m) =>
+        !m.Scripted && m.OwnerId is null && !m.WorldHidden && !m.StageRunning && m.LifePhases?.Active != true;
+
+    // AreaLife writes monster life updates straight into the frame's delta, so this sees the death each client is
+    // actually sent (a joining client gets its corpse's LifeUpdate(0) with Only = it). It never changes the corpse.
+    public static void CorpsePresentationWritten(Player player, IReadOnlyList<AreaDelta.Record> delta, double? now = null)
+    {
+        if (delta.Count == 0) return;
+        var shown = CorpseViews.GetOrCreateValue(player);
+        shown.Enter(player.Area);
+        double at = now ?? player.Frames.Now(player);
+        foreach (var record in delta)
+        {
+            if (!record.For(player) || record.Kind == AreaDelta.Kind.Message) continue;
+            uint id = record.Entity;
+            if (record.Kind == AreaDelta.Kind.Remove)
+            {
+                shown.DeadSince.Remove(id);
+                shown.Removed.Remove(id);
+                continue;
+            }
+            if (record.Bytes.Length < 21
+                || System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(record.Bytes) != InstanceProtocol.LifeUpdateId
+                || record.Bytes[20] != AreaLife.LifePool) continue;
+            if (System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(record.Bytes.AsSpan(12)) != 0)
+            {
+                // A boss that comes back between forms starts a new hold when it dies again.
+                shown.DeadSince.Remove(id);
+                shown.Removed.Remove(id);
+                continue;
+            }
+            var m = player.Area.Monsters.GetValueOrDefault(id) ?? player.Area.DormantMonsters.GetValueOrDefault(id);
+            if (m is null || !CorpsePresentationLeaves(m)) continue;
+            if (shown.DeadSince.TryAdd(id, at)) shown.Removed.Remove(id);
+        }
+    }
+
+    /// <summary>Takes a corpse out of the given players' views once its visual minute is over. The removal goes in the
+    /// area's delta for that player alone and leaves the area's object, components and replay for others untouched.</summary>
+    public static void StepCorpsePresentation(GameArea area, IReadOnlyList<Player> players, double now)
+    {
+        if (players.Count == 0) return;
+        foreach (var player in players)
+        {
+            if (player.Closed || player.LeavingArea || !CorpseViews.TryGetValue(player, out var shown)
+                || !ReferenceEquals(shown.Area, area)) continue;
+            foreach (var (id, since) in shown.DeadSince)
+            {
+                if (now - since < CorpsePresentationSeconds || shown.Removed.Contains(id)) continue;
+                var m = area.Monsters.GetValueOrDefault(id) ?? area.DormantMonsters.GetValueOrDefault(id);
+                if (m is null || !CorpsePresentationLeaves(m)) continue;
+                var bytes = InstanceProtocol.RemoveObject(id);
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(6), uint.MaxValue);
+                area.Delta.AddViewRemoval(id, bytes, player,
+                    $"0x02bd corpse 0x{id:x} stops being drawn {CorpsePresentationSeconds:0} s after the kill");
+                shown.Removed.Add(id);
+            }
+        }
+    }
+
     // Whether this connection's loops step the area's monsters now: outside any instance (a test's) its own; in an instance,
     // the area's view (the first connection of its frames still here). The walks are built for the view that steps them
     // (InstanceWorld.Runner): a new view rebuilds them with its collision. Without frames (before they start, in tests) the

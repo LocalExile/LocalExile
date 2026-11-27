@@ -49,6 +49,13 @@ public static class AreaSetup
         {
             if (frames.View is { } view) Game.StepAreaWake(view);
         }, every: 15, source: source);
+        // Corpses stay available to skills, but each client stops drawing an ordinary body after its visual minute.
+        // The clock starts when that client was sent the death (CorpsePresentationWritten), including a later joiner.
+        area.Systems.Add("corpse presentation", AreaPhase.Bookkeeping, a =>
+        {
+            var players = frames.Players();
+            if (players.Length > 0) Game.StepCorpsePresentation(a, players, a.Time);
+        }, every: 15, source: source);
         Console.WriteLine($"[area] {player.Layout.Id}: {area.Systems.All.Count(s => ReferenceEquals(s.Source, source))} game system(s) in the area's world");
     }
 

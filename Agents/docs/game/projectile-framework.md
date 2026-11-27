@@ -35,8 +35,8 @@ Impale stores the actual rolled physical hit with the source critical multiplier
 separately from direct damage and target critical mitigation. Spell-only and spell-critical impale sources retain
 their own release settings. Leech receives only the accepted direct damage, with separate Life/Mana/ES sources
 and the branch's instant, conversion, retention and doubling policies. Neither evasion, block nor reflection grants
-leech. Corpses retain impale state and remain until area teardown, matching ordinary kills; level-up refills trim
-ordinary leech immediately.
+leech. Corpses retain impale state and stay available to corpse skills, matching ordinary kills; their drawing stops a
+visual minute after the kill, and level-up refills trim ordinary leech immediately.
 
 Leech configuration/conditions use the committed simulation horizon when a projectile session exists. The recovery
 writer advances projectiles under XP-before-Monsters locking before consuming recovery at that boundary. This

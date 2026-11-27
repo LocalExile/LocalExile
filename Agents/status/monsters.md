@@ -349,6 +349,15 @@ Part of [Status](../Status.md); what to build next in this area is in
   `SpawnedMonster.CorpseConsumed` and removed ([11](../docs/protocol/11-skills.md) section 10i).
   Code: `MonsterLifeData.cs`, `MonsterObject`, `MonsterCatalog.cs`, `Modules/Core/Game/Monster/Monsters.cs`, `ot_components.py`.
   Docs: [04](../docs/protocol/04-player-entity.md#44-life-0x141e72890-55-bytes).
+- A client stops drawing an ordinary monster's corpse 60 s after the death was written to it
+  (`CorpsePresentationSeconds`). This is a visual hold only: the corpse stays in `GameArea.Monsters/DormantMonsters`
+  and `InstanceWorld.MonsterOrigins`, so Raise Zombie/Spectre, offerings, Devour and later arrivals keep their
+  existing corpse rules. Each player's clock starts where it was sent the death (a joining client's starts when it is
+  shown the corpse), and `AreaDelta.AddViewRemoval` sends that player's own 0x2bd without retiring the area's object.
+  A corpse consumed or retired by its own path still goes at once, and a scripted controller's monster, hidden body,
+  minion or boss between forms is left drawn. The rule replaces bodies piling up visually in a Simulacrum or a dense map.
+  Code: `Modules/Core/Game/Monster/SharedMonsters.cs`, `Modules/Core/Game/AreaSetup.cs`, `src/GameServer.Gateway/Area/AreaDelta.cs`.
+  Docs: [14](../docs/protocol/14-monster-packs.md) §4.
 - Player hits on monsters: each one records the time on the monster (`PlayerHitAt`), and the player's death clears it.
   `enemy_life_regeneration_rate_+%_for_4_seconds_on_hit` (Devout of Ryslatha) scales a monster's regeneration for 4 s
   after a hit.
