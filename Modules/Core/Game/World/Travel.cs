@@ -1,6 +1,9 @@
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
+using GameServer.Core;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
+using GameServer.Data.Terrain.Generation;
 using PlayerWalk = GameServer.Core.World.PlayerWalk;
 
 public static partial class Game
@@ -173,7 +176,7 @@ public static partial class Game
             {
                 if (!PlayerActionCurrent(player, action)) return;
                 player.Walk.Teleport(tx, ty, ProjectileWorldTime(player));
-                ShakariEncounter.RememberGateCheckpoint(player, transition, (tx, ty));
+                RememberLocalGateCheckpoint(player, transition, stop, (tx, ty));
             }
             await SendTransitionFade(player, (tx, ty), $"the gate 0x{use.TargetId:x}");
             if (await SendWorldRecord(player, player.Id, () => InstanceProtocol.Teleport(player.Id, tx, ty),
@@ -377,6 +380,286 @@ public static partial class Game
         return layout.Near(pair);
     }
 
+    // Reverse ClientStrings lookup (HASH32 -> Id) used to classify intra-area transition labels without hardcoding hashes.
+    static Dictionary<uint, string> ClientStringKeys = new();
+
+    public static void LoadLocalCheckpointData()
+    {
+        var map = new Dictionary<uint, string>();
+        foreach (var row in ClientTables.TableOrEmpty("ClientStrings"))
+            if (row.Text("Id") is { } id && row.LongOrNull("HASH32") is long h && h is >= 0 and <= uint.MaxValue)
+                map.TryAdd((uint)h, id);
+        ClientStringKeys = map;
+    }
+
+    sealed class InstanceCheckpoints
+    {
+        readonly object gate = new();
+        readonly Dictionary<string, (int X, int Y)> byCharacter = new(StringComparer.OrdinalIgnoreCase);
+        readonly ConditionalWeakTable<Player, BoxedPoint> byPlayer = new();
+        sealed record BoxedPoint((int X, int Y) At);
+
+        public void Set(Player player, (int X, int Y) point)
+        {
+            lock (gate)
+            {
+                if (!string.IsNullOrEmpty(player.Character.Name))
+                    byCharacter[player.Character.Name] = point;
+                else
+                    byPlayer.AddOrUpdate(player, new(point));
+            }
+        }
+
+        public (int X, int Y)? Get(Player player)
+        {
+            lock (gate)
+            {
+                if (!string.IsNullOrEmpty(player.Character.Name))
+                    return byCharacter.TryGetValue(player.Character.Name, out var at) ? at : null;
+                return byPlayer.TryGetValue(player, out var boxed) ? boxed.At : null;
+            }
+        }
+
+        public void Clear(Player player)
+        {
+            lock (gate)
+            {
+                if (!string.IsNullOrEmpty(player.Character.Name))
+                    byCharacter.Remove(player.Character.Name);
+                else
+                    byPlayer.Remove(player);
+            }
+        }
+    }
+
+    static readonly RuleTable<InstanceState, InstanceCheckpoints> LocalGateCheckpoints = new();
+
+    /// <summary>Updates the player's in-instance checkpoint when crossing an intra-area transition: entering a boss room
+    /// or combat arena records the walkable exterior cell just outside the entrance gate; leaving an arena or moving
+    /// into a passageway/corridor/hub records the walkable arrival cell so the checkpoint never stays inside a boss room.</summary>
+    public static void RememberLocalGateCheckpoint(Player player, AreaTransitionObject transition,
+        (int X, int Y) departure, (int X, int Y) arrival, bool allowUnpaired = false)
+    {
+        if (player.Instance is not { } instance) return;
+        var layout = player.Layout;
+        if (InTown(player) || HideoutCatalog.ByArea(layout.Hash) is not null) return;
+        bool isFeatureLink = transition.Feature is not null;
+        if (!isFeatureLink && ((!allowUnpaired && transition.TeleportTo is null) || transition.DestinationHash16 != layout.Hash))
+            return;
+
+        bool enteringArena = IsEnteringArena(player, transition, departure, arrival);
+        var preferred = enteringArena ? departure : arrival;
+        var fallback = enteringArena ? (transition.GridX, transition.GridY) : (transition.TeleportTo ?? arrival);
+        if (VerifiedWalkableCheckpointCell(layout, preferred, fallback, player.Barrier) is { } cell)
+            LocalGateCheckpoints.GetOrCreateValue(instance).Set(player, cell);
+    }
+
+    /// <summary>The player's current intra-area gate checkpoint in this instance, verified walkable on the layout, or null.</summary>
+    public static (int X, int Y)? LocalGateCheckpointOf(Player player)
+    {
+        if (player.Instance is not { } instance
+            || !LocalGateCheckpoints.TryGetValue(instance, out var table)
+            || table.Get(player) is not { } point)
+            return null;
+        return VerifiedWalkableCheckpointCell(player.Layout, point, point, player.Barrier);
+    }
+
+    /// <summary>Clears the player's in-instance intra-area gate checkpoint (used on non-portal arrival and when newly
+    /// activating the area's waypoint).</summary>
+    public static void ClearLocalGateCheckpoint(Player player)
+    {
+        if (player.Instance is { } instance && LocalGateCheckpoints.TryGetValue(instance, out var table))
+            table.Clear(player);
+    }
+
+    /// <summary>Resolves where "Resurrect at Checkpoint" revives within the current area: the last intra-area gate
+    /// checkpoint when set (e.g. just outside a boss arena's entrance), else the activated waypoint, else the arrival point.</summary>
+    public static (int X, int Y, string Reason) ResolveCheckpoint(Player player, bool inTown)
+    {
+        bool activated;
+        lock (player.Character.Waypoints)
+            activated = WaypointCatalog.Areas.Find(player.Layout.Hash) is { } entry && player.Character.Waypoints.Contains(entry.Id);
+        var gateCheckpoint = !inTown ? LocalGateCheckpointOf(player) ?? ShakariEncounter.CheckpointOf(player) : null;
+        if (gateCheckpoint is { } checkpoint)
+            return (checkpoint.X, checkpoint.Y, "the last local gate");
+        var (x, y) = player.Layout.Checkpoint(activated);
+        return (x, y, activated && player.Layout.Waypoint is not null ? "the activated waypoint" : "the arrival point");
+    }
+
+    static bool IsEnteringArena(Player player, AreaTransitionObject transition, (int X, int Y) departure, (int X, int Y) arrival)
+    {
+        var layout = player.Layout;
+
+        // ExtraTerrainFeatures links (Sacred Grove, Betrayal Lab, Expedition side areas): entering the sub-area keeps
+        // checkpoint outside its portal; returning to the main area lands outside its portal.
+        if (transition.Feature is not null)
+            return transition.DestinationHash16 != layout.Hash
+                || (InFeatureSubArea(layout, arrival) && !InFeatureSubArea(layout, departure));
+
+        // Explicit return / exit objects always land on the exterior side.
+        if (transition.SourceType is
+            "Metadata/QuestObjects/Piety/PietyArenaPortal2"
+            or "Metadata/QuestObjects/Piety/PietyArenaPortal2Blue"
+            or "Metadata/QuestObjects/Act4/MalachaiDepthsReturn"
+            or "Metadata/QuestObjects/Act9/MalachaiDepthsReturn"
+            or "Metadata/MiscellaneousObjects/PortalToggleable")
+            return false;
+
+        // Explicit boss arena entrance objects always enter a boss room.
+        if (transition.SourceType is
+            "Metadata/QuestObjects/BossArenaEntranceTransition"
+            or "Metadata/QuestObjects/Piety/PietyArenaPortal1"
+            or "Metadata/QuestObjects/Piety/PietyArenaPortal1Blue"
+            or "Metadata/Terrain/Mountain/Belly/Objects/BellyArenaTransition"
+            or "Metadata/QuestObjects/Act9/HarvestFinalBossTransition")
+            return true;
+
+        // Labelled transitions (ClientStrings key from transition.Label). %areaname% produces Label == null.
+        string? labelKey = transition.Label is uint hash && ClientStringKeys.TryGetValue(hash, out var key) ? key : null;
+        if (labelKey is not null)
+        {
+            if (labelKey is
+                "GrandArenaInterior"
+                or "AreaTransitionCankerousSoreExit"
+                or "MapStairAlternativeSewerOutlet"
+                or "MapStairAlternativeLadder"
+                or "MapStairAlternativePassage"
+                or "MapStairAlternativeTunnel"
+                or "AreaTransitionName"
+                or "ArenaNameAbberath2"
+                or "EternalLaboratoryName"
+                or "ObjectDisplayTextAreaTransitionOssuary"
+                or "UnholySubBossDomainDoedre"
+                or "UnholySubBossDomainMaligaro"
+                or "UnholySubBossDomainShavronne")
+                return false;
+        }
+
+        if (DestinationIsSafeRoomOrReturn(layout, departure, arrival, labelKey))
+            return false;
+
+        if (labelKey is not null && (labelKey.Contains("Arena", StringComparison.OrdinalIgnoreCase)
+            || labelKey is "AreaTransitionCankerousSoreEntrance" or "PrivateBathEntrance" or "ObjectDisplayTextSanctumLibrary"))
+            return true;
+
+        // Unlabelled or generic gates: treat as entering a boss room if the destination holds an active unique/campaign boss.
+        return DestinationHasActiveBoss(player, departure, arrival);
+    }
+
+    static bool InFeatureSubArea(AreaLayout layout, (int X, int Y) at)
+    {
+        if (layout.Level is not { } level) return false;
+        foreach (var record in level.Records)
+            if (record.FeatureRow is not null && record.Rooms.Any(room => RoomContains(room, at)))
+                return true;
+        return false;
+    }
+
+    static bool DestinationIsSafeRoomOrReturn(AreaLayout layout, (int X, int Y) departure, (int X, int Y) arrival, string? labelKey)
+    {
+        // Act 9 The Rotting Core (2_9_10_2): "The Black Core" (MalachaiArenaName1) is the safe Sin/Lilly hub room.
+        if (labelKey == "MalachaiArenaName1" && layout.Id == DepravedTrinity.Area)
+            return true;
+
+        // Act 6 Shavronne's Tower (2_6_7_2): "The Warden's Chambers" (BrutusArenaName) is the post-fight exit room.
+        if (labelKey == "BrutusArenaName" && layout.Id == "2_6_7_2")
+            return true;
+
+        var fromRoom = RoomAt(layout, departure);
+        var toRoom = RoomAt(layout, arrival);
+        if (toRoom is not null && toRoom.Room.Path.EndsWith("_exit.arm", StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Multi-phase boss room return: leaving phase 2 (boss2 / boss_2) back to phase 1 (boss1 / boss_1),
+        // e.g. Act 9 The Oasis (boss2.arm -> boss1.arm) or Act 4 The Harvest (boss_2.arm -> boss_1.arm).
+        if (fromRoom is not null && toRoom is not null && !ReferenceEquals(fromRoom, toRoom))
+        {
+            string fromName = Path.GetFileName(fromRoom.Room.Path);
+            string toName = Path.GetFileName(toRoom.Room.Path);
+            if ((fromName.Equals("boss2.arm", StringComparison.OrdinalIgnoreCase)
+                    || fromName.Equals("boss_2.arm", StringComparison.OrdinalIgnoreCase))
+                && (toName.Equals("boss1.arm", StringComparison.OrdinalIgnoreCase)
+                    || toName.Equals("boss_1.arm", StringComparison.OrdinalIgnoreCase)))
+                return true;
+        }
+        return false;
+    }
+
+    static bool DestinationHasActiveBoss(Player player, (int X, int Y) departure, (int X, int Y) arrival)
+    {
+        if (player.Area.Monsters.Count == 0) return false;
+        var layout = player.Layout;
+        var fromRoom = RoomAt(layout, departure);
+        var toRoom = RoomAt(layout, arrival);
+        bool distinctRooms = fromRoom is not null && toRoom is not null && !ReferenceEquals(fromRoom, toRoom);
+        double now = AreaTime(player);
+        foreach (var monster in player.Area.Monsters.Values)
+        {
+            if (!monster.Hostile || monster.OwnerId is not null || monster.Dead || monster.Life == 0) continue;
+            if (monster.Rarity != MonsterRarity.Unique && monster.Variety?.BossHealthBar != true
+                && !BossKits.IsCampaignBoss(monster.Variety))
+                continue;
+            var pos = monster.Walk.Position(now);
+            if (distinctRooms)
+            {
+                if (RoomContains(toRoom!, pos)) return true;
+            }
+            else
+            {
+                double distToArrival = Dist(pos, arrival);
+                if (distToArrival <= 120 && distToArrival + 20 < Dist(pos, departure)) return true;
+            }
+        }
+        return false;
+    }
+
+    static PlacedRoom? RoomAt(AreaLayout layout, (int X, int Y) at)
+    {
+        if (layout.Level is not { } level) return null;
+        PlacedRoom? withDescription = null, any = null;
+        foreach (var record in level.Records)
+            foreach (var room in record.Rooms)
+            {
+                if (!RoomContains(room, at)) continue;
+                any = room;
+                if (room.Descriptions.Count > 0) withDescription = room;
+            }
+        return withDescription ?? any;
+    }
+
+    static bool RoomContains(PlacedRoom room, (int X, int Y) at) =>
+        at.X >= room.X * 23 && at.X < (room.X + room.Width) * 23
+        && at.Y >= room.Y * 23 && at.Y < (room.Y + room.Height) * 23;
+
+    static (int X, int Y)? VerifiedWalkableCheckpointCell(AreaLayout layout, (int X, int Y) preferred, (int X, int Y) fallbackOrigin,
+        IReadOnlySet<(int X, int Y)>? barrier = null)
+    {
+        bool Valid(int x, int y) =>
+            x >= 0 && y >= 0
+            && (layout.GridW <= 0 || x < layout.GridW)
+            && (layout.GridH <= 0 || y < layout.GridH)
+            && layout.WalkableFor(x, y, 1)
+            && barrier?.Contains((x, y)) != true;
+
+        if (Valid(preferred.X, preferred.Y)) return preferred;
+        // Prefer an adjacent walkable cell on the same side of any thin arena wall before wider radial search.
+        for (int r = 1; r <= 5; r++)
+            for (int dy = -r; dy <= r; dy++)
+                foreach (int dx in new[] { -r, r })
+                {
+                    if (Valid(preferred.X + dx, preferred.Y + dy)) return (preferred.X + dx, preferred.Y + dy);
+                    if (Valid(preferred.X + dy, preferred.Y + dx)) return (preferred.X + dy, preferred.Y + dx);
+                }
+        var near = layout.Near(preferred);
+        if (Valid(near.X, near.Y)) return near;
+        if (fallbackOrigin != preferred)
+        {
+            near = layout.Near(fallbackOrigin);
+            if (Valid(near.X, near.Y)) return near;
+        }
+        return null;
+    }
+
     // The destination's instances (0xae) for the client's instance chooser; its pick (0xaf) changes area.
     public static async Task ShowInstances(Player player, ushort dest, bool atWaypoint,
         int? arrivalEntrance = null)
@@ -421,6 +704,7 @@ public static partial class Game
         if (WaypointCatalog.Areas.Find(player.Layout.Hash) is not { } entry) return;
         if (HardcoreProgressBlocked(player)) return;
         lock (player.Character.Waypoints) if (!player.Character.Waypoints.Add(entry.Id)) return;
+        ClearLocalGateCheckpoint(player);
         CharacterSaves.AddWaypoints(CharacterName(player), [entry.Id]);
         await SendWaypointList(player, $"waypoint of {entry.Name} ({entry.Id}) activated: {why}");
     }
@@ -918,6 +1202,7 @@ public static partial class Game
             CarryRampage(player, r.Ticket);
             CarryResourceEffects(player, r.Ticket);
             CarryWardBreak(player, r.Ticket);
+            CarryCooldownTriggers(player, r.Ticket);
             CarryRage(player, r.Ticket);
             CarryVaalSouls(player, r.Ticket);
             player.Retire();

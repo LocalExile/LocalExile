@@ -1,7 +1,9 @@
+using System.Buffers.Binary;
 using System.Reflection;
 using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.World;
+using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
 using GameServer.Modules.Deepwater;
 
@@ -594,6 +596,107 @@ public sealed class DeepwaterLeagueTests
         Assert.True(mutateDrops[6].Item.Corrupted);
     }
 
+    // TriggerableBlockage QuestObjects (FlameBarrier1, VelkaFlameBarrier) must serialize Positioned with dynamic +
+    // blocksNoWalker (flags1 = 0x28) so the client never permanently stamps their .ao Hull when opened, and non-playerKill
+    // deaths (minions, totems, traps, mines) must still advance Deepwater Fairgraves, drop the Allflame, and open the wall.
+    [Fact]
+    public async Task Deepwater_Fairgraves_barrier_uses_dynamic_positioned_and_opens_on_non_player_kills()
+    {
+        // 1) Wire check: FlameBarrier1 carries dynamic + blocksNoWalker (flags1 0x28) and room-line scale (flags0 0x20).
+        byte[] closedBlob = DeepwaterFairgraves.BuildBarrierObject(111, 142, 0f, -260f, null, open: false, scale: 1.2f).Blob();
+        byte[] openBlob = DeepwaterFairgraves.BuildBarrierObject(111, 142, 0f, -260f, null, open: true, scale: 1.2f).Blob();
+        Assert.Equal((byte)0x24, closedBlob[16]); // flags0: 0x20 (scale) | 0x04 (fixedHeight)
+        Assert.Equal((byte)0x28, closedBlob[17]); // flags1: 0x20 (dynamic) | 0x08 (blocksNoWalker)
+        Assert.Equal(1.2f, BinaryPrimitives.ReadSingleLittleEndian(closedBlob.AsSpan(18, 4)));
+        Assert.Equal((byte)0x24, openBlob[16]);
+        Assert.Equal((byte)0x28, openBlob[17]);
+
+        // Plain QuestObjects without TriggerableBlockage keep flags1 = 0 unchanged.
+        byte[] plainBlob = new QuestObject(10, 20, ["Positioned", "Stats"]).Blob();
+        Assert.Equal((byte)0x00, plainBlob[16]);
+        Assert.Equal((byte)0x00, plainBlob[17]);
+
+        // 2) End-to-end Deepwater Fairgraves encounter killed by a non-playerKill (minion/totem/trap/mine).
+        using var fixture = new MinionUtilityTests.Fixture();
+        var deepwaterLifetime = new ModuleLifetime("Deepwater");
+        Player? player = null;
+        try
+        {
+            var deepwaterCtx = Context(deepwaterLifetime);
+            new DeepwaterModule().Load(deepwaterCtx);
+
+            var level = new ServerLevels.Level(400, 400, [], [], [], [], [], [], [])
+            {
+                RoomObjects =
+                [
+                    new PlacedTileObject(DeepwaterFairgraves.FairgravesVariety, "", 114, 109, 0f, float.NaN, 0),
+                    new PlacedTileObject(DeepwaterFairgraves.FlameBarrierType, DeepwaterFairgraves.FlameBarrierModel, 111, 142, 0f, -260f, 0, Scale: 1.2f),
+                ],
+            };
+            var layout = new AreaLayout(0xd801, DeepwaterFairgraves.ShipGraveyard, 400, 400, 100, 100, (_, _) => true, []) { Level = level };
+            var league = new LeagueRuntime(new GameServer.Core.Accounts.League("Allflame", "Allflame", false, false), new HashSet<string>(["Game", "Deepwater"]));
+            var instance = new InstanceState();
+            using var wire = new CaptureWire();
+            string charName = "DwFg" + Guid.NewGuid().ToString("N")[..8];
+            player = new Player(layout, 1, 1)
+            {
+                Character = { Account = "dw-fg-acct", Name = charName, League = "Allflame" },
+                Instance = instance,
+                PlayerLife = 1000,
+                Pools = new(12, 1000, 100, 2, 0),
+                Connection =
+                {
+                    LockstepClient = false,
+                    PlayerSent = true,
+                    Session = new(charName, wire.Stream, wire.ServerCiphers),
+                },
+                LeagueModule = league,
+            };
+            player.Clock.Start();
+            Program.InGame.TryAdd(player, 0);
+
+            await DeepwaterFairgraves.Enter(deepwaterCtx, player);
+
+            // Fairgraves spawned and barrier is active before kill.
+            var bossEntry = Assert.Single(player.Area.Monsters, kv => kv.Value.Variety?.Id == DeepwaterFairgraves.FairgravesVariety);
+            Assert.True(player.Barrier.Count > 0 || player.StationaryBlockers.Count > 0);
+            Assert.False(player.Character.HasQuestFlag(DeepwaterFairgraves.KilledFairgravesFlag));
+
+            // Simulate a minion / totem / trap / mine kill (PlayerKill = false, which emits GameEvents.Kill without MonsterKilled).
+            var kill = new KillContext(player, bossEntry.Value, DeepwaterFairgraves.FairgravesVariety, (114, 109))
+            {
+                PlayerKill = false,
+            };
+            foreach (var run in GameEvents.Kill.For(player)) run(kill);
+            foreach (var after in kill.Afterwards) await after();
+
+            Assert.True(player.Character.HasQuestFlag(DeepwaterFairgraves.KilledFairgravesFlag));
+            Assert.Contains(DeepwaterFairgraves.FairgravesSeenLeagueFlag, player.Character.LeagueQuestFlags);
+            Assert.Empty(player.DoorBarriers);
+            Assert.Empty(player.SightDoorBarriers);
+            Assert.Empty(player.Barrier);
+            Assert.Empty(player.StationaryBlockers);
+            Assert.Contains(instance.Ground.All(), g => g.Item.Item.TypeHash == DeepwaterFairgraves.AllflameItemHash);
+
+            // Verify both 0x02bc Transitionable -> state 2 and 0x01c6 BlockageUpdate(false) were sent on the wire.
+            byte[] sent = wire.FinishAndDecrypt();
+            byte transIndex = (byte)QuestObject.TransitionableIndex(DeepwaterFairgraves.BarrierComponents());
+            Assert.Contains(Enumerable.Range(0, Math.Max(0, sent.Length - 15)),
+                i => BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(i, 2)) == InstanceEntities.ComponentUpdateId
+                    && sent[i + 14] == transIndex
+                    && sent[i + 15] == DeepwaterFairgraves.BarrierOpenState);
+            Assert.Contains(Enumerable.Range(0, Math.Max(0, sent.Length - 12)),
+                i => BinaryPrimitives.ReadUInt16BigEndian(sent.AsSpan(i, 2)) == InstanceEntities.BlockageUpdateId
+                    && sent[i + 12] == 0);
+        }
+        finally
+        {
+            if (player is not null) { player.Closed = true; Program.InGame.TryRemove(player, out _); }
+            deepwaterLifetime.Stop(ex => throw ex);
+            GameEventOwners.Release("Deepwater", GameEventOwners.ModuleRank);
+        }
+    }
+
     static byte[] Tick()
     {
         byte[] tick = new byte[InstanceProtocol.KnownClientLength(0x1b) ?? throw new InvalidOperationException("0x1b has no fixed length")];
@@ -603,8 +706,20 @@ public sealed class DeepwaterLeagueTests
 
     static IModuleContext Context(IModuleLifetime lifetime)
     {
-        var context = DispatchProxy.Create<IModuleContext, DivinationCardTests.HookContext>();
-        ((DivinationCardTests.HookContext)(object)context).Lifetime = lifetime;
+        var context = DispatchProxy.Create<IModuleContext, LoggingContext>();
+        ((LoggingContext)(object)context).Lifetime = lifetime;
         return context;
+    }
+
+    public class LoggingContext : DispatchProxy
+    {
+        public IModuleLifetime Lifetime = null!;
+        protected override object? Invoke(MethodInfo? method, object?[]? args) => method!.Name switch
+        {
+            "get_Lifetime" => Lifetime,
+            "get_Manifest" => new ModManifest(Lifetime.Id, "0", ModKind.Feature, [], Lifetime.Id + ".dll"),
+            "Log" => null,
+            _ => throw new NotSupportedException(method.Name),
+        };
     }
 }

@@ -268,6 +268,7 @@ public static class DepravedTrinity
             if (!CurrentGameWork || !TransitionShown(c, use.TargetId, gate)
                 || !PlayerWalk.InWalkUpRange(stop, (gate.GridX, gate.GridY), AreaTransitionObjectSize)) return true;
             c.Walk.Teleport(destination.X, destination.Y, ProjectileWorldTime(c));
+            RememberLocalGateCheckpoint(c, gate, stop, destination, allowUnpaired: true);
             await SendWorldRecord(c, c.Id, InstanceProtocol.Teleport(c.Id, destination.X, destination.Y), $"[Rotting Core] gate 0x{use.TargetId:x} -> {destination}", still: () => PlayerActionCurrent(c, action));
         }
         finally { await SendWorldRecord(c, c.Id, InstanceProtocol.ActionEnded(c.Id), null, still: () => PlayerActionCurrent(c, action)); }

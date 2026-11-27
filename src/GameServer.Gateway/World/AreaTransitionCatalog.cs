@@ -458,7 +458,8 @@ public static class AreaTransitionCatalog
         if (Atlas?.GetValueOrDefault(hash)?.Connections is not { } connections) return null;
         var numbers = connections.Where(c => c.Hash16 == from).Select(c => c.Index).ToHashSet();
         return entrances.Where(p => numbers.Contains(p.Number))
-            .OrderBy(p => p.Enabled ? 1 : 0)
+            .OrderBy(p => p.NamedPoint ? 0 : 1)
+            .ThenBy(p => p.Enabled ? 1 : 0)
             .Select(p => ((int, int, bool)?)(p.X, p.Y, p.NamedPoint))
             .FirstOrDefault();
     }

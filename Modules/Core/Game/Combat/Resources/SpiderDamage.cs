@@ -16,7 +16,8 @@ public static partial class Game
         => CaptureSpiderDamage(player, inputs, effectiveness, context, local, bow, offHand: false);
 
     static SpiderDamageSource? CaptureSpiderDamage(Player player, SupportedHitInputs inputs, double effectiveness,
-        bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false)
+        bool context, IReadOnlyDictionary<uint, int>? local, bool bow, bool offHand, bool required = false,
+        long extraIncreased = 0)
     {
         if (!required && !HasSpiderDamage(inputs.Get) && !HasTypedTargetDamage(inputs.Get)
             && !HasConditionalHitDamage(inputs) && !HasLocalTargetDamage(local))
@@ -36,6 +37,7 @@ public static partial class Game
             ReleaseAilmentMore = inputs.ReleaseAilmentMore,
             ProjectileAttackHitIncrease = inputs.Attack && inputs.Projectile
                 ? (long)inputs.Get(Stat.ProjectileDamagePlusPct) - inputs.FrozenStats.GetValueOrDefault(Stat.ProjectileDamagePlusPct) : 0,
+            ExtraIncreased = extraIncreased,
         };
     }
 
@@ -52,7 +54,7 @@ public static partial class Game
         int Get(uint name) => TypedTargetDamageStat(RawStat, name, ignited, bleeding, lowLife, attack);
         var target = TargetModifiers(RawStat, lowLife, maimed && attack, close && source.Melee && !source.Secondary,
             claw: attack && source.Claw, contact: contact);
-        long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0);
+        long increased = SpiderDamageIncrease(Get, webs) + (blinded ? Get(PlayerHitDamage.VsBlindedDamageStat) : 0) + source.ExtraIncreased;
         var raw = SpiderRawDamage(source.Raw, Get, webs, source.Effectiveness);
         int HitStat(uint name)
         {
