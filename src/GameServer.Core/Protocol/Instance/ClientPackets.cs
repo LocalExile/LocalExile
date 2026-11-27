@@ -46,6 +46,7 @@ public static class ClientPackets
         V(InstanceStash.ReorderTabsId, InstanceStash.ReorderTabsLength),
         V(InstanceStash.RenameTabId, InstanceStash.RenameTabLength),
         V(InstanceItems.SetItemNoteId, InstanceItems.SetItemNoteLength),
+        V(InstanceItems.ListWithPriceId, InstanceItems.ListWithPriceLength),
         P(InstanceStash.ColourTabId, InstanceStash.ColourTabLength),
         P(InstanceStash.PublicTabId, InstanceStash.PublicTabLength),
         V(InstanceStash.MoveToAffinityTabId, InstanceStash.MoveToAffinityTabLength),

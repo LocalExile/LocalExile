@@ -48,8 +48,8 @@ $manifest = @(
        Args = @('scripts/re/ot_components.py', '--all', '--json', 'data/object-types.json',
                 'Metadata/Terrain/Labyrinth/Objects/Elevator_Izaro', 'Metadata/Terrain/Labyrinth/Objects/BossObjectiveMarker',
                 'Metadata/Terrain/Leagues/Harvest/Objects/SoulTree', 'Metadata/Terrain/Leagues/Deepwater/Objects/CursedTreasureChestEncounterLamp',
-                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 13; Needs = @('tables', 'area-transitions', 'room-points')
-       UsedBy = 'monsters (emergence, inherited Life corpse flags and Actor slow-animation policy), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
+                'Metadata/Terrain/Leagues/Deepwater/BrinerotEncounter/BrinerotEmergeBarrel'); Version = 14; Needs = @('tables', 'area-transitions', 'room-points')
+       UsedBy = 'monsters (emergence, inherited Life corpse flags, Actor slow-animation policy, and StateMachine shared-state metadata), NPCs, area transitions, quest objects and chests, hideout decorations and stationary collision footprints' }
     @{ Name = 'hideouts'; Outputs = @('data\hideouts.json'); Runner = 'dotnet'
        Args = @('run', '--project', 'scripts/re/atlas', '--', 'Client', 'hideouts'); Version = 4; Needs = @('tables', 'object-types')
        UsedBy = 'hideouts and their decorations (21-hideouts.md)' }
@@ -62,9 +62,11 @@ $manifest = @(
     # v6 adds monster-stances.json: a stanced .act's (the Rogue Exiles') skill animation pools per weapon stance.
     # v7 gives each stance clip every contact frame (contacts): when a multi-strike skill's later strikes land.
     # v8 adds separate ordinary-melee clocks from the variety AO, preserving all legacy contact pools.
+    # v9 parses validated ACT modifiers (effect_locked, effect_detached, item_animation using, with_main_hand, @alias,
+    # :weight=/:attack_time=), .ao views (view_of), all Animation.dat keys, and all named clip events, profile-normalized.
     @{ Name = 'monster-contacts'; Outputs = @('data\monster-contacts.json', 'data\monster-stances.json'); Runner = 'python'
-       Args = @('scripts/re/monster_contacts.py'); Version = 8; Needs = @('tables', 'object-types')
-       UsedBy = 'monster contact frames, variety AO clip clocks with slow spans and ACT budgets, projectile release points, Throw-stage contacts, and when a weapon-stanced monster''s skill lands (11-skills.md, 12-quests.md)' }
+       Args = @('scripts/re/monster_contacts.py'); Version = 9; Needs = @('tables', 'object-types')
+       UsedBy = 'monster contact frames, all Animation.dat pools and named clip events (profile-normalized), .ao views, variety AO clip clocks with slow spans and ACT budgets, projectile release points, Throw-stage contacts, and weapon-stanced monsters'' skill clips (11-skills.md, 12-quests.md)' }
     # monster-takehit also gives each variety's Emerge clip and its length (how long an emerge monster takes to rise) and
     # its death clips with the time they clear the corpse's body from the client's paths.
     @{ Name = 'monster-takehit'; Outputs = @('data\monster-takehit.json'); Runner = 'python'

@@ -65,6 +65,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public Game.ExplosiveFuseSpec? ExplosiveFuse { get; init; }
     public Game.EnsnareSpec? Ensnare { get; init; }
     internal Game.ElectrocutionSpec? Electrocution { get; init; }
+    internal Game.VenomGyreCapture? VenomGyre { get; init; }
+    internal Game.FusilladeCast? Fusillade { get; init; }
     public ImpaleStats.Settings? ImpaleSettings { get; init; }
     public ImpaleStats.Settings? CriticalImpaleSettings { get; init; }
     public AttackAccuracyProfile? AccuracyProfile { get; init; }
@@ -103,6 +105,8 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     public bool PointBlank { get; init; }
     public double ReturnMultiplier { get; init; } = 1;
     public int DamageMorePerGroundBounce { get; init; }
+    public int DamageMoreAfterPierce { get; init; }
+    public int DamageMorePerElementalAilment { get; init; }
     internal sealed class LancingSteelHitSeries(double repeatMultiplier)
     {
         public readonly HashSet<ProjectileActorKey> Targets = [];
@@ -142,7 +146,7 @@ public sealed record ProjectileOffense(DamagePacket Hit, bool Spell, int Accurac
     internal int ScourgePods { get; init; }
     internal bool ScourgePodsPerProjectile { get; init; }
     internal Game.SomaticShellApplications? SomaticApplications { get; init; }
-    internal bool PreventsSomaticShellBreak { get; init; }
+    internal bool BypassesSomaticShell { get; init; }
     internal int SkillResistanceInversionChance { get; init; }
     /// <summary>The use's once-per-use grants (the Frenzy gem's charge), shared by its volley: the first enemy hit
     /// claims them.</summary>

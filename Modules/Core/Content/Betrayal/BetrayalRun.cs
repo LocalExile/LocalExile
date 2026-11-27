@@ -4,9 +4,7 @@ namespace GameServer.Modules.Betrayal;
 
 /// <summary>
 /// One instance's Betrayal mission, as plain state: its plan, the objects it put in the area, how far it has gone and what
-/// is due when. It belongs to the area instance, so a second party member and a portal re-entry read the same one. It does
-/// not survive a module reload: the encounter's lives are cleared on unload, so a reloaded module starts no mission in an
-/// area that already has one. Its clock is the frames the area has run (<see cref="Step"/>), not real time.
+/// is due when. It belongs to the area instance, so a second party member and a portal re-entry read the same one. It survives a module reload through the encounter's instance-owned primitive snapshot. Its clock is the frames the area has run (<see cref="Step"/>), not real time.
 /// </summary>
 public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
 {
@@ -30,6 +28,26 @@ public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
     Stage stage;
     double clock;
 
+    public sealed record Snapshot(BetrayalPlan.Plan Plan, byte Level, Stage Stage, double Clock,
+        (double At, Due What)[] Timers, uint Jun, uint[] Carts, uint[] Spawners, uint Portal, uint Member,
+        uint Choice, (int X, int Y)? ChoiceCell);
+
+    public Snapshot Save()
+    {
+        lock (gate) return new(Plan, Level, stage, clock, [.. timers], Jun, [.. Carts], [.. Spawners], Portal, Member, Choice, ChoiceCell);
+    }
+
+    public static BetrayalRun Restore(Snapshot saved)
+    {
+        var run = new BetrayalRun(saved.Plan, saved.Level)
+        {
+            stage = saved.Stage, clock = saved.Clock, Jun = saved.Jun, Portal = saved.Portal,
+            Member = saved.Member, Choice = saved.Choice, ChoiceCell = saved.ChoiceCell,
+        };
+        run.timers.AddRange(saved.Timers); run.Carts.AddRange(saved.Carts); run.Spawners.AddRange(saved.Spawners);
+        return run;
+    }
+
     public BetrayalPlan.Plan Plan { get; } = plan;
     public byte Level { get; } = level;
 
@@ -46,6 +64,7 @@ public sealed class BetrayalRun(BetrayalPlan.Plan plan, byte level)
     public (int X, int Y)? ChoiceCell { get; set; }
 
     public Stage Current { get { lock (gate) return stage; } }
+    public bool HasTimers { get { lock (gate) return timers.Count > 0; } }
 
     /// <summary>The Intervention's ruleset data (0x2c9 of JobAssassinationRules): 1 while the member fights, else 0 [capture:
     /// 0 at the area's entry and at the defeat, 1 at the start]. Null for a Transportation, which has no ruleset, and once the

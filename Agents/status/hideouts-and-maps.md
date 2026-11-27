@@ -161,7 +161,8 @@ Part of [Status](../Status.md); what to build next in this area is in
   Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability, Terrors bosses,
   Bestiary's additional red beasts/family lures/Shadowed Crow/capture copies and Sulphite's owner yield/Fumes.
-  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  Delirium, Shaper/Elder influence, Legion, Abyss, Mercenary, Expedition, Incursion, Betrayal and Pandemonium inputs
+  use their existing encounter paths
   ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
   Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Bestiary captures persist per account and league; mission identities and claims survive module reload.

@@ -56,9 +56,33 @@ remains unmeasured. Return preserves remaining continuations and lifetime, exclu
 the common fixed 150-cell overshoot. Only `returning_projectiles_always_pierce` grants return pierce-all. Terrain is
 still active on return, and ordinary return does not receive a support-only damage penalty.
 
-Named cannot-return inventory: Spark/AltX/AltY, RainOfArrows, BlastRain, SplittingSteel, VenomGyre, WinterOrb,
+Named cannot-return inventory: Spark/AltX/AltY, RainOfArrows, BlastRain, SplittingSteel, WinterOrb,
 ForbiddenRite, Cremation, RollingMagma, ToxicRain and PoisonousConcoction. FreezingPulse returns only from collision.
 These policies do not claim complete behavior for each catalog skill.
+
+Venom Gyre ends its return at the return anchor. Each arriving player shot stores its attack snapshot with its
+own expiry. Whirling Blades emits up to the exported release cap along the slide, rolling retention per emitted
+blade. These new flights cannot return. The Vaal cast fills the pool without a flight and replenishes it over
+the exported secondary duration. The server uses the native buff rows for the counts and the native normal and
+released projectile rows. Exact spiral spacing and the dedicated client orbit updates still need verification.
+
+Thunderstorm plants one storm per paid arrow. Overlapping storms contribute only the strongest Blind to a target.
+The owner must enter, reach the exported stage cap, and exit before the full-stage timeout to detonate the storm.
+Damage and ailment multipliers use the committed shot's inputs. Thunderburst uses the exported projectile and expiry
+area. The landing uses the shared arrow-rain fall timing, and the tornado flight uses shared wandering legs while
+the exact Windstorm action timing and native tornado turns remain unmeasured.
+
+Concoction throws lob bottles over enemies and deal area damage at impact. Charges come from the first
+eligible flask of each element or the first eligible Life Flask, with enough for the full volley. Spending
+charges supplies that attack's damage or ailment bonuses and does not activate the flask. Bouncing releases
+one bottle and spends additional projectile grants on ground chains. Its direction is sampled on each bounce
+and the travel distance uses the shared bounce distance. Exact native bounce spacing is unmeasured.
+
+Kinetic Fusillade queues hovering shots per caster and skill. Reusing that skill refreshes the queue and displaces
+the oldest bolts when the exported cap is reached. The normal gem seeks different targets and chains area hits.
+Detonation instead explodes at each hover position. Both variants use the exported discharge interval and scale
+damage by the number of preceding shots. The hover positions use the client's offset range with server-selected
+angles. The dedicated client hover motion has not been checked with GPU rendering.
 
 ## Radius, damage and presentation
 

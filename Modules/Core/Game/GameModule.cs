@@ -42,6 +42,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.ResetAchievementCache();
         Rules.RetirePactConditions();
         Rules.ClearReaveCounters();
+        global::MonsterKitHooks.Clear();
         RuleTables.Empty();
     }
 
@@ -121,6 +122,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MapScarabBosses.LoadGameData();
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
+        global::MapAllflame.LoadGameData();
         global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
@@ -179,6 +181,7 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapAllflame.Opening);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapInfluence.Opening);
         GameEvents.Drops.Add(module.Manifest.Id, MapInfluence.Drops);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
