@@ -902,7 +902,8 @@ public static partial class Game
                 if (MonsterBlocks(target, random, shot.Spell)) return ProjectileHitResult.Blocked;
                 var raw = shot.Hit.Scale(contact.Multiplier).Roll(random);
                 // A Rampage attack that rolls to hit takes the same critical confirmation roll as every other attack
-                // (the ordinary path below, at RollCriticalStrike): a spell always hits, so only an attack needs it.
+                // (the ordinary path below confirms with EvasionEntropy.ConfirmsCritical after RollCriticalStrike):
+                // a spell always hits, so only an attack needs it.
                 bool crit = random.Next(10000) < shot.CriticalChance
                     + BrittleCriticalChance(target, contact.At / (double)ProjectileRuntime.QuantaPerSecond)
                     && (shot.Spell || EvasionEntropy.ConfirmsCritical(ownedHitChance, Player.AttackAccuracyRandom));
