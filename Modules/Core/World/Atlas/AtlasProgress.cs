@@ -259,18 +259,35 @@ public static class AtlasProgress
         if ((uint)row < MaskRows) mask[row >> 3] |= (byte)(1 << (row & 7));
     }
 
+    /// <summary>One active Memory Line entry for S→C 0x01a3 section 0x08 (all fields big-endian).</summary>
+    public readonly record struct MemoryLineWire(
+        uint LineId, ushort StartNodeHash16, ushort MemoryLineTypeHash16, byte CurrentStepIndex, byte TotalSteps);
+
+    /// <summary>One mod on a Shaped Region Atlas node for S→C 0x01a3 section 0x10 (Mods.HASH16 BE + CompactInt stats).</summary>
+    public readonly record struct ShapedNodeModWire(ushort ModHash16, IReadOnlyList<int> StatValues);
+
+    /// <summary>One Atlas node inside a Shaped Region for S→C 0x01a3 section 0x10 (AtlasNode.HASH16 BE + mods).</summary>
+    public readonly record struct ShapedNodeWire(ushort AtlasNodeHash16, IReadOnlyList<ShapedNodeModWire> Mods);
+
+    /// <summary>One Astrolabe Shaped Region for S→C 0x01a3 section 0x10 (quadrant 0..3, AtlasMissionTypes row 0..10, nodes).</summary>
+    public readonly record struct ShapedRegionWire(byte QuadrantId, byte AtlasMissionTypeRow, IReadOnlyList<ShapedNodeWire> Nodes);
+
     /// <summary>S→C 0x1a3: u8 → +0xc408 (Tangle/Eater 28-map count), u8 → +0xc409 (Cleansing Fire/Exarch 28-map count),
     /// u8 → +0xd0f8 (Voidstone T16 quadrant mask), u8 sections (bit 0: first mask, bit 1: second mask, bit 2: Maven
     /// witnessed WorldAreas.HASH16 u16 LE, bit 3: Memory Lines, bit 4: Astrolabe Shaped Regions), then always 0x141faaa80
     /// (u8 count of scrying map pairs) and the selected sections in bit order. The first mask carries saved completed maps
     /// (+0xd030: clears fog and opens connected maps), the second carries bonus-completed maps (+0xd070: draws the bonus
-    /// completion frame and drives the bonus counter), and section 0x04 carries Maven witnessed areas (+0xcff0).</summary>
+    /// completion frame and drives the bonus counter), section 0x04 carries Maven witnessed areas (+0xcff0), section 0x08
+    /// carries Memory Lines, and section 0x10 carries Astrolabe Shaped Regions.</summary>
     public static byte[] FullMessage(IReadOnlySet<string> completed, byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0) =>
         FullMessage(completed, completed, voidstones, tangleCount, cleansingCount);
 
     public static byte[] FullMessage(IReadOnlySet<string> completed, IReadOnlySet<string> bonusCompleted,
-        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0, IReadOnlyList<(ushort From, ushort To)>? scryPairs = null,
-        IReadOnlyCollection<ushort>? witnessedAreas = null)
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null,
+        IReadOnlyCollection<ushort>? witnessedAreas = null,
+        IReadOnlyList<MemoryLineWire>? memoryLines = null,
+        IReadOnlyList<ShapedRegionWire>? shapedRegions = null)
     {
         var revealed = new byte[MaskBytes];
         var done = new byte[MaskBytes];
@@ -279,9 +296,16 @@ public static class AtlasProgress
             if (completed.Contains(node.Id)) SetBit(revealed, node.Row);
             if (bonusCompleted.Contains(node.Id)) SetBit(done, node.Row);
         }
-        byte sections = (byte)(witnessedAreas is not null ? 0x07 : 0x03);
-        var w = AtlasState(tangleCount, cleansingCount, voidstones, sections, scryPairs ?? []).Bytes(revealed).Bytes(done);
+        byte sections = 0x03;
+        if (witnessedAreas is not null) sections |= 0x04;
+        if (memoryLines is not null) sections |= 0x08;
+        if (shapedRegions is not null) sections |= 0x10;
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, sections, scryPairs ?? [])
+            .Bytes(revealed)
+            .Bytes(done);
         if (witnessedAreas is not null) WriteWitnessedAreas(w, witnessedAreas);
+        if (memoryLines is not null) WriteMemoryLines(w, memoryLines);
+        if (shapedRegions is not null) WriteShapedRegions(w, shapedRegions);
         return w.ToArray();
     }
 
@@ -291,6 +315,26 @@ public static class AtlasProgress
     {
         var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x04, scryPairs ?? []);
         WriteWitnessedAreas(w, witnessedAreas);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x01a3 carrying only section 0x08 (active Memory Lines) without touching map completion masks.</summary>
+    public static byte[] MemoryLinesMessage(IReadOnlyList<MemoryLineWire> memoryLines,
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+    {
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x08, scryPairs ?? []);
+        WriteMemoryLines(w, memoryLines);
+        return w.ToArray();
+    }
+
+    /// <summary>S→C 0x01a3 carrying only section 0x10 (Astrolabe Shaped Regions) without touching map completion masks.</summary>
+    public static byte[] ShapedRegionsMessage(IReadOnlyList<ShapedRegionWire> shapedRegions,
+        byte voidstones = 0, byte tangleCount = 0, byte cleansingCount = 0,
+        IReadOnlyList<(ushort From, ushort To)>? scryPairs = null)
+    {
+        var w = AtlasState(tangleCount, cleansingCount, voidstones, 0x10, scryPairs ?? []);
+        WriteShapedRegions(w, shapedRegions);
         return w.ToArray();
     }
 
@@ -304,6 +348,48 @@ public static class AtlasProgress
         {
             if (written++ >= count) break;
             w.U8((byte)(areaHash & 0xff)).U8((byte)(areaHash >> 8));
+        }
+    }
+
+    static void WriteMemoryLines(GameServer.Core.Protocol.Login.LoginWriter w, IReadOnlyList<MemoryLineWire> lines)
+    {
+        int count = Math.Min(lines.Count, byte.MaxValue);
+        w.U8((byte)count);
+        for (int i = 0; i < count; i++)
+        {
+            var line = lines[i];
+            w.U32(line.LineId)
+             .U16(line.StartNodeHash16)
+             .U16(line.MemoryLineTypeHash16)
+             .U8(line.CurrentStepIndex)
+             .U8(line.TotalSteps);
+        }
+    }
+
+    static void WriteShapedRegions(GameServer.Core.Protocol.Login.LoginWriter w, IReadOnlyList<ShapedRegionWire> regions)
+    {
+        int regionCount = Math.Min(regions.Count, byte.MaxValue);
+        w.U8((byte)regionCount);
+        for (int r = 0; r < regionCount; r++)
+        {
+            var region = regions[r];
+            int nodeCount = Math.Min(region.Nodes.Count, byte.MaxValue);
+            w.U8(region.QuadrantId)
+             .U8(region.AtlasMissionTypeRow)
+             .U8((byte)nodeCount);
+            for (int n = 0; n < nodeCount; n++)
+            {
+                var node = region.Nodes[n];
+                int modCount = Math.Min(node.Mods.Count, byte.MaxValue);
+                w.U16(node.AtlasNodeHash16).U8((byte)modCount);
+                for (int m = 0; m < modCount; m++)
+                {
+                    var mod = node.Mods[m];
+                    w.U16(mod.ModHash16);
+                    foreach (int value in mod.StatValues)
+                        InstanceProtocol.CompactInt(w, value);
+                }
+            }
         }
     }
 

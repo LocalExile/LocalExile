@@ -6,6 +6,38 @@ using static Program;
 
 static class PortalsFeature
 {
+    /// <summary>Sentinel <see cref="MapOpening.Target"/> value indicating a C→S 0x0297 Memory Line Map Device activation.</summary>
+    internal const ushort MemoryLineActivateTarget = 0xFFFF;
+
+    static PortalsFeature() => MapDevice.OpenPortalsFromDevice = OpenDeviceArea;
+
+    /// <summary>Opens a map device portal ring directly around the player's current Map Device (used by modules for
+    /// Eagon boss quests, Memory Vaults, etc.). Returns the opened run, or null when no Map Device is present.</summary>
+    internal static async Task<MapDevice.OpenMap?> OpenDeviceArea(Player player, MapDevice.MapArea area,
+        MapMods? mods = null, IReadOnlyDictionary<string, string>? contentData = null, int portalCount = MapDevice.PortalCount)
+    {
+        var device = MapDeviceHere(player);
+        if (device is null) return null;
+        bool endgameTown = player.Layout.Id == MapDevice.EndgameTownArea;
+        if (!device.Value.Campaign && !endgameTown && !OwnHideout(player)) return null;
+        var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
+        var open = MapDevice.Activate(CharacterName(player), area, mods ?? MapMods.None, itemRow: 0,
+            returnTo: device.Value.Campaign || endgameTown ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
+            entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y),
+            bossOption: 0, pantheonSoul: null, portalCount: portalCount, contentData: contentData);
+        IEnumerable<Player> recipients = endgameTown ? [player] : DeviceVisitors(player);
+        foreach (var visitor in recipients)
+        {
+            try
+            {
+                await RemoveMapPortals(visitor);
+                if (visitor.InstanceNumber == player.InstanceNumber && visitor.Layout.Hash == player.Layout.Hash)
+                    await SpawnMapPortals(visitor, open);
+            }
+            catch (Exception e) when (e is IOException or ObjectDisposedException) { }
+        }
+        return open;
+    }
     // What the chat says when a run can no longer be entered and its portals are closed with it: the client's own
     // BackendErrors texts (InstanceDoesNotExist, FailedToConnectToInstance).
     const string MapInstanceGone = "The instance does not exist.";
@@ -125,7 +157,7 @@ static class PortalsFeature
     // C→S 0x0297, the map receptacle's Memory Line Activate (mode 0x5e, inventory row 94 MemoryLineMaps1).
     internal static Task ActivateMemoryLine(Player player, byte bossOption) =>
         ActivateDeviceSlots(player, PlayerInventories.MemoryLineMaps, ItemsOf(player).Items(PlayerInventories.MemoryLineMaps),
-            target: 0, bossOption, $"0x0297 activate memory line (index {bossOption})", allowCampaign: false);
+            target: MemoryLineActivateTarget, bossOption, $"0x0297 activate memory line (index {bossOption})", allowCampaign: false);
 
     sealed class ActivationConsumeAbortedException : Exception;
 
@@ -193,8 +225,10 @@ static class PortalsFeature
         opening = request.Opening;
         why = request.Reason;
         int[] consumedIndices = request.ConsumeSlots?.ToArray() ?? Enumerable.Range(0, slots.Count).ToArray();
+        bool explicitZeroConsume = request.ConsumeSlots is { Count: 0 };
         // Only an opening the check and the handlers allowed can have bad inputs; a refusal keeps its own reason.
-        if (opening is not null && (consumedIndices.Length == 0 || consumedIndices.Distinct().Count() != consumedIndices.Length
+        if (opening is not null && ((!explicitZeroConsume && consumedIndices.Length == 0)
+            || consumedIndices.Distinct().Count() != consumedIndices.Length
             || consumedIndices.Any(i => i < 0 || i >= slots.Count)))
         { opening = null; why = "The selected recipe has no valid inputs."; }
         if (opening is null)
@@ -208,38 +242,41 @@ static class PortalsFeature
             ? global::Game.EligibleBossOption(player, opening, opening.BossOption != 0 ? opening.BossOption : bossOption)
             : (byte)0;
         // One from each slot's stack, in one transaction: leftover stacks stay in the device (a shop scarab stack is 20).
-        (List<uint> gone, List<InventoryItem> left) consumed;
-        try
+        if (consumedIndices.Length > 0)
         {
-            consumed = Saves.Atomically(() =>
+            (List<uint> gone, List<InventoryItem> left) consumed;
+            try
             {
-                var current = items.Items(inventoryRow);
-                foreach (int index in consumedIndices)
-                    if (!current.Any(i => i.Id == slots[index].Id))
-                        throw new ActivationConsumeAbortedException();
-                var gone = new List<uint>();
-                var left = new List<InventoryItem>();
-                foreach (int index in consumedIndices)
+                consumed = Saves.Atomically(() =>
                 {
-                    var slot = slots[index];
-                    if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take)
-                        throw new ActivationConsumeAbortedException();
-                    gone.Add(slot.Id);
-                    if (take.Left is { } remain) left.Add(remain);
-                }
-                return (gone, left);
-            });
+                    var current = items.Items(inventoryRow);
+                    foreach (int index in consumedIndices)
+                        if (!current.Any(i => i.Id == slots[index].Id))
+                            throw new ActivationConsumeAbortedException();
+                    var gone = new List<uint>();
+                    var left = new List<InventoryItem>();
+                    foreach (int index in consumedIndices)
+                    {
+                        var slot = slots[index];
+                        if (items.ConsumeOne(inventoryRow, slot.Id) is not { } take)
+                            throw new ActivationConsumeAbortedException();
+                        gone.Add(slot.Id);
+                        if (take.Left is { } remain) left.Add(remain);
+                    }
+                    return (gone, left);
+                });
+            }
+            catch (ActivationConsumeAbortedException)
+            {
+                Console.WriteLine($"[gateway] {player.Connection.Remote} map device activation aborted: input slot(s) changed before consumption");
+                await Tell("The items in the Map Device changed; activation cancelled.");
+                return;
+            }
+            await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(inventoryRow),
+                items.NextRevision(inventoryRow), consumed.gone, consumed.left),
+                $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
+                + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         }
-        catch (ActivationConsumeAbortedException)
-        {
-            Console.WriteLine($"[gateway] {player.Connection.Remote} map device activation aborted: input slot(s) changed before consumption");
-            await Tell("The items in the Map Device changed; activation cancelled.");
-            return;
-        }
-        await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(inventoryRow),
-            items.NextRevision(inventoryRow), consumed.gone, consumed.left),
-            $"0x00bf inventory {PlayerInventories.InventoryId(inventoryRow)}: the map device consumed {consumed.gone.Count} slot(s)"
-            + (consumed.left.Count == 0 ? "" : $", {consumed.left.Count} stack(s) left"));
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
         int portalLimit = opening.Mods.Get(Stat.MapPortalLimit);
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
@@ -615,15 +652,22 @@ static class PortalsFeature
             owner, variation);
     }
     // C→S 0x00e7: an Atlas map node picked in the hideout map device (u16 WorldAreas HASH16, u8). The layout becomes
-    // what the next generic map key opens.
+    // what the next generic map key opens; non-layout nodes (e.g. Atlas Anomalies) are remembered in module data.
     internal static async Task SelectAtlasMap(Player player, (ushort Area, byte Mode) picked)
     {
+        string? character = CharacterName(player);
         var layout = MapDevices.Atlas?.ByHash16(picked.Area);
-        if (layout is not null && CharacterName(player) is { } character)
+        if (layout is not null && character is not null)
         {
             MapDevices.Atlas!.Select(character, layout);
             CharacterSaves.SetAtlasLayout(character, layout.Id);
+            CharacterSaves.ChangeModuleData(character, "atlas.selectedTarget", _ => "");
             Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} selected: {layout.Name} ({layout.Id}), mode 0x{picked.Mode:x2}");
+        }
+        else if (picked.Area != 0 && character is not null)
+        {
+            CharacterSaves.ChangeModuleData(character, "atlas.selectedTarget", _ => picked.Area.ToString());
+            Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e7 Atlas special target 0x{picked.Area:x4} selected, mode 0x{picked.Mode:x2}");
         }
         else Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x00e7 Atlas node 0x{picked.Area:x4} (mode 0x{picked.Mode:x2}) is not a known layout");
     }

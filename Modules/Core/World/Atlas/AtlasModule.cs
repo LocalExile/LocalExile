@@ -110,6 +110,10 @@ public sealed class AtlasModule : IModule
                     await AtlasFeature.Refresh(peer);
                 if (bonus) await PublishBonusPoints(peer, modPeer, earned, "Atlas bonus objective completed");
                 else if (completed) await AtlasFeature.SyncTreeFlags(peer);
+                await MemoryTears.OnMapCompleted(peer, node);
+                await AstrolabesAndVaults.OnMapCompleted(peer, node);
+                if (node.IsNormalMap && !node.RequiresSpecificItem)
+                    await AtlasAnomalies.TryDiscoverOnMapCompletion(peer);
             }
             catch (Exception ex) when (ex is IOException or ObjectDisposedException) { }
         }
@@ -124,6 +128,9 @@ public sealed class AtlasModule : IModule
         MavenWitnessing.LoadData();
         EldritchInfluence.LoadData();
         EldritchAltars.LoadData();
+        MemoryTears.LoadData();
+        AstrolabesAndVaults.LoadData();
+        AtlasAnomalies.LoadData();
     }
 
     sealed class DeferCrucibleScope : IDisposable
@@ -143,6 +150,9 @@ public sealed class AtlasModule : IModule
             bossFights.DeferMavenHubSpawn = true;
             module.Lifetime.Own(new DeferCrucibleScope());
         }
+        MemoryTears.Register(module.Manifest.Id);
+        AstrolabesAndVaults.Register(module.Manifest.Id);
+        AtlasAnomalies.Register(module.Manifest.Id);
         ExtraPlayerMessages = player => AtlasFeature.Restore(player);
         GameEvents.MapOpening.Add(module.Manifest.Id, AtlasProgress.ApplyScry);
         GameEvents.AreaPopulated.Add(module.Manifest.Id, EldritchInfluence.OnAreaPopulated);
@@ -446,9 +456,14 @@ public static class AtlasFeature
         byte stones = AtlasProgress.VoidstoneMask(slots);
         var (tangle, cleansing) = PrimordialTrackerCounts(data);
         var witnessed = MavenWitnessing.WitnessedAreaHashes(data);
+        var memoryLines = MemoryTears.ActiveLinesWire(data);
+        var shapedRegions = AstrolabesAndVaults.ShapedRegionsWire(data);
         yield return ("0x003c Atlas tree names", global::Game.AtlasTreeNamesMessage(player));
-        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, {witnessed.Count} Maven witnessed, voidstones 0x{stones:X2} ({slots.Count}), tangle {tangle}, cleansing {cleansing}",
-            AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data), witnessed));
+        yield return ($"0x01a3 Atlas progress, {completed.Count} map(s) completed, {bonusCompleted.Count} bonus, {witnessed.Count} Maven witnessed, voidstones 0x{stones:X2} ({slots.Count}), tangle {tangle}, cleansing {cleansing}, lines {memoryLines.Count}, shaped {shapedRegions.Count}",
+            AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data),
+                witnessedAreas: witnessed,
+                memoryLines: memoryLines.Count > 0 ? memoryLines : null,
+                shapedRegions: shapedRegions.Count > 0 ? shapedRegions : null));
         // The presets in the player batch were built before the budget above changed: send them again so the tree's
         // counter follows on this login.
         if (pointsChanged)
@@ -767,6 +782,8 @@ public static class AtlasFeature
         if (!accepted) return;
         ScryOffers.Remove(player);
         await SendScryPairs(player, data);
+        if (player.Layout.Id == AtlasAnomalies.NamelessSeerArea)
+            await AtlasAnomalies.ConsumeAnomaly(player, 1836);
         await PlayerOf(player).Tell($"Atlas Scrying: {to.Name} now drops the divination cards from {from.Name}.");
     }
 
@@ -864,8 +881,9 @@ public static class AtlasFeature
 
     internal static Task UseItemTypeOnNode(Player player, InstanceMapDevice.UseItemTypeOnAtlasNode req)
     {
-        // Only a stackable Scouring Orb is interchangeable by type. Scrying Orbs have individual origins.
-        if (ItemsFor(player).ByHash(req.TypeHash)?.Id != ScouringOrb) return Task.CompletedTask;
+        // Stackable Scouring Orbs, Astrolabes, and Memory Threads are interchangeable by type. Scrying Orbs have individual origins.
+        string? itemId = ItemsFor(player).ByHash(req.TypeHash)?.Id;
+        if (itemId != ScouringOrb && !AstrolabesAndVaults.IsAtlasNodeConsumable(itemId)) return Task.CompletedTask;
         var (inventory, id) = global::Game.LocateCurrencyStackByType(player, req.TypeHash, req.InventoryId);
         return id == 0 ? Task.CompletedTask : UseItemOnNode(player, new(inventory, id, req.NodeHash16), req.TypeHash);
     }
@@ -877,6 +895,7 @@ public static class AtlasFeature
         var items = ItemsOf(player);
         var stash = global::Game.StashOf(player);
         var data = WorldOf(PlayerOf(player)).CharacterData;
+        AstrolabesAndVaults.NodeApplyOutcome applyOutcome = default;
         var inventoryUpdate = Saves.Atomically<byte[]?>(() =>
         {
             var (spot, used) = global::Game.Locate(items, stash, req.InventoryId, req.ItemId);
@@ -889,7 +908,8 @@ public static class AtlasFeature
                 || (spot.Row != PlayerInventories.MainInventory
                     && !(spot.Row == PlayerInventories.ExpandedInventory && ExpandedInventoryGranted(player)))) return null;
 
-            switch (ItemsFor(player).ByHash(used.Item.TypeHash)?.Id)
+            var itemType = ItemsFor(player).ByHash(used.Item.TypeHash);
+            switch (itemType?.Id)
             {
                 case ScryingOrb:
                     if (used.Item.ScryingAreaHash is not ushort origin
@@ -902,7 +922,9 @@ public static class AtlasFeature
                     if (!AtlasProgress.RemoveScry(data, node)) return null;
                     break;
                 default:
-                    return null;
+                    if (itemType is null || !AstrolabesAndVaults.TryApplyInTransaction(data, node, itemType, out applyOutcome))
+                        return null;
+                    break;
             }
 
             InventoryItem? remaining = null;
@@ -922,7 +944,10 @@ public static class AtlasFeature
         });
         if (inventoryUpdate is null) return;
         await Send(player, inventoryUpdate, $"0x00bf consume Atlas currency on {node.Name}");
-        await SendScryPairs(player, data);
+        if (applyOutcome.Kind != AstrolabesAndVaults.NodeApplyKind.None)
+            await AstrolabesAndVaults.NotifyApplied(player, applyOutcome);
+        else
+            await SendScryPairs(player, data);
     }
 
     // C→S 0x2a7: rename one Atlas passive tree preset (0..2), persisted in module data and echoed via S→C 0x3c.
@@ -1266,8 +1291,13 @@ public static class AtlasFeature
         byte stones = AtlasProgress.VoidstoneMask(slots);
         var (tangle, cleansing) = PrimordialTrackerCounts(data);
         var witnessed = MavenWitnessing.WitnessedAreaHashes(data);
-        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data), witnessed),
-            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), tangle {tangle}, cleansing {cleansing}, {completed.Count} completed, {bonusCompleted.Count} bonus, {witnessed.Count} witnessed");
+        var memoryLines = MemoryTears.ActiveLinesWire(data);
+        var shapedRegions = AstrolabesAndVaults.ShapedRegionsWire(data);
+        await Send(player, AtlasProgress.FullMessage(completed, bonusCompleted, stones, tangle, cleansing, AtlasProgress.ScryPairs(data),
+                witnessedAreas: witnessed,
+                memoryLines: memoryLines.Count > 0 ? memoryLines : null,
+                shapedRegions: shapedRegions.Count > 0 ? shapedRegions : null),
+            $"0x01a3 Atlas voidstones 0x{stones:X2} ({slots.Count} socketed), tangle {tangle}, cleansing {cleansing}, {completed.Count} completed, {bonusCompleted.Count} bonus, {witnessed.Count} witnessed, lines {memoryLines.Count}, shaped {shapedRegions.Count}");
     }
 
     /// <summary>Stones actually in AtlasUpgrades1, not the save (a missing item still left the old 4-slot mask and
