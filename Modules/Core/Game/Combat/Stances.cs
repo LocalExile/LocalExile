@@ -128,7 +128,11 @@ public static partial class Game
         player.Stance = plan.Aura.Stance ?? StanceCatalog.Selected(proposed);
         player.PlayerMana = plan.ManaAfter;
         player.PlayerLife = plan.LifeAfter;
-        if (plan.Changed) player.RecentEvents.Record(StatConditions.ChangedStance, plan.AcceptedAt);
+        if (plan.Changed)
+        {
+            player.RecentEvents.Record(StatConditions.ChangedStance, plan.AcceptedAt);
+            SchedulePerforateCountExpiryLocked(player);
+        }
         player.Pools = PoolsFor(player, player.Pools.Level);
         player.ApplyMovementSpeed();
         player.AuraStatsDirty = true;

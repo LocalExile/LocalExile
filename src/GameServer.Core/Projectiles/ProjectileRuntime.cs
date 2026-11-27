@@ -12,6 +12,10 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     readonly HashSet<long> pendingEmissions = [];
     readonly HashSet<long> activeGroups = [];
     long sequence, commandSequence, terrainEpoch;
+    // Counts every moment a hit-ledger group can stop being active: a flight, emission, child emission or delayed area
+    // leaving its set, or a group that resolves at once and never enters one (impacts, targeted hits, immediate areas).
+    // The ledger is pruned only when this moved, because otherwise no key can have become stale.
+    long removals, prunedAt;
     public long Now { get; private set; }
     public IReadOnlyCollection<ProjectileEntity> Projectiles => projectiles.Values;
     public static long Time(double seconds) => checked((long)Math.Round(seconds * QuantaPerSecond));
@@ -72,6 +76,11 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             var projectileUse = use.ProjectilePayloads is { } snapshots
                 ? use with { Payload = snapshots[i], ProjectilePayloads = null } : use;
             var origin = use.Origin;
+            if (use.RadialLaunchOffset > 0)
+            {
+                origin += direction * use.RadialLaunchOffset;
+                projectileUse = projectileUse with { Origin = origin, Aim = origin + direction * use.Profile.Range };
+            }
             if (point != 0 && parallel is not null)
             {
                 origin += new ProjectileVector(forward.Y, -forward.X) * (point * parallel.Lateral)
@@ -98,7 +107,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             int index = i;
             void Emit()
             {
-                if (sharedSeries && index == count - 1) pendingEmissions.Remove(emission);
+                if (sharedSeries && index == count - 1 && pendingEmissions.Remove(emission)) removals++;
                 if (use.CanEmit?.Invoke() == false || point != 0 && world.TraceTerrain(use.Origin, origin) is not null) return;
                 if (use.InitialAim?.Invoke(origin) is { } aim && double.IsFinite(aim.X) && double.IsFinite(aim.Y) && aim != origin)
                     Spawn(projectileUse with { Aim = aim, InitialAim = null }, useId, group, 0, origin, (aim - origin).Unit, index: index);
@@ -119,7 +128,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             || p.SpeedVariationPercent is < 0 or > 99
             || p.ReturnRolls is { } rolls && rolls.Count < p.Count
             || !double.IsFinite(p.ReturnSpeedMultiplier) || p.ReturnSpeedMultiplier <= 0
-            || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0)
+            || !double.IsFinite(p.ReturnOvershoot) || p.ReturnOvershoot < 0 || p.ReturnHitLimit < 0 || p.OutboundHitLimit < 0
+            || p.Steering is { } s && (s.TargetInterval < s.TurnInterval || s.TurnInterval <= 0
+                || !double.IsFinite(s.MaximumTurn) || s.MaximumTurn <= 0 || s.MaximumTurn > Math.PI))
             throw new ArgumentOutOfRangeException(nameof(p));
         foreach (var area in new[] { p.LaunchArea, p.ContactArea, p.EndArea })
             if (area is { Delay: < 0 } or { Interval: < 0 } or { ConeHalfAngle: < 0 or > Math.PI }
@@ -165,12 +176,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         if (continuing is null && p.Profile.Legs is { } legs)
         {
             p.Legs = legs(index); p.LegStart = position;
-            p.ExpiresAt = Now + Time(p.Legs.Lifetime);
             // The first leg aims where the volley put this projectile's aim point, at the use's aim distance.
             var legAim = p.Legs.EndsAfterLegs && (use.Aim - use.Origin).Length <= 1e-6
                 ? position + direction
                 : position + direction * (use.Aim - use.Origin).Length;
-            StartLeg(p, p.Legs.First(position, legAim), publish: false);
+            var first = p.Legs.First(position, legAim, p.Speed);
+            p.ExpiresAt = Now + Time(p.Legs.Lifetime);
+            StartLeg(p, first, publish: false);
         }
         else if (split && continuing is { } cont && p.Profile.Legs is not null && cont.Legs?.Continue(direction) is { } continuedLegs)
         {
@@ -239,8 +251,9 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             spareSearch = search;
         }
         // Detached delayed areas still need the triggering flight's phase-specific admission history.
-        if (ledger.Count > 0)
+        if (ledger.Count > 0 && removals != prunedAt)
         {
+            prunedAt = removals;
             activeGroups.Clear();
             foreach (var p in projectiles.Values)
             {
@@ -289,7 +302,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         {
             double fraction = Math.Clamp(wall.Fraction, 0, 1);
             best = new(Now + (long)Math.Ceiling((end - Now) * fraction), p, null,
-                ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: p.Position + (to - p.Position) * fraction);
+                ProjectileEndReason.Terrain, wall.Normal, TerrainPoint: wall.StopPosition ?? p.Position + (to - p.Position) * fraction);
         }
         if (Interactions.Count > 0)
             foreach (var interaction in Interactions.OrderBy(w => w.Id))
@@ -420,7 +433,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
                 ? Math.Clamp(p.Use.TargetSplit?.Invoke(target.Key, Now) ?? 0, 0, 256) : 0;
             var terminal = p.Profile.EndArea is { ReplacesDirectContact: true } endArea
                 && AllowsEndArea(p, ProjectileEndReason.Enemy) && splitBonus == 0
-                && !CanContinue(p, actors, targetPierces) && ReturnAnchor(p, ProjectileEndReason.Enemy) is null ? endArea : null;
+                && !CanContinue(p, actors, targetPierces) && ReturnDestination(p, ProjectileEndReason.Enemy) is null ? endArea : null;
             var result = Damage(p, target, terminal?.Stage ?? "direct", multiplier: terminal?.Multiplier ?? 1,
                 admissionStage: "direct", isArea: terminal is not null);
             if (result == ProjectileHitResult.Miss) return;
@@ -472,6 +485,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             {
                 p.Chain--;
                 p.CompletedChains++;
+                p.TerrainLeg = null;
                 p.Position += c.Normal * .001;
                 p.Direction = (chainTarget.Position(Now) - p.Position).Unit;
                 p.Remaining = p.Profile.Range;
@@ -480,6 +494,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             else if (p.TerrainBounces > 0)
             {
                 p.TerrainBounces--;
+                p.TerrainLeg = null;
                 p.Direction = (p.Direction - c.Normal * (2 * p.Direction.Dot(c.Normal))).Unit;
                 p.Position += c.Normal * .001;
                 Publish(ProjectileEventKind.Redirect, p);
@@ -511,6 +526,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     void StartLeg(ProjectileEntity p, ProjectileLeg leg, bool publish = true)
     {
+        if (p.Profile.TerrainSteps is not null) p.TerrainLeg = (p.Position, leg.Target);
         var delta = leg.Target - p.Position;
         double length = delta.Length;
         if (length > 0) p.Direction = delta.Unit;
@@ -536,13 +552,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
 
     ProjectileHitResult Damage(ProjectileEntity p, ProjectileActor target, string stage,
         long? group = null, ProjectileHitRule? rule = null, double multiplier = 1, string? admissionStage = null,
-        bool isArea = false)
+        bool isArea = false, int? admissionPhase = null)
     {
         rule ??= (admissionStage ?? stage) == "direct" ? DirectHitRule(p) : p.Profile.HitRule;
         long g = group ?? (rule.Scope == ProjectileHitScope.Projectile ? p.Id : p.EmissionId);
         contactEpoch++;
         var result = ProjectileHitResult.Blocked;
-        ledger.TryHit(g, p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
+        ledger.TryHit(g, admissionPhase ?? p.Phase, admissionStage ?? stage, target.Key, Now, p.CreatedAt, rule, () =>
         {
             if (p.Profile.LifetimeDamageGainPercent != 0)
             {
@@ -638,14 +654,14 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
     void End(ProjectileEntity p, ProjectileEndReason reason, bool allowReturn = true, ProjectileActorKey? victim = null,
         ProjectileVector? terrainNormal = null, ProjectileActorKey? hitTarget = null)
     {
-        if (allowReturn && ReturnAnchor(p, reason) is { } anchor)
+        if (allowReturn && ReturnDestination(p, reason) is { } destination)
         {
             if (p.Profile.EndAreaOnReturnTurnaround && AllowsEndArea(p, reason) && p.Profile.EndArea is { } turnArea)
                 Area(p, turnArea, victim);
             if (terrainNormal is { } normal) p.Position += normal * .001;
             p.Phase = 1; p.Contacts.Clear();
             if (p.Profile.ExcludeTurnaroundTarget) p.TurnaroundTarget = victim;
-            var delta = anchor.Position(Now) - p.Position;
+            var delta = destination - p.Position;
             p.Direction = delta.Unit; p.Remaining = Math.Max(.001, delta.Length + p.Profile.ReturnOvershoot);
             p.Speed *= p.Profile.ReturnSpeedMultiplier;
             Publish(ProjectileEventKind.Redirect, p);
@@ -666,7 +682,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
             Publish(ProjectileEventKind.Redirect, p);
             return;
         }
-        projectiles.Remove(p.Id);
+        if (projectiles.Remove(p.Id)) removals++;
         world.Publish(new(ProjectileEventKind.End, p, Now, p.Position, reason) { HitTarget = hitTarget });
     }
 
@@ -695,13 +711,13 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         return hit;
     }
 
-    ProjectileActor? ReturnAnchor(ProjectileEntity p, ProjectileEndReason reason) =>
+    ProjectileVector? ReturnDestination(ProjectileEntity p, ProjectileEndReason reason) =>
         p.Phase == 0 && p.Profile.Returns && !p.Profile.CannotReturn
         && Now < p.ExpiresAt
         && (reason != ProjectileEndReason.Enemy || !p.Profile.StopOnEnemy)
         && (reason != ProjectileEndReason.Distance || p.Profile.ReturnOnDistance)
         && reason is ProjectileEndReason.Enemy or ProjectileEndReason.Distance or ProjectileEndReason.Lifetime or ProjectileEndReason.Terrain
-        && p.Use.ReturnAnchor is { } key ? world.Actor(key, Now) : null;
+            ? p.Use.ReturnPosition(world, Now) : null;
 
     static bool AllowsEndArea(ProjectileEntity p, ProjectileEndReason reason) =>
         AllowsTerminalArea(p) && (p.Profile.EndAreaReasons is null || p.Profile.EndAreaReasons.Contains(reason));
@@ -728,7 +744,7 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         foreach (var p in projectiles.Values.Where(p => matches(p.Use)).ToArray())
             End(p, ProjectileEndReason.Teardown, allowReturn: false);
         foreach (var pair in pendingAreas.Where(pair => matches(pair.Value.Use)).ToArray())
-            pendingAreas.Remove(pair.Key);
+            if (pendingAreas.Remove(pair.Key)) removals++;
     }
 
     public void Clear()
@@ -736,6 +752,6 @@ public sealed partial class ProjectileRuntime(IProjectileWorld world)
         contactEpoch++;
         terrainEpoch++;
         foreach (var p in projectiles.Values.ToArray()) End(p, ProjectileEndReason.Teardown, allowReturn: false);
-        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); Interactions.Clear();
+        scheduled.Clear(); pendingEmissions.Clear(); pendingAreas.Clear(); ledger.Clear(); prunedAt = removals; Interactions.Clear();
     }
 }

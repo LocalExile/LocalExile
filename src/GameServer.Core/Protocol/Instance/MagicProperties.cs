@@ -26,7 +26,7 @@ public static class MagicProperties
     {
         var sections = mods.Where(m => identified || m.Section != ModSection.Explicit).GroupBy(m => m.Section)
             .ToDictionary(g => g.Key, g => g.ToList());
-        bool custom = identified && customName is not null;
+        bool custom = identified && customName is { Length: > 0 };
         bool words = identified && !custom && nameWords is { Count: > 0 };
         ushort flags = (ushort)(rarity & 7 | (identified ? Identified : 0) | (custom ? CustomName : 0) | (words ? NameWords : 0));
         foreach (var s in sections.Keys) flags |= (ushort)(1 << (byte)s);

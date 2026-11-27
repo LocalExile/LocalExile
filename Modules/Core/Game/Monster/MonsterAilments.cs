@@ -30,10 +30,15 @@ public static partial class Game
     public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental = false, bool hit = false,
         bool chaos = false) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0);
 
+    /// <summary>Distinguishes damage over time from non-hit damage such as a reflected Molten Shell burst.</summary>
+    public static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
+        bool chaos, bool overTime) => MonsterDamageTaken(m, spell, now, elemental, hit, chaos, 0, overTime);
+
     static double MonsterDamageTaken(SpawnedMonster m, bool spell, double now, bool elemental, bool hit,
-        bool chaos, double increasedPct) =>
+        bool chaos, double increasedPct, bool overTime = false) =>
         m.Effects.DamageTaken(spell, increasedPct + m.Ailments.Magnitude(Kind.Shock, now) + m.Ailments.ChillDamageTakenPct(now)
-            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
+            + m.TakenFromPlayer.All + (elemental ? m.TakenFromPlayer.Elemental + m.Effects[Stat.ElementalDamageTakenPlusPct] : 0)
+            + (overTime ? m.Effects[Stat.DegenEffectPlusPct] : 0) + (hit ? HitDebuffTaken(m, spell, now) : 0)
             + m.SpiderWebs.Taken(now)
             + (chaos ? WitheredTaken(m, now) : 0)
             + m.Ignites.DamageTaken(now)
@@ -324,7 +329,7 @@ public static partial class Game
         List<MonsterElementalAilments.Effect>? reflected = null, MonsterPoisons.Settings poison = default,
         ushort sourceSkill = 0, BlindHitInput blind = default, (int X, int Y)? hitOrigin = null,
         bool playerHit = true, int attackerSize = LivingCollision.PlayerSize, bool attackerHasReversedStat = true,
-        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null)
+        bool areaHit = false, int glacialFreezeMore = 0, int sourceEffect = -1, bool? ownHit = null, int extraShockChance = 0, CascadeBurst cascadeBurst = CascadeBurst.None)
     {
         const uint nativeExposure = Stat.PurgeExposeResistPctMatchingHighestElementDamage;
         int? dominantExposure = (long)playerStats.GetValueOrDefault(nativeExposure) + (skill?.GetValueOrDefault(nativeExposure) ?? 0) < 0
@@ -336,8 +341,12 @@ public static partial class Game
         if (playerHit) QueueLivingLightningLocked(player, targetId, m, sourceSkill, skill, mitigated, now);
         if (playerHit && !spell && skill is not null && GolemStat(skill, Stat.HolyStrikeAnimatesOwnersMainHandWeapon) != 0)
             QueueHolyArmamentLocked(player, targetId, m, sourceSkill);
+        if (sourceSkill != 0 && !spell && (ownHit ?? playerHit) && m.Hostile
+            && skill?.GetValueOrDefault(Stat.TriggerPrismaticBurstOnHitPctChance) is > 0 and var burstChance)
+            TriggerPrismaticBurstLocked(player, sourceSkill, sourceEffect, m.Walk.Position(now), now, playerStats, burstChance);
         PhantasmsOnHitLocked(player, m, sourceSkill, now, random, skill: skill);
         CursesOnHitLocked(player, m, sourceSkill, spell, now, skill, playerStats, playerHit, random);
+        if (ownHit ?? playerHit) ItemMarksOnHitLocked(player, m, now);
         if (playerHit && critical) ArcaneSurgeOnCritLocked(player, playerStats, now, random);
         if (critical && (ownHit ?? playerHit) && m.Hostile && !m.Invulnerable)
             LoseLifeOnCriticalStrikeLocked(player, Player(Stat.LosePctOfLifeOnCrit), now);
@@ -346,9 +355,14 @@ public static partial class Game
                 || skill?.GetValueOrDefault(Stat.KnockbackOnCritWithProjectileDamage) > 0);
         if (criticalProjectileKnockback && skill?.GetValueOrDefault(Stat.BaseIsProjectile, 1) == 0)
             criticalProjectileKnockback = false;
-        KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
-            attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback,
-            area: areaHit);
+        bool limitCascadeKnockback = cascadeBurst == CascadeBurst.Early && m.Rarity == MonsterRarity.Unique;
+        if (cascadeBurst != CascadeBurst.Final
+            && (!limitCascadeKnockback || !CascadeKnockbacks.TryGetValue(m, out var last) || now >= last.ReadyAt)
+            && KnockbackOnHitLocked(player, m, playerStats, skill, now, random, hitOrigin,
+                attackerSize: attackerSize, attackerHasReversedStat: attackerHasReversedStat, guaranteed: criticalProjectileKnockback,
+                area: areaHit)
+            && limitCascadeKnockback)
+            CascadeKnockbacks.GetValue(m, static _ => new()).ReadyAt = now + 1;
         // "You gain Onslaught for 4 seconds on Hit" and "Gain Arcane Surge on Hit with Spells" (Honoured Berserker
         // and Flood tattoos): every player hit, the spells-only one gated by the hit's own spell flag.
         if (playerHit) OnslaughtOnHitLocked(player, now);
@@ -380,7 +394,7 @@ public static partial class Game
         int Attacker(uint name)
         {
             int value = Player(name) + PanelStats.Of(name, Skill);
-            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock);
+            if (name == Stat.ChanceToShockPct) value = ActorScale.Saturate((long)value + frozenShock + extraShockChance);
             if (name == Stat.ChanceToFreezePct) value = ActorScale.Saturate((long)value + projectileFreezeChance);
             if (!tinctureWeapon) return value;
             return name switch

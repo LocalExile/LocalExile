@@ -82,6 +82,8 @@ Nothing yet.
   scoped critical multiplier. Herald passives apply to their secondary AoE and damage, and skill timing reads its
   curse, mark, link and retaliation speed bonuses.
   Retaliation hits apply their damage, stun and ailment duration modifiers.
+  Divine Retribution opens after a block, lights its skill button and releases four waves of terrain-limited bursts.
+  Enduring Cry grants Endurance Charges to nearby allied players and regenerates the life of nearby allies.
   A throw takes the trap or mine throwing time, held throws land, and a projectile spell leaves the trap or mine.
   A rain skill (Rain of Arrows, Blast Rain, Toxic Rain) from a trap or mine comes down as the player's own does.
   Several traps or mines scatter around the aim (the supports' circle, or a radius growing with their number), Swift
@@ -95,7 +97,8 @@ Nothing yet.
   Local socketed level/quality bonuses apply to physical gems, including support gems, without raising requirements.
   Cast when Damage Taken checks its level cap against an equipment-granted skill's level; Varunastra fits one-hand
   melee skill and support restrictions.
-  Crystalfall accepts a compatible Slam with an unarmed main hand, including while holding a shield.
+  Fissure releases radial travelling attacks on a supported Slam's ground impact. Crystalfall releases Falling Crystals
+  on accepted hits, with three stored cooldown uses. Crystalfall also accepts a compatible unarmed Slam with a shield.
   Second Wind adds a stored use only to non-instant skills; ordinary cooldown charges recover sequentially on game time.
   Echoes of Creation adds a stored use to its socketed warcries.
   The Delve socketed attack/spell more-damage effects reach the ordinary hit calculation.
@@ -162,8 +165,10 @@ Nothing yet.
 
 - **Stable gem skill ids (tested, not yet checked with the real client).** Each gem keeps its skill id while it stays
   socketed (a gem moved through the cursor keeps its own; a gem swapped in never takes the old gem's id), so skill bar
-  keys no longer move when other gems come or go; queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous Fire;
-  one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
+  keys retain the selected gem through socket moves and relogging.
+  Explicit bindings distinguish duplicate gem effects.
+  Queued bar refreshes read the latest saved binding at publication; a skill that goes away ends its aura or Righteous
+  Fire; one aura of a kind runs at a time (`GemSkillIds.cs`; [19](../docs/protocol/19-gems.md) §3).
 - **Gem levels (tested, level 1 → 2 checked with the real client).** A gem's level comes from its experience up to its
   experience type's cap; its skill uses that level's cost, damage, reservation and cooldown, and its quality stats;
   Transfigured and Trarthan gems grant their own skill.

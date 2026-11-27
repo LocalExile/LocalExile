@@ -36,7 +36,7 @@ Items keep the Roadmap's priority groups, and are in rough priority order within
   curses on the player; [14](../docs/protocol/14-monster-packs.md) §5), live calibration of Act 1–10 boss controllers,
   pack `Grounds`, the varieties with BlightTower / Mercenary … components
   (each needs its deserializer, schema.md; NPC, InteractionAction and Timer are written), tile spawner bosses
-  (Marceus), and wiring campaign Bestiary, Blight, Ritual, Delirium and Vaal Side Area encounters once their league
+  (Marceus), and wiring campaign Bestiary, Blight, Delirium and Vaal Side Area encounters once their league
   modules are implemented.
   Emerge monsters: the official emerge distance and whether a pack rises together are unknown (the server's `.ais`
   files); types whose Transitionable lists more states (SpiderBoss: 3) are still created risen.

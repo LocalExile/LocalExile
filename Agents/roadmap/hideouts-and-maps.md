@@ -52,8 +52,8 @@ bench.
 
 - **Known:** the monolith, timer, frozen armies, break-out, release and the rewards (symbols, drops, splinters,
   chests) work ([Legion](../docs/game/legion.md); #1391).
-- **Start:** phase 3: the Domain of Timeless Conflict, generals and timeless jewel drops; phase 4: the Legion scarabs
-  (the #505 route) and the Atlas `map_legion_*` stats. The count, chest, rank and reward numbers are guesses to settle
+- **Start:** phase 3: the Domain of Timeless Conflict and timeless jewel drops; phase 4: the Atlas `map_legion_*`
+  stats beyond the supported scarab inputs. The count, chest, rank and reward numbers are guesses to settle
   against the real game.
 - **Done when:** a Legion encounter pays what the real one does and the Atlas passives and scarabs change it.
 
@@ -76,7 +76,8 @@ bench.
   statues play their idle and are recreated on entry. See [21](../docs/protocol/21-hideouts.md), Monster Statue.
 - **Start:** live-verify custom decoration placement/reclaim/reset (`0x59`/`0x5a`/`0x5d`/`0x5e`), `/save_hideout`,
   music box (`0x255`), Item Display Case (`0x67`/`0x68`) and Horticrafting `0xf9`, plus default non-station doodads;
-  maps: remaining scarab engines, Essence skills/enhancement scaling and Evolution/Apparitions (#505);
+  maps: remaining scarab engines outside Delirium, Influence, Legion, Abyss and Mercenaries,
+  and Essence enhancement scaling (#505);
   Torment spirits' and Grips' skills (#1129);
   Harbinger follow-up: The Beachhead unique map (`HarbingerPortal` boss encounter, Harbinger unique piece drops,
   puzzle-grid assembly and Harbinger Scroll upgrades);

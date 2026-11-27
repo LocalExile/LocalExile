@@ -37,8 +37,11 @@ public sealed class GameModule : IModule, IDisposable
     /// clean-ups that lifetime owns (the fights' CleanupOnUnload) have read the rule tables by now.</summary>
     public void Dispose()
     {
+        Rules.ClearInstancePackCache();
         Rules.ForgetClaimedCharacters();
         Rules.ResetAchievementCache();
+        Rules.RetirePactConditions();
+        Rules.ClearReaveCounters();
         RuleTables.Empty();
     }
 
@@ -48,6 +51,7 @@ public sealed class GameModule : IModule, IDisposable
     {
         // The catalogs the others read first. The HardMode data set waits for its first player (Rules.LoadHardModeData).
         Rules.LoadSettingsData();
+        ItemEffectRules.Validate(GameData.Current);
         // The catalogs the rules share (Settings.cs and the systems' own files), each after the ones it reads.
         Rules.Monsters = new();
         Rules.Packs = new();
@@ -117,6 +121,7 @@ public sealed class GameModule : IModule, IDisposable
         global::MapScarabBosses.LoadGameData();
         global::MapScarabContent.LoadGameData();
         global::MapScarabPacks.LoadGameData();
+        global::MapInfluence.LoadGameData();
         global::StrongboxCatalog.LoadGameData();
         global::StrongboxMods.LoadGameData();
         global::MapStrongboxes.LoadGameData();
@@ -132,6 +137,7 @@ public sealed class GameModule : IModule, IDisposable
         Rules.LoadEssenceProjectiles();
         Rules.LoadRemnantAuraData();
         Rules.LoadSelfBuffSkillsData();
+        Rules.LoadPactConditionData();
         Rules.LoadMapAreaStats();
         Rules.LoadAchievementsData();
     }
@@ -139,6 +145,7 @@ public sealed class GameModule : IModule, IDisposable
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
+        GameData.Validating.Add(module.Manifest.Id, ItemEffectRules.Validate);
         LoadData();
         Rules.CombatLifetime = module.Lifetime;
         // The game's systems in each area's own world (GameArea).
@@ -172,6 +179,8 @@ public sealed class GameModule : IModule, IDisposable
         InstanceEvents.AreaDisplayStats.Add(module.Manifest.Id, Rules.MapAreaDisplayStats);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabContent.Describe);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapScarabPacks.Opening);
+        GameEvents.MapOpening.Add(module.Manifest.Id, MapInfluence.Opening);
+        GameEvents.Drops.Add(module.Manifest.Id, MapInfluence.Drops);
         GameEvents.Drops.Add(module.Manifest.Id, MapScarabPacks.Drops);
         GameEvents.MapOpening.Add(module.Manifest.Id, MapStrongboxes.Opening);
         GameEvents.PlayerEntered.Add(module.Manifest.Id, MapStrongboxes.Enter);
@@ -250,6 +259,9 @@ public sealed class GameModule : IModule, IDisposable
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndAreaTotems(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.EndRejuvenationTotemAura(player); return Task.CompletedTask; });
         GameEvents.PlayerLeaving.Add(id, (player, _) => { Rules.ClearOwnerAttacks(player); return Task.CompletedTask; });
+        GameEvents.ObjectUse.Add(id, Rules.TryUseCustomPortal);
+        GameEvents.PlayerEntered.Add(id, Rules.SpawnCustomReturnPortal);
+        InstanceEvents.InstanceClosing.Add(id, Rules.ReleaseCustomReturnOrigin);
         GameEvents.AreaTick.Add(id, GameEvents.InArea(global::DoedreSewers.Area, global::DoedreSewers.Tick));
         GameEvents.ObjectUse.Add(module.Manifest.Id, global::DoedreSewers.Use);
         GameEvents.PlayerStatSources.Add(module.Manifest.Id, global::DoedreSewers.PlayerStats);
@@ -446,6 +458,7 @@ public sealed class GameLogic(IModuleLifetime? lifetime = null) : IGameLogic, IW
         Rules.ClearPlayerDecay(player);
         Rules.ClearCorruptedBlood(player);
         Rules.ClearEssenceAuraExposure(player);
+        Rules.ClearReaveStages(player);
         player.RetirePlayerUpdates();
         Rules.FortificationOf(player).Clear();
         Rules.LeechOf(player).Clear(Rules.AreaTime(player));

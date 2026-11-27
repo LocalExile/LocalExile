@@ -229,15 +229,42 @@ public static class PetrifiedBlood
     /// full maximum. Leech instances themselves are not cleared at Low Life: their own cap is maximum unreserved Life,
     /// but the recovery they apply through this function is capped like regeneration and Recoup.
     /// </summary>
-    public static uint RecoverLife(Player player, uint current, double amount, ref double carry, uint minimum = 0)
+    /// <summary>The lowest active life/ES recovery ceiling percentage (1..100), or 100 when no recovery ceiling applies.
+    /// Reads <c>cannot_recover_life_or_energy_shield_above_%</c> and, while <c>is_in_ritual</c> is active,
+    /// <c>map_ritual_cannot_recover_life_or_energy_shield_above_x_%</c> and
+    /// <c>cannot_recover_life_or_energy_shield_above_%_while_in_ritual</c>.</summary>
+    public static int RecoveryCeilingPct(Func<uint, int> get)
     {
-        if (amount > 0 && player.PetrifiedBlood.Active)
+        int cap = 100;
+        int general = get(Stat.CannotRecoverLifeOrEnergyShieldAbovePct);
+        if (general is > 0 and < 100) cap = Math.Min(cap, general);
+        if (get(Stat.IsInRitual) > 0)
         {
-            uint half = LowLifeMaximum(player);
-            uint maximum = Math.Min(player.PlayerUnreservedLife, current >= half ? current : half);
-            return RecoveryPool.Advance(current, maximum, amount, ref carry, minimum);
+            int ritual = get(Stat.MapRitualCannotRecoverLifeOrEnergyShieldAboveXPct);
+            if (ritual is > 0 and < 100) cap = Math.Min(cap, ritual);
+            int ritual2 = get(Stat.CannotRecoverLifeOrEnergyShieldAbovePctWhileInRitual);
+            if (ritual2 is > 0 and < 100) cap = Math.Min(cap, ritual2);
         }
-        return RecoveryPool.Advance(current, player.PlayerUnreservedLife, amount, ref carry, minimum);
+        return cap;
+    }
+
+    public static uint RecoverLife(Player player, uint current, double amount, ref double carry, uint minimum = 0, int ceilingPct = 100)
+    {
+        uint maximum = player.PlayerUnreservedLife;
+        if (amount > 0)
+        {
+            if (player.PetrifiedBlood.Active)
+            {
+                uint half = LowLifeMaximum(player);
+                maximum = Math.Min(maximum, current >= half ? current : half);
+            }
+            if (ceilingPct is > 0 and < 100)
+            {
+                uint ceil = (uint)((long)player.PlayerMaxLife * ceilingPct / 100);
+                maximum = Math.Min(maximum, current >= ceil ? current : ceil);
+            }
+        }
+        return RecoveryPool.Advance(current, maximum, amount, ref carry, minimum);
     }
 
     /// <summary>The life cost a skill adds while the buff runs and the player is not on Low Life: the buff's share of

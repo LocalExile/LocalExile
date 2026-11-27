@@ -6,11 +6,15 @@ public static partial class Game
 {
     // The player's stats as its client gets them. Under a trap's degeneration the pools only fall: the client steps them
     // up by these rates between updates, so they go as 0.
+    // Whether the client is sent its life and energy shield recovery as 0 (ClientStats): then it predicts no rise.
+    public static bool ClientLifeRecoveryZeroed(Player player) =>
+        player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
+        || HerEmbraceOf(player).Until > ResourceEffectsTime(player) || FlameTouchedActive(player)
+        || player.UtilityFlaskEffects.HasSelfDamage;
+
     public static List<(uint, int)> ClientStats(Player player, List<(uint Key, int Value)> stats)
     {
-        if (player.TrapDegenPerSecond > 0 || SiphoningDegenerationActive(player) || ChargeDegenerationActive(player)
-            || HerEmbraceOf(player).Until > ResourceEffectsTime(player) || FlameTouchedActive(player)
-            || player.UtilityFlaskEffects.HasSelfDamage)
+        if (ClientLifeRecoveryZeroed(player))
             for (int i = 0; i < stats.Count; i++)
                 if (stats[i].Key == Stat.LifeRecoveryPerMinute || stats[i].Key == Stat.EnergyShieldRecoveryPerMinute)
                     stats[i] = (stats[i].Key, 0);
@@ -35,7 +39,7 @@ public static partial class Game
     // Pathfinding::GetSpeed (0x141e827a0): movement_velocity_+%, virtual_action_speed_+%, movement_velocity_cap and 0x7b5.
     static readonly uint[] WalkRelayStats = [Stat.MovementVelocityPlusPct, Stat.VirtualActionSpeedPlusPct, Stat.MovementVelocityCap, 0x7b5];
 
-    // A player stats message (S→C 0x1b3) written for a lockstep client's player (AreaStats.Written). The client sets
+    // A player stats message (S→C 0x1b3) written for an area's player (AreaStats.Written). The client sets
     // each stat it lists and tells the stat's listeners whether the value changed or not; for a movement stat the Actor
     // runs its active MoveTo's piece again from the cell the player stands on at the newly published speed. ApplyMovementSpeedAt
     // reads the published AreaStats values and calls Walk.SetSpeed(speed, frame.Start), which both updates the speed on
@@ -45,8 +49,13 @@ public static partial class Game
         if (!stats.Any(s => Array.IndexOf(WalkRelayStats, s.Key) >= 0)) return;
         foreach (var player in InGame.Keys)
         {
-            if (player.Id != id || !ReferenceEquals(player.Frames.Area, area) || !player.Connection.LockstepClient
-                || player.Connection.LockstepFrame is not { } frame) continue;
+            if (player.Id != id || !ReferenceEquals(player.Frames.Area, area)) continue;
+            if (!player.Connection.LockstepClient)
+            {
+                player.ApplyMovementSpeedAt(AreaTime(player));
+                continue;
+            }
+            if (player.Connection.LockstepFrame is not { } frame) continue;
             StepWalkers(player, frame.Start);
             if (ChargeSessions.TryGetValue(player, out var charges)) charges.SettleDegeneration(frame.Start);
             player.ApplyMovementSpeedAt(frame.Start, forceRelay: true);

@@ -40,7 +40,8 @@ public sealed class MercenaryTests
     public async Task A_mercenary_is_placed_for_the_instance_talked_to_duelled_and_hired()
     {
         var area = AreaInfo.Load(GamePack.Default.TryRead, "MapWorldsStrand", 70);
-        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapMercenaryLeague] = 1 });
+        var mods = new MapMods(new Dictionary<uint, int> { [Stat.MapMercenaryLeague] = 1,
+            [Stat.MapMercenariesAreInfamous] = 1, [Stat.MapMercanaryAccompaniedByParty] = 1, [Stat.MapMercenaryAllUniqueItems] = 1 });
         var instance = new InstanceState();
         var stats = instance.AreaStats(() => Game.ComposeMapAreaStats(mods, 3, new Dictionary<uint, int>(), new HashSet<string>(), -1));
         uint seed = ServerLevels.PlayableSeed(area.Id, 0x7061, 70, stats);
@@ -64,6 +65,8 @@ public sealed class MercenaryTests
             await GameEvents.RunAreaPopulated(new AreaPopulated(owner.Player, 70, (int)seed, []));
             var placed = Read();
             Assert.Equal(MercenaryModule.Stage.Met, placed.Stage);
+            Assert.True(MercenaryTables.BuildOf(placed.Build)!.Infamous);
+            Assert.All(placed.Equipment, item => Assert.Equal(ItemRarity.Unique, item.Item.Rarity));
             var met = owner.Player.Area.Monsters[placed.Body];
             Assert.False(met.Hostile);
             Assert.True(met.Scripted);
@@ -87,6 +90,8 @@ public sealed class MercenaryTests
             owner.Player.Clock.Start();
             var work = GameEvents.AreaTickWork(owner.Player);
             await GameEvents.RunAreaTick(work, owner.Player, 3.0);
+            Assert.Equal(2, Read().Wilds.Count);
+            Assert.All(Read().Wilds, wild => { Assert.True(owner.Player.Area.Monsters[wild.Body].Hostile); Assert.NotEmpty(wild.Equipment); Assert.All(wild.Equipment, item => Assert.Equal(ItemRarity.Unique, item.Item.Rarity)); });
 
             // The friendly one is gone and its hostile twin fights.
             var duel = Read();
@@ -97,6 +102,63 @@ public sealed class MercenaryTests
             Assert.True(opponent.Hostile);
             Assert.False(opponent.Scripted);
             Assert.Equal(MercenaryWire.DuelStates, opponent.States!.SharedStates);
+            Assert.NotEmpty(opponent.Kit);
+            Assert.Null(opponent.Kit[0].Attack.Use);
+            Assert.Equal(0, opponent.Kit[0].TriggerThreshold);
+            var skills = Game.SkillsFor(owner.Player);
+            Assert.DoesNotContain(opponent.Kit, k => BossKits.IsLeavePortal(skills, k.Effect));
+
+            var kept = Assert.Single(SavedMonster.Save([opponent], Game.AreaTime(owner.Player),
+                origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));
+            kept = JsonSerializer.Deserialize<SavedMonster>(JsonSerializer.Serialize(kept))!;
+            Assert.Equal(opponent.Kit.Select(k => k.Effect), kept.OwnedSkillEffects);
+            // Force a same-class wild to also need rebinding alongside the duel opponent; the wild must not steal the duel id.
+            var sameClassWild = duel.Wilds[0];
+            var sameClassWildBody = owner.Player.Area.Monsters[sameClassWild.Body];
+            var keptWild = Assert.Single(SavedMonster.Save([sameClassWildBody], Game.AreaTime(owner.Player),
+                origin: m => instance.World.MonsterOrigins[m.ObjectId].Object));
+            uint oldWildBody = sameClassWild.Body;
+            if (sameClassWild.Class != duel.Class)
+            {
+                // Rewrite persisted wild class to duel.Class (keeping a different build if available) to test class-collision rebind.
+                sameClassWild.Class = duel.Class;
+                var altBuild = MercenaryTables.BuildsOf(duel.Class, true).FirstOrDefault(b => b.Row != duel.Build)
+                    ?? MercenaryTables.BuildsOf(duel.Class, false).FirstOrDefault(b => b.Row != duel.Build);
+                if (altBuild is not null) sameClassWild.Build = altBuild.Row;
+                keptWild = keptWild with { Variety = opponent.Variety!.Row, ActorBuild = altBuild?.Hash16 ?? keptWild.ActorBuild };
+                instance.ContentState["Mercenary.Encounter"] = JsonSerializer.Serialize(duel);
+                module.Stop(ex => throw ex);
+                GameEventOwners.Release("Mercenary", GameEventOwners.ModuleRank);
+                module = new ModuleLifetime("Mercenary");
+                new MercenaryModule().Load(Context(module));
+            }
+            owner.Player.Area.Monsters.Remove(duel.Body);
+            instance.World.MonsterOrigins.TryRemove(duel.Body, out _);
+            owner.Player.Area.Monsters.Remove(oldWildBody);
+            instance.World.MonsterOrigins.TryRemove(oldWildBody, out _);
+            uint restoredDuel = await Game.RestoreMonster(owner.Player, opponent.Variety!, kept);
+            uint restoredWild = await Game.RestoreMonster(owner.Player, opponent.Variety!, keptWild);
+            Assert.NotEqual(duel.Body, restoredDuel);
+            var restoredKit = owner.Player.Area.Monsters[restoredDuel].Kit;
+            Assert.Equal(opponent.Kit.Select(k => k.Effect), restoredKit.Select(k => k.Effect));
+            Assert.Equal(opponent.Kit[0].Attack.Damage.AverageTotal, restoredKit[0].Attack.Damage.AverageTotal);
+            await GameEvents.RunPlayerEntered(peer.Player);
+            duel = Read();
+            Assert.Equal(restoredDuel, duel.Body);
+            Assert.Equal(restoredWild, duel.Wilds[0].Body);
+            opponent = owner.Player.Area.Monsters[restoredDuel];
+
+            var wild = Read().Wilds[0];
+            var wildBody = owner.Player.Area.Monsters[wild.Body];
+            wildBody.Dead = true;
+            var wildKill = new KillContext(owner.Player, wildBody, wildBody.Variety!.Id, (wild.X, wild.Y));
+            int beforeWildLoot = instance.Ground.All().Count();
+            await GameEvents.RunKill(wildKill);
+            var won = Assert.Single(instance.Ground.All().Skip(beforeWildLoot));
+            Assert.Equal(ItemRarity.Unique, won.Item.Item.Rarity);
+            Assert.Contains(wild.Equipment, w => w.Item.TypeHash == won.Item.Item.TypeHash && w.Item.NameWords.SequenceEqual(won.Item.Item.NameWords));
+            await GameEvents.RunKill(new KillContext(owner.Player, wildBody, wildBody.Variety.Id, (wild.X, wild.Y)));
+            Assert.Equal(beforeWildLoot + 1, instance.Ground.All().Count());
 
             // Its death leaves the hired mercenary, in the hired states and its own team.
             opponent.Dead = true;

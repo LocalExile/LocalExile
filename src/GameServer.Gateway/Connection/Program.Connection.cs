@@ -419,6 +419,7 @@ public partial class Program
                 if (saved && prepared && !left.TransferAccepted) await GameEvents.RunCharacterAtRest(left);
                 if (InGame.TryRemove(left, out _)) WindowsTimerResolution.Release();
                 ForgetCommands(left);
+                Client.Release(left);
                 Instances.Leave(left.Instance);
                 CharacterBuildImports.Release(left);
             }

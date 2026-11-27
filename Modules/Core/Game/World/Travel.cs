@@ -425,6 +425,32 @@ public static partial class Game
         await SendWaypointList(player, $"waypoint of {entry.Name} ({entry.Id}) activated: {why}");
     }
 
+    /// <summary>Activates all valid waypoint area IDs in <paramref name="areaIds"/>, persists them once, and sends
+    /// updated quest flags (0x02bc) + waypoints (0x004c). Returns the number of newly added waypoints.</summary>
+    public static async Task<int> GrantWaypoints(Player player, IEnumerable<string> areaIds, string why = "waypoints granted")
+    {
+        if (HardcoreProgressBlocked(player)) return 0;
+        var known = WaypointCatalog.Areas.Entries.Count > 0
+            ? WaypointCatalog.Areas.Entries.Select(e => e.Id).ToHashSet(StringComparer.Ordinal)
+            : null;
+        List<string> added = [];
+        lock (player.Character.Waypoints)
+        {
+            foreach (string raw in areaIds)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                string id = raw.Trim();
+                if (known is not null && !known.Contains(id)) continue;
+                if (player.Character.Waypoints.Add(id)) added.Add(id);
+            }
+        }
+        if (added.Count == 0) return 0;
+        CharacterSaves.AddWaypoints(CharacterName(player), added);
+        if (WaypointCatalog.Areas.Entries.Count > 0 && !player.Closed && player.Connection.PlayerSent)
+            await SendWaypointList(player, $"{why}: {added.Count} waypoint(s)");
+        return added.Count;
+    }
+
     // After the player is in: a town's waypoint activates on entry, then the character's waypoints (S→C 0x4c).
     public static async Task SendWaypoints(Player player)
     {

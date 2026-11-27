@@ -234,6 +234,7 @@ public static partial class Game
                     try
                     {
                         DrainPendingExplosiveDetonations();
+                        DrainEarthshatterDetonations();
                         DrainInfernalBlowDeaths();
                         TickChannelTriggers(Player, this, AreaTime(Player));
                         Runtime.AdvanceTo(Math.Max(Runtime.Now, ProjectileRuntime.Time(AreaTime(Player))));
@@ -257,6 +258,7 @@ public static partial class Game
                 try
                 {
                     DrainPendingExplosiveDetonations();
+                    DrainEarthshatterDetonations();
                     DrainInfernalBlowDeaths();
                     Runtime.AdvanceTo(at);
                 }
@@ -332,13 +334,16 @@ public static partial class Game
             lifetime?.Dispose();
             ClearPods();
             ClearDamageGrounds();
+            ClearEarthshatterSpikes();
             ClearProjectileBladeSources();
+            ClearBladeVortices();
             ClearPlacedVolatileOrbs();
             ClearCremationGeysers();
             ClearEnsnares();
             ClearExplosiveFuses();
             RetireBannerLocked(Player);
             ClearDivineBlastOrbs();
+            ClearConvictionWaves();
             kineticAnomalies?.Clear();
             while (somaticShells is { Count: > 0 }) RemoveSomaticShell(somaticShells[^1]);
             if (archer is { } currentArcher) EndMirage(currentArcher, retire: true);
@@ -775,9 +780,12 @@ public static partial class Game
         TerrainHeights.Area? heights;
         int heightsAsOf = -1;
 
-        bool Wall(int x, int y) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
+        bool Wall(int x, int y) => Wall(x, y, 1);
+
+        bool Wall(int x, int y, int clearance) => x < 0 || y < 0 || Player.Layout.GridW > 0 && x >= Player.Layout.GridW
             || Player.Layout.GridH > 0 && y >= Player.Layout.GridH
-            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y) == true || Player.ProjectileWalls.Contains((x, y));
+            || (blocking ??= ProjectileGrid.Of(Player.Layout.Id, Player.Seed))?.Blocks(x, y, clearance) == true
+            || Player.ProjectileWalls.Contains((x, y)) || Player.SightBarrier.Contains((x, y));
 
         int? Height(int x, int y)
         {
@@ -810,17 +818,28 @@ public static partial class Game
             if (flightRays.TryGetValue(p.Id, out var existing)) return existing;
             if (p.ParentId != 0 || p.Phase > 0 || p.Use.Team != 1 || p.Profile.Lobbed || IsTerrainFollowingProjectile(p))
                 return null;
-            if (ProjectileAimHeight.Primary(p.Use.Origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height) is not { } primary)
+            var origin = p.Use.Origin;
+            ProjectileAimHeight.Ray? primary = p.Profile.TerrainSteps is { } steps
+                ? Height((int)Math.Round(origin.X), (int)Math.Round(origin.Y)) is int ground
+                    ? new(origin, p.Direction, ground + steps.LaunchHeight, 0) : null
+                : ProjectileAimHeight.Primary(origin, p.Use.Aim, LaunchStepsFor(p, PresentationFor(p)), Height);
+            if (primary is not { } launch)
                 return null;
-            var ray = primary.WithLeg(p.Position, p.Direction);
+            var ray = launch.WithLeg(p.Position, p.Direction);
             flightRays[p.Id] = ray;
             return ray;
         }
 
-        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to) =>
-            FlightRayFor(p) is { } ray
+        public TerrainContact? TraceFlight(ProjectileEntity p, ProjectileVector from, ProjectileVector to)
+        {
+            var rayForFlight = FlightRayFor(p);
+            if (p.Phase == 0 && p.Profile.TerrainSteps is { } steps && p.TerrainLeg is { } leg)
+                return ProjectileGeometry.TraceTerrainSteps(leg.Start, leg.Target, from, to,
+                    (x, y) => Wall(x, y, steps.Clearance) || rayForFlight?.Blocks(x, y, Height) == true);
+            return rayForFlight is { } ray
                 ? ProjectileGeometry.TraceGrid(from, to, (x, y) => Wall(x, y) || ray.Blocks(x, y, Height))
                 : TraceTerrain(from, to);
+        }
 
         public ProjectileHitResult Hit(ProjectileDamage contact)
         {
@@ -835,8 +854,14 @@ public static partial class Game
                 return ProjectileHitResult.Miss;
             if (!Player.Area.Monsters.TryGetValue(contact.Target.Id, out var target) || target.Dead || target.Life == 0 || target.WorldHidden || ArenaHazards.Untargetable(Player, target)
                 || Key(contact.Target.Id, target) != contact.Target) return ProjectileHitResult.Miss;
+            if (contact.Stage == SoulrendPulseStage && shot.Soulrend is { } soulrend)
+                return ApplySoulrendDamage(Player, contact.Target.Id, target, soulrend,
+                    contact.At / (double)ProjectileRuntime.QuantaPerSecond);
+            if (contact.Stage == FleshrendPulseStage && shot.Fleshrend is { } fleshrend)
+                return ApplyFleshrendDamage(contact, target, fleshrend);
             if (contact.Phase == 0 && shot.ExcludedTarget == contact.Target) return ProjectileHitResult.Miss;
             var random = contact.Projectile.RandomSource;
+            if (MonsterAvoidsProjectile(target, random)) return ProjectileHitResult.Miss;
             if (shot.RampageEpoch is long ownedEpoch)
             {
                 if (!RampageEffectCurrent(Player, ownedEpoch) || !target.Hostile || target.OwnerId is not null)
@@ -915,7 +940,7 @@ public static partial class Game
                 chainsMore *= Math.Max(0, 1 + (double)shot.CompletedChainDamagePercent
                     * (contact.Projectile.Profile.Chain - contact.Projectile.ChainsRemaining) / 100);
             double returnMore = contact.Phase > 0 ? shot.ReturnMultiplier : 1;
-            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted);
+            double ailmentMore = chainsMore * returnMore * OverexertionMore(shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
             if (ailmentMore != 1)
                 shot = shot with
                 {
@@ -944,8 +969,11 @@ public static partial class Game
             var rolled = WithConditionalSupportDamageLocked(Player, shot.SkillStats, !shot.Spell, target,
                 GameEvents.WithOutgoingDamage(Player, player, target,
                     damageRoll.RollBeforeCritical(packet, random, criticalDoubleDamage)), at);
-            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted);
-            int chance = contact.Projectile.Form > 0 && shot.SecondFormCriticalChance is int second ? second
+            rolled = WithOverexertion(rolled, shot.SkillStats, shot.IntimidatingCryExerted, shot.OtherWarcryExertions);
+            bool secondForm = contact.Projectile.Form > 0;
+            var formCrit = secondForm ? shot.SecondFormOptions : null;
+            int chance = secondForm && shot.SecondFormCriticalChance is int second
+                ? CriticalChanceOn(Player, contact.Target.Id, second, formCrit?.VsBlinded, formCrit?.VsGround)
                 : CriticalChanceOn(Player, contact.Target.Id, shot.CriticalChance, shot.VsBlindedCriticalChance,
                     shot.VsGroundCriticalChance);
             // Base chance/multiplier belong to release; conditional owner state is read at this contact.
@@ -953,7 +981,9 @@ public static partial class Game
                 && (shot.Spell || EvasionEntropy.ConfirmsCritical(hitChance, Player.AttackAccuracyRandom));
             rolled = damageRoll.CompleteCriticalMultiplier(rolled, random, critical, criticalDoubleDamage);
             var weaponLocal = shot.WeaponAttack ? shot.WeaponLocal : null;
-            int sourceMultiplier = CriticalMultiplierWithWeapon(shot.CriticalMultiplier, target, weaponLocal);
+            int criticalMultiplier = formCrit?.MultiplierPlus is int bonus and not 0
+                ? ActorScale.Saturate((long)shot.CriticalMultiplier + bonus) : shot.CriticalMultiplier;
+            int sourceMultiplier = CriticalMultiplierWithWeapon(criticalMultiplier, target, weaponLocal);
             int multiplier = CriticalMultiplierOn(target, sourceMultiplier, shot.TargetCritical, at, shot.NoExtraCriticalDamage);
             bool canBenefitResonance = !shot.FromTrapOrMine && (shot.ActualCaster is null || shot.Mirage);
             bool canGainResonance = canBenefitResonance && !shot.Mirage;
@@ -1151,8 +1181,8 @@ public static partial class Game
             else if (value.Kind == ProjectileEventKind.Redirect && flightRays.TryGetValue(p.Id, out var prevRay))
             {
                 double currentSteps = prevRay.StepsAt(p.Position);
-                if (p.Phase > 0 && p.Use.ReturnAnchor is { } anchorKey && Actor(anchorKey, value.At) is { } anchor)
-                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, anchor.Position(value.At), currentSteps, Height)
+                if (p.Phase > 0 && p.Use.ReturnPosition(this, value.At) is { } destination)
+                    flightRays[p.Id] = ProjectileAimHeight.Return(p.Position, destination, currentSteps, Height)
                         ?? prevRay.WithLeg(p.Position, p.Direction);
                 else
                     flightRays[p.Id] = new ProjectileAimHeight.Ray(p.Position, p.Direction.Unit, currentSteps, 0);
@@ -1278,7 +1308,8 @@ public static partial class Game
         void Effect(int x, int y, string ao, long lifetime, double? radius = null, (string Ao, string Bone)? attach = null,
             uint attachParent = 0, byte animatedFlags = 0, byte positionedFlags0 = 0, uint animationWord = 0,
             float animationValue = 0, uint animatedId = 0, int? artRadius = null, (uint Clip, long Length)? endClip = null,
-            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null)
+            float rotation = 0, uint? startClip = null, (uint Clip, long After)? thenClip = null, Action<Action>? captureRemoval = null,
+            Action<Action<int, int, float>>? captureMovement = null)
         {
             // startClip: the clip the art is created playing (Animated bit 3), for art without a default animation or
             // with several; thenClip: the clip that follows it (a ground's loop after its fade-in).
@@ -1313,6 +1344,8 @@ public static partial class Game
                     ? [InstanceProtocol.AnimationUpdate(id, 0, ending.Clip, 1)] : null));
             Runtime.Schedule(Runtime.Now + lifetime + (endClip?.Length ?? 0), Remove);
             captureRemoval?.Invoke(Remove);
+            captureMovement?.Invoke((toX, toY, seconds) => World(id, () => visual.Created && !visual.Ended
+                ? InstanceProtocol.MoveTo(id, toX, toY, seconds, InstanceProtocol.FollowTerrain) : null));
             void Remove()
             {
                 if (visual.Ended) return;
@@ -1439,7 +1472,7 @@ public static partial class Game
                 startHeight = arc.Height(fraction);
             }
             if (!(p.Phase > 0 && p.Profile.IgnoreTerrainOnReturn) && TraceFlight(p, p.Position, end) is { } wall)
-                end = p.Position + (end - p.Position) * wall.Fraction;
+                end = wall.StopPosition ?? p.Position + (end - p.Position) * wall.Fraction;
             if (visual.Arc is { } path) endHeight = path.Height(path.Fraction(p.Distance + (end - p.Position).Length));
             // The first move starts where the object was created (the release point), without a stop there and with
             // the whole way's duration, so it flies at the projectile's speed. Later moves (arc segments, redirects)

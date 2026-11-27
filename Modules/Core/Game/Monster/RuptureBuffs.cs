@@ -12,7 +12,8 @@ public static partial class Game
         var set = monster.Ruptures;
         if (monster.Dead || monster.Life == 0) set.Clear();
         set.Stacks(now);
-        if (set.Active.Count == 0 && !player.Area.Buffs.HasRow(id, RuptureBuffRow)) return [];
+        if (set.Active.Count == 0 && !player.Area.Buffs.HasRow(id, RuptureBuffRow)
+            && player.Area.Stats.WrittenValue(id, Stat.RuptureDebuffBleedingTimePassedPlusPctFinal) == 0) return [];
         // Curse presentation can belong to another player: the target's clock stats go with the Rupture.
         SetStats(player, id, RuptureClockStats.Select(name => (name, monster.Effects[name])));
         // This public stat drives the native bleed timer. It is not an inline value on rupture's 0x1c1.

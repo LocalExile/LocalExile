@@ -11,22 +11,26 @@
 /// </summary>
 public static class SkillArea
 {
-    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX";
+    public static bool IsCyclone(string? effect) => effect is "Cyclone" or "CycloneAltX" or "VaalCyclone";
 
     /// <summary>Explicit data wins. Cyclone's base radius is not in its exported stat set (PoB: 16 cells). The player's
     /// Ground Slam ("GroundSlam") has none either: the +40% final radius belongs to the old "ExileGroundSlam" row, which
     /// no gem grants (see GroundSlamWave).</summary>
     public static int BaseRadius(string? effect, Func<uint, int> get) =>
-        get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
+        effect == Game.ManabondEffect ? Math.Max(0, ActorScale.Saturate(18L + get(Stat.ActiveSkillBaseAreaOfEffectRadius)))
+            : get(Stat.ActiveSkillBaseAreaOfEffectRadius) is int radius and > 0 ? radius : KnownBaseRadius(effect) ?? 12;
 
     static int? KnownBaseRadius(string? effect) =>
-        effect is "LightningWarp" or "VaalLightningWarpInstant" ? 16
+        Game.IsLightningWarpEffect(effect) ? 16
             : effect == "VaalGroundSlam" ? GroundSlamWave.VaalBaseRadius : IsCyclone(effect) ? 16 : effect == "RollingMagma" ? 14
-            : effect is "Earthquake" or "Earthshatter" ? 18
-            : effect == "Cleave" ? 20
-            : effect == "TectonicSlam" ? 15
+            : effect is "Earthquake" or "Earthshatter" or "EarthshatterAltX" or "EarthshatterAltY" ? 18
+            : effect is "ConsecratedPath" or "ConsecratedPathAltX" ? 23
+            : Game.LacerateEffect(effect) ? LacerateWaves.BaseRadius
+            : Game.CleaveAttack(effect) ? Game.CleaveBaseRadius
+            : effect is "TectonicSlam" or "VaalBladeVortex" ? 15
+            : effect == "PrismaticBurst" ? 13
             : GatewayProjectileSkillProfiles.IsShatteringSteel(effect) ? 28
-            : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactRoyale" ? 26
+            : effect is "FireTrap" or "VaalFireTrap" ? 16 : effect == "StormblastMine" ? 20 : effect is "DarkPact" or "DarkPactAltX" or "DarkPactRoyale" ? 26
             : effect is "StormCall" or "StormCallAltX" or "Frostblink" or "FrostblinkHardMode" or "FrostblinkAltX" || Game.IsPyroclastMine(effect) ? 20
             : effect is "GalvanicArrow" or "GalvanicArrowAltX" or "GalvanicArrowAltY" ? 28
             : effect is "StormBrand" or "StormBrandAltX" or "StormBrandAltY"
@@ -66,8 +70,10 @@ public static class SkillArea
         get(Stat.BaseSkillAreaOfEffectPlusPct) + get(Stat.SkillAreaOfEffectPlusPct) + (spell ? get(Stat.SpellAreaOfEffectPlusPct) : 0);
 
     /// <summary>The client's precomputed radius percentage (0x1591), not the increased area percentage.</summary>
-    public static int RadiusPercent(Func<uint, int> get, bool spell) =>
-        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell)))
+    public static int RadiusPercent(Func<uint, int> get, bool spell) => RadiusPercent(get, spell, 1);
+
+    internal static int RadiusPercent(Func<uint, int> get, bool spell, double areaMore) =>
+        (int)Math.Clamp((long)Math.Floor(100 * Math.Sqrt(Modifier(get, spell) * areaMore))
             * Math.Max(0L, 100L + get(Stat.ActiveSkillAreaOfEffectRadiusPlusPctFinal)) / 100 - 100, -100, int.MaxValue);
 
     /// <summary>Supports' more or less area, each a "_final" multiplier on the supported skill: Spell Cascade, Arcanist

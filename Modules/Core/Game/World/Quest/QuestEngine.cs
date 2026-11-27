@@ -993,24 +993,30 @@ public static partial class Game
             await FormQuestBosses(player, m, variety.Id, at);
     }
 
+    // Crematorium's piety_fight.arm does not load PietySinsPortal (that QuestObject is only in Act 2's Chamber of Sins
+    // boss_1a.arm), so sending its 0x02bb hash in 1_3_3_1 triggers "Unknown object type serialized by server". Play
+    // MiscAnimated row 124 (PietyPortal) on the globally registered PermanentServerEffect (MiscObjects row 666) with
+    // rig.amd clip 2 (Piety_portalescape, 5833 ms).
+    internal static byte[] PietyRetreatPortalCreate(uint portalId, (int X, int Y) at)
+    {
+        const string portalArt = "Metadata/Effects/Environment/piety_portal/close.ao";
+        const uint portalEscapeClip = 2;
+        var portal = new EffectObject(at.X, at.Y, portalArt) { AnimatedFlags = 9, AnimationId = portalEscapeClip };
+        return InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(EffectObject.TypePath), portal.Blob());
+    }
+
     static async Task SpawnPietyRetreatPortal(Player player, (int X, int Y) at)
     {
-        const string portalType = "Metadata/QuestObjects/Piety/PietySinsPortal";
-        if (QuestObjectTypes.Find(portalType) is not { } info || !QuestObject.CanSerialize(info.Components)) return;
         uint portalId = player.TakeObjectId();
         var instance = player.Instance;
-        // Create untransitioned (state 1), then step Transitionable so on_transition plays Piety's portal retreat clip.
-        var blob = new QuestObject(at.X, at.Y, info.Components, 0, null, info.Model, 1, Blocked: false).Blob();
-        await SendWorldCreate(player, portalId, () => InstanceEntities.CreateObject(portalId, InstanceEntities.ObjectTypeHash(portalType), blob),
-            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false);
-        if (QuestObject.TransitionableIndex(info.Components) is int slot and >= 0 && info.States > 1)
-            await SendWorldRecord(player, portalId, InstanceEntities.TransitionableUpdate(portalId, (byte)slot, (byte)info.States),
-                $"0x02bc Piety retreat portal 0x{portalId:x} Transitionable -> {info.States}");
+        if (!await SendWorldCreate(player, portalId, () => PietyRetreatPortalCreate(portalId, at),
+            $"0x02bb Piety retreat portal 0x{portalId:x} at ({at.X}, {at.Y})", wake: true, awaitBirth: false))
+            return;
         _ = Task.Run(async () =>
         {
             try
             {
-                await AreaDelay(player, 2.5);
+                await AreaDelay(player, 5.8);
                 if (player.Closed || player.LeavingArea || !ReferenceEquals(player.Instance, instance)) return;
                 await SendWorldRemoval(player, portalId, $"0x02bd Piety retreat portal 0x{portalId:x} closed");
             }

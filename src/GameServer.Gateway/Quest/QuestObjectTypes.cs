@@ -41,7 +41,18 @@ public static class QuestObjectTypes
         || type.StartsWith("Metadata/Monsters/Doedre/DoedreSewer/", StringComparison.Ordinal)
         || type.StartsWith("Metadata/Terrain/", StringComparison.Ordinal) && type.Contains("/Objects/", StringComparison.Ordinal);
 
-    public static Info? Find(string type) => Catalog.GetValueOrDefault(type);
+    public static Info? Find(string type)
+    {
+        if (ObjectTypes.FindOverlay(type) is { } overlay)
+            return new Info(overlay.Type, overlay.Components, Math.Max(2, overlay.TransitionStates),
+                Math.Max(1, overlay.ObjectSize - 1), overlay.Blocking, overlay.Model)
+            {
+                AnimatedModel = overlay.Model,
+                OwnModel = !overlay.Components.Contains("Animated") || overlay.Model is not null,
+                Static = overlay.Static,
+            };
+        return Catalog?.GetValueOrDefault(type);
+    }
 
     /// <summary>Quest doors that open in place (0x2bc Transitionable plays their .ot's on_transition, 0x1c6 lifts their
     /// TriggerableBlockage) instead of being created again open: the Aspirants' Plaza's door, whose opening the user

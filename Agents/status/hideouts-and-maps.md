@@ -135,7 +135,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Rogue Harbour: NPCs and stashes at the room's cells; Heist screens open (0x34, 0x35, 0x36), no contract start yet.
 - Tier 17 Marked for Death follows rare/unique kills; monster impales detonate on the fifth stack (checked offline).
 - Rogue Harbour: PlanningNPCs, 0x27c/0x164, 0x279/0x27d–0x27f planning ([21](../docs/protocol/21-hideouts.md)).
-- Map Delirium Mirror: ruleset 0x66 fog/rewards and 0x260 skip button ([21](../docs/protocol/21-hideouts.md)).
+- Map Delirium Mirror: all five scarabs, Mania depth/counter growth, Paranoia types, Neuroses bosses/kill types,
+  Delusions found-map enchants, shared reload/reentry and single payout ([boundaries](../docs/game/league-encounters.md#delirium-scarabs)).
 - Nightmare maps apply their levelled hexes while the player is in the map.
 - Map and Atlas modifiers govern scarab drops, monster combat and player recovery, skill area, defences, accuracy and aura effect.
   The Tier 17 block, suppression, monster Energy Shield and recipient curse modifiers are checked offline.
@@ -148,6 +149,9 @@ Part of [Status](../Status.md); what to build next in this area is in
   ordinary node does not take them (live 2026-11-22; a WorldAreas HASH16 in MapKey flag bit 1 did not change it).
   Their fixed unique modifiers are not applied.
 - Named scarabs: Domination/Cloister, Ambush boxes, Essence release/Ascent/Calcification/Stability and Terrors bosses;
+  Delirium, Shaper/Elder influence, Legion, Abyss and Mercenary inputs use their existing encounter paths
+  ([encounters](../docs/game/league-encounters.md)); remaining families still report provider diagnostics.
+  Terrors' boss kit skills inherit map damage, speed, projectile and area modifiers alongside their default attacks.
   Essence supports Vaal corruption, Adaptation transfers, low-life enrage, Decay, Toughness (damage-taken, not life),
   the imprisoned pack (mini monoliths release magic guards with the rare), encased preview monsters (+0x104 panel),
   the 3.29 Atlas cluster (CoreLeagues count, additional/higher-tier/max-tier/Remnant/Essence-Rare-Chance rolls, Crystal
@@ -185,6 +189,8 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Expedition in maps and Acts 6-10 supports placing explosives, detonating markers and opening excavated chests.
   The installed client produced chest loot in Forbidden Woods in Lockstep and on the Act 6 Coast in Predictive.
+- Expedition's faction leader (Tujen, Dannig) stands at an encounter and can be talked to; the other factions place
+  none yet (ExpeditionEncounter.cs).
 - Incursion (Alva, map master mission): per-instance spots, portal, timed room run; temple area pending.
 - Betrayal (Jun, map master mission): Transportation or Intervention, kneel, MakeChoice; board pending.
 
@@ -212,11 +218,11 @@ Part of [Status](../Status.md); what to build next in this area is in
 
 - Legion (partial): one or more Timeless Monoliths per area (`LegionInitiator` 7-state progression, General link
   `0xec72e38c`, `LegionFlashLight`, `LegionRules` `0x2c9` modes 0/1/5, `0xdf` world/battle/post-battle environments),
-  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`, not yet live-checked), full
+  timer, two armies in stasis (`LegionBreakout` action with `present`/`owning_initiator`), full
   combat damage break-out via a non-lethal life floor (hits, DoTs/Contagion, minions, totems, brands, traps, mines,
   culling), release wave, seamless wake, post-battle fade-out and war chests with floating 3D reward symbols opening at
-  release. Rewards (level-gated symbols, icons, rolled drops, splinters, Ruthless scaling) are built, not checked in the
-  client yet. The Domain, scarabs and Atlas are not built. Docs: [Legion](../docs/game/legion.md).
+  release. Scarab inputs, repeated breakouts and reward drops have native verification; retail reward weights and
+  difficulty need calibration. The Domain and remaining Atlas rules are separate work. Docs: [Legion](../docs/game/legion.md).
 
 - Blight: pump, lanes, foundations, Fast-Forward (`0x0264`), all 30 towers (exact `_buff1..3` Empowering scaling, 91
   ring anoints, native cast/buff packets, `-99%` type resistance + bypasses, Meteor burning ground, minions, controls),
@@ -258,6 +264,7 @@ Part of [Status](../Status.md); what to build next in this area is in
   The Decorations panel loads its list in the owner's hideout (0x21 own-hideout bit; it stayed on "Loading…" without it,
   live 2026-11-22). Placing (`C→S 0x59` by owned record, `0x5a` by hash), deleting (`0x5c` Delete key, `0x5d`) and
   resetting (`0x5e`) custom decorations, capped at 750, are saved per account; pets stand as ownerless pet objects.
+  Entry, placement, removal, layout import (`0x0213`), and reset emit `S→C 0x0214` in-use decoration record updates.
   A placed map device variant replaces the working device, with its button from MapDevices.dat, a blocker that stops
   short of the button, and its model's own portal places or ring radius; the Puzzle Cube is refused.
   `/save_hideout` (command 50), music box persistence (`0x255`, saved and reported in `/save_hideout`; no re-entry replay packet),

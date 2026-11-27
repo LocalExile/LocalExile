@@ -8,7 +8,7 @@ using GameServer.Data.Terrain.Generation;
 
 namespace GameServer.Gateway.Tests;
 
-public sealed class ShrineTests
+public sealed partial class ShrineTests
 {
     [Fact]
     public async Task Shrine_data_and_shared_lifecycle_keep_effects_owned_and_reversible()
@@ -249,8 +249,8 @@ public sealed class ShrineTests
                 { [Stat.MapNumExtraApparitionShrines] = 2 }));
             var request = new MapOpening(player, [], false, opening, "");
             ShrineMapAdmission.Check(request);
-            Assert.Null(request.Opening);
-            Assert.Contains("not been consumed", request.Reason);
+            Assert.NotNull(request.Opening);
+            Assert.Contains("Shrines.Apparitions", request.HandledContent);
             var ordinary = new MapOpening(player, [], false, opening with { Mods = MapMods.None }, "");
             ShrineMapAdmission.Check(ordinary);
             Assert.NotNull(ordinary.Opening);
@@ -436,6 +436,59 @@ public sealed class ShrineTests
         }
     }
 
+    [Fact]
+    public async Task PlayerEntered_rebuilds_shrine_instances_after_leave_without_duplicate_creates()
+    {
+        TestEnvironment.OpenOwnSaves("shrine-reentry");
+        var previousLogic = Program.GameLogicOrNull;
+        var previousLifetime = Game.CombatLifetime;
+        var lifetime = new ModuleLifetime("Game");
+        Game.CombatLifetime = lifetime;
+        Program.SetGameLogic(new GameServer.Modules.Game.GameLogic());
+        var moduleLifetime = new ModuleLifetime("Shrines");
+        new ShrinesModule().Load(new ShrineTestContext(moduleLifetime));
+        var instance = new InstanceState();
+        await using var wire = await ShrineWire.Open(instance);
+        var player = wire.Player;
+        try
+        {
+            await ShrineManager.SpawnLesser(player, (112, 100), 30, "AccelerationLesser");
+            uint shrineId = uint.Parse(Assert.Single(instance.ContentState, p => p.Key.StartsWith("Shrines/lesser/", StringComparison.Ordinal)).Key.Split('/')[^1]);
+
+            await GameEvents.RunPlayerLeaving(player, "death");
+            player.Walk.Teleport(112, 100, 0);
+            Assert.False(await ShrineManager.Use(player, new(shrineId, 0, 1, 0), 0));
+            var history = Program.HistoryFor(player.Connection.Session.Ciphers);
+            long mark = history.Count;
+            await GameEvents.RunPlayerEntered(player);
+
+            Assert.DoesNotContain(history.Lines((int)Math.Min(PacketHistory.Capacity, history.Count - mark)),
+                l => l.Split(' ', StringSplitOptions.RemoveEmptyEntries) is [_, _, "0x02bb", ..]);
+            Assert.True(await ShrineManager.Use(player, new(shrineId, 0, 1, 0), 0));
+            Assert.NotEmpty(ShrineManager.AddStats(player, []));
+        }
+        finally
+        {
+            await ShrineManager.LeaveArea(player);
+            moduleLifetime.Stop(ex => throw ex);
+            lifetime.Stop(ex => throw ex);
+            Game.CombatLifetime = previousLifetime;
+            Program.SetGameLogic(previousLogic!);
+            TestEnvironment.ReleaseOwnSaves();
+        }
+    }
+
+    sealed class ShrineTestContext(ModuleLifetime lifetime) : GameServer.Modding.IModuleContext
+    {
+        public GameServer.Modding.ModManifest Manifest => new("Shrines", "1.0.0", GameServer.Modding.ModKind.Feature, ["Game"], "shrines.dll");
+        public GameServer.Modding.IModuleLifetime Lifetime => lifetime;
+        public string Folder => "";
+        public void Log(string message) { }
+        public T Settings<T>() => System.Text.Json.JsonSerializer.Deserialize<T>("{}")!;
+        public void SaveSettings<T>(T settings) => throw new NotSupportedException();
+        public void ProvideLeagueRules(Func<GameServer.Modding.LeagueRules> rules) { }
+    }
+
     sealed class ShrineWire(TcpClient writer, TcpClient reader, Player player, Task drain) : IAsyncDisposable
     {
         public Player Player => player;
@@ -455,7 +508,7 @@ public sealed class ShrineTests
               PlayerMana = 1000,
               Pools = new(1, 1000, 1000, 1000, 0),
               LeagueModule = new(new GameServer.Core.Accounts.League("shrine-test", "Standard", false, false),
-                    new HashSet<string>(["Game", "shrine-regression", "shrine-explosion-regression"]))
+                    new HashSet<string>(["Game", "Shrines", "shrine-regression", "shrine-explosion-regression"]))
           };
             return new(writer, reader, player, reader.GetStream().CopyToAsync(Stream.Null));
         }

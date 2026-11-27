@@ -23,6 +23,15 @@ static class HideoutEditingFeature
             await Send(member, InstanceHideoutEditing.RebuildCollision(), reason);
     }
 
+    static async Task SendInUseDecorations(Player player, bool inUse, IEnumerable<uint> hashes)
+    {
+        if (HideoutCatalog.ByArea(player.Layout.Hash) is not { } hideout || hideout.Row is < 0 or > ushort.MaxValue) return;
+        uint[] recordIds = [.. hashes.Distinct().Select(h => Mtx.ByHash(h)?.Id ?? 0u).Where(id => id != 0)];
+        if (recordIds.Length == 0) return;
+        await Send(player, InstanceHideoutEditing.InUseDecorations((ushort)hideout.Row, inUse, recordIds),
+            $"0x0214 hideout {hideout.Row} decorations inUse={inUse} ({recordIds.Length} record(s))");
+    }
+
     static bool PlacementInBounds(AreaLayout layout, int x, int y)
     {
         if (HideoutEditing.Cells(layout) is { } cells) return cells(x, y);
@@ -100,22 +109,38 @@ static class HideoutEditingFeature
             lock (member.HideoutDoodads) member.HideoutDoodads[id] = doodad;
     }
 
-    /// <summary>Copies the area's spawned custom hideout decorations into a late-joining player's doodad lookup.</summary>
-    internal static void SyncAreaDecorations(Player player)
+    /// <summary>Copies the area's spawned custom hideout decorations into an entering player's doodad lookup and
+    /// syncs S→C 0x0214 in-use decoration record bits for the hideout owner.</summary>
+    internal static async Task SyncAreaDecorations(Player player)
     {
-        if (!AreaDecorations.TryGetValue(player.Area, out var areaDecorations)) return;
-        KeyValuePair<uint, HideoutCatalog.Doodad>[] snapshot;
-        lock (areaDecorations) snapshot = [.. areaDecorations];
-        lock (player.HideoutDoodads)
-            foreach (var (id, doodad) in snapshot)
-                if (player.Area.Objects.Has(id)) player.HideoutDoodads[id] = doodad;
+        var inUseHashes = new List<uint>();
+        if (AreaDecorations.TryGetValue(player.Area, out var areaDecorations))
+        {
+            KeyValuePair<uint, HideoutCatalog.Doodad>[] snapshot;
+            lock (areaDecorations) snapshot = [.. areaDecorations];
+            lock (player.HideoutDoodads)
+                foreach (var (id, doodad) in snapshot)
+                    if (player.Area.Objects.Has(id))
+                    {
+                        player.HideoutDoodads[id] = doodad;
+                        inUseHashes.Add(doodad.Hash);
+                    }
+        }
+        if (OwnHideout(player))
+        {
+            if (global::Game.AccountMapDevice(player) is { Hash: not 0 } device)
+                inUseHashes.Add(device.Hash);
+            if (inUseHashes.Count > 0)
+                await SendInUseDecorations(player, inUse: true, inUseHashes);
+        }
     }
 
     /// <summary>Spawns saved custom hideout decorations (placed via C→S 0x59/0x5a) when entering a hideout.</summary>
     internal static async Task SpawnDecorations(Player player)
     {
         if (HideoutCatalog.ByArea(player.Layout.Hash) is null) return;
-        foreach (var saved in global::Game.AccountHideoutDecorations(player))
+        var savedList = global::Game.AccountHideoutDecorations(player);
+        foreach (var saved in savedList)
             await SpawnDecorationObject(player, saved, "saved hideout decoration");
     }
 
@@ -173,6 +198,7 @@ static class HideoutEditingFeature
             await Tell("This decoration cannot be placed on this server yet.");
             return;
         }
+        await SendInUseDecorations(player, inUse: true, [hash]);
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after placing {key} (0x{id:x})");
         await PushOutOfCollision(player);
     }
@@ -203,9 +229,17 @@ static class HideoutEditingFeature
                 await cmd.Reply("Cannot reclaim this Item Display Case while it holds a stored item. Remove the displayed item first.");
             return;
         }
-        if (!global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, entry.Key)) return;
+        uint? removedHash = null;
         var areaDecorations = DecorationsOf(player);
-        lock (areaDecorations) areaDecorations.Remove(objectId);
+        lock (areaDecorations)
+            if (areaDecorations.TryGetValue(objectId, out var existing)) removedHash = existing.Hash;
+        if (!global::Game.RemoveAccountHideoutDecoration(player, player.Layout.Id, entry.Key)) return;
+        bool hashStillInUse;
+        lock (areaDecorations)
+        {
+            areaDecorations.Remove(objectId);
+            hashStillInUse = removedHash is uint h && areaDecorations.Values.Any(d => d.Hash == h);
+        }
         foreach (var member in AreaPlayers(player))
         {
             member.HideoutEditor.Unregister(objectId);
@@ -214,6 +248,8 @@ static class HideoutEditingFeature
         }
         await global::Game.SendWorldRemoval(player, objectId,
             $"0x02bd reclaim hideout decoration {entry.Key} (0x{objectId:x})");
+        if (removedHash is uint cleared && !hashStillInUse)
+            await SendInUseDecorations(player, inUse: false, [cleared]);
         await BroadcastRebuildCollision(player, "rebuild hideout collision after decoration reclaim");
     }
 
@@ -223,12 +259,17 @@ static class HideoutEditingFeature
     // run's remaining ones stand again where the new device puts them (one at a time for a single-portal device).
     static async Task ReplaceMapDevice(Player player, global::Game.SavedHideoutDecoration? variant)
     {
+        uint? previousHash = global::Game.AccountMapDevice(player)?.Hash;
         HideoutCatalog.Doodad? last;
         lock (player.HideoutDoodads) last = player.HideoutDoodads.Values.FirstOrDefault(HideoutCatalog.IsPlaced);
         HideoutPlacement? at = variant is not null ? new(variant.X, variant.Y, variant.Rotation)
             : last is not null ? new(last.X, last.Y, last.Rotation) : null;
         global::Game.SetAccountMapDevice(player, variant, at);
         await RefreshMapDevice(player);
+        if (previousHash is uint oldHash && oldHash != variant?.Hash)
+            await SendInUseDecorations(player, inUse: false, [oldHash]);
+        if (variant is { Hash: not 0 })
+            await SendInUseDecorations(player, inUse: true, [variant.Hash]);
     }
 
     static async Task RefreshMapDevice(Player player)
@@ -265,14 +306,22 @@ static class HideoutEditingFeature
             return;
         }
         bool resetPlacements = mode != 0;
+        uint? previousDeviceHash = global::Game.AccountMapDevice(player)?.Hash;
         if (!global::Game.ClearAccountHideoutDecorations(player, player.Layout.Id, resetPlacements)) return;
         var custom = player.HideoutEditor.All()
             .Where(o => o.Entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
             .ToList();
         var areaDecorations = DecorationsOf(player);
+        var clearedHashes = new HashSet<uint>();
+        if (resetPlacements && previousDeviceHash is uint prevDevice && prevDevice != 0)
+            clearedHashes.Add(prevDevice);
         foreach (var (id, entry) in custom)
         {
-            lock (areaDecorations) areaDecorations.Remove(id);
+            lock (areaDecorations)
+            {
+                if (areaDecorations.TryGetValue(id, out var d)) clearedHashes.Add(d.Hash);
+                areaDecorations.Remove(id);
+            }
             foreach (var member in AreaPlayers(player))
             {
                 member.HideoutEditor.Unregister(id);
@@ -282,7 +331,10 @@ static class HideoutEditingFeature
             await global::Game.SendWorldRemoval(player, id,
                 $"0x02bd reclaim hideout decoration {entry.Key} (0x{id:x})");
         }
+        if (!resetPlacements && previousDeviceHash is uint keptDevice && keptDevice != 0)
+            clearedHashes.Remove(keptDevice);
         player.Furniture = null;
+        if (clearedHashes.Count > 0) await SendInUseDecorations(player, inUse: false, clearedHashes);
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after 0x5e mode {mode}");
         if (player.Commands is { } commands)
             await commands.Reply(resetPlacements
@@ -615,6 +667,7 @@ static class HideoutEditingFeature
         }
         ushort? musicRow = HideoutCatalog.HideoutMusicRowByHash16(layout.MusicHash);
 
+        uint? previousDeviceHash = global::Game.AccountMapDevice(player)?.Hash;
         if (!global::Game.ReplaceAccountHideoutLayout(player, player.Layout.Id, importedPlacements, importedDecorations, musicRow, importedDevice))
             return;
 
@@ -623,9 +676,16 @@ static class HideoutEditingFeature
             .Where(o => o.Entry.Key.StartsWith(DecorationKeyPrefix, StringComparison.Ordinal))
             .ToList();
         var areaDecorations = DecorationsOf(player);
+        var removedHashes = new HashSet<uint>();
+        if (importedDevice is not null && previousDeviceHash is uint prevDev && prevDev != importedDevice.Hash)
+            removedHashes.Add(prevDev);
         foreach (var (oldId, oldEntry) in existingCustom)
         {
-            lock (areaDecorations) areaDecorations.Remove(oldId);
+            lock (areaDecorations)
+            {
+                if (areaDecorations.TryGetValue(oldId, out var prev)) removedHashes.Add(prev.Hash);
+                areaDecorations.Remove(oldId);
+            }
             foreach (var member in AreaPlayers(player))
             {
                 member.HideoutEditor.Unregister(oldId);
@@ -670,9 +730,20 @@ static class HideoutEditingFeature
 
         // Spawn newly imported custom decorations.
         int spawned = 0;
+        var spawnedHashes = new HashSet<uint>();
+        if (importedDevice is { Hash: not 0 }) spawnedHashes.Add(importedDevice.Hash);
         foreach (var deco in importedDecorations)
             if (await SpawnDecorationObject(player, deco, "imported hideout decoration") is not null)
+            {
                 spawned++;
+                spawnedHashes.Add(deco.Hash);
+            }
+
+        removedHashes.ExceptWith(spawnedHashes);
+        if (importedDevice is null && previousDeviceHash is uint keptDev && keptDev != 0)
+            removedHashes.Remove(keptDev);
+        if (removedHashes.Count > 0) await SendInUseDecorations(player, inUse: false, removedHashes);
+        if (spawnedHashes.Count > 0) await SendInUseDecorations(player, inUse: true, spawnedHashes);
 
         player.Furniture = null;
         await BroadcastRebuildCollision(player, $"rebuild hideout collision after 0x0213 import ({spawned} decoration(s))");

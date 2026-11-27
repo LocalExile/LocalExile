@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using GameServer.Core.Protocol.Instance;
 using GameServer.Core.Protocol.Login;
 using GameServer.Core.World;
@@ -7,6 +9,8 @@ using Progression = GameServer.Core.World.Progression;
 
 public static partial class Game
 {
+    static readonly ConditionalWeakTable<Player, ConcurrentQueue<Func<Task>>> MinionKillAfterwards = new();
+
     // Call in the admitted contact transaction, before any network await. There is no deferred Game kill closure.
     static void CommitMinionHitLocked(Player player, uint id, SpawnedMonster monster, MonsterHit hit, int damage,
         double now, string by, StunHit? stun = null, SpawnedMonster? source = null, IReadOnlyDictionary<uint, int>? skill = null,
@@ -133,6 +137,11 @@ public static partial class Game
         var kill = new KillContext(player, monster, variety.Id, at) { PlayerKill = playerKill, CommittedOutput = packets };
         foreach (var run in GameEvents.Kill.For(player)) run(kill);
         foreach (var (packet, log) in packets) state.OutputQueue.Add(new(packet, log));
+        if (kill.Afterwards.Count > 0)
+        {
+            var afterwards = MinionKillAfterwards.GetOrCreateValue(player);
+            foreach (var send in kill.Afterwards) afterwards.Enqueue(send);
+        }
         uint xp = 0, gemXp = 0;
         if (!MonsterGivesNoRewards(monster) && player.PlayerLife > 0 && Dist(at, player.Walk.Position(now)) <= ExperienceRange)
             (xp, gemXp) = ComputeKillExperience(player, monster, variety, modMonster, PartyExperienceShareOf(partyShares, player));
@@ -149,7 +158,8 @@ public static partial class Game
             int level = Progression.LevelFor(change.After, CharacterStats.LevelStarts);
             if (level != player.Pools.Level)
             {
-                CommitExperienceLevel(player, level);
+                int before = CommitExperienceLevel(player, level);
+                state.PendingLevelBefore ??= before;
                 player.PlayerLife = LifeCap(player); player.PlayerMana = (uint)UnreservedMana(player);
                 RefillPlayerEnergyShield(player); TrimLeechLocked(player);
                 state.StatRevision++; state.AccountRevision++;
@@ -332,6 +342,10 @@ public static partial class Game
             else await Send(player, [], output.Log, atGate: Project);
 
         }
+        while (Current() && !player.Closed && !player.LeavingArea
+            && MinionKillAfterwards.TryGetValue(player, out var afterwards)
+            && afterwards.TryDequeue(out var send))
+            await send();
         while (true)
         {
             PlayerMinions.FlaskReward reward;
@@ -373,7 +387,15 @@ public static partial class Game
         }
         await SendSentinelOwnership(player, Current);
         if (!Current() || account == state.PresentedAccountRevision) return;
-        if (!HardcoreProgressBlocked(player)) await BroadcastLevelChange(player, player.Pools.Level);
+        if (!HardcoreProgressBlocked(player))
+        {
+            await BroadcastLevelChange(player, player.Pools.Level);
+            if (state.PendingLevelBefore is int prev)
+            {
+                state.PendingLevelBefore = null;
+                await GameEvents.RunLevelUp(player, prev, player.Pools.Level);
+            }
+        }
         if (!Current()) return;
         await SynchronizeAccountLevel(player);
         if (Current() && !player.Closed && !player.LeavingArea) state.PresentedAccountRevision = Math.Max(state.PresentedAccountRevision, account);
