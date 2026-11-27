@@ -298,6 +298,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Approaching Flames from Annihilation's Approach toggles Flame-Touched, its Adrenaline and its fire damage.
 - Owned minions: relics, chieftains and the 17 golems. Docs: [11](../docs/protocol/11-skills.md) §10h.
   Mindless Aggression and minion area mastery scale minions. Fresh Meat grants timed Adrenaline and Wakened Fury.
+  Ice Cyclone leaves chilled ground along the minion's path.
 - Straight minion projectiles need a clear shot. The Wretched Defiler spectre fires its timed spiral and supports Spell Echo and Returning Projectiles.
 - Spectre roars grant native charges ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
 - Itemised corpses raise native spectres ([minions](../docs/protocol/11-skills.md#10h-player-minions-that-fight)).
