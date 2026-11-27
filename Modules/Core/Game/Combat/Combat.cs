@@ -4501,9 +4501,7 @@ public static partial class Game
                         if (hex is not null)
                         {
                             if (victim == 0) hexblastExpanded = true;
-                            int keep = Stat(global::Stat.HexblastPctChanceToNotConsumeHex);
-                            if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
-                                ConsumeHexblastHex(player, id, m, hex);
+                            TryConsumeHexblastHex(player, id, m, hex, Stat(global::Stat.HexblastPctChanceToNotConsumeHex));
                         }
                     }
                     if (applied is { StageStarts: true } staged)

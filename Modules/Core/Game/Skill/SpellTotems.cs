@@ -25,7 +25,8 @@ public static partial class Game
                 || IsPurifyingFlame(SkillsFor(player).EffectId(effect)) || IsWaveOfConviction(SkillsFor(player).EffectId(effect))
                 || IsGroundBladeBlast(SkillsFor(player).EffectId(effect)) || IsBladeBlastOfUnloading(SkillsFor(player).EffectId(effect))
                 || IsBladeVortex(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == VaalBladeVortexEffect
-                || IsCracklingLance(SkillsFor(player).EffectId(effect)) || SkillsFor(player).EffectId(effect) == ManabondEffect
+                || IsCracklingLance(SkillsFor(player).EffectId(effect)) || IsHexblastEffect(SkillsFor(player).EffectId(effect))
+                || SkillsFor(player).EffectId(effect) == ManabondEffect
                 || UsesProjectileRuntime(effect) && ResolveProjectileDefinition(effect) is not null)
                 && SkillHitPlan.ForSkill(SkillsFor(player), effect, 1).CanHit);
 
@@ -299,11 +300,12 @@ public static partial class Game
             ushort sequence = ++totem.Sequence;
             totem.NextCast = now + seconds;
             bool arc = ArcProxyEffect(effect);
+            bool hexblast = IsHexblastEffect(effect);
             bool shockNova = ShockNovaEffect(effect);
             bool cascade = GlacialCascadeEffect(effect);
             var curse = CurseCatalog.All.GetValueOrDefault(effect);
             bytes.World(totem.Id, InstanceProtocol.ActionStarted(totem.Id, totem.At.X, totem.At.Y, aim.X, aim.Y,
-                0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || curse?.Mark == true ? target.Id : null));
+                0x4000, sequence, player.MonsterOrderFlags, targetObjectId: arc || hexblast || curse?.Mark == true ? target.Id : null));
             if (nativeChannel)
             {
                 var channel = TotemChannels.GetValue(totem, static _ => new());
@@ -440,6 +442,22 @@ public static partial class Game
                 return Dist(livePos, totem.At) <= range ? NonZeroTotemAim(totem.At, livePos) : initialAim;
             }
 
+            if (hexblast)
+            {
+                bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);
+                session.ScheduleContact(ProjectileRuntime.Time(totem.NextCast), Current, () =>
+                {
+                    if (targetMonster is null || player.Area.Monsters.GetValueOrDefault(targetId) != targetMonster
+                        || !SpellTotemTargetable(player, targetId, targetMonster)) return;
+                    double releasedAt = session.Runtime.Now / (double)ProjectileRuntime.QuantaPerSecond;
+                    var centre = targetMonster.Walk.Position(releasedAt);
+                    if (Dist(centre, totem.At) > range) return;
+                    var spell = SupportedSkill(player, totem.SkillId);
+                    int radius = SkillRadius(player, spell.Stats, spell: true, gem.Effect);
+                    TotemNovaLocked(player, session, totem, centre, radius, sequence, hexblastTarget: targetId);
+                });
+                continue;
+            }
             if (effect == ManabondEffect)
             {
                 bool Current() => session.Active && ReferenceEquals(lifetime, CombatLifetime) && SpellTotemCurrent(player, totem);

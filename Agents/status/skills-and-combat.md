@@ -456,6 +456,7 @@ Part of [Status](../Status.md); what to build next in this area is in
 - Arc cannot chain straight back. Arc of Oscillating can, while Arc of Surging turns chain modifiers into more split
   targets. Spell totems, traps and mines use their linked Arc variant. Vaal Arc branches twice without reusing targets
   and grants a timed Lucky Arc buff.
+- Hexblast and its variants keep their primary target, hex-gated splash and hex consumption when cast by spell totems.
 - Summon Reaper of Eviscerating follows its owner, consumes allies and attacks on recast.
 - Predator targeting, Feeding Frenzy buffs, aggressive Skeleton Warrior dashes, defensive targeting and Meat Shield proximity damage.
   Docs: [11](../docs/protocol/11-skills.md) Â§10h.

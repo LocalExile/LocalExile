@@ -1146,9 +1146,7 @@ public static partial class Game
             if (hex is not null)
             {
                 if (id == hexblastTarget!.Value.Key) hexblastSplash = true;
-                int keep = GolemStat(placed.Own, Stat.HexblastPctChanceToNotConsumeHex);
-                if (keep < 100 && (keep <= 0 || !RandomRolls.Chance(keep, 100, AreaRng(player))))
-                    ConsumeHexblastHex(player, id, m, hex);
+                TryConsumeHexblastHex(player, id, m, hex, GolemStat(placed.Own, Stat.HexblastPctChanceToNotConsumeHex));
             }
             if (arcSplit is not null)
                 WriteSpellProxyHit(arcSplit.Session, placed.Id, 0xffff, id, m,

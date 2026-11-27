@@ -354,8 +354,9 @@ public static partial class Game
         return chosen;
     }
 
-    static void ConsumeHexblastHex(Player player, uint id, SpawnedMonster monster, MonsterCurses.Curse curse)
+    static void TryConsumeHexblastHex(Player player, uint id, SpawnedMonster monster, MonsterCurses.Curse curse, int keep)
     {
+        if (keep >= 100 || keep > 0 && GameServer.Core.World.RandomRolls.Chance(keep, 100, AreaRng(player))) return;
         monster.Curses.Remove(curse.Caster, curse.Effect);
         if (monster.Curses.Presented.Remove((curse.Caster, curse.Effect), out var presented))
             player.Area.Buffs.Clear(id, presented.Row, presented.Caster, tag: presented.Buff);
