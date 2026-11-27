@@ -1,6 +1,9 @@
 using System.Text.Json;
 using GameServer.Core;
+using GameServer.Core.Accounts;
 using GameServer.Core.Protocol.Instance;
+using GameServer.Core.World;
+using GameServer.Data.Terrain.Generation;
 using GameServer.Modding;
 using GameServer.Modules.Betrayal;
 using GameServer.Modules.Expedition;
@@ -11,7 +14,7 @@ namespace GameServer.Gateway.Tests;
 public sealed class NextFourScarabTests
 {
     [GameFilesFact]
-    public void Paid_pack_substitution_and_encounter_modifiers_preserve_encounter_identity()
+    public async Task Paid_pack_substitution_and_encounter_modifiers_preserve_encounter_identity()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
         MapScarabPacks.LoadGameData(); MapScarabBosses.LoadGameData(); MapAllflame.LoadGameData();
@@ -97,6 +100,21 @@ public sealed class NextFourScarabTests
         Assert.False(restoredRun.Kill(1, 2)); Assert.True(restoredRun.Kill(3, 0)); Assert.Equal(new[] { 5 }, restoredRun.KilledArchitects);
         Assert.True(Enumerable.Range(0, 1000).Count(s => BetrayalEncounter.Reinforcements(50, new(s)))
             > Enumerable.Range(0, 1000).Count(s => BetrayalEncounter.Reinforcements(0, new(s))));
+
+        // Betrayal Delirium pause stays active while a reinforcement is still fighting after the primary kneels.
+        var primaryDone = new BetrayalRun(plan, 83);
+        primaryDone.Advance(BetrayalRun.Stage.Waiting); primaryDone.Advance(BetrayalRun.Stage.Fight);
+        var reinforcementFighting = new BetrayalRun(plan, 83);
+        reinforcementFighting.Advance(BetrayalRun.Stage.Waiting);
+        var betrayalInstance = new InstanceState();
+        betrayalInstance.ContentState["Betrayal.encounter.v1"] = JsonSerializer.Serialize(new[]
+        {
+            new { Run = primaryDone.Save(), Reinforcement = false, Kneel = (StateMachineData?)null },
+            new { Run = reinforcementFighting.Save(), Reinforcement = true, Kneel = (StateMachineData?)null },
+        }, json);
+        await using var betrayalWire = await ScarabEncounterTests.Wire.Open(betrayalInstance,
+            new AreaLayout(beach.Hash16, beach.Id, 600, 600, 10, 10, (_, _) => true, []), 505);
+        Assert.True(new BetrayalEncounter().IsActivePause(betrayalWire.Player));
     }
 
     [GameFilesFact]
