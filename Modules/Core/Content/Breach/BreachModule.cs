@@ -1,11 +1,13 @@
+using GameServer.Core.Protocol.Instance;
 using GameServer.Modding;
 
 namespace GameServer.Modules.Breach;
 
 /// <summary>
-/// Breach as a LocalExile module: the Unstable Breach (the Brequel) in maps, an encounter of the area instance
-/// (<see cref="BreachEncounter"/>). Listing this module in a league's modules.json turns it on. The Hive and the
-/// Breach's boss and rewards are not built.
+/// Breach ("Keepers of the Flame" / Brequel) as a LocalExile module: map Unstable Breaches (<see cref="BreachEncounter"/>),
+/// Monastery of the Keepers hub &amp; quests (<see cref="BreachHub"/>), Hiveblood resource (<see cref="BreachHiveblood"/>),
+/// Wombgift Locker (<see cref="BreachLocker"/>), and the Genesis Tree (<see cref="BreachGenesisTree"/>).
+/// Listing this module in a league's <c>modules.json</c> enables it.
 /// </summary>
 public sealed class BreachModule : IModule
 {
@@ -15,23 +17,67 @@ public sealed class BreachModule : IModule
 
     /// <summary>This module's game data, built when it loads (before the Gateway listens). Tests that use the module call
     /// it once.</summary>
-    public static void LoadData() => BreachTables.LoadGameData();
+    public static void LoadData()
+    {
+        BreachTables.LoadGameData();
+        BreachHiveblood.LoadGameData();
+        BreachLocker.LoadGameData();
+        BreachHub.LoadGameData();
+        BreachGenesisTree.LoadGameData();
+    }
 
     /// <inheritdoc/>
     public void Load(IModuleContext module)
     {
         LoadData();
         string id = module.Manifest.Id;
-        module.Lifetime.Own(new Cleanup(_encounter.Clear));
+        module.Lifetime.Own(new Cleanup(() =>
+        {
+            _encounter.Clear();
+            BreachHub.Clear();
+        }));
         module.Lifetime.Own(RegisterDeliriumPauseSource(_encounter.IsActivePause));
-        // Placed with the instance's population (the Anarchy pattern), once per instance: a kept instance keeps its own.
+
+        // Map Unstable Breach encounters.
         GameEvents.AreaPopulated.Add(id, async area =>
         {
             if (await _encounter.Populate(area) is { } why)
                 module.Log($"Breach: none in {area.Player.Layout.Id} ({why})");
         });
         GameEvents.EnterMessages.Add(id, _encounter.EnterMessages);
-        GameEvents.PlayerEntered.Add(id, _encounter.Enter);
-        GameEvents.AreaTick.Add(id, start => MapDevices.IsMapArea(start.Layout.Hash) ? (player, _) => _encounter.Step(player) : null);
+        GameEvents.PlayerEntered.Add(id, async player =>
+        {
+            await _encounter.Enter(player);
+            await BreachHub.OnPlayerEnteredAsync(module, player);
+        });
+        GameEvents.AreaTick.Add(id, start =>
+        {
+            bool isMap = MapDevices.IsMapArea(start.Layout.Hash);
+            return async (player, _) =>
+            {
+                if (isMap) await _encounter.Step(player);
+                await BreachHub.TickAsync(player);
+            };
+        });
+
+        // Monastery of the Keepers, Hideout Wombgift Locker, Ailith / Dreamer dialogue & quests.
+        GameEvents.AreaQuestFlags.Add(id, BreachHub.AreaQuestFlags);
+        GameEvents.HideoutReady.Add(id, player => BreachHub.OnHideoutReadyAsync(module, player));
+        GameEvents.ObjectUse.Add(id, (player, use, at) => BreachHub.OnObjectUseAsync(module, player, use, at));
+        GameEvents.NpcUsesLeagueFlags.Add(id, BreachHub.UsesLeagueFlags);
+        GameEvents.NpcOptionPicked.Add(id, (player, talk) => BreachHub.OnNpcOptionPickedAsync(module, player, talk));
+        GameEvents.MessagesHandled.Add(id, async (player, ids) =>
+        {
+            if (ids.Contains(InstanceItems.PlaceItemId) || ids.Contains(InstanceItems.PickUpItemId))
+                await BreachHub.SyncBodyPartQuestFlagsAsync(player);
+        });
+
+        // Wombgift Locker (BrequelStorage1, row 101) validation & Ctrl+click quick-move.
+        GameEvents.InventoryRefusal.Add(id, BreachLocker.Refusal);
+        GameEvents.Packet(InstanceItems.LockerMoveId).Add(id, async (player, bytes) =>
+        {
+            if (bytes.Length < InstanceItems.LeagueWindowMoveLength) return false;
+            return await BreachLocker.QuickMoveAsync(module, player, InstanceItems.ReadLeagueWindowMove(bytes));
+        });
     }
 }
