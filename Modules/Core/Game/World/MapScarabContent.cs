@@ -45,6 +45,7 @@ public static class MapScarabContent
                 : mods.Get(Stat.MapRareMonstersTrappedInEssences) > 0 ? MapEssences.Calcification
                 : mods.Get(Stat.MapEssenceImprisonedMonstersEnhancedForEachEssence) > 0 ? "Essence.Adaptation"
                 : mods.Get(Stat.MapEssencesAre1TierHigherChancePct) > 0 ? MapEssences.Ascent : MapEssences.Content;
+        if (family == "Delirium" && mods.Get(Stat.MapMapsDropWithAfflictionEnchantmentsChancePct) > 0) return "Delirium.Delusions";
         if (mods.Get(MapScarabPacks.CountStat) > 0) return MapScarabPacks.Cloister;
         if (mods.Get(Stat.MapAtlasBossPackReplacementChancePct) > 0) return "AtlasBossPacks";
         return Encounters.GetValueOrDefault(family);

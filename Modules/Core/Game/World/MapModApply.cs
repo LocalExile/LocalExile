@@ -17,7 +17,7 @@ public static partial class Game
             var byId = new Dictionary<uint, int>();
             foreach (var (key, value) in s)
                 if (key >= 1 && key <= Stats.Names.Count) byId[key] = byId.GetValueOrDefault(key) + value;
-            return new MapMods(byId, run.Mods.Quality);
+            return new MapMods(byId, run.Mods.Quality) { ContentFlags = run.Mods.ContentFlags };
         });
     }
 
