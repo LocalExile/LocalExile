@@ -5,7 +5,7 @@ using GameServer.Storage;
 sealed partial class ItemEffectRules
 {
     // Compile once per world snapshot. Combat only sees resolved stat keys and typed values.
-    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> charges, List<ChargeGains.Rule> conditionalCharges)
+    void Compile(GameDataStore.FxRuleRow row, List<ChargeGains.Rule> beforeAdditional, List<ChargeGains.Rule> afterAdditional)
     {
         try
         {
@@ -41,22 +41,21 @@ sealed partial class ItemEffectRules
                         charge["charge"]?.GetValue<string>() is not string name || Charges.Parse(name) is not { } type ||
                         !Take("chance", """{"percent":{"from":"roll"}}"""))
                         throw new FormatException("expected a named charge and chance from its source stat");
-                    Func<ChargeEvent, WeaponProfile, bool> when = static (e, _) => e is ChargeEvent.Kill;
-                    var destination = charges;
+                    if (row.KillChargeOrder is null or 0)
+                        throw new FormatException("expected a nonzero kill_charge_order");
+                    bool frozen = Take("enemy_frozen_at_death", "{}");
+                    bool shield = false, dualWield = false;
                     if (conditions.Remove("equipment", out var equipment))
                     {
                         if (equipment.Group != 0 || equipment.Negate) throw new FormatException("unsupported equipment condition");
-                        when = Matches(equipment.Args, """{"is":"holding_shield"}""") ? static (e, w) => e is ChargeEvent.Kill && w.Shield
-                            : Matches(equipment.Args, """{"is":"dual_wielding"}""") ? static (e, w) => e is ChargeEvent.Kill && w.DualWield
-                            : throw new FormatException("expected holding_shield or dual_wielding");
-                        destination = conditionalCharges;
+                        shield = Matches(equipment.Args, """{"is":"holding_shield"}""");
+                        dualWield = Matches(equipment.Args, """{"is":"dual_wielding"}""");
+                        if (!shield && !dualWield) throw new FormatException("expected holding_shield or dual_wielding");
                     }
-                    else if (Take("enemy_frozen_at_death", "{}"))
-                    {
-                        when = static (e, _) => e is ChargeEvent.Kill { Frozen: true };
-                        destination = conditionalCharges;
-                    }
-                    foreach (uint stat in Sources("stat")) destination.Add(new(stat, type, when));
+                    bool Applies(ChargeEvent e, WeaponProfile w) => e is ChargeEvent.Kill kill
+                        && (!frozen || kill.Frozen) && (!shield || w.Shield) && (!dualWield || w.DualWield);
+                    var destination = row.KillChargeOrder < 0 ? beforeAdditional : afterAdditional;
+                    foreach (uint stat in Sources("stat")) destination.Add(new(stat, type, Applies));
                     break;
                 case ("hit", "skill", "enemy") when Matches(args, """{"skill":"granted"}""") && Matches(timers, "[]"):
                     bool rare = Take("enemy_rarity", """{"is":"rare_or_unique"}""");

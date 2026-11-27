@@ -67,7 +67,10 @@ public sealed class GameDataStore : IDisposable
     public sealed record FxRuleRow(string Id, string Book, string Title, string? Replaces, string Status,
         IReadOnlyList<(string Kind, string Key)> Sources, IReadOnlyList<(string Trigger, string Args)> When,
         IReadOnlyList<(int Group, string Condition, bool Negate, string Args)> If,
-        IReadOnlyList<(string Action, string Args, string Target, string TargetArgs, string Value, string Timers)> Do);
+        IReadOnlyList<(string Action, string Args, string Target, string TargetArgs, string Value, string Timers)> Do)
+    {
+        public long? KillChargeOrder { get; init; }
+    }
 
     public IReadOnlyList<FxRuleRow> LoadFxRules()
     {
@@ -102,13 +105,14 @@ public sealed class GameDataStore : IDisposable
                     Of(actions, reader.GetString(0)).Add((reader.GetString(1), reader.GetString(2), reader.GetString(3),
                         reader.GetString(4), reader.GetString(5), reader.GetString(6)));
             var result = new List<FxRuleRow>();
-            using (var command = Read("SELECT id, book, title, replaces, status FROM fx_rules WHERE enabled = 1 ORDER BY id"))
+            using (var command = Read("SELECT id, book, title, replaces, status, kill_charge_order FROM fx_rules WHERE enabled = 1 ORDER BY kill_charge_order, id"))
             using (var reader = command.ExecuteReader())
                 while (reader.Read())
                 {
                     string id = reader.GetString(0);
                     result.Add(new(id, reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3),
-                        reader.GetString(4), Of(sources, id), Of(when, id), Of(conditions, id), Of(actions, id)));
+                        reader.GetString(4), Of(sources, id), Of(when, id), Of(conditions, id), Of(actions, id))
+                    { KillChargeOrder = reader.IsDBNull(5) ? null : reader.GetInt64(5) });
                 }
             transaction.Commit();
             return result;

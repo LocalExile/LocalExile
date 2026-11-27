@@ -194,6 +194,14 @@ public static class ChargeGains
     /// </summary>
     public static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng)
     {
+        var rules = e is ChargeEvent.Kill
+            ? (ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules)
+            : OtherRules;
+        return Roll(e, get, weapon, rng, rules);
+    }
+
+    internal static List<Gain> Roll(ChargeEvent e, Func<uint, int> get, WeaponProfile weapon, Random rng, IReadOnlyList<Rule> rules)
+    {
         var gains = new List<Gain>();
         switch (e)
         {
@@ -207,9 +215,6 @@ public static class ChargeGains
                 return gains;
         }
         var skill = e switch { ChargeEvent.Hit h => h.Skill, ChargeEvent.Kill k => k.Skill, ChargeEvent.Stun s => s.Skill, _ => null };
-        var rules = e is ChargeEvent.Kill
-            ? (ItemEffectRules.Enabled ? ItemEffectRules.Current.ChargeRules : Rules)
-            : OtherRules;
         foreach (var rule in rules)
         {
             if (!rule.When(e, weapon)) continue;
