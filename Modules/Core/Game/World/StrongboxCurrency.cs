@@ -22,7 +22,7 @@ public static partial class MapStrongboxes
     public static Task<bool> UseItemOn(Player player, byte[] message) =>
         message.Length < InstanceItems.UseItemOnObjectLength
             ? Task.FromResult(false)
-            : UseItemOnCore(player, InstanceItems.ReadUseItemOnObject(message), "0x0074");
+            : UseItemOnCore(player, InstanceItems.ReadUseItemOnObject(message), "0x0074", allowPublicStash: true);
 
     static readonly byte[] CurrencyRows = [PlayerInventories.MainInventory, PlayerInventories.ExpandedInventory];
 
@@ -37,12 +37,12 @@ public static partial class MapStrongboxes
         var items = ItemsOf(player);
         foreach (byte row in CurrencyRows)
             if (items.Items(row).FirstOrDefault(i => i.Item.TypeHash == req.TypeHash && items.RowOf(i.Id) == row) is { } stack)
-                return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079");
+                return UseItemOnCore(player, new(PlayerInventories.InventoryId(row), stack.Id, req.TargetObjectId), "0x0079", allowPublicStash: false);
         if (OpenStash(player) is { } stash)
             for (int tab = 0; tab < stash.Count; tab++)
                 if (stash.IsShownTab(tab) && !stash.IsPublic(tab)
                     && stash.Inventory(tab).Items.FirstOrDefault(i => i.Item.TypeHash == req.TypeHash) is { } stashStack)
-                    return UseItemOnCore(player, new(stash.InventoryOf(tab), stashStack.Id, req.TargetObjectId), "0x0079");
+                    return UseItemOnCore(player, new(stash.InventoryOf(tab), stashStack.Id, req.TargetObjectId), "0x0079", allowPublicStash: false);
         Console.WriteLine($"[map-content] {player.Connection.Remote} <= 0x0079 type 0x{req.TypeHash:x8} on strongbox 0x{req.TargetObjectId:x}: none left in inventory or stash");
         return Task.FromResult(true);
     }
@@ -50,7 +50,7 @@ public static partial class MapStrongboxes
     static AccountStash? OpenStash(Player player) =>
         player.StashOpen || (player.GuildStashOpen && !player.Character.Ssf) ? StashOf(player) : null;
 
-    static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use, string opcode)
+    static async Task<bool> UseItemOnCore(Player player, InstanceItems.UseItemOnObject use, string opcode, bool allowPublicStash)
     {
         if (player.Instance is null || !Areas.TryGetValue(player.Instance, out var area)
             || area.Boxes?.FirstOrDefault(b => b.Id == use.TargetObjectId) is not { } target) return false;
@@ -65,12 +65,17 @@ public static partial class MapStrongboxes
             && items.Items(PlayerInventories.Cursor).FirstOrDefault(i => i.Id == use.ItemId) is { } hi)
         { row = PlayerInventories.Cursor; fromChar = true; used = hi; }
         AccountStash? stash = null; int stashTab = -1;
-        if (used is null && OpenStash(player) is { } s && s.TabOf(use.InventoryId) is int t
-            && !s.IsPublic(t)
+        // The explicit click names the tab and the item, so any shown tab of the account stash answers it — public or not,
+        // and whether or not the panel is open: a currency tab is usually listed for trade, and this is the player's own
+        // click on their own orb (live 2026-11-27: every orb clicked from a public currency tab was refused). The
+        // open-private rule belongs to the repeat path (0x79), which spends without naming an item.
+        var candidateStash = allowPublicStash ? StashOf(player) : OpenStash(player);
+        if (used is null && candidateStash is { IsTrade: false } s && s.TabOf(use.InventoryId) is int t && s.IsShownTab(t)
+            && (allowPublicStash || !s.IsPublic(t))
             && s.Inventory(t).Items.FirstOrDefault(i => i.Id == use.ItemId) is { } si) { stash = s; stashTab = t; used = si; }
         if (used is null)
         {
-            Console.WriteLine(Log("no such item in the character's inventories or the open stash"));
+            Console.WriteLine(Log("no such item in the character's inventories or stash"));
             return true;
         }
         var currency = ItemsFor(player).ByHash(used.Item.TypeHash);
@@ -110,7 +115,7 @@ public static partial class MapStrongboxes
             {
                 // One orb from the clicked stack, not the smallest stack of its type anywhere in the stash: the client
                 // named (tab, item). SendStashPayment notifies the tab it changed.
-                if (stash!.PayOne(stashTab, used) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
+                if (stash!.PayOne(stashTab, used, allowPublic: allowPublicStash) is not { } paid) { Console.WriteLine(Log("the item is gone")); return true; }
                 notify = () => SendStashPayment(player, stash!, paid);
             }
             area.Boxes[box.Index] = changed;

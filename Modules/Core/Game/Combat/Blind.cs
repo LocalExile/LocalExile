@@ -98,6 +98,9 @@ public static partial class Game
     }
     static int BlindEffectLess(IReadOnlyDictionary<uint, int> stats) =>
         (int)Math.Clamp(20L * Math.Max(0L, 100L + (Stat.BlindEffectPlusPct is var key ? stats.GetValueOrDefault(key) : 0)), 0, 10000) / 100;
+    static bool HasAreaBlind(Player player, uint id) =>
+        player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+
     static (int Less, double Until) MonsterBlindValue(Player player, uint id, SpawnedMonster target, double at, int smokeLess,
         bool? auraBlinded = null)
     {
@@ -113,14 +116,15 @@ public static partial class Game
         var value = owner.Targets.TryGetValue(id, out var entry) && ReferenceEquals(entry.Target, target)
             ? entry.Blind.Read(at, false) : (0, 0);
         if (target.RampageBlindUntil > at && value.Less < 20) value = (20, target.RampageBlindUntil);
-        bool external = auraBlinded ?? (player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id));
-        return external && smokeLess > value.Less ? (smokeLess, 0) : value;
+        bool external = auraBlinded ?? HasAreaBlind(player, id);
+        int areaLess = Math.Max(external ? smokeLess : 0, SandstormBlindLess(target));
+        return areaLess > value.Less ? (areaLess, 0) : value;
     }
     public static int MonsterBlindRating(Player player, uint id, SpawnedMonster target, int rating, double at,
         IReadOnlyDictionary<uint, int>? playerStats = null)
     {
         // The synchronous caller reuses its captured sources. Never build a full player panel for each target.
-        bool auraBlinded = player.FlaskGrounds.Blinded(id) || player.BlindAura.Blinded(id) || PhysicalAegisBlinds(player, id);
+        bool auraBlinded = HasAreaBlind(player, id);
         int smoke = !auraBlinded ? 0 : BlindEffectLess(playerStats ?? StatSourceValues(player));
         return TimedBlind.Apply(rating, MonsterBlindValue(player, id, target, at, smoke, auraBlinded).Less);
     }
@@ -187,7 +191,7 @@ public static partial class Game
         double now = ResourceEffectsTime(player);
         state.CollectRetiredTargets(player);
         bool hasFlaskBlind = player.FlaskGrounds.HasBlindedMonsters;
-        bool hasAuraBlind = player.BlindAura.Any;
+        bool hasAuraBlind = player.BlindAura.Any || player.ProjectileRuntime is ProjectileSession { HasBladestormBlind: true };
         bool hasAegisBlind = player.PhysicalAegis.Blind.Any;
         bool hasRampageBlind = player.StandingRampageWorld is { Blinds.Count: > 0 };
         // Each Blind's end shows again (a nearby presentation, PresentIn).
@@ -243,8 +247,8 @@ public static partial class Game
         {
             foreach (var (id, target) in player.Area.Monsters)
             {
-                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now && !player.FlaskGrounds.Blinded(id)
-                    && !player.BlindAura.Blinded(id) && !player.PhysicalAegis.Blind.Blinded(id)) continue;
+                if (!state.Targets.ContainsKey(id) && target.RampageBlindUntil <= now
+                    && SandstormBlindLess(target) == 0 && !HasAreaBlind(player, id)) continue;
                 var value = MonsterBlindValue(player, id, target, now, smoke);
                 Present(id, state.TargetBlind(id, target), value,
                     target.Dead || target.Life == 0 || target.Mods.Effects[Stat.CannotBeBlinded] != 0, false);
@@ -263,7 +267,7 @@ public static partial class Game
     public static bool Blinded(Player player, uint monster, double at) =>
         player.Area.Monsters.TryGetValue(monster, out var target)
         && !target.Dead && target.Life > 0 && target.Mods.Effects[Stat.CannotBeBlinded] == 0
-        && (player.FlaskGrounds.Blinded(monster) || player.BlindAura.Blinded(monster) || PhysicalAegisBlinds(player, monster)
+        && (SandstormBlindLess(target) > 0 || HasAreaBlind(player, monster)
             || target.RampageBlindUntil > at
             || player.ResourceEffectsState is ResourceEffectsState owner && owner.Targets.TryGetValue(monster, out var value)
                 && ReferenceEquals(value.Target, target) && value.Blind.Read(at).Less > 0);

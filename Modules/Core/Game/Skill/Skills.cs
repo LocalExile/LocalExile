@@ -478,10 +478,13 @@ public static partial class Game
             // this value for Groundbreaking's shorter range and its unskipped startup (0x1412fafd0 / 0x1419fda80).
             // StaticStrikeNew selects Gathering Lightning's beam at melee contact with variation 1 (0x141b16580).
             string? effectId = skills.EffectId(effect);
+            if (effectId == TrarthusBlastRain)
+                stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             bool gatheringLightning = IsGatheringLightning(effect);
             // These melee and projectile actions select their native behaviour through this stat.
             if (IsLeapSlam(player, effect) || gatheringLightning || skills.ActionHash(effect) is HolyHammersAction or EarthshatterFissures.Action
                 || effectId is "VolcanicFissureAltX" or "SparkAltY" or "BallLightningAltX"
+                || IsTrarthusChainHook(effectId) || IsRainOfArrowsVariant(effectId) || IsStormRain(effectId)
                 || IsChargedDash(player, effect) || IsIceSpear(effectId) || IsWaveOfConviction(effectId))
                 stats[Stat.SkillBehaviourVariation] = skills.BehaviourVariation(effect);
             if (LacerateEffect(effectId))
@@ -803,6 +806,10 @@ public static partial class Game
             // These companion skills have a native instant action, which checks the disabled flag too.
             else if (own.GetValueOrDefault(Stat.TriggeredByFissureSupport) == 0
                 && own.GetValueOrDefault(Stat.TriggeredByCrystalfallSupport) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByInfernalCry) == 0
+                && own.GetValueOrDefault(Stat.TriggeredByShockwaveSupport) == 0
+                && supported.WornGrant is not { EffectId: GoreShockwaveEffect }
+                && own.GetValueOrDefault(Stat.TriggeredByDivineCry) == 0
                 && own.GetValueOrDefault(Stat.TriggeredPrismaticBurst) == 0 && TriggerOnlyReason(supported) is not null)
                 stats[OwnAuraRestriction.SkillDisabled] = 1;
             // These display aliases use the same raw snapshot as the character derivation. Apply them after
@@ -823,6 +830,17 @@ public static partial class Game
             if (SkillsFor(player).EffectId(effect) == "BallLightningAltX")
                 stats[Stat.ProjectileSpeedPlusPct] = OrbitingBallLightningSpeedPercent(playerStats.GetValueOrDefault, OwnPanel);
             ApplyProjectilePanelStats(effect, stats);
+            // Network skill records need the final fall speed used by the expanding and linear rain actions.
+            if (IsRainOfArrowsVariant(effectId) || effectId is TrarthusBlastRain or ConflagrationEffect || IsStormRain(effectId))
+                stats[Stat.ArrowRainFallSpeedPlusPct] = RainOfArrowsFallSpeed(player, id, characterInputs, supported.Stats);
+            if (effectId == ConflagrationEffect)
+                stats[Stat.TotalNumberOfArrowsToFire] = ConflagrationArrowCount(stats.GetValueOrDefault);
+            if (IsStormRain(effectId))
+            {
+                int count = GroundArrow.Parameters.Resolve(stats.GetValueOrDefault, 1, true).Count;
+                stats[Stat.TotalNumberOfArrowsToFire] = StormRainArrowCount(stats.GetValueOrDefault, count);
+                stats[Stat.PrismaticRainBeamFrequencyMs] = StormRainBeamInterval(stats.GetValueOrDefault);
+            }
             if (SkillsFor(player).VaalBudget(effect, supported.Level) is not null)
                 PublishVaalRageCost(player, id, stats);
             else if (ChainbreakerRageCost(Get) is > 0 and var rageCost)
@@ -1342,6 +1360,8 @@ public static partial class Game
         if (skillId is ushort blessing && SkillsFor(player).IsAura(effect)
             && IsBlessingSkill(SupportedSkill(player, blessing)) && BlessingsDisabled(player))
             return "equipment disables Blessing skills";
+        // RingOfIceSweep is a derived action of the Frozen Legion statues, including the Rallying variant.
+        if (SkillsFor(player).ActionHash(effect) == 0x93fb) return "this skill can only be used by Frozen Legion statues";
         if (VaalMinionProxyDisabled(player, effect, skillId) is { } proxy) return proxy;
         if (SkillMinionFamily(SkillsFor(player).EffectId(effect)) is { } family && !CanHaveMinion(PlayerStatValues(player), family))
             return "equipment prevents summoning this type of minion";
@@ -1429,13 +1449,22 @@ public static partial class Game
         var skills = SkillsFor(player);
         var allowed = skills.WeaponRestrictions(effect);
         if (allowed.Count == 0) return null;
-        if (skills.EffectId(effect) == "CleaveAltX" && !CleaveHasAxeAndSword(player))
+        string? effectId = skills.EffectId(effect);
+        if (effectId == "CleaveAltX" && !CleaveHasAxeAndSword(player))
             return "Cleave of Rage requires dual wielding a one-handed axe and a one-handed sword";
         bool Fits((Item Item, ItemCatalog.BaseType? Type)? hand, int? emptyClass) =>
             WeaponIdentity.Allows(allowed, hand?.Type?.ClassRow ?? emptyClass,
                 hand is { } held && WeaponIdentity.AllOneHandMelee(held.Item, ItemsFor(player).Mods));
         var main = ActiveMainHand(player);
-        if (IceCrashUse.Cadence(skills.EffectId(effect)))
+        if (IsSwordstorm(effectId))
+        {
+            var off = ActiveOffHand(player);
+            return WeaponIn(player, main) is { Melee: true } && WeaponIn(player, off) is { Melee: true }
+                && Fits(main, null) && Fits(off, null) ? null : "Swordstorm requires dual wielding melee weapons";
+        }
+        if (effectId == "Eviscerate" && ActiveOffHand(player)?.Type?.Class != "Shield")
+            return "Eviscerate requires a shield";
+        if (IceCrashUse.Cadence(effectId))
         {
             bool CadenceWeapon((Item Item, ItemCatalog.BaseType? Type)? hand) =>
                 WeaponIdentity.OneHandMelee(hand?.Type?.Class) && Fits(hand, null);
@@ -1445,7 +1474,7 @@ public static partial class Game
         if (Fits(main, UnarmedClassRow))
         {
             // An empty main hand fits Doryani's Touch only if the off hand also holds no weapon.
-            if (!allowed.Contains(UnarmedClassRow) || skills.EffectId(effect) != "DoryanisTouch"
+            if (!allowed.Contains(UnarmedClassRow) || effectId != "DoryanisTouch"
                 || ActiveOffHand(player)?.Type is not { } offType || skills.WeaponBase(offType.Row) is null) return null;
         }
         else if (Fits(ActiveOffHand(player), null)) return null;
@@ -1487,7 +1516,8 @@ public static partial class Game
 
     // The projection channels from the player's current cell even without the Movement skill type.
     static bool AttackUsesWalkUp(Player player, int effect) =>
-        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect);
+        !SkillsFor(player).IsMovement(effect) && !IsChargedDash(player, effect)
+        && !IsTrarthusChainHook(SkillsFor(player).EffectId(effect));
 
     // An attack gem used at the ground: a point beyond the weapon's reach is an attack-move (the client walks there);
     // within reach it is a swing at the ground that pays the skill's mana even with nothing standing there (§5 of

@@ -133,6 +133,18 @@ public sealed class StrongboxTests
             Assert.True(await MapStrongboxes.UseItemTypeOn(owner.Player, repeat));
             Assert.Equal(0, stash.CountOf(crafting.Hash));
 
+            // Explicit 0x0074 click names the tab and item, so a public tab answers even when the stash panel is closed.
+            var explicitCrafting = catalog.Find(ReadBoxes(owner.Player)[0]!["Rarity"]!.GetValue<byte>() == 0
+                ? CurrencyEffects.OrbOfTransmutation : CurrencyEffects.OrbOfScouring)!;
+            var explicitPlaced = stash.Place(premium, 0, 0, new(stash.NewItemId(), 0, 0, ItemCatalog.Create(explicitCrafting)),
+                i => new(1, 1, explicitCrafting.Class, explicitCrafting.MaxStack), out _)!.Value.Placed;
+            owner.Player.StashOpen = false;
+            Assert.True(stash.SetPublic(premium, true));
+            Assert.Null(stash.PayOne(premium, explicitPlaced)); // default PayOne still refuses public tabs
+            Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(premium), explicitPlaced.Id, id)));
+            Assert.Equal(0, stash.CountOf(explicitCrafting.Hash));
+            Assert.True(stash.SetPublic(premium, false));
+
             Assert.True(await MapStrongboxes.UseItemOn(owner.Player, UseMsg(stash.InventoryOf(0), orb, id)));
             Assert.True(ReadBoxes(owner.Player)[0]!["Corrupted"]!.GetValue<bool>());
             Assert.Equal(4, stash.CountOf(vaal.Hash));

@@ -17,6 +17,7 @@ public sealed class BlightModule : IModule
         string id = module.Manifest.Id;
         var encounter = new BlightEncounter();
         module.Lifetime.Own(new Cleanup(encounter.Runs.Clear));
+        module.Lifetime.Own(RegisterDeliriumPauseSource(encounter.IsActivePause));
         GameEvents.PlayerEntered.Add(id, encounter.Enter);
         // Only a map can hold a pump, and only its connection that runs the instance's monsters steps it.
         GameEvents.AreaTick.Add(id, start => MapDevices.IsMapArea(start.Layout.Hash) ? (player, _) => encounter.Step(player) : null);

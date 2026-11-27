@@ -125,6 +125,9 @@ public static class SacredGrove
     }
 
     static readonly RuleTable<InstanceState, Area> Areas = new();
+
+    public static bool IsActivePause(Player player) =>
+        player.Instance is { } instance && Areas.TryGetValue(instance, out var area) && area.Running;
     static readonly RuleTable<Player, HashSet<uint>> Presented = new();
     // Rulesets "HarvestRules" (row 105): the client's Harvest ruleset, created by S→C 0x1f.
     static byte? HarvestRules;
