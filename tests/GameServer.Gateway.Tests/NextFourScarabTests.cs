@@ -10,7 +10,7 @@ namespace GameServer.Gateway.Tests;
 
 public sealed class NextFourScarabTests
 {
-    [Fact]
+    [GameFilesFact]
     public void Paid_pack_substitution_and_encounter_modifiers_preserve_encounter_identity()
     {
         using var fixture = new TriggeredSummonTests.Fixture();
@@ -95,7 +95,7 @@ public sealed class NextFourScarabTests
             > Enumerable.Range(0, 1000).Count(s => BetrayalEncounter.Reinforcements(0, new(s))));
     }
 
-    [Fact]
+    [GameFilesFact]
     public void Structured_encounter_rewards_keep_their_actual_rolls_through_SQL_and_item_encoding()
     {
         using var fixture = new TriggeredSummonTests.Fixture();

@@ -66,8 +66,9 @@ public sealed class BetrayalEncounter
             all = lives.GetValue(instance, _ => [.. (JsonSerializer.Deserialize<Saved[]>(text, Json) ?? []).Select(s =>
                 new Live(BetrayalRun.Restore(s.Run)) { Reinforcement = s.Reinforcement, Kneel = s.Kneel, Snapshot = s })]);
         }
-        foreach (var live in all.ToArray())
-            if (live.Run.Member != 0 && (live.Run.MemberBody is not SpawnedMonster bound
+        Live[] snapshot; lock (all) snapshot = all.ToArray();
+        foreach (var live in snapshot)
+            if (live.Run.Current != BetrayalRun.Stage.Done && live.Run.Member != 0 && (live.Run.MemberBody is not SpawnedMonster bound
                 || !player.Area.Monsters.TryGetValue(live.Run.Member, out var current) || !ReferenceEquals(bound, current)))
             {
                 var run = live.Run;
@@ -83,7 +84,7 @@ public sealed class BetrayalEncounter
                     body.LifePhases.Begin(body.Life, body.MaxLife);
                 }
             }
-        lock (all) return all.ToArray();
+        return snapshot;
     }
     Live? LiveOf(Player player) => AllOf(player).FirstOrDefault();
     static Player? Owner(Player player) => Clients(player).FirstOrDefault(p => string.Equals(CharacterName(p),
