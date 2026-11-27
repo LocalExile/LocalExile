@@ -45,8 +45,9 @@ public static partial class Game
             var own = player.Character.QuestFlagsSnapshot();
             var client = PlayerQuestFlags(player);
             bool Has(string flag) => Quests.ClientHas(flag, own, client);
+            bool HasLeague(int flag) => player.Character.LeagueQuestFlags.Contains(flag);
             var carried = QuestItems.Carried(items).Select(c => QuestFlagsOf(player, c.Item.Item)).OfType<QuestItemFlags>().ToHashSet();
-            (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(player), carried, Has);
+            (set, clear, var remove) = QuestItems.Sync(QuestItemTypes(player), carried, Has, HasLeague);
             if (removeItems && remove.Count > 0) removed = QuestItems.RemoveAll(items, i => QuestFlagsOf(player, i), remove);
             foreach (var row in removed.GroupBy(r => r.Row))
                 await Send(player, InstanceItems.InventoryChange(PlayerInventories.InventoryId(row.Key), items.NextRevision(row.Key),
@@ -64,7 +65,8 @@ public static partial class Game
     public static async Task RemoveDoneQuestItemsFromGround(Player player)
     {
         var done = player.Instance.Ground.All().Where(e => QuestFlagsOf(player, e.Item.Item) is { } q
-            && QuestItems.Removed(q, f => ClientHasQuestFlag(player, f)) && QuestDropVisibleTo(player, e.Id))
+            && QuestItems.Removed(q, f => ClientHasQuestFlag(player, f), lqf => player.Character.LeagueQuestFlags.Contains(lqf))
+            && QuestDropVisibleTo(player, e.Id))
             .Select(e => e.Id).ToList();
         foreach (uint id in done)
             if (player.Instance.Ground.Take(id) is not null)
@@ -91,7 +93,7 @@ public static partial class Game
         // This character's copy only: in a shared instance another player's quest item is theirs (SharedKills.cs).
         bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
             && QuestDropVisibleTo(player, e.Id));
-        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+        if (!QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround, lqf => player.Character.LeagueQuestFlags.Contains(lqf)))
         {
             Console.WriteLine($"[gateway] {remote} {source}: no {type.Name}, the character has one or does not need it");
             return [];

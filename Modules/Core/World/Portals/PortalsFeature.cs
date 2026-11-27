@@ -173,7 +173,8 @@ static class PortalsFeature
         Task Tell(string text) => Send(player, InstanceChat.ChatLine(text), $"0x0017 chat line \"{text}\"");
         if (device is null) { await Tell("There is no Map Device here."); return; }
         bool campaign = allowCampaign && device.Value.Campaign;
-        if (!device.Value.Campaign && !OwnHideout(player)) { await Tell("Only the hideout owner can activate this Map Device."); return; }
+        bool endgameTown = player.Layout.Id == MapDevice.EndgameTownArea;
+        if (!device.Value.Campaign && !endgameTown && !OwnHideout(player)) { await Tell("Only the hideout owner can activate this Map Device."); return; }
         if (!allowCampaign && device.Value.Campaign) { await Tell("This Map Device cannot activate that mode."); return; }
         MapDevice.Slot[] checkedSlots = [.. slots.Select(i => Items.ByHash(i.Item.TypeHash) is { } t
             ? new MapDevice.Slot(i.Item.TypeHash, t.Class, t.Name, t.Row, i.Item.Mods, i.Item.Quality)
@@ -242,7 +243,7 @@ static class PortalsFeature
         var entrance = player.Layout.Near((device.Value.X, device.Value.Y));
         int portalLimit = opening.Mods.Get(Stat.MapPortalLimit);
         var open = MapDevice.Activate(CharacterName(player), area, opening.Mods, opening.ItemRow,
-            campaign || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
+            campaign || endgameTown || request.ReturnToSource ? new(player.Layout.Hash, player.InstanceNumber, device.Value.X, device.Value.Y) : null,
             entrance: new(player.Layout.Hash, player.InstanceNumber, entrance.X, entrance.Y), bossOption: resolvedBossOption,
             pantheonSoul: opening.PantheonSoul, portalCount: portalLimit > 0 ? portalLimit : MapDevice.PortalCount,
             contentData: opening.ContentData);
@@ -255,7 +256,8 @@ static class PortalsFeature
             : "";
         string bossLabel = resolvedBossOption switch { 1 => ", boss Maven", 2 => ", boss Eater of Worlds", 3 => ", boss Searing Exarch", _ => "" };
         Console.WriteLine($"[gateway] {player.Connection.Remote} map device opened {area.Name} ({area.Id}, 0x{area.Hash16:x4}, tier {area.Tier}, {opening.Mods}{extra}{bossLabel}): {open.PortalsLeft} portals");
-        foreach (var visitor in DeviceVisitors(player))
+        IEnumerable<Player> recipients = endgameTown ? [player] : DeviceVisitors(player);
+        foreach (var visitor in recipients)
         {
             try
             {
@@ -293,6 +295,20 @@ static class PortalsFeature
             await WarpToHideout(player, "map portal back");
     }
 
+    internal static async Task UseEndgameTownMapDevice(Player player,
+        InstanceTransfer.UseSkillOnObject use, (int X, int Y) at, double requestedAt)
+    {
+        if (!TryBeginObjectWalk(player, requestedAt, at.X, at.Y, StashReach, out var objectWalk, centreRange: true)) return;
+        var (action, now, here, stop, arrive) = objectWalk;
+        Console.WriteLine($"[gateway] {player.Connection.Remote} <= 0x0024 Karui Shores Map Device ({use}) from ({here.X}, {here.Y}): reached at ({stop.X}, {stop.Y}) in {arrive - now:0.00} s");
+        if (arrive > now) await AreaDelay(player, arrive - now);
+        if (!PlayerActionCurrent(player, action)) return;
+        await global::Game.DeliverCapturedSouls(player, CharacterName(player));
+        await GameEvents.RunMapDeviceOpened(player);
+        await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
+            "0x007b open the Karui Shores map device window", still: () => PlayerActionCurrent(player, action));
+    }
+
     // A click on the map device (C→S 0x24): walk there, then S→C 0x7b kind 5 opens the map device window (21-hideouts.md §4).
     // Its slots and the activation are not served yet.
     internal static async Task UseMapDevice(Player player,
@@ -304,6 +320,7 @@ static class PortalsFeature
         if (arrive > now) await AreaDelay(player, arrive - now);
         if (!PlayerActionCurrent(player, action)) return;
         await global::Game.DeliverCapturedSouls(player, CharacterName(player));
+        await GameEvents.RunMapDeviceOpened(player);
         await Send(player, InstanceWaypoints.OpenUi(InstanceWaypoints.HideoutMapDeviceUi, use.TargetId),
             "0x007b open the map device window", still: () => PlayerActionCurrent(player, action));
     }

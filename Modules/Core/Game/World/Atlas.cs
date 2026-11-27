@@ -90,20 +90,19 @@ public static partial class Game
             await Send(player, message, log);
     }
 
-    /// <summary>The allocated Atlas passives' stats of the active preset, by stat name: what the tree adds to a map's.</summary>
+    /// <summary>The allocated Atlas passives' composed stats of the active preset (applying Small node effect scaling,
+    /// Wandering Path / Grand Design notable/small suppression, and per-notable pack size).</summary>
     public static Dictionary<uint, int> AtlasStats(Player player)
     {
-        Dictionary<uint, int> stats = [];
-        int preset = player.Character.AtlasPreset is >= 0 and < 3 ? player.Character.AtlasPreset
-            : Enumerable.Range(0, player.Character.AtlasPassives.Length).MaxBy(p => player.Character.AtlasPassives[p].Count);
-        foreach (ushort graphId in player.Character.AtlasPassives[preset])
+        int preset = AtlasActivePreset(player);
+        if (preset < 0 || preset >= player.Character.AtlasPassives.Length) return [];
+        var allocated = player.Character.AtlasPassives[preset];
+        if (allocated.Count == 0) return [];
+        List<AtlasPassives.Node> nodes = new(allocated.Count);
+        foreach (ushort graphId in allocated)
             if (AtlasPassiveNodes.Find(graphId) is { } node)
-                foreach (var (key, value) in node.Stats)
-                {
-                    uint name = key;
-                    stats[name] = stats.GetValueOrDefault(name) + value;
-                }
-        return stats;
+                nodes.Add(node);
+        return global::AtlasStats.Compose(nodes);
     }
 
     /// <summary>The stats of the area the player is in that league mechanics read: a map's own (its affixes, scarabs and

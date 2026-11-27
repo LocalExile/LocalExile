@@ -16,6 +16,11 @@ public sealed class MapDevice
     public const string CampaignDeviceArea = "2_7_5_1", CampaignMapArea = "2_7_5_map",
         CampaignDeviceType = "Metadata/QuestObjects/Act7/MaligaroOrrery",
         CampaignMapItem = "Metadata/Items/QuestItems/Act7/MaligaroMap";
+    /// <summary>Karui Shores (Epilogue War Room) interactive Map Device overlaying camp.arm's FlashBack_MapDevice_01.</summary>
+    public const string EndgameTownArea = "2_11_endgame_town",
+        EndgameTownDeviceType = "Metadata/MiscellaneousObjects/MapDevice";
+    public const int EndgameTownDeviceX = 885, EndgameTownDeviceY = 953;
+    public const float EndgameTownDeviceRotation = 1.39626f;
     public static readonly uint CampaignMapHash = InstanceEntities.ObjectTypeHash(CampaignMapItem);
 
     public static bool AcceptsItem(uint typeHash, string itemClass, Player? player = null) =>

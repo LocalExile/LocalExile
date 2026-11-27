@@ -67,7 +67,7 @@ public static partial class Game
             bool carried = QuestItems.Carried(ItemsOf(player)).Any(c => c.Item.Item.TypeHash == type.Hash);
             bool onGround = player.Instance.Ground.All().Any(e => e.Item.Item.TypeHash == type.Hash
                 && QuestDropVisibleTo(player, e.Id));
-            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround))
+            if (QuestItems.Drops(type.Quest, f => ClientHasQuestFlag(player, f), carried, onGround, lqf => player.Character.LeagueQuestFlags.Contains(lqf)))
                 return true;
         }
 
